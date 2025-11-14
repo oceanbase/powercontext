@@ -662,8 +662,8 @@ class Memory(MemoryBase):
         facts = self._extract_facts(messages)
         
         if not facts:
-            logger.debug("No facts extracted, falling back to simple mode")
-            return self._simple_add(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+            logger.debug("No facts extracted, skip intelligent add")
+            return {"results": []}
         
         logger.info(f"Extracted {len(facts)} facts: {facts}")
         
