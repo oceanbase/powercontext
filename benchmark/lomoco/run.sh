@@ -1,7 +1,7 @@
 set -ex
 
 # Load environment variables and export them
-source .env.example
+source .env
 
 export OPENAI_API_KEY
 export OPENAI_BASE_URL

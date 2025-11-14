@@ -100,7 +100,7 @@ class MemoryADD:
         self.add_memories_for_speaker(speaker_a_user_id, messages, timestamp)
         self.add_memories_for_speaker(speaker_b_user_id, messages_reverse, timestamp)
 
-    def process_all_conversations(self, max_workers=32):
+    def process_all_conversations(self, max_workers=10):
         if not self.data:
             raise ValueError("No data loaded. Please set data_path and call load_data() first.")
 
