@@ -1,11 +1,12 @@
-bert_score==0.3.13
-Jinja2==3.1.6
-nltk==3.9.1
-numpy==1.24.3
-openai==2.3.0
-pandas==2.3.3
-python-dotenv==1.1.1
-Requests==2.32.5
-rouge_score==0.1.2
-sentence_transformers==5.1.0
-tqdm==4.67.1
+# TODO: Verify whether the latest dependency version is compatible through ci
+bert_score>=0.3.13
+Jinja2>=3.1.6
+nltk>=3.9.1
+numpy>=1.24.3
+openai>=1.90.0,<1.100.0
+pandas>=2.3.3
+python-dotenv>=1.0.0
+Requests>=2.32.5
+rouge_score>=0.1.2
+sentence_transformers>=5.0.0
+tqdm>=4.67.1
