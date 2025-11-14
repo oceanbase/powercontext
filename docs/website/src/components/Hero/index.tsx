@@ -15,7 +15,7 @@ function useGitHubStars() {
     fetch('https://api.github.com/repos/oceanbase/powermem')
       .then((res) => res.json())
       .then((data) => {
-        if (data.stargazers_count) {
+        if (data.stargazers_count && data.stargazers_count > 1000) {
           setStars(data.stargazers_count);
         }
       })
@@ -111,7 +111,7 @@ memories = memory.search("user preferences", user_id="user123")`;
             >
               <CodeIcon className={styles.buttonIcon} />
               {isZh ? '查看代码' : 'View Code'}
-              {stars !== null && (
+              {stars !== null && stars > 1000 && (
                 <span className={styles.stars}>
                   ⭐ {stars.toLocaleString()}
                 </span>

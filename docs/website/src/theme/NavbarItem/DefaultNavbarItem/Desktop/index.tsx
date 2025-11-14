@@ -9,10 +9,10 @@ function useGitHubStars() {
   const [stars, setStars] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch('https://api.github.com/repos/oceanbase/oceanbase')
+    fetch('https://api.github.com/repos/oceanbase/powermem')
       .then((res) => res.json())
       .then((data) => {
-        if (data.stargazers_count && data.stargazers_count > 0) {
+        if (data.stargazers_count && data.stargazers_count > 1000) {
           setStars(data.stargazers_count);
         }
       })
@@ -47,7 +47,7 @@ export default function DefaultNavbarItemDesktop({
         isDropdownItem ? 'dropdown__link' : 'navbar__item navbar__link',
         className,
         styles.iconNavbarLink,
-        isGitHub && stars && stars > 0 && styles.iconNavbarLinkWithStars
+        isGitHub && stars && stars > 100 && styles.iconNavbarLinkWithStars
       )
     : clsx(
         isDropdownItem ? 'dropdown__link' : 'navbar__item navbar__link',
@@ -80,7 +80,7 @@ export default function DefaultNavbarItemDesktop({
                   clipRule="evenodd"
                 />
               </svg>
-              {stars !== null && stars > 0 && (
+              {stars !== null && stars > 100 && (
                 <span className={styles.stars}>
                   {stars.toLocaleString()}
                 </span>
