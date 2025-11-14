@@ -597,9 +597,9 @@ class AsyncMemory(MemoryBase):
         facts = await self._extract_facts(messages)
         
         if not facts:
-            logger.debug("No facts extracted, falling back to simple mode")
-            return await self._simple_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
-        
+            logger.debug("No facts extracted, skip intelligent add")
+            return {"results": []}
+
         logger.info(f"Extracted {len(facts)} facts: {facts}")
         
         # Step 2: Search for similar memories for each fact
@@ -677,9 +677,9 @@ class AsyncMemory(MemoryBase):
         action_counts = {"ADD": 0, "UPDATE": 0, "DELETE": 0, "NONE": 0}
         
         if not actions:
-            logger.warning("No actions returned from LLM, falling back to simple mode")
-            return await self._simple_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
-        
+            logger.warning("No actions returned from LLM, skip intelligent add")
+            return {"results": []}
+
         for action in actions:
             action_text = action.get("text", "") or action.get("memory", "")
             event_type = action.get("event", "NONE")
@@ -781,11 +781,11 @@ class AsyncMemory(MemoryBase):
             if graph_result:
                 result["relations"] = graph_result
             return result
-        # Only fall back to simple mode if we had no actions at all
+        # Return [] if we had no actions at all
         else:
-            logger.warning("No actions returned from LLM, falling back to simple mode")
-            return await self._simple_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
-    
+            logger.warning("No actions returned from LLM, skip intelligent add")
+            return {"results": []}
+
     async def _add_to_graph_async(
         self,
         messages,
