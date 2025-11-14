@@ -32,7 +32,7 @@
 
 [English](README.md) | [中文](README_CN.md) | [日本語](README_JP.md)
 
-## ハイライト
+## ✨ ハイライト
 
 <div align="center">
 
@@ -40,42 +40,42 @@
 
 </div>
 
-- **より正確**：**[精度 48.77% 向上]** LOCOMO ベンチマークで full-context より正確（78.70% VS 52.9%）
-- **より高速**：**[91.83% 高速な応答]** full-context と比較し、検索の p95 遅延が大幅に減少（1.44s VS 17.12s）
-- **より経済的**：**[96.53% トークン削減]** full-context と比較し、性能を犠牲にすることなくコストを大幅に削減（0.9k VS 26k）
+- 🎯 **より正確**：**[精度 48.77% 向上]** LOCOMO ベンチマークで full-context より正確（78.70% VS 52.9%）
+- ⚡ **より高速**：**[91.83% 高速な応答]** full-context と比較し、検索の p95 遅延が大幅に減少（1.44s VS 17.12s）
+- 💰 **より経済的**：**[96.53% トークン削減]** full-context と比較し、性能を犠牲にすることなくコストを大幅に削減（0.9k VS 26k）
 
-# PowerMem - インテリジェントメモリシステム
+# 🧠 PowerMem - インテリジェントメモリシステム
 
 AI アプリケーション開発において、大規模言語モデルが履歴会話、ユーザー設定、コンテキスト情報を永続的に「記憶」できるようにすることは、核心的な課題です。PowerMem は、ベクトル検索、全文検索、グラフデータベースのハイブリッドストレージアーキテクチャを組み合わせ、認知科学のエビングハウス忘却曲線理論を導入して、AI アプリケーション向けの強力なメモリインフラストラクチャを構築します。システムは、エージェントメモリの分離、エージェント間のコラボレーションと共有、きめ細かい権限制御、プライバシー保護メカニズムを含む、包括的なマルチエージェントサポート機能も提供し、複数の AI エージェントが独立したメモリ空間を維持しながら効率的なコラボレーションを実現できるようにします。
 
-## 核心機能
+## 🚀 核心機能
 
-### 開発者フレンドリー
-- **[軽量級アクセス方式](docs/examples/scenario_1_basic_usage.md)**：シンプルな Python SDK プロトコルサポートを提供し、`.env` ファイルから自動的に設定を読み込み、開発者が既存プロジェクトに迅速に統合できるようにします
+### 👨‍💻 開発者フレンドリー
+- 🔌 **[軽量級アクセス方式](docs/examples/scenario_1_basic_usage.md)**：シンプルな Python SDK プロトコルサポートを提供し、`.env` ファイルから自動的に設定を読み込み、開発者が既存プロジェクトに迅速に統合できるようにします
 
-### インテリジェントメモリ管理
-- **[メモリのインテリジェント抽出](docs/examples/scenario_2_intelligent_memory.md)**：LLM を通じて会話から重要な事実を自動的に抽出し、重複をインテリジェントに検出し、競合する情報を更新し、関連するメモリをマージして、メモリデータベースの正確性と一貫性を確保します
-- **[エビングハウス忘却曲線](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**：認知科学の記憶忘却パターンに基づき、メモリ保持率を自動的に計算し、時間減衰重み付けを実装し、最近かつ関連性の高いメモリを優先的に返し、AI システムが人間のように古い情報を自然に「忘却」できるようにします
+### 🧠 インテリジェントメモリ管理
+- 🔍 **[メモリのインテリジェント抽出](docs/examples/scenario_2_intelligent_memory.md)**：LLM を通じて会話から重要な事実を自動的に抽出し、重複をインテリジェントに検出し、競合する情報を更新し、関連するメモリをマージして、メモリデータベースの正確性と一貫性を確保します
+- 📉 **[エビングハウス忘却曲線](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**：認知科学の記憶忘却パターンに基づき、メモリ保持率を自動的に計算し、時間減衰重み付けを実装し、最近かつ関連性の高いメモリを優先的に返し、AI システムが人間のように古い情報を自然に「忘却」できるようにします
 
-### マルチエージェントサポート
-- **[エージェント共有/分離メモリ](docs/examples/scenario_3_multi_agent.md)**：各エージェントに独立したメモリ空間を提供し、エージェント間のメモリ共有とコラボレーションをサポートし、スコープ制御を通じて柔軟な権限管理を実現します
+### 🤖 マルチエージェントサポート
+- 🔐 **[エージェント共有/分離メモリ](docs/examples/scenario_3_multi_agent.md)**：各エージェントに独立したメモリ空間を提供し、エージェント間のメモリ共有とコラボレーションをサポートし、スコープ制御を通じて柔軟な権限管理を実現します
 
-### マルチモーダルサポート
-- **[テキスト、画像、音声メモリ](docs/examples/scenario_7_multimodal.md)**：画像と音声を自動的にテキスト記述に変換して保存し、マルチモーダル混合コンテンツ（テキスト+画像+音声）の検索をサポートし、AI システムがより豊富なコンテキスト情報を理解できるようにします
+### 🎨 マルチモーダルサポート
+- 🖼️ **[テキスト、画像、音声メモリ](docs/examples/scenario_7_multimodal.md)**：画像と音声を自動的にテキスト記述に変換して保存し、マルチモーダル混合コンテンツ（テキスト+画像+音声）の検索をサポートし、AI システムがより豊富なコンテキスト情報を理解できるようにします
 
-### 深く最適化されたデータストレージ
-- **[サブストア（Sub Stores）サポート](docs/examples/scenario_6_sub_stores.md)**：サブストアによるデータのパーティション管理を実装し、自動ルーティングクエリをサポートし、超大规模データのクエリ性能とリソース利用率を大幅に向上させます
-- **[ハイブリッド検索](docs/examples/scenario_2_intelligent_memory.md)**：ベクトル検索、全文検索、グラフ検索のマルチチャネルリコール機能を融合し、LLM を通じてナレッジグラフを構築し、複雑なメモリ関係を正確に検索するためのマルチホップグラフトラバーサルをサポートします
+### 💾 深く最適化されたデータストレージ
+- 📦 **[サブストア（Sub Stores）サポート](docs/examples/scenario_6_sub_stores.md)**：サブストアによるデータのパーティション管理を実装し、自動ルーティングクエリをサポートし、超大规模データのクエリ性能とリソース利用率を大幅に向上させます
+- 🔗 **[ハイブリッド検索](docs/examples/scenario_2_intelligent_memory.md)**：ベクトル検索、全文検索、グラフ検索のマルチチャネルリコール機能を融合し、LLM を通じてナレッジグラフを構築し、複雑なメモリ関係を正確に検索するためのマルチホップグラフトラバーサルをサポートします
 
-## クイックスタート
+## 🚀 クイックスタート
 
-### インストール
+### 📥 インストール
 
 ```bash
 pip install powermem
 ```
 
-### 基本的な使用方法
+### 💡 基本的な使用方法
 
 **✨ 最も簡単な方法**：`.env` ファイルから自動的にメモリを作成！[設定ファイル参照](configs/env.example)
 
@@ -97,31 +97,31 @@ for memory in memories:
 
 より詳細な例と使用パターンについては、[はじめにガイド](docs/guides/0001-getting_started.md) を参照してください。
 
-## 統合とデモ
+## 🔗 統合とデモ
 
-- **LangChain 統合**: LangChain + PowerMem + OceanBase を使用して医療サポートロボットを構築、[例を参照](examples/langchain/README.md)
-- **LangGraph 統合**: LangGraph + PowerMem + OceanBase を使用してカスタマーサービスロボットを構築、[例を参照](examples/langgraph/README.md)
+- 🔗 **LangChain 統合**: LangChain + PowerMem + OceanBase を使用して医療サポートロボットを構築、[例を参照](examples/langchain/README.md)
+- 🔗 **LangGraph 統合**: LangGraph + PowerMem + OceanBase を使用してカスタマーサービスロボットを構築、[例を参照](examples/langgraph/README.md)
 
-## ドキュメント
+## 📚 ドキュメント
 
-- **[はじめに](docs/guides/0001-getting_started.md)**：インストールとクイックスタートガイド
-- **[設定ガイド](docs/guides/0003-configuration.md)**：完全な設定オプション
-- **[マルチエージェントガイド](docs/guides/0005-multi_agent.md)**：マルチエージェントのシナリオと例
-- **[統合ガイド](docs/guides/0009-integrations.md)**：統合ガイド
-- **[サブストアガイド](docs/guides/0006-sub_stores.md)**：サブストアの使用方法と例
-- **[API ドキュメント](docs/api/overview.md)**：完全な API リファレンス
-- **[アーキテクチャガイド](docs/architecture/overview.md)**：システムアーキテクチャと設計
-- **[例](docs/examples/overview.md)**：インタラクティブな Jupyter ノートブックとユースケース
-- **[開発者ドキュメント](docs/development/overview.md)**：開発者ドキュメント
+- 📖 **[はじめに](docs/guides/0001-getting_started.md)**：インストールとクイックスタートガイド
+- ⚙️ **[設定ガイド](docs/guides/0003-configuration.md)**：完全な設定オプション
+- 🤖 **[マルチエージェントガイド](docs/guides/0005-multi_agent.md)**：マルチエージェントのシナリオと例
+- 🔌 **[統合ガイド](docs/guides/0009-integrations.md)**：統合ガイド
+- 📦 **[サブストアガイド](docs/guides/0006-sub_stores.md)**：サブストアの使用方法と例
+- 📋 **[API ドキュメント](docs/api/overview.md)**：完全な API リファレンス
+- 🏗️ **[アーキテクチャガイド](docs/architecture/overview.md)**：システムアーキテクチャと設計
+- 📓 **[例](docs/examples/overview.md)**：インタラクティブな Jupyter ノートブックとユースケース
+- 👨‍💻 **[開発者ドキュメント](docs/development/overview.md)**：開発者ドキュメント
 
-## サポート
+## 💬 サポート
 
-- **問題フィードバック**：[GitHub Issues](https://github.com/oceanbase/powermem/issues)
-- **ディスカッション交流**：[GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
+- 🐛 **問題フィードバック**：[GitHub Issues](https://github.com/oceanbase/powermem/issues)
+- 💭 **ディスカッション交流**：[GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
 
 ---
 
-## ライセンス
+## 📄 ライセンス
 
 このプロジェクトは Apache License 2.0 の下でライセンスされています - 詳細については [LICENSE](LICENSE) ファイルを参照してください。
 
