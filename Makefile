@@ -16,8 +16,8 @@ install-test: ## Install test dependencies
 	pip install -e ".[dev,test,llm,vector_stores]"
 
 # Test commands
-test: ## Run all tests (excludes e2e_config tests)
-	pytest -m "not e2e_config"
+test: ## Run all tests (excludes all e2e tests)
+	pytest -m "not e2e and not e2e_config"
 
 test-unit: ## Run unit tests only
 	pytest tests/unit/ -v

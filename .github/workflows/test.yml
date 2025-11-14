@@ -54,7 +54,7 @@ jobs:
         run: |
           pip install -e ".[dev,test]"
 
-      - name: Run tests (unit + integration, excluding e2e_config)
+      - name: Run tests (unit + integration, excluding all e2e tests)
         run: |
           make test
 
