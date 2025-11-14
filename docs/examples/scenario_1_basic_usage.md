@@ -15,7 +15,7 @@ Powermem can automatically load configuration from a `.env` file in your project
 
 1. Copy the example configuration file:
    ```bash
-   cp configs/minienv.example .env
+   cp .env.example .env
    ```
 
 2. Edit the `.env` file and configure
@@ -25,7 +25,7 @@ Powermem can automatically load configuration from a `.env` file in your project
 > - Look for a `.env` file in the current directory
 > - Load configuration from environment variables
 
-For more configuration options, see the full example in `configs/env.example` or refer to the [Configuration Guide](docs/guides/0003-configuration.md).
+For more configuration options, see the full example in `.env.example` or refer to the [Configuration Guide](docs/guides/0003-configuration.md).
 
 ## Step 1: Setup
 

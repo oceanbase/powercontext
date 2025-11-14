@@ -76,7 +76,7 @@ pip install powermem
 
 ### 💡 基本使用
 
-**✨ 最简单的方式**：从 `.env` 文件读取配置自动创建记忆！[配置文件参考](configs/env.example)
+**✨ 最简单的方式**：从 `.env` 文件读取配置自动创建记忆！[配置文件参考](.env.example)
 
 ```python
 from powermem import Memory, auto_config

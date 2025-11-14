@@ -15,7 +15,7 @@ from powermem import create_memory, auto_config
 @pytest.fixture(scope="module")
 def config():
     """Load configuration from environment variables."""
-    # Try to load from configs/powermem.env first
+    # Try to load from .env first
     oceanbase_env_path = os.path.join(
         os.path.dirname(__file__), "..", "..", "configs", "powermem.env"
     )

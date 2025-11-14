@@ -37,24 +37,24 @@ Before running configuration-based E2E tests, you need to set up your configurat
 
 1. **Copy the example configuration:**
    ```bash
-   cp configs/powermem.env.example configs/powermem.env
+   cp .env.example .env
    ```
 
-2. **Edit the configuration file** (`configs/powermem.env`) with your actual credentials:
+2. **Edit the configuration file** (`.env`) with your actual credentials:
    - Database connection details (OceanBase or SQLite)
    - LLM API keys (Qwen, OpenAI, etc.)
    - Embedding API keys
 
 3. **Verify the configuration file exists:**
    ```bash
-   ls configs/powermem.env
+   ls .env
    ```
 
 ## Configuration File Location
 
 The tests will look for configuration files in this order:
 
-1. `configs/powermem.env` (preferred)
+1. `.env` (preferred)
 2. `.env` in the project root
 3. Any `.env` file found by `python-dotenv`
 
@@ -94,7 +94,7 @@ pytest tests/e2e/test_basic_usage_e2e.py::TestBasicUsageE2E::test_basic_memory_o
 
 ### Configuration not found
 If you see errors about missing configuration:
-1. Check that `configs/powermem.env` exists
+1. Check that `.env` exists
 2. Verify the file has valid environment variables
 3. Check file permissions
 

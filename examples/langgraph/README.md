@@ -82,10 +82,10 @@ Copy the configuration template and edit it:
 
 ```bash
 # From project root
-cp configs/env.example configs/powermem.env
+cp .env.example .env
 ```
 
-Edit `configs/powermem.env` and configure:
+Edit `.env` and configure:
 
 ```env
 # Database Configuration
@@ -319,7 +319,7 @@ workflow.add_edge("classify_intent", "handle_product_inquiry")
 
 **Solution**:
 1. Verify OceanBase is running: `mysql -h localhost -P 2881 -u root -p`
-2. Check configuration in `configs/powermem.env`
+2. Check configuration in `.env`
 3. Verify network connectivity and firewall settings
 
 ### Import Errors
@@ -336,7 +336,7 @@ pip install langgraph langchain langchain-openai langchain-core
 **Problem**: LLM or embedding API errors
 
 **Solution**:
-1. Verify API keys in `configs/powermem.env`
+1. Verify API keys in `.env`
 2. Check API key validity and quotas
 3. Ensure correct provider is configured
 

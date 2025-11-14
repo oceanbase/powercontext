@@ -75,7 +75,7 @@ pip install powermem
 
 ### 💡 Basic Usage
 
-**✨ Simplest Way**: Create memory from `.env` file automatically! [Configuration Reference](configs/env.example)
+**✨ Simplest Way**: Create memory from `.env` file automatically! [Configuration Reference](.env.example)
 
 ```python
 from powermem import Memory, auto_config

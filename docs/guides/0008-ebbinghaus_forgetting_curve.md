@@ -10,7 +10,7 @@
 
 1. Copy the example configuration file:
    ```bash
-   cp configs/env.example .env
+   cp .env.example .env
    ```
 
 2. Edit the `.env` file and configure your settings

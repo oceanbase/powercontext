@@ -14,7 +14,7 @@ This scenario demonstrates how to implement and utilize the Ebbinghaus Forgettin
 
 1. Copy the example configuration file:
    ```bash
-   cp configs/minienv.example .env
+   cp .env.example .env
    ```
 
 2. Edit the `.env` file and configure your settings

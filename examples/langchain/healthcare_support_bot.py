@@ -14,7 +14,7 @@ Features:
 
 Setup:
 1. Install dependencies: pip install langchain langchain-community langchain-openai python-dotenv
-2. Copy configs/powermem.env.example to configs/powermem.env and configure OceanBase
+2. Copy .env.example to .env and configure OceanBase
 3. Run: python healthcare_support_bot.py
 """
 
@@ -64,8 +64,8 @@ def load_oceanbase_config():
     """
     # Try to load from powermem.env from multiple possible locations
     possible_paths = [
-        os.path.join(os.path.dirname(__file__), '..', 'configs', 'powermem.env'),  # examples/configs/powermem.env
-        os.path.join(os.path.dirname(__file__), '..', '..', 'configs', 'powermem.env'),  # configs/powermem.env
+        os.path.join(os.path.dirname(__file__), '..', 'configs', 'powermem.env'),  # examples/.env
+        os.path.join(os.path.dirname(__file__), '..', '..', 'configs', 'powermem.env'),  # .env
         os.path.join(os.path.dirname(__file__), '..', '..', 'powermem.env'),  # project root
     ]
     
@@ -202,7 +202,7 @@ class HealthcareSupportBot:
         # Ensure OceanBase is configured
         if config.get('vector_store', {}).get('provider') != 'oceanbase':
             print("⚠️  Warning: Database provider is not OceanBase.")
-            print("   Please configure DATABASE_PROVIDER=oceanbase in configs/powermem.env")
+            print("   Please configure DATABASE_PROVIDER=oceanbase in .env")
         
         # Initialize PowerMem with OceanBase
         print("Initializing PowerMem with OceanBase...")

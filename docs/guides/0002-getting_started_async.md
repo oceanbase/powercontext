@@ -31,7 +31,7 @@ Before using async memory, you need to configure powermem. The configuration is 
 
 1. Copy the example configuration file:
    ```bash
-   cp configs/minienv.example .env
+   cp .env.example .env
    ```
 
 2. Edit the `.env` file and configure your settings:
@@ -44,7 +44,7 @@ Before using async memory, you need to configure powermem. The configuration is 
 > - Loads configuration from environment variables
 > - Uses sensible defaults if no configuration is found
 
-For more configuration options, see the full example in `configs/env.example` or refer to the [Configuration Guide](docs/guides/0003-configuration.md).
+For more configuration options, see the full example in `.env.example` or refer to the [Configuration Guide](docs/guides/0003-configuration.md).
 
 ## Understanding Async Operations
 

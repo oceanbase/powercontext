@@ -53,20 +53,20 @@ This directory contains various examples demonstrating how to use powermem with 
 
 ## Configuration Files
 
-- `configs/powermem.env` - OceanBase configuration template (copy from `configs/powermem.env.example` if needed)
+- `.env` - OceanBase configuration template (copy from `.env.example` if needed)
 
 
 ## Quick Start
 
 1. **Choose your database backend**:
    - **SQLite** (simple, file-based): Works out of the box, no configuration needed
-   - **OceanBase** (enterprise, scalable): Requires `configs/powermem.env` configuration
+   - **OceanBase** (enterprise, scalable): Requires `.env` configuration
 
 2. **Configure your environment** (for OceanBase):
    ```bash
    # Copy and edit the OceanBase configuration
-   cp configs/powermem.env.example configs/powermem.env
-   # Edit configs/powermem.env with your OceanBase credentials and API keys
+   cp .env.example .env
+   # Edit .env with your OceanBase credentials and API keys
    ```
 
 3. **Run an example**:
@@ -115,7 +115,7 @@ from powermem import auto_config
 from dotenv import load_dotenv
 
 # Load configuration from environment
-load_dotenv('configs/powermem.env')  # or your config path
+load_dotenv('.env')  # or your config path
 config = auto_config()
 
 # Automatic mode detection
@@ -132,7 +132,7 @@ from powermem.agent import AgentMemory
 from powermem import auto_config
 from dotenv import load_dotenv
 
-load_dotenv('configs/powermem.env')
+load_dotenv('.env')
 config = auto_config()
 
 # Explicit multi-agent mode
@@ -156,7 +156,7 @@ from powermem.agent import AgentMemory
 from powermem import auto_config
 from dotenv import load_dotenv
 
-load_dotenv('configs/powermem.env')
+load_dotenv('.env')
 config = auto_config()
 
 # Multi-user mode
@@ -176,7 +176,7 @@ from powermem.agent import AgentMemory
 from powermem import auto_config
 from dotenv import load_dotenv
 
-load_dotenv('configs/powermem.env')
+load_dotenv('.env')
 config = auto_config()
 
 # Hybrid mode with dynamic switching

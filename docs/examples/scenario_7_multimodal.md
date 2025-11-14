@@ -14,7 +14,7 @@ This scenario demonstrates PowerMem's multimodal capability - storing and retrie
 
 1. Copy the example configuration file:
    ```bash
-   cp configs/minienv.example .env
+   cp .env.example .env
    ```
 
 2. Edit the `.env` file and configure multimodal parameters

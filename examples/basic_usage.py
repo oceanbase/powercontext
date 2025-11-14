@@ -4,7 +4,7 @@ Basic usage example for powermem
 This example demonstrates basic memory operations.
 
 Setup:
-1. Copy configs/env.example to configs/.env
+1. Copy .env.example to configs/.env
 2. Add your API keys to configs/.env
 3. Run this script
 
