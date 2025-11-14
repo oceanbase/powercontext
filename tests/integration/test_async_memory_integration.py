@@ -73,7 +73,7 @@ class TestAsyncMemoryIntegration:
         user_id = "test_user_async_1"
         
         # Add a memory
-        result = await memory.add("User likes coffee", user_id=user_id)
+        result = await memory.add("User likes coffee", user_id=user_id, infer=False)
         
         assert result is not None
         assert "results" in result or isinstance(result, dict)
@@ -89,9 +89,9 @@ class TestAsyncMemoryIntegration:
         user_id = "test_user_async_2"
         
         # Add some memories
-        await memory.add("User prefers Python over Java", user_id=user_id)
-        await memory.add("User works as a software engineer", user_id=user_id)
-        await memory.add("User likes coffee", user_id=user_id)
+        await memory.add("User prefers Python over Java", user_id=user_id, infer=False)
+        await memory.add("User works as a software engineer", user_id=user_id, infer=False)
+        await memory.add("User likes coffee", user_id=user_id, infer=False)
         
         # Search for memories
         results = await memory.search("programming preferences", user_id=user_id)
@@ -108,7 +108,7 @@ class TestAsyncMemoryIntegration:
         user_id = "test_user_async_3"
         
         # Add a memory
-        add_result = await memory.add("User likes pizza", user_id=user_id)
+        add_result = await memory.add("User likes pizza", user_id=user_id, infer=False)
         
         # Extract memory ID from result
         memory_id = None
@@ -129,7 +129,7 @@ class TestAsyncMemoryIntegration:
         user_id = "test_user_async_4"
         
         # Add a memory
-        add_result = await memory.add("User likes tea", user_id=user_id)
+        add_result = await memory.add("User likes tea", user_id=user_id, infer=False)
         
         # Extract memory ID
         memory_id = None
@@ -150,7 +150,7 @@ class TestAsyncMemoryIntegration:
         user_id = "test_user_async_5"
         
         # Add a memory
-        add_result = await memory.add("User likes sushi", user_id=user_id)
+        add_result = await memory.add("User likes sushi", user_id=user_id, infer=False)
         
         # Extract memory ID
         memory_id = None
@@ -175,12 +175,12 @@ class TestAsyncMemoryIntegration:
         user2_id = "user_async_b"
         
         # Add memories for user 1
-        await memory.add("User A likes Python", user_id=user1_id)
-        await memory.add("User A likes coffee", user_id=user1_id)
+        await memory.add("User A likes Python", user_id=user1_id, infer=False)
+        await memory.add("User A likes coffee", user_id=user1_id, infer=False)
         
         # Add memories for user 2
-        await memory.add("User B likes Java", user_id=user2_id)
-        await memory.add("User B likes tea", user_id=user2_id)
+        await memory.add("User B likes Java", user_id=user2_id, infer=False)
+        await memory.add("User B likes tea", user_id=user2_id, infer=False)
         
         # Search for user 1's memories
         user1_results = await memory.search("programming", user_id=user1_id)
@@ -207,9 +207,9 @@ class TestAsyncMemoryIntegration:
         user_id = "test_user_async_6"
         
         # Add multiple memories
-        await memory.add("Memory 1", user_id=user_id)
-        await memory.add("Memory 2", user_id=user_id)
-        await memory.add("Memory 3", user_id=user_id)
+        await memory.add("Memory 1", user_id=user_id, infer=False)
+        await memory.add("Memory 2", user_id=user_id, infer=False)
+        await memory.add("Memory 3", user_id=user_id, infer=False)
         
         # Get all memories
         all_memories = await memory.get_all(user_id=user_id)
@@ -222,8 +222,8 @@ class TestAsyncMemoryIntegration:
         user_id = "test_user_async_7"
         
         # Add some memories
-        await memory.add("Memory to delete 1", user_id=user_id)
-        await memory.add("Memory to delete 2", user_id=user_id)
+        await memory.add("Memory to delete 1", user_id=user_id, infer=False)
+        await memory.add("Memory to delete 2", user_id=user_id, infer=False)
         
         # Verify memories exist
         all_memories_before = await memory.get_all(user_id=user_id)
@@ -245,7 +245,7 @@ class TestAsyncMemoryIntegration:
         
         # Add multiple memories concurrently
         tasks = [
-            memory.add(f"Memory {i}", user_id=user_id)
+            memory.add(f"Memory {i}", user_id=user_id, infer=False)
             for i in range(5)
         ]
         results = await asyncio.gather(*tasks)
@@ -266,7 +266,8 @@ class TestAsyncMemoryIntegration:
         result = await memory.add(
             "User prefers dark mode",
             user_id=user_id,
-            metadata=metadata
+            metadata=metadata,
+            infer=False
         )
         
         assert result is not None
@@ -281,8 +282,8 @@ class TestAsyncMemoryIntegration:
         user_id = "test_user_async_workflow"
         
         # CREATE: Add memories
-        result1 = await memory.add("User likes Python programming", user_id=user_id)
-        result2 = await memory.add("User prefers coffee over tea", user_id=user_id)
+        result1 = await memory.add("User likes Python programming", user_id=user_id, infer=False)
+        result2 = await memory.add("User prefers coffee over tea", user_id=user_id, infer=False)
         
         assert result1 is not None
         assert result2 is not None

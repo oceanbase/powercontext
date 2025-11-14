@@ -65,7 +65,7 @@ class TestStorageIntegration:
         user_id = "test_user_storage"
         
         # Add memory
-        result = memory.add("Test memory for storage", user_id=user_id)
+        result = memory.add("Test memory for storage", user_id=user_id, infer=False)
         assert result is not None
         
         # Retrieve all memories
@@ -78,9 +78,9 @@ class TestStorageIntegration:
         user_id = "test_user_search"
         
         # Add multiple memories
-        memory.add("User likes Python", user_id=user_id)
-        memory.add("User prefers Linux", user_id=user_id)
-        memory.add("User drinks coffee", user_id=user_id)
+        memory.add("User likes Python", user_id=user_id, infer=False)
+        memory.add("User prefers Linux", user_id=user_id, infer=False)
+        memory.add("User drinks coffee", user_id=user_id, infer=False)
         
         # Search for memories
         results = memory.search("programming", user_id=user_id)
@@ -94,7 +94,7 @@ class TestStorageIntegration:
         user_id = "test_user_delete"
         
         # Add memory
-        add_result = memory.add("Memory to delete", user_id=user_id)
+        add_result = memory.add("Memory to delete", user_id=user_id, infer=False)
         
         # Extract memory ID
         memory_id = None
@@ -117,7 +117,7 @@ class TestStorageIntegration:
         user_id = "test_user_update"
         
         # Add memory
-        add_result = memory.add("Original memory", user_id=user_id)
+        add_result = memory.add("Original memory", user_id=user_id, infer=False)
         
         # Extract memory ID
         memory_id = None
@@ -137,8 +137,8 @@ class TestStorageIntegration:
         agent_id = "test_agent"
         
         # Add memories with different agents
-        memory.add("Memory for agent 1", user_id=user_id, agent_id=agent_id)
-        memory.add("Memory for agent 2", user_id=user_id, agent_id="other_agent")
+        memory.add("Memory for agent 1", user_id=user_id, agent_id=agent_id, infer=False)
+        memory.add("Memory for agent 2", user_id=user_id, agent_id="other_agent", infer=False)
         
         # Search with agent filter
         results = memory.search("memory", user_id=user_id, agent_id=agent_id)
@@ -181,10 +181,10 @@ class TestStorageIntegration:
             memory2 = Memory(config=config2)
             
             # Add memory to first collection
-            memory.add("Memory in collection 1", user_id="test_user")
+            memory.add("Memory in collection 1", user_id="test_user", infer=False)
             
             # Add memory to second collection
-            memory2.add("Memory in collection 2", user_id="test_user")
+            memory2.add("Memory in collection 2", user_id="test_user", infer=False)
             
             # Verify they are isolated
             mem1_results = memory.get_all(user_id="test_user")

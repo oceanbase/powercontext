@@ -68,7 +68,7 @@ class TestMemoryIntegration:
         user_id = "test_user_1"
         
         # Add a memory
-        result = memory.add("User likes coffee", user_id=user_id)
+        result = memory.add("User likes coffee", user_id=user_id, infer=False)
         
         assert result is not None
         assert "results" in result or isinstance(result, dict)
@@ -83,9 +83,9 @@ class TestMemoryIntegration:
         user_id = "test_user_2"
         
         # Add some memories
-        memory.add("User prefers Python over Java", user_id=user_id)
-        memory.add("User works as a software engineer", user_id=user_id)
-        memory.add("User likes coffee", user_id=user_id)
+        memory.add("User prefers Python over Java", user_id=user_id, infer=False)
+        memory.add("User works as a software engineer", user_id=user_id, infer=False)
+        memory.add("User likes coffee", user_id=user_id, infer=False)
         
         # Search for memories
         results = memory.search("programming preferences", user_id=user_id)
@@ -101,7 +101,7 @@ class TestMemoryIntegration:
         user_id = "test_user_3"
         
         # Add a memory
-        add_result = memory.add("User likes pizza", user_id=user_id)
+        add_result = memory.add("User likes pizza", user_id=user_id, infer=False)
         
         # Extract memory ID from result
         memory_id = None
@@ -121,7 +121,7 @@ class TestMemoryIntegration:
         user_id = "test_user_4"
         
         # Add a memory
-        add_result = memory.add("User likes tea", user_id=user_id)
+        add_result = memory.add("User likes tea", user_id=user_id, infer=False)
         
         # Extract memory ID
         memory_id = None
@@ -141,7 +141,7 @@ class TestMemoryIntegration:
         user_id = "test_user_5"
         
         # Add a memory
-        add_result = memory.add("User likes sushi", user_id=user_id)
+        add_result = memory.add("User likes sushi", user_id=user_id, infer=False)
         
         # Extract memory ID
         memory_id = None
@@ -165,12 +165,12 @@ class TestMemoryIntegration:
         user2_id = "user_b"
         
         # Add memories for user 1
-        memory.add("User A likes Python", user_id=user1_id)
+        memory.add("User A likes Python", user_id=user1_id, infer=False)
         memory.add("User A likes coffee", user_id=user1_id)
         
         # Add memories for user 2
-        memory.add("User B likes Java", user_id=user2_id)
-        memory.add("User B likes tea", user_id=user2_id)
+        memory.add("User B likes Java", user_id=user2_id, infer=False)
+        memory.add("User B likes tea", user_id=user2_id, infer=False)
         
         # Search for user 1's memories
         user1_results = memory.search("programming", user_id=user1_id)
@@ -196,9 +196,9 @@ class TestMemoryIntegration:
         user_id = "test_user_6"
         
         # Add multiple memories
-        memory.add("Memory 1", user_id=user_id)
-        memory.add("Memory 2", user_id=user_id)
-        memory.add("Memory 3", user_id=user_id)
+        memory.add("Memory 1", user_id=user_id, infer=False)
+        memory.add("Memory 2", user_id=user_id, infer=False)
+        memory.add("Memory 3", user_id=user_id, infer=False)
         
         # Get all memories
         all_memories = memory.get_all(user_id=user_id)
@@ -210,8 +210,8 @@ class TestMemoryIntegration:
         user_id = "test_user_7"
         
         # Add some memories
-        memory.add("Memory to delete 1", user_id=user_id)
-        memory.add("Memory to delete 2", user_id=user_id)
+        memory.add("Memory to delete 1", user_id=user_id, infer=False)
+        memory.add("Memory to delete 2", user_id=user_id, infer=False)
         
         # Verify memories exist
         all_memories_before = memory.get_all(user_id=user_id)
@@ -235,7 +235,7 @@ class TestMemoryIntegration:
         result = memory.add(
             "User prefers dark mode",
             user_id=user_id,
-            metadata=metadata
+            metadata=metadata, infer=False
         )
         
         assert result is not None

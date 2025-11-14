@@ -118,7 +118,7 @@ class TestEndToEndScenarios:
         # Add conversation memories
         memory_ids = []
         for message in conversation:
-            result = memory.add(message, user_id=user_id)
+            result = memory.add(message, user_id=user_id, infer=False)
             if isinstance(result, dict) and "results" in result:
                 if len(result["results"]) > 0:
                     memory_ids.append(result["results"][0].get("id"))
@@ -157,10 +157,10 @@ class TestEndToEndScenarios:
         
         # Add memories for both users
         for msg in user1_memories:
-            memory.add(msg, user_id="alice")
+            memory.add(msg, user_id="alice", infer=False)
         
         for msg in user2_memories:
-            memory.add(msg, user_id="bob")
+            memory.add(msg, user_id="bob", infer=False)
         
         # Verify isolation
         alice_memories = memory.get_all(user_id="alice")
@@ -186,7 +186,7 @@ class TestEndToEndScenarios:
         user_id = "e2e_lifecycle_user"
         
         # 1. Add initial memory
-        add_result = memory.add("User likes Python programming", user_id=user_id)
+        add_result = memory.add("User likes Python programming", user_id=user_id, infer=False)
         memory_id = None
         if isinstance(add_result, dict) and "results" in add_result:
             if len(add_result["results"]) > 0:
@@ -232,7 +232,7 @@ class TestEndToEndScenarios:
         ]
         
         for mem in batch_memories:
-            memory.add(mem, user_id=user_id)
+            memory.add(mem, user_id=user_id, infer=False)
         
         # Verify batch add
         all_memories = memory.get_all(user_id=user_id)
@@ -262,7 +262,8 @@ class TestEndToEndScenarios:
         result = memory.add(
             "User prefers dark mode UI",
             user_id=user_id,
-            metadata=metadata
+            metadata=metadata,
+            infer=False
         )
         
         assert result is not None
@@ -289,7 +290,7 @@ class TestEndToEndScenarios:
         ]
         
         # Add conversation memories asynchronously
-        tasks = [memory.add(msg, user_id=user_id) for msg in conversation]
+        tasks = [memory.add(msg, user_id=user_id, infer=False) for msg in conversation]
         results = await asyncio.gather(*tasks)
         
         assert len(results) == len(conversation)
@@ -311,8 +312,8 @@ class TestEndToEndScenarios:
         user_id = "e2e_async_workflow"
         
         # CREATE
-        result1 = await memory.add("User likes async programming", user_id=user_id)
-        result2 = await memory.add("User prefers async/await patterns", user_id=user_id)
+        result1 = await memory.add("User likes async programming", user_id=user_id, infer=False)
+        result2 = await memory.add("User prefers async/await patterns", user_id=user_id, infer=False)
         
         assert result1 is not None
         assert result2 is not None
@@ -350,15 +351,15 @@ class TestEndToEndScenarios:
         user_id = "e2e_persistence_user"
         
         # Add memories in sequence
-        memory.add("First memory: User likes Python", user_id=user_id)
-        memory.add("Second memory: User likes coffee", user_id=user_id)
+        memory.add("First memory: User likes Python", user_id=user_id, infer=False)
+        memory.add("Second memory: User likes coffee", user_id=user_id, infer=False)
         
         # Verify first memory is still accessible
         all_memories_1 = memory.get_all(user_id=user_id)
         assert len(all_memories_1.get("results", [])) >= 2
         
         # Add more memories
-        memory.add("Third memory: User works as engineer", user_id=user_id)
+        memory.add("Third memory: User works as engineer", user_id=user_id, infer=False)
         
         # Verify all memories persist
         all_memories_2 = memory.get_all(user_id=user_id)

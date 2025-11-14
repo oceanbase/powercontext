@@ -66,9 +66,9 @@ class TestFullWorkflowIntegration:
         user_id = "workflow_user"
         
         # CREATE: Add memories
-        result1 = memory.add("User likes Python programming", user_id=user_id)
-        result2 = memory.add("User prefers coffee over tea", user_id=user_id)
-        result3 = memory.add("User works as a software engineer", user_id=user_id)
+        result1 = memory.add("User likes Python programming", user_id=user_id, infer=False)
+        result2 = memory.add("User prefers coffee over tea", user_id=user_id, infer=False)
+        result3 = memory.add("User works as a software engineer", user_id=user_id, infer=False)
         
         assert result1 is not None
         assert result2 is not None
@@ -120,8 +120,8 @@ class TestFullWorkflowIntegration:
         agent2_id = "agent_2"
         
         # Add memories for different agents
-        memory.add("Agent 1: User likes Python", user_id=user_id, agent_id=agent1_id)
-        memory.add("Agent 2: User likes Java", user_id=user_id, agent_id=agent2_id)
+        memory.add("Agent 1: User likes Python", user_id=user_id, agent_id=agent1_id, infer=False)
+        memory.add("Agent 2: User likes Java", user_id=user_id, agent_id=agent2_id, infer=False)
         
         # Search for agent 1's memories
         agent1_results = memory.search("programming", user_id=user_id, agent_id=agent1_id)
@@ -139,7 +139,7 @@ class TestFullWorkflowIntegration:
         user_id = "update_user"
         
         # Add initial memory
-        add_result = memory.add("User likes coffee", user_id=user_id)
+        add_result = memory.add("User likes coffee", user_id=user_id, infer=False)
         
         # Extract memory ID
         memory_id = None
@@ -162,9 +162,9 @@ class TestFullWorkflowIntegration:
         user_id = "search_user"
         
         # Add memories with different topics
-        memory.add("User likes Python", user_id=user_id)
-        memory.add("User likes coffee", user_id=user_id)
-        memory.add("User likes Python and coffee", user_id=user_id)
+        memory.add("User likes Python", user_id=user_id, infer=False)
+        memory.add("User likes coffee", user_id=user_id, infer=False)
+        memory.add("User likes Python and coffee", user_id=user_id, infer=False)
         
         # Search for Python-related memories
         python_results = memory.search("Python programming", user_id=user_id)
@@ -191,7 +191,7 @@ class TestFullWorkflowIntegration:
         ]
         
         for mem_content in memories_to_add:
-            memory.add(mem_content, user_id=user_id)
+            memory.add(mem_content, user_id=user_id, infer=False)
         
         # Verify all memories were added
         all_memories = memory.get_all(user_id=user_id)
@@ -220,7 +220,8 @@ class TestFullWorkflowIntegration:
         result = memory.add(
             "User prefers dark mode UI",
             user_id=user_id,
-            metadata=metadata
+            metadata=metadata,
+            infer=False
         )
         
         assert result is not None
