@@ -5,10 +5,6 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.com/invite/74cF8vbNEs">Join Discord</a>
-</p>
-
-<p align="center">
     <a href="https://pepy.tech/project/powermem">
         <img src="https://img.shields.io/pypi/dm/powermem" alt="PowerMem PyPI - Downloads">
     </a>
@@ -26,6 +22,9 @@
     </a>
     <a href="https://deepwiki.com/oceanbase/powermem">
         <img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg" />
+    </a>
+    <a href="https://discord.com/invite/74cF8vbNEs">
+        <img src="https://img.shields.io/badge/Discord-Join%20Discord-5865F2?logo=discord&logoColor=white" alt="Join Discord">
     </a>
 </p>
 
