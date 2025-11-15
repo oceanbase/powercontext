@@ -47,13 +47,43 @@
 
 .card {
   background: rgba(17, 17, 17, 0.9);
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 2rem;
   border: 1px solid rgba(59, 130, 246, 0.2);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
   backdrop-filter: blur(10px);
+  opacity: 0;
+  transform: translateY(30px);
+  animation: cardFadeIn 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.card:nth-child(1) {
+  animation-delay: 0.1s;
+}
+
+.card:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.card:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.card:nth-child(4) {
+  animation-delay: 0.4s;
+}
+
+.card:nth-child(5) {
+  animation-delay: 0.5s;
+}
+
+@keyframes cardFadeIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .card::before {
@@ -63,17 +93,22 @@
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
   opacity: 0;
   transition: opacity 0.5s ease;
+  z-index: 0;
 }
 
 .card::after {
   content: '';
   position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
-  transition: left 0.5s ease;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.6s ease, transform 0.6s ease;
+  transform: scale(0);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .card:hover::before {
@@ -81,42 +116,105 @@
 }
 
 .card:hover::after {
-  left: 100%;
+  opacity: 1;
+  transform: scale(1);
 }
 
 .card:hover {
-  transform: translateY(-8px) scale(1.02);
+  transform: translateY(-12px) scale(1.03) rotateX(2deg);
   box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.6),
-    0 0 40px rgba(59, 130, 246, 0.4),
-    0 0 80px rgba(147, 51, 234, 0.2);
-  border-color: rgba(59, 130, 246, 0.6);
+    0 25px 50px rgba(0, 0, 0, 0.8),
+    0 0 60px rgba(59, 130, 246, 0.5),
+    0 0 100px rgba(147, 51, 234, 0.3),
+    inset 0 0 30px rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.8);
+  border-width: 2px;
+}
+
+/* Glow effect on border */
+.card::before {
+  border-radius: 16px;
+}
+
+.card:hover::before {
+  box-shadow: 
+    0 0 20px rgba(59, 130, 246, 0.4),
+    inset 0 0 20px rgba(59, 130, 246, 0.1);
 }
 
 .icon {
   width: 4rem;
   height: 4rem;
-  border-radius: 12px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 1rem;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   z-index: 1;
-  overflow: hidden;
+  overflow: visible;
+  animation: iconPulse 3s ease-in-out infinite;
+}
+
+@keyframes iconPulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.05);
+    filter: brightness(1.2);
+  }
 }
 
 .icon::before {
   content: '';
   position: absolute;
+  inset: -4px;
+  border-radius: 16px;
+  background: inherit;
+  opacity: 0.3;
+  filter: blur(12px);
+  transition: all 0.5s ease;
+  z-index: -1;
+  animation: iconGlow 2s ease-in-out infinite;
+}
+
+@keyframes iconGlow {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+}
+
+.icon::after {
+  content: '';
+  position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent);
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.4s ease;
+  border-radius: 14px;
+  z-index: 1;
+}
+
+.card:hover .icon {
+  transform: scale(1.15) rotateY(10deg) rotateX(-5deg);
+  animation: none;
 }
 
 .card:hover .icon::before {
+  opacity: 0.8;
+  transform: scale(1.3);
+  filter: blur(20px);
+}
+
+.card:hover .icon::after {
   opacity: 1;
 }
 
@@ -125,14 +223,37 @@
   height: 2rem;
   color: white;
   filter: drop-shadow(0 0 10px currentColor);
-  transition: all 0.3s ease;
-  z-index: 1;
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 2;
   position: relative;
+  animation: iconFloat 3s ease-in-out infinite;
+}
+
+@keyframes iconFloat {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-5px) rotate(2deg);
+  }
 }
 
 .card:hover .iconSvg {
-  transform: scale(1.1) rotate(5deg);
-  filter: drop-shadow(0 0 20px currentColor);
+  transform: scale(1.2) rotate(15deg) translateY(-3px);
+  filter: drop-shadow(0 0 25px currentColor) drop-shadow(0 0 40px currentColor);
+  animation: iconSpin 0.6s ease-out;
+}
+
+@keyframes iconSpin {
+  0% {
+    transform: scale(1.2) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.3) rotate(180deg);
+  }
+  100% {
+    transform: scale(1.2) rotate(15deg);
+  }
 }
 
 .icon-intelligent {
@@ -161,6 +282,110 @@
     inset 0 0 30px rgba(147, 51, 234, 0.3);
 }
 
+.icon-developer {
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  box-shadow: 
+    0 0 30px rgba(249, 115, 22, 0.5),
+    inset 0 0 20px rgba(249, 115, 22, 0.2);
+  animation: developerGlow 3s ease-in-out infinite;
+}
+
+@keyframes developerGlow {
+  0%, 100% {
+    box-shadow: 
+      0 0 30px rgba(249, 115, 22, 0.5),
+      inset 0 0 20px rgba(249, 115, 22, 0.2);
+  }
+  50% {
+    box-shadow: 
+      0 0 40px rgba(249, 115, 22, 0.7),
+      inset 0 0 25px rgba(249, 115, 22, 0.3);
+  }
+}
+
+.card:hover .icon-developer {
+  box-shadow: 
+    0 0 60px rgba(249, 115, 22, 1),
+    0 0 100px rgba(249, 115, 22, 0.6),
+    inset 0 0 40px rgba(249, 115, 22, 0.4);
+  animation: developerPulse 0.6s ease-out;
+}
+
+@keyframes developerPulse {
+  0% {
+    transform: scale(1.15);
+  }
+  50% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1.15);
+  }
+}
+
+.icon-intelligent {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  box-shadow: 
+    0 0 30px rgba(59, 130, 246, 0.5),
+    inset 0 0 20px rgba(59, 130, 246, 0.2);
+}
+
+.card:hover .icon-intelligent {
+  box-shadow: 
+    0 0 50px rgba(59, 130, 246, 0.8),
+    inset 0 0 30px rgba(59, 130, 246, 0.3);
+}
+
+.icon-multiAgent {
+  background: linear-gradient(135deg, #9333ea, #7e22ce);
+  box-shadow: 
+    0 0 30px rgba(147, 51, 234, 0.5),
+    inset 0 0 20px rgba(147, 51, 234, 0.2);
+}
+
+.card:hover .icon-multiAgent {
+  box-shadow: 
+    0 0 50px rgba(147, 51, 234, 0.8),
+    inset 0 0 30px rgba(147, 51, 234, 0.3);
+}
+
+.icon-multimodal {
+  background: linear-gradient(135deg, #ec4899, #db2777);
+  box-shadow: 
+    0 0 30px rgba(236, 72, 153, 0.5),
+    inset 0 0 20px rgba(236, 72, 153, 0.2);
+  animation: multimodalShimmer 4s ease-in-out infinite;
+}
+
+@keyframes multimodalShimmer {
+  0%, 100% {
+    background: linear-gradient(135deg, #ec4899, #db2777);
+  }
+  50% {
+    background: linear-gradient(135deg, #f472b6, #ec4899);
+  }
+}
+
+.card:hover .icon-multimodal {
+  box-shadow: 
+    0 0 60px rgba(236, 72, 153, 1),
+    0 0 100px rgba(236, 72, 153, 0.6),
+    inset 0 0 40px rgba(236, 72, 153, 0.4);
+  animation: multimodalPulse 0.6s ease-out;
+}
+
+@keyframes multimodalPulse {
+  0% {
+    transform: scale(1.15);
+  }
+  50% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1.15);
+  }
+}
+
 .icon-storage {
   background: linear-gradient(135deg, #22c55e, #16a34a);
   box-shadow: 
@@ -181,6 +406,16 @@
   margin-bottom: 0.5rem;
   position: relative;
   z-index: 1;
+  transition: all 0.4s ease;
+  text-shadow: 0 0 10px rgba(96, 165, 250, 0.3);
+}
+
+.card:hover .cardTitle {
+  color: #ffffff;
+  text-shadow: 
+    0 0 20px rgba(96, 165, 250, 0.6),
+    0 0 40px rgba(96, 165, 250, 0.3);
+  transform: translateX(4px);
 }
 
 .cardEn {
@@ -189,6 +424,14 @@
   margin-bottom: 0.75rem;
   position: relative;
   z-index: 1;
+  transition: all 0.4s ease;
+  letter-spacing: 0.5px;
+}
+
+.card:hover .cardEn {
+  color: #d1d5db;
+  letter-spacing: 1px;
+  transform: translateX(2px);
 }
 
 .cardDesc {
@@ -197,6 +440,12 @@
   line-height: 1.6;
   position: relative;
   z-index: 1;
+  transition: all 0.4s ease;
+}
+
+.card:hover .cardDesc {
+  color: #e5e7eb;
+  transform: translateX(2px);
 }
 
 .details {
@@ -215,11 +464,47 @@
   align-items: start;
   font-size: 0.875rem;
   color: #9ca3af;
-  transition: color 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0.8;
+  transform: translateX(-10px);
+  animation: detailSlideIn 0.6s ease-out forwards;
+}
+
+.details li:nth-child(1) {
+  animation-delay: 0.2s;
+}
+
+.details li:nth-child(2) {
+  animation-delay: 0.3s;
+}
+
+.details li:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.details li:nth-child(4) {
+  animation-delay: 0.5s;
+}
+
+@keyframes detailSlideIn {
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .card:hover .details li {
   color: #d1d5db;
+  transform: translateX(6px);
+  opacity: 1;
+}
+
+.card:hover .details li:nth-child(odd) {
+  transform: translateX(8px);
+}
+
+.card:hover .details li:nth-child(even) {
+  transform: translateX(4px);
 }
 
 .bullet {
@@ -228,6 +513,38 @@
   flex-shrink: 0;
   font-weight: bold;
   text-shadow: 0 0 10px rgba(96, 165, 250, 0.5);
+  transition: all 0.3s ease;
+  display: inline-block;
+  animation: bulletPulse 2s ease-in-out infinite;
+}
+
+@keyframes bulletPulse {
+  0%, 100% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+.card:hover .bullet {
+  color: #93c5fd;
+  text-shadow: 
+    0 0 15px rgba(96, 165, 250, 0.8),
+    0 0 30px rgba(96, 165, 250, 0.4);
+  transform: scale(1.3);
+  animation: bulletSpin 0.5s ease-out;
+}
+
+@keyframes bulletSpin {
+  0% {
+    transform: scale(1.3) rotate(0deg);
+  }
+  100% {
+    transform: scale(1.3) rotate(360deg);
+  }
 }
 
 @media (max-width: 768px) {

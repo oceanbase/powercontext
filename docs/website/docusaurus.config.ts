@@ -168,7 +168,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} OceanBase. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} OceanBase.`,
     },
     prism: {
       theme: prismThemes.github,

@@ -48,7 +48,7 @@
     "description": "The label of footer link with label=Community linking to /community"
   },
   "copyright": {
-    "message": "Copyright © 2025 OceanBase. Built with Docusaurus.",
+    "message": "Copyright © 2025 OceanBase.",
     "description": "The footer copyright"
   }
 }
