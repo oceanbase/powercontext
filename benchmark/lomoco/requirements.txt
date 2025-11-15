@@ -1,4 +1,3 @@
-# TODO: Verify whether the latest dependency version is compatible through ci
 bert_score>=0.3.13
 Jinja2>=3.1.6
 nltk>=3.9.1
