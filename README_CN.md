@@ -89,9 +89,9 @@ memory = Memory(config=config)
 memory.add("用户喜欢咖啡", user_id="user123")
 
 # 搜索记忆
-memories = memory.search("用户偏好", user_id="user123")
-for memory in memories:
-    print(f"- {memory.get('memory')}")
+results = memory.search("用户偏好", user_id="user123")
+for result in results.get('results', []):
+    print(f"- {result.get('memory')}")
 ```
 
 更多详细示例和使用模式，请参阅[入门指南](docs/guides/0001-getting_started.md)。

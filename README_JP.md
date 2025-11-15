@@ -88,9 +88,9 @@ memory = Memory(config=config)
 memory.add("ユーザーはコーヒーが好き", user_id="user123")
 
 # メモリを検索
-memories = memory.search("ユーザー設定", user_id="user123")
-for memory in memories:
-    print(f"- {memory.get('memory')}")
+results = memory.search("ユーザー設定", user_id="user123")
+for result in results.get('results', []):
+    print(f"- {result.get('memory')}")
 ```
 
 より詳細な例と使用パターンについては、[はじめにガイド](docs/guides/0001-getting_started.md) を参照してください。
