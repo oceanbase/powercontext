@@ -2,33 +2,33 @@ import React, { useState } from 'react';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Heading from '@theme/Heading';
-import SpeedIcon from './icons/SpeedIcon';
-import SaveIcon from './icons/SaveIcon';
-import SmartIcon from './icons/SmartIcon';
+import AgileIcon from './icons/AgileIcon';
+import AffordableIcon from './icons/AffordableIcon';
+import AccurateIcon from './icons/AccurateIcon';
 import styles from './styles.module.css';
 
-// Order: smart, speed, save
+// Order: accurate, agile, affordable
 const valueProps = [
-  { icon: SmartIcon, key: 'smart' },
-  { icon: SpeedIcon, key: 'speed' },
-  { icon: SaveIcon, key: 'save' },
+  { icon: AccurateIcon, key: 'accurate' },
+  { icon: AgileIcon, key: 'agile' },
+  { icon: AffordableIcon, key: 'affordable' },
 ];
 
 // Comparison data - labels will be translated
 const getComparisonData = (isZh: boolean) => ({
-  smart: {
+  accurate: {
     fullContext: 52.9,
     powermem: 78.7,
     unit: '',
     label: isZh ? 'LLM 评分' : 'LLM Score',
   },
-  speed: {
+  agile: {
     fullContext: 17.12,
     powermem: 1.44,
     unit: 's',
     label: isZh ? '响应时间' : 'Response Time',
   },
-  save: {
+  affordable: {
     fullContext: 26,
     powermem: 0.9,
     unit: 'k',
@@ -39,51 +39,51 @@ const getComparisonData = (isZh: boolean) => ({
 const translations: Record<string, Record<string, string>> = {
   en: {
     'valueProps.title': 'Why Choose PowerMem?',
-    'valueProps.subtitle': 'Speed, Save, Smart - The best AI memory management experience',
+    'valueProps.subtitle': 'Accurate, Agile, Affordable - The best AI memory management experience',
     'valueProps.benchmarkDesc': 'Real-world performance metrics based on LOCOMO dataset',
     'valueProps.viewBenchmark': 'View Full Benchmark Results',
-    'valueProps.speed.title': 'Speed',
-    'valueProps.speed.en': 'Faster',
-    'valueProps.speed.desc': 'Ultra-fast retrieval response, high-performance async processing, intelligent cache optimization',
-    'valueProps.speed.feature1': 'Ultra-fast Retrieval',
-    'valueProps.speed.feature2': 'High-Performance Async',
-    'valueProps.speed.feature3': 'Smart Cache Optimization',
-    'valueProps.save.title': 'Save',
-    'valueProps.save.en': 'More Economical',
-    'valueProps.save.desc': 'Reduce storage costs, intelligent memory management, efficient resource utilization',
-    'valueProps.save.feature1': 'Lower Storage Costs',
-    'valueProps.save.feature2': 'Smart Memory Management',
-    'valueProps.save.feature3': 'Efficient Resource Usage',
-    'valueProps.smart.title': 'Smart',
-    'valueProps.smart.en': 'More Accurate',
-    'valueProps.smart.desc': 'Precise memory retrieval, AI-driven importance scoring, context-aware matching',
-    'valueProps.smart.feature1': 'Precise Memory Retrieval',
-    'valueProps.smart.feature2': 'AI-Driven Scoring',
-    'valueProps.smart.feature3': 'Context-Aware Matching',
+    'valueProps.agile.title': 'Agile',
+    'valueProps.agile.en': 'Faster',
+    'valueProps.agile.desc': 'Ultra-fast retrieval response, high-performance async processing, intelligent cache optimization',
+    'valueProps.agile.feature1': 'Ultra-fast Retrieval',
+    'valueProps.agile.feature2': 'High-Performance Async',
+    'valueProps.agile.feature3': 'Intelligent Cache Optimization',
+    'valueProps.affordable.title': 'Affordable',
+    'valueProps.affordable.en': 'More Economical',
+    'valueProps.affordable.desc': 'Reduce storage costs, intelligent memory management, efficient resource utilization',
+    'valueProps.affordable.feature1': 'Lower Storage Costs',
+    'valueProps.affordable.feature2': 'Intelligent Memory Management',
+    'valueProps.affordable.feature3': 'Efficient Resource Usage',
+    'valueProps.accurate.title': 'Accurate',
+    'valueProps.accurate.en': 'More Accurate',
+    'valueProps.accurate.desc': 'Precise memory retrieval, AI-driven importance scoring, context-aware matching',
+    'valueProps.accurate.feature1': 'Precise Memory Retrieval',
+    'valueProps.accurate.feature2': 'AI-Driven Scoring',
+    'valueProps.accurate.feature3': 'Context-Aware Matching',
   },
   zh: {
     'valueProps.title': '为什么选择 PowerMem？',
     'valueProps.subtitle': '更快、更省、更准 - 最佳的 AI 内存管理体验',
     'valueProps.benchmarkDesc': '基于 LOCOMO 数据集的真实性能指标',
     'valueProps.viewBenchmark': '查看完整压测数据',
-    'valueProps.speed.title': '更快',
-    'valueProps.speed.en': 'Speed',
-    'valueProps.speed.desc': '极速检索响应，高性能异步处理，智能缓存优化',
-    'valueProps.speed.feature1': '极速检索响应',
-    'valueProps.speed.feature2': '高性能异步处理',
-    'valueProps.speed.feature3': '智能缓存优化',
-    'valueProps.save.title': '更省',
-    'valueProps.save.en': 'Save',
-    'valueProps.save.desc': '降低存储成本，智能内存管理，资源高效利用',
-    'valueProps.save.feature1': '降低存储成本',
-    'valueProps.save.feature2': '智能内存管理',
-    'valueProps.save.feature3': '资源高效利用',
-    'valueProps.smart.title': '更准',
-    'valueProps.smart.en': 'Smart',
-    'valueProps.smart.desc': '精准记忆检索，AI 驱动的重要性评分，上下文感知匹配',
-    'valueProps.smart.feature1': '精准记忆检索',
-    'valueProps.smart.feature2': 'AI 驱动评分',
-    'valueProps.smart.feature3': '上下文感知匹配',
+    'valueProps.agile.title': '更快',
+    'valueProps.agile.en': 'Agile',
+    'valueProps.agile.desc': '极速检索响应，高性能异步处理，智能缓存优化',
+    'valueProps.agile.feature1': '极速检索响应',
+    'valueProps.agile.feature2': '高性能异步处理',
+    'valueProps.agile.feature3': '智能缓存优化',
+    'valueProps.affordable.title': '更省',
+    'valueProps.affordable.en': 'Affordable',
+    'valueProps.affordable.desc': '降低存储成本，智能内存管理，资源高效利用',
+    'valueProps.affordable.feature1': '降低存储成本',
+    'valueProps.affordable.feature2': '智能内存管理',
+    'valueProps.affordable.feature3': '资源高效利用',
+    'valueProps.accurate.title': '更准',
+    'valueProps.accurate.en': 'Accurate',
+    'valueProps.accurate.desc': '精准记忆检索，AI 驱动的重要性评分，上下文感知匹配',
+    'valueProps.accurate.feature1': '精准记忆检索',
+    'valueProps.accurate.feature2': 'AI 驱动评分',
+    'valueProps.accurate.feature3': '上下文感知匹配',
   },
 };
 
@@ -166,17 +166,17 @@ export default function ValueProps() {
                       <span className={styles.comparisonUnit}>{activeComparison.unit}</span>
                     </div>
                     <div className={styles.improvement}>
-                      {hoveredKey === 'smart' && (
+                      {hoveredKey === 'accurate' && (
                         <span className={styles.improvementText}>
                           +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}%
                         </span>
                       )}
-                      {hoveredKey === 'speed' && (
+                      {hoveredKey === 'agile' && (
                         <span className={styles.improvementText}>
                           {((activeComparison.fullContext / activeComparison.powermem).toFixed(1))}x faster
                         </span>
                       )}
-                      {hoveredKey === 'save' && (
+                      {hoveredKey === 'affordable' && (
                         <span className={styles.improvementText}>
                           {((activeComparison.fullContext / activeComparison.powermem).toFixed(1))}x less
                         </span>

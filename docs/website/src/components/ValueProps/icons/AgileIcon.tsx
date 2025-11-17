@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function SmartIcon({ className }: { className?: string }) {
+export default function AgileIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -27,15 +27,7 @@ export default function SmartIcon({ className }: { className?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle
-        cx="12"
-        cy="12"
-        r="3"
-        fill="currentColor"
-        fillOpacity="0.5"
-      />
     </svg>
   );
 }
-
 
