@@ -16,6 +16,9 @@
   background-size: 400% 400%;
   animation: gradientShift 15s ease infinite;
   z-index: 0;
+  will-change: background-position;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 @keyframes gradientShift {
@@ -37,6 +40,9 @@
   opacity: 0.5;
   z-index: 1;
   animation: gridMove 20s linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 @keyframes gridMove {
@@ -61,6 +67,9 @@
   filter: blur(100px);
   opacity: 0.3;
   mix-blend-mode: screen;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .blob1 {
@@ -444,6 +453,44 @@
 }
 
 @media (max-width: 768px) {
+  /* 移动端禁用或简化动画以减少闪烁 */
+  .heroBackground {
+    animation: none !important;
+    background-position: 0% 50% !important;
+  }
+
+  .gridBackground {
+    animation: none !important;
+    transform: translate(0, 0) !important;
+  }
+
+  .blob {
+    animation: none !important;
+    filter: blur(50px) !important; /* 减少模糊效果 */
+    opacity: 0.2 !important; /* 降低透明度 */
+  }
+
+  .blob1,
+  .blob2,
+  .blob3 {
+    transform: translate(0, 0) scale(1) rotate(0deg) !important;
+  }
+
+  .heroTitleMemory {
+    animation: none !important;
+    background-position: 0% 50% !important;
+  }
+
+  .heroTitleMemory::before {
+    animation: none !important;
+    background-position: 0% 50% !important;
+  }
+
+  .heroTitleHighlight {
+    animation: none !important;
+    background-position: 0% center !important;
+  }
+
   .heroTitle {
     font-size: 2.5rem;
   }
@@ -462,6 +509,7 @@
 
   .codePreview {
     padding: 1rem;
+    backdrop-filter: blur(10px) !important; /* 减少模糊效果 */
   }
 
   .codeBlock code {

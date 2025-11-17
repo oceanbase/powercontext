@@ -26,10 +26,10 @@ export default function DefaultNavbarItemMobile({
       <NavbarNavLink 
         className={iconClassName} 
         href={href}
-        label={isIconLink ? undefined : label}
+        label={label}
         {...props}
       >
-        {isIconLink && (
+        {isIconLink ? (
           <>
             {isGitHub && (
               <svg
@@ -57,7 +57,7 @@ export default function DefaultNavbarItemMobile({
               </svg>
             )}
           </>
-        )}
+        ) : null}
       </NavbarNavLink>
     </li>
   );

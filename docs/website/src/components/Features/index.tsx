@@ -2,7 +2,7 @@ import React from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Heading from '@theme/Heading';
 import DeveloperIcon from './icons/DeveloperIcon';
-import BrainIcon from './icons/BrainIcon';
+import MemoryIcon from './icons/MemoryIcon';
 import UsersIcon from './icons/UsersIcon';
 import MultimodalIcon from './icons/MultimodalIcon';
 import DatabaseIcon from './icons/DatabaseIcon';
@@ -18,7 +18,7 @@ const features = [
     color: 'from-orange-500 to-orange-600',
   },
   {
-    icon: BrainIcon,
+    icon: MemoryIcon,
     key: 'intelligent',
     details: [
       'detail1',

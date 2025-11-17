@@ -79,7 +79,7 @@ const categoryScores = [
     category: 1, 
     bleu_score: 0.3507, 
     f1_score: 0.4553, 
-    llm_score: 0.7092, 
+    llm_score: 0.7163, 
     count: 282,
     nameKey: 'category.1.name',
     descKey: 'category.1.desc',
@@ -88,7 +88,7 @@ const categoryScores = [
     category: 2, 
     bleu_score: 0.4863, 
     f1_score: 0.6185, 
-    llm_score: 0.7726, 
+    llm_score: 0.7913, 
     count: 321,
     nameKey: 'category.2.name',
     descKey: 'category.2.desc',
@@ -97,7 +97,7 @@ const categoryScores = [
     category: 3, 
     bleu_score: 0.2522, 
     f1_score: 0.3320, 
-    llm_score: 0.5729, 
+    llm_score: 0.5521, 
     count: 96,
     nameKey: 'category.3.name',
     descKey: 'category.3.desc',
@@ -106,7 +106,7 @@ const categoryScores = [
     category: 4, 
     bleu_score: 0.4731, 
     f1_score: 0.5774, 
-    llm_score: 0.8133, 
+    llm_score: 0.8359, 
     count: 841,
     nameKey: 'category.4.name',
     descKey: 'category.4.desc',
@@ -116,7 +116,7 @@ const categoryScores = [
 const overallScores = {
   bleu_score: 0.4397,
   f1_score: 0.5483,
-  llm_score: 0.7708,
+  llm_score: 0.7870,
 };
 
 const tokenUsage = {

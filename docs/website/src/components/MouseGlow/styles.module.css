@@ -16,3 +16,10 @@
   z-index: -1;
 }
 
+/* 移动端隐藏鼠标光效 */
+@media (max-width: 768px) {
+  .glow {
+    display: none !important;
+  }
+}
+
