@@ -11,8 +11,8 @@
   <text x="160" y="110" font-family="Arial, sans-serif" font-size="64" font-weight="bold" fill="#0066cc" text-anchor="middle">+48.77%</text>
   <text x="160" y="150" font-family="Arial, sans-serif" font-size="12" fill="#666" text-anchor="middle">78.70% VS 52.9%</text>
   
-  <!-- より高速 -->
-  <text x="460" y="45" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#1a1a1a" text-anchor="middle">より高速</text>
+  <!-- アジャイル -->
+  <text x="460" y="45" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#1a1a1a" text-anchor="middle">アジャイル</text>
   <text x="460" y="110" font-family="Arial, sans-serif" font-size="64" font-weight="bold" fill="#0066cc" text-anchor="middle">91.83%</text>
   <text x="460" y="150" font-family="Arial, sans-serif" font-size="12" fill="#666" text-anchor="middle">1.44s VS 17.12s</text>
   
