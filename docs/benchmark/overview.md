@@ -357,6 +357,19 @@ The benchmark evaluates performance using multiple metrics:
     lsof -ti:8000 | xargs kill -9
     ```
 
+#### OpenAI API 404 Not Found Error
+- **Solution**:
+  - Check your `OPENAI_BASE_URL` is right, for example:
+    - https://api.openai.com/v1 ✅
+    - https://api.openai.com ❌
+    - https://api.openai.com/v1/chat/completions ❌
+    - https://api.openai.com/v1/embeddings ❌
+
+#### OpenAI API 402 Rate Limiting
+- **Solution**:
+  - Reduce concurrency: Adjust `max_workers` in `methods/add.py` if needed
+  - Increase the number of ApiKeys (the multi-ApiKey proxy solution will be uploaded in the future)
+
 #### Module not found errors
 - **Solution**: 
   - Install dependencies: `pip install -e .`
@@ -392,9 +405,24 @@ The benchmark evaluates performance using multiple metrics:
 #### Slow performance
 - **Solution**: 
   - The tests use multi-threading (32 workers by default)
-  - Adjust `max_workers` in `methods/add.py` if needed
+  - Reduce concurrency: Adjust `max_workers` in `methods/add.py` if needed
   - Consider running tests on a machine with more resources
   - Check server performance and database connection pool size
+
+#### Dataset not found
+- **Solution**: 
+  - Nltk data not found:
+    ```python
+    import nltk
+    nltk.download("punkt", quiet=True)
+    nltk.download("wordnet", quiet=True)
+    ```
+  - SentenceTransformer model not found:
+    ```python
+    from sentence_transformers import SentenceTransformer
+    # Initialize SentenceTransformer model (this will be reused)
+    sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+    ```
 
 ## License
 
