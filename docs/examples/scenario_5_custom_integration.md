@@ -16,6 +16,49 @@ powermem is designed to be extensible:
 - Custom storage backends
 - Custom intelligence plugins
 
+## Provider and Factory Configuration
+
+Factory configuration with config classes:
+
+```python
+from pydantic import Field
+from powermem.integrations.llm.config.base import BaseLLMConfig
+from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
+from powermem.storage.config.base import BaseVectorStoreConfig
+
+class CustomLLMConfig(BaseLLMConfig):
+    base_url: str | None = Field(default=None)
+    class Config:
+        extra = 'allow'
+
+class CustomEmbedderConfig(BaseEmbedderConfig):
+    dims: int = Field(default=768)
+    class Config:
+        extra = 'allow'
+
+class CustomVectorStoreConfig(BaseVectorStoreConfig):
+    connection_string: str = Field(default='')
+    collection_name: str = Field(default='memories')
+    class Config:
+        extra = 'allow'
+
+from powermem.integrations.llm.factory import LLMFactory
+from powermem.integrations.embeddings.factory import EmbedderFactory
+from powermem.storage.factory import VectorStoreFactory
+
+LLMFactory.provider_to_class.update({
+    "custom": ("powermem.integrations.llm.custom.CustomLLM", CustomLLMConfig),
+})
+
+EmbedderFactory.provider_to_class.update({
+    "custom": "powermem.integrations.embeddings.custom.CustomEmbedder"
+})
+
+VectorStoreFactory.provider_to_class.update({
+     "custom": "powermem.storage.custom.custom_integration_example.CustomVectorStore"
+})
+```
+
 ## Step 1: Custom LLM Provider
 
 Implement a custom LLM provider:
