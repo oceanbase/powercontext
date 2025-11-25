@@ -1,0 +1,42 @@
+name: Test Frontend Build
+
+on:
+  push:
+    # Trigger on all branches
+  pull_request:
+    # Trigger on all branches
+  workflow_dispatch:
+
+jobs:
+  test-frontend:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: docs/website/package-lock.json
+
+      - name: Make deploy script executable
+        run: chmod +x scripts/deploy-frontend.sh
+
+      - name: Test frontend build
+        run: bash scripts/deploy-frontend.sh
+
+      - name: Verify build output
+        run: |
+          if [ ! -d "docs/website/build" ]; then
+            echo "Error: Build directory not found"
+            exit 1
+          fi
+          echo "Build directory exists"
+          echo "Build size:"
+          du -sh docs/website/build
+          echo "Number of files:"
+          find docs/website/build -type f | wc -l
+

@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function SaveIcon({ className }: { className?: string }) {
+export default function AffordableIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -30,5 +30,4 @@ export default function SaveIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-
 

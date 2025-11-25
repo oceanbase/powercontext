@@ -7,10 +7,14 @@
  * The plugin works by reading the source docs directory (before renaming) to get
  * the original filenames with numeric prefixes, then sorting sidebar items accordingly.
  *
+ * Special handling:
+ * - overview.md files are always sorted first (before numbered items)
+ *
  * Examples:
- * - 0000-overview.md -> sorted first (position 0)
- * - 0001-getting_started.md -> sorted second (position 1)
- * - overview.md (no prefix) -> sorted last (position 999)
+ * - overview.md -> sorted first (position -1)
+ * - 0000-intro.md -> sorted second (position 0)
+ * - 0001-getting_started.md -> sorted third (position 1)
+ * - other.md (no prefix) -> sorted last (position 10000+)
  */
 
 const fs = require('fs');
@@ -114,6 +118,7 @@ async function sidebarItemsGenerator(args) {
    * Sort sidebar items based on numeric prefix
    * Items with numeric prefixes are sorted by prefix number
    * Items without numeric prefixes are sorted alphabetically after numbered items
+   * overview.md files are always sorted first (before numbered items)
    */
   function sortSidebarItems(items) {
     // First, map items and calculate sort keys
@@ -123,18 +128,29 @@ async function sidebarItemsGenerator(args) {
 
       if (item.type === 'doc') {
         const docId = item.id;
-        // Get numeric prefix from docId or filename
-        const numericPrefix = getNumericPrefixFromDocId(docId, docsPath);
-        if (numericPrefix !== null) {
-          sortKey = numericPrefix;
-          // Debug log (can be removed later)
-          console.log(`[docusaurus-plugin-sort-docs] Doc ${docId} has prefix ${numericPrefix}`);
+        // Extract the filename to check if it's overview
+        const parts = docId.split('/');
+        const filename = parts[parts.length - 1].toLowerCase();
+        
+        // Check if this is an overview.md file (case-insensitive)
+        if (filename === 'overview') {
+          // overview.md files should be sorted first (before numbered items)
+          sortKey = -1;
+          sortName = 'overview';
+          console.log(`[docusaurus-plugin-sort-docs] Doc ${docId} is overview, setting sortKey to -1`);
         } else {
-          // No prefix: use a large base number (10000) + alphabetical order
-          // Extract the filename for alphabetical sorting
-          const parts = docId.split('/');
-          sortName = parts[parts.length - 1].toLowerCase();
-          sortKey = 10000; // Base value for items without prefix
+          // Get numeric prefix from docId or filename
+          const numericPrefix = getNumericPrefixFromDocId(docId, docsPath);
+          if (numericPrefix !== null) {
+            sortKey = numericPrefix;
+            // Debug log (can be removed later)
+            console.log(`[docusaurus-plugin-sort-docs] Doc ${docId} has prefix ${numericPrefix}`);
+          } else {
+            // No prefix: use a large base number (10000) + alphabetical order
+            // Extract the filename for alphabetical sorting
+            sortName = filename;
+            sortKey = 10000; // Base value for items without prefix
+          }
         }
       } else if (item.type === 'category' && item.items) {
         // Recursively sort category items
@@ -145,13 +161,21 @@ async function sidebarItemsGenerator(args) {
           // Try to get sort key from first item (if it's a doc)
           if (firstItem.type === 'doc') {
             const firstDocId = firstItem.id;
-            const firstPrefix = getNumericPrefixFromDocId(firstDocId, docsPath);
-            if (firstPrefix !== null) {
-              sortKey = firstPrefix;
+            const firstParts = firstDocId.split('/');
+            const firstFilename = firstParts[firstParts.length - 1].toLowerCase();
+            
+            // Check if first item is overview
+            if (firstFilename === 'overview') {
+              sortKey = -1;
+              sortName = 'overview';
             } else {
-              const firstParts = firstDocId.split('/');
-              sortName = firstParts[firstParts.length - 1].toLowerCase();
-              sortKey = 10000;
+              const firstPrefix = getNumericPrefixFromDocId(firstDocId, docsPath);
+              if (firstPrefix !== null) {
+                sortKey = firstPrefix;
+              } else {
+                sortName = firstFilename;
+                sortKey = 10000;
+              }
             }
           }
         } else {
@@ -174,6 +198,7 @@ async function sidebarItemsGenerator(args) {
     // Sort by sort key, then by alphabetical order for items without prefix
     itemsWithKeys.sort((a, b) => {
       // First compare by sort key
+      // overview.md files (sortKey = -1) will be sorted first
       if (a.sortKey !== b.sortKey) {
         return a.sortKey - b.sortKey;
       }
@@ -181,6 +206,7 @@ async function sidebarItemsGenerator(args) {
       if (a.sortKey >= 10000 && b.sortKey >= 10000) {
         return a.sortName.localeCompare(b.sortName);
       }
+      // If both are overview (sortKey = -1), maintain original order
       return 0;
     });
 
