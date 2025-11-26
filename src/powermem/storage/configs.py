@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from powermem.integrations.llm.configs import LLMConfig
 from powermem.storage.config.oceanbase import OceanBaseGraphConfig
+from powermem.storage.factory import VectorStoreFactory
 
 
 class VectorStoreConfig(BaseModel):
@@ -40,7 +41,8 @@ class VectorStoreConfig(BaseModel):
         if provider is not None and provider == "postgres":
             provider = "pgvector"
 
-        if provider not in self._provider_configs:
+        # Check both initialized providers and Factory-registered providers
+        if provider not in self._provider_configs and provider not in VectorStoreFactory.provider_to_class:
             raise ValueError(f"Unsupported vector store provider: {provider}")
 
         if config is None:
@@ -73,22 +75,23 @@ class VectorStoreConfig(BaseModel):
 
         # Validate config by attempting to create provider-specific config instance
         # This ensures the config has valid fields, but we don't store the converted object
-        module = __import__(
-            f"powermem.storage.config.{provider}",
-            fromlist=[self._provider_configs[provider]],
-        )
-        config_class = getattr(module, self._provider_configs[provider])
+        if provider in self._provider_configs:
+            module = __import__(
+                f"powermem.storage.config.{provider}",
+                fromlist=[self._provider_configs[provider]],
+            )
+            config_class = getattr(module, self._provider_configs[provider])
 
-        # Add default path if needed
-        if "path" not in config and "path" in config_class.__annotations__:
-            config["path"] = f"/tmp/{provider}"
-            self.config = config
+            # Add default path if needed
+            if "path" not in config and "path" in config_class.__annotations__:
+                config["path"] = f"/tmp/{provider}"
+                self.config = config
 
-        # Validate by creating instance (throws error if invalid)
-        try:
-            config_class(**config)
-        except Exception as e:
-            raise ValueError(f"Invalid configuration for {provider}: {e}")
+            # Validate by creating instance (throws error if invalid)
+            try:
+                config_class(**config)
+            except Exception as e:
+                raise ValueError(f"Invalid configuration for {provider}: {e}")
 
         # Keep config as dict, don't convert to config_class instance
         return self
