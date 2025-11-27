@@ -8,29 +8,36 @@ import styles from './styles.module.css';
 const codeExamples: Record<string, Record<string, string>> = {
   en: {
     install: 'pip install powermem',
-    basicUsage: `from powermem import create_memory
+    basicUsage: `from powermem import Memory, auto_config
 
-# Auto-load from .env
-memory = create_memory()
+# Load configuration (auto-loads from .env)
+config = auto_config()
+memory = Memory(config=config)
 
 # Add memory
 memory.add("User likes coffee", user_id="user123")
 
 # Search memories
-memories = memory.search("user preferences", user_id="user123")`,
-    multiAgent: `# Create independent memories for different agents
-support_memory = create_memory(agent_id="support_agent")
-sales_memory = create_memory(agent_id="sales_agent")
+results = memory.search("user preferences", user_id="user123")`,
+    multiAgent: `from powermem import Memory, auto_config
+
+config = auto_config()
+
+# Create memory instances for different agents
+support_agent = Memory(config=config, agent_id="support_agent")
+sales_agent = Memory(config=config, agent_id="sales_agent")
+tech_agent = Memory(config=config, agent_id="tech_agent")
 
 # Add agent-specific memories
 support_memory.add("Customer prefers email support", user_id="customer123")`,
   },
   zh: {
     install: 'pip install powermem',
-    basicUsage: `from powermem import create_memory
+    basicUsage: `from powermem import Memory, auto_config
 
 # 自动从 .env 加载配置
-memory = create_memory()
+config = auto_config()
+memory = Memory(config=config)
 
 # 添加记忆
 memory.add("用户喜欢咖啡", user_id="user123")
@@ -38,8 +45,13 @@ memory.add("用户喜欢咖啡", user_id="user123")
 # 搜索记忆
 memories = memory.search("用户偏好", user_id="user123")`,
     multiAgent: `# 为不同代理创建独立的记忆空间
-support_memory = create_memory(agent_id="support_agent")
-sales_memory = create_memory(agent_id="sales_agent")
+from powermem import Memory, auto_config
+
+config = auto_config()
+# Create memory instances for different agents
+support_agent = Memory(config=config, agent_id="support_agent")
+sales_agent = Memory(config=config, agent_id="sales_agent")
+tech_agent = Memory(config=config, agent_id="tech_agent")
 
 # 添加代理特定记忆
 support_memory.add("客户偏好邮件支持", user_id="customer123")`,

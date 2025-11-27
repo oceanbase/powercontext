@@ -33,20 +33,22 @@ export default function Hero() {
   const isZh = i18n.currentLocale === 'zh';
 
   const codeExample = isZh
-    ? `from powermem import create_memory
+    ? `from powermem import Memory, auto_config
 
 # 自动从 .env 加载配置
-memory = create_memory()
+config = auto_config()
+memory = Memory(config=config)
 
 # 添加记忆
 memory.add("用户喜欢咖啡", user_id="user123")
 
 # 搜索记忆
 memories = memory.search("用户偏好", user_id="user123")`
-    : `from powermem import create_memory
+    : `from powermem import Memory, auto_config
 
 # Auto-load from .env
-memory = create_memory()
+config = auto_config()
+memory = Memory(config=config)
 
 # Add memory
 memory.add("User likes coffee", user_id="user123")
