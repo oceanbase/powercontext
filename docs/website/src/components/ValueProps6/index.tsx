@@ -163,7 +163,7 @@ export default function ValueProps6() {
                       <div className={styles.barImprovement}>
                         {hoveredKey === 'accurate' && (
                           <span className={styles.improvementText}>
-                            +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}%
+                            +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}
                           </span>
                         )}
                         {hoveredKey === 'agile' && (

@@ -185,7 +185,7 @@ export default function ValueProps5() {
                       <div className={styles.circleImprovement}>
                         {hoveredKey === 'accurate' && (
                           <span className={styles.improvementText}>
-                            +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}%
+                            +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}
                           </span>
                         )}
                         {hoveredKey === 'agile' && (

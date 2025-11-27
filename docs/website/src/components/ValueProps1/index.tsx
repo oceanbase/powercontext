@@ -183,7 +183,7 @@ export default function ValueProps1() {
                   <div className={styles.improvement}>
                     {hoveredKey === 'accurate' && (
                       <span className={styles.improvementText}>
-                        +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}%
+                        +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}
                       </span>
                     )}
                     {hoveredKey === 'agile' && (

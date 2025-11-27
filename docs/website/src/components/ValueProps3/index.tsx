@@ -153,7 +153,7 @@ export default function ValueProps3() {
                       <div className={styles.cardImprovement}>
                         {hoveredKey === 'accurate' && (
                           <span className={styles.improvementText}>
-                            +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}%
+                            +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}
                           </span>
                         )}
                         {hoveredKey === 'agile' && (

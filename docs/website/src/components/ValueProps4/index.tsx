@@ -150,7 +150,7 @@ export default function ValueProps4() {
                       <div className={styles.dashboardImprovement}>
                         {hoveredKey === 'accurate' && (
                           <span className={styles.improvementText}>
-                            +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}%
+                            +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}
                           </span>
                         )}
                         {hoveredKey === 'agile' && (
