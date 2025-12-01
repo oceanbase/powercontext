@@ -34,11 +34,38 @@ class EmbedderFactory:
 
     @classmethod
     def create(cls, provider_name, config, vector_config: Optional[dict]):
+        # Helper function to extract dimension from vector_config (handles both dict and object)
+        def get_dimension_from_vector_config(vector_config, default=1536):
+            if not vector_config:
+                return default
+            if isinstance(vector_config, dict):
+                return vector_config.get('embedding_model_dims', default)
+            else:
+                return getattr(vector_config, 'embedding_model_dims', default)
+        
         # Handle mock provider directly
         if provider_name == "mock":
-            return MockEmbeddings()
-        if provider_name == "upstash_vector" and vector_config and vector_config.enable_embeddings:
-            return MockEmbeddings()
+            # Extract dimension from vector_config or embedder config, default to 1536
+            dimension = 1536  # Default dimension
+            dimension = get_dimension_from_vector_config(vector_config, dimension)
+            if config:
+                dimension = config.get('embedding_dims', dimension)
+            return MockEmbeddings(dimension=dimension)
+        if provider_name == "upstash_vector" and vector_config:
+            # Check enable_embeddings (handles both dict and object)
+            enable_embeddings = False
+            if isinstance(vector_config, dict):
+                enable_embeddings = vector_config.get('enable_embeddings', False)
+            else:
+                enable_embeddings = getattr(vector_config, 'enable_embeddings', False)
+            
+            if enable_embeddings:
+                # Extract dimension from vector_config or embedder config, default to 1536
+                dimension = 1536  # Default dimension
+                dimension = get_dimension_from_vector_config(vector_config, dimension)
+                if config:
+                    dimension = config.get('embedding_dims', dimension)
+                return MockEmbeddings(dimension=dimension)
         class_type = cls.provider_to_class.get(provider_name)
         if class_type:
             embedder_instance = load_class(class_type)

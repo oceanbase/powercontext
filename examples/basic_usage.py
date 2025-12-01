@@ -23,8 +23,8 @@ def main():
     print("=" * 60)
     
     # Check if .env exists and load it
-    env_path = os.path.join(os.path.dirname(__file__), "..", "configs", ".env")
-    env_example_path = os.path.join(os.path.dirname(__file__), "..", "configs", "env.example")
+    env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+    env_example_path = os.path.join(os.path.dirname(__file__), "..", "env.example")
     
     if not os.path.exists(env_path):
         print(f"\n No .env file found at: {env_path}")

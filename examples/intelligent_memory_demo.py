@@ -38,7 +38,7 @@ def load_config():
     
     Uses the auto_config() utility function to automatically load from .env.
     """
-    oceanbase_env_path = os.path.join(os.path.dirname(__file__), '..', 'configs', '.env')
+    oceanbase_env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
     
     if os.path.exists(oceanbase_env_path):
         load_dotenv(oceanbase_env_path, override=True)

@@ -159,7 +159,8 @@ class AsyncMemory(MemoryBase):
         
         # Extract embedder config
         embedder_config = self._get_component_config('embedder')
-        self.embedding = EmbedderFactory.create(self.embedding_provider, embedder_config, None)
+        # Pass vector_store_config so factory can extract embedding_model_dims for mock embeddings
+        self.embedding = EmbedderFactory.create(self.embedding_provider, embedder_config, vector_store_config)
         
         # Initialize storage adapter with embedding service
         # Automatically select adapter based on sub_stores configuration
@@ -1415,10 +1416,12 @@ class AsyncMemory(MemoryBase):
                 if key not in sub_embedding_params and key in main_embedding_config:
                     sub_embedding_params[key] = main_embedding_config[key]
 
+            # Create a config dict with embedding_model_dims for mock embeddings
+            sub_vector_config = {'embedding_model_dims': embedding_model_dims}
             sub_embedding = EmbedderFactory.create(
                 sub_embedding_provider,
                 sub_embedding_params,
-                None
+                sub_vector_config
             )
             logger.info(f"Created sub embedding service for store {index}: {sub_embedding_provider}")
         else:
