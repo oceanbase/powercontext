@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from powermem.integrations.llm.config.base import BaseLLMConfig
 
@@ -22,13 +22,16 @@ class AzureOpenAIConfig(BaseLLMConfig):
             vision_details: Optional[str] = "auto",
             http_client_proxies: Optional[dict] = None,
             # Azure OpenAI-specific parameters
-            azure_kwargs: Optional[Dict[str, Any]] = None,
+            azure_endpoint: Optional[str] = None,
+            api_version: Optional[str] = "2025-01-01-preview",
+            azure_ad_token_provider: Optional[Callable[[], str]] = None,
+            deployment_name: Optional[str] = None,
     ):
         """
         Initialize Azure OpenAI configuration.
 
         Args:
-            model: Azure OpenAI model to use, defaults to None
+            model: Azure OpenAI deployment name to use, defaults to None
             temperature: Controls randomness, defaults to 0.1
             api_key: Azure OpenAI API key, defaults to None
             max_tokens: Maximum tokens to generate, defaults to 2000
@@ -37,7 +40,10 @@ class AzureOpenAIConfig(BaseLLMConfig):
             enable_vision: Enable vision capabilities, defaults to False
             vision_details: Vision detail level, defaults to "auto"
             http_client_proxies: HTTP client proxy settings, defaults to None
-            azure_kwargs: Azure-specific configuration, defaults to None
+            azure_endpoint: Azure OpenAI endpoint URL, defaults to None
+            api_version: Azure OpenAI API version, defaults to "2025-01-01-preview"
+            azure_ad_token_provider: Callable that returns an Azure AD token, defaults to None
+            deployment_name: Azure OpenAI deployment name (alias for model), defaults to None
         """
         # Initialize base parameters
         super().__init__(
@@ -53,4 +59,9 @@ class AzureOpenAIConfig(BaseLLMConfig):
         )
 
         # Azure OpenAI-specific parameters
-        self.azure_kwargs = AzureConfig(**(azure_kwargs or {}))
+        self.azure_endpoint = azure_endpoint
+        self.api_version = api_version
+        self.azure_ad_token_provider = azure_ad_token_provider
+        # Use deployment_name if provided, otherwise use model
+        if deployment_name:
+            self.model = deployment_name

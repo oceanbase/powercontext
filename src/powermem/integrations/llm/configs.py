@@ -17,6 +17,7 @@ class LLMConfig(BaseModel):
             "ollama",
             "anthropic",
             "openai_structured",
+            "azure",
             "gemini",
             "deepseek",
             "vllm",

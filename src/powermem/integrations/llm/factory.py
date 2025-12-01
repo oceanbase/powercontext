@@ -2,6 +2,7 @@ import importlib
 from typing import Dict, Optional, Union
 
 from powermem.integrations.llm.config.anthropic import AnthropicConfig
+from powermem.integrations.llm.config.azure import AzureOpenAIConfig
 from powermem.integrations.llm.config.base import BaseLLMConfig
 from powermem.integrations.llm.config.deepseek import DeepSeekConfig
 from powermem.integrations.llm.config.ollama import OllamaConfig
@@ -29,6 +30,7 @@ class LLMFactory:
         "openai": ("powermem.integrations.llm.openai.OpenAILLM", OpenAIConfig),
         "openai_structured": ("powermem.integrations.llm.openai_structured.OpenAIStructuredLLM", OpenAIConfig),
         "anthropic": ("powermem.integrations.llm.anthropic.AnthropicLLM", AnthropicConfig),
+        "azure": ("powermem.integrations.llm.azure.AzureLLM", AzureOpenAIConfig),
         "gemini": ("powermem.integrations.llm.gemini.GeminiLLM", BaseLLMConfig),
         "deepseek": ("powermem.integrations.llm.deepseek.DeepSeekLLM", DeepSeekConfig),
         "vllm": ("powermem.integrations.llm.vllm.VllmLLM", VllmConfig),
