@@ -37,6 +37,7 @@ class LLMFactory:
         "langchain": ("powermem.integrations.llm.langchain.LangchainLLM", BaseLLMConfig),
         "qwen": ("powermem.integrations.llm.qwen.QwenLLM", QwenConfig),
         "qwen_asr": ("powermem.integrations.llm.qwen_asr.QwenASR", QwenASRConfig),
+        "siliconflow": ("powermem.integrations.llm.siliconflow.SiliconFlowLLM", OpenAIConfig),
     }
 
     @classmethod

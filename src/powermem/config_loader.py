@@ -131,6 +131,10 @@ def load_config_from_env() -> Dict[str, Any]:
         base_url = os.getenv('LLM_BASE_URL')
         if base_url:
             llm_config['openai_base_url'] = base_url
+    elif llm_provider == 'siliconflow':
+        # SiliconFlow uses OpenAI-compatible API
+        base_url = os.getenv('LLM_BASE_URL', 'https://api.siliconflow.cn/v1')
+        llm_config['openai_base_url'] = base_url
     
     config = {
         'vector_store': {

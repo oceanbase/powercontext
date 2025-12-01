@@ -23,6 +23,7 @@ class LLMConfig(BaseModel):
             "vllm",
             "langchain",
             "qwen",
+            "siliconflow",
         )
         if provider in initialized_providers or provider in LLMFactory.provider_to_class:
             return v
