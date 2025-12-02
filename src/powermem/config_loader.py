@@ -198,6 +198,62 @@ def load_config_from_env() -> Dict[str, Any]:
         }
     }
     
+    # Build graph_store config if enabled
+    graph_store_enabled = os.getenv('GRAPH_STORE_ENABLED', 'false').lower() == 'true'
+    if graph_store_enabled:
+        graph_store_provider = os.getenv('GRAPH_STORE_PROVIDER', 'oceanbase')
+        
+        # Build graph store config based on provider
+        if graph_store_provider == 'oceanbase':
+            # OceanBase graph configuration
+            graph_connection_args = {
+                "host": os.getenv('GRAPH_STORE_HOST', os.getenv('DATABASE_HOST', '127.0.0.1')),
+                "port": os.getenv('GRAPH_STORE_PORT', os.getenv('DATABASE_PORT', '2881')),
+                "user": os.getenv('GRAPH_STORE_USER', os.getenv('DATABASE_USER', 'root@sys')),
+                "password": os.getenv('GRAPH_STORE_PASSWORD', os.getenv('DATABASE_PASSWORD', 'password')),
+                "db_name": os.getenv('GRAPH_STORE_DB_NAME', os.getenv('DATABASE_NAME', 'powermem'))
+            }
+            graph_config = {
+                'host': graph_connection_args['host'],
+                'port': graph_connection_args['port'],
+                'user': graph_connection_args['user'],
+                'password': graph_connection_args['password'],
+                'db_name': graph_connection_args['db_name'],
+                'vidx_metric_type': os.getenv('GRAPH_STORE_VECTOR_METRIC_TYPE', os.getenv('DATABASE_VECTOR_METRIC_TYPE', 'l2')),
+                'index_type': os.getenv('GRAPH_STORE_INDEX_TYPE', os.getenv('DATABASE_INDEX_TYPE', 'HNSW')),
+                'embedding_model_dims': int(os.getenv('GRAPH_STORE_EMBEDDING_MODEL_DIMS', os.getenv('DATABASE_EMBEDDING_MODEL_DIMS', '1536'))),
+                'max_hops': int(os.getenv('GRAPH_STORE_MAX_HOPS', '3'))
+            }
+        else:
+            # Default/fallback configuration
+            graph_config = {}
+        
+        # Build graph_store config dict
+        graph_store_config = {
+            'enabled': True,
+            'provider': graph_store_provider,
+            'config': graph_config
+        }
+
+        # Add optional custom prompts
+        custom_prompt = os.getenv('GRAPH_STORE_CUSTOM_PROMPT')
+        if custom_prompt:
+            graph_store_config['custom_prompt'] = custom_prompt
+        
+        custom_extract_relations_prompt = os.getenv('GRAPH_STORE_CUSTOM_EXTRACT_RELATIONS_PROMPT')
+        if custom_extract_relations_prompt:
+            graph_store_config['custom_extract_relations_prompt'] = custom_extract_relations_prompt
+        
+        custom_update_graph_prompt = os.getenv('GRAPH_STORE_CUSTOM_UPDATE_GRAPH_PROMPT')
+        if custom_update_graph_prompt:
+            graph_store_config['custom_update_graph_prompt'] = custom_update_graph_prompt
+        
+        custom_delete_relations_prompt = os.getenv('GRAPH_STORE_CUSTOM_DELETE_RELATIONS_PROMPT')
+        if custom_delete_relations_prompt:
+            graph_store_config['custom_delete_relations_prompt'] = custom_delete_relations_prompt
+        
+        config['graph_store'] = graph_store_config
+    
     return config
 
 
