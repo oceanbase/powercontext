@@ -9,7 +9,7 @@ Run with: pytest -m e2e_config tests/e2e/test_basic_usage_e2e.py
 import os
 import pytest
 from dotenv import load_dotenv
-from powermem import create_memory, auto_config
+from powermem import Memory, auto_config
 
 
 @pytest.fixture(scope="module")

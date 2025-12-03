@@ -1,12 +1,13 @@
-# LangGraph Customer Service Bot Dependencies
+# LangChain Healthcare Support Bot Dependencies
 # Install with: pip install -r requirements.txt
 
 # Core dependencies
 powermem>=0.1.0
 python-dotenv>=1.0.0
 
-# LangGraph and LangChain dependencies
-langgraph>=1.0.0
+openai>=1.109.1,<3.0.0
+
+# LangChain dependencies
 langchain>=1.1.0
 langchain-core>=1.1.0
 langchain-openai>=1.1.0

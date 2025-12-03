@@ -57,11 +57,11 @@ config = {
         "config": {
             "collection_name": "simple_test",
             "embedding_model_dims": 1536,
-            "host": os.getenv("OCEANBASE_HOST", "6.12.233.170"),
+            "host": os.getenv("OCEANBASE_HOST", "127.0.0.1"),
             "port": int(os.getenv("OCEANBASE_PORT", "2881")),
-            "user": os.getenv("OCEANBASE_USER", "root@test_tenant"),
-            "password": os.getenv("OCEANBASE_PASSWORD", "123456"),
-            "db_name": os.getenv("OCEANBASE_DB", "test_hybrid"),
+            "user": os.getenv("OCEANBASE_USER", "root@sys"),
+            "password": os.getenv("OCEANBASE_PASSWORD", ""),
+            "db_name": os.getenv("OCEANBASE_DB", "test"),
         }
     },
     "version": "v1.1",
@@ -193,11 +193,11 @@ config = {
         "config": {
             "collection_name": "simple_test",
             "embedding_model_dims": 1536,
-            "host": os.getenv("OCEANBASE_HOST", "6.12.233.170"),
+            "host": os.getenv("OCEANBASE_HOST", "127.0.0.1"),
             "port": int(os.getenv("OCEANBASE_PORT", "2881")),
-            "user": os.getenv("OCEANBASE_USER", "root@test_tenant"),
-            "password": os.getenv("OCEANBASE_PASSWORD", "123456"),
-            "db_name": os.getenv("OCEANBASE_DB", "test_hybrid"),
+            "user": os.getenv("OCEANBASE_USER", "root@sys"),
+            "password": os.getenv("OCEANBASE_PASSWORD", ""),
+            "db_name": os.getenv("OCEANBASE_DB", "test"),
         }
     },
     "version": "v1.1",

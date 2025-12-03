@@ -64,7 +64,7 @@ pip install -r requirements.txt
 pip install powermem python-dotenv
 
 # LangGraph dependencies
-pip install langgraph langchain langchain-core langchain-openai langchain-community
+pip install langgraph>=1.0.0 langchain>=1.1.0 langchain-core>=1.1.0 langchain-openai>=1.1.0 langchain-community>=0.4.1
 
 # OceanBase dependencies (if not already installed)
 pip install pyobvector sqlalchemy
@@ -73,7 +73,7 @@ pip install pyobvector sqlalchemy
 **Option 3: Install all at once**
 
 ```bash
-pip install powermem python-dotenv langgraph langchain langchain-core langchain-openai langchain-community pyobvector sqlalchemy
+pip install powermem python-dotenv langgraph>=1.0.0 langchain>=1.1.0 langchain-core>=1.1.0 langchain-openai>=1.1.0 langchain-community>=0.4.1 pyobvector sqlalchemy
 ```
 
 ### 2. Configure OceanBase
@@ -328,7 +328,7 @@ workflow.add_edge("classify_intent", "handle_product_inquiry")
 
 **Solution**:
 ```bash
-pip install langgraph langchain langchain-openai langchain-core
+pip install langgraph>=1.0.0 langchain>=1.1.0 langchain-core>=1.1.0 langchain-openai>=1.1.0 langchain-community>=0.4.1
 ```
 
 ### API Key Issues

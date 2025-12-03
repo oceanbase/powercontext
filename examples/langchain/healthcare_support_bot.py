@@ -13,7 +13,7 @@ Features:
 - OceanBase database backend for scalable storage
 
 Setup:
-1. Install dependencies: pip install langchain langchain-community langchain-openai python-dotenv
+1. Install dependencies: pip install langchain>=1.1.0 langchain-core>=1.1.0 langchain-openai>=1.1.0 langchain-community>=0.4.1 python-dotenv
 2. Copy .env.example to .env and configure OceanBase
 3. Run: python healthcare_support_bot.py
 """
@@ -26,32 +26,17 @@ from dotenv import load_dotenv
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from powermem import create_memory, auto_config
+from powermem import Memory, auto_config
 
-# LangChain imports
+# LangChain imports - using new LangChain 1.1.0+ API
 try:
-    from langchain.memory import ConversationBufferMemory
-    from langchain.chains import ConversationChain
-    from langchain.prompts import PromptTemplate
-    # Try newer import first, fallback to older
-    try:
-        from langchain_openai import ChatOpenAI
-    except ImportError:
-        try:
-            from langchain.chat_models import ChatOpenAI
-        except ImportError:
-            ChatOpenAI = None
-    
-    try:
-        from langchain_community.llms import OpenAI
-    except ImportError:
-        try:
-            from langchain.llms import OpenAI
-        except ImportError:
-            OpenAI = None
+    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+    from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+    from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+    from langchain_openai import ChatOpenAI
 except ImportError as e:
     print("Please install langchain dependencies:")
-    print("  pip install langchain langchain-community langchain-openai")
+    print("  pip install langchain>=1.1.0 langchain-core>=1.1.0 langchain-openai>=1.1.0 langchain-community>=0.4.1")
     print(f"Error: {e}")
     sys.exit(1)
 
@@ -64,9 +49,7 @@ def load_oceanbase_config():
     """
     # Try to load from powermem.env from multiple possible locations
     possible_paths = [
-        os.path.join(os.path.dirname(__file__), '..', 'configs', 'powermem.env'),  # examples/.env
-        os.path.join(os.path.dirname(__file__), '..', '..', 'configs', 'powermem.env'),  # .env
-        os.path.join(os.path.dirname(__file__), '..', '..', 'powermem.env'),  # project root
+        os.path.join(os.path.dirname(__file__), '..', '..', '.env'),  # project root
     ]
     
     loaded = False
@@ -87,32 +70,33 @@ def load_oceanbase_config():
     return config
 
 
-class HealthcarePowerMemMemory(ConversationBufferMemory):
+class HealthcarePowerMemMemory:
     """
-    Custom memory class that integrates PowerMem with LangChain for healthcare support.
+    Custom memory class that integrates PowerMem with LangChain 1.1.0+ for healthcare support.
     
-    This class extends ConversationBufferMemory to:
-    - Store patient conversations in PowerMem
-    - Extract medical facts (symptoms, medications, history) automatically
-    - Retrieve relevant patient context for personalized responses
-    - Maintain privacy by isolating patient data by user_id
+    This class manages:
+    - Conversation history as a list of messages
+    - Storage of patient conversations in PowerMem
+    - Extraction of medical facts (symptoms, medications, history) automatically
+    - Retrieval of relevant patient context for personalized responses
+    - Privacy by isolating patient data by user_id
     """
     
-    def __init__(self, powermem_instance, user_id: str, **kwargs):
-        super().__init__(**kwargs)
-        # Use object.__setattr__ to bypass Pydantic validation for custom attributes
-        object.__setattr__(self, 'powermem', powermem_instance)
-        object.__setattr__(self, 'user_id', user_id)
+    def __init__(self, powermem_instance, user_id: str):
+        self.powermem = powermem_instance
+        self.user_id = user_id
+        self.messages: List[BaseMessage] = []
     
-    def save_context(self, inputs: Dict[str, Any], outputs: Dict[str, str]):
-        """Save conversation context to both LangChain buffer and PowerMem."""
-        super().save_context(inputs, outputs)
-        
-        # Extract user input and assistant response
-        user_input = inputs.get('input', '') if isinstance(inputs, dict) else str(inputs)
-        assistant_output = outputs.get('output', '') if isinstance(outputs, dict) else str(outputs)
-        
-        # Save to PowerMem with intelligent fact extraction
+    def add_message(self, message: BaseMessage):
+        """Add a message to the conversation history."""
+        self.messages.append(message)
+    
+    def get_messages(self) -> List[BaseMessage]:
+        """Get all conversation messages."""
+        return self.messages
+    
+    def save_to_powermem(self, user_input: str, assistant_output: str):
+        """Save conversation to PowerMem with intelligent fact extraction."""
         messages = [
             {"role": "user", "content": user_input},
             {"role": "assistant", "content": assistant_output}
@@ -131,12 +115,8 @@ class HealthcarePowerMemMemory(ConversationBufferMemory):
         except Exception as e:
             print(f"Warning: Failed to save to PowerMem: {e}")
     
-    def load_memory_variables(self, inputs: Dict[str, Any]) -> Dict[str, str]:
+    def get_patient_context(self, query: str) -> str:
         """Load relevant patient context from PowerMem."""
-        # Extract query from inputs
-        query = inputs.get('input', '') if isinstance(inputs, dict) else str(inputs)
-        
-        # Search PowerMem for relevant patient memories
         try:
             results = self.powermem.search(
                 query=query,
@@ -144,33 +124,17 @@ class HealthcarePowerMemMemory(ConversationBufferMemory):
                 limit=5  # Get top 5 relevant memories
             )
             
-            # Format memories for LangChain context
             memories = results.get('results', [])
             if memories:
                 memory_text = "\n".join([
                     f"- {mem.get('memory', '')}" for mem in memories
                 ])
+                return f"Patient Context (from previous conversations):\n{memory_text}"
             else:
-                memory_text = "No previous patient history found."
-            
+                return "No previous patient history found."
         except Exception as e:
             print(f"Warning: Failed to search PowerMem: {e}")
-            memory_text = "Unable to retrieve patient history."
-        
-        # Get conversation history from buffer
-        history = self.buffer if hasattr(self, 'buffer') else ""
-        
-        # Combine patient context with history
-        # Format: Patient context first, then conversation history
-        combined_history = f"""Patient Context (from previous conversations):
-{memory_text}
-
-Conversation History:
-{history}"""
-        
-        return {
-            "history": combined_history
-        }
+            return "Unable to retrieve patient history."
 
 
 class HealthcareSupportBot:
@@ -237,10 +201,7 @@ class HealthcareSupportBot:
                 
                 # For Qwen/DashScope, configure API endpoint
                 if llm_provider == 'qwen' and llm_base_url:
-                    # DashScope may need compatible mode or direct API endpoint
-                    # Try compatible mode first, fallback to original if it fails
                     if '/compatible-mode' not in llm_base_url and '/api/v1' in llm_base_url:
-                        # Try compatible mode endpoint
                         compatible_url = llm_base_url.replace('/api/v1', '/compatible-mode/v1')
                         llm_kwargs["base_url"] = compatible_url
                         print(f"  Using DashScope compatible mode: {compatible_url}")
@@ -252,20 +213,11 @@ class HealthcareSupportBot:
                 if llm_api_key:
                     llm_kwargs["api_key"] = llm_api_key
                 
-                # For DashScope, also set default_headers if needed
-                if llm_provider == 'qwen':
-                    llm_kwargs.setdefault("default_headers", {})
-                    # DashScope uses Authorization header with "Bearer" prefix
-                    if llm_api_key and not llm_api_key.startswith("Bearer "):
-                        # The api_key parameter should handle this, but we ensure it's set
-                        pass
-                
                 self.llm = ChatOpenAI(**llm_kwargs)
                 print(f"✓ LLM initialized: {llm_model} (provider: {llm_provider or 'openai'})")
             except Exception as e:
                 print(f"Warning: Failed to initialize ChatOpenAI: {e}")
                 print(f"  Attempting fallback configuration...")
-                # Try with original base_url if compatible mode failed
                 try:
                     if llm_provider == 'qwen' and llm_base_url:
                         llm_kwargs = {
@@ -281,28 +233,14 @@ class HealthcareSupportBot:
                 except Exception as e2:
                     print(f"Warning: Fallback also failed: {e2}")
                     self.llm = None
-        elif OpenAI:
-            # Fallback to OpenAI class (works with other providers too)
-            try:
-                llm_kwargs = {"temperature": llm_temperature}
-                if llm_base_url:
-                    llm_kwargs["base_url"] = llm_base_url
-                if llm_api_key:
-                    llm_kwargs["openai_api_key"] = llm_api_key
-                self.llm = OpenAI(**llm_kwargs)
-            except Exception as e:
-                print(f"Warning: Failed to initialize OpenAI: {e}")
-                self.llm = None
         
         if not self.llm:
             print("Warning: No LLM available. Using mock responses.")
             print("  Note: Conversations will still be saved to PowerMem database.")
         
-        # Create healthcare-specific prompt template
-        # Note: patient_context is now included in history by load_memory_variables
-        self.prompt = PromptTemplate(
-            input_variables=["history", "input"],
-            template="""You are a helpful and empathetic AI Healthcare Support Assistant. 
+        # Create healthcare-specific prompt template using new LangChain 1.1.0+ API
+        self.prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are a helpful and empathetic AI Healthcare Support Assistant. 
 Your role is to provide general health information, symptom guidance, and support to patients.
 
 IMPORTANT DISCLAIMERS:
@@ -311,23 +249,46 @@ IMPORTANT DISCLAIMERS:
 - Never diagnose medical conditions
 - Provide general information and guidance only
 
-{history}
-
-Current Patient Input: {input}
-
-Please provide a helpful, empathetic, and informative response. If the patient mentions serious symptoms 
-(chest pain, difficulty breathing, severe pain, etc.), strongly recommend immediate medical attention.
-
-AI Assistant Response:"""
-        )
+If the patient mentions serious symptoms (chest pain, difficulty breathing, severe pain, etc.), 
+strongly recommend immediate medical attention."""),
+            MessagesPlaceholder(variable_name="history"),
+            ("human", "{input}")
+        ])
         
-        # Create conversation chain
+        # Create conversation chain using new Runnable API
         if self.llm:
-            self.chain = ConversationChain(
-                llm=self.llm,
-                memory=self.langchain_memory,
-                prompt=self.prompt,
-                verbose=False
+            # Build the chain with patient context retrieval
+            def format_messages(input_dict: Dict[str, Any]) -> Dict[str, Any]:
+                """Retrieve patient context and format messages for the prompt."""
+                user_input = input_dict.get("input", "")
+                # Get patient context from PowerMem
+                patient_context = self.langchain_memory.get_patient_context(user_input)
+                # Get conversation history (excluding the current user input)
+                messages = self.langchain_memory.get_messages()
+                
+                # Format messages for the prompt
+                # The prompt expects: system message (with context), history messages, and current input
+                formatted_history = []
+                if patient_context and "No previous" not in patient_context and "Unable to retrieve" not in patient_context:
+                    # Add patient context as a system message in history
+                    formatted_history.append(("system", patient_context))
+                # Add previous conversation messages
+                for msg in messages:
+                    if isinstance(msg, HumanMessage):
+                        formatted_history.append(("human", msg.content))
+                    elif isinstance(msg, AIMessage):
+                        formatted_history.append(("assistant", msg.content))
+                
+                return {
+                    "history": formatted_history,
+                    "input": user_input
+                }
+            
+            # Create the chain
+            self.chain = (
+                RunnableLambda(format_messages)
+                | self.prompt
+                | self.llm
             )
         else:
             self.chain = None
@@ -347,18 +308,33 @@ AI Assistant Response:"""
             response = "I'm a healthcare support bot. Please configure an LLM API key to use this feature."
             # Still save to PowerMem even without LLM
             try:
-                self.langchain_memory.save_context(
-                    inputs={'input': user_input},
-                    outputs={'output': response}
-                )
+                self.langchain_memory.add_message(HumanMessage(content=user_input))
+                self.langchain_memory.add_message(AIMessage(content=response))
+                self.langchain_memory.save_to_powermem(user_input, response)
             except Exception as e:
                 print(f"Warning: Failed to save context: {e}")
             return response
         
         try:
-            response = self.chain.run(input=user_input)
-            # Note: save_context is automatically called by LangChain's ConversationChain
-            return response
+            # Add user message to history
+            self.langchain_memory.add_message(HumanMessage(content=user_input))
+            
+            # Invoke the chain
+            response_message = self.chain.invoke({"input": user_input})
+            
+            # Extract response content
+            if hasattr(response_message, 'content'):
+                response_text = response_message.content
+            else:
+                response_text = str(response_message)
+            
+            # Add assistant response to history
+            self.langchain_memory.add_message(AIMessage(content=response_text))
+            
+            # Save to PowerMem
+            self.langchain_memory.save_to_powermem(user_input, response_text)
+            
+            return response_text
         except Exception as e:
             error_msg = str(e)
             # Provide more helpful error messages
@@ -373,13 +349,9 @@ AI Assistant Response:"""
                 error_response = f"I apologize, but I encountered an error: {error_msg}. Please try again."
             
             # Always try to save the error context to PowerMem
-            # This ensures conversations are preserved even when LLM fails
             try:
-                self.langchain_memory.save_context(
-                    inputs={'input': user_input},
-                    outputs={'output': error_response}
-                )
-                # Print confirmation that memory was saved despite LLM error
+                self.langchain_memory.add_message(AIMessage(content=error_response))
+                self.langchain_memory.save_to_powermem(user_input, error_response)
                 print(f"  ✓ Conversation saved to PowerMem despite LLM error")
             except Exception as save_error:
                 print(f"Warning: Failed to save error context: {save_error}")

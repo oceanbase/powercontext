@@ -15,8 +15,10 @@ This example demonstrates how to build an AI Healthcare Support Bot using **Powe
 
 ```
 ┌─────────────────┐
-│  LangChain      │  Conversation handling and LLM integration
-│  (Chat Chain)   │
+│  LangChain 1.1+ │  Conversation handling using LCEL (LangChain Expression Language)
+│  (Runnable API) │  - ChatPromptTemplate
+│                 │  - Runnable chains
+│                 │  - Message management
 └────────┬────────┘
          │
          ▼
@@ -48,15 +50,30 @@ This example demonstrates how to build an AI Healthcare Support Bot using **Powe
 
 ### 1. Install Dependencies
 
+**Option 1: Install from requirements.txt (Recommended)**
+
+```bash
+cd examples/langchain
+pip install -r requirements.txt
+```
+
+**Option 2: Install manually**
+
 ```bash
 # Core dependencies
 pip install powermem python-dotenv
 
 # LangChain dependencies
-pip install langchain langchain-community langchain-openai
+pip install langchain>=1.1.0 langchain-core>=1.1.0 langchain-openai>=1.1.0 langchain-community>=0.4.1
 
 # OceanBase dependencies (if not already installed)
 pip install pyobvector sqlalchemy
+```
+
+**Option 3: Install all at once**
+
+```bash
+pip install powermem python-dotenv langchain>=1.1.0 langchain-core>=1.1.0 langchain-openai>=1.1.0 langchain-community>=0.4.1 pyobvector sqlalchemy
 ```
 
 ### 2. Configure OceanBase
@@ -144,11 +161,14 @@ python healthcare_support_bot.py --mode interactive --patient-id patient_john_00
 
 ### 1. Memory Integration
 
-The `HealthcarePowerMemMemory` class extends LangChain's `ConversationBufferMemory` to:
+The `HealthcarePowerMemMemory` class integrates PowerMem with LangChain 1.1.0+ using the new API:
 
+- **Message Management**: Manages conversation history as a list of `BaseMessage` objects
 - **Save Context**: Automatically saves conversations to PowerMem with intelligent fact extraction
 - **Load Context**: Retrieves relevant patient history based on current query
 - **Privacy**: Isolates patient data by `user_id`
+
+The implementation uses LangChain's new Runnable API instead of the legacy `ConversationBufferMemory` class.
 
 ### 2. Intelligent Fact Extraction
 
@@ -161,15 +181,25 @@ PowerMem automatically extracts medical facts from conversations:
 
 ### 3. Context-Aware Responses
 
-The bot uses retrieved patient context to provide personalized responses:
+The bot uses retrieved patient context to provide personalized responses. The implementation uses LangChain's `ChatPromptTemplate` and `RunnableLambda` to dynamically inject patient context:
 
 ```python
-# Patient context is automatically included in prompts
+# Patient context is automatically retrieved and included in prompts
 Patient Context (from previous conversations):
 - Patient Alice has been experiencing headaches
 - Headaches occur in the afternoon, moderate intensity
 - Currently taking ibuprofen 200mg twice daily
 - Has history of migraines
+```
+
+The conversation chain is built using LangChain Expression Language (LCEL):
+
+```python
+chain = (
+    RunnableLambda(format_messages)  # Retrieve patient context
+    | ChatPromptTemplate              # Format prompt with context
+    | ChatOpenAI                      # Generate response
+)
 ```
 
 ### 4. OceanBase Storage
@@ -259,7 +289,7 @@ summary = bot.get_patient_summary()
 
 **Solution**:
 ```bash
-pip install langchain langchain-community langchain-openai
+pip install langchain>=1.1.0 langchain-core>=1.1.0 langchain-openai>=1.1.0 langchain-community>=0.4.1
 ```
 
 ### API Key Issues
@@ -277,7 +307,7 @@ pip install langchain langchain-community langchain-openai
 
 **Solution**:
 1. Check OceanBase connection
-2. Verify `infer=True` is set in `save_context`
+2. Verify `infer=True` is set in `save_to_powermem` method
 3. Check database permissions
 4. Review error messages in console
 

@@ -14,7 +14,7 @@ Features:
 - OceanBase database backend for scalable storage
 
 Setup:
-1. Install dependencies: pip install langgraph langchain langchain-openai python-dotenv
+1. Install dependencies: pip install langgraph>=1.0.0 langchain langchain-openai python-dotenv
 2. Copy .env.example to .env and configure OceanBase
 3. Run: python customer_service_bot.py
 """
@@ -27,19 +27,19 @@ from dotenv import load_dotenv
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from powermem import create_memory, auto_config
+from powermem import Memory, auto_config
 
 # LangGraph and LangChain imports
 try:
-    from langgraph.graph import StateGraph, END
+    from langgraph.graph import StateGraph, END, START
 except ImportError as e:
     print("=" * 80)
     print("ERROR: langgraph package is not installed")
     print("=" * 80)
     print("\nPlease install the required dependencies:")
-    print("  pip install langgraph langchain langchain-core langchain-openai")
+    print("  pip install langgraph>=1.0.0 langchain langchain-core langchain-openai")
     print("\nOr install all dependencies at once:")
-    print("  pip install langgraph langchain langchain-core langchain-openai langchain-community")
+    print("  pip install langgraph>=1.0.0 langchain langchain-core langchain-openai langchain-community")
     print(f"\nImport error details: {e}")
     print("=" * 80)
     sys.exit(1)
@@ -75,9 +75,7 @@ def load_oceanbase_config():
     """
     # Try to load from powermem.env from multiple possible locations
     possible_paths = [
-        os.path.join(os.path.dirname(__file__), '..', 'configs', 'powermem.env'),  # examples/.env
-        os.path.join(os.path.dirname(__file__), '..', '..', 'configs', 'powermem.env'),  # .env
-        os.path.join(os.path.dirname(__file__), '..', '..', 'powermem.env'),  # project root
+        os.path.join(os.path.dirname(__file__), '..', '..', '.env'),  # project root
     ]
     
     loaded = False
@@ -200,8 +198,8 @@ class CustomerServiceBot:
         workflow.add_node("handle_general", self._handle_general)
         workflow.add_node("save_conversation", self._save_conversation)
         
-        # Set entry point
-        workflow.set_entry_point("load_context")
+        # Set entry point using START constant (LangGraph 1.0+ best practice)
+        workflow.add_edge(START, "load_context")
         
         # Add edges
         workflow.add_edge("load_context", "classify_intent")
