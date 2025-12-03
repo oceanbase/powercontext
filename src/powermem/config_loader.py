@@ -146,12 +146,19 @@ def load_config_from_env() -> Dict[str, Any]:
     }
 
     # Add provider-specific config
-    if embedding_provider == 'qwen':
-        embedding_config['dashscope_base_url'] = os.getenv('EMBEDDING_BASE_URL', 'https://dashscope.aliyuncs.com/api/v1')
-    elif embedding_provider == 'openai':
-        base_url = os.getenv('EMBEDDING_BASE_URL')
+    provider_base_url_map = {
+        'qwen': ('dashscope_base_url', 'https://dashscope.aliyuncs.com/api/v1'),
+        'openai': ('openai_base_url', 'https://api.openai.com/v1'),
+        'huggingface': ('huggingface_base_url', None),
+        'lmstudio': ('lmstudio_base_url', None),
+        'ollama': ('ollama_base_url', None),
+    }
+    
+    if embedding_provider in provider_base_url_map:
+        config_key, default_value = provider_base_url_map[embedding_provider]
+        base_url = os.getenv('EMBEDDING_BASE_URL', default_value)
         if base_url:
-            embedding_config['openai_base_url'] = base_url
+            embedding_config[config_key] = base_url
     
     config = {
         'vector_store': {
