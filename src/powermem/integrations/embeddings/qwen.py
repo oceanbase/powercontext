@@ -37,7 +37,11 @@ class QwenEmbedding(EmbeddingBase):
         dashscope.api_key = api_key
 
         # Set base URL (if needed)
-        base_url = os.getenv("DASHSCOPE_BASE_URL") or "https://dashscope.aliyuncs.com/api/v1"
+        base_url = (
+            self.config.dashscope_base_url
+            or os.getenv("DASHSCOPE_BASE_URL")
+            or "https://dashscope.aliyuncs.com/api/v1"
+        )
         if base_url:
             os.environ["DASHSCOPE_BASE_URL"] = base_url
 
