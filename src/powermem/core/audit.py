@@ -8,6 +8,7 @@ import logging
 import json
 from typing import Any, Dict, Optional
 from datetime import datetime
+from powermem.utils.utils import get_current_datetime
 import os
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class AuditLogger:
         
         try:
             audit_entry = {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": get_current_datetime().isoformat(),
                 "event_type": event_type,
                 "user_id": user_id,
                 "agent_id": agent_id,

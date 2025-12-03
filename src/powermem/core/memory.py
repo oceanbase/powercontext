@@ -9,6 +9,7 @@ import hashlib
 import json
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
+from powermem.utils.utils import get_current_datetime
 from copy import deepcopy
 
 from .base import MemoryBase
@@ -633,8 +634,8 @@ class Memory(MemoryBase):
             "category": category,
             "metadata": enhanced_metadata or {},
             "filters": filters or {},
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": get_current_datetime(),
+            "updated_at": get_current_datetime(),
         }
 
         if extra_fields:
@@ -974,8 +975,8 @@ class Memory(MemoryBase):
             "category": category,
             "metadata": enhanced_metadata or {},
             "filters": filters or {},
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": get_current_datetime(),
+            "updated_at": get_current_datetime(),
         }
         
         memory_id = self.storage.add_memory(memory_data)
@@ -1021,7 +1022,7 @@ class Memory(MemoryBase):
             "content": content,
             "embedding": embedding,
             "hash": content_hash,  # Update hash
-            "updated_at": datetime.utcnow(),
+            "updated_at": get_current_datetime(),
         }
         
         logger.debug(f"Updating memory {memory_id} with content: '{content[:50]}...'")
@@ -1270,7 +1271,7 @@ class Memory(MemoryBase):
                 "metadata": enhanced_metadata,
                 "hash": content_hash,  # Update hash
                 "category": category,
-                "updated_at": datetime.utcnow(),
+                "updated_at": get_current_datetime(),
             }
             
             result = self.storage.update_memory(memory_id, update_data, user_id, agent_id)

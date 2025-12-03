@@ -10,6 +10,7 @@ import hashlib
 import json
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
+from powermem.utils.utils import get_current_datetime
 from copy import deepcopy
 
 from .base import MemoryBase
@@ -549,8 +550,8 @@ class AsyncMemory(MemoryBase):
             "category": category,
             "metadata": enhanced_metadata or {},
             "filters": filters or {},
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": get_current_datetime(),
+            "updated_at": get_current_datetime(),
         }
 
         if extra_fields:
@@ -896,8 +897,8 @@ class AsyncMemory(MemoryBase):
             "category": category,
             "metadata": enhanced_metadata or {},
             "filters": filters or {},
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": get_current_datetime(),
+            "updated_at": get_current_datetime(),
         }
         
         memory_id = await self.storage.add_memory_async(memory_data)
@@ -943,7 +944,7 @@ class AsyncMemory(MemoryBase):
             "content": content,
             "embedding": embedding,
             "hash": content_hash,  # Update hash
-            "updated_at": datetime.utcnow(),
+            "updated_at": get_current_datetime(),
         }
         
         logger.debug(f"Updating memory {memory_id} with content: '{content[:50]}...'")
@@ -1190,7 +1191,7 @@ class AsyncMemory(MemoryBase):
                 "metadata": enhanced_metadata,
                 "hash": content_hash,  # Update hash
                 "category": category,
-                "updated_at": datetime.utcnow(),
+                "updated_at": get_current_datetime(),
             }
             
             result = await self.storage.update_memory_async(memory_id, update_data, user_id, agent_id)

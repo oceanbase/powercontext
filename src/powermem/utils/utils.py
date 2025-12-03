@@ -11,10 +11,132 @@ import logging
 import re
 import time
 import threading
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
+
+# Try to import zoneinfo (Python 3.9+)
+try:
+    from zoneinfo import ZoneInfo
+    _HAS_ZONEINFO = True
+except ImportError:
+    _HAS_ZONEINFO = False
+    try:
+        import pytz
+        _HAS_PYTZ = True
+    except ImportError:
+        _HAS_PYTZ = False
+
+# Cache for timezone to avoid repeated lookups
+_timezone_cache: Optional[Any] = None
+_timezone_lock = threading.Lock()
+
+
+def get_timezone() -> Any:
+    """
+    Get the configured timezone from environment variable.
+    
+    This function reads the TIMEZONE environment variable to determine the timezone
+    to use for all datetime operations in powermem. The timezone is cached after first
+    access for performance.
+    
+    Configuration:
+        Set TIMEZONE in your .env file or environment variables:
+        - TIMEZONE=Asia/Shanghai (for China Standard Time)
+        - TIMEZONE=America/New_York (for US Eastern Time)
+        - TIMEZONE=Europe/London (for UK Time)
+        - TIMEZONE=UTC (default, if not specified)
+        
+        Common timezone names:
+        - Asia/Shanghai, Asia/Tokyo, Asia/Hong_Kong
+        - America/New_York, America/Los_Angeles, America/Chicago
+        - Europe/London, Europe/Paris, Europe/Berlin
+        - UTC (Coordinated Universal Time)
+    
+    Returns:
+        Timezone object (ZoneInfo or pytz timezone) for the configured timezone, 
+        or UTC if not configured or invalid timezone specified
+        
+    Note:
+        The timezone is cached globally. To reset the cache (e.g., after changing
+        the TIMEZONE environment variable), call reset_timezone_cache().
+    """
+    global _timezone_cache
+    
+    if _timezone_cache is not None:
+        return _timezone_cache
+    
+    with _timezone_lock:
+        if _timezone_cache is not None:
+            return _timezone_cache
+        
+        # Try to get timezone from environment variable
+        timezone_str = os.getenv('TIMEZONE', 'UTC')
+        
+        try:
+            if _HAS_ZONEINFO:
+                _timezone_cache = ZoneInfo(timezone_str)
+            elif _HAS_PYTZ:
+                _timezone_cache = pytz.timezone(timezone_str)
+            else:
+                logger.warning("No timezone library available, using UTC")
+                _timezone_cache = timezone.utc
+        except Exception as e:
+            logger.warning(f"Invalid timezone '{timezone_str}', falling back to UTC: {e}")
+            try:
+                if _HAS_ZONEINFO:
+                    _timezone_cache = ZoneInfo('UTC')
+                elif _HAS_PYTZ:
+                    _timezone_cache = pytz.UTC
+                else:
+                    _timezone_cache = timezone.utc
+            except Exception:
+                _timezone_cache = timezone.utc
+        
+        return _timezone_cache
+
+
+def get_current_datetime() -> datetime:
+    """
+    Get current datetime in the configured timezone.
+    
+    This function is used throughout powermem to get the current time in the
+    configured timezone. It replaces datetime.utcnow() to support timezone
+    configuration via the TIMEZONE environment variable.
+    
+    This function respects the TIMEZONE environment variable set in .env file.
+    If TIMEZONE is not set, it defaults to UTC.
+    
+    Returns:
+        datetime object in the configured timezone (timezone-aware)
+        
+    Example:
+        # In .env file:
+        # TIMEZONE=Asia/Shanghai
+        
+        from powermem.utils.utils import get_current_datetime
+        now = get_current_datetime()  # Returns datetime in Asia/Shanghai timezone
+        
+        # The returned datetime is timezone-aware:
+        # datetime.datetime(2025, 1, 15, 14, 30, 0, tzinfo=zoneinfo.ZoneInfo(key='Asia/Shanghai'))
+        
+    Note:
+        All timestamps in powermem (created_at, updated_at, etc.) are generated
+        using this function to ensure consistency with the configured timezone.
+    """
+    tz = get_timezone()
+    # datetime.now() works with both ZoneInfo and pytz timezones
+    return datetime.now(tz)
+
+
+def reset_timezone_cache():
+    """
+    Reset the timezone cache. Useful for testing or when timezone changes.
+    """
+    global _timezone_cache
+    with _timezone_lock:
+        _timezone_cache = None
 
 
 def generate_memory_id(content: str, user_id: Optional[str] = None) -> str:
@@ -28,7 +150,7 @@ def generate_memory_id(content: str, user_id: Optional[str] = None) -> str:
     Returns:
         Unique memory ID
     """
-    data = f"{content}:{user_id}:{datetime.utcnow().isoformat()}"
+    data = f"{content}:{user_id}:{get_current_datetime().isoformat()}"
     return hashlib.md5(data.encode()).hexdigest()
 
 
@@ -189,9 +311,16 @@ def format_timestamp(timestamp: datetime) -> str:
         timestamp: Timestamp to format
         
     Returns:
-        Formatted timestamp string
+        Formatted timestamp string with timezone information
     """
-    return timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
+    # If timestamp is timezone-naive, assume it's in the configured timezone
+    if timestamp.tzinfo is None:
+        tz = get_timezone()
+        timestamp = timestamp.replace(tzinfo=tz)
+    
+    # Format with timezone name
+    timezone_name = timestamp.tzinfo.tzname(timestamp) if timestamp.tzinfo else "UTC"
+    return timestamp.strftime(f"%Y-%m-%d %H:%M:%S {timezone_name}")
 
 
 def parse_timestamp(timestamp_str: str) -> Optional[datetime]:

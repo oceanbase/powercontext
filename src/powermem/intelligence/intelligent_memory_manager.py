@@ -7,6 +7,7 @@ This module implements the main intelligent memory management system.
 import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
+from powermem.utils.utils import get_current_datetime
 
 from .importance_evaluator import ImportanceEvaluator
 from .ebbinghaus_algorithm import EbbinghausAlgorithm
@@ -175,7 +176,7 @@ class IntelligentMemoryManager:
                 
                 # Apply decay based on age
                 decay_factor = self.ebbinghaus_algorithm.calculate_decay(
-                    result.get("created_at", datetime.utcnow())
+                    result.get("created_at", get_current_datetime())
                 )
                 
                 # Update result with processed information

@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from powermem.storage.base import VectorStoreBase
-from powermem.utils.utils import serialize_datetime
+from powermem.utils.utils import serialize_datetime, get_current_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -357,7 +357,7 @@ class StorageAdapter:
 
         # Update updated_at if not provided
         if "updated_at" not in updated_payload:
-            updated_payload["updated_at"] = datetime.utcnow().isoformat()
+            updated_payload["updated_at"] = get_current_datetime().isoformat()
         
         # Update in vector store with proper payload
         target_store.update(memory_id, vector=update_data.get("embedding"), payload=updated_payload)

@@ -8,6 +8,7 @@ import logging
 import uuid
 import json
 from datetime import datetime
+from powermem.utils.utils import get_current_datetime
 from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
@@ -101,7 +102,7 @@ class SubStoreMigrationManager:
                 return
             
             status_id = str(uuid.uuid4())
-            now = datetime.utcnow().isoformat()
+            now = get_current_datetime().isoformat()
             
             # Convert routing filter to JSON string
             routing_filter_json = json.dumps(routing_filter)
@@ -156,7 +157,7 @@ class SubStoreMigrationManager:
             if not hasattr(self.vector_store, 'execute_sql'):
                 return
             
-            now = datetime.utcnow().isoformat()
+            now = get_current_datetime().isoformat()
             
             update_sql = f"""
             UPDATE {self.status_table}
@@ -186,7 +187,7 @@ class SubStoreMigrationManager:
             if not hasattr(self.vector_store, 'execute_sql'):
                 return
             
-            now = datetime.utcnow().isoformat()
+            now = get_current_datetime().isoformat()
             
             update_sql = f"""
             UPDATE {self.status_table}
@@ -214,7 +215,7 @@ class SubStoreMigrationManager:
             if not hasattr(self.vector_store, 'execute_sql'):
                 return
             
-            now = datetime.utcnow().isoformat()
+            now = get_current_datetime().isoformat()
             
             update_sql = f"""
             UPDATE {self.status_table}
@@ -245,7 +246,7 @@ class SubStoreMigrationManager:
             if not hasattr(self.vector_store, 'execute_sql'):
                 return
             
-            now = datetime.utcnow().isoformat()
+            now = get_current_datetime().isoformat()
             
             # Escape single quotes in error message
             error_message_escaped = error_message.replace("'", "''")
@@ -415,7 +416,7 @@ class SubStoreMigrationManager:
             if not hasattr(self.vector_store, 'execute_sql'):
                 return
             
-            now = datetime.utcnow().isoformat()
+            now = get_current_datetime().isoformat()
             
             update_sql = f"""
             UPDATE {self.status_table}

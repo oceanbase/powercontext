@@ -9,6 +9,7 @@ import json
 import time
 from typing import Any, Dict, Optional
 from datetime import datetime
+from powermem.utils.utils import get_current_datetime
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ class TelemetryManager:
                 "properties": properties or {},
                 "user_id": user_id,
                 "agent_id": agent_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": get_current_datetime().isoformat(),
                 "version": "0.1.0",
             }
             
@@ -92,7 +93,7 @@ class TelemetryManager:
             
             payload = {
                 "events": self.events.copy(),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": get_current_datetime().isoformat(),
             }
             
             # Send events asynchronously to avoid blocking
@@ -163,7 +164,7 @@ class TelemetryManager:
                 "event_name": "user_properties",
                 "properties": properties,
                 "user_id": user_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": get_current_datetime().isoformat(),
                 "version": "0.1.0",
             }
             

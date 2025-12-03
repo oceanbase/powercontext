@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from powermem.utils.utils import get_current_datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from .importance_evaluator import ImportanceEvaluator
@@ -123,7 +124,7 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
         try:
             updates: Dict[str, Any] = {
                 "access_count": (memory.get("access_count") or 0) + 1,
-                "updated_at": datetime.utcnow(),
+                "updated_at": get_current_datetime(),
             }
             
             # Check if memory should be forgotten
@@ -156,7 +157,7 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
                 # Re-process with updated parameters
                 intelligence_metadata = self._algo.process_memory_metadata(original_content, importance_score, memory_type)
                 updates.update(intelligence_metadata)
-                updates["last_reprocessed_at"] = datetime.utcnow()
+                updates["last_reprocessed_at"] = get_current_datetime()
             
             return updates, False
         except Exception as e:
@@ -205,7 +206,7 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
         try:
             # Add search-specific metadata
             search_metadata = memory.get("metadata", {})
-            search_metadata["last_searched_at"] = datetime.utcnow()
+            search_metadata["last_searched_at"] = get_current_datetime()
             search_metadata["search_count"] = search_metadata.get("search_count", 0) + 1
             
             # Update base updates with search metadata

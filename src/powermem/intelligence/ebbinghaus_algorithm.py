@@ -8,6 +8,7 @@ import logging
 import math
 from typing import Any, Dict, Optional, List
 from datetime import datetime, timedelta
+from powermem.utils.utils import get_current_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class EbbinghausAlgorithm:
             Dictionary containing intelligence metadata
         """
         try:
-            current_time = datetime.utcnow()
+            current_time = get_current_datetime()
             
             # Calculate initial retention based on importance
             initial_retention = self.initial_retention * importance_score
@@ -131,12 +132,12 @@ class EbbinghausAlgorithm:
                     created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                 else:
                     # If empty string, use current time
-                    created_at = datetime.utcnow()
+                    created_at = get_current_datetime()
             elif created_at is None:
                 # If None, use current time
-                created_at = datetime.utcnow()
+                created_at = get_current_datetime()
             
-            time_elapsed = datetime.utcnow() - created_at
+            time_elapsed = get_current_datetime() - created_at
             hours_elapsed = time_elapsed.total_seconds() / 3600
             
             # Ebbinghaus forgetting curve: R = e^(-t/S)
@@ -203,7 +204,7 @@ class EbbinghausAlgorithm:
                 # Parse string to datetime if needed
                 if isinstance(created_at, str):
                     created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                time_elapsed = datetime.utcnow() - created_at
+                time_elapsed = get_current_datetime() - created_at
                 if time_elapsed > timedelta(hours=24):
                     return True
             
@@ -244,7 +245,7 @@ class EbbinghausAlgorithm:
                     # Parse string to datetime if needed
                     if isinstance(created_at, str):
                         created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                    time_elapsed = datetime.utcnow() - created_at
+                    time_elapsed = get_current_datetime() - created_at
                     if time_elapsed > timedelta(days=7):
                         return True
             
@@ -271,7 +272,7 @@ class EbbinghausAlgorithm:
                 # Parse string to datetime if needed
                 if isinstance(created_at, str):
                     created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                time_elapsed = datetime.utcnow() - created_at
+                time_elapsed = get_current_datetime() - created_at
                 if time_elapsed > timedelta(days=30):
                     return True
             
@@ -297,7 +298,7 @@ class EbbinghausAlgorithm:
             List of review times
         """
         try:
-            created_at = memory.get("created_at", datetime.utcnow())
+            created_at = memory.get("created_at", get_current_datetime())
             # Parse string to datetime if needed
             if isinstance(created_at, str):
                 created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))

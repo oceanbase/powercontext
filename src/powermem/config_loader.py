@@ -201,6 +201,9 @@ def load_config_from_env() -> Dict[str, Any]:
             'format': os.getenv('LOGGING_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'),
             'file': os.getenv('LOGGING_FILE', './logs/powermem.log')
         },
+        'timezone': {
+            'timezone': os.getenv('TIMEZONE', 'UTC')
+        },
         'reranker': {
             'enabled': os.getenv('RERANKER_ENABLED', 'false').lower() == 'true',
             'provider': os.getenv('RERANKER_PROVIDER', 'qwen'),
