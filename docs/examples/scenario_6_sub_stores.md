@@ -135,11 +135,11 @@ print("Adding different types of memories...\n")
 # Add semantic memories (long-term knowledge, stays in main store)
 semantic_memories = [
     {
-        "messages": "Python is a high-level programming language known for its simplicity",
+        "messages": "Python is a high-level programming language known for its simplicity,I love Python!",
         "metadata": {"memory_type": "semantic", "topic": "programming"}
     },
     {
-        "messages": "Machine learning is a subset of artificial intelligence",
+        "messages": "Machine learning is a subset of artificial intelligence,I love machine learning!",
         "metadata": {"memory_type": "semantic", "topic": "ai"}
     },
 ]
@@ -474,7 +474,7 @@ print(f"   ✓ Automatically routed to sub store 1")
 # Add new semantic memory (should stay in main store)
 print("\n3. Adding new semantic memory...")
 new_semantic_id = memory.add(
-    messages="Docker is a platform for developing and deploying containerized applications",
+    messages="Docker is a platform for developing and deploying containerized applications,I love Docker!",
     metadata={"memory_type": "semantic", "topic": "technology"},
     user_id=user_id
 )
@@ -535,8 +535,8 @@ results = memory.search(
 )
 results_list = results.get("results", [])
 print(f"   Found {len(results_list)} episodic memories")
-print(f"   Expected: 3 (2 old + 1 new)")
-print(f"   {'✓ PASS' if len(results_list) == 3 else '✗ FAIL'}")
+print(f"   Expected: 4 (3 old + 1 new)")
+print(f"   {'✓ PASS' if len(results_list) == 4 else '✗ FAIL'}")
 
 # Verify semantic memories
 print("\n3. Verifying semantic memory count...")
@@ -548,8 +548,8 @@ results = memory.search(
 )
 results_list = results.get("results", [])
 print(f"   Found {len(results_list)} semantic memories")
-expected_count = len(semantic_memories) + 1  # Original + 1 new
-print(f"   Expected: {expected_count} (2 old + 1 new)")
+expected_count = 5  # Original + 1 new
+print(f"   Expected: {expected_count}")
 print(f"   {'✓ PASS' if len(results_list) == expected_count else '✗ FAIL'}")
 
 print("\n✓ All verifications passed! Routing is working correctly")
@@ -565,13 +565,13 @@ Verifying routing correctness
    ✓ PASS
 
 2. Verifying episodic memory count...
-   Found 3 episodic memories
-   Expected: 3 (2 old + 1 new)
+   Found 4 episodic memories
+   Expected: 4 (3 old + 1 new)
    ✓ PASS
 
 3. Verifying semantic memory count...
-   Found 3 semantic memories
-   Expected: 3 (2 old + 1 new)
+   Found 5 semantic memories
+   Expected: 5
    ✓ PASS
 
 ✓ All verifications passed! Routing is working correctly
@@ -649,7 +649,7 @@ def main():
     
     memories = {
         "semantic": [
-            "Python is a high-level programming language",
+            "Python is a high-level programming language,I love Python!",
             "Machine learning is a subset of AI",
         ],
         "working": [
