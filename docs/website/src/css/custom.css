@@ -527,20 +527,25 @@ body {
 .navbar__brand {
   transition: all 0.3s ease;
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-right: 0.5rem;
 }
 
 .navbar__brand:hover {
-  transform: scale(1.05);
 }
 
 .navbar__logo {
   transition: all 0.3s ease;
   filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.5));
+  margin-right: 0.5rem !important;
+  height: 18px !important;
+  width: auto !important;
 }
 
 .navbar__brand:hover .navbar__logo {
   filter: drop-shadow(0 0 20px rgba(59, 130, 246, 0.8));
-  transform: rotate(5deg) scale(1.1);
 }
 
 .navbar__title {
@@ -556,6 +561,7 @@ body {
   transition: all 0.3s ease;
   opacity: 1 !important;
   visibility: visible !important;
+  margin-left: 0 !important;
 }
 
 .navbar__brand:hover .navbar__title {
@@ -563,6 +569,11 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
+.navbar__items--center {
+  flex: 0;
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
 @keyframes gradientText {
   to {
     background-position: 200% center;
