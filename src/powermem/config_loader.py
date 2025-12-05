@@ -81,14 +81,14 @@ def load_config_from_env() -> Dict[str, Any]:
         db_config = {
             'collection_name': os.getenv('OCEANBASE_COLLECTION', 'memories'),
             'connection_args': connection_args,
-            'vidx_metric_type': os.getenv('DATABASE_VECTOR_METRIC_TYPE', 'cosine'),
-            'index_type': os.getenv('DATABASE_INDEX_TYPE', 'IVF_FLAT'),
-            'embedding_model_dims': int(os.getenv('DATABASE_EMBEDDING_MODEL_DIMS', '1536')),
-            'primary_field': os.getenv('DATABASE_PRIMARY_FIELD', 'id'),
-            'vector_field': os.getenv('DATABASE_VECTOR_FIELD', 'embedding'),
-            'text_field': os.getenv('DATABASE_TEXT_FIELD', 'document'),
-            'metadata_field': os.getenv('DATABASE_METADATA_FIELD', 'metadata'),
-            'vidx_name': os.getenv('DATABASE_VIDX_NAME', 'memories_vidx')
+            'vidx_metric_type': os.getenv('OCEANBASE_VECTOR_METRIC_TYPE', 'cosine'),
+            'index_type': os.getenv('OCEANBASE_INDEX_TYPE', 'IVF_FLAT'),
+            'embedding_model_dims': int(os.getenv('OCEANBASE_EMBEDDING_MODEL_DIMS', '1536')),
+            'primary_field': os.getenv('OCEANBASE_PRIMARY_FIELD', 'id'),
+            'vector_field': os.getenv('OCEANBASE_VECTOR_FIELD', 'embedding'),
+            'text_field': os.getenv('OCEANBASE_TEXT_FIELD', 'document'),
+            'metadata_field': os.getenv('OCEANBASE_METADATA_FIELD', 'metadata'),
+            'vidx_name': os.getenv('OCEANBASE_VIDX_NAME', 'memories_vidx')
         }
     elif db_provider == 'postgres':
         # PostgreSQL configuration (pgvector)
@@ -99,17 +99,17 @@ def load_config_from_env() -> Dict[str, Any]:
             'port': int(os.getenv('POSTGRES_PORT', '5432')),
             'user': os.getenv('POSTGRES_USER', 'postgres'),
             'password': os.getenv('POSTGRES_PASSWORD', 'password'),
-            'embedding_model_dims': int(os.getenv('DATABASE_EMBEDDING_MODEL_DIMS', '1536')),
-            'diskann': os.getenv('DATABASE_DISKANN', 'true').lower() == 'true',
-            'hnsw': os.getenv('DATABASE_HNSW', 'true').lower() == 'true',
+            'embedding_model_dims': int(os.getenv('POSTGRES_EMBEDDING_MODEL_DIMS', '1536')),
+            'diskann': os.getenv('POSTGRES_DISKANN', 'true').lower() == 'true',
+            'hnsw': os.getenv('POSTGRES_HNSW', 'true').lower() == 'true',
         }
     else:
         # SQLite configuration (default)
         db_config = {
-            'database_path': os.getenv('DATABASE_PATH', './data/powermem_dev.db'),
-            'collection_name': os.getenv('SQLITE_COLLECTION_NAME', 'memories'),
-            'enable_wal': os.getenv('DATABASE_ENABLE_WAL', 'true').lower() == 'true',
-            'timeout': int(os.getenv('DATABASE_TIMEOUT', '30'))
+            'database_path': os.getenv('SQLITE_PATH', './data/powermem_dev.db'),
+            'collection_name': os.getenv('SQLITE_COLLECTION', 'memories'),
+            'enable_wal': os.getenv('SQLITE_ENABLE_WAL', 'true').lower() == 'true',
+            'timeout': int(os.getenv('SQLITE_TIMEOUT', '30'))
         }
     
     # Build LLM config based on provider
