@@ -72,14 +72,14 @@ def load_config_from_env() -> Dict[str, Any]:
     if db_provider == 'oceanbase':
         # OceanBase configuration
         connection_args = {
-            "host": os.getenv('DATABASE_HOST', '127.0.0.1'),
-            "port": int(os.getenv('DATABASE_PORT', '2881')),
-            "user": os.getenv('DATABASE_USER', 'root@sys'),
-            "password": os.getenv('DATABASE_PASSWORD', 'password'),
-            "db_name": os.getenv('DATABASE_NAME', 'powermem')
+            "host": os.getenv('OCEANBASE_HOST', '127.0.0.1'),
+            "port": int(os.getenv('OCEANBASE_PORT', '2881')),
+            "user": os.getenv('OCEANBASE_USER', 'root@sys'),
+            "password": os.getenv('OCEANBASE_PASSWORD', 'password'),
+            "db_name": os.getenv('OCEANBASE_DATABASE', 'powermem')
         }
         db_config = {
-            'collection_name': os.getenv('DATABASE_COLLECTION_NAME', 'memories'),
+            'collection_name': os.getenv('OCEANBASE_COLLECTION', 'memories'),
             'connection_args': connection_args,
             'vidx_metric_type': os.getenv('DATABASE_VECTOR_METRIC_TYPE', 'cosine'),
             'index_type': os.getenv('DATABASE_INDEX_TYPE', 'IVF_FLAT'),
@@ -93,12 +93,12 @@ def load_config_from_env() -> Dict[str, Any]:
     elif db_provider == 'postgres':
         # PostgreSQL configuration (pgvector)
         db_config = {
-            'collection_name': os.getenv('DATABASE_COLLECTION_NAME', 'memories'),
-            'dbname': os.getenv('DATABASE_NAME', 'powermem'),
-            'host': os.getenv('DATABASE_HOST', 'localhost'),
-            'port': int(os.getenv('DATABASE_PORT', '5432')),
-            'user': os.getenv('DATABASE_USER', 'postgres'),
-            'password': os.getenv('DATABASE_PASSWORD', 'password'),
+            'collection_name': os.getenv('POSTGRES_COLLECTION', 'memories'),
+            'dbname': os.getenv('POSTGRES_DATABASE', 'powermem'),
+            'host': os.getenv('POSTGRES_HOST', 'localhost'),    
+            'port': int(os.getenv('POSTGRES_PORT', '5432')),
+            'user': os.getenv('POSTGRES_USER', 'postgres'),
+            'password': os.getenv('POSTGRES_PASSWORD', 'password'),
             'embedding_model_dims': int(os.getenv('DATABASE_EMBEDDING_MODEL_DIMS', '1536')),
             'diskann': os.getenv('DATABASE_DISKANN', 'true').lower() == 'true',
             'hnsw': os.getenv('DATABASE_HNSW', 'true').lower() == 'true',
@@ -107,7 +107,7 @@ def load_config_from_env() -> Dict[str, Any]:
         # SQLite configuration (default)
         db_config = {
             'database_path': os.getenv('DATABASE_PATH', './data/powermem_dev.db'),
-            'collection_name': os.getenv('DATABASE_COLLECTION_NAME', 'memories'),
+            'collection_name': os.getenv('SQLITE_COLLECTION_NAME', 'memories'),
             'enable_wal': os.getenv('DATABASE_ENABLE_WAL', 'true').lower() == 'true',
             'timeout': int(os.getenv('DATABASE_TIMEOUT', '30'))
         }
