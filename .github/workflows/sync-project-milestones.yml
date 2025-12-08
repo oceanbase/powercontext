@@ -1,0 +1,368 @@
+name: Sync Project with Milestones
+
+on:
+  issues:
+    types: [opened, edited, milestoned, demilestoned]
+  pull_request:
+    types: [opened, edited, milestoned, demilestoned]
+  workflow_dispatch:
+    # Manual trigger to process historical issues/PRs
+  schedule:
+    # Run daily at 2 AM UTC to sync any missed items
+    - cron: '0 2 * * *'
+
+permissions:
+  issues: read
+  pull-requests: read
+  contents: read
+  # Organization-level permissions are required to access organization projects
+  # Note: This requires enabling "Read and write permissions" in repository settings or using a Personal Access Token
+  # The GITHUB_TOKEN needs project write permissions for organization projects
+
+jobs:
+  get-project-id:
+    runs-on: ubuntu-latest
+    outputs:
+      project_id: ${{ steps.get_project.outputs.project_id }}
+    steps:
+      - name: Get Project ID
+        id: get_project
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const org = 'oceanbase';
+            const projectNumber = 27;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            // First, try to find organization-level project
+            console.log(`Attempting to find organization project ${projectNumber} in ${org}...`);
+            const orgQuery = `
+              query($org: String!, $number: Int!) {
+                organization(login: $org) {
+                  projectV2(number: $number) {
+                    id
+                    title
+                    number
+                  }
+                }
+              }
+            `;
+            
+            try {
+              const orgResult = await github.graphql(orgQuery, {
+                org: org,
+                number: projectNumber
+              });
+              
+              if (orgResult.organization && orgResult.organization.projectV2) {
+                console.log('✓ Found organization project:', orgResult.organization.projectV2.title);
+                console.log('  Project Number:', orgResult.organization.projectV2.number);
+                console.log('  Project ID:', orgResult.organization.projectV2.id);
+                core.setOutput('project_id', orgResult.organization.projectV2.id);
+                return;
+              }
+            } catch (orgError) {
+              console.log('Organization project not found, trying repository-level project...');
+              console.log('Error:', orgError.message);
+            }
+            
+            // If organization project not found, try repository-level project
+            console.log(`Attempting to find repository project ${projectNumber} in ${owner}/${repo}...`);
+            const repoQuery = `
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  projectV2(number: $number) {
+                    id
+                    title
+                    number
+                  }
+                }
+              }
+            `;
+            
+            try {
+              const repoResult = await github.graphql(repoQuery, {
+                owner: owner,
+                repo: repo,
+                number: projectNumber
+              });
+              
+              if (repoResult.repository && repoResult.repository.projectV2) {
+                console.log('✓ Found repository project:', repoResult.repository.projectV2.title);
+                console.log('  Project Number:', repoResult.repository.projectV2.number);
+                console.log('  Project ID:', repoResult.repository.projectV2.id);
+                core.setOutput('project_id', repoResult.repository.projectV2.id);
+                return;
+              }
+            } catch (repoError) {
+              console.log('Repository project not found.');
+              console.log('Error:', repoError.message);
+            }
+            
+            // If both failed, list available projects for debugging
+            console.log('\n=== Listing available organization projects ===');
+            try {
+              const listOrgQuery = `
+                query($org: String!) {
+                  organization(login: $org) {
+                    projectsV2(first: 20) {
+                      nodes {
+                        id
+                        title
+                        number
+                      }
+                    }
+                  }
+                }
+              `;
+              const listOrgResult = await github.graphql(listOrgQuery, { org: org });
+              if (listOrgResult.organization && listOrgResult.organization.projectsV2) {
+                console.log('Available organization projects:');
+                listOrgResult.organization.projectsV2.nodes.forEach(project => {
+                  console.log(`  - #${project.number}: ${project.title} (ID: ${project.id})`);
+                });
+              }
+            } catch (e) {
+              console.log('Could not list organization projects:', e.message);
+            }
+            
+            console.log(`\n=== Listing available repository projects for ${owner}/${repo} ===`);
+            try {
+              const listRepoQuery = `
+                query($owner: String!, $repo: String!) {
+                  repository(owner: $owner, name: $repo) {
+                    projectsV2(first: 20) {
+                      nodes {
+                        id
+                        title
+                        number
+                      }
+                    }
+                  }
+                }
+              `;
+              const listRepoResult = await github.graphql(listRepoQuery, {
+                owner: owner,
+                repo: repo
+              });
+              if (listRepoResult.repository && listRepoResult.repository.projectsV2) {
+                console.log('Available repository projects:');
+                listRepoResult.repository.projectsV2.nodes.forEach(project => {
+                  console.log(`  - #${project.number}: ${project.title} (ID: ${project.id})`);
+                });
+              }
+            } catch (e) {
+              console.log('Could not list repository projects:', e.message);
+            }
+            
+            throw new Error(`Project #${projectNumber} not found in organization '${org}' or repository '${owner}/${repo}'. Please check the project number and ensure the workflow has proper permissions.`);
+
+  add-to-project:
+    runs-on: ubuntu-latest
+    needs: get-project-id
+    if: |
+      (github.event_name == 'issues' && github.event.issue.milestone != null) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.milestone != null)
+    
+    steps:
+      - name: Add Issue/PR to Project
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const projectId = '${{ needs.get-project-id.outputs.project_id }}';
+            let itemId;
+            
+            if (context.payload.issue) {
+              itemId = context.payload.issue.node_id;
+              console.log('Adding issue #' + context.payload.issue.number + ' to project');
+            } else if (context.payload.pull_request) {
+              itemId = context.payload.pull_request.node_id;
+              console.log('Adding PR #' + context.payload.pull_request.number + ' to project');
+            }
+            
+            const mutation = `
+              mutation($projectId: ID!, $itemId: ID!) {
+                addProjectV2ItemById(input: {projectId: $projectId, contentId: $itemId}) {
+                  item {
+                    id
+                  }
+                }
+              }
+            `;
+            
+            try {
+              const result = await github.graphql(mutation, {
+                projectId: projectId,
+                itemId: itemId
+              });
+              console.log('Successfully added to project:', result);
+            } catch (error) {
+              // If item already exists in project, ignore error
+              if (error.message && (
+                error.message.includes('already exists') ||
+                error.message.includes('already added')
+              )) {
+                console.log('Item already in project, skipping...');
+              } else {
+                console.error('Error adding to project:', error);
+                // Don't throw error to avoid workflow failure
+              }
+            }
+
+  sync-historical-items:
+    runs-on: ubuntu-latest
+    needs: get-project-id
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    
+    steps:
+      - name: Sync Historical Issues and PRs with Milestones
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const projectId = '${{ needs.get-project-id.outputs.project_id }}';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            console.log(`Syncing historical items for ${owner}/${repo}...`);
+            
+            // Function to add item to project
+            async function addItemToProject(itemId, itemNumber, itemType) {
+              const mutation = `
+                mutation($projectId: ID!, $itemId: ID!) {
+                  addProjectV2ItemById(input: {projectId: $projectId, contentId: $itemId}) {
+                    item {
+                      id
+                    }
+                  }
+                }
+              `;
+              
+              try {
+                await github.graphql(mutation, {
+                  projectId: projectId,
+                  itemId: itemId
+                });
+                console.log(`✓ Added ${itemType} #${itemNumber} to project`);
+                return true;
+              } catch (error) {
+                if (error.message && (
+                  error.message.includes('already exists') ||
+                  error.message.includes('already added')
+                )) {
+                  console.log(`- ${itemType} #${itemNumber} already in project`);
+                  return false;
+                } else {
+                  console.error(`✗ Error adding ${itemType} #${itemNumber}:`, error.message);
+                  return false;
+                }
+              }
+            }
+            
+            // Query all issues with milestones
+            let hasNextPage = true;
+            let cursor = null;
+            let totalIssues = 0;
+            let addedIssues = 0;
+            
+            while (hasNextPage) {
+              const issuesQuery = `
+                query($owner: String!, $repo: String!, $cursor: String) {
+                  repository(owner: $owner, name: $repo) {
+                    issues(first: 100, after: $cursor, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) {
+                      pageInfo {
+                        hasNextPage
+                        endCursor
+                      }
+                      nodes {
+                        id
+                        number
+                        milestone {
+                          id
+                          title
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+              
+              const issuesResult = await github.graphql(issuesQuery, {
+                owner: owner,
+                repo: repo,
+                cursor: cursor
+              });
+              
+              const issues = issuesResult.repository.issues.nodes.filter(issue => issue.milestone !== null);
+              totalIssues += issues.length;
+              
+              for (const issue of issues) {
+                const added = await addItemToProject(issue.id, issue.number, 'Issue');
+                if (added) addedIssues++;
+                // Small delay to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, 100));
+              }
+              
+              hasNextPage = issuesResult.repository.issues.pageInfo.hasNextPage;
+              cursor = issuesResult.repository.issues.pageInfo.endCursor;
+            }
+            
+            // Query all pull requests with milestones
+            hasNextPage = true;
+            cursor = null;
+            let totalPRs = 0;
+            let addedPRs = 0;
+            
+            while (hasNextPage) {
+              const prsQuery = `
+                query($owner: String!, $repo: String!, $cursor: String) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequests(first: 100, after: $cursor, states: [OPEN, CLOSED, MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) {
+                      pageInfo {
+                        hasNextPage
+                        endCursor
+                      }
+                      nodes {
+                        id
+                        number
+                        milestone {
+                          id
+                          title
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+              
+              const prsResult = await github.graphql(prsQuery, {
+                owner: owner,
+                repo: repo,
+                cursor: cursor
+              });
+              
+              const prs = prsResult.repository.pullRequests.nodes.filter(pr => pr.milestone !== null);
+              totalPRs += prs.length;
+              
+              for (const pr of prs) {
+                const added = await addItemToProject(pr.id, pr.number, 'PR');
+                if (added) addedPRs++;
+                // Small delay to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, 100));
+              }
+              
+              hasNextPage = prsResult.repository.pullRequests.pageInfo.hasNextPage;
+              cursor = prsResult.repository.pullRequests.pageInfo.endCursor;
+            }
+            
+            console.log('\n=== Sync Summary ===');
+            console.log(`Total issues with milestones: ${totalIssues}`);
+            console.log(`New issues added to project: ${addedIssues}`);
+            console.log(`Total PRs with milestones: ${totalPRs}`);
+            console.log(`New PRs added to project: ${addedPRs}`);
+            console.log(`Total items processed: ${totalIssues + totalPRs}`);
+            console.log(`Total items added: ${addedIssues + addedPRs}`);
+
