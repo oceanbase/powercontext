@@ -29,12 +29,14 @@ jobs:
         id: get_project
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PROJECT_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             const org = 'oceanbase';
             const projectNumber = 27;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+            
+            console.log('Looking for project #' + projectNumber + ' in organization "' + org + '" or repository "' + owner + '/' + repo + '"');
             
             // First, try to find organization-level project
             console.log(`Attempting to find organization project ${projectNumber} in ${org}...`);
@@ -66,6 +68,22 @@ jobs:
             } catch (orgError) {
               console.log('Organization project not found, trying repository-level project...');
               console.log('Error:', orgError.message);
+              
+              // Check if it's a permission error
+              const isPermissionError = orgError.message && (
+                orgError.message.includes('A819') || 
+                orgError.message.includes('Something went wrong') ||
+                orgError.message.includes('permission') ||
+                orgError.message.includes('access') ||
+                orgError.message.includes('Could not resolve')
+              );
+              
+              if (isPermissionError) {
+                console.log('\n⚠️  Permission issue detected when accessing organization project.');
+                console.log('   This usually means the token lacks organization project permissions.');
+                console.log('   Solution: Add a Personal Access Token (PAT) as secret PROJECT_ACCESS_TOKEN');
+                console.log('   Required PAT permissions: repo, read:org, write:org');
+              }
             }
             
             // If organization project not found, try repository-level project
@@ -126,6 +144,14 @@ jobs:
               }
             } catch (e) {
               console.log('Could not list organization projects:', e.message);
+              if (e.message && (
+                e.message.includes('A819') || 
+                e.message.includes('Something went wrong')
+              )) {
+                console.log('⚠️  Permission error when listing organization projects.');
+                console.log('   This confirms the token lacks organization permissions.');
+                console.log('   Please add PROJECT_ACCESS_TOKEN secret with proper permissions.');
+              }
             }
             
             console.log(`\n=== Listing available repository projects for ${owner}/${repo} ===`);
@@ -157,7 +183,22 @@ jobs:
               console.log('Could not list repository projects:', e.message);
             }
             
-            throw new Error(`Project #${projectNumber} not found in organization '${org}' or repository '${owner}/${repo}'. Please check the project number and ensure the workflow has proper permissions.`);
+            // Build comprehensive error message with solutions
+            let errorMsg = `\n❌ Project #${projectNumber} not found in organization '${org}' or repository '${owner}/${repo}'.\n\n`;
+            errorMsg += 'This is likely a permissions issue. Solutions:\n\n';
+            errorMsg += '🔑 Option 1: Add Personal Access Token (Recommended)\n';
+            errorMsg += '  1. Create a PAT with permissions: repo, read:org, write:org\n';
+            errorMsg += '  2. Add it as repository secret named: PROJECT_ACCESS_TOKEN\n';
+            errorMsg += '  3. The workflow will automatically use it\n\n';
+            errorMsg += '⚙️  Option 2: Enable enhanced permissions\n';
+            errorMsg += '  1. Repository Settings > Actions > General\n';
+            errorMsg += '  2. Select "Read and write permissions"\n';
+            errorMsg += '  Note: May still not work for organization projects\n\n';
+            errorMsg += '✅ Option 3: Verify project exists\n';
+            errorMsg += '  - Confirm project #27 exists in organization or repository\n';
+            errorMsg += '  - Check if it\'s a Projects V2 (not legacy Projects)\n';
+            
+            throw new Error(errorMsg);
 
   add-to-project:
     runs-on: ubuntu-latest
@@ -170,7 +211,7 @@ jobs:
       - name: Add Issue/PR to Project
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PROJECT_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             const projectId = '${{ needs.get-project-id.outputs.project_id }}';
             let itemId;
@@ -221,7 +262,7 @@ jobs:
       - name: Sync Historical Issues and PRs with Milestones
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PROJECT_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             const projectId = '${{ needs.get-project-id.outputs.project_id }}';
             const owner = context.repo.owner;
