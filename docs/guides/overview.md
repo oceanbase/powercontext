@@ -14,7 +14,7 @@ Comprehensive guides for using powermem effectively.
 
 ## Other Notes
 
-- **[Other Notes](1000-other_notes)** - Important notes and usage guidelines
+- **[Other Notes](1000-other_notes.md)** - Important notes and usage guidelines
 
 ## Quick Navigation
 
