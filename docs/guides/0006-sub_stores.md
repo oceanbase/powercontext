@@ -385,9 +385,9 @@ Mismatched dimensions will cause errors: `"expected 1536 dimensions, not 768"`
 
 ## Related Documentation
 
-- [Getting Started](docs/guides/0001-getting_started.md) - Quick start
-- [Configuration Guide](docs/guides/0003-configuration.md) - Basic configuration
-- [Integrations Guide](docs/guides/0009-integrations.md) - Embedding services
+- [Getting Started](./0001-getting_started.md) - Quick start
+- [Configuration Guide](./0003-configuration.md) - Basic configuration
+- [Integrations Guide](./0009-integrations.md) - Embedding services
 
 ## Examples
 

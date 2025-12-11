@@ -21,7 +21,7 @@ The async version of powermem (`AsyncMemory`) is ideal when you need:
   - Batch processing large datasets
   - When you need maximum throughput
 
-> **Note:** If you're new to powermem, start with the [synchronous guide](docs/guides/0001-getting_started.md) to learn the basics, then come back here for async operations.
+> **Note:** If you're new to powermem, start with the [synchronous guide](./0001-getting_started.md) to learn the basics, then come back here for async operations.
 
 ## Configuration
 
@@ -44,7 +44,7 @@ Before using async memory, you need to configure powermem. The configuration is 
 > - Loads configuration from environment variables
 > - Uses sensible defaults if no configuration is found
 
-For more configuration options, see the full example in `.env.example` or refer to the [Configuration Guide](docs/guides/0003-configuration.md).
+For more configuration options, see the full example in `.env.example` or refer to the [Configuration Guide](./0003-configuration.md).
 
 ## Understanding Async Operations
 
@@ -208,7 +208,7 @@ async def main():
 asyncio.run(main())
 ```
 
-> **Note:** When using dictionary/JSON configuration, make sure to include all required fields (`llm`, `embedder`, `vector_store`) with their respective `provider` and `config` sections. For more configuration options, see the [Configuration Guide](docs/guides/0003-configuration.md).
+> **Note:** When using dictionary/JSON configuration, make sure to include all required fields (`llm`, `embedder`, `vector_store`) with their respective `provider` and `config` sections. For more configuration options, see the [Configuration Guide](./0003-configuration.md).
 
 > **Tip:** In production applications, consider using async context managers or ensuring proper cleanup. The `initialize()` method sets up connections that should ideally be closed when your application shuts down.
 

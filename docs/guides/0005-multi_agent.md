@@ -2,7 +2,7 @@
 
 - Python 3.10+
 - powermem installed (`pip install powermem`)
-- Basic understanding of powermem (see [Getting Started Guide](docs/guides/0001-getting_started.md))
+- Basic understanding of powermem (see [Getting Started Guide](./0001-getting_started.md))
 
 ## What is Multi-Agent Memory?
 
@@ -44,7 +44,7 @@ Before using multi-agent memory, you need to configure powermem. Powermem can au
 > - Load configuration from environment variables
 > - Use sensible defaults if no configuration is found
 
-For more configuration options, see the full example in `.env.example` or refer to the [Configuration Guide](docs/guides/0003-configuration.md).
+For more configuration options, see the full example in `.env.example` or refer to the [Configuration Guide](./0003-configuration.md).
 
 ### Using JSON/Dictionary Configuration
 

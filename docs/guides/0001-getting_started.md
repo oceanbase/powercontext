@@ -32,7 +32,7 @@ Using a `.env` file allows you to:
 > - Load configuration from environment variables
 > - Use sensible defaults if no configuration is found
 
-For more configuration options, see the full example in `.env.example` or refer to the [Configuration Guide](docs/guides/0003-configuration.md).
+For more configuration options, see the full example in `.env.example` or refer to the [Configuration Guide](./0003-configuration.md).
 
 ## Initializing Memory
 
@@ -162,7 +162,7 @@ In real applications, you'll often need to add multiple memories for a user. Thi
 
 - **Use consistent user_id**: Always use the same `user_id` for the same user
 - **Process sequentially**: For small batches, sequential processing is fine
-- **Consider batch operations**: For large datasets, consider using async operations (see [Async Guide](docs/guides/0002-getting_started_async.md))
+- **Consider batch operations**: For large datasets, consider using async operations (see [Async Guide](./0002-getting_started_async.md))
 - **Handle errors**: Wrap operations in try-except blocks for production code
 
 Let's add several memories for a user:
