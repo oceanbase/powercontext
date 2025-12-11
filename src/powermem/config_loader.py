@@ -230,11 +230,11 @@ def load_config_from_env() -> Dict[str, Any]:
         if graph_store_provider == 'oceanbase':
             # OceanBase graph configuration
             graph_connection_args = {
-                "host": os.getenv('GRAPH_STORE_HOST', os.getenv('DATABASE_HOST', '127.0.0.1')),
-                "port": os.getenv('GRAPH_STORE_PORT', os.getenv('DATABASE_PORT', '2881')),
-                "user": os.getenv('GRAPH_STORE_USER', os.getenv('DATABASE_USER', 'root@sys')),
-                "password": os.getenv('GRAPH_STORE_PASSWORD', os.getenv('DATABASE_PASSWORD', 'password')),
-                "db_name": os.getenv('GRAPH_STORE_DB_NAME', os.getenv('DATABASE_NAME', 'powermem'))
+                "host": os.getenv('GRAPH_STORE_HOST', os.getenv('OCEANBASE_HOST', '127.0.0.1')),
+                "port": os.getenv('GRAPH_STORE_PORT', os.getenv('OCEANBASE_PORT', '2881')),
+                "user": os.getenv('GRAPH_STORE_USER', os.getenv('OCEANBASE_USER', 'root@sys')),
+                "password": os.getenv('GRAPH_STORE_PASSWORD', os.getenv('OCEANBASE_PASSWORD', 'password')),
+                "db_name": os.getenv('GRAPH_STORE_DB_NAME', os.getenv('OCEANBASE_DATABASE', 'powermem'))
             }
             graph_config = {
                 'host': graph_connection_args['host'],
@@ -242,9 +242,9 @@ def load_config_from_env() -> Dict[str, Any]:
                 'user': graph_connection_args['user'],
                 'password': graph_connection_args['password'],
                 'db_name': graph_connection_args['db_name'],
-                'vidx_metric_type': os.getenv('GRAPH_STORE_VECTOR_METRIC_TYPE', os.getenv('DATABASE_VECTOR_METRIC_TYPE', 'l2')),
-                'index_type': os.getenv('GRAPH_STORE_INDEX_TYPE', os.getenv('DATABASE_INDEX_TYPE', 'HNSW')),
-                'embedding_model_dims': int(os.getenv('GRAPH_STORE_EMBEDDING_MODEL_DIMS', os.getenv('DATABASE_EMBEDDING_MODEL_DIMS', '1536'))),
+                'vidx_metric_type': os.getenv('GRAPH_STORE_VECTOR_METRIC_TYPE', os.getenv('OCEANBASE_VECTOR_METRIC_TYPE', 'l2')),
+                'index_type': os.getenv('GRAPH_STORE_INDEX_TYPE', os.getenv('OCEANBASE_INDEX_TYPE', 'HNSW')),
+                'embedding_model_dims': int(os.getenv('GRAPH_STORE_EMBEDDING_MODEL_DIMS', os.getenv('OCEANBASE_EMBEDDING_MODEL_DIMS', '1536'))),
                 'max_hops': int(os.getenv('GRAPH_STORE_MAX_HOPS', '3'))
             }
         else:
