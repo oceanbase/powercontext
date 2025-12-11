@@ -90,12 +90,12 @@ Edit `.env` and configure:
 ```env
 # Database Configuration
 DATABASE_PROVIDER=oceanbase
-DATABASE_HOST=localhost
-DATABASE_PORT=2881
-DATABASE_USER=root
-DATABASE_PASSWORD=your_password
-DATABASE_NAME=powermem
-DATABASE_COLLECTION_NAME=healthcare_memories
+OCEANBASE_HOST=127.0.0.1
+OCEANBASE_PORT=2881
+OCEANBASE_USER=root@sys
+OCEANBASE_PASSWORD=password
+OCEANBASE_DATABASE=powermem
+OCEANBASE_COLLECTION=healthcare_memories
 
 # LLM Configuration
 LLM_PROVIDER=qwen  # or openai
@@ -255,10 +255,10 @@ summary = bot.get_patient_summary()
 ### Database Settings
 
 - `DATABASE_PROVIDER`: Set to `oceanbase`
-- `DATABASE_HOST`: OceanBase server hostname
-- `DATABASE_PORT`: OceanBase port (default: 2881)
-- `DATABASE_NAME`: Database name
-- `DATABASE_COLLECTION_NAME`: Collection/table name for memories
+- `OCEANBASE_HOST`: OceanBase server hostname
+- `OCEANBASE_PORT`: OceanBase port (default: 2881)
+- `OCEANBASE_DATABASE`: Database name
+- `OCEANBASE_COLLECTION`: Collection/table name for memories
 
 ### LLM Settings
 
