@@ -105,16 +105,16 @@ SQLite is the default database provider, recommended for development and single-
 
 | Configuration | Type | Required | Default | Description |
 |--------------|------|----------|---------|-------------|
-| `DATABASE_PATH` | string | Yes* | `./data/powermem_dev.db` | Path to the SQLite database file. Required when `DATABASE_PROVIDER=sqlite` |
-| `DATABASE_ENABLE_WAL` | boolean | No | `true` | Enable Write-Ahead Logging (WAL) mode for better concurrency |
-| `DATABASE_TIMEOUT` | integer | No | `30` | Connection timeout in seconds |
+| `SQLITE_PATH` | string | Yes* | `./data/powermem_dev.db` | Path to the SQLite database file. Required when `DATABASE_PROVIDER=sqlite` |
+| `SQLITE_ENABLE_WAL` | boolean | No | `true` | Enable Write-Ahead Logging (WAL) mode for better concurrency |
+| `SQLITE_TIMEOUT` | integer | No | `30` | Connection timeout in seconds |
 
 **Environment Variables Example:**
 ```env
 DATABASE_PROVIDER=sqlite
-DATABASE_PATH=./data/powermem_dev.db
-DATABASE_ENABLE_WAL=true
-DATABASE_TIMEOUT=30
+SQLITE_PATH=./data/powermem_dev.db
+SQLITE_ENABLE_WAL=true
+SQLITE_TIMEOUT=30
 ```
 
 **JSON Configuration Example:**
@@ -151,33 +151,33 @@ OceanBase is recommended for production deployments and enterprise applications 
 
 | Configuration | Type | Required | Default | Description |
 |--------------|------|----------|---------|-------------|
-| `DATABASE_HOST` | string | Yes* | `localhost` | OceanBase server hostname or IP address. Required when `DATABASE_PROVIDER=oceanbase` |
-| `DATABASE_PORT` | integer | Yes* | `2881` | OceanBase server port. Required when `DATABASE_PROVIDER=oceanbase` |
-| `DATABASE_USER` | string | Yes* | `root` | Database username. Required when `DATABASE_PROVIDER=oceanbase` |
-| `DATABASE_PASSWORD` | string | Yes* | - | Database password. Required when `DATABASE_PROVIDER=oceanbase` |
-| `DATABASE_NAME` | string | Yes* | `powermem` | Database name. Required when `DATABASE_PROVIDER=oceanbase` |
-| `DATABASE_COLLECTION_NAME` | string | No | `memories` | Collection/table name for storing memories |
-| `DATABASE_INDEX_TYPE` | string | No | `IVF_FLAT` | Vector index type. Options: `IVF_FLAT`, `HNSW`, etc. |
-| `DATABASE_VECTOR_METRIC_TYPE` | string | No | `cosine` | Vector similarity metric. Options: `cosine`, `euclidean`, `dot_product` |
-| `DATABASE_TEXT_FIELD` | string | No | `document` | Field name for storing text content |
-| `DATABASE_VECTOR_FIELD` | string | No | `embedding` | Field name for storing vector embeddings |
-| `DATABASE_EMBEDDING_MODEL_DIMS` | integer | Yes* | `1536` | Vector dimensions. Must match your embedding model dimensions. Required when `DATABASE_PROVIDER=oceanbase` |
-| `DATABASE_PRIMARY_FIELD` | string | No | `id` | Primary key field name |
-| `DATABASE_METADATA_FIELD` | string | No | `metadata` | Field name for storing metadata |
-| `DATABASE_VIDX_NAME` | string | No | `memories_vidx` | Vector index name |
+| `OCEANBASE_HOST` | string | Yes* | `127.0.0.1` | OceanBase server hostname or IP address. Required when `DATABASE_PROVIDER=oceanbase` |
+| `OCEANBASE_PORT` | integer | Yes* | `2881` | OceanBase server port. Required when `DATABASE_PROVIDER=oceanbase` |
+| `OCEANBASE_USER` | string | Yes* | `root` | Database username. Required when `DATABASE_PROVIDER=oceanbase` |
+| `OCEANBASE_PASSWORD` | string | Yes* | - | Database password. Required when `DATABASE_PROVIDER=oceanbase` |
+| `OCEANBASE_DATABASE` | string | Yes* | `powermem` | Database name. Required when `DATABASE_PROVIDER=oceanbase` |
+| `OCEANBASE_COLLECTION` | string | No | `memories` | Collection/table name for storing memories |
+| `OCEANBASE_INDEX_TYPE` | string | No | `IVF_FLAT` | Vector index type. Options: `IVF_FLAT`, `HNSW`, etc. |
+| `OCEANBASE_VECTOR_METRIC_TYPE` | string | No | `cosine` | Vector similarity metric. Options: `cosine`, `euclidean`, `dot_product` |
+| `OCEANBASE_TEXT_FIELD` | string | No | `document` | Field name for storing text content |
+| `OCEANBASE_VECTOR_FIELD` | string | No | `embedding` | Field name for storing vector embeddings |
+| `OCEANBASE_EMBEDDING_MODEL_DIMS` | integer | Yes* | `1536` | Vector dimensions. Must match your embedding model dimensions. Required when `DATABASE_PROVIDER=oceanbase` |
+| `OCEANBASE_PRIMARY_FIELD` | string | No | `id` | Primary key field name |
+| `OCEANBASE_METADATA_FIELD` | string | No | `metadata` | Field name for storing metadata |
+| `OCEANBASE_VIDX_NAME` | string | No | `memories_vidx` | Vector index name |
 
 **Environment Variables Example:**
 ```env
 DATABASE_PROVIDER=oceanbase
-DATABASE_HOST=localhost
-DATABASE_PORT=2881
-DATABASE_USER=root
-DATABASE_PASSWORD=your_password
-DATABASE_NAME=powermem
-DATABASE_COLLECTION_NAME=memories
-DATABASE_INDEX_TYPE=IVF_FLAT
-DATABASE_VECTOR_METRIC_TYPE=cosine
-DATABASE_EMBEDDING_MODEL_DIMS=1536
+OCEANBASE_HOST=localhost
+OCEANBASE_PORT=2881
+OCEANBASE_USER=root
+OCEANBASE_PASSWORD=your_password
+OCEANBASE_DATABASE=powermem
+OCEANBASE_COLLECTION=memories
+OCEANBASE_INDEX_TYPE=IVF_FLAT
+OCEANBASE_VECTOR_METRIC_TYPE=cosine
+OCEANBASE_EMBEDDING_MODEL_DIMS=1536
 ```
 
 **JSON Configuration Example:**
@@ -235,11 +235,11 @@ PostgreSQL with pgvector extension is supported for vector storage.
 
 | Configuration | Type | Required | Default | Description |
 |--------------|------|----------|---------|-------------|
-| `DATABASE_HOST` | string | Yes* | `localhost` | PostgreSQL server hostname or IP address. Required when `DATABASE_PROVIDER=postgres` |
-| `DATABASE_PORT` | integer | Yes* | `5432` | PostgreSQL server port. Required when `DATABASE_PROVIDER=postgres` |
-| `DATABASE_USER` | string | Yes* | `postgres` | Database username. Required when `DATABASE_PROVIDER=postgres` |
-| `DATABASE_PASSWORD` | string | Yes* | - | Database password. Required when `DATABASE_PROVIDER=postgres` |
-| `DATABASE_NAME` | string | Yes* | `powermem` | Database name. Required when `DATABASE_PROVIDER=postgres` |
+| `POSTGRES_HOST` | string | Yes* | `127.0.0.1` | PostgreSQL server hostname or IP address. Required when `DATABASE_PROVIDER=postgres` |
+| `POSTGRES_PORT` | integer | Yes* | `5432` | PostgreSQL server port. Required when `DATABASE_PROVIDER=postgres` |
+| `POSTGRES_USER` | string | Yes* | `postgres` | Database username. Required when `DATABASE_PROVIDER=postgres` |
+| `POSTGRES_PASSWORD` | string | Yes* | - | Database password. Required when `DATABASE_PROVIDER=postgres` |
+| `POSTGRES_DATABASE` | string | Yes* | `powermem` | Database name. Required when `DATABASE_PROVIDER=postgres` |
 | `DATABASE_SSLMODE` | string | No | `prefer` | SSL connection mode. Options: `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full` |
 | `DATABASE_POOL_SIZE` | integer | No | `10` | Connection pool size |
 | `DATABASE_MAX_OVERFLOW` | integer | No | `20` | Maximum overflow connections in the pool |
@@ -247,11 +247,12 @@ PostgreSQL with pgvector extension is supported for vector storage.
 **Environment Variables Example:**
 ```env
 DATABASE_PROVIDER=postgres
-DATABASE_HOST=localhost
-DATABASE_PORT=5432
-DATABASE_USER=postgres
-DATABASE_PASSWORD=your_password
-DATABASE_NAME=powermem
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password
+POSTGRES_DATABASE=powermem
+POSTGRES_COLLECTION=memories
 DATABASE_SSLMODE=prefer
 DATABASE_POOL_SIZE=10
 DATABASE_MAX_OVERFLOW=20
@@ -908,7 +909,7 @@ config = {
 ```env
 # Required: Database
 DATABASE_PROVIDER=sqlite
-DATABASE_PATH=./data/powermem_dev.db
+SQLITE_PATH=./data/powermem_dev.db
 
 # Required: LLM
 LLM_PROVIDER=qwen
@@ -985,12 +986,12 @@ memory = Memory(config=config)
 ```env
 # Database
 DATABASE_PROVIDER=oceanbase
-DATABASE_HOST=prod-db.example.com
-DATABASE_PORT=2881
-DATABASE_USER=prod_user
-DATABASE_PASSWORD=secure_password
-DATABASE_NAME=powermem_prod
-DATABASE_EMBEDDING_MODEL_DIMS=1536
+OCEANBASE_HOST=prod-db.example.com
+OCEANBASE_PORT=2881
+OCEANBASE_USER=prod_user
+OCEANBASE_PASSWORD=secure_password
+OCEANBASE_DATABASE=powermem_prod
+OCEANBASE_EMBEDDING_MODEL_DIMS=1536
 
 # LLM
 LLM_PROVIDER=qwen
