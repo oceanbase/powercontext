@@ -12,6 +12,10 @@ Comprehensive guides for using powermem effectively.
 - **[Sub Stores Guide](sub_stores)** - Advanced sub-store configuration
 - **[Multimodal Capability](../examples/scenario_7_multimodal.md)** - Image and multimedia processing
 
+## Other Notes
+
+- **[Other Notes](1000-other_notes)** - Important notes and usage guidelines
+
 ## Quick Navigation
 
 - **New to powermem?** Start with [Getting Started](getting_started)
