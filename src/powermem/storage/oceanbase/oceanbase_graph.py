@@ -36,7 +36,7 @@ from pyobvector import ObVecClient, l2_distance, VECTOR, VecIndexType
 
 from powermem.integrations import EmbedderFactory, LLMFactory
 from powermem.storage.base import GraphStoreBase
-from powermem.utils.utils import format_entities, remove_code_blocks, generate_snowflake_id
+from powermem.utils.utils import format_entities, remove_code_blocks, generate_snowflake_id, get_current_datetime
 
 try:
     from rank_bm25 import BM25Okapi
@@ -1263,6 +1263,7 @@ class MemoryGraph(GraphStoreBase):
             Snowflake ID of the created entity.
         """
         entity_id = generate_snowflake_id()
+        current_time = get_current_datetime()
 
         # Prepare data for insertion using pyobvector API
         record = {
@@ -1270,6 +1271,8 @@ class MemoryGraph(GraphStoreBase):
             "name": name,
             "entity_type": entity_type,
             "embedding": embedding,
+            "created_at": current_time,
+            "updated_at": current_time,
         }
 
         # Use pyobvector upsert method
@@ -1327,6 +1330,7 @@ class MemoryGraph(GraphStoreBase):
         existing_rows = existing_relationships.fetchall()
         if not existing_rows:
             # Relationship doesn't exist, create new one
+            current_time = get_current_datetime()
             new_record = {
                 "id": generate_snowflake_id(),
                 "source_entity_id": source_id,
@@ -1335,6 +1339,8 @@ class MemoryGraph(GraphStoreBase):
                 "user_id": filters["user_id"],
                 "agent_id": filters.get("agent_id"),
                 "run_id": filters.get("run_id"),
+                "created_at": current_time,
+                "updated_at": current_time,
             }
 
             self.client.insert(
