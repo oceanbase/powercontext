@@ -148,7 +148,7 @@ class CustomerServiceBot:
         llm_provider = llm_config_dict.get('provider', '').lower()
         llm_inner_config = llm_config_dict.get('config', {})
         llm_api_key = llm_inner_config.get('api_key') or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
-        llm_base_url = llm_inner_config.get('dashscope_base_url') or llm_inner_config.get('openai_base_url') or os.getenv("LLM_BASE_URL")
+        llm_base_url = llm_inner_config.get('dashscope_base_url') or llm_inner_config.get('openai_base_url') or os.getenv("OPENAI_LLM_BASE_URL")
         llm_model = llm_inner_config.get('model', 'gpt-3.5-turbo')
         llm_temperature = llm_inner_config.get('temperature', 0.7)
         
