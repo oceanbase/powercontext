@@ -21,7 +21,7 @@ except ImportError:
 # =============================================================================
 
 DEFAULT_OCEANBASE_CONNECTION = {
-    "host": "localhost",
+    "host": "127.0.0.1",
     "port": "2881",
     "user": "root@test",
     "password": "",

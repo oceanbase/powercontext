@@ -11,7 +11,7 @@ class PGVectorConfig(BaseVectorStoreConfig):
     embedding_model_dims: Optional[int] = Field(1536, description="Dimensions of the embedding model")
     user: Optional[str] = Field(None, description="Database user")
     password: Optional[str] = Field(None, description="Database password")
-    host: Optional[str] = Field(None, description="Database host. Default is localhost")
+    host: Optional[str] = Field(None, description="Database host. Default is 127.0.0.1")
     port: Optional[int] = Field(None, description="Database port. Default is 1536")
     diskann: Optional[bool] = Field(False, description="Use diskann for approximate nearest neighbors search")
     hnsw: Optional[bool] = Field(True, description="Use hnsw for faster search")

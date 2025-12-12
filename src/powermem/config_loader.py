@@ -95,7 +95,7 @@ def load_config_from_env() -> Dict[str, Any]:
         db_config = {
             'collection_name': os.getenv('POSTGRES_COLLECTION', 'memories'),
             'dbname': os.getenv('POSTGRES_DATABASE', 'powermem'),
-            'host': os.getenv('POSTGRES_HOST', 'localhost'),    
+            'host': os.getenv('POSTGRES_HOST', '127.0.0.1'),    
             'port': int(os.getenv('POSTGRES_PORT', '5432')),
             'user': os.getenv('POSTGRES_USER', 'postgres'),
             'password': os.getenv('POSTGRES_PASSWORD', 'password'),

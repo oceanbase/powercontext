@@ -169,7 +169,7 @@ OceanBase is recommended for production deployments and enterprise applications 
 **Environment Variables Example:**
 ```env
 DATABASE_PROVIDER=oceanbase
-OCEANBASE_HOST=localhost
+OCEANBASE_HOST=127.0.0.1
 OCEANBASE_PORT=2881
 OCEANBASE_USER=root
 OCEANBASE_PASSWORD=your_password
@@ -188,7 +188,7 @@ OCEANBASE_EMBEDDING_MODEL_DIMS=1536
     "config": {
       "collection_name": "memories",
       "connection_args": {
-        "host": "localhost",
+        "host": "127.0.0.1",
         "port": 2881,
         "user": "root",
         "password": "your_password",
@@ -215,7 +215,7 @@ config = {
         'config': {
             'collection_name': 'memories',
             'connection_args': {
-                'host': 'localhost',
+                'host': '127.0.0.1',
                 'port': 2881,
                 'user': 'root',
                 'password': 'your_password',
@@ -266,7 +266,7 @@ DATABASE_MAX_OVERFLOW=20
     "config": {
       "collection_name": "memories",
       "dbname": "powermem",
-      "host": "localhost",
+      "host": "127.0.0.1",
       "port": 5432,
       "user": "postgres",
       "password": "your_password",
@@ -286,7 +286,7 @@ config = {
         'config': {
             'collection_name': 'memories',
             'dbname': 'powermem',
-            'host': 'localhost',
+            'host': '127.0.0.1',
             'port': 5432,
             'user': 'postgres',
             'password': 'your_password',

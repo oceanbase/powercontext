@@ -224,7 +224,7 @@ class TestOceanBaseVectorStore(unittest.TestCase):
         
         # Connection parameters
         self.connection_args = {
-            "host": "localhost",
+            "host": "127.0.0.1",
             "port": "2881",
             "user": "root@test",
             "password": "password",
@@ -236,7 +236,7 @@ class TestOceanBaseVectorStore(unittest.TestCase):
         oceanbase_store = OceanBaseVectorStore(
             collection_name="test_collection",
             embedding_model_dims=3,
-            host="localhost",
+            host="127.0.0.1",
             port="2881",
             user="root@test",
             password="password",
