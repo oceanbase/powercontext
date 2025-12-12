@@ -285,16 +285,12 @@ Directly get profile information for a specific user.
 def profile(
     self,
     user_id: str,
-    agent_id: Optional[str] = None,
-    run_id: Optional[str] = None,
 ) -> Dict[str, Any]
 ```
 
 #### Parameters
 
 - `user_id` (str, required): user identifier
-- `agent_id` (str, optional): agent identifier for filtering
-- `run_id` (str, optional): run identifier for filtering
 
 #### Return value
 
@@ -304,8 +300,6 @@ If a user profile is found, returns a dictionary containing:
 {
     "id": 1,                               # profile ID
     "user_id": "user_001",                 # user ID
-    "agent_id": "test_agent",              # agent ID
-    "run_id": "run_001",                   # run ID
     "profile_content": "...",              # profile content (text)
     "created_at": "2024-01-01T00:00:00",   # created time (ISO format)
     "updated_at": "2024-01-01T00:00:00"    # last updated time (ISO format)
@@ -319,8 +313,7 @@ If no profile is found, returns an empty dict `{}`.
 ```python
 # Get user profile
 profile = user_memory.profile(
-    user_id="user_001",
-    agent_id="test_agent"
+    user_id="user_001"
 )
 
 if profile:
@@ -330,9 +323,6 @@ if profile:
     print(f"Updated at: {profile['updated_at']}")
 else:
     print("No profile found")
-
-# Without agent_id and run_id (get the latest profile)
-profile = user_memory.profile(user_id="user_001")
 ```
 
 ## Complete Example

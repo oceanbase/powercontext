@@ -178,16 +178,13 @@ user_memory.add(
 
 # Get the user profile
 profile = user_memory.profile(
-    user_id="user_002",
-    agent_id="assistant_agent"
+    user_id="user_002"
 )
 
 if profile:
     print("✓ Profile retrieved successfully")
     print(f"  - Profile ID: {profile.get('id')}")
     print(f"  - User ID: {profile.get('user_id')}")
-    print(f"  - Agent ID: {profile.get('agent_id')}")
-    print(f"  - Run ID: {profile.get('run_id')}")
     print(f"  - Profile content: {profile.get('profile_content', '')}")
     print(f"  - Created at: {profile.get('created_at')}")
     print(f"  - Updated at: {profile.get('updated_at')}")
@@ -368,8 +365,7 @@ if profile:
     
     # Delete the profile
     deleted = user_memory.delete_profile(
-        user_id=user_id,
-        agent_id="assistant_agent"
+        user_id=user_id
     )
     
     if deleted:
@@ -452,8 +448,7 @@ def main():
     # Step 3: Get full profile
     print("\n3. Retrieving full profile...")
     profile = user_memory.profile(
-        user_id=user_id,
-        agent_id="demo_agent"
+        user_id=user_id
     )
     
     if profile:
@@ -480,7 +475,7 @@ def main():
     # Step 5: Cleanup (optional)
     print("\n5. Cleaning up...")
     # Note: In production, you might want to keep the profiles
-    # deleted = user_memory.delete_profile(user_id=user_id, agent_id="demo_agent")
+    # deleted = user_memory.delete_profile(user_id=user_id)
     # if deleted:
     #     print("   ✓ Profile deleted")
     
