@@ -18,6 +18,7 @@ Each scenario is available as both:
  - [Scenario 6: Sub Stores](./scenario_6_sub_stores.md)
  - [Scenario 7: Multimodal Capability](./scenario_7_multimodal.md)
  - [Scenario 8: Ebbinghaus Forgetting Curve](./scenario_8_ebbinghaus_forgetting_curve.md)
+ - [Scenario 9: User Profile Management](./scenario_9_user_memory.md)
 
 ## Quick Start
 
@@ -60,6 +61,7 @@ Each notebook includes:
 6. **Scenario 6** - Sub stores for memory partitioning and optimization
 7. **Scenario 7** - Multimodal capability for image and multimedia processing
 8. **Scenario 8** - Ebbinghaus forgetting curve for time-based memory decay and retention optimization
+9. **Scenario 9** - User profile management for automatic user profile extraction and integration with memory search
 
 ## Requirements
 

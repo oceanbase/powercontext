@@ -15,6 +15,11 @@ from .intelligent_memory_prompts import (
     get_memory_update_prompt,
     parse_messages_for_facts
 )
+from .user_profile_prompts import (
+    USER_PROFILE_TOPICS,
+    USER_PROFILE_EXTRACTION_PROMPT,
+    get_user_profile_extraction_prompt,
+)
 
 __all__ = [
     "PromptTemplates",
@@ -26,4 +31,7 @@ __all__ = [
     "MEMORY_UPDATE_PROMPT",
     "get_memory_update_prompt",
     "parse_messages_for_facts",
+    "USER_PROFILE_TOPICS",
+    "USER_PROFILE_EXTRACTION_PROMPT",
+    "get_user_profile_extraction_prompt",
 ]
