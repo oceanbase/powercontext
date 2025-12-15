@@ -95,7 +95,7 @@ def load_config_from_env() -> Dict[str, Any]:
         db_config = {
             'collection_name': os.getenv('POSTGRES_COLLECTION', 'memories'),
             'dbname': os.getenv('POSTGRES_DATABASE', 'powermem'),
-            'host': os.getenv('POSTGRES_HOST', 'localhost'),    
+            'host': os.getenv('POSTGRES_HOST', '127.0.0.1'),    
             'port': int(os.getenv('POSTGRES_PORT', '5432')),
             'user': os.getenv('POSTGRES_USER', 'postgres'),
             'password': os.getenv('POSTGRES_PASSWORD', 'password'),
@@ -124,17 +124,41 @@ def load_config_from_env() -> Dict[str, Any]:
     }
     
     # Add provider-specific config
-    if llm_provider == 'qwen':
-        llm_config['dashscope_base_url'] = os.getenv('LLM_BASE_URL', 'https://dashscope.aliyuncs.com/api/v1')
+    def _configure_qwen():
+        llm_config['dashscope_base_url'] = os.getenv('QWEN_LLM_BASE_URL','https://dashscope.aliyuncs.com/api/v1')
         llm_config['enable_search'] = os.getenv('LLM_ENABLE_SEARCH', 'false').lower() == 'true'
-    elif llm_provider == 'openai':
-        base_url = os.getenv('LLM_BASE_URL')
-        if base_url:
-            llm_config['openai_base_url'] = base_url
-    elif llm_provider == 'siliconflow':
-        # SiliconFlow uses OpenAI-compatible API
-        base_url = os.getenv('LLM_BASE_URL', 'https://api.siliconflow.cn/v1')
-        llm_config['openai_base_url'] = base_url
+    
+    def _configure_openai():
+        llm_config['openai_base_url'] = os.getenv('OPENAI_LLM_BASE_URL','https://api.openai.com/v1')
+    
+    def _configure_siliconflow():
+        llm_config['openai_base_url'] = os.getenv('SILICONFLOW_LLM_BASE_URL','https://api.siliconflow.cn/v1')
+
+    def _configure_ollama():
+        llm_config['ollama_base_url'] = os.getenv('OLLAMA_LLM_BASE_URL')
+    
+    def _configure_vllm():
+        llm_config['vllm_base_url'] = os.getenv('VLLM_LLM_BASE_URL')
+
+    def _configure_anthropic():
+        llm_config['anthropic_base_url'] = os.getenv('ANTHROPIC_LLM_BASE_URL','https://api.anthropic.com')
+
+    def _configure_deepseek():
+        llm_config['deepseek_base_url'] = os.getenv('DEEPSEEK_LLM_BASE_URL','https://api.deepseek.com')
+
+    provider_configs = {
+        'qwen': _configure_qwen,
+        'openai': _configure_openai,
+        'siliconflow': _configure_siliconflow,
+        'ollama': _configure_ollama,
+        'vllm': _configure_vllm,
+        'anthropic': _configure_anthropic,
+        'deepseek': _configure_deepseek,
+    }
+    
+    # Apply provider-specific configuration
+    if llm_provider in provider_configs:
+        provider_configs[llm_provider]()
 
 
     # Build Embedding config based on provider
@@ -147,18 +171,16 @@ def load_config_from_env() -> Dict[str, Any]:
 
     # Add provider-specific config
     provider_base_url_map = {
-        'qwen': ('dashscope_base_url', 'https://dashscope.aliyuncs.com/api/v1'),
-        'openai': ('openai_base_url', 'https://api.openai.com/v1'),
-        'huggingface': ('huggingface_base_url', None),
-        'lmstudio': ('lmstudio_base_url', None),
-        'ollama': ('ollama_base_url', None),
+        'qwen': ('dashscope_base_url', os.getenv('QWEN_EMBEDDING_BASE_URL')),
+        'openai': ('openai_base_url', os.getenv('OPENAI_EMBEDDING_BASE_URL')),
+        'huggingface': ('huggingface_base_url', os.getenv('HUGGINFACE_EMBEDDING_BASE_URL')),
+        'lmstudio': ('lmstudio_base_url', os.getenv('LMSTUDIO_EMBEDDING_BASE_URL')),
+        'ollama': ('ollama_base_url', os.getenv('OLLAMA_EMBEDDING_BASE_URL')),
     }
     
     if embedding_provider in provider_base_url_map:
         config_key, default_value = provider_base_url_map[embedding_provider]
-        base_url = os.getenv('EMBEDDING_BASE_URL', default_value)
-        if base_url:
-            embedding_config[config_key] = base_url
+        embedding_config[config_key] = default_value
     
     config = {
         'vector_store': {

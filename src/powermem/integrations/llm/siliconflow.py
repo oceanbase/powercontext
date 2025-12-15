@@ -47,9 +47,8 @@ class SiliconFlowLLM(LLMBase):
         api_key = self.config.api_key or os.getenv("SILICONFLOW_API_KEY") or os.getenv("LLM_API_KEY")
         # Default base URL for SiliconFlow
         base_url = (
-            self.config.openai_base_url 
-            or os.getenv("SILICONFLOW_BASE_URL") 
-            or os.getenv("LLM_BASE_URL")
+            self.config.openai_base_url
+            or os.getenv("SILICONFLOW_LLM_BASE_URL")
             or "https://api.siliconflow.cn/v1"
         )
 

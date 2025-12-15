@@ -169,7 +169,7 @@ OceanBase is recommended for production deployments and enterprise applications 
 **Environment Variables Example:**
 ```env
 DATABASE_PROVIDER=oceanbase
-OCEANBASE_HOST=localhost
+OCEANBASE_HOST=127.0.0.1
 OCEANBASE_PORT=2881
 OCEANBASE_USER=root
 OCEANBASE_PASSWORD=your_password
@@ -188,7 +188,7 @@ OCEANBASE_EMBEDDING_MODEL_DIMS=1536
     "config": {
       "collection_name": "memories",
       "connection_args": {
-        "host": "localhost",
+        "host": "127.0.0.1",
         "port": 2881,
         "user": "root",
         "password": "your_password",
@@ -215,7 +215,7 @@ config = {
         'config': {
             'collection_name': 'memories',
             'connection_args': {
-                'host': 'localhost',
+                'host': '127.0.0.1',
                 'port': 2881,
                 'user': 'root',
                 'password': 'your_password',
@@ -266,7 +266,7 @@ DATABASE_MAX_OVERFLOW=20
     "config": {
       "collection_name": "memories",
       "dbname": "powermem",
-      "host": "localhost",
+      "host": "127.0.0.1",
       "port": 5432,
       "user": "postgres",
       "password": "your_password",
@@ -286,7 +286,7 @@ config = {
         'config': {
             'collection_name': 'memories',
             'dbname': 'powermem',
-            'host': 'localhost',
+            'host': '127.0.0.1',
             'port': 5432,
             'user': 'postgres',
             'password': 'your_password',
@@ -316,7 +316,7 @@ Qwen is the default LLM provider, powered by Alibaba Cloud DashScope.
 |--------------|------|----------|---------|-------------|
 | `LLM_API_KEY` | string | Yes* | - | DashScope API key. Required when `LLM_PROVIDER=qwen` |
 | `LLM_MODEL` | string | No | `qwen-plus` | Qwen model name. Options: `qwen-plus`, `qwen-max`, `qwen-turbo`, `qwen-long`, etc. |
-| `LLM_BASE_URL` | string | No | `https://dashscope.aliyuncs.com/api/v1` | API base URL for DashScope |
+| `QWEN_LLM_BASE_URL` | string | No | `https://dashscope.aliyuncs.com/api/v1` | API base URL for DashScope |
 | `LLM_TEMPERATURE` | float | No | `0.7` | Sampling temperature (0.0-2.0). Higher values make output more random |
 | `LLM_MAX_TOKENS` | integer | No | `1000` | Maximum number of tokens to generate |
 | `LLM_TOP_P` | float | No | `0.8` | Nucleus sampling parameter (0.0-1.0). Controls diversity of output |
@@ -328,7 +328,7 @@ Qwen is the default LLM provider, powered by Alibaba Cloud DashScope.
 LLM_PROVIDER=qwen
 LLM_API_KEY=your_api_key_here
 LLM_MODEL=qwen-plus
-LLM_BASE_URL=https://dashscope.aliyuncs.com/api/v1
+QWEN_LLM_BASE_URL=https://dashscope.aliyuncs.com/api/v1
 LLM_TEMPERATURE=0.7
 LLM_MAX_TOKENS=1000
 LLM_TOP_P=0.8
@@ -382,7 +382,7 @@ OpenAI GPT models are supported.
 |--------------|------|----------|---------|-------------|
 | `LLM_API_KEY` | string | Yes* | - | OpenAI API key. Required when `LLM_PROVIDER=openai` |
 | `LLM_MODEL` | string | No | `gpt-4` | OpenAI model name. Options: `gpt-4`, `gpt-4-turbo`, `gpt-3.5-turbo`, etc. |
-| `LLM_BASE_URL` | string | No | `https://api.openai.com/v1` | API base URL for OpenAI |
+| `OPENAI_LLM_BASE_URL` | string | No | `https://api.openai.com/v1` | API base URL for OpenAI |
 | `LLM_TEMPERATURE` | float | No | `0.7` | Sampling temperature (0.0-2.0) |
 | `LLM_MAX_TOKENS` | integer | No | `1000` | Maximum number of tokens to generate |
 | `LLM_TOP_P` | float | No | `1.0` | Nucleus sampling parameter (0.0-1.0) |
@@ -392,7 +392,7 @@ OpenAI GPT models are supported.
 LLM_PROVIDER=openai
 LLM_API_KEY=your-openai-api-key
 LLM_MODEL=gpt-4
-LLM_BASE_URL=https://api.openai.com/v1
+OPENAI_LLM_BASE_URL=https://api.openai.com/v1
 LLM_TEMPERATURE=0.7
 LLM_MAX_TOKENS=1000
 LLM_TOP_P=1.0
@@ -453,7 +453,7 @@ Qwen embeddings are provided by Alibaba Cloud DashScope.
 | `EMBEDDING_API_KEY` | string | Yes* | - | DashScope API key. Required when `EMBEDDING_PROVIDER=qwen` |
 | `EMBEDDING_MODEL` | string | No | `text-embedding-v4` | Qwen embedding model name |
 | `EMBEDDING_DIMS` | integer | Yes* | `1536` | Vector dimensions. Must match `DATABASE_EMBEDDING_MODEL_DIMS` if using OceanBase. Required when `EMBEDDING_PROVIDER=qwen` |
-| `EMBEDDING_BASE_URL` | string | No | `https://dashscope.aliyuncs.com/api/v1` | API base URL for DashScope |
+| `QWEN_EMBEDDING_BASE_URL` | string | No | `https://dashscope.aliyuncs.com/api/v1` | API base URL for DashScope |
 
 **Environment Variables Example:**
 ```env
@@ -461,7 +461,7 @@ EMBEDDING_PROVIDER=qwen
 EMBEDDING_API_KEY=your_api_key_here
 EMBEDDING_MODEL=text-embedding-v4
 EMBEDDING_DIMS=1536
-EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/api/v1
+QWEN_EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/api/v1
 ```
 
 **JSON Configuration Example:**
@@ -501,7 +501,7 @@ OpenAI provides text embedding models.
 | `EMBEDDING_API_KEY` | string | Yes* | - | OpenAI API key. Required when `EMBEDDING_PROVIDER=openai` |
 | `EMBEDDING_MODEL` | string | No | `text-embedding-ada-002` | OpenAI embedding model name. Options: `text-embedding-ada-002`, `text-embedding-3-small`, `text-embedding-3-large` |
 | `EMBEDDING_DIMS` | integer | Yes* | `1536` | Vector dimensions. Varies by model (ada-002: 1536, 3-small: 1536, 3-large: 3072). Required when `EMBEDDING_PROVIDER=openai` |
-| `EMBEDDING_BASE_URL` | string | No | `https://api.openai.com/v1` | API base URL for OpenAI |
+| `OPEN_EMBEDDING_BASE_URL` | string | No | `https://api.openai.com/v1` | API base URL for OpenAI |
 
 **Environment Variables Example:**
 ```env
@@ -509,7 +509,7 @@ EMBEDDING_PROVIDER=openai
 EMBEDDING_API_KEY=your-openai-api-key
 EMBEDDING_MODEL=text-embedding-ada-002
 EMBEDDING_DIMS=1536
-EMBEDDING_BASE_URL=https://api.openai.com/v1
+OPEN_EMBEDDING_BASE_URL=https://api.openai.com/v1
 ```
 
 **JSON Configuration Example:**

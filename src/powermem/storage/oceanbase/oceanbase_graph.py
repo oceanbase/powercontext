@@ -114,7 +114,7 @@ class MemoryGraph(GraphStoreBase):
         )
 
         # Initialize OceanBase client
-        host = get_config_value("host", "localhost")
+        host = get_config_value("host", "127.0.0.1")
         port = get_config_value("port", "2881")
         user = get_config_value("user", "root")
         password = get_config_value("password", "")

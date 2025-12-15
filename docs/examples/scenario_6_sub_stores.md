@@ -55,7 +55,7 @@ config = {
         "config": {
             "collection_name": "main_memories",
             "embedding_model_dims": 1536,
-            "host": os.getenv("OCEANBASE_HOST", "localhost"),
+            "host": os.getenv("OCEANBASE_HOST", "127.0.0.1"),
             "port": int(os.getenv("OCEANBASE_PORT", "2881")),
             "user": os.getenv("OCEANBASE_USER", "root@test_tenant"),
             "password": os.getenv("OCEANBASE_PASSWORD", "password"),
@@ -604,7 +604,7 @@ def main():
             "config": {
                 "collection_name": "demo_memories",
                 "embedding_model_dims": 1536,
-                "host": os.getenv("OCEANBASE_HOST", "localhost"),
+                "host": os.getenv("OCEANBASE_HOST", "127.0.0.1"),
                 "port": int(os.getenv("OCEANBASE_PORT", "2881")),
                 "user": os.getenv("OCEANBASE_USER", "root@test"),
                 "password": os.getenv("OCEANBASE_PASSWORD", "password"),

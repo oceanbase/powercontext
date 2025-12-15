@@ -115,7 +115,7 @@ Ensure your OceanBase instance is running and accessible:
 
 ```bash
 # Test connection (adjust host/port as needed)
-mysql -h localhost -P 2881 -u root -p
+mysql -h 127.0.0.1 -P 2881 -u root -p
 ```
 
 ## Usage
@@ -318,7 +318,7 @@ workflow.add_edge("classify_intent", "handle_product_inquiry")
 **Problem**: Cannot connect to OceanBase
 
 **Solution**:
-1. Verify OceanBase is running: `mysql -h localhost -P 2881 -u root -p`
+1. Verify OceanBase is running: `mysql -h 127.0.0.1 -P 2881 -u root -p`
 2. Check configuration in `.env`
 3. Verify network connectivity and firewall settings
 

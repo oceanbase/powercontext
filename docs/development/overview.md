@@ -376,7 +376,7 @@ def test_your_provider_create_col():
     """Test collection creation"""
     config = {
         "collection_name": "test_collection",
-        "host": "localhost",
+        "host": "127.0.0.1",
         "port": 5432,
     }
     store = VectorStoreFactory.create("your_provider", config)
@@ -388,7 +388,7 @@ def test_your_provider_insert_and_search():
     """Test insertion and search"""
     config = {
         "collection_name": "test_collection",
-        "host": "localhost",
+        "host": "127.0.0.1",
         "port": 5432,
     }
     store = VectorStoreFactory.create("your_provider", config)
@@ -1018,7 +1018,7 @@ from powermem.storage.factory import VectorStoreFactory
 # Test connection
 config = {
     "collection_name": "test",
-    "host": "localhost",
+    "host": "127.0.0.1",
     "port": 2881,
     # ... other config
 }
@@ -1171,7 +1171,7 @@ store_config = {
 
 ```python
 config = {
-    "host": "localhost",
+    "host": "127.0.0.1",
     "port": 2881,
     "connect_timeout": 30,  # Increase timeout
     # ... other config

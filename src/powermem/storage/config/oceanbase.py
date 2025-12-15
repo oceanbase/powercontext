@@ -15,7 +15,7 @@ class OceanBaseConfig(BaseVectorStoreConfig):
     collection_name: str = Field("power_mem", description="Default name for the collection")
 
     # Connection parameters
-    host: str = Field("localhost", description="OceanBase server host")
+    host: str = Field("127.0.0.1", description="OceanBase server host")
     port: str = Field("2881", description="OceanBase server port")
     user: str = Field("root@test", description="OceanBase username")
     password: str = Field("", description="OceanBase password")

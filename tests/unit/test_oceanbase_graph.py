@@ -16,7 +16,7 @@ class TestOceanBaseGraph(unittest.TestCase):
         self.config = MagicMock()
         
         # Mock OceanBase config
-        self.config.graph_store.config.host = "localhost"
+        self.config.graph_store.config.host = "127.0.0.1"
         self.config.graph_store.config.port = "2881"
         self.config.graph_store.config.user = "root@test"
         self.config.graph_store.config.password = "password"
@@ -106,7 +106,7 @@ class TestOceanBaseGraph(unittest.TestCase):
         """Test initialization fails without embedding_model_dims."""
         # Create a mock config without embedding_model_dims
         config_no_dims = MagicMock()
-        config_no_dims.graph_store.config.host = "localhost"
+        config_no_dims.graph_store.config.host = "127.0.0.1"
         config_no_dims.graph_store.config.port = "2881"
         config_no_dims.graph_store.config.user = "root@test"
         config_no_dims.graph_store.config.password = "password"
