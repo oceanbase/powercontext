@@ -352,6 +352,99 @@ def extract_json(text):
         json_str = text  # assume it's raw JSON
     return json_str
 
+
+def parse_json_from_text(text: str, expected_type: type = dict) -> Optional[Any]:
+    """
+    Parse JSON from text, with fallback to extract JSON if wrapped in text.
+    
+    This function first tries to parse the text directly as JSON. If that fails,
+    it attempts to extract JSON objects from the text using regex pattern matching.
+    
+    Args:
+        text: Text that may contain JSON
+        expected_type: Expected type of the parsed JSON (default: dict).
+                      If the parsed JSON is not of this type, returns None.
+    
+    Returns:
+        Parsed JSON object of the expected type, or None if parsing fails or
+        the parsed object is not of the expected type.
+    
+    Examples:
+        >>> parse_json_from_text('{"key": "value"}')
+        {'key': 'value'}
+        >>> parse_json_from_text('Here is the JSON: {"key": "value"}')
+        {'key': 'value'}
+        >>> parse_json_from_text('["item1", "item2"]', expected_type=list)
+        ['item1', 'item2']
+    """
+    # Try direct JSON parsing first
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, expected_type):
+            return parsed
+        logger.warning(f"Parsed JSON is not of expected type {expected_type}, got: {type(parsed)}")
+        return None
+    except json.JSONDecodeError:
+        pass
+    
+    # Try to extract JSON from text if it's wrapped
+    # Match JSON objects: { ... } or arrays: [ ... ]
+    pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}' if expected_type == dict else r'\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\]'
+    json_match = re.search(pattern, text, re.DOTALL)
+    if json_match:
+        try:
+            parsed = json.loads(json_match.group())
+            if isinstance(parsed, expected_type):
+                logger.debug("Successfully extracted JSON from wrapped text")
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    
+    logger.error(f"Failed to parse JSON from text, expected type: {expected_type}, text: {text}")
+    return None
+
+
+def parse_conversation_text(messages: Any) -> str:
+    """
+    Parse conversation messages into text format.
+    
+    This function handles multiple input formats:
+    - String: Returns as-is
+    - Dict: Extracts 'content' field
+    - List of dicts: Formats as "role: content\n" for each message (skips system messages)
+    - Other types: Converts to string
+    
+    Args:
+        messages: Conversation messages (str, dict, or list[dict])
+    
+    Returns:
+        Conversation text string
+    
+    Examples:
+        >>> parse_conversation_text("Hello")
+        'Hello'
+        >>> parse_conversation_text({"content": "Hello"})
+        'Hello'
+        >>> parse_conversation_text([{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello"}])
+        'user: Hi\nassistant: Hello\n'
+    """
+    if isinstance(messages, str):
+        return messages
+    elif isinstance(messages, dict):
+        return messages.get("content", "")
+    elif isinstance(messages, list):
+        conversation_text = ""
+        for msg in messages:
+            if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
+                role = msg['role']
+                content = msg.get('content', '')
+                if role != "system":  # Skip system messages
+                    conversation_text += f"{role}: {content}\n"
+        return conversation_text
+    else:
+        return str(messages)
+
+
 def format_entities(entities):
     if not entities:
         return ""

@@ -99,6 +99,9 @@ def add(
     memory_type: Optional[str] = None,
     prompt: Optional[str] = None,
     infer: bool = True,
+    profile_type: str = "content",
+    custom_topics: Optional[str] = None,
+    strict_mode: bool = False,
 ) -> Dict[str, Any]
 ```
 
@@ -117,6 +120,19 @@ Same as `Memory.add()`
 - `memory_type` (str, optional): memory type/category
 - `prompt` (str, optional): custom prompt for intelligent processing
 - `infer` (bool): whether to enable intelligent memory processing (default: True)
+- `profile_type` (str): Type of profile extraction, either "content" (non-structured) or "topics" (structured). Default: "content"
+- `custom_topics` (str, optional): Optional custom topics JSON string for structured extraction. Only used when profile_type="topics". Format should be a JSON string:
+  ```json
+  {
+      "main_topic": {
+          "sub_topic1": "description1",
+          "sub_topic2": "description2"
+      }
+  }
+  ```
+  - All keys must be in snake_case (lowercase, underscores, no spaces)
+  - Descriptions are for reference only and should NOT be used as keys in the output
+- `strict_mode` (bool): If True, only output topics from the provided list. Only used when profile_type="topics". Default: False
 
 #### Return value
 
@@ -143,7 +159,8 @@ Returns a dictionary with:
 
     # New fields from UserMemory
     "profile_extracted": True,            # whether profile was successfully extracted
-    "profile_content": "..."             # extracted profile content (if any)
+    "profile_content": "..."             # extracted profile content (if profile_type="content")
+    "topics": {...}                      # structured topics dictionary (if profile_type="topics")
 }
 ```
 
@@ -180,6 +197,36 @@ result = user_memory.add(
     messages="The user mentioned they have been learning machine learning recently.",
     user_id="user_001"
 )
+
+# Example 4: extract structured topics
+custom_topics = '''
+{
+    "basic_information": {
+        "user_name": "User's name",
+        "age": "User's age",
+        "location": "User's location"
+    },
+    "professional": {
+        "occupation": "User's job title",
+        "company": "User's company"
+    },
+    "interests": {
+        "hobbies": "User's hobbies",
+        "favorite_topics": "Topics user is interested in"
+    }
+}
+'''
+
+result = user_memory.add(
+    messages=conversation,
+    user_id="user_001",
+    profile_type="topics",
+    custom_topics=custom_topics,
+    strict_mode=False
+)
+
+if result.get('topics'):
+    print(f"Extracted topics: {result['topics']}")
 ```
 
 ### 2. `search()` — Search memories (optionally include profile)
@@ -236,7 +283,8 @@ Returns a dictionary with:
     "relations": [...],                     # graph relations (if enabled)
 
     # If add_profile=True and user_id is provided
-    "profile_content": "..."               # user profile content
+    "profile_content": "..."               # user profile content (if available)
+    "topics": {...}                        # structured topics dictionary (if available)
 }
 ```
 
@@ -300,7 +348,8 @@ If a user profile is found, returns a dictionary containing:
 {
     "id": 1,                               # profile ID
     "user_id": "user_001",                 # user ID
-    "profile_content": "...",              # profile content (text)
+    "profile_content": "...",              # profile content (text, if available)
+    "topics": {...},                       # structured topics dictionary (if available)
     "created_at": "2024-01-01T00:00:00",   # created time (ISO format)
     "updated_at": "2024-01-01T00:00:00"    # last updated time (ISO format)
 }
@@ -318,11 +367,110 @@ profile = user_memory.profile(
 
 if profile:
     print(f"User ID: {profile['user_id']}")
-    print(f"Profile content: {profile['profile_content']}")
+    if profile.get('profile_content'):
+        print(f"Profile content: {profile['profile_content']}")
+    if profile.get('topics'):
+        print(f"Topics: {profile['topics']}")
     print(f"Created at: {profile['created_at']}")
     print(f"Updated at: {profile['updated_at']}")
 else:
     print("No profile found")
+```
+
+### 4. `profile_list()` — List user profiles with filtering
+
+Get a list of user profiles with optional filtering by topics.
+
+#### Signature
+
+```python
+def profile_list(
+    self,
+    user_id: Optional[str] = None,
+    main_topic: Optional[List[str]] = None,
+    sub_topic: Optional[List[str]] = None,
+    topic_value: Optional[List[str]] = None,
+    limit: Optional[int] = 100,
+    offset: Optional[int] = 0,
+) -> List[Dict[str, Any]]
+```
+
+#### Parameters
+
+- `user_id` (str, optional): User identifier to filter by
+- `main_topic` (List[str], optional): List of main topic names to filter
+- `sub_topic` (List[str], optional): List of sub topic paths to filter. Each path should be in the format "main_topic.sub_topic", e.g., ["basic_information.user_name"]
+- `topic_value` (List[str], optional): List of topic values to filter by exact match
+- `limit` (int, optional): Limit on the number of profiles to return (default: 100)
+- `offset` (int, optional): Offset for pagination (default: 0)
+
+#### Return value
+
+Returns a list of profile dictionaries, each with the following keys:
+
+```python
+[
+    {
+        "id": 1,                               # profile ID
+        "user_id": "user_001",                 # user ID
+        "profile_content": "...",              # profile content (text, if available)
+        "topics": {...},                       # structured topics dictionary (if available)
+        "created_at": "2024-01-01T00:00:00",   # created time (ISO format)
+        "updated_at": "2024-01-01T00:00:00"    # last updated time (ISO format)
+    },
+    ...
+]
+```
+
+Returns empty list if no profiles found.
+
+#### Examples
+
+```python
+# Get all profiles
+all_profiles = user_memory.profile_list()
+
+# Get profiles for a specific user
+user_profiles = user_memory.profile_list(user_id="user_001")
+
+# Filter by main topic
+profiles = user_memory.profile_list(main_topic=["basic_information", "professional"])
+
+# Filter by sub topic
+profiles = user_memory.profile_list(sub_topic=["basic_information.user_name", "professional.occupation"])
+```
+
+### 5. `delete_profile()` — Delete user profile
+
+Delete a user profile by user_id.
+
+#### Signature
+
+```python
+def delete_profile(
+    self,
+    user_id: str,
+) -> bool
+```
+
+#### Parameters
+
+- `user_id` (str, required): User identifier
+
+#### Return value
+
+Returns `True` if profile was deleted successfully, `False` if profile not found.
+
+#### Examples
+
+```python
+# Delete a user profile
+deleted = user_memory.delete_profile(user_id="user_001")
+
+if deleted:
+    print("Profile deleted successfully")
+else:
+    print("Profile not found")
 ```
 
 ## Complete Example

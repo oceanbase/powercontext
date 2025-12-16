@@ -185,7 +185,10 @@ if profile:
     print("✓ Profile retrieved successfully")
     print(f"  - Profile ID: {profile.get('id')}")
     print(f"  - User ID: {profile.get('user_id')}")
-    print(f"  - Profile content: {profile.get('profile_content', '')}")
+    if profile.get('profile_content'):
+        print(f"  - Profile content: {profile.get('profile_content', '')}")
+    if profile.get('topics'):
+        print(f"  - Topics: {profile.get('topics')}")
     print(f"  - Created at: {profile.get('created_at')}")
     print(f"  - Updated at: {profile.get('updated_at')}")
 else:
