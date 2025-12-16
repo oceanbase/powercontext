@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check publish-pypi publish-testpypi install-build-tools upload docs
+.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check publish-pypi publish-testpypi install-build-tools upload docs bump-version
 
 help: ## Show help information
 	@echo "powermem Project Build Tools"
@@ -155,6 +155,40 @@ benchmark: ## Run performance tests
 # Setup
 setup-env: ## Setup development environment
 	python scripts/setup.py
+
+# Version management
+bump-version: ## Bump version number (usage: make bump-version VERSION=0.2.0)
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Error: VERSION is required. Usage: make bump-version VERSION=0.2.0"; \
+		exit 1; \
+	fi
+	@echo "Bumping version to $(VERSION)..."
+	@# Update pyproject.toml
+	@sed -i 's/^version = ".*"/version = "$(VERSION)"/' pyproject.toml
+	@# Update src/powermem/version.py
+	@sed -i 's/^__version__ = ".*"/__version__ = "$(VERSION)"/' src/powermem/version.py
+	@# Update examples/langgraph/__init__.py
+	@sed -i 's/^__version__ = ".*"/__version__ = "$(VERSION)"/' examples/langgraph/__init__.py
+	@# Update src/powermem/core/telemetry.py (all occurrences)
+	@sed -i 's/"version": "0\.[0-9]\+\.[0-9]\+"/"version": "$(VERSION)"/g' src/powermem/core/telemetry.py
+	@# Update src/powermem/core/audit.py
+	@sed -i 's/"version": "0\.[0-9]\+\.[0-9]\+"/"version": "$(VERSION)"/g' src/powermem/core/audit.py
+	@# Update examples/langgraph/requirements.txt
+	@sed -i 's/powermem>=0\.[0-9]\+\.[0-9]\+/powermem>=$(VERSION)/' examples/langgraph/requirements.txt
+	@# Update examples/langchain/requirements.txt
+	@sed -i 's/powermem>=0\.[0-9]\+\.[0-9]\+/powermem>=$(VERSION)/' examples/langchain/requirements.txt
+	@echo "✓ Version updated to $(VERSION) in all files"
+	@echo ""
+	@echo "Updated files:"
+	@echo "  - pyproject.toml"
+	@echo "  - src/powermem/version.py"
+	@echo "  - examples/langgraph/__init__.py"
+	@echo "  - src/powermem/core/telemetry.py"
+	@echo "  - src/powermem/core/audit.py"
+	@echo "  - examples/langgraph/requirements.txt"
+	@echo "  - examples/langchain/requirements.txt"
+	@echo ""
+	@echo "Note: Don't forget to update VERSION_HISTORY in src/powermem/version.py manually!"
 
 # CI/CD helpers
 ci-test: install-test test-unit test-integration ## Run tests for CI (unit + integration)
