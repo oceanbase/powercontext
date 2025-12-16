@@ -365,6 +365,20 @@ class UserMemory:
             topics = parse_json_from_text(topics_text, expected_type=dict)
             if topics is None:
                 raise ValueError(f"Invalid JSON format in topics response: {topics_text}")
+            
+            # Convert numeric values to strings recursively
+            def convert_numbers_to_strings(obj):
+                """Recursively convert numeric values to strings in dict/list structures."""
+                if isinstance(obj, dict):
+                    return {k: convert_numbers_to_strings(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_numbers_to_strings(item) for item in obj]
+                elif isinstance(obj, (int, float)):
+                    return str(obj)
+                else:
+                    return obj
+            
+            topics = convert_numbers_to_strings(topics)
             return topics
 
         except Exception as e:
@@ -562,7 +576,7 @@ class UserMemory:
         user_id: Optional[str] = None,
         main_topic: Optional[List[str]] = None,
         sub_topic: Optional[List[str]] = None,
-        topic_value: Optional[List[Any]] = None,
+        topic_value: Optional[List[str]] = None,
         limit: Optional[int] = 100,
         offset: Optional[int] = 0,
     ) -> List[Dict[str, Any]]:
