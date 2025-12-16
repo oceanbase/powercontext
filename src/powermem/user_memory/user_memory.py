@@ -562,7 +562,7 @@ class UserMemory:
         user_id: Optional[str] = None,
         main_topic: Optional[List[str]] = None,
         sub_topic: Optional[List[str]] = None,
-        topic_value: Optional[List[str]] = None,
+        topic_value: Optional[List[Any]] = None,
         limit: Optional[int] = 100,
         offset: Optional[int] = 0,
     ) -> List[Dict[str, Any]]:
