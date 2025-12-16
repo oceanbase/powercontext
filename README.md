@@ -116,6 +116,13 @@ For more detailed examples and usage patterns, see the [Getting Started Guide](d
 - 📓 **[Examples](docs/examples/overview.md)**: Interactive Jupyter notebooks and use cases
 - 👨‍💻 **[Development Documentation](docs/development/overview.md)**: Developer documentation
 
+## ⭐ Highlights Release Notes
+
+| Version | Iteration Period | Release Date | Function |
+|---------|--------|-------|---------|
+| 0.2.0 | 2025.12 | 2025.12.16 | <ul><li>Advanced user profile management, supporting "personalized experience" for AI applications</li><li>Expanded multimodal support, including text, image, and audio memory</li></ul> |
+| 0.1.0 | 2025.11 | 2025.11.14 | <ul><li>Core memory management functionality, supporting persistent storage of memories</li><li>Hybrid retrieval supporting vector, full-text, and graph search</li><li>Intelligent memory extraction based on LLM fact extraction</li><li>Full lifecycle memory management supporting Ebbinghaus forgetting curve</li><li>Multi-Agent memory management support</li><li>Multiple storage backend support (OceanBase, PostgreSQL, SQLite)</li><li>Support for knowledge graph retrieval through multi-hop graph search</li></ul> |
+
 ## 💬 Support
 
 - 🐛 **Issue Reporting**: [GitHub Issues](https://github.com/oceanbase/powermem/issues)
