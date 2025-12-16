@@ -127,49 +127,52 @@ class UserMemory:
                 - "profile_content" (str, optional): Profile content text (when profile_type="content")
                 - "topics" (dict, optional): Structured topics dictionary (when profile_type="topics")
         """
-
-        # Step 1: Store messages event
-        logger.info(f"Step 1: Storing messages event for user_id: {user_id}")
-        memory_result = self.memory.add(
-            messages=messages,
-            user_id=user_id,
-            agent_id=agent_id,
-            run_id=run_id,
-            metadata=metadata,
-            filters=filters,
-            scope=scope,
-            memory_type=memory_type,
-            prompt=prompt,
-            infer=infer,
-        )
-        
-        # Step 2: Extract profile information
-        logger.info(f"Step 2: Extracting profile information for user_id: {user_id}, profile_type: {profile_type}")
-
-        if profile_type == "topics":
-            # Extract structured topics
-            extracted_data = self._extract_topics(
+        try:
+             # Step 1: Store messages event
+            logger.info(f"Step 1: Storing messages event for user_id: {user_id}")
+            memory_result = self.memory.add(
                 messages=messages,
                 user_id=user_id,
-                custom_topics=custom_topics,
-                strict_mode=strict_mode,
+                agent_id=agent_id,
+                run_id=run_id,
+                metadata=metadata,
+                filters=filters,
+                scope=scope,
+                memory_type=memory_type,
+                prompt=prompt,
+                infer=infer,
             )
-            result_key = "topics"
-        else:
-            # Extract non-structured profile content (default behavior)
-            extracted_data = self._extract_profile(
-                messages=messages,
+            
+            # Step 2: Extract profile information
+            logger.info(f"Step 2: Extracting profile information for user_id: {user_id}, profile_type: {profile_type}")
+
+            if profile_type == "topics":
+                # Extract structured topics
+                extracted_data = self._extract_topics(
+                    messages=messages,
+                    user_id=user_id,
+                    custom_topics=custom_topics,
+                    strict_mode=strict_mode,
+                )
+                result_key = "topics"
+            else:
+                # Extract non-structured profile content (default behavior)
+                extracted_data = self._extract_profile(
+                    messages=messages,
+                    user_id=user_id,
+                )
+                result_key = "profile_content"
+
+            # Save profile and build result (common logic for both types)
+            return self._save_profile_and_build_result(
+                memory_result=memory_result,
+                extracted_data=extracted_data,
+                result_key=result_key,
                 user_id=user_id,
             )
-            result_key = "profile_content"
-
-        # Save profile and build result (common logic for both types)
-        return self._save_profile_and_build_result(
-            memory_result=memory_result,
-            extracted_data=extracted_data,
-            result_key=result_key,
-            user_id=user_id,
-        )
+        except Exception as e:
+            logger.error(f"Error adding messages: {e}")
+            raise
 
     def _save_profile_and_build_result(
         self,
