@@ -145,7 +145,7 @@ class OceanBaseVectorStore(VectorStoreBase):
 
         # Set field names
         self.collection_name = collection_name
-        self.embedding_model_dims = embedding_model_dims
+        self.embedding_model_dims = int(embedding_model_dims) if embedding_model_dims is not None else None
         self.primary_field = primary_field
         self.vector_field = vector_field
         self.text_field = text_field
@@ -287,7 +287,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             distance = distance.lower()
             if distance not in ("l2", "inner_product", "cosine"):
                 raise ValueError("distance must be one of 'l2', 'inner_product', or 'cosine'.")
-            self.embedding_model_dims = vector_size
+            self.embedding_model_dims = int(vector_size)
             self.vidx_metric_type = distance
             self.collection_name = name
 
