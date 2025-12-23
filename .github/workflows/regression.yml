@@ -1,0 +1,130 @@
+name: Regression Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'Makefile'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'Makefile'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+      fail-fast: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Upgrade pip
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade setuptools wheel
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev,test]"
+
+      # - name: Install Docker
+      #   run: |
+      #     curl -fsSL https://get.docker.com -o get-docker.sh
+      #     sudo sh get-docker.sh
+      
+
+      - name: Deploy SeekDB (OceanBase)
+        run: |
+          # Remove existing container if it exists
+          sudo docker rm -f seekdb 2>/dev/null || true
+          # Start SeekDB container
+          sudo docker run -d -p 10001:2881 --name seekdb oceanbase/seekdb
+          # Wait for database to be ready
+          echo "Waiting for SeekDB to be ready..."
+          timeout=60
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+            if sudo docker exec seekdb mysql -uroot -e "SELECT 1" > /dev/null 2>&1; then
+              echo "✓ SeekDB is ready!"
+              break
+            fi
+            echo "Waiting for SeekDB... ($elapsed/$timeout seconds)"
+            sleep 2
+            elapsed=$((elapsed + 2))
+          done
+          if [ $elapsed -ge $timeout ]; then
+            echo "⚠ Warning: SeekDB may not be fully ready, but continuing..."
+          fi
+          # Show container status
+          echo "SeekDB container status:"
+          sudo docker ps | grep seekdb || true
+          echo "Recent logs:"
+          sudo docker logs --tail 20 seekdb || true
+          mysql -uroot -h127.0.0.1 -P10001 -e "CREATE DATABASE IF NOT EXISTS powermem;" || echo "⚠ Warning: Failed to create database, but continuing..."
+          mysql -uroot -h127.0.0.1 -P10001 -e "SHOW DATABASES LIKE 'powermem';" || echo "⚠ Warning: Could not verify database, but continuing..."
+
+      - name: Set env
+        env:
+          QWEN_API_KEY: "${{ secrets.QWEN_API_KEY }}"
+          SILICONFLOW_CN_API_KEY: "${{ secrets.SILICONFLOW_CN_API_KEY }}"
+          SILICONFLOW_COM_API_KEY: "${{ secrets.SILICONFLOW_COM_API_KEY }}"
+        run: |
+          echo "QWEN_API_KEY length: ${#QWEN_API_KEY}"
+          echo "SILICONFLOW_CN_API_KEY length: ${#SILICONFLOW_CN_API_KEY}"
+          echo "SILICONFLOW_COM_API_KEY length: ${#SILICONFLOW_COM_API_KEY}"
+          cp .env.example .env
+          # Update existing environment variables
+          sed -i 's|^OCEANBASE_HOST=.*|OCEANBASE_HOST=127.0.0.1|' .env
+          sed -i 's|^OCEANBASE_PORT=.*|OCEANBASE_PORT=10001|' .env
+          sed -i 's|^OCEANBASE_USER=.*|OCEANBASE_USER=root|' .env
+          sed -i 's|^OCEANBASE_PASSWORD=.*|OCEANBASE_PASSWORD=|' .env
+          sed -i 's|^OCEANBASE_DB=.*|OCEANBASE_DB=powermem|' .env
+          sed -i 's|^OCEANBASE_COLLECTION=.*|OCEANBASE_COLLECTION=memories|' .env
+          sed -i 's|^DATABASE_PROVIDER=.*|DATABASE_PROVIDER=oceanbase|' .env
+          sed -i 's|^LLM_PROVIDER=.*|LLM_PROVIDER=siliconflow|' .env
+          sed -i 's|^LLM_MODEL=.*|LLM_MODEL=nex-agi/DeepSeek-V3.1-Nex-N1|' .env
+          sed -i 's|^SILICONFLOW_LLM_BASE_URL=.*|SILICONFLOW_LLM_BASE_URL=https://api.siliconflow.com/v1|' .env
+          sed -i 's|^GRAPH_STORE_PORT=.*|GRAPH_STORE_PORT=10001|' .env
+          sed -i 's|^GRAPH_STORE_PASSWORD=.*|GRAPH_STORE_PASSWORD=|' .env
+          sed -i "s|^LLM_API_KEY=.*|LLM_API_KEY=${SILICONFLOW_COM_API_KEY}|" .env
+          sed -i "s|^EMBEDDING_API_KEY=.*|EMBEDDING_API_KEY=${QWEN_API_KEY}|" .env
+
+      - name: Run regression tests
+        env:
+          QWEN_API_KEY: "${{ secrets.QWEN_API_KEY }}"
+          SILICONFLOW_CN_API_KEY: "${{ secrets.SILICONFLOW_CN_API_KEY }}"
+          SILICONFLOW_COM_API_KEY: "${{ secrets.SILICONFLOW_COM_API_KEY }}"
+        run: |
+          pytest tests/regression/ -vs
+      - name: Cleanup Docker
+        if: always()
+        run: |
+          echo "清理 Docker 容器..."
+          sudo docker rm -f seekdb 2>/dev/null || true
+          sudo docker ps
+          echo "✓ 清理完成"
