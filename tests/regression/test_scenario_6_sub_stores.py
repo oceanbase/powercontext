@@ -102,13 +102,24 @@ def get_config() -> Dict[str, Any]:
     # Load base config from environment (includes API keys)
     env_config = auto_config()
     
-    # Merge with custom config (BASE_CONFIG takes precedence for vector_store and sub_stores)
-    merged_config = {**env_config, **BASE_CONFIG}
+    # Get embedding dimension from environment config (default to 1536 for qwen text-embedding-v4)
+    embedding_dims = 1536  # Default dimension for common models
+    if "embedder" in env_config and "config" in env_config["embedder"]:
+        embedding_dims = env_config["embedder"]["config"].get("embedding_dims", embedding_dims)
     
-    # Ensure embedder config has embedding_dims
+    # Update BASE_CONFIG with the correct embedding dimension
+    base_config = BASE_CONFIG.copy()
+    base_config["vector_store"]["config"]["embedding_model_dims"] = embedding_dims
+    for sub_store in base_config["sub_stores"]:
+        sub_store["embedding_model_dims"] = embedding_dims
+    
+    # Merge with custom config (BASE_CONFIG takes precedence for vector_store and sub_stores)
+    merged_config = {**env_config, **base_config}
+    
+    # Ensure embedder config has embedding_dims (use the dimension we detected)
     if "embedder" in merged_config and "config" in merged_config["embedder"]:
         if "embedding_dims" not in merged_config["embedder"]["config"]:
-            merged_config["embedder"]["config"]["embedding_dims"] = 768
+            merged_config["embedder"]["config"]["embedding_dims"] = embedding_dims
     
     return merged_config
 
@@ -152,7 +163,7 @@ def memory() -> Memory:
         print(f"\n⚠ Could not cleanup test data: {str(e)[:100]}")
 
 
-# 配置和显示内存系统及子存储的信息
+# Configure and display information about the memory system and sub stores
 def test_step1_configure(memory: Memory) -> None:
     _print_step("Step 1: Configure Memory and Sub Stores")
     print("✓ Memory initialized successfully with 2 sub stores")
@@ -161,7 +172,7 @@ def test_step1_configure(memory: Memory) -> None:
     for index, sub_config in enumerate(config["sub_stores"]):
         print(f"  - Sub store {index}: {sub_config['collection_name']} (filter={sub_config['routing_filter']})")
 
-# 添加不同类型的记忆
+# Add different types of memories
 def test_step2_add_memories(memory: Memory) -> None:
     _print_step("Step 2: Add Different Types of Memories")
     print("Adding different types of memories...\n")
@@ -186,7 +197,7 @@ def test_step2_add_memories(memory: Memory) -> None:
     
     # Note: Cleanup will be done at the end of test_main()
 
-# 在迁移前查询记忆，验证所有记忆都在主存储中
+# Query memories before migration, verify all memories are in the main store
 def test_step3_query_before_migration(memory: Memory) -> None:
     _print_step("Step 3: Query Before Migration")
     print("Querying before migration (all in main store)\n")
@@ -205,7 +216,7 @@ def test_step3_query_before_migration(memory: Memory) -> None:
     
     # Note: Cleanup will be done at the end of test_main()
 
-# 将主存储中的记忆按类型迁移到对应的子存储
+# Migrate memories from the main store to corresponding sub stores by type
 def test_step4_migrate(memory: Memory) -> None:
     _print_step("Step 4: Migrate Data to Sub Stores (activate)")
     print("Starting data migration to sub stores...\n")
@@ -249,7 +260,7 @@ def test_step5_query_after_migration(memory: Memory) -> None:
     
     # Note: Cleanup will be done at the end of test_main()
 
-#添加新记忆并验证自动路由功能
+# Add new memories and verify automatic routing functionality
 def test_step6_add_new_memories(memory: Memory) -> None:
     _print_step("Step 6: Add New Memories (automatic routing)")
 

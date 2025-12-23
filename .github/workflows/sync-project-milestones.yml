@@ -3,8 +3,8 @@ name: Sync Project with Milestones
 on:
   issues:
     types: [opened, edited, milestoned, demilestoned]
-  pull_request:
-    types: [opened, edited, milestoned, demilestoned]
+  # Removed pull_request trigger to avoid issues with external PRs
+  # PRs with milestones can still be synced via workflow_dispatch or schedule
   workflow_dispatch:
     # Manual trigger to process historical issues/PRs
   schedule:
@@ -203,26 +203,18 @@ jobs:
   add-to-project:
     runs-on: ubuntu-latest
     needs: get-project-id
-    if: |
-      (github.event_name == 'issues' && github.event.issue.milestone != null) ||
-      (github.event_name == 'pull_request' && github.event.pull_request.milestone != null)
+    # Only process issues, not PRs (PRs are handled by sync-historical-items job)
+    if: github.event_name == 'issues' && github.event.issue.milestone != null
     
     steps:
-      - name: Add Issue/PR to Project
+      - name: Add Issue to Project
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.PROJECT_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             const projectId = '${{ needs.get-project-id.outputs.project_id }}';
-            let itemId;
-            
-            if (context.payload.issue) {
-              itemId = context.payload.issue.node_id;
-              console.log('Adding issue #' + context.payload.issue.number + ' to project');
-            } else if (context.payload.pull_request) {
-              itemId = context.payload.pull_request.node_id;
-              console.log('Adding PR #' + context.payload.pull_request.number + ' to project');
-            }
+            const itemId = context.payload.issue.node_id;
+            console.log('Adding issue #' + context.payload.issue.number + ' to project');
             
             const mutation = `
               mutation($projectId: ID!, $itemId: ID!) {

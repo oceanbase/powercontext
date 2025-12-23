@@ -416,7 +416,7 @@ def test_extension_memory_scopes() -> None:
 
 
 def test_multiple_agents_same_user() -> None:
-    """测试多个agent对同一用户的操作：验证不同agent可以独立管理同一用户的记忆"""
+    """Test multiple agents operating on the same user: verify that different agents can independently manage the same user's memories"""
     _print_step("Multiple Agents Same User: Independent Memory Management")
     user_id = "scenario3_multi_agent_user"
     
@@ -451,7 +451,7 @@ def test_multiple_agents_same_user() -> None:
 
 
 def test_agent_memory_update() -> None:
-    """测试agent记忆更新：验证agent可以更新自己添加的记忆"""
+    """Test agent memory update: verify that an agent can update memories it added"""
     _print_step("Agent Memory Update: Updating Agent-Specific Memories")
     user_id = "scenario3_update_user"
     agent = _create_agent("scenario3_update_agent")
@@ -492,7 +492,7 @@ def test_agent_memory_update() -> None:
 
 
 def test_agent_memory_delete() -> None:
-    """测试agent记忆删除：验证agent可以删除自己添加的记忆"""
+    """Test agent memory delete: verify that an agent can delete memories it added"""
     _print_step("Agent Memory Delete: Deleting Agent-Specific Memories")
     user_id = "scenario3_delete_user"
     agent = _create_agent("scenario3_delete_agent")
@@ -533,7 +533,7 @@ def test_agent_memory_delete() -> None:
 
 
 def test_agent_metadata_filtering() -> None:
-    """测试agent记忆的元数据过滤：验证可以通过元数据过滤agent的记忆"""
+    """Test agent memory metadata filtering: verify that agent memories can be filtered by metadata"""
     _print_step("Agent Metadata Filtering: Filtering by Metadata")
     user_id = "scenario3_metadata_user"
     agent = _create_agent("scenario3_metadata_agent")
@@ -584,7 +584,7 @@ def test_agent_metadata_filtering() -> None:
 
 
 def test_agent_batch_operations() -> None:
-    """测试agent批量操作：验证agent可以批量添加和管理记忆"""
+    """Test agent batch operations: verify that an agent can batch add and manage memories"""
     _print_step("Agent Batch Operations: Batch Memory Management")
     user_id = "scenario3_batch_user"
     agent = _create_agent("scenario3_batch_agent")
@@ -638,7 +638,7 @@ def test_agent_batch_operations() -> None:
 
 
 def test_agent_get_all() -> None:
-    """测试agent的get_all操作：验证agent可以获取所有自己的记忆"""
+    """Test agent get_all operation: verify that an agent can retrieve all its own memories"""
     _print_step("Agent Get All: Retrieving All Agent Memories")
     user_id = "scenario3_getall_user"
     agent = _create_agent("scenario3_getall_agent")
@@ -667,7 +667,7 @@ def test_agent_get_all() -> None:
 
 
 def test_complex_multi_agent_scenario() -> None:
-    """测试复杂多agent场景：模拟真实的多agent协作场景"""
+    """Test complex multi-agent scenario: simulate real-world multi-agent collaboration scenarios"""
     _print_step("Complex Multi-Agent Scenario: Real-World Collaboration")
     customer_id = "scenario3_complex_customer"
     project_id = "scenario3_complex_project"
@@ -724,7 +724,7 @@ def test_complex_multi_agent_scenario() -> None:
 
 
 def test_agent_isolation_verification() -> None:
-    """测试agent隔离验证：严格验证不同agent的记忆完全隔离"""
+    """Test agent isolation verification: strictly verify that memories of different agents are completely isolated"""
     _print_step("Agent Isolation Verification: Strict Isolation Testing")
     user_id = "scenario3_isolation_test"
     

@@ -8,7 +8,7 @@ on:
       - 'tests/**'
       - 'pyproject.toml'
       - 'Makefile'
-  pull_request:
+  pull_request_target:
     branches: [main]
     paths:
       - 'src/**'
@@ -16,18 +16,54 @@ on:
       - 'pyproject.toml'
       - 'Makefile'
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to test (e.g., 123). Leave empty if using ref instead.'
+        required: false
+        type: string
+      ref:
+        description: 'Branch, tag, or commit SHA to test (e.g., feature-branch or abc123). Leave empty if using PR number.'
+        required: false
+        type: string
+  schedule:
+    - cron: '0 16 * * *'
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Only auto-run for internal PRs (same repo) or push/workflow_dispatch/schedule
+    # External PRs (from forks) require manual trigger via workflow_dispatch
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
       fail-fast: false
 
     steps:
+      - name: Get PR SHA (if PR number provided)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number != ''
+        id: get_pr_sha
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.inputs.pr_number;
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: parseInt(prNumber)
+            });
+            console.log(`PR #${prNumber} head SHA: ${pr.head.sha}`);
+            core.setOutput('sha', pr.head.sha);
+
       - name: Checkout code
         uses: actions/checkout@v4
+        # For pull_request_target, checkout the PR branch
+        # For workflow_dispatch, checkout the PR SHA (if PR number provided), or specified ref, or default branch
+        # For push, checkout the pushed branch
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && (github.event.inputs.pr_number != '' && steps.get_pr_sha.outputs.sha || github.event.inputs.ref || github.ref)) || github.ref }}
+          fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4

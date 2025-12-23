@@ -437,7 +437,7 @@ def test_extension_exercise_complex_conversation() -> None:
 
 
 def test_multiple_updates() -> None:
-    """测试多次更新：验证同一信息被多次更新时的处理逻辑"""
+    """Test multiple updates: verify the handling logic when the same information is updated multiple times"""
     _print_step("Multiple Updates: Sequential Information Changes")
     memory = create_memory()
     user_id = "scenario2_multiple_updates"
@@ -481,7 +481,7 @@ def test_multiple_updates() -> None:
 
 
 def test_multiple_conflicts() -> None:
-    """测试多个冲突：同时处理多个冲突信息的解决"""
+    """Test multiple conflicts: resolving multiple conflicting pieces of information simultaneously"""
     _print_step("Multiple Conflicts: Resolving Multiple Contradictions")
     memory = create_memory()
     user_id = "scenario2_multiple_conflicts"
@@ -525,7 +525,7 @@ def test_multiple_conflicts() -> None:
 
 
 def test_search_after_intelligent_add() -> None:
-    """测试智能模式下的搜索：验证添加后的记忆能否被正确搜索到"""
+    """Test search in intelligent mode: verify that memories added can be correctly searched"""
     _print_step("Search After Intelligent Add: Verify Search Functionality")
     memory = create_memory()
     user_id = "scenario2_search_test"
@@ -560,7 +560,7 @@ def test_search_after_intelligent_add() -> None:
 
 
 def test_mixed_events() -> None:
-    """测试混合事件：一次操作中同时产生ADD、UPDATE、DELETE等多种事件"""
+    """Test mixed events: multiple event types (ADD, UPDATE, DELETE) generated in a single operation"""
     _print_step("Mixed Events: Multiple Event Types in One Operation")
     memory = create_memory()
     user_id = "scenario2_mixed_events"
@@ -605,7 +605,7 @@ def test_mixed_events() -> None:
 
 
 def test_partial_update() -> None:
-    """测试部分更新：只更新记忆中的部分信息，其他信息保持不变"""
+    """Test partial update: only update part of the information in a memory, keeping other information unchanged"""
     _print_step("Partial Update: Updating Only Part of Information")
     memory = create_memory()
     user_id = "scenario2_partial_update"
@@ -650,7 +650,7 @@ def test_partial_update() -> None:
 
 
 def test_complex_consolidation() -> None:
-    """测试复杂合并：多个相关记忆的合并和整合"""
+    """Test complex consolidation: merging and integrating multiple related memories"""
     _print_step("Complex Consolidation: Merging Related Memories")
     memory = create_memory()
     user_id = "scenario2_complex_consolidation"
@@ -697,7 +697,7 @@ def test_complex_consolidation() -> None:
 
 
 def test_edge_case_single_message() -> None:
-    """测试边界情况：单条消息的智能处理"""
+    """Test edge case: intelligent processing of a single message"""
     _print_step("Edge Case: Single Message Processing")
     memory = create_memory()
     user_id = "scenario2_edge_single"
@@ -720,7 +720,7 @@ def test_edge_case_single_message() -> None:
 
 
 def test_sequential_duplicates() -> None:
-    """测试连续重复：连续多次添加相同或相似内容时的处理"""
+    """Test sequential duplicates: handling when the same or similar content is added multiple times consecutively"""
     _print_step("Sequential Duplicates: Handling Repeated Similar Content")
     memory = create_memory()
     user_id = "scenario2_sequential_duplicates"

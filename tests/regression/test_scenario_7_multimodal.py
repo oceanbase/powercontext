@@ -249,7 +249,7 @@ def _memory_text(entry: Dict[str, Any]) -> str:
 
 
 def test_multimodal_mixed_content(memory) -> None:
-    """测试混合模态内容：验证可以处理包含文本、图像和音频的混合消息"""
+    """Test mixed multimodal content: verify that mixed messages containing text, images, and audio can be processed"""
     _print_step("Mixed Multimodal Content: Text + Image + Audio")
     user_id = "multimodal_mixed_user"
     try:
@@ -320,7 +320,7 @@ def test_multimodal_mixed_content(memory) -> None:
 
 
 def test_multimodal_batch_add(memory) -> None:
-    """测试多模态批量添加：验证可以批量添加多个图像记忆"""
+    """Test multimodal batch add: verify that multiple image memories can be added in batch"""
     _print_step("Multimodal Batch Add: Multiple Images")
     user_id = "multimodal_batch_user"
     try:
@@ -374,7 +374,7 @@ def test_multimodal_batch_add(memory) -> None:
 
 
 def test_multimodal_update_delete(memory) -> None:
-    """测试多模态记忆的更新和删除：验证可以更新和删除多模态记忆"""
+    """Test multimodal memory update and delete: verify that multimodal memories can be updated and deleted"""
     _print_step("Multimodal Update and Delete")
     user_id = "multimodal_update_user"
     try:
@@ -441,7 +441,7 @@ def test_multimodal_update_delete(memory) -> None:
 
 
 def test_multimodal_metadata_filtering(memory) -> None:
-    """测试多模态记忆的元数据过滤：验证可以通过元数据过滤多模态记忆"""
+    """Test multimodal memory metadata filtering: verify that multimodal memories can be filtered by metadata"""
     _print_step("Multimodal Metadata Filtering")
     user_id = "multimodal_filter_user"
     try:
@@ -521,7 +521,7 @@ def test_multimodal_metadata_filtering(memory) -> None:
 
 
 def test_multimodal_get_all(memory) -> None:
-    """测试多模态记忆的get_all操作：验证可以获取所有多模态记忆"""
+    """Test multimodal memory get_all operation: verify that all multimodal memories can be retrieved"""
     _print_step("Multimodal Get All")
     user_id = "multimodal_getall_user"
     try:
@@ -577,7 +577,7 @@ def test_multimodal_get_all(memory) -> None:
 
 
 def test_multimodal_get_operation(memory) -> None:
-    """测试多模态记忆的get操作：验证可以获取单个多模态记忆"""
+    """Test multimodal memory get operation: verify that a single multimodal memory can be retrieved"""
     _print_step("Multimodal Get Operation")
     user_id = "multimodal_get_user"
     try:
@@ -636,7 +636,7 @@ def test_multimodal_get_operation(memory) -> None:
 
 
 def test_multimodal_mixed_search(memory) -> None:
-    """测试多模态混合搜索：验证可以搜索包含文本和多模态记忆的混合内容"""
+    """Test multimodal mixed search: verify that mixed content containing text and multimodal memories can be searched"""
     _print_step("Multimodal Mixed Search: Text + Multimodal Memories")
     user_id = "multimodal_mixed_search_user"
     try:
@@ -699,7 +699,7 @@ def test_multimodal_mixed_search(memory) -> None:
 
 
 def test_multimodal_error_handling(memory) -> None:
-    """测试多模态错误处理：验证多模态操作在错误情况下的处理"""
+    """Test multimodal error handling: verify the handling of multimodal operations in error situations"""
     _print_step("Multimodal Error Handling")
     user_id = "multimodal_error_user"
     try:
@@ -768,7 +768,7 @@ def test_multimodal_error_handling(memory) -> None:
 
 
 def test_multimodal_different_image_urls(memory) -> None:
-    """测试不同图像URL：验证可以处理不同来源和格式的图像URL"""
+    """Test different image URLs: verify that image URLs from different sources and formats can be processed"""
     _print_step("Multimodal Different Image URLs")
     user_id = "multimodal_urls_user"
     try:

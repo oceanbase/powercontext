@@ -394,7 +394,7 @@ def test_extension_exercise() -> None:
 
 
 def test_edge_cases() -> None:
-    """测试边界情况：空字符串、特殊字符、Unicode字符和超长内容的处理"""
+    """Test edge cases: handling of empty strings, special characters, Unicode characters, and very long content"""
     _print_step("Edge Cases: Empty Strings, Special Characters, Unicode")
     memory = create_memory()
     user_id = "user_edge_cases"
@@ -420,7 +420,7 @@ def test_edge_cases() -> None:
 
     # Test Unicode characters
     print("\nTesting Unicode characters...")
-    unicode_content = "用户喜欢Python编程 🐍 和机器学习 🤖"
+    unicode_content = "User likes Python programming 🐍 and machine learning 🤖"
     result = memory.add(messages=unicode_content, user_id=user_id)
     memory_id = _extract_memory_id(result)
     if memory_id:
@@ -440,7 +440,7 @@ def test_edge_cases() -> None:
 
 
 def test_error_handling() -> None:
-    """测试错误处理：无效ID的get/update/delete操作，以及空查询的处理"""
+    """Test error handling: get/update/delete operations with invalid IDs, and handling of empty queries"""
     _print_step("Error Handling: Invalid IDs and Edge Cases")
     memory = create_memory()
     user_id = "user_error_handling"
@@ -490,7 +490,7 @@ def test_error_handling() -> None:
 
 
 def test_complex_metadata() -> None:
-    """测试复杂元数据：包含多种数据类型（字符串、数字、列表、嵌套字典）的元数据存储和更新"""
+    """Test complex metadata: storage and update of metadata containing various data types (strings, numbers, lists, nested dictionaries)"""
     _print_step("Complex Metadata: Nested Structures and Various Types")
     memory = create_memory()
     user_id = "user_complex_metadata"
@@ -549,7 +549,7 @@ def test_complex_metadata() -> None:
 
 
 def test_search_variations() -> None:
-    """测试搜索变化：不同limit值、无结果查询、多条件过滤和大小写变化"""
+    """Test search variations: different limit values, queries with no results, multi-condition filtering, and case variations"""
     _print_step("Search Variations: Different Limits, Queries, and Filters")
     memory = create_memory()
     user_id = "user_search_variations"
@@ -606,7 +606,7 @@ def test_search_variations() -> None:
 
 
 def test_data_consistency() -> None:
-    """测试数据一致性：验证add/get/update/delete操作后数据的正确性和一致性"""
+    """Test data consistency: verify correctness and consistency of data after add/get/update/delete operations"""
     _print_step("Data Consistency: Add-Get-Update-Delete Verification")
     memory = create_memory()
     user_id = "user_consistency"
@@ -667,7 +667,7 @@ def test_data_consistency() -> None:
 
 
 def test_batch_operations() -> None:
-    """测试批量操作：批量添加、批量更新、批量删除以及批量操作后的状态验证"""
+    """Test batch operations: batch add, batch update, batch delete, and state verification after batch operations"""
     _print_step("Batch Operations: Multiple Adds and Bulk Operations")
     memory = create_memory()
     user_id = "user_batch"
@@ -737,7 +737,7 @@ def test_batch_operations() -> None:
 
 
 def test_get_operations() -> None:
-    """测试Get操作：单个memory的获取、字段完整性验证和错误user_id的处理"""
+    """Test Get operations: retrieval of a single memory, field completeness verification, and handling of invalid user_id"""
     _print_step("Get Operations: Single Memory Retrieval")
     memory = create_memory()
     user_id = "user_get_ops"

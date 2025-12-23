@@ -181,7 +181,7 @@ class CustomLLM(LLMBase):
                     facts.append(f"Name: {content.split('name is')[1].strip()}")
         return facts
 
-# 注册自定义 LLM Provider，使用字典配置
+# Register custom LLM Provider using dictionary configuration
 def test_step1_custom_llm_provider() -> None:
     """Step 1: Custom LLM Provider"""
     _print_step("Step 1: Custom LLM Provider")
@@ -230,8 +230,8 @@ def test_step1_custom_llm_provider() -> None:
     _print_step("Step 1 Test: Using custom LLM provider")
     try:
         from powermem import Memory, auto_config
-        env_config = auto_config()  # 从 .env 加载
-        # 合并配置（自定义配置优先）
+        env_config = auto_config()  # Load from .env
+        # Merge configurations (custom config takes precedence)
         merged_config = {**env_config, **config_llm}
         # Suppress Pydantic validation warnings for custom providers
         memory = Memory(config=merged_config)
@@ -289,7 +289,7 @@ class CustomEmbedder(EmbeddingBase):
         """Generate embeddings for batch of texts"""
         return [self.embed(text) for text in texts]
 
-# 注册自定义 Embedder Provider，合并 .env 配置
+# Register custom Embedder Provider, merge with .env configuration
 def test_step2_custom_embedder_provider() -> None:
     """Step 2: Custom Embedding Provider"""
     _print_step("Step 2: Custom Embedding Provider")
@@ -327,8 +327,8 @@ def test_step2_custom_embedder_provider() -> None:
     _print_step("Step 2 Test: Using custom Embedder provider")
     try:
         from powermem import Memory, auto_config
-        env_config = auto_config()  # 从 .env 加载
-        # 合并配置（自定义配置优先）
+        env_config = auto_config()  # Load from .env
+        # Merge configurations (custom config takes precedence)
         merged_config = {**env_config, **config_embedder}
         # Suppress Pydantic validation warnings for custom providers
         memory = Memory(config=merged_config)
@@ -497,7 +497,7 @@ class CustomVectorStore(VectorStoreBase):
         self.create_col(col_name, 768, "cosine")
         return True
 
-# 注册自定义 Vector Store Provider
+# Register custom Vector Store Provider
 def test_step3_custom_vector_store() -> None:
     """Step 3: Custom Storage Backend"""
     _print_step("Step 3: Custom Storage Backend")
@@ -574,7 +574,7 @@ def test_step3_custom_vector_store() -> None:
         print(f"⚠ Could not create Memory instance: {str(e)[:100]}")
         print("  Note: This is expected if required API keys are missing")
 
-# LangChain 集成，继承和重写方法
+# LangChain integration, inherit and override methods
 def test_step4_langchain_integration() -> None:
     """Step 4: LangChain Integration"""
     _print_step("Step 4: LangChain Integration")
@@ -853,7 +853,7 @@ def test_step4_langchain_integration() -> None:
         print("  Note: This is expected if LangChain dependencies are missing")
     
 
-# FastAPI 集成，异步操作和生命周期管理
+# FastAPI integration, async operations and lifecycle management
 def test_step5_fastapi_integration() -> None:
     """Step 5: FastAPI Integration"""
     _print_step("Step 5: FastAPI Integration")
@@ -1240,7 +1240,7 @@ def test_step5_fastapi_integration() -> None:
         except:
             pass
 
-# 自定义智能插件，实现钩子函数
+# Custom intelligence plugin, implement hook functions
 def test_step6_custom_intelligence_plugin() -> None:
     """Step 6: Custom Intelligence Plugin"""
     _print_step("Step 6: Custom Intelligence Plugin")

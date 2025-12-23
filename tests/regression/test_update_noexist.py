@@ -50,7 +50,7 @@ def _safe_delete_all(memory, *, user_id: Optional[str] = None) -> None:
 
 
 def test_get_non_existent_memory() -> None:
-    """测试获取不存在的memory"""
+    """Test getting non-existent memory"""
     _print_step("Test 1: Get Non-existent Memory")
     memory = create_memory()
     user_id = "user_test_get"
@@ -92,7 +92,7 @@ def test_get_non_existent_memory() -> None:
 
 
 def test_update_non_existent_memory() -> None:
-    """测试更新不存在的memory"""
+    """Test updating non-existent memory"""
     _print_step("Test 2: Update Non-existent Memory")
     memory = create_memory()
     user_id = "user_test_update"
@@ -154,7 +154,7 @@ def test_update_non_existent_memory() -> None:
 
 
 def test_delete_non_existent_memory() -> None:
-    """测试删除不存在的memory"""
+    """Test deleting non-existent memory"""
     _print_step("Test 3: Delete Non-existent Memory")
     memory = create_memory()
     user_id = "user_test_delete"
@@ -211,7 +211,7 @@ def test_delete_non_existent_memory() -> None:
 
 
 def test_get_update_delete_workflow() -> None:
-    """测试完整的get/update/delete工作流"""
+    """Test complete get/update/delete workflow"""
     _print_step("Test 4: Get/Update/Delete Workflow with Non-existent IDs")
     memory = create_memory()
     user_id = "user_test_workflow"
@@ -264,7 +264,7 @@ def test_get_update_delete_workflow() -> None:
 
 
 def test_error_handling() -> None:
-    """测试错误处理：无效ID的get/update/delete操作，以及空查询的处理"""
+    """Test error handling: get/update/delete operations with invalid IDs, and handling of empty queries"""
     _print_step("Test 6: Error Handling Summary")
     memory = create_memory()
     user_id = "user_error_handling"
@@ -317,7 +317,7 @@ def test_error_handling() -> None:
 
 
 def main() -> None:
-    """运行所有测试"""
+    """Run all tests"""
     _print_banner("Non-existent Memory ID Operations Test Suite")
     print("This script tests the behavior of get/update/delete operations")
     print("on non-existent memory IDs to verify error handling.\n")
