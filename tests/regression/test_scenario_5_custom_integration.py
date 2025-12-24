@@ -574,75 +574,78 @@ def test_step3_custom_vector_store() -> None:
         print(f"⚠ Could not create Memory instance: {str(e)[:100]}")
         print("  Note: This is expected if required API keys are missing")
 
-# LangChain integration, inherit and override methods
+# LangChain integration, using LangChain 1.1.0+ API
 def test_step4_langchain_integration() -> None:
-    """Step 4: LangChain Integration"""
+    """Step 4: LangChain Integration (LangChain 1.1.0+)"""
     _print_step("Step 4: LangChain Integration")
-
-    from langchain.memory import ConversationBufferMemory
-
-
-    from powermem import Memory
     
-    class PowermemLangChainMemory(ConversationBufferMemory):
-        """LangChain memory wrapper for powermem"""
+    # Check if langchain is available
+    try:
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+        from langchain_core.runnables import RunnableLambda
+        from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+        LANGCHAIN_AVAILABLE = True
+    except ImportError:
+        LANGCHAIN_AVAILABLE = False
+        print("⚠ LangChain not available, skipping LangChain integration test")
+        print("  Install with: pip install langchain>=1.1.0 langchain-core>=1.1.0 langchain-openai>=1.1.0 langchain-community>=0.4.1")
+        return
+    
+    if not LANGCHAIN_AVAILABLE:
+        return
+    
+    from powermem import Memory
+    from typing import List, Dict, Any
+    
+    # Custom memory class for LangChain 1.1.0+ integration
+    class PowermemLangChainMemory:
+        """Custom memory class that integrates PowerMem with LangChain 1.1.0+."""
         
-        def __init__(self, powermem_instance: Memory, user_id: str, **kwargs):
-            super().__init__(**kwargs)
-            # Use object.__setattr__ to bypass Pydantic validation for custom attributes
-            object.__setattr__(self, 'powermem', powermem_instance)
-            object.__setattr__(self, 'user_id', user_id)
+        def __init__(self, powermem_instance: Memory, user_id: str):
+            self.powermem = powermem_instance
+            self.user_id = user_id
+            self.messages: List[BaseMessage] = []
         
-        def save_context(self, inputs, outputs):
-            """Save conversation to powermem"""
-            super().save_context(inputs, outputs)
-            
-            # Convert to messages format
+        def add_message(self, message: BaseMessage):
+            """Add a message to conversation history."""
+            self.messages.append(message)
+        
+        def get_messages(self) -> List[BaseMessage]:
+            """Get all conversation messages."""
+            return self.messages
+        
+        def save_to_powermem(self, user_input: str, assistant_output: str):
+            """Save conversation to PowerMem with intelligent fact extraction."""
             messages = [
-                {"role": "user", "content": str(inputs)},
-                {"role": "assistant", "content": str(outputs)}
+                {"role": "user", "content": user_input},
+                {"role": "assistant", "content": assistant_output}
             ]
-            
-            # Save to powermem with intelligent processing
             try:
-                # Access dynamically added attributes
-                powermem = getattr(self, 'powermem')
-                user_id = getattr(self, 'user_id')
-                powermem.add(
+                self.powermem.add(
                     messages=messages,
-                    user_id=user_id,
-                    infer=True
+                    user_id=self.user_id,
+                    infer=True  # Enable intelligent fact extraction
                 )
             except Exception as e:
                 print(f"  ⚠ Warning: Could not save to powermem: {e}")
         
-        def load_memory_variables(self, inputs):
-            """Load relevant memories from powermem"""
-            query = str(inputs)
-            
-            # Search powermem for relevant memories
+        def get_context(self, query: str) -> str:
+            """Retrieve relevant context from PowerMem."""
             try:
-                # Access dynamically added attributes
-                powermem = getattr(self, 'powermem')
-                user_id = getattr(self, 'user_id')
-                results = powermem.search(
+                results = self.powermem.search(
                     query=query,
-                    user_id=user_id,
+                    user_id=self.user_id,
                     limit=5
                 )
-                
-                # Format for LangChain
-                memory_variables = {
-                    "history": "\n".join([
-                        result.get('memory', '') for result in results.get('results', [])
-                    ])
-                }
-                return memory_variables
+                memories = results.get('results', [])
+                if memories:
+                    return "\n".join([mem.get('memory', '') for mem in memories])
+                return "No previous context found."
             except Exception as e:
                 print(f"  ⚠ Warning: Could not load from powermem: {e}")
-                return {"history": ""}
+                return "No previous context found."
     
-    print("✓ PowermemLangChainMemory class created successfully")
+    print("✓ PowermemLangChainMemory class created successfully (LangChain 1.1.0+ API)")
     
     # Test the integration
     _print_step("Step 4 Test: LangChain Integration Testing")
@@ -675,11 +678,8 @@ def test_step4_langchain_integration() -> None:
             }
         }
         
-        # Suppress Pydantic validation warnings for custom providers
-
         powermem_instance = Memory(config=test_config)
         print("✓ Memory instance created for LangChain integration")
-
         
         # Create PowermemLangChainMemory instance
         langchain_memory = PowermemLangChainMemory(
@@ -688,85 +688,100 @@ def test_step4_langchain_integration() -> None:
         )
         print("✓ PowermemLangChainMemory instance created")
         
-        # Test save_context
-        print("\n  Testing save_context...")
-        test_inputs = {"input": "Hello, my name is Alice"}
-        test_outputs = {"output": "Nice to meet you, Alice!"}
-        
+        # Test save_to_powermem
+        print("\n  Testing save_to_powermem...")
         try:
-            langchain_memory.save_context(test_inputs, test_outputs)
-            print("  ✓ save_context executed successfully")
-            print("  ✓ Conversation saved to both LangChain buffer and powermem")
+            user_input = "Hello, my name is Alice"
+            assistant_output = "Nice to meet you, Alice!"
+            langchain_memory.save_to_powermem(user_input, assistant_output)
+            print("  ✓ save_to_powermem executed successfully")
+            print("  ✓ Conversation saved to powermem")
         except Exception as e:
-            print(f"  ⚠ save_context test: {str(e)[:100]}")
+            print(f"  ⚠ save_to_powermem test: {str(e)[:100]}")
         
-        # Test load_memory_variables
-        print("\n  Testing load_memory_variables...")
+        # Test get_context
+        print("\n  Testing get_context...")
         try:
-            memory_vars = langchain_memory.load_memory_variables({"input": "What is my name?"})
-            history = memory_vars.get("history", "")
-            print(f"  ✓ load_memory_variables executed successfully")
-            if history:
-                print(f"  ✓ Retrieved history: {history[:50]}...")
+            context = langchain_memory.get_context("What is my name?")
+            print(f"  ✓ get_context executed successfully")
+            if context and "No previous" not in context:
+                print(f"  ✓ Retrieved context: {context[:50]}...")
             else:
-                print("  ℹ No history found (expected if no memories match)")
+                print("  ℹ No context found (expected if no memories match)")
         except Exception as e:
-            print(f"  ⚠ load_memory_variables test: {str(e)[:100]}")
+            print(f"  ⚠ get_context test: {str(e)[:100]}")
         
-        # Test LangChain buffer functionality
-        print("\n  Testing LangChain buffer...")
+        # Test message management
+        print("\n  Testing message management...")
         try:
-            buffer_content = langchain_memory.buffer
-            print(f"  ✓ LangChain buffer accessible")
-            print(f"  ✓ Buffer contains {len(buffer_content)} messages")
+            langchain_memory.add_message(HumanMessage(content="Test message"))
+            messages = langchain_memory.get_messages()
+            print(f"  ✓ Message management working")
+            print(f"  ✓ Messages count: {len(messages)}")
         except Exception as e:
-            print(f"  ⚠ Buffer test: {str(e)[:100]}")
+            print(f"  ⚠ Message management test: {str(e)[:100]}")
         
         print("\n✓ LangChain integration test completed")
-        print("  Note: Full usage with LangChain LLM requires additional setup")
+        print("  Note: Using LangChain 1.1.0+ API with Runnable chains")
         
         # Cleanup
         try:
             powermem_instance.delete_all(user_id="langchain_test_user")
         except Exception:
             pass
-        
+            
     except Exception as e:
         print(f"  ⚠ Integration test error: {str(e)[:100]}")
         print("  Note: This is expected if required API keys are missing")
     
-    # Example usage with mock LLM (for testing without API keys)
-    _print_step("Step 4 Example: Full LangChain usage with Mock LLM")
+    # Example usage with LangChain 1.1.0+ Runnable API
+    _print_step("Step 4 Example: Full LangChain 1.1.0+ usage with Mock LLM")
     try:
-        # Try to import LangChain components
+        # Try to import additional LangChain components for full example
         try:
-            from langchain.llms.base import LLM
-            from langchain.chains import ConversationChain
-            from langchain.schema import BaseMessage
-            from typing import List, Optional, Any
-            LANGCHAIN_AVAILABLE = True
+            from langchain_core.language_models import BaseChatModel
+            from langchain_core.callbacks import CallbackManagerForLLMRun
+            FULL_LANGCHAIN_AVAILABLE = True
         except ImportError:
-            LANGCHAIN_AVAILABLE = False
-            print("⚠ LangChain not fully available, skipping full integration test")
-            print("  Install with: pip install langchain")
+            FULL_LANGCHAIN_AVAILABLE = False
+            print("⚠ Some LangChain components not available, skipping full integration test")
+            print("  Install with: pip install langchain>=1.1.0 langchain-core>=1.1.0")
         
-        if LANGCHAIN_AVAILABLE:
-            # Create a mock LLM for testing (no API calls)
-            class MockLLM(LLM):
-                """Mock LLM for testing without API calls"""
+        if FULL_LANGCHAIN_AVAILABLE:
+            # Create a mock ChatModel for testing (no API calls)
+            class MockChatModel(BaseChatModel):
+                """Mock ChatModel for testing without API calls"""
                 
                 @property
                 def _llm_type(self) -> str:
                     return "mock"
                 
-                def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+                def _generate(
+                    self,
+                    messages: List[BaseMessage],
+                    stop: Optional[List[str]] = None,
+                    run_manager: Optional[CallbackManagerForLLMRun] = None,
+                    **kwargs: Any,
+                ):
                     """Mock response based on input"""
-                    if "name" in prompt.lower() or "alice" in prompt.lower():
-                        return "Nice to meet you, Alice! How can I help you today?"
-                    return "Hello! How can I assist you?"
+                    from langchain_core.outputs import ChatGeneration, ChatResult
+                    content = ""
+                    for msg in messages:
+                        if hasattr(msg, 'content'):
+                            msg_content = msg.content.lower()
+                            if "name" in msg_content or "alice" in msg_content:
+                                content = "Nice to meet you, Alice! How can I help you today?"
+                                break
+                    if not content:
+                        content = "Hello! How can I assist you?"
+                    
+                    from langchain_core.messages import AIMessage
+                    message = AIMessage(content=content)
+                    generation = ChatGeneration(message=message)
+                    return ChatResult(generations=[generation])
             
             # Test full LangChain integration
-            print("  Testing full LangChain integration with Mock LLM...")
+            print("  Testing full LangChain 1.1.0+ integration with Mock LLM...")
             
             # Create test config
             test_config_full = {
@@ -807,34 +822,75 @@ def test_step4_langchain_integration() -> None:
             print("  ✓ PowermemLangChainMemory instance created")
             
             # Create mock LLM
-            mock_llm = MockLLM()
-            print("  ✓ Mock LLM created")
+            mock_llm = MockChatModel()
+            print("  ✓ Mock ChatModel created")
             
-            # Create conversation chain
-            chain = ConversationChain(llm=mock_llm, memory=langchain_memory_full)
-            print("  ✓ ConversationChain created")
+            # Create prompt template using LangChain 1.1.0+ API
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", "You are a helpful assistant. Use the following context to provide personalized responses."),
+                MessagesPlaceholder(variable_name="history"),
+                ("human", "{input}")
+            ])
+            
+            # Build the chain with context retrieval using Runnable API
+            def format_messages(input_dict: Dict[str, Any]) -> Dict[str, Any]:
+                """Retrieve context and format messages."""
+                user_input = input_dict.get("input", "")
+                context = langchain_memory_full.get_context(user_input)
+                messages = langchain_memory_full.get_messages()
+                
+                formatted_history = []
+                if context and "No previous" not in context:
+                    formatted_history.append(("system", f"Context: {context}"))
+                for msg in messages:
+                    if isinstance(msg, HumanMessage):
+                        formatted_history.append(("human", msg.content))
+                    elif isinstance(msg, AIMessage):
+                        formatted_history.append(("assistant", msg.content))
+                
+                return {"history": formatted_history, "input": user_input}
+            
+            # Create the chain using LCEL (LangChain Expression Language)
+            chain = (
+                RunnableLambda(format_messages)
+                | prompt
+                | mock_llm
+            )
+            print("  ✓ Conversation chain created using LCEL")
             
             # Test conversation
             print("\n  Testing conversation flow...")
             try:
-                response1 = chain.run("Hello, my name is Alice")
-                print(f"  ✓ First response: {response1[:50]}...")
+                user_input = "Hello, my name is Alice"
+                langchain_memory_full.add_message(HumanMessage(content=user_input))
+                
+                response = chain.invoke({"input": user_input})
+                response_text = response.content if hasattr(response, 'content') else str(response)
+                print(f"  ✓ First response: {response_text[:50]}...")
+                
+                langchain_memory_full.add_message(AIMessage(content=response_text))
+                langchain_memory_full.save_to_powermem(user_input, response_text)
                 
                 # Test that memory was saved
-                memory_vars = langchain_memory_full.load_memory_variables({"input": "What is my name?"})
-                history = memory_vars.get("history", "")
-                if history:
-                    print(f"  ✓ Memory retrieved: {history[:50]}...")
+                context = langchain_memory_full.get_context("What is my name?")
+                if context and "No previous" not in context:
+                    print(f"  ✓ Memory retrieved: {context[:50]}...")
                 else:
                     print("  ℹ No memory retrieved (may need time to process)")
                 
                 # Test second interaction
-                response2 = chain.run("What did I just tell you?")
-                print(f"  ✓ Second response: {response2[:50]}...")
+                user_input2 = "What did I just tell you?"
+                langchain_memory_full.add_message(HumanMessage(content=user_input2))
+                response2 = chain.invoke({"input": user_input2})
+                response_text2 = response2.content if hasattr(response2, 'content') else str(response2)
+                print(f"  ✓ Second response: {response_text2[:50]}...")
                 
-                print("\n  ✓ Full LangChain integration test completed successfully!")
-                print("    - Mock LLM: Working ✓")
-                print("    - ConversationChain: Working ✓")
+                langchain_memory_full.add_message(AIMessage(content=response_text2))
+                langchain_memory_full.save_to_powermem(user_input2, response_text2)
+                
+                print("\n  ✓ Full LangChain 1.1.0+ integration test completed successfully!")
+                print("    - Mock ChatModel: Working ✓")
+                print("    - LCEL Chain: Working ✓")
                 print("    - Memory integration: Working ✓")
                 
                 # Cleanup

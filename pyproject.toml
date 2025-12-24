@@ -64,6 +64,10 @@ test = [
     "pytest>=8.2.2",
     "pytest-mock>=3.14.0",
     "pytest-asyncio>=0.23.7",
+    "langchain>=1.1.0",
+    "langchain-core>=1.1.0",
+    "langchain-openai>=1.1.0",
+    "langchain-community>=0.4.1",
 ]
 extras = [
     "sentence-transformers>=5.0.0",
