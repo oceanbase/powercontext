@@ -143,11 +143,11 @@ jobs:
           sed -i 's|^OCEANBASE_COLLECTION=.*|OCEANBASE_COLLECTION=memories|' .env
           sed -i 's|^DATABASE_PROVIDER=.*|DATABASE_PROVIDER=oceanbase|' .env
           sed -i 's|^LLM_PROVIDER=.*|LLM_PROVIDER=siliconflow|' .env
-          sed -i 's|^LLM_MODEL=.*|LLM_MODEL=nex-agi/DeepSeek-V3.1-Nex-N1|' .env
-          sed -i 's|^SILICONFLOW_LLM_BASE_URL=.*|SILICONFLOW_LLM_BASE_URL=https://api.siliconflow.com/v1|' .env
+          sed -i 's|^LLM_MODEL=.*|LLM_MODEL=THUDM/GLM-4-9B-0414|' .env
+          sed -i 's|^SILICONFLOW_LLM_BASE_URL=.*|SILICONFLOW_LLM_BASE_URL=https://api.siliconflow.cn/v1|' .env
           sed -i 's|^GRAPH_STORE_PORT=.*|GRAPH_STORE_PORT=10001|' .env
           sed -i 's|^GRAPH_STORE_PASSWORD=.*|GRAPH_STORE_PASSWORD=|' .env
-          sed -i "s|^LLM_API_KEY=.*|LLM_API_KEY=${SILICONFLOW_COM_API_KEY}|" .env
+          sed -i "s|^LLM_API_KEY=.*|LLM_API_KEY=${SILICONFLOW_CN_API_KEY}|" .env
           sed -i "s|^EMBEDDING_API_KEY=.*|EMBEDDING_API_KEY=${QWEN_API_KEY}|" .env
 
       - name: Run regression tests
