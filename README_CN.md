@@ -57,7 +57,7 @@
 - 📉 **[艾宾浩斯遗忘曲线](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**：基于认知科学的记忆遗忘规律，自动计算记忆保留率并实现时间衰减加权，优先返回最近且相关的记忆，让 AI 系统像人类一样自然"遗忘"过时信息
 
 ### 👤 用户画像支持
-- 🎭 **[用户画像](docs/examples/scenario_9_user_profile.md)**：基于用户历史对话和行为数据，自动构建和更新用户画像，适用于个性化推荐、AI 陪伴等场景，让 AI 系统更好地理解和服务每个用户
+- 🎭 **[用户画像](docs/examples/scenario_9_user_memory.md)**：基于用户历史对话和行为数据，自动构建和更新用户画像，适用于个性化推荐、AI 陪伴等场景，让 AI 系统更好地理解和服务每个用户
 
 ### 🤖 多智能体支持
 - 🔐 **[智能体共享/隔离记忆](docs/examples/scenario_3_multi_agent.md)**：为每个智能体提供独立的记忆空间，支持跨智能体记忆共享和协作，通过作用域控制实现灵活的权限管理
