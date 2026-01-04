@@ -56,7 +56,7 @@ In AI application development, enabling large language models to persistently "r
 - 📉 **[Ebbinghaus Forgetting Curve](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**: Based on the memory forgetting patterns from cognitive science, automatically calculates memory retention rates and implements time-decay weighting, prioritizing recent and relevant memories, allowing AI systems to naturally "forget" outdated information like humans
 
 ### 👤 User Profile Support
-- 🎭 **[User Profile](docs/examples/scenario_9_user_profile.md)**: Automatically builds and updates user profiles based on historical conversations and behavioral data, applicable to scenarios such as personalized recommendations and AI companionship, enabling AI systems to better understand and serve each user
+- 🎭 **[User Profile](docs/examples/scenario_9_user_memory.md)**: Automatically builds and updates user profiles based on historical conversations and behavioral data, applicable to scenarios such as personalized recommendations and AI companionship, enabling AI systems to better understand and serve each user
 
 ### 🤖 Multi-Agent Support
 - 🔐 **[Agent Shared/Isolated Memory](docs/examples/scenario_3_multi_agent.md)**: Provides independent memory spaces for each agent, supports cross-agent memory sharing and collaboration, and enables flexible permission management through scope control
