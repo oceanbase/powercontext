@@ -43,6 +43,8 @@ class BaseEmbedderConfig(ABC):
         ollama_base_url: Optional[str] = None,
         # Openai specific
         openai_base_url: Optional[str] = None,
+        # SiliconFlow specific
+        siliconflow_base_url: Optional[str] = None,
         # Huggingface specific
         model_kwargs: Optional[dict] = None,
         huggingface_base_url: Optional[str] = None,
@@ -136,4 +138,7 @@ class BaseEmbedderConfig(ABC):
 
         # Qwen/DashScope specific
         self.dashscope_base_url = dashscope_base_url
+        
+        # SiliconFlow specific
+        self.siliconflow_base_url = siliconflow_base_url
 
