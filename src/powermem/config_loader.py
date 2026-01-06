@@ -173,6 +173,7 @@ def load_config_from_env() -> Dict[str, Any]:
     provider_base_url_map = {
         'qwen': ('dashscope_base_url', os.getenv('QWEN_EMBEDDING_BASE_URL')),
         'openai': ('openai_base_url', os.getenv('OPENAI_EMBEDDING_BASE_URL')),
+        'siliconflow': ('siliconflow_base_url', os.getenv('SILICONFLOW_EMBEDDING_BASE_URL')),
         'huggingface': ('huggingface_base_url', os.getenv('HUGGINFACE_EMBEDDING_BASE_URL')),
         'lmstudio': ('lmstudio_base_url', os.getenv('LMSTUDIO_EMBEDDING_BASE_URL')),
         'ollama': ('ollama_base_url', os.getenv('OLLAMA_EMBEDDING_BASE_URL')),

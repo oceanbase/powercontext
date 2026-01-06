@@ -20,6 +20,7 @@ def load_class(class_type):
 class EmbedderFactory:
     provider_to_class = {
         "openai": "powermem.integrations.embeddings.openai.OpenAIEmbedding",
+        "siliconflow": "powermem.integrations.embeddings.siliconflow.SiliconFlowEmbedding",
         "ollama": "powermem.integrations.embeddings.ollama.OllamaEmbedding",
         "huggingface": "powermem.integrations.embeddings.huggingface.HuggingFaceEmbedding",
         "azure_openai": "powermem.integrations.embeddings.azure_openai.AzureOpenAIEmbedding",
