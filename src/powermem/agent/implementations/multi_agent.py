@@ -302,6 +302,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
                 'memory_type': memory_type.value,
                 'agent_id': agent_id,
                 'created_at': memory_data['created_at'],
+                'updated_at': memory_data['updated_at'],
                 'metadata': memory_data['metadata'],
             }
             
@@ -335,17 +336,20 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             
             # Use the existing Memory.add() method
             # Get the Snowflake ID returned from database to ensure consistency
+            # Use infer=False to use simple mode since intelligent processing is already done at agent layer
             add_result = self._memory_instance.add(
                 messages=memory_data['content'],
                 user_id=memory_data.get('user_id'),
                 agent_id=memory_data.get('agent_id'),
+                run_id=memory_data.get('run_id'),
                 metadata={
                     'scope': memory_data.get('scope').value if memory_data.get('scope') else None,
                     'memory_type': memory_data.get('memory_type').value if memory_data.get('memory_type') else None,
                     'retention_score': memory_data.get('retention_score'),
                     'importance_level': memory_data.get('importance_level'),
                     **memory_data.get('metadata', {})
-                }
+                },
+                infer=False  # Use simple mode to avoid intelligent processing returning empty results
             )
             
             # Get the Snowflake ID from database
@@ -482,15 +486,129 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             List of memory dictionaries
         """
         try:
+            # First, try to get memories from database
+            # Initialize Memory instance if not exists
+            if not hasattr(self, '_memory_instance'):
+                from powermem.core.memory import Memory
+                if hasattr(self.config, '_data'):
+                    config_dict = self.config._data
+                elif hasattr(self.config, 'to_dict'):
+                    config_dict = self.config.to_dict()
+                else:
+                    config_dict = self.config
+                self._memory_instance = Memory(config_dict)
+            
+            # Query memories from database by agent_id
+            user_id = filters.get('user_id') if filters else None
+            db_result = self._memory_instance.get_all(
+                user_id=user_id,
+                agent_id=agent_id,
+                limit=1000  # Get a large number to ensure we get all memories
+            )
+            
+            # Extract results from database response
+            db_memories = db_result.get('results', []) if isinstance(db_result, dict) else db_result
+            
+            # Convert database format to agent memory format and load into memory cache
             accessible_memories = []
-            total_memories = 0
+            total_memories = len(db_memories)
             scope_access_passed = 0
             permission_passed = 0
             
-            # Get accessible memory IDs based on scope and permissions
+            for db_memory in db_memories:
+                memory_id = db_memory.get('id')
+                if not memory_id:
+                    continue
+                
+                # Convert database format to agent memory format
+                # Storage adapter.get_all_memories() returns 'memory' field (mapped from payload.data)
+                # Keep 'document' as fallback for database raw field name compatibility
+                content = db_memory.get('memory') or db_memory.get('document', '')
+                
+                memory_data = {
+                    'id': memory_id,
+                    'content': content,
+                    'agent_id': db_memory.get('agent_id', agent_id),
+                    'user_id': db_memory.get('user_id'),
+                    'run_id': db_memory.get('run_id'),
+                    'metadata': db_memory.get('metadata', {}),
+                    'created_at': db_memory.get('created_at'),
+                    'updated_at': db_memory.get('updated_at'),
+                    'access_count': 0,
+                    'last_accessed': None,
+                }
+                
+                # Extract scope and memory_type from metadata
+                metadata = memory_data.get('metadata', {})
+                scope_str = metadata.get('scope') or metadata.get('agent', {}).get('scope', 'agent')
+                memory_type_str = metadata.get('memory_type') or metadata.get('agent', {}).get('memory_type', 'working')
+                
+                try:
+                    scope = MemoryScope(scope_str) if isinstance(scope_str, str) else scope_str
+                except (ValueError, TypeError):
+                    scope = MemoryScope.AGENT  # Default scope
+                
+                try:
+                    memory_type = MemoryType(memory_type_str) if isinstance(memory_type_str, str) else memory_type_str
+                except (ValueError, TypeError):
+                    memory_type = MemoryType.WORKING  # Default type
+                
+                memory_data['scope'] = scope
+                memory_data['memory_type'] = memory_type
+                
+                # Load into memory cache for future fast access
+                if memory_id not in self.scope_memories[scope][memory_type]:
+                    self.scope_memories[scope][memory_type][memory_id] = memory_data
+                
+                # Also load into scope controller's storage for access control
+                if self.scope_controller and memory_id not in self.scope_controller.scope_storage[scope][memory_type]:
+                    self.scope_controller.scope_storage[scope][memory_type][memory_id] = memory_data
+                
+                # Restore permissions from metadata if available
+                # Check if this memory was created by the current agent
+                memory_agent_id = memory_data.get('agent_id') or metadata.get('agent', {}).get('agent_id')
+                if memory_agent_id == agent_id:
+                    # This memory belongs to the agent, grant owner permissions
+                    if memory_id not in self.permission_controller.memory_permissions:
+                        self.permission_controller.memory_permissions[memory_id] = {}
+                    if agent_id not in self.permission_controller.memory_permissions[memory_id]:
+                        # Grant owner permissions
+                        owner_permissions = self.multi_agent_config.default_permissions.get("owner", [])
+                        owner_permissions_enum = []
+                        for perm in owner_permissions:
+                            try:
+                                if isinstance(perm, AccessPermission):
+                                    owner_permissions_enum.append(perm)
+                                else:
+                                    owner_permissions_enum.append(AccessPermission(perm.lower()))
+                            except ValueError:
+                                pass
+                        self.permission_controller.memory_permissions[memory_id][agent_id] = owner_permissions_enum
+                
+                # Check if agent has access to this memory
+                scope_access = self.scope_controller.check_scope_access(agent_id, memory_id)
+                if scope_access:
+                    scope_access_passed += 1
+                    
+                    permission_check = self.permission_controller.check_permission(
+                        agent_id, memory_id, AccessPermission.READ
+                    )
+                    if permission_check:
+                        permission_passed += 1
+                        accessible_memories.append(memory_data)
+                    else:
+                        logger.debug(f"Permission denied for agent {agent_id} on memory {memory_id}")
+                else:
+                    logger.debug(f"Scope access denied for agent {agent_id} on memory {memory_id}")
+            
+            # Also check in-memory cache for any memories not in database (for backward compatibility)
             for scope in MemoryScope:
                 for memory_type in MemoryType:
                     for memory_id, memory_data in self.scope_memories[scope][memory_type].items():
+                        # Skip if already processed from database
+                        if any(m.get('id') == memory_id for m in accessible_memories):
+                            continue
+                        
                         total_memories += 1
                         
                         # Check if agent has access to this memory
@@ -513,20 +631,22 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             if query:
                 accessible_memories = [
                     memory for memory in accessible_memories
-                    if query.lower() in memory['content'].lower()
+                    if query.lower() in memory.get('content', '').lower()
                 ]
             
             # Apply additional filters if provided
             if filters:
                 for key, value in filters.items():
-                    accessible_memories = [
-                        memory for memory in accessible_memories
-                        if memory.get(key) == value
-                    ]
+                    if key != 'user_id':  # user_id already used for database query
+                        accessible_memories = [
+                            memory for memory in accessible_memories
+                            if memory.get(key) == value
+                        ]
             
             # Update access statistics
             for memory in accessible_memories:
-                memory['access_count'] += 1
+                if 'access_count' in memory:
+                    memory['access_count'] = memory.get('access_count', 0) + 1
                 memory['last_accessed'] = datetime.now().isoformat()
             
             logger.info(f"Retrieved {len(accessible_memories)} memories for agent {agent_id} "
@@ -534,7 +654,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             return accessible_memories
             
         except Exception as e:
-            logger.error(f"Failed to get memories for agent {agent_id}: {e}")
+            logger.error(f"Failed to get memories for agent {agent_id}: {e}", exc_info=True)
             raise
     
     def update_memory(

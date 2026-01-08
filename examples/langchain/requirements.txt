@@ -2,7 +2,7 @@
 # Install with: pip install -r requirements.txt
 
 # Core dependencies
-powermem>=0.2.1
+powermem>=0.3.0
 python-dotenv>=1.0.0
 
 openai>=1.109.1,<3.0.0

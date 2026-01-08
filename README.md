@@ -76,7 +76,7 @@ In AI application development, enabling large language models to persistently "r
 pip install powermem
 ```
 
-### 💡 Basic Usage
+### 💡 Basic Usage(SDK)
 
 **✨ Simplest Way**: Create memory from `.env` file automatically! [Configuration Reference](.env.example)
 
@@ -99,6 +99,96 @@ for result in results.get('results', []):
 
 For more detailed examples and usage patterns, see the [Getting Started Guide](docs/guides/0001-getting_started.md).
 
+### 🌐 HTTP API Server
+
+PowerMem also provides a production-ready HTTP API server that exposes all core memory management capabilities through RESTful APIs. This enables any application that supports HTTP calls to integrate PowerMem's intelligent memory system, regardless of programming language.
+
+**Relationship with SDK**: The API server uses the same PowerMem SDK under the hood and shares the same configuration (`.env` file). It provides an HTTP interface to the same memory management features available in the Python SDK, making PowerMem accessible to non-Python applications.
+
+**Starting the API Server**:
+
+```bash
+# Method 1: Using CLI command (after pip install)
+powermem-server --host 0.0.0.0 --port 8000
+
+# Method 2: Using Docker
+# Build and run with Docker
+docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .
+docker run -d \
+  --name powermem-server \
+  -p 8000:8000 \
+  -v $(pwd)/.env:/app/.env:ro \
+  --env-file .env \
+  oceanbase/powermem-server:latest
+
+# Or use Docker Compose (recommended)
+docker-compose -f docker/docker-compose.yml up -d
+
+```
+
+Once started, the API server provides:
+- RESTful API endpoints for all memory operations
+- Interactive API documentation at `http://localhost:8000/docs`
+- API Key authentication and rate limiting support
+- Same configuration as SDK (via `.env` file)
+
+For complete API documentation and usage examples, see the [API Server Documentation](docs/api/0005-api_server.md).
+
+### 🔌 MCP Server
+
+PowerMem also provides a Model Context Protocol (MCP) server that enables integration with MCP-compatible clients such as Claude Desktop. The MCP server exposes PowerMem's memory management capabilities through the MCP protocol, allowing AI assistants to access and manage memories seamlessly.
+
+**Relationship with SDK**: The MCP server uses the same PowerMem SDK and shares the same configuration (`.env` file). It provides an MCP interface to the same memory management features, making PowerMem accessible to MCP-compatible AI assistants.
+
+**Installation**:
+
+```bash
+# Install PowerMem (required)
+pip install powermem
+
+# Install uvx (if not already installed)
+# On macOS/Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# On Windows:
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Starting the MCP Server**:
+
+```bash
+# SSE mode (recommended, default port 8000)
+uvx powermem-mcp sse
+
+# SSE mode with custom port
+uvx powermem-mcp sse 8001
+
+# Stdio mode
+uvx powermem-mcp stdio
+
+# Streamable HTTP mode (default port 8000)
+uvx powermem-mcp streamable-http
+
+# Streamable HTTP mode with custom port
+uvx powermem-mcp streamable-http 8001
+```
+
+**Integration with Claude Desktop**:
+
+Add the following configuration to your Claude Desktop config file:
+
+```json
+{
+  "mcpServers": {
+    "powermem": {
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
+```
+
+The MCP server provides tools for memory management including adding, searching, updating, and deleting memories. For complete MCP documentation and usage examples, see the [MCP Server Documentation](docs/api/0004-mcp.md).
+
 ## 🔗 Integrations & Demos
 
 - 🔗 **LangChain Integration**: Build medical support chatbot using LangChain + PowerMem + OceanBase, [View Example](examples/langchain/README.md)
@@ -118,10 +208,11 @@ For more detailed examples and usage patterns, see the [Getting Started Guide](d
 
 ## ⭐ Highlights Release Notes
 
-| Version | Iteration Period | Release Date | Function |
-|---------|--------|-------|---------|
-| 0.2.0 | 2025.12 | 2025.12.16 | <ul><li>Advanced user profile management, supporting "personalized experience" for AI applications</li><li>Expanded multimodal support, including text, image, and audio memory</li></ul> |
-| 0.1.0 | 2025.11 | 2025.11.14 | <ul><li>Core memory management functionality, supporting persistent storage of memories</li><li>Hybrid retrieval supporting vector, full-text, and graph search</li><li>Intelligent memory extraction based on LLM fact extraction</li><li>Full lifecycle memory management supporting Ebbinghaus forgetting curve</li><li>Multi-Agent memory management support</li><li>Multiple storage backend support (OceanBase, PostgreSQL, SQLite)</li><li>Support for knowledge graph retrieval through multi-hop graph search</li></ul> |
+| Version | Release Date | Function |
+|---------|-------|---------|
+| 0.3.0 | TBD | <ul><li>Production-ready HTTP API Server with RESTful endpoints for all memory operations</li><li>Docker support for easy deployment and containerization</li></ul> |
+| 0.2.0 | 2025.12.16 | <ul><li>Advanced user profile management, supporting "personalized experience" for AI applications</li><li>Expanded multimodal support, including text, image, and audio memory</li></ul> |
+| 0.1.0 | 2025.11.14 | <ul><li>Core memory management functionality, supporting persistent storage of memories</li><li>Hybrid retrieval supporting vector, full-text, and graph search</li><li>Intelligent memory extraction based on LLM fact extraction</li><li>Full lifecycle memory management supporting Ebbinghaus forgetting curve</li><li>Multi-Agent memory management support</li><li>Multiple storage backend support (OceanBase, PostgreSQL, SQLite)</li><li>Support for knowledge graph retrieval through multi-hop graph search</li></ul> |
 
 ## 💬 Support
 

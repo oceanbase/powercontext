@@ -65,7 +65,7 @@ class TelemetryManager:
                 "user_id": user_id,
                 "agent_id": agent_id,
                 "timestamp": get_current_datetime().isoformat(),
-                "version": "0.2.1",
+                "version": "0.3.0",
             }
             
             self.events.append(event)
@@ -165,7 +165,7 @@ class TelemetryManager:
                 "properties": properties,
                 "user_id": user_id,
                 "timestamp": get_current_datetime().isoformat(),
-                "version": "0.2.1",
+                "version": "0.3.0",
             }
             
             self.events.append(event)

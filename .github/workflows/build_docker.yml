@@ -1,0 +1,140 @@
+name: build powermem-server docker
+
+on: 
+  push:
+    branches: [main, develop]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get SDK version
+        id: sdk-version
+        run: |
+          # Extract version from version.py file
+          VERSION=$(grep -E '^__version__\s*=' src/powermem/version.py | sed -E "s/^__version__\s*=\s*['\"](.*)['\"]/\1/")
+          echo "SDK version: $VERSION"
+          echo "sdk-version=$VERSION" >> $GITHUB_OUTPUT
+          echo "image-tag=$VERSION" >> $GITHUB_OUTPUT
+          echo "Using SDK version ($VERSION) as Docker image tag"
+
+      - name: Determine if should push
+        id: should-push
+        run: |
+          EVENT_NAME="${{ github.event_name }}"
+          REF="${{ github.ref }}"
+          
+          echo "Event name: $EVENT_NAME"
+          echo "Ref: $REF"
+          
+          # Only push when it's a push event and the ref starts with refs/tags/v
+          if [[ "$EVENT_NAME" == "push" ]] && [[ "$REF" == refs/tags/v* ]]; then
+            echo "should-push=true" >> $GITHUB_OUTPUT
+            echo "Will push to remote repository"
+          else
+            echo "should-push=false" >> $GITHUB_OUTPUT
+            echo "Will save as artifacts"
+          fi
+          
+          # Debug: verify the output
+          echo "Output should-push value:"
+          grep should-push $GITHUB_OUTPUT || echo "No should-push found in output"
+
+      - name: Log in to Docker hub (for tag push only)
+        if: steps.should-push.outputs.should-push == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker image (for tags)
+        if: steps.should-push.outputs.should-push == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ vars.DOCKER_PUSH_BASE }}/powermem-server:latest
+            ${{ vars.DOCKER_PUSH_BASE }}/powermem-server:${{ steps.sdk-version.outputs.image-tag }}
+
+      - name: Debug should-push output
+        run: |
+          echo "should-push output value: '${{ steps.should-push.outputs.should-push }}'"
+          echo "Condition check: should-push == 'false'"
+          if [ "${{ steps.should-push.outputs.should-push }}" == "false" ]; then
+            echo "✓ Condition is true, will execute build step"
+          else
+            echo "✗ Condition is false, step will be skipped"
+          fi
+
+      - name: Build and save Docker images (for PR and branches)
+        if: steps.should-push.outputs.should-push != 'true'
+        run: |
+          mkdir -p docker-images
+          
+          IMAGE_NAME="powermem-server"
+          SDK_VERSION="${{ steps.sdk-version.outputs.sdk-version }}"
+          IMAGE_VERSION="${{ steps.sdk-version.outputs.image-tag }}"
+          
+          echo "SDK version: $SDK_VERSION"
+          echo "Image version tag: $IMAGE_VERSION"
+          
+          # Build and save for each platform
+          for platform in linux/amd64 linux/arm64; do
+            platform_suffix=$(echo $platform | tr '/' '-')
+            image_tag="${IMAGE_NAME}:${IMAGE_VERSION}"
+            output_file="docker-images/${IMAGE_NAME}-${IMAGE_VERSION}-${platform_suffix}.tar"
+            
+            echo "Building image for platform: $platform"
+            
+            # Build the image for the specific platform and load it
+            docker buildx build \
+              . \
+              --file docker/Dockerfile \
+              --platform $platform \
+              --load \
+              --tag ${image_tag}
+            
+            # Save the image as tar file
+            echo "Saving image to: ${output_file}"
+            docker save ${image_tag} -o ${output_file}
+            
+            # Verify the file was created
+            if [ -f "${output_file}" ]; then
+              echo "✓ Successfully saved: ${output_file} ($(du -h ${output_file} | cut -f1))"
+            else
+              echo "✗ Failed to save: ${output_file}"
+              exit 1
+            fi
+          done
+          
+          # List all saved files
+          echo ""
+          echo "All saved Docker images:"
+          ls -lh docker-images/
+          echo ""
+          echo "To load these images, use: docker load -i <tar-file>"
+
+      - name: Upload Docker image artifacts (for PR and branches)
+        if: steps.should-push.outputs.should-push != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: powermem-server-docker-images
+          path: docker-images/*.tar
+          retention-days: 30
+          if-no-files-found: error

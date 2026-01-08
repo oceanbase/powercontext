@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  powermem-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: oceanbase/powermem-server:latest
+    container_name: powermem-server
+    ports:
+      - "${POWERMEM_SERVER_PORT:-8000}:8000"
+    environment:
+      - POWERMEM_SERVER_HOST=${POWERMEM_SERVER_HOST:-0.0.0.0}
+      - POWERMEM_SERVER_PORT=${POWERMEM_SERVER_PORT:-8000}
+      - POWERMEM_SERVER_WORKERS=${POWERMEM_SERVER_WORKERS:-4}
+      - POWERMEM_SERVER_API_KEYS=${POWERMEM_SERVER_API_KEYS:-}
+      - POWERMEM_SERVER_AUTH_ENABLED=${POWERMEM_SERVER_AUTH_ENABLED:-false}
+      - POWERMEM_SERVER_RATE_LIMIT_ENABLED=${POWERMEM_SERVER_RATE_LIMIT_ENABLED:-true}
+      - POWERMEM_SERVER_RATE_LIMIT_PER_MINUTE=${POWERMEM_SERVER_RATE_LIMIT_PER_MINUTE:-100}
+      - POWERMEM_SERVER_LOG_LEVEL=${POWERMEM_SERVER_LOG_LEVEL:-INFO}
+      - POWERMEM_SERVER_LOG_FORMAT=${POWERMEM_SERVER_LOG_FORMAT:-json}
+      - POWERMEM_SERVER_CORS_ENABLED=${POWERMEM_SERVER_CORS_ENABLED:-true}
+      - POWERMEM_SERVER_CORS_ORIGINS=${POWERMEM_SERVER_CORS_ORIGINS:-*}
+      - POWERMEM_DATABASE_URL=${POWERMEM_DATABASE_URL:-}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      # Mount .env file so both SDK and Server can use the same configuration
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/system/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+

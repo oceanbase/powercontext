@@ -198,3 +198,23 @@ performance_logs/
 
 # Docker
 .dockerignore
+
+# PowerMem API Server
+.server.pid
+server.log
+*.pid
+server_*.log
+api_server.log
+
+# Server runtime files
+.pid
+*.pid.lock
+
+# Server data directories (if any)
+server_data/
+api_data/
+
+# Server backups
+server_backup/
+*.backup
+

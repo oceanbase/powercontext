@@ -153,10 +153,14 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             
             # Persist to database first to get Snowflake ID
             # Use temporary memory data for database insertion
+            # Extract run_id from metadata
+            run_id = enhanced_metadata.get('run_id') if enhanced_metadata else None
+            
             temp_memory_data = {
                 'content': content,
                 'user_id': user_id,
                 'agent_id': agent_id,
+                'run_id': run_id,
                 'scope': scope,
                 'memory_type': memory_type,
                 'metadata': enhanced_metadata,
@@ -224,6 +228,7 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
                 'user_id': user_id,
                 'agent_id': agent_id,
                 'created_at': memory_data['created_at'],
+                'updated_at': memory_data['updated_at'],
                 'metadata': memory_data['metadata'],
             }
             
@@ -251,10 +256,12 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             
             # Use the existing Memory.add() method
             # Get the Snowflake ID returned from database to ensure consistency
+            # Use infer=False to use simple mode since intelligent processing is already done at agent layer
             add_result = self._memory_instance.add(
                 messages=memory_data['content'],
                 user_id=memory_data.get('user_id'),
                 agent_id=memory_data.get('agent_id'),
+                run_id=memory_data.get('run_id'),
                 metadata={
                     'scope': memory_data.get('scope').value if memory_data.get('scope') else None,
                     'memory_type': memory_data.get('memory_type').value if memory_data.get('memory_type') else None,
@@ -262,19 +269,30 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
                     'importance_level': memory_data.get('importance_level'),
                     'privacy_level': memory_data.get('privacy_level').value if memory_data.get('privacy_level') else None,
                     **memory_data.get('metadata', {})
-                }
+                },
+                infer=False  # Use simple mode to avoid intelligent processing returning empty results
             )
             
             # Get the Snowflake ID from database
-            if add_result and 'results' in add_result and len(add_result['results']) > 0:
-                db_memory_id = add_result['results'][0].get('id')
-                if db_memory_id:
-                    logger.info(f"Persisted memory {db_memory_id} to storage")
-                    return db_memory_id
-                else:
-                    raise ValueError("Failed to get memory ID from database")
+            if not add_result:
+                logger.error("Memory.add() returned None or empty result")
+                raise ValueError("Failed to persist memory to database: Memory.add() returned None")
+            
+            if 'results' not in add_result:
+                logger.error(f"Memory.add() returned unexpected structure: {add_result}")
+                raise ValueError(f"Failed to persist memory to database: Missing 'results' key in response. Got keys: {list(add_result.keys())}")
+            
+            if not add_result['results'] or len(add_result['results']) == 0:
+                logger.error(f"Memory.add() returned empty results list: {add_result}")
+                raise ValueError("Failed to persist memory to database: Empty results list")
+            
+            db_memory_id = add_result['results'][0].get('id')
+            if db_memory_id:
+                logger.info(f"Persisted memory {db_memory_id} to storage")
+                return db_memory_id
             else:
-                raise ValueError("Failed to persist memory to database")
+                logger.error(f"Memory.add() result missing 'id' field: {add_result['results'][0]}")
+                raise ValueError("Failed to get memory ID from database: Missing 'id' in result")
             
         except Exception as e:
             logger.error(f"Failed to persist memory to storage: {e}")
@@ -511,31 +529,121 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             user_id = self._extract_user_id(agent_id, None, filters)
             accessible_memories = []
             
-            # Get user's own memories
+            # First, try to get memories from database
+            # Initialize Memory instance if not exists
+            if not hasattr(self, '_memory_instance'):
+                from powermem.core.memory import Memory
+                config_dict = self.config._data if hasattr(self.config, '_data') else self.config
+                self._memory_instance = Memory(config_dict)
+            
+            # Query memories from database by user_id and agent_id
+            db_result = self._memory_instance.get_all(
+                user_id=user_id,
+                agent_id=agent_id,
+                limit=1000  # Get a large number to ensure we get all memories
+            )
+            
+            # Extract results from database response
+            db_memories = db_result.get('results', []) if isinstance(db_result, dict) else db_result
+            
+            # Convert database format to user memory format and load into memory cache
+            processed_memory_ids = set()
+            
+            for db_memory in db_memories:
+                memory_id = db_memory.get('id')
+                if not memory_id:
+                    continue
+                
+                processed_memory_ids.add(memory_id)
+                
+                # Convert database format to user memory format
+                # Storage adapter.get_all_memories() returns 'memory' field (mapped from payload.data)
+                # Keep 'document' as fallback for database raw field name compatibility
+                content = db_memory.get('memory') or db_memory.get('document', '')
+                
+                memory_data = {
+                    'id': memory_id,
+                    'content': content,
+                    'user_id': db_memory.get('user_id', user_id),
+                    'agent_id': db_memory.get('agent_id', agent_id),
+                    'run_id': db_memory.get('run_id'),
+                    'metadata': db_memory.get('metadata', {}),
+                    'created_at': db_memory.get('created_at'),
+                    'updated_at': db_memory.get('updated_at'),
+                    'access_count': 0,
+                    'last_accessed': None,
+                }
+                
+                # Extract memory_type from metadata
+                metadata = memory_data.get('metadata', {})
+                memory_type_str = metadata.get('memory_type') or metadata.get('agent', {}).get('memory_type', 'working')
+                
+                try:
+                    memory_type = MemoryType(memory_type_str) if isinstance(memory_type_str, str) else memory_type_str
+                except (ValueError, TypeError):
+                    memory_type = MemoryType.WORKING  # Default type
+                
+                memory_data['memory_type'] = memory_type
+                memory_data['scope'] = metadata.get('scope') or 'private'
+                
+                # Extract additional fields from metadata
+                if 'intelligence' in metadata:
+                    memory_data['retention_score'] = metadata['intelligence'].get('current_retention', 1.0)
+                    memory_data['importance_level'] = metadata['intelligence'].get('importance_score')
+                
+                # Load into memory cache for future fast access
+                if user_id not in self.user_memories:
+                    self.user_memories[user_id] = {
+                        MemoryType.WORKING: {},
+                        MemoryType.SHORT_TERM: {},
+                        MemoryType.LONG_TERM: {},
+                        MemoryType.SEMANTIC: {},
+                        MemoryType.EPISODIC: {},
+                        MemoryType.PROCEDURAL: {},
+                        MemoryType.PUBLIC_SHARED: {},
+                        MemoryType.PRIVATE_AGENT: {},
+                        MemoryType.COLLABORATIVE: {},
+                        MemoryType.GROUP_CONSENSUS: {},
+                    }
+                
+                if memory_id not in self.user_memories[user_id][memory_type]:
+                    self.user_memories[user_id][memory_type][memory_id] = memory_data
+                
+                # Check if this memory belongs to the user
+                if memory_data['user_id'] == user_id:
+                    accessible_memories.append(memory_data)
+            
+            # Also check in-memory cache for any memories not in database (for backward compatibility)
             if user_id in self.user_memories:
                 for memory_type in MemoryType:
-                    for memory_data in self.user_memories[user_id][memory_type].values():
-                        accessible_memories.append(memory_data)
+                    for memory_id, memory_data in self.user_memories[user_id][memory_type].items():
+                        # Skip if already processed from database
+                        if memory_id in processed_memory_ids:
+                            continue
+                        
+                        # Check if memory belongs to user
+                        if memory_data.get('user_id') == user_id:
+                            accessible_memories.append(memory_data)
             
             # Get shared memories
             for memory_id, sharing_data in self.shared_memories.items():
                 if user_id in sharing_data['shared_with']:
                     # Find the original memory
                     memory_data = self._find_memory(memory_id)
-                    if memory_data:
+                    if memory_data and memory_data not in accessible_memories:
                         accessible_memories.append(memory_data)
             
             # Apply query filtering if provided
             if query:
                 accessible_memories = [
                     memory for memory in accessible_memories
-                    if query.lower() in memory['content'].lower()
+                    if query.lower() in memory.get('content', '').lower()
                 ]
             
             # Apply additional filters if provided
             if filters:
                 for key, value in filters.items():
-                    if key != 'user_id':  # Skip user_id filter as it's already applied
+                    if key != 'user_id':  # user_id already used for database query
                         accessible_memories = [
                             memory for memory in accessible_memories
                             if memory.get(key) == value
@@ -543,14 +651,15 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             
             # Update access statistics
             for memory in accessible_memories:
-                memory['access_count'] += 1
+                if 'access_count' in memory:
+                    memory['access_count'] = memory.get('access_count', 0) + 1
                 memory['last_accessed'] = datetime.now().isoformat()
             
             logger.info(f"Retrieved {len(accessible_memories)} memories for user {user_id}")
             return accessible_memories
             
         except Exception as e:
-            logger.error(f"Failed to get memories for user {agent_id}: {e}")
+            logger.error(f"Failed to get memories for user {agent_id}: {e}", exc_info=True)
             raise
     
     def update_memory(

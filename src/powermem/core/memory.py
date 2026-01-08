@@ -1113,6 +1113,10 @@ class Memory(MemoryBase):
                 for key in ["id", "created_at", "updated_at", "user_id", "agent_id", "run_id"]:
                     if key in result:
                         transformed_result[key] = result[key]
+                
+                # Ensure memory_id field exists (for API compatibility)
+                if "id" in transformed_result and "memory_id" not in transformed_result:
+                    transformed_result["memory_id"] = transformed_result["id"]
                 transformed_results.append(transformed_result)
             
             # Log audit event
