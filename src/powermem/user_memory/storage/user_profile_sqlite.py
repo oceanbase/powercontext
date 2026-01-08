@@ -320,25 +320,27 @@ class SQLiteUserProfileStore(UserProfileStoreBase):
             if not main_topic_match:
                 return False
 
-        # Check sub topic filter
+        # Check sub topic filter - only process paths with '.'
         if sub_topic:
-            sub_topic_match = any(
-                self._check_json_path_exists(topics, f"$.{st}")
-                for st in sub_topic
-                if '.' in st  # Only process full path format
-            )
-            if not sub_topic_match:
-                return False
+            valid_sub_topics = [st for st in sub_topic if '.' in st]
+            if valid_sub_topics:  # Only check if there are valid sub_topic paths
+                sub_topic_match = any(
+                    self._check_json_path_exists(topics, f"$.{st}")
+                    for st in valid_sub_topics
+                )
+                if not sub_topic_match:
+                    return False
 
         # Check topic value filter
         if topic_value:
-            value_match = any(
-                self._check_topic_value_exists(topics, tv)
-                for tv in topic_value
-                if tv is not None
-            )
-            if not value_match:
-                return False
+            valid_values = [tv for tv in topic_value if tv is not None]
+            if valid_values:  # Only check if there are valid values
+                value_match = any(
+                    self._check_topic_value_exists(topics, tv)
+                    for tv in valid_values
+                )
+                if not value_match:
+                    return False
 
         return True
 
