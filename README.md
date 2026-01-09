@@ -209,10 +209,10 @@ The MCP server provides tools for memory management including adding, searching,
 ## ⭐ Highlights Release Notes
 
 | Version | Release Date | Function |
-|---------|-------|---------|
-| 0.3.0 | TBD | <ul><li>Production-ready HTTP API Server with RESTful endpoints for all memory operations</li><li>Docker support for easy deployment and containerization</li></ul> |
-| 0.2.0 | 2025.12.16 | <ul><li>Advanced user profile management, supporting "personalized experience" for AI applications</li><li>Expanded multimodal support, including text, image, and audio memory</li></ul> |
-| 0.1.0 | 2025.11.14 | <ul><li>Core memory management functionality, supporting persistent storage of memories</li><li>Hybrid retrieval supporting vector, full-text, and graph search</li><li>Intelligent memory extraction based on LLM fact extraction</li><li>Full lifecycle memory management supporting Ebbinghaus forgetting curve</li><li>Multi-Agent memory management support</li><li>Multiple storage backend support (OceanBase, PostgreSQL, SQLite)</li><li>Support for knowledge graph retrieval through multi-hop graph search</li></ul> |
+|---------|--------------|---------|
+| 0.3.0 | 2026.01.09   | <ul><li>Production-ready HTTP API Server with RESTful endpoints for all memory operations</li><li>Docker support for easy deployment and containerization</li></ul> |
+| 0.2.0 | 2025.12.16   | <ul><li>Advanced user profile management, supporting "personalized experience" for AI applications</li><li>Expanded multimodal support, including text, image, and audio memory</li></ul> |
+| 0.1.0 | 2025.11.14   | <ul><li>Core memory management functionality, supporting persistent storage of memories</li><li>Hybrid retrieval supporting vector, full-text, and graph search</li><li>Intelligent memory extraction based on LLM fact extraction</li><li>Full lifecycle memory management supporting Ebbinghaus forgetting curve</li><li>Multi-Agent memory management support</li><li>Multiple storage backend support (OceanBase, PostgreSQL, SQLite)</li><li>Support for knowledge graph retrieval through multi-hop graph search</li></ul> |
 
 ## 💬 Support
 
