@@ -49,7 +49,7 @@ AI アプリケーション開発において、大規模言語モデルが履�
 ## 🚀 核心機能
 
 ### 👨‍💻 開発者フレンドリー
-- 🔌 **[軽量級アクセス方式](docs/examples/scenario_1_basic_usage.md)**：シンプルな Python SDK プロトコルサポートを提供し、`.env` ファイルから自動的に設定を読み込み、開発者が既存プロジェクトに迅速に統合できるようにします
+- 🔌 **[軽量級アクセス方式](docs/examples/scenario_1_basic_usage.md)**：シンプルな Python SDK プロトコルサポートを提供し、`.env` ファイルから自動的に設定を読み込み、開発者が既存プロジェクトに迅速に統合できるようにします。また、[MCP サーバー](docs/api/0004-mcp.md) と [HTTP API サーバー](docs/api/0005-api_server.md) の 2 つのアクセス方式もサポートしています
 
 ### 🧠 インテリジェントメモリ管理
 - 🔍 **[メモリのインテリジェント抽出](docs/examples/scenario_2_intelligent_memory.md)**：LLM を通じて会話から重要な事実を自動的に抽出し、重複をインテリジェントに検出し、競合する情報を更新し、関連するメモリをマージして、メモリデータベースの正確性と一貫性を確保します
@@ -112,8 +112,7 @@ PowerMem は、すべてのコアメモリ管理機能を RESTful API を通じ�
 powermem-server --host 0.0.0.0 --port 8000
 
 # 方法 2：Docker を使用
-# Docker イメージをビルドして実行
-docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .
+# Docker で実行
 docker run -d \
   --name powermem-server \
   -p 8000:8000 \

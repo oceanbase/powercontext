@@ -49,7 +49,7 @@ In AI application development, enabling large language models to persistently "r
 ## 🚀 Core Features
 
 ### 👨‍💻 Developer Friendly
-- 🔌 **[Lightweight Integration](docs/examples/scenario_1_basic_usage.md)**: Provides a simple Python SDK, automatically loads configuration from `.env` files, enabling developers to quickly integrate into existing projects
+- 🔌 **[Lightweight Integration](docs/examples/scenario_1_basic_usage.md)**: Provides a simple Python SDK, automatically loads configuration from `.env` files, enabling developers to quickly integrate into existing projects. Also supports [MCP Server](docs/api/0004-mcp.md) and [HTTP API Server](docs/api/0005-api_server.md) integration methods
 
 ### 🧠 Intelligent Memory Management
 - 🔍 **[Intelligent Memory Extraction](docs/examples/scenario_2_intelligent_memory.md)**: Automatically extracts key facts from conversations through LLM, intelligently detects duplicates, updates conflicting information, and merges related memories to ensure accuracy and consistency of the memory database
@@ -112,8 +112,7 @@ PowerMem also provides a production-ready HTTP API server that exposes all core 
 powermem-server --host 0.0.0.0 --port 8000
 
 # Method 2: Using Docker
-# Build and run with Docker
-docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .
+# run with Docker
 docker run -d \
   --name powermem-server \
   -p 8000:8000 \
