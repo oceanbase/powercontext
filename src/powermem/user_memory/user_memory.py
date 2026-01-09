@@ -48,27 +48,35 @@ class UserMemory:
         )
         
         # Initialize UserProfileStore using factory based on storage_type
-        # Extract connection config from memory's vector store
+        provider = self.memory.storage_type.lower()
         vector_store = self.memory.storage.vector_store
-        if hasattr(vector_store, 'connection_args'):
-            connection_args = vector_store.connection_args
-        else:
-            # Fallback to default connection args
-            connection_args = {}
         
-        # Build config for UserProfileStore
-        profile_store_config = {
-            "table_name": "user_profiles",
-            "connection_args": connection_args,
-            "host": connection_args.get("host"),
-            "port": connection_args.get("port"),
-            "user": connection_args.get("user"),
-            "password": connection_args.get("password"),
-            "db_name": connection_args.get("db_name"),
-        }
+        # Build config for UserProfileStore based on provider
+        if provider == "sqlite":
+            # SQLite uses database_path
+            profile_store_config = {
+                "table_name": "user_profiles",
+                "database_path": getattr(vector_store, 'db_path', ":memory:"),
+            }
+        else:
+            # OceanBase and other providers use connection_args
+            if hasattr(vector_store, 'connection_args'):
+                connection_args = vector_store.connection_args
+            else:
+                # Fallback to default connection args
+                connection_args = {}
+            
+            profile_store_config = {
+                "table_name": "user_profiles",
+                "connection_args": connection_args,
+                "host": connection_args.get("host"),
+                "port": connection_args.get("port"),
+                "user": connection_args.get("user"),
+                "password": connection_args.get("password"),
+                "db_name": connection_args.get("db_name"),
+            }
         
         # Use factory to create UserProfileStore based on storage_type
-        provider = self.memory.storage_type.lower()
         self.profile_store = UserProfileStoreFactory.create(provider, profile_store_config)
         
         logger.info("UserMemory initialized")

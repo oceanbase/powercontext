@@ -26,6 +26,7 @@ class UserProfileStoreFactory:
     
     provider_to_class = {
         "oceanbase": "powermem.user_memory.storage.user_profile.OceanBaseUserProfileStore",
+        "sqlite": "powermem.user_memory.storage.user_profile_sqlite.SQLiteUserProfileStore",
     }
 
     @classmethod
@@ -51,8 +52,7 @@ class UserProfileStoreFactory:
             raise ValueError(
                 f"Unsupported UserProfileStore provider: {provider_name}. "
                 f"Currently supported providers are: {supported_providers}. "
-                f"Note: UserProfileStore currently only supports OceanBase. "
-                f"If you're using a different storage provider for Memory, please use OceanBase for UserMemory "
+                f"If you're using a different storage provider for Memory, please use one of the supported providers for UserMemory "
                 f"or implement a UserProfileStore for your storage provider."
             )
         
