@@ -190,9 +190,17 @@ class OceanBaseVectorStore(VectorStoreBase):
 
             # Set vector memory limit percentage
             with self.obvector.engine.connect() as conn:
-                conn.execute(text("ALTER SYSTEM SET ob_vector_memory_limit_percentage = 30"))
-                conn.commit()
-                logger.info("Set ob_vector_memory_limit_percentage = 30")
+                # Check if ob_vector_memory_limit_percentage is already set
+                result = conn.execute(text("SHOW PARAMETERS LIKE 'ob_vector_memory_limit_percentage'"))
+                row = result.fetchone()
+                
+                if row:
+                    logger.info(f"ob_vector_memory_limit_percentage already set, skipping configuration")
+                    return
+                else:
+                    conn.execute(text("ALTER SYSTEM SET ob_vector_memory_limit_percentage = 30"))
+                    conn.commit()
+                    logger.info("Set ob_vector_memory_limit_percentage = 30 successfully")
 
             logger.info("OceanBase vector index configuration completed")
 
