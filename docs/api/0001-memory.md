@@ -47,7 +47,7 @@ Add a memory to the store.
 - `agent_id` (str, optional): Agent identifier.
 - `run_id` (str, optional): Run/conversation identifier.
 - `metadata` (dict, optional): Additional metadata.
-- `filters` (dict, optional): Filter metadata for advanced filtering.
+- `filters` (dict, optional): Filter metadata for sub-store routing and advanced filtering. Used for routing memories to specific sub-stores based on metadata values. See [Filter Parameter Format](#filter-parameter-format) below for format details.
 - `scope` (str, optional): Memory scope (e.g., 'user', 'agent', 'session').
 - `memory_type` (str, optional): Memory type classification.
 - `prompt` (str, optional): Custom prompt for intelligent processing.
@@ -90,7 +90,7 @@ Search for memories using semantic similarity.
 - `user_id` (str, optional): Filter by user ID.
 - `agent_id` (str, optional): Filter by agent ID.
 - `run_id` (str, optional): Filter by run ID.
-- `filters` (dict, optional): Metadata filters for advanced filtering.
+- `filters` (dict, optional): Metadata filters for advanced filtering. See [Filter Parameter Format](#filter-parameter-format) below for detailed documentation.
 - `limit` (int): Maximum number of results (default: 30).
 - `threshold` (float, optional): Similarity threshold (0.0-1.0) for filtering results.
 
@@ -124,6 +124,261 @@ for result in results.get('results', []):
     print(f"Memory: {result['memory']}")
     print(f"Score: {result.get('score', 0)}")
 ```
+
+### Filter Parameter Format
+
+The `filters` parameter allows you to perform advanced filtering on memory metadata. It supports both simple and complex filter formats with various operators.
+
+#### Simple Filter Format
+
+**Exact Match:**
+```python
+# Filter by exact value
+filters = {"category": "food"}
+filters = {"priority": "high"}
+filters = {"status": "active"}
+```
+
+**List Values (IN operator):**
+```python
+# Filter where field value is in a list
+filters = {"category": ["food", "drink", "dessert"]}
+filters = {"tag": ["important", "urgent"]}
+```
+
+**None/Null Check:**
+```python
+# Filter where field is None
+filters = {"deleted_at": None}
+```
+
+#### Comparison Operators
+
+Use comparison operators for numeric or date comparisons:
+
+```python
+# Single comparison operator
+filters = {"rating": {"gte": 4.0}}  # rating >= 4.0
+filters = {"price": {"lt": 100}}     # price < 100
+filters = {"age": {"gt": 18}}        # age > 18
+filters = {"score": {"lte": 0.8}}    # score <= 0.8
+
+# Multiple operators on same field (AND logic)
+filters = {"rating": {"gte": 4.0, "lte": 5.0}}  # 4.0 <= rating <= 5.0
+filters = {"price": {"gt": 10, "lt": 100}}      # 10 < price < 100
+```
+
+**Supported Comparison Operators:**
+- `eq`: Equal to (`==`)
+- `ne`: Not equal to (`!=`)
+- `gt`: Greater than (`>`)
+- `gte`: Greater than or equal to (`>=`)
+- `lt`: Less than (`<`)
+- `lte`: Less than or equal to (`<=`)
+
+#### List Operators
+
+**IN and NOT IN:**
+```python
+# Field value is in list
+filters = {"category": {"in": ["food", "drink"]}}
+filters = {"user_id": {"in": ["user1", "user2", "user3"]}}
+
+# Field value is NOT in list
+filters = {"status": {"nin": ["deleted", "archived"]}}
+filters = {"tag": {"nin": ["deprecated"]}}
+```
+
+#### String Pattern Matching
+
+**LIKE and ILIKE:**
+```python
+# Case-sensitive pattern matching (LIKE)
+filters = {"name": {"like": "%python%"}}      # Contains "python"
+filters = {"email": {"like": "%@example.com"}} # Ends with "@example.com"
+
+# Case-insensitive pattern matching (ILIKE)
+filters = {"title": {"ilike": "%tutorial%"}}  # Contains "tutorial" (case-insensitive)
+filters = {"description": {"ilike": "how to%"}} # Starts with "how to" (case-insensitive)
+```
+
+**Note:** Use `%` as wildcard for pattern matching.
+
+#### Logical Operators (AND/OR)
+
+Combine multiple conditions using logical operators:
+
+**AND Logic:**
+```python
+# All conditions must be true
+filters = {
+    "AND": [
+        {"user_id": "alice"},
+        {"category": "food"},
+        {"rating": {"gte": 4.0}}
+    ]
+}
+```
+
+**OR Logic:**
+```python
+# At least one condition must be true
+filters = {
+    "OR": [
+        {"rating": {"gte": 4.0}},
+        {"priority": "high"}
+    ]
+}
+```
+
+**Nested Logic:**
+```python
+# Complex nested conditions
+filters = {
+    "AND": [
+        {"user_id": "alice"},
+        {
+            "OR": [
+                {"rating": {"gte": 4.0}},
+                {"priority": "high"}
+            ]
+        },
+        {"category": {"in": ["food", "drink"]}}
+    ]
+}
+```
+
+#### Filterable Fields
+
+You can filter on the following fields:
+
+**Standard Fields:**
+- `user_id` (str): User identifier
+- `agent_id` (str): Agent identifier
+- `run_id` (str): Run/conversation identifier
+- `actor_id` (str): Actor identifier
+- `hash` (str): Memory hash
+- `created_at` (str/datetime): Creation timestamp
+- `updated_at` (str/datetime): Last update timestamp
+- `category` (str): Memory category
+
+**Custom Metadata Fields:**
+Any fields stored in the `metadata` dictionary when adding memories are also filterable:
+```python
+# When adding memory with custom metadata
+memory.add(
+    messages="User likes Python",
+    user_id="user123",
+    metadata={
+        "tags": ["programming", "python"],
+        "priority": "high",
+        "rating": 5.0,
+        "department": "engineering"
+    }
+)
+
+# Filter by custom metadata fields
+filters = {"tags": {"in": ["programming"]}}
+filters = {"priority": "high"}
+filters = {"rating": {"gte": 4.0}}
+filters = {"department": "engineering"}
+```
+
+#### Complete Examples
+
+**Example 1: Filter by User ID and Category**
+```python
+results = memory.search(
+    query="favorite foods",
+    filters={"category": "food"}
+)
+```
+
+**Example 2: Filter by Rating Range**
+```python
+results = memory.search(
+    query="restaurant recommendations",
+    filters={"rating": {"gte": 4.0, "lte": 5.0}}
+)
+```
+
+**Example 3: Filter by Tags (IN operator)**
+```python
+results = memory.search(
+    query="programming tips",
+    filters={"tags": {"in": ["python", "tutorial"]}}
+)
+```
+
+**Example 4: Filter by Time Range**
+```python
+from datetime import datetime, timedelta
+
+# Memories created in the last 7 days
+week_ago = (datetime.now() - timedelta(days=7)).isoformat()
+filters = {"created_at": {"gte": week_ago}}
+
+results = memory.search(
+    query="recent conversations",
+    filters=filters
+)
+```
+
+**Example 5: Complex Filter with AND/OR**
+```python
+results = memory.search(
+    query="important tasks",
+    filters={
+        "AND": [
+            {"priority": "high"},
+            {
+                "OR": [
+                    {"status": "pending"},
+                    {"status": "in_progress"}
+                ]
+            },
+            {"category": {"in": ["work", "personal"]}}
+        ]
+    }
+)
+```
+
+**Example 6: Filter by Custom Metadata**
+```python
+# Search for memories with specific custom tags
+results = memory.search(
+    query="project updates",
+    filters={
+        "AND": [
+            {"project_id": "project-123"},
+            {"department": "engineering"},
+            {"status": {"ne": "archived"}}
+        ]
+    }
+)
+```
+
+**Example 7: Pattern Matching**
+```python
+# Find memories with email addresses from specific domain
+results = memory.search(
+    query="contact information",
+    filters={"email": {"ilike": "%@company.com"}}
+)
+```
+
+#### Notes
+
+1. **Filter Precedence**: When both `user_id`/`agent_id`/`run_id` parameters and `filters` are provided, they are merged. The explicit parameters take precedence if there's a conflict.
+
+2. **Storage Backend Support**: 
+   - **OceanBase**: Supports all operators and complex logic (AND/OR)
+   - **SQLite**: Supports simple equality filters only
+   - **PostgreSQL**: Supports simple equality filters
+
+3. **Performance**: Filters are applied at the database level for optimal performance. Use filters to narrow down results before semantic search.
+
+4. **Metadata Fields**: Custom metadata fields are stored in JSON format and can be filtered using the same syntax as standard fields.
 
 #### `get(memory_id, user_id=None, agent_id=None)`
 
@@ -213,7 +468,7 @@ Retrieve all memories matching criteria.
 - `run_id` (str, optional): Filter by run ID.
 - `limit` (int): Maximum number of results (default: 100).
 - `offset` (int): Offset for pagination (default: 0).
-- `filters` (dict, optional): Metadata filters for advanced filtering.
+- `filters` (dict, optional): Metadata filters for advanced filtering. See [Filter Parameter Format](#filter-parameter-format) above for detailed documentation.
 
 **Returns:**
 - `dict`: All matching memories. Format:
@@ -233,9 +488,21 @@ Retrieve all memories matching criteria.
 
 **Example:**
 ```python
+# Simple retrieval
 all_memories = memory.get_all(user_id="user123", limit=50, offset=0)
 for mem in all_memories.get('results', []):
     print(f"- {mem.get('memory', '')}")
+
+# With advanced filters
+all_memories = memory.get_all(
+    user_id="user123",
+    filters={
+        "category": "food",
+        "rating": {"gte": 4.0}
+    },
+    limit=50,
+    offset=0
+)
 ```
 
 ### Intelligent Memory Features

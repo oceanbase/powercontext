@@ -56,7 +56,7 @@ config = {
             "port": int(os.getenv("OCEANBASE_PORT", "2881")),
             "user": os.getenv("OCEANBASE_USER", "root@sys"),
             "password": os.getenv("OCEANBASE_PASSWORD", ""),
-            "db_name": os.getenv("OCEANBASE_DB", "test"),
+            "db_name": os.getenv("OCEANBASE_DATABASE", "test"),
         }
     },
     "version": "v1.1",
@@ -165,7 +165,7 @@ config = {
             "port": int(os.getenv("OCEANBASE_PORT", "2881")),
             "user": os.getenv("OCEANBASE_USER", "root@sys"),
             "password": os.getenv("OCEANBASE_PASSWORD", ""),
-            "db_name": os.getenv("OCEANBASE_DB", "test"),
+            "db_name": os.getenv("OCEANBASE_DATABASE", "test"),
         }
     },
     "version": "v1.1",

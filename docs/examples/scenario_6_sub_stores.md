@@ -59,7 +59,7 @@ config = {
             "port": int(os.getenv("OCEANBASE_PORT", "2881")),
             "user": os.getenv("OCEANBASE_USER", "root@test_tenant"),
             "password": os.getenv("OCEANBASE_PASSWORD", "password"),
-            "db_name": os.getenv("OCEANBASE_DB", "powermem"),
+            "db_name": os.getenv("OCEANBASE_DATABASE", "powermem"),
         }
     },
     "llm": {
@@ -608,7 +608,7 @@ def main():
                 "port": int(os.getenv("OCEANBASE_PORT", "2881")),
                 "user": os.getenv("OCEANBASE_USER", "root@test"),
                 "password": os.getenv("OCEANBASE_PASSWORD", "password"),
-                "db_name": os.getenv("OCEANBASE_DB", "test_db"),
+                "db_name": os.getenv("OCEANBASE_DATABASE", "test_db"),
             }
         },
         "llm": {

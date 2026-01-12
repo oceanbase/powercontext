@@ -139,7 +139,7 @@ jobs:
           sed -i 's|^OCEANBASE_PORT=.*|OCEANBASE_PORT=10001|' .env
           sed -i 's|^OCEANBASE_USER=.*|OCEANBASE_USER=root|' .env
           sed -i 's|^OCEANBASE_PASSWORD=.*|OCEANBASE_PASSWORD=|' .env
-          sed -i 's|^OCEANBASE_DB=.*|OCEANBASE_DB=powermem|' .env
+          sed -i 's|^OCEANBASE_DATABASE=.*|OCEANBASE_DATABASE=powermem|' .env
           sed -i 's|^OCEANBASE_COLLECTION=.*|OCEANBASE_COLLECTION=memories|' .env
           sed -i 's|^DATABASE_PROVIDER=.*|DATABASE_PROVIDER=oceanbase|' .env
           sed -i 's|^LLM_PROVIDER=.*|LLM_PROVIDER=siliconflow|' .env

@@ -122,6 +122,10 @@ from powermem import Memory
 memory = Memory(config=config)
 ```
 
+**Important Notes:**
+- If you provide a `config` parameter, PowerMem will **ignore** any `.env` file settings
+- This allows you to programmatically configure PowerMem without relying on environment variables
+
 ## Step 2: Custom Embedding Provider
 
 Implement a custom embedding provider:
