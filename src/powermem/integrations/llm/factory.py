@@ -10,6 +10,7 @@ from powermem.integrations.llm.config.openai import OpenAIConfig
 from powermem.integrations.llm.config.qwen import QwenConfig
 from powermem.integrations.llm.config.qwen_asr import QwenASRConfig
 from powermem.integrations.llm.config.vllm import VllmConfig
+from powermem.integrations.llm.config.zai import ZaiConfig
 
 
 def load_class(class_type):
@@ -38,6 +39,7 @@ class LLMFactory:
         "qwen": ("powermem.integrations.llm.qwen.QwenLLM", QwenConfig),
         "qwen_asr": ("powermem.integrations.llm.qwen_asr.QwenASR", QwenASRConfig),
         "siliconflow": ("powermem.integrations.llm.siliconflow.SiliconFlowLLM", OpenAIConfig),
+        "zai": ("powermem.integrations.llm.zai.ZaiLLM", ZaiConfig),
     }
 
     @classmethod

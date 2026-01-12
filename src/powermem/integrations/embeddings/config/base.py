@@ -66,6 +66,8 @@ class BaseEmbedderConfig(ABC):
         aws_region: Optional[str] = None,
         # Qwen/DashScope specific
         dashscope_base_url: Optional[str] = None,
+        # Zhipu AI (Z.ai) specific
+        zai_base_url: Optional[str] = None,
     ):
         """
         Initializes a configuration class instance for the Embeddings.
@@ -100,6 +102,8 @@ class BaseEmbedderConfig(ABC):
         :type lmstudio_base_url: Optional[str], optional
         :param dashscope_base_url: DashScope API base URL to be use, defaults to None
         :type dashscope_base_url: Optional[str], optional
+        :param zai_base_url: Zhipu AI (Z.ai) API base URL to be use, defaults to None
+        :type zai_base_url: Optional[str], optional
         """
 
         self.model = model
@@ -141,4 +145,7 @@ class BaseEmbedderConfig(ABC):
         
         # SiliconFlow specific
         self.siliconflow_base_url = siliconflow_base_url
+        
+        # Zhipu AI (Z.ai) specific
+        self.zai_base_url = zai_base_url or "https://open.bigmodel.cn/api/paas/v4/"
 

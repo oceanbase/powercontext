@@ -31,6 +31,7 @@ class EmbedderFactory:
         "langchain": "powermem.integrations.embeddings.langchain.LangchainEmbedding",
         "aws_bedrock": "powermem.integrations.embeddings.aws_bedrock.AWSBedrockEmbedding",
         "qwen": "powermem.integrations.embeddings.qwen.QwenEmbedding",
+        "zai": "powermem.integrations.embeddings.zai.ZaiEmbedding",
     }
 
     @classmethod

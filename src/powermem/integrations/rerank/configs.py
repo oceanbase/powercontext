@@ -13,7 +13,7 @@ class RerankConfig(BaseModel):
         default=False,
     )
     provider: str = Field(
-        description="Reranker provider (e.g., 'qwen', 'cohere')",
+        description="Reranker provider (e.g., 'qwen', 'zai', 'jina')",
         default="qwen",
     )
     config: Optional[Dict[str, Any]] = Field(

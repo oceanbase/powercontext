@@ -25,6 +25,7 @@ class RerankFactory:
         "qwen": "powermem.integrations.rerank.qwen.QwenRerank",
         "jina": "powermem.integrations.rerank.jina.JinaRerank",
         "generic": "powermem.integrations.rerank.generic.GenericRerank",
+        "zai": "powermem.integrations.rerank.zai.ZaiRerank",
     }
 
     @classmethod

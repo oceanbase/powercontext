@@ -52,6 +52,7 @@ dependencies = [
     "google-genai>=1.0.0",
     "dashscope>=1.14.0",
     "psutil>=5.9.0",
+    "zai-sdk>=0.2.0",
 ]
 
 [project.optional-dependencies]

@@ -27,6 +27,7 @@ class EmbedderConfig(BaseModel):
             "langchain",
             "aws_bedrock",
             "qwen",
+            "zai",
         ]
         if provider in initialized_providers or provider in EmbedderFactory.provider_to_class or provider == "mock":
             return v
