@@ -1176,23 +1176,133 @@ curl -X POST "http://localhost:8000/api/v1/memories/search" \
 ---
 
 ## User Profile Endpoints
-### Update User Profile
+### Add Messages and Extract User Profile
 **Endpoint**: `POST /api/v1/users/{user_id}/profile`
 
-**Description**: Generate or update a user profile
+**Description**: Add conversation messages and extract user profile information
 
 **Request Example**:
 
 ```bash
+# Add messages and extract profile (default: only extract from user messages)
 curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
-    "profile_content": "User is a senior software engineer, focused on AI and machine learning",
-    "topics": {
-      "programming": ["Python", "JavaScript", "Go"],
-      "interests": ["Machine Learning", "Deep Learning", "NLP"],
-      "location": "Beijing"
+    "messages": [
+      {"role": "user", "content": "Hi, I am a senior software engineer from Beijing. I focus on AI and machine learning."},
+      {"role": "assistant", "content": "Nice to meet you! That sounds interesting."}
+    ],
+    "agent_id": "agent-456",
+    "run_id": "run-789",
+    "profile_type": "content",
+    "include_roles": ["user"],
+    "exclude_roles": ["assistant"],
+    "infer": true
+  }'
+
+# Extract structured topics
+curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
+  -H "X-API-Key: test-api-key-123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "user", "content": "I am Alice, 28 years old, working as a data scientist in Shanghai."}
+    ],
+    "profile_type": "topics",
+    "custom_topics": "{\"basic_info\": {\"name\": \"User name\", \"age\": \"User age\", \"location\": \"User location\"}, \"professional\": {\"occupation\": \"User job\"}}",
+    "strict_mode": false
+  }'
+
+# Include all messages (disable role filtering)
+curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
+  -H "X-API-Key: test-api-key-123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "I am Bob, a doctor."},
+      {"role": "assistant", "content": "Nice to meet you!"}
+    ],
+    "include_roles": null,
+    "exclude_roles": null
+  }'
+```
+
+**Response Example**:
+
+```json
+{
+    "success": true,
+    "data": {
+        "results": [
+            {
+                "id": 658954684471443456,
+                "memory": "User is a senior software engineer from Beijing",
+                "event": "ADD",
+                "user_id": "user-123",
+                "agent_id": "agent-456",
+                "run_id": "run-789"
+            }
+        ],
+        "profile_extracted": true,
+        "profile_content": "Name: Unknown. Location: Beijing. Profession: Senior software engineer. Interests: AI, machine learning."
+    },
+    "message": "Messages added and profile extracted successfully",
+    "timestamp": "2025-12-24T10:31:13.195518Z"
+}
+```
+
+**Request Parameters**:
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| messages | any | Yes | - | Conversation messages (str, dict, or list[dict]) |
+| agent_id | string | No | null | Agent identifier |
+| run_id | string | No | null | Run/session identifier |
+| metadata | object | No | null | Additional metadata |
+| filters | object | No | null | Filter metadata for advanced filtering |
+| scope | string | No | null | Memory scope |
+| memory_type | string | No | null | Memory type classification |
+| prompt | string | No | null | Custom prompt for intelligent processing |
+| infer | boolean | No | true | Enable intelligent memory processing |
+| profile_type | string | No | "content" | Profile extraction type: "content" or "topics" |
+| custom_topics | string | No | null | Custom topics JSON string (only for profile_type="topics") |
+| strict_mode | boolean | No | false | Only output topics from provided list |
+| include_roles | list | No | ["user"] | Roles to include when filtering messages. Set to null or [] to disable |
+| exclude_roles | list | No | ["assistant"] | Roles to exclude when filtering messages. Set to null or [] to disable |
+
+**Usage Notes**:
+
+| Scenario | Request Parameters | Expected Result |
+| --- | --- | --- |
+| Basic extraction | messages only | Returns 200, profile extracted from user messages |
+| With agent/run | messages + agent_id + run_id | Returns 200, associated with agent and run |
+| Topics extraction | profile_type="topics" | Returns 200, structured topics extracted |
+| Custom role filter | include_roles=["user", "system"] | Returns 200, extracts from specified roles |
+| No role filter | include_roles=null, exclude_roles=null | Returns 200, extracts from all messages |
+| Missing messages | No messages field | Returns 422 Validation Error |
+
+
+---
+
+### Update User Memory
+**Endpoint**: `PUT /api/v1/users/{user_id}/memories/{memory_id}`
+
+**Description**: Update an existing memory for a specific user
+
+**Request Example**:
+
+```bash
+curl -X PUT "http://localhost:8000/api/v1/users/user-123/memories/658954684471443456" \
+  -H "X-API-Key: test-api-key-123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "User is a senior AI engineer from Beijing, specializing in NLP",
+    "agent_id": "agent-456",
+    "metadata": {
+      "importance": "high",
+      "updated_by": "admin"
     }
   }'
 ```
@@ -1203,25 +1313,19 @@ curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
 {
     "success": true,
     "data": {
+        "memory_id": 658954684471443456,
+        "content": "User is a senior AI engineer from Beijing, specializing in NLP",
         "user_id": "user-123",
-        "profile_content": "User is a senior software engineer, focused on AI and machine learning",
-        "topics": {
-            "location": "Beijing",
-            "interests": [
-                "Machine Learning",
-                "Deep Learning",
-                "NLP"
-            ],
-            "programming": [
-                "Python",
-                "JavaScript",
-                "Go"
-            ]
+        "agent_id": "agent-456",
+        "metadata": {
+            "importance": "high",
+            "updated_by": "admin"
         },
-        "updated_at": "2025-12-24T10:31:13.169725Z"
+        "created_at": "2025-12-24T10:31:13.169725Z",
+        "updated_at": "2025-12-24T11:45:30.123456Z"
     },
-    "message": "User profile updated successfully",
-    "timestamp": "2025-12-24T10:31:13.195518Z"
+    "message": "Memory updated successfully",
+    "timestamp": "2025-12-24T11:45:30.150000Z"
 }
 ```
 
@@ -1229,11 +1333,10 @@ curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
 
 | Scenario | Request Parameters | Expected Result |
 | --- | --- | --- |
-| Update content | Only profile_content | Returns 200, content updated |
-| Update topics | Only topics | Returns 200, topics updated |
-| Update both | profile_content + topics | Returns 200, both updated |
-| Partial update | Only update some topics | Returns 200, merged update |
-| Empty content | profile_content is empty | Returns 200, content cleared |
+| Update content | content field | Returns 200, content updated |
+| Update with metadata | content + metadata | Returns 200, both updated |
+| Non-existent memory | Invalid memory_id | Returns 404 Not Found |
+| Access control | Wrong user_id | Returns 403 or 404 |
 
 
 ---

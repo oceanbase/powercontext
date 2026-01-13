@@ -102,6 +102,8 @@ def add(
     profile_type: str = "content",
     custom_topics: Optional[str] = None,
     strict_mode: bool = False,
+    include_roles: Optional[List[str]] = ["user"],
+    exclude_roles: Optional[List[str]] = ["assistant"],
 ) -> Dict[str, Any]
 ```
 
@@ -133,6 +135,8 @@ Same as `Memory.add()`
   - All keys must be in snake_case (lowercase, underscores, no spaces)
   - Descriptions are for reference only and should NOT be used as keys in the output
 - `strict_mode` (bool): If True, only output topics from the provided list. Only used when profile_type="topics". Default: False
+- `include_roles` (List[str], optional): List of roles to include when filtering messages for profile extraction. Default: `["user"]`. If explicitly set to `None` or `[]`, no include filter is applied.
+- `exclude_roles` (List[str], optional): List of roles to exclude when filtering messages for profile extraction. Default: `["assistant"]`. If explicitly set to `None` or `[]`, no exclude filter is applied.
 
 #### Return value
 
@@ -227,6 +231,26 @@ result = user_memory.add(
 
 if result.get('topics'):
     print(f"Extracted topics: {result['topics']}")
+
+# Example 5: filter messages by roles
+# By default, only user messages are used for profile extraction (assistant messages are excluded)
+# You can customize this behavior:
+
+# Include all roles (no filtering)
+result = user_memory.add(
+    messages=conversation,
+    user_id="user_001",
+    include_roles=None,  # or []
+    exclude_roles=None   # or []
+)
+
+# Only include user and system messages, exclude tool messages
+result = user_memory.add(
+    messages=conversation,
+    user_id="user_001",
+    include_roles=["user", "system"],
+    exclude_roles=["tool"]
+)
 ```
 
 ### 2. `search()` — Search memories (optionally include profile)

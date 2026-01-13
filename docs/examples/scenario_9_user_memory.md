@@ -511,6 +511,73 @@ python complete_user_profile_example.py
 
 7. **Profile updates**: Profiles are automatically updated when you add new conversations with the same `user_id`, `agent_id`, and `run_id` combination
 
+8. **Message filtering**: By default, only `user` role messages are used for profile extraction (assistant messages are excluded). You can customize this with `include_roles` and `exclude_roles` parameters
+
+## Step 8: Filter Messages by Roles
+
+By default, `UserMemory.add()` only extracts profile information from user messages. You can customize which message roles are used for profile extraction:
+
+```python
+# user_profile_example.py
+from powermem import UserMemory, auto_config
+
+config = auto_config()
+user_memory = UserMemory(config=config)
+
+# Conversation with multiple roles
+conversation = [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "Hi, I'm Frank, a doctor from Boston."},
+    {"role": "assistant", "content": "Nice to meet you, Frank!"},
+    {"role": "tool", "content": "Weather data: Boston, 72°F"}
+]
+
+# Default behavior: only include 'user' messages, exclude 'assistant' messages
+result = user_memory.add(
+    messages=conversation,
+    user_id="user_008"
+)
+print("Default filtering (user only):")
+print(f"  Profile: {result.get('profile_content', 'N/A')}")
+
+# Include all messages (disable filtering)
+result = user_memory.add(
+    messages=conversation,
+    user_id="user_009",
+    include_roles=None,  # or []
+    exclude_roles=None   # or []
+)
+print("\nNo filtering (all roles):")
+print(f"  Profile: {result.get('profile_content', 'N/A')}")
+
+# Custom filtering: include user and system, exclude tool
+result = user_memory.add(
+    messages=conversation,
+    user_id="user_010",
+    include_roles=["user", "system"],
+    exclude_roles=["tool"]
+)
+print("\nCustom filtering (user + system, exclude tool):")
+print(f"  Profile: {result.get('profile_content', 'N/A')}")
+```
+
+**Run this code:**
+```bash
+python user_profile_example.py
+```
+
+**Expected output:**
+```
+Default filtering (user only):
+  Profile: Name: Frank. Profession: Doctor. Location: Boston.
+
+No filtering (all roles):
+  Profile: Name: Frank. Profession: Doctor. Location: Boston.
+
+Custom filtering (user + system, exclude tool):
+  Profile: Name: Frank. Profession: Doctor. Location: Boston.
+```
+
 ## Related Documents
 
 - [UserMemory Guide](../guides/0010-user_memory.md) - Detailed guide on UserMemory features

@@ -74,11 +74,31 @@ class SearchRequest(BaseModel):
     limit: int = Field(default=30, ge=1, le=100, description="Maximum number of results")
 
 
-class UserProfileUpdateRequest(BaseModel):
-    """Request model for updating user profile"""
+class UserProfileAddRequest(BaseModel):
+    """Request model for adding messages and extracting user profile"""
     
-    profile_content: Optional[str] = Field(None, description="Profile content text")
-    topics: Optional[Dict[str, Any]] = Field(None, description="Structured topics dictionary")
+    messages: Any = Field(..., description="Conversation messages (str, dict, or list[dict])")
+    agent_id: Optional[str] = Field(None, description="Agent identifier")
+    run_id: Optional[str] = Field(None, description="Run/session identifier")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+    filters: Optional[Dict[str, Any]] = Field(None, description="Filter metadata for advanced filtering")
+    scope: Optional[str] = Field(None, description="Memory scope")
+    memory_type: Optional[str] = Field(None, description="Memory type classification")
+    prompt: Optional[str] = Field(None, description="Custom prompt for intelligent processing")
+    infer: bool = Field(True, description="Enable intelligent memory processing")
+    profile_type: str = Field("content", description="Profile extraction type: 'content' or 'topics'")
+    custom_topics: Optional[str] = Field(None, description="Custom topics JSON string for structured extraction (only used when profile_type='topics')")
+    strict_mode: bool = Field(False, description="Only output topics from provided list (only used when profile_type='topics')")
+    include_roles: Optional[List[str]] = Field(["user"], description="Roles to include when filtering messages. Default: ['user']. Set to None or [] to disable.")
+    exclude_roles: Optional[List[str]] = Field(["assistant"], description="Roles to exclude when filtering messages. Default: ['assistant']. Set to None or [] to disable.")
+
+
+class UserProfileUpdateRequest(BaseModel):
+    """Request model for updating a user memory"""
+    
+    content: str = Field(..., description="New content for the memory")
+    agent_id: Optional[str] = Field(None, description="Agent identifier for access control")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Updated metadata")
 
 
 class AgentMemoryCreateRequest(BaseModel):
