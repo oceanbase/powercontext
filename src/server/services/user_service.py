@@ -68,22 +68,109 @@ class UserService:
                 status_code=500,
             )
     
-    def update_user_profile(
+    def add_user_profile(
         self,
         user_id: str,
-        profile_content: Optional[str] = None,
-        topics: Optional[Dict[str, Any]] = None,
+        messages: Any,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        scope: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        prompt: Optional[str] = None,
+        infer: bool = True,
+        profile_type: str = "content",
+        custom_topics: Optional[str] = None,
+        strict_mode: bool = False,
+        include_roles: Optional[List[str]] = ["user"],
+        exclude_roles: Optional[List[str]] = ["assistant"],
     ) -> Dict[str, Any]:
         """
-        Update user profile.
+        Add messages and extract user profile.
         
         Args:
             user_id: User ID
-            profile_content: Profile content text
-            topics: Structured topics dictionary
+            messages: Conversation messages (str, dict, or list[dict])
+            agent_id: Agent identifier
+            run_id: Run/session identifier
+            metadata: Additional metadata
+            filters: Filter metadata
+            scope: Memory scope
+            memory_type: Memory type classification
+            prompt: Custom prompt for intelligent processing
+            infer: Enable intelligent memory processing
+            profile_type: Profile extraction type: 'content' or 'topics'
+            custom_topics: Custom topics JSON string for structured extraction
+            strict_mode: Only output topics from provided list
+            include_roles: Roles to include when filtering messages
+            exclude_roles: Roles to exclude when filtering messages
             
         Returns:
-            Updated profile data
+            Result dict with memory and profile extraction results
+            
+        Raises:
+            APIError: If operation fails
+        """
+        try:
+            if not user_id:
+                raise APIError(
+                    code=ErrorCode.INVALID_REQUEST,
+                    message="user_id is required",
+                    status_code=400,
+                )
+            
+            result = self.user_memory.add(
+                messages=messages,
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                metadata=metadata,
+                filters=filters,
+                scope=scope,
+                memory_type=memory_type,
+                prompt=prompt,
+                infer=infer,
+                profile_type=profile_type,
+                custom_topics=custom_topics,
+                strict_mode=strict_mode,
+                include_roles=include_roles,
+                exclude_roles=exclude_roles,
+            )
+            
+            logger.info(f"User profile added: {user_id}")
+            return result
+            
+        except APIError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to add user profile {user_id}: {e}", exc_info=True)
+            raise APIError(
+                code=ErrorCode.PROFILE_UPDATE_FAILED,
+                message=f"Failed to add user profile: {str(e)}",
+                status_code=500,
+            )
+
+    def update_user_memory(
+        self,
+        user_id: str,
+        memory_id: int,
+        content: str,
+        agent_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Update an existing user memory.
+        
+        Args:
+            user_id: User ID
+            memory_id: Memory ID to update
+            content: New content for the memory
+            agent_id: Agent identifier for access control
+            metadata: Updated metadata
+            
+        Returns:
+            Updated memory data
             
         Raises:
             APIError: If update fails
@@ -96,49 +183,24 @@ class UserService:
                     status_code=400,
                 )
             
-            # Use UserMemory.add() to update profile by constructing a message
-            # that contains the profile information we want to save
-            # This follows the pattern shown in scenario_9_user_memory.md
-            import json
+            result = self.user_memory.update(
+                memory_id=memory_id,
+                content=content,
+                user_id=user_id,
+                agent_id=agent_id,
+                metadata=metadata,
+            )
             
-            if topics is not None:
-                # For structured topics, construct a message that will be extracted as topics
-                message_content = json.dumps(topics, ensure_ascii=False)
-                messages = [{"role": "user", "content": message_content}]
-                result = self.user_memory.add(
-                    messages=messages,
-                    user_id=user_id,
-                    profile_type="topics",
-                )
-            elif profile_content is not None:
-                # For profile content, construct a message containing the profile
-                messages = [{"role": "user", "content": profile_content}]
-                result = self.user_memory.add(
-                    messages=messages,
-                    user_id=user_id,
-                    profile_type="content",
-                )
-            else:
-                # No profile data provided
-                raise APIError(
-                    code=ErrorCode.INVALID_REQUEST,
-                    message="Either profile_content or topics must be provided",
-                    status_code=400,
-                )
-            
-            # Get updated profile using UserMemory.profile() interface
-            profile = self.user_memory.profile(user_id)
-            
-            logger.info(f"User profile updated: {user_id}")
-            return profile
+            logger.info(f"User memory updated: user_id={user_id}, memory_id={memory_id}")
+            return result
             
         except APIError:
             raise
         except Exception as e:
-            logger.error(f"Failed to update user profile {user_id}: {e}", exc_info=True)
+            logger.error(f"Failed to update user memory {memory_id}: {e}", exc_info=True)
             raise APIError(
-                code=ErrorCode.PROFILE_UPDATE_FAILED,
-                message=f"Failed to update user profile: {str(e)}",
+                code=ErrorCode.INTERNAL_ERROR,
+                message=f"Failed to update user memory: {str(e)}",
                 status_code=500,
             )
     
