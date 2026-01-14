@@ -5,6 +5,7 @@ An AI-powered intelligent memory management system that provides a persistent me
 """
 
 import importlib.metadata
+import warnings
 from typing import Any
 
 __version__ = importlib.metadata.version("powermem")
@@ -37,6 +38,8 @@ def create_memory(
     
     Returns:
         Memory instance
+
+    Preferred entrypoint for creating Memory instances.
         
     Example:
         ```python
@@ -62,6 +65,8 @@ def create_memory(
 def from_config(config: Any = None, **kwargs):
     """
     Create Memory instance from configuration
+
+    Deprecated: prefer `create_memory()` or `auto_config()`.
     
     Args:
         config: Optional configuration dictionary. If None, auto-loads from .env file.
@@ -250,11 +255,25 @@ def from_config(config: Any = None, **kwargs):
         memory = from_config()
         ```
     """
+    warnings.warn(
+        "from_config is deprecated; prefer create_memory() or auto_config().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from .core.setup import from_config as _from_config
     return _from_config(config=config, **kwargs)
 
 
-Memory.from_config = classmethod(lambda cls, config=None, **kwargs: create_memory(config, **kwargs))
+def _deprecated_memory_from_config(cls, config=None, **kwargs):
+    warnings.warn(
+        "Memory.from_config is deprecated; prefer create_memory() or auto_config().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return create_memory(config, **kwargs)
+
+
+Memory.from_config = classmethod(_deprecated_memory_from_config)
 
 
 __all__ = [

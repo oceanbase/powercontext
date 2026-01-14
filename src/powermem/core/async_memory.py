@@ -6,6 +6,7 @@ This module provides the asynchronous memory management interface.
 
 import asyncio
 import logging
+import warnings
 import hashlib
 import json
 from typing import Any, Dict, List, Optional, Union
@@ -1554,6 +1555,8 @@ class AsyncMemory(MemoryBase):
     async def from_config(cls, config: Optional[Dict[str, Any]] = None, **kwargs):
         """
         Create AsyncMemory instance from configuration.
+
+        Deprecated: prefer `create_memory()` or `auto_config()`.
         
         Args:
             config: Configuration dictionary
@@ -1571,6 +1574,11 @@ class AsyncMemory(MemoryBase):
             })
             ```
         """
+        warnings.warn(
+            "AsyncMemory.from_config is deprecated; prefer create_memory() or auto_config().",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if config is None:
             # Use auto config from environment
             from ..config_loader import auto_config

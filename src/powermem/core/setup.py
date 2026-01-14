@@ -14,14 +14,14 @@ import logging
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
-from ..config_loader import _settings_config
+from ..config_loader import settings_config
 
 logger = logging.getLogger(__name__)
 
 # Set up the directory path
 VECTOR_ID = str(uuid.uuid4())
 class _LocalSettings(BaseSettings):
-    model_config = _settings_config()
+    model_config = settings_config()
 
     powermem_dir: Path = Field(
         default=Path.home() / ".powermem", validation_alias="POWERMEM_DIR"
@@ -71,6 +71,8 @@ def get_user_id() -> str:
 def from_config(config: Optional[Dict[str, Any]] = None, **kwargs):
     """
     Create Memory instance from configuration.
+
+    Deprecated: prefer `create_memory()` or `auto_config()`.
     
     powermem now uses field names natively: 'embedder' and 'vector_store'.
     

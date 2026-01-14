@@ -7,8 +7,9 @@ or other sources. It simplifies the configuration setup process.
 
 from pathlib import Path
 from typing import Any, Dict, Optional
+import warnings
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,7 +47,7 @@ def _load_dotenv_if_available() -> None:
     load_dotenv(_DEFAULT_ENV_FILE, override=False)
 
 
-def _settings_config(env_prefix: str = "") -> SettingsConfigDict:
+def settings_config(env_prefix: str = "") -> SettingsConfigDict:
     return SettingsConfigDict(
         case_sensitive=False,
         extra="ignore",
@@ -55,13 +56,12 @@ def _settings_config(env_prefix: str = "") -> SettingsConfigDict:
         env_file_encoding="utf-8",
     )
 
-
 class _BasePowermemSettings(BaseSettings):
-    model_config = _settings_config()
+    model_config = settings_config()
 
 
 class TelemetrySettings(_BasePowermemSettings):
-    model_config = _settings_config("TELEMETRY_")
+    model_config = settings_config("TELEMETRY_")
 
     enabled: bool = Field(default=False, serialization_alias="enable_telemetry")
     endpoint: str = Field(
@@ -101,7 +101,7 @@ class TelemetrySettings(_BasePowermemSettings):
 
 
 class AuditSettings(_BasePowermemSettings):
-    model_config = _settings_config("AUDIT_")
+    model_config = settings_config("AUDIT_")
 
     enabled: bool = Field(default=True)
     log_file: str = Field(default="./logs/audit.log")
@@ -117,7 +117,7 @@ class AuditSettings(_BasePowermemSettings):
 
 
 class LoggingSettings(_BasePowermemSettings):
-    model_config = _settings_config("LOGGING_")
+    model_config = settings_config("LOGGING_")
 
     level: str = Field(default="DEBUG")
     format: str = Field(
@@ -136,7 +136,7 @@ class LoggingSettings(_BasePowermemSettings):
 
 
 class DatabaseSettings(_BasePowermemSettings):
-    model_config = _settings_config()
+    model_config = settings_config()
 
     provider: str = Field(
         default="oceanbase",
@@ -263,54 +263,61 @@ class DatabaseSettings(_BasePowermemSettings):
         validation_alias=AliasChoices("POSTGRES_HNSW"),
     )
 
+    def _build_oceanbase_config(self) -> Dict[str, Any]:
+        connection_args = {
+            "host": self.oceanbase_host,
+            "port": self.oceanbase_port,
+            "user": self.oceanbase_user,
+            "password": self.oceanbase_password,
+            "db_name": self.oceanbase_database,
+        }
+        return {
+            "collection_name": self.oceanbase_collection,
+            "connection_args": connection_args,
+            "vidx_metric_type": self.oceanbase_vector_metric_type,
+            "index_type": self.oceanbase_index_type,
+            "embedding_model_dims": self.oceanbase_embedding_model_dims,
+            "primary_field": self.oceanbase_primary_field,
+            "vector_field": self.oceanbase_vector_field,
+            "text_field": self.oceanbase_text_field,
+            "metadata_field": self.oceanbase_metadata_field,
+            "vidx_name": self.oceanbase_vidx_name,
+        }
+
+    def _build_postgres_config(self) -> Dict[str, Any]:
+        return {
+            "collection_name": self.postgres_collection,
+            "dbname": self.postgres_database,
+            "host": self.postgres_host,
+            "port": self.postgres_port,
+            "user": self.postgres_user,
+            "password": self.postgres_password,
+            "embedding_model_dims": self.postgres_embedding_model_dims,
+            "diskann": self.postgres_diskann,
+            "hnsw": self.postgres_hnsw,
+        }
+
+    def _build_sqlite_config(self) -> Dict[str, Any]:
+        return {
+            "database_path": self.sqlite_path,
+            "collection_name": self.sqlite_collection,
+            "enable_wal": self.sqlite_enable_wal,
+            "timeout": self.sqlite_timeout,
+        }
+
     def to_config(self) -> Dict[str, Any]:
         db_provider = self.provider.lower()
-
-        if db_provider == "oceanbase":
-            connection_args = {
-                "host": self.oceanbase_host,
-                "port": self.oceanbase_port,
-                "user": self.oceanbase_user,
-                "password": self.oceanbase_password,
-                "db_name": self.oceanbase_database,
-            }
-            db_config = {
-                "collection_name": self.oceanbase_collection,
-                "connection_args": connection_args,
-                "vidx_metric_type": self.oceanbase_vector_metric_type,
-                "index_type": self.oceanbase_index_type,
-                "embedding_model_dims": self.oceanbase_embedding_model_dims,
-                "primary_field": self.oceanbase_primary_field,
-                "vector_field": self.oceanbase_vector_field,
-                "text_field": self.oceanbase_text_field,
-                "metadata_field": self.oceanbase_metadata_field,
-                "vidx_name": self.oceanbase_vidx_name,
-            }
-        elif db_provider == "postgres":
-            db_config = {
-                "collection_name": self.postgres_collection,
-                "dbname": self.postgres_database,
-                "host": self.postgres_host,
-                "port": self.postgres_port,
-                "user": self.postgres_user,
-                "password": self.postgres_password,
-                "embedding_model_dims": self.postgres_embedding_model_dims,
-                "diskann": self.postgres_diskann,
-                "hnsw": self.postgres_hnsw,
-            }
-        else:
-            db_config = {
-                "database_path": self.sqlite_path,
-                "collection_name": self.sqlite_collection,
-                "enable_wal": self.sqlite_enable_wal,
-                "timeout": self.sqlite_timeout,
-            }
-
-        return {"provider": db_provider, "config": db_config}
+        builders = {
+            "oceanbase": self._build_oceanbase_config,
+            "postgres": self._build_postgres_config,
+            "sqlite": self._build_sqlite_config,
+        }
+        builder = builders.get(db_provider, self._build_sqlite_config)
+        return {"provider": db_provider, "config": builder()}
 
 
 class LLMSettings(_BasePowermemSettings):
-    model_config = _settings_config("LLM_")
+    model_config = settings_config("LLM_")
 
     provider: str = Field(default="qwen")
     api_key: Optional[str] = Field(default=None)
@@ -349,6 +356,46 @@ class LLMSettings(_BasePowermemSettings):
         validation_alias=AliasChoices("DEEPSEEK_LLM_BASE_URL"),
     )
 
+    def _apply_provider_config(
+        self, provider: str, config: Dict[str, Any]
+    ) -> None:
+        provider_configurers = {
+            "qwen": self._configure_qwen,
+            "openai": self._configure_openai,
+            "siliconflow": self._configure_siliconflow,
+            "ollama": self._configure_ollama,
+            "vllm": self._configure_vllm,
+            "anthropic": self._configure_anthropic,
+            "deepseek": self._configure_deepseek,
+        }
+        configurer = provider_configurers.get(provider)
+        if configurer:
+            configurer(config)
+
+    def _configure_qwen(self, config: Dict[str, Any]) -> None:
+        config["dashscope_base_url"] = self.qwen_base_url
+        config["enable_search"] = self.enable_search
+
+    def _configure_openai(self, config: Dict[str, Any]) -> None:
+        config["openai_base_url"] = self.openai_base_url
+
+    def _configure_siliconflow(self, config: Dict[str, Any]) -> None:
+        config["openai_base_url"] = self.siliconflow_base_url
+
+    def _configure_ollama(self, config: Dict[str, Any]) -> None:
+        if self.ollama_base_url is not None:
+            config["ollama_base_url"] = self.ollama_base_url
+
+    def _configure_vllm(self, config: Dict[str, Any]) -> None:
+        if self.vllm_base_url is not None:
+            config["vllm_base_url"] = self.vllm_base_url
+
+    def _configure_anthropic(self, config: Dict[str, Any]) -> None:
+        config["anthropic_base_url"] = self.anthropic_base_url
+
+    def _configure_deepseek(self, config: Dict[str, Any]) -> None:
+        config["deepseek_base_url"] = self.deepseek_base_url
+
     def to_config(self) -> Dict[str, Any]:
         llm_provider = self.provider.lower()
         llm_model = self.model
@@ -364,29 +411,13 @@ class LLMSettings(_BasePowermemSettings):
             "top_k": self.top_k,
         }
 
-        if llm_provider == "qwen":
-            llm_config["dashscope_base_url"] = self.qwen_base_url
-            llm_config["enable_search"] = self.enable_search
-        elif llm_provider == "openai":
-            llm_config["openai_base_url"] = self.openai_base_url
-        elif llm_provider == "siliconflow":
-            llm_config["openai_base_url"] = self.siliconflow_base_url
-        elif llm_provider == "ollama":
-            if self.ollama_base_url is not None:
-                llm_config["ollama_base_url"] = self.ollama_base_url
-        elif llm_provider == "vllm":
-            if self.vllm_base_url is not None:
-                llm_config["vllm_base_url"] = self.vllm_base_url
-        elif llm_provider == "anthropic":
-            llm_config["anthropic_base_url"] = self.anthropic_base_url
-        elif llm_provider == "deepseek":
-            llm_config["deepseek_base_url"] = self.deepseek_base_url
+        self._apply_provider_config(llm_provider, llm_config)
 
         return {"provider": llm_provider, "config": llm_config}
 
 
 class EmbeddingSettings(_BasePowermemSettings):
-    model_config = _settings_config("EMBEDDING_")
+    model_config = settings_config("EMBEDDING_")
 
     provider: str = Field(default="qwen")
     api_key: Optional[str] = Field(default=None)
@@ -420,6 +451,42 @@ class EmbeddingSettings(_BasePowermemSettings):
         validation_alias=AliasChoices("OLLAMA_EMBEDDING_BASE_URL"),
     )
 
+    def _apply_provider_config(
+        self, provider: str, config: Dict[str, Any]
+    ) -> None:
+        provider_configurers = {
+            "qwen": self._configure_qwen,
+            "openai": self._configure_openai,
+            "siliconflow": self._configure_siliconflow,
+            "huggingface": self._configure_huggingface,
+            "lmstudio": self._configure_lmstudio,
+            "ollama": self._configure_ollama,
+        }
+        configurer = provider_configurers.get(provider)
+        if configurer:
+            configurer(config)
+
+    def _configure_qwen(self, config: Dict[str, Any]) -> None:
+        config["dashscope_base_url"] = self.qwen_base_url
+
+    def _configure_openai(self, config: Dict[str, Any]) -> None:
+        config["openai_base_url"] = self.openai_base_url
+
+    def _configure_siliconflow(self, config: Dict[str, Any]) -> None:
+        config["siliconflow_base_url"] = self.siliconflow_base_url
+
+    def _configure_huggingface(self, config: Dict[str, Any]) -> None:
+        if self.huggingface_base_url is not None:
+            config["huggingface_base_url"] = self.huggingface_base_url
+
+    def _configure_lmstudio(self, config: Dict[str, Any]) -> None:
+        if self.lmstudio_base_url is not None:
+            config["lmstudio_base_url"] = self.lmstudio_base_url
+
+    def _configure_ollama(self, config: Dict[str, Any]) -> None:
+        if self.ollama_base_url is not None:
+            config["ollama_base_url"] = self.ollama_base_url
+
     def to_config(self) -> Dict[str, Any]:
         embedding_provider = self.provider.lower()
         embedding_config = {
@@ -428,27 +495,13 @@ class EmbeddingSettings(_BasePowermemSettings):
             "embedding_dims": self.dims,
         }
 
-        if embedding_provider == "qwen":
-            embedding_config["dashscope_base_url"] = self.qwen_base_url
-        elif embedding_provider == "openai":
-            embedding_config["openai_base_url"] = self.openai_base_url
-        elif embedding_provider == "siliconflow":
-            embedding_config["siliconflow_base_url"] = self.siliconflow_base_url
-        elif embedding_provider == "huggingface":
-            if self.huggingface_base_url is not None:
-                embedding_config["huggingface_base_url"] = self.huggingface_base_url
-        elif embedding_provider == "lmstudio":
-            if self.lmstudio_base_url is not None:
-                embedding_config["lmstudio_base_url"] = self.lmstudio_base_url
-        elif embedding_provider == "ollama":
-            if self.ollama_base_url is not None:
-                embedding_config["ollama_base_url"] = self.ollama_base_url
+        self._apply_provider_config(embedding_provider, embedding_config)
 
         return {"provider": embedding_provider, "config": embedding_config}
 
 
 class IntelligentMemorySettings(_BasePowermemSettings):
-    model_config = _settings_config("INTELLIGENT_MEMORY_")
+    model_config = settings_config("INTELLIGENT_MEMORY_")
 
     enabled: bool = Field(default=True)
     initial_retention: float = Field(default=1.0)
@@ -463,7 +516,7 @@ class IntelligentMemorySettings(_BasePowermemSettings):
 
 
 class MemoryDecaySettings(_BasePowermemSettings):
-    model_config = _settings_config()
+    model_config = settings_config()
 
     enabled: bool = Field(
         default=True,
@@ -488,7 +541,7 @@ class MemoryDecaySettings(_BasePowermemSettings):
 
 
 class AgentMemorySettings(_BasePowermemSettings):
-    model_config = _settings_config("AGENT_")
+    model_config = settings_config("AGENT_")
 
     enabled: bool = Field(default=True)
     memory_mode: str = Field(default="auto", serialization_alias="mode")
@@ -512,7 +565,7 @@ class AgentMemorySettings(_BasePowermemSettings):
 
 
 class TimezoneSettings(_BasePowermemSettings):
-    model_config = _settings_config()
+    model_config = settings_config()
 
     timezone: str = Field(default="UTC")
 
@@ -521,7 +574,7 @@ class TimezoneSettings(_BasePowermemSettings):
 
 
 class RerankerSettings(_BasePowermemSettings):
-    model_config = _settings_config("RERANKER_")
+    model_config = settings_config("RERANKER_")
 
     enabled: bool = Field(default=False)
     provider: str = Field(default="qwen")
@@ -540,7 +593,7 @@ class RerankerSettings(_BasePowermemSettings):
 
 
 class PerformanceSettings(_BasePowermemSettings):
-    model_config = _settings_config()
+    model_config = settings_config()
 
     memory_batch_size: int = Field(
         default=100,
@@ -577,7 +630,7 @@ class PerformanceSettings(_BasePowermemSettings):
 
 
 class SecuritySettings(_BasePowermemSettings):
-    model_config = _settings_config()
+    model_config = settings_config()
 
     encryption_enabled: bool = Field(
         default=False,
@@ -606,7 +659,7 @@ class SecuritySettings(_BasePowermemSettings):
 
 
 class GraphStoreSettings(_BasePowermemSettings):
-    model_config = _settings_config("GRAPH_STORE_")
+    model_config = settings_config("GRAPH_STORE_")
 
     enabled: bool = Field(default=False)
     provider: str = Field(default="oceanbase")
@@ -624,6 +677,91 @@ class GraphStoreSettings(_BasePowermemSettings):
     custom_update_graph_prompt: Optional[str] = Field(default=None)
     custom_delete_relations_prompt: Optional[str] = Field(default=None)
 
+    def _build_oceanbase_config(
+        self, database_settings: "DatabaseSettings"
+    ) -> Dict[str, Any]:
+        graph_connection_args = {
+            "host": _get_graph_value(
+                self,
+                "host",
+                _get_db_value(
+                    database_settings,
+                    "oceanbase_host",
+                ),
+                "127.0.0.1",
+            ),
+            "port": _get_graph_value(
+                self,
+                "port",
+                _get_db_value(
+                    database_settings,
+                    "oceanbase_port",
+                ),
+                2881,
+            ),
+            "user": _get_graph_value(
+                self,
+                "user",
+                _get_db_value(
+                    database_settings,
+                    "oceanbase_user",
+                ),
+                "root@sys",
+            ),
+            "password": _get_graph_value(
+                self,
+                "password",
+                _get_db_value(
+                    database_settings,
+                    "oceanbase_password",
+                ),
+                "password",
+            ),
+            "db_name": _get_graph_value(
+                self,
+                "db_name",
+                _get_db_value(
+                    database_settings,
+                    "oceanbase_database",
+                ),
+                "powermem",
+            ),
+        }
+        return {
+            "host": graph_connection_args["host"],
+            "port": graph_connection_args["port"],
+            "user": graph_connection_args["user"],
+            "password": graph_connection_args["password"],
+            "db_name": graph_connection_args["db_name"],
+            "vidx_metric_type": _get_graph_value_with_database(
+                self,
+                "vector_metric_type",
+                database_settings,
+                "oceanbase_vector_metric_type",
+                "l2",
+            ),
+            "index_type": _get_graph_value_with_database(
+                self,
+                "index_type",
+                database_settings,
+                "oceanbase_index_type",
+                "HNSW",
+            ),
+            "embedding_model_dims": _get_graph_value_with_database(
+                self,
+                "embedding_model_dims",
+                database_settings,
+                "oceanbase_embedding_model_dims",
+                1536,
+            ),
+            "max_hops": _get_graph_value(
+                self,
+                "max_hops",
+                None,
+                3,
+            ),
+        }
+
     def to_config(
         self,
         database_settings: "DatabaseSettings",
@@ -633,90 +771,11 @@ class GraphStoreSettings(_BasePowermemSettings):
 
         graph_store_provider = self.provider.lower()
 
-        if graph_store_provider == "oceanbase":
-            graph_connection_args = {
-                "host": _get_graph_value(
-                    self,
-                    "host",
-                    _get_db_value(
-                        database_settings,
-                        "oceanbase_host",
-                    ),
-                    "127.0.0.1",
-                ),
-                "port": _get_graph_value(
-                    self,
-                    "port",
-                    _get_db_value(
-                        database_settings,
-                        "oceanbase_port",
-                    ),
-                    2881,
-                ),
-                "user": _get_graph_value(
-                    self,
-                    "user",
-                    _get_db_value(
-                        database_settings,
-                        "oceanbase_user",
-                    ),
-                    "root@sys",
-                ),
-                "password": _get_graph_value(
-                    self,
-                    "password",
-                    _get_db_value(
-                        database_settings,
-                        "oceanbase_password",
-                    ),
-                    "password",
-                ),
-                "db_name": _get_graph_value(
-                    self,
-                    "db_name",
-                    _get_db_value(
-                        database_settings,
-                        "oceanbase_database",
-                    ),
-                    "powermem",
-                ),
-            }
-            graph_config = {
-                "host": graph_connection_args["host"],
-                "port": graph_connection_args["port"],
-                "user": graph_connection_args["user"],
-                "password": graph_connection_args["password"],
-                "db_name": graph_connection_args["db_name"],
-                "vidx_metric_type": _get_graph_value_with_database(
-                    self,
-                    "vector_metric_type",
-                    database_settings,
-                    "oceanbase_vector_metric_type",
-                    "l2",
-                ),
-                "index_type": _get_graph_value_with_database(
-                    self,
-                    "index_type",
-                    database_settings,
-                    "oceanbase_index_type",
-                    "HNSW",
-                ),
-                "embedding_model_dims": _get_graph_value_with_database(
-                    self,
-                    "embedding_model_dims",
-                    database_settings,
-                    "oceanbase_embedding_model_dims",
-                    1536,
-                ),
-                "max_hops": _get_graph_value(
-                    self,
-                    "max_hops",
-                    None,
-                    3,
-                ),
-            }
-        else:
-            graph_config = {}
+        builders = {
+            "oceanbase": self._build_oceanbase_config,
+        }
+        builder = builders.get(graph_store_provider)
+        graph_config = builder(database_settings) if builder else {}
 
         graph_store_config = {
             "enabled": True,
@@ -779,35 +838,31 @@ def _get_graph_value_with_database(
 
 
 class PowermemSettings:
+    _COMPONENTS = {
+        "vector_store": ("database", DatabaseSettings),
+        "llm": ("llm", LLMSettings),
+        "embedder": ("embedder", EmbeddingSettings),
+        "intelligent_memory": ("intelligent_memory", IntelligentMemorySettings),
+        "agent_memory": ("agent_memory", AgentMemorySettings),
+        "timezone": ("timezone", TimezoneSettings),
+        "reranker": ("reranker", RerankerSettings),
+        "telemetry": ("telemetry", TelemetrySettings),
+        "audit": ("audit", AuditSettings),
+        "logging": ("logging", LoggingSettings),
+    }
+
     def __init__(self) -> None:
-        self.database = DatabaseSettings()
-        self.llm = LLMSettings()
-        self.embedder = EmbeddingSettings()
-        self.intelligent_memory = IntelligentMemorySettings()
+        for _, (attr_name, component_cls) in self._COMPONENTS.items():
+            setattr(self, attr_name, component_cls())
+        self.graph_store = GraphStoreSettings()
         self.memory_decay = MemoryDecaySettings()
-        self.agent_memory = AgentMemorySettings()
         self.performance = PerformanceSettings()
         self.security = SecuritySettings()
-        self.telemetry = TelemetrySettings()
-        self.audit = AuditSettings()
-        self.logging = LoggingSettings()
-        self.timezone = TimezoneSettings()
-        self.reranker = RerankerSettings()
-        self.graph_store = GraphStoreSettings()
 
     def to_config(self) -> Dict[str, Any]:
-        config = {
-            "vector_store": self.database.to_config(),
-            "llm": self.llm.to_config(),
-            "embedder": self.embedder.to_config(),
-            "intelligent_memory": self.intelligent_memory.to_config(),
-            "agent_memory": self.agent_memory.to_config(),
-            "timezone": self.timezone.to_config(),
-            "reranker": self.reranker.to_config(),
-            "telemetry": self.telemetry.to_config(),
-            "audit": self.audit.to_config(),
-            "logging": self.logging.to_config(),
-        }
+        config = {}
+        for output_key, (attr_name, _) in self._COMPONENTS.items():
+            config[output_key] = getattr(self, attr_name).to_config()
 
         graph_store_config = self.graph_store.to_config(self.database)
         if graph_store_config:
@@ -819,6 +874,8 @@ class PowermemSettings:
 def load_config_from_env() -> Dict[str, Any]:
     """
     Load configuration from environment variables.
+
+    Deprecated for direct use: prefer `auto_config()` or `create_memory()`.
     
     This function reads configuration from environment variables and builds a config dictionary.
     You can use this when you have .env file set up to avoid manually building config dict.
@@ -849,20 +906,67 @@ def load_config_from_env() -> Dict[str, Any]:
     return PowermemSettings().to_config()
 
 
+class CreateConfigOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    database_provider: str = "sqlite"
+    llm_provider: str = "qwen"
+    embedding_provider: str = "qwen"
+    database_config: Dict[str, Any] = Field(default_factory=dict)
+
+    llm_api_key: Optional[str] = None
+    llm_model: str = "qwen-plus"
+    llm_temperature: float = 0.7
+    llm_max_tokens: int = 1000
+    llm_top_p: float = 0.8
+    llm_top_k: int = 50
+    llm_extra: Dict[str, Any] = Field(default_factory=dict)
+
+    embedding_api_key: Optional[str] = None
+    embedding_model: str = "text-embedding-v4"
+    embedding_dims: int = 1536
+    embedding_extra: Dict[str, Any] = Field(default_factory=dict)
+
+
 def create_config(
-    database_provider: str = 'sqlite',
-    llm_provider: str = 'qwen',
-    embedding_provider: str = 'qwen',
-    **kwargs
+    database_provider: str = "sqlite",
+    llm_provider: str = "qwen",
+    embedding_provider: str = "qwen",
+    database_config: Optional[Dict[str, Any]] = None,
+    llm_api_key: Optional[str] = None,
+    llm_model: str = "qwen-plus",
+    llm_temperature: float = 0.7,
+    llm_max_tokens: int = 1000,
+    llm_top_p: float = 0.8,
+    llm_top_k: int = 50,
+    llm_extra: Optional[Dict[str, Any]] = None,
+    embedding_api_key: Optional[str] = None,
+    embedding_model: str = "text-embedding-v4",
+    embedding_dims: int = 1536,
+    embedding_extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Create a basic configuration dictionary with specified providers.
+
+    Deprecated: prefer `auto_config()` or `create_memory()` unless you
+    need a minimal manual config.
     
     Args:
         database_provider: Database provider ('sqlite', 'oceanbase', 'postgres')
         llm_provider: LLM provider ('qwen', 'openai', etc.)
         embedding_provider: Embedding provider ('qwen', 'openai', etc.)
-        **kwargs: Additional configuration parameters
+        database_config: Vector store configuration dictionary
+        llm_api_key: API key for the LLM provider
+        llm_model: LLM model name
+        llm_temperature: LLM temperature
+        llm_max_tokens: Max tokens
+        llm_top_p: LLM top-p
+        llm_top_k: LLM top-k
+        llm_extra: Provider-specific LLM configuration fields
+        embedding_api_key: API key for embedding provider
+        embedding_model: Embedding model name
+        embedding_dims: Embedding vector dimensions
+        embedding_extra: Provider-specific embedding configuration fields
     
     Returns:
         Configuration dictionary
@@ -882,29 +986,54 @@ def create_config(
         memory = Memory(config=config)
         ```
     """
+    warnings.warn(
+        "create_config is deprecated; prefer auto_config() or create_memory().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    options = CreateConfigOptions(
+        database_provider=database_provider,
+        llm_provider=llm_provider,
+        embedding_provider=embedding_provider,
+        database_config=database_config or {},
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
+        llm_temperature=llm_temperature,
+        llm_max_tokens=llm_max_tokens,
+        llm_top_p=llm_top_p,
+        llm_top_k=llm_top_k,
+        llm_extra=llm_extra or {},
+        embedding_api_key=embedding_api_key,
+        embedding_model=embedding_model,
+        embedding_dims=embedding_dims,
+        embedding_extra=embedding_extra or {},
+    )
     config = {
-        'vector_store': {
-            'provider': database_provider,
-            'config': kwargs.get('database_config', {})
+        "vector_store": {
+            "provider": options.database_provider,
+            "config": options.database_config,
         },
-        'llm': {
-            'provider': llm_provider,
-            'config': {
-                'api_key': kwargs.get('llm_api_key'),
-                'model': kwargs.get('llm_model', 'qwen-plus'),
-                'temperature': kwargs.get('llm_temperature', 0.7),
-                'max_tokens': kwargs.get('llm_max_tokens', 1000),
-                **{k: v for k, v in kwargs.items() if k.startswith('llm_') and k != 'llm_api_key' and k != 'llm_model' and k != 'llm_temperature' and k != 'llm_max_tokens'}
-            }
+        "llm": {
+            "provider": options.llm_provider,
+            "config": {
+                "api_key": options.llm_api_key,
+                "model": options.llm_model,
+                "temperature": options.llm_temperature,
+                "max_tokens": options.llm_max_tokens,
+                "top_p": options.llm_top_p,
+                "top_k": options.llm_top_k,
+                **options.llm_extra,
+            },
         },
-        'embedder': {
-            'provider': embedding_provider,
-            'config': {
-                'api_key': kwargs.get('embedding_api_key'),
-                'model': kwargs.get('embedding_model', 'text-embedding-v4'),
-                'embedding_dims': kwargs.get('embedding_dims', 1536),
-            }
-        }
+        "embedder": {
+            "provider": options.embedding_provider,
+            "config": {
+                "api_key": options.embedding_api_key,
+                "model": options.embedding_model,
+                "embedding_dims": options.embedding_dims,
+                **options.embedding_extra,
+            },
+        },
     }
     
     return config
@@ -913,6 +1042,8 @@ def create_config(
 def validate_config(config: Dict[str, Any]) -> bool:
     """
     Validate a configuration dictionary.
+
+    Deprecated for new code paths: prefer `create_memory()` or `auto_config()`.
     
     Args:
         config: Configuration dictionary to validate
@@ -950,6 +1081,8 @@ def auto_config() -> Dict[str, Any]:
     
     This is the simplest way to get configuration.
     It automatically loads .env file and returns the config.
+
+    Preferred entrypoint for configuration loading.
     
     Returns:
         Configuration dictionary from environment variables
