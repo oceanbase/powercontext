@@ -1,0 +1,109 @@
+import powermem.config_loader as config_loader
+
+
+def _reset_env(monkeypatch, keys):
+    for key in keys:
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_load_config_from_env_builds_core_config(monkeypatch):
+    _reset_env(
+        monkeypatch,
+        [
+            "DATABASE_PROVIDER",
+            "OCEANBASE_HOST",
+            "OCEANBASE_PORT",
+            "OCEANBASE_USER",
+            "OCEANBASE_PASSWORD",
+            "OCEANBASE_DATABASE",
+            "OCEANBASE_COLLECTION",
+            "LLM_PROVIDER",
+            "LLM_API_KEY",
+            "LLM_MODEL",
+            "QWEN_LLM_BASE_URL",
+            "EMBEDDING_PROVIDER",
+            "EMBEDDING_API_KEY",
+            "EMBEDDING_MODEL",
+            "OPENAI_EMBEDDING_BASE_URL",
+            "AGENT_MEMORY_MODE",
+        ],
+    )
+    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None)
+    monkeypatch.setenv("DATABASE_PROVIDER", "oceanbase")
+    monkeypatch.setenv("OCEANBASE_HOST", "10.0.0.1")
+    monkeypatch.setenv("OCEANBASE_PORT", "2881")
+    monkeypatch.setenv("OCEANBASE_USER", "root@sys")
+    monkeypatch.setenv("OCEANBASE_PASSWORD", "secret")
+    monkeypatch.setenv("OCEANBASE_DATABASE", "powermem")
+    monkeypatch.setenv("OCEANBASE_COLLECTION", "memories")
+    monkeypatch.setenv("LLM_PROVIDER", "qwen")
+    monkeypatch.setenv("LLM_API_KEY", "llm-key")
+    monkeypatch.setenv("LLM_MODEL", "qwen-plus")
+    monkeypatch.setenv("QWEN_LLM_BASE_URL", "https://qwen.example.com/v1")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
+    monkeypatch.setenv("EMBEDDING_API_KEY", "embed-key")
+    monkeypatch.setenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    monkeypatch.setenv("OPENAI_EMBEDDING_BASE_URL", "https://emb.example.com/v1")
+    monkeypatch.setenv("AGENT_MEMORY_MODE", "auto")
+
+    config = config_loader.load_config_from_env()
+
+    assert config["vector_store"]["provider"] == "oceanbase"
+    assert config["vector_store"]["config"]["connection_args"]["host"] == "10.0.0.1"
+    assert config["llm"]["provider"] == "qwen"
+    assert config["llm"]["config"]["dashscope_base_url"] == "https://qwen.example.com/v1"
+    assert config["embedder"]["provider"] == "openai"
+    assert (
+        config["embedder"]["config"]["openai_base_url"]
+        == "https://emb.example.com/v1"
+    )
+    assert config["agent_memory"]["mode"] == "auto"
+
+
+def test_load_config_from_env_graph_store_fallback(monkeypatch):
+    _reset_env(
+        monkeypatch,
+        [
+            "GRAPH_STORE_ENABLED",
+            "GRAPH_STORE_HOST",
+            "GRAPH_STORE_MAX_HOPS",
+            "OCEANBASE_HOST",
+            "OCEANBASE_PORT",
+        ],
+    )
+    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None)
+    monkeypatch.setenv("GRAPH_STORE_ENABLED", "true")
+    monkeypatch.setenv("OCEANBASE_HOST", "127.0.0.2")
+    monkeypatch.setenv("OCEANBASE_PORT", "2881")
+
+    config = config_loader.load_config_from_env()
+
+    graph_store = config["graph_store"]
+    assert graph_store["enabled"] is True
+    assert graph_store["config"]["host"] == "127.0.0.2"
+    assert graph_store["config"]["max_hops"] == 3
+
+
+def test_load_config_from_env_does_not_expose_internal_settings(monkeypatch):
+    _reset_env(
+        monkeypatch,
+        [
+            "MEMORY_BATCH_SIZE",
+            "ENCRYPTION_ENABLED",
+            "ACCESS_CONTROL_ENABLED",
+            "MEMORY_DECAY_ENABLED",
+            "DATABASE_SSLMODE",
+        ],
+    )
+    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None)
+    monkeypatch.setenv("MEMORY_BATCH_SIZE", "200")
+    monkeypatch.setenv("ENCRYPTION_ENABLED", "true")
+    monkeypatch.setenv("ACCESS_CONTROL_ENABLED", "false")
+    monkeypatch.setenv("MEMORY_DECAY_ENABLED", "false")
+    monkeypatch.setenv("DATABASE_SSLMODE", "require")
+
+    config = config_loader.load_config_from_env()
+
+    assert "performance" not in config
+    assert "security" not in config
+    assert "memory_decay" not in config
