@@ -107,3 +107,27 @@ def test_load_config_from_env_does_not_expose_internal_settings(monkeypatch):
     assert "performance" not in config
     assert "security" not in config
     assert "memory_decay" not in config
+
+
+def test_load_config_from_env_telemetry_aliases(monkeypatch):
+    _reset_env(
+        monkeypatch,
+        [
+            "TELEMETRY_ENABLED",
+            "TELEMETRY_BATCH_SIZE",
+            "TELEMETRY_FLUSH_INTERVAL",
+        ],
+    )
+    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None)
+    monkeypatch.setenv("TELEMETRY_ENABLED", "true")
+    monkeypatch.setenv("TELEMETRY_BATCH_SIZE", "42")
+    monkeypatch.setenv("TELEMETRY_FLUSH_INTERVAL", "15")
+
+    config = config_loader.load_config_from_env()
+
+    telemetry = config["telemetry"]
+    assert telemetry["enable_telemetry"] is True
+    assert telemetry["telemetry_batch_size"] == 42
+    assert telemetry["telemetry_flush_interval"] == 15
+    assert telemetry["batch_size"] == 42
+    assert telemetry["flush_interval"] == 15

@@ -36,6 +36,16 @@ def _get_default_env_file() -> Optional[str]:
 _DEFAULT_ENV_FILE = _get_default_env_file()
 
 
+def _load_dotenv_if_available() -> None:
+    if not _DEFAULT_ENV_FILE:
+        return
+    try:
+        from dotenv import load_dotenv
+    except Exception:
+        return
+    load_dotenv(_DEFAULT_ENV_FILE, override=False)
+
+
 def _settings_config(env_prefix: str = "") -> SettingsConfigDict:
     return SettingsConfigDict(
         case_sensitive=False,
@@ -65,15 +75,17 @@ class TelemetrySettings(_BasePowermemSettings):
     batch_size: int = Field(
         default=100,
         validation_alias=AliasChoices("BATCH_SIZE", "TELEMETRY_BATCH_SIZE"),
+        serialization_alias="telemetry_batch_size",
     )
     flush_interval: int = Field(
         default=30,
         validation_alias=AliasChoices("FLUSH_INTERVAL", "TELEMETRY_FLUSH_INTERVAL"),
+        serialization_alias="telemetry_flush_interval",
     )
     retention_days: int = Field(default=30)
 
     def to_config(self) -> Dict[str, Any]:
-        return self.model_dump(
+        config = self.model_dump(
             by_alias=True,
             include={
                 "enabled",
@@ -83,6 +95,9 @@ class TelemetrySettings(_BasePowermemSettings):
                 "flush_interval",
             },
         )
+        config["batch_size"] = self.batch_size
+        config["flush_interval"] = self.flush_interval
+        return config
 
 
 class AuditSettings(_BasePowermemSettings):
@@ -830,6 +845,7 @@ def load_config_from_env() -> Dict[str, Any]:
         memory = Memory(config=config)
         ```
     """
+    _load_dotenv_if_available()
     return PowermemSettings().to_config()
 
 

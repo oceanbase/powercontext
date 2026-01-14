@@ -27,10 +27,18 @@ class AuditLogger:
             config: Configuration dictionary
         """
         self.config = config or {}
-        self.enabled = self.config.get("enabled", True)
-        self.log_file = self.config.get("log_file", "audit.log")
-        self.log_level = self.config.get("log_level", "INFO")
-        self.retention_days = self.config.get("retention_days", 90)
+        self.enabled = self._get_config_value(
+            ["enabled", "enable_audit"], True
+        )
+        self.log_file = self._get_config_value(
+            ["log_file", "audit_log_file"], "audit.log"
+        )
+        self.log_level = self._get_config_value(
+            ["log_level", "audit_log_level"], "INFO"
+        )
+        self.retention_days = self._get_config_value(
+            ["retention_days", "audit_retention_days"], 90
+        )
         
         # Setup audit logger
         self.audit_logger = logging.getLogger("audit")
@@ -48,6 +56,12 @@ class AuditLogger:
         logger.info(
             f"AuditLogger initialized - enabled: {self.enabled}, log_file: {self.log_file}"
         )
+
+    def _get_config_value(self, keys, default):
+        for key in keys:
+            if key in self.config:
+                return self.config[key]
+        return default
     
     def log_event(
         self,
