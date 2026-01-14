@@ -6,7 +6,7 @@ or other sources. It simplifies the configuration setup process.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 import warnings
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
@@ -35,6 +35,42 @@ def _get_default_env_file() -> Optional[str]:
 
 
 _DEFAULT_ENV_FILE = _get_default_env_file()
+
+_LLM_PROVIDER_CONFIGURERS: Dict[str, Callable[["LLMSettings", Dict[str, Any]], None]] = {}
+_EMBEDDING_PROVIDER_CONFIGURERS: Dict[
+    str, Callable[["EmbeddingSettings", Dict[str, Any]], None]
+] = {}
+_DATABASE_PROVIDER_BUILDERS: Dict[
+    str, Callable[["DatabaseSettings"], Dict[str, Any]]
+] = {}
+_GRAPH_STORE_BUILDERS: Dict[
+    str, Callable[["GraphStoreSettings", "DatabaseSettings"], Dict[str, Any]]
+] = {}
+
+
+def register_llm_provider(
+    provider: str, configurer: Callable[["LLMSettings", Dict[str, Any]], None]
+) -> None:
+    _LLM_PROVIDER_CONFIGURERS[provider] = configurer
+
+
+def register_embedding_provider(
+    provider: str, configurer: Callable[["EmbeddingSettings", Dict[str, Any]], None]
+) -> None:
+    _EMBEDDING_PROVIDER_CONFIGURERS[provider] = configurer
+
+
+def register_database_provider(
+    provider: str, builder: Callable[["DatabaseSettings"], Dict[str, Any]]
+) -> None:
+    _DATABASE_PROVIDER_BUILDERS[provider] = builder
+
+
+def register_graph_store_provider(
+    provider: str,
+    builder: Callable[["GraphStoreSettings", "DatabaseSettings"], Dict[str, Any]],
+) -> None:
+    _GRAPH_STORE_BUILDERS[provider] = builder
 
 
 def _load_dotenv_if_available() -> None:
@@ -307,13 +343,10 @@ class DatabaseSettings(_BasePowermemSettings):
 
     def to_config(self) -> Dict[str, Any]:
         db_provider = self.provider.lower()
-        builders = {
-            "oceanbase": self._build_oceanbase_config,
-            "postgres": self._build_postgres_config,
-            "sqlite": self._build_sqlite_config,
-        }
-        builder = builders.get(db_provider, self._build_sqlite_config)
-        return {"provider": db_provider, "config": builder()}
+        builder = _DATABASE_PROVIDER_BUILDERS.get(
+            db_provider, DatabaseSettings._build_sqlite_config
+        )
+        return {"provider": db_provider, "config": builder(self)}
 
 
 class LLMSettings(_BasePowermemSettings):
@@ -359,18 +392,9 @@ class LLMSettings(_BasePowermemSettings):
     def _apply_provider_config(
         self, provider: str, config: Dict[str, Any]
     ) -> None:
-        provider_configurers = {
-            "qwen": self._configure_qwen,
-            "openai": self._configure_openai,
-            "siliconflow": self._configure_siliconflow,
-            "ollama": self._configure_ollama,
-            "vllm": self._configure_vllm,
-            "anthropic": self._configure_anthropic,
-            "deepseek": self._configure_deepseek,
-        }
-        configurer = provider_configurers.get(provider)
+        configurer = _LLM_PROVIDER_CONFIGURERS.get(provider)
         if configurer:
-            configurer(config)
+            configurer(self, config)
 
     def _configure_qwen(self, config: Dict[str, Any]) -> None:
         config["dashscope_base_url"] = self.qwen_base_url
@@ -454,17 +478,9 @@ class EmbeddingSettings(_BasePowermemSettings):
     def _apply_provider_config(
         self, provider: str, config: Dict[str, Any]
     ) -> None:
-        provider_configurers = {
-            "qwen": self._configure_qwen,
-            "openai": self._configure_openai,
-            "siliconflow": self._configure_siliconflow,
-            "huggingface": self._configure_huggingface,
-            "lmstudio": self._configure_lmstudio,
-            "ollama": self._configure_ollama,
-        }
-        configurer = provider_configurers.get(provider)
+        configurer = _EMBEDDING_PROVIDER_CONFIGURERS.get(provider)
         if configurer:
-            configurer(config)
+            configurer(self, config)
 
     def _configure_qwen(self, config: Dict[str, Any]) -> None:
         config["dashscope_base_url"] = self.qwen_base_url
@@ -499,6 +515,25 @@ class EmbeddingSettings(_BasePowermemSettings):
 
         return {"provider": embedding_provider, "config": embedding_config}
 
+
+register_llm_provider("qwen", LLMSettings._configure_qwen)
+register_llm_provider("openai", LLMSettings._configure_openai)
+register_llm_provider("siliconflow", LLMSettings._configure_siliconflow)
+register_llm_provider("ollama", LLMSettings._configure_ollama)
+register_llm_provider("vllm", LLMSettings._configure_vllm)
+register_llm_provider("anthropic", LLMSettings._configure_anthropic)
+register_llm_provider("deepseek", LLMSettings._configure_deepseek)
+
+register_embedding_provider("qwen", EmbeddingSettings._configure_qwen)
+register_embedding_provider("openai", EmbeddingSettings._configure_openai)
+register_embedding_provider("siliconflow", EmbeddingSettings._configure_siliconflow)
+register_embedding_provider("huggingface", EmbeddingSettings._configure_huggingface)
+register_embedding_provider("lmstudio", EmbeddingSettings._configure_lmstudio)
+register_embedding_provider("ollama", EmbeddingSettings._configure_ollama)
+
+register_database_provider("oceanbase", DatabaseSettings._build_oceanbase_config)
+register_database_provider("postgres", DatabaseSettings._build_postgres_config)
+register_database_provider("sqlite", DatabaseSettings._build_sqlite_config)
 
 class IntelligentMemorySettings(_BasePowermemSettings):
     model_config = settings_config("INTELLIGENT_MEMORY_")
@@ -771,11 +806,8 @@ class GraphStoreSettings(_BasePowermemSettings):
 
         graph_store_provider = self.provider.lower()
 
-        builders = {
-            "oceanbase": self._build_oceanbase_config,
-        }
-        builder = builders.get(graph_store_provider)
-        graph_config = builder(database_settings) if builder else {}
+        builder = _GRAPH_STORE_BUILDERS.get(graph_store_provider)
+        graph_config = builder(self, database_settings) if builder else {}
 
         graph_store_config = {
             "enabled": True,
@@ -799,6 +831,11 @@ class GraphStoreSettings(_BasePowermemSettings):
             )
 
         return graph_store_config
+
+
+register_graph_store_provider(
+    "oceanbase", GraphStoreSettings._build_oceanbase_config
+)
 
 
 def _get_graph_value(
