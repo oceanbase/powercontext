@@ -246,8 +246,8 @@ class Memory(MemoryBase):
             logger.info("Using basic StorageAdapter")
 
         self.intelligence = IntelligenceManager(self.config)
-        self.telemetry = TelemetryManager(self.config)
-        self.audit = AuditLogger(self.config)
+        self.telemetry = TelemetryManager(self.config.get("telemetry", {}))
+        self.audit = AuditLogger(self.config.get("audit", {}))
 
         # Save custom prompts from config
         if self.memory_config:

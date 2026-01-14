@@ -29,10 +29,19 @@ class TelemetryManager:
         """
         self.config = config or {}
         self.enabled = self.config.get("enable_telemetry", False)
-        self.endpoint = self.config.get("telemetry_endpoint", "https://telemetry.powermem.ai")
+        self.endpoint = self.config.get(
+            "telemetry_endpoint", "https://telemetry.powermem.ai"
+        )
         self.api_key = self.config.get("telemetry_api_key")
-        self.batch_size = self.config.get("telemetry_batch_size", 100)
-        self.flush_interval = self.config.get("telemetry_flush_interval", 30)
+        batch_size = self.config.get("batch_size")
+        if batch_size is None:
+            batch_size = self.config.get("telemetry_batch_size", 100)
+        self.batch_size = batch_size
+
+        flush_interval = self.config.get("flush_interval")
+        if flush_interval is None:
+            flush_interval = self.config.get("telemetry_flush_interval", 30)
+        self.flush_interval = flush_interval
         
         self.events = []
         self.last_flush = time.time()
