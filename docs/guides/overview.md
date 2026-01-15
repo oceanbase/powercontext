@@ -12,6 +12,7 @@ Comprehensive guides for using powermem effectively.
 - **[Sub Stores Guide](./0006-sub_stores.md)** - Advanced sub-store configuration
 - **[Multimodal Capability](../examples/scenario_7_multimodal.md)** - Image and multimedia processing
 - **[UserMemory Guide](./0010-user_memory.md)** - User profile management and extraction
+- **[Sparse Vector Guide](./0011-sparse_vector.md)** - Sparse vector configuration, upgrade and migration
 
 ## Other Notes
 
@@ -26,3 +27,4 @@ Comprehensive guides for using powermem effectively.
 - **Integrations?** Check [Integrations Guide](./0009-integrations.md)
 - **Multimodal?** See [Multimodal Capability](../examples/scenario_7_multimodal.md)
 - **User profiles?** See [UserMemory Guide](./0010-user_memory.md)
+- **Sparse vector?** See [Sparse Vector Guide](./0011-sparse_vector.md)

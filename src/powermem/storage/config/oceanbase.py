@@ -46,6 +46,7 @@ class OceanBaseConfig(BaseVectorStoreConfig):
 
     vector_weight: float = Field(0.5, description="Weight for vector search")
     fts_weight: float = Field(0.5, description="Weight for fulltext search")
+    sparse_weight: Optional[float] = Field(None, description="Weight for sparse vector search")
 
     model_config = {
         "arbitrary_types_allowed": True,

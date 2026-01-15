@@ -18,6 +18,7 @@ from .utils import (
     load_config_from_env,
     convert_config_object_to_dict,
 )
+from .oceanbase_util import OceanBaseUtil
 
 __all__ = [
     "generate_memory_id",
@@ -32,4 +33,5 @@ __all__ = [
     "extract_json",
     "load_config_from_env",
     "convert_config_object_to_dict",
+    "OceanBaseUtil",
 ]

@@ -14,11 +14,13 @@ from copy import deepcopy
 
 from .base import MemoryBase
 from ..configs import MemoryConfig
+from ..integrations.embeddings.config.sparse_base import BaseSparseEmbedderConfig, SparseEmbedderConfig
 from ..storage.factory import VectorStoreFactory, GraphStoreFactory
 from ..storage.adapter import StorageAdapter, SubStorageAdapter
 from ..intelligence.manager import IntelligenceManager
 from ..integrations.llm.factory import LLMFactory
 from ..integrations.embeddings.factory import EmbedderFactory
+from ..integrations.embeddings.sparse_factory import SparseEmbedderFactory
 from ..integrations.rerank.factory import RerankFactory
 from .telemetry import TelemetryManager
 from .audit import AuditLogger
@@ -232,17 +234,52 @@ class Memory(MemoryBase):
         # Pass vector_store_config so factory can extract embedding_model_dims for mock embeddings
         self.embedding = EmbedderFactory.create(self.embedding_provider, embedder_config, vector_store_config)
         
-        # Initialize storage adapter with embedding service
+        # Initialize sparse embedder if configured
+        self.sparse_embedder = None
+        # Check if include_sparse is enabled in vector_store config
+        include_sparse = vector_store_config.get('include_sparse', False)
+        if self.storage_type.lower() == 'oceanbase' and include_sparse:
+            sparse_config_obj = None
+            sparse_embedder_provider = None
+            
+            if self.memory_config and hasattr(self.memory_config, 'sparse_embedder') and self.memory_config.sparse_embedder:
+                sparse_config_obj = self.memory_config.sparse_embedder
+            elif self.config.get('sparse_embedder'):
+                sparse_config_obj = self.config.get('sparse_embedder')
+            
+            if sparse_config_obj:
+                try:
+                    # Handle SparseEmbedderConfig (BaseModel with provider and config) or dict format
+                    if hasattr(sparse_config_obj, 'provider') and hasattr(sparse_config_obj, 'config'):
+                        # It's a SparseEmbedderConfig (BaseModel) object
+                        sparse_embedder_provider = sparse_config_obj.provider
+                        config_dict = sparse_config_obj.config or {}
+                    elif isinstance(sparse_config_obj, dict):
+                        # It's a dict with provider and config keys
+                        sparse_embedder_provider = sparse_config_obj.get('provider')
+                        config_dict = sparse_config_obj.get('config', {})
+                    else:
+                        logger.warning(f"Unknown sparse_embedder config format: {type(sparse_config_obj)}. Expected SparseEmbedderConfig or dict with 'provider' and 'config' keys.")
+                        sparse_embedder_provider = None
+                        config_dict = {}
+                    
+                    if sparse_embedder_provider:
+                        self.sparse_embedder = SparseEmbedderFactory.create(sparse_embedder_provider, config_dict)
+                        logger.info(f"Sparse embedder initialized: {sparse_embedder_provider}")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize sparse embedder: {e}")
+        
+        # Initialize storage adapter with embedding service and sparse embedder service
         # Automatically select adapter based on sub_stores configuration
         sub_stores_list = self.config.get('sub_stores', [])
         if sub_stores_list and self.storage_type.lower() == 'oceanbase':
             # Use SubStorageAdapter if sub stores are configured and using OceanBase
-            self.storage = SubStorageAdapter(vector_store, self.embedding)
+            self.storage = SubStorageAdapter(vector_store, self.embedding, self.sparse_embedder)
             logger.info("Using SubStorageAdapter with sub-store support")
         else:
             if sub_stores_list:
                 logger.warning("The sub_stores function currently only supports oceanbase")
-            self.storage = StorageAdapter(vector_store, self.embedding)
+            self.storage = StorageAdapter(vector_store, self.embedding, self.sparse_embedder)
             logger.info("Using basic StorageAdapter")
 
         self.intelligence = IntelligenceManager(self.config)
@@ -1084,7 +1121,7 @@ class Memory(MemoryBase):
                 run_id=run_id,
                 filters=filters,
                 limit=limit,
-                query=query  # Pass query text for hybrid search (vector + full-text)
+                query=query  # Pass query text for hybrid search (vector + full-text + sparse vector)
             )
             
             # Process results with intelligence manager (only if enabled to avoid unnecessary calls)
@@ -1112,14 +1149,26 @@ class Memory(MemoryBase):
             transformed_results = []
             for result in processed_results:
                 score = result.get("score", 0.0)
-                # Apply threshold filtering
-                # Only include results if threshold is None or score >= threshold
-                if threshold is not None and score < threshold:
+                
+                # Get quality score for threshold filtering
+                # Quality score represents absolute similarity quality (0-1 range)
+                # It's calculated from weighted average of all search paths' similarity scores
+                metadata = result.get("metadata", {})
+                quality_score = metadata.get("_quality_score")
+                
+                # If quality_score is not available (e.g., from older data or non-hybrid search),
+                # fall back to using the ranking score
+                if quality_score is None:
+                    quality_score = score
+                
+                # Apply threshold filtering using quality score
+                # Only include results if threshold is None or quality_score >= threshold
+                if threshold is not None and quality_score < threshold:
                     continue
                 
                 transformed_result = {
                     "memory": result.get("memory", ""),
-                    "metadata": result.get("metadata", {}),  # Keep metadata as-is from storage
+                    "metadata": metadata,  # Keep metadata as-is from storage (includes debug info like _quality_score)
                     "score": score,
                 }
                 # Preserve other fields if needed
@@ -1433,7 +1482,7 @@ class Memory(MemoryBase):
                 vector_store_config = self._get_component_config('vector_store')
                 self.storage.vector_store = VectorStoreFactory.create(self.storage_type, vector_store_config)
                 # Update storage adapter
-                self.storage = StorageAdapter(self.storage.vector_store, self.embedding)
+                self.storage = StorageAdapter(self.storage.vector_store, self.embedding, self.sparse_embedder)
             
             # Reset graph store if enabled
             if self.enable_graph and hasattr(self.graph_store, "reset"):

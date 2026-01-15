@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 from powermem.integrations.embeddings.configs import EmbedderConfig
+from powermem.integrations.embeddings.config.sparse_base import SparseEmbedderConfig
 from powermem.integrations.llm import LlmConfig
 from powermem.storage.configs import VectorStoreConfig, GraphStoreConfig
 from powermem.integrations.rerank.configs import RerankConfig
@@ -193,6 +194,10 @@ class MemoryConfig(BaseModel):
     )
     reranker: Optional[RerankConfig] = Field(
         description="Configuration for the reranker",
+        default=None,
+    )
+    sparse_embedder: Optional[SparseEmbedderConfig] = Field(
+        description="Configuration for the sparse embedder (only supported for OceanBase)",
         default=None,
     )
     version: str = Field(

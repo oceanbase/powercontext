@@ -1034,14 +1034,26 @@ class AsyncMemory(MemoryBase):
             transformed_results = []
             for result in processed_results:
                 score = result.get("score", 0.0)
-                # Apply threshold filtering
-                # Only include results if threshold is None or score >= threshold
-                if threshold is not None and score < threshold:
+                
+                # Get quality score for threshold filtering
+                # Quality score represents absolute similarity quality (0-1 range)
+                # It's calculated from weighted average of all search paths' similarity scores
+                metadata = result.get("metadata", {})
+                quality_score = metadata.get("_quality_score")
+                
+                # If quality_score is not available (e.g., from older data or non-hybrid search),
+                # fall back to using the ranking score
+                if quality_score is None:
+                    quality_score = score
+                
+                # Apply threshold filtering using quality score
+                # Only include results if threshold is None or quality_score >= threshold
+                if threshold is not None and quality_score < threshold:
                     continue
                 
                 transformed_result = {
                     "memory": result.get("memory", ""), 
-                    "metadata": result.get("metadata", {}),  # Keep metadata as-is from storage
+                    "metadata": metadata,  # Keep metadata as-is from storage (includes debug info like _quality_score)
                     "score": score,
                 }
                 # Preserve other fields if needed

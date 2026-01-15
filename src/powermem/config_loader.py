@@ -88,7 +88,8 @@ def load_config_from_env() -> Dict[str, Any]:
             'vector_field': os.getenv('OCEANBASE_VECTOR_FIELD', 'embedding'),
             'text_field': os.getenv('OCEANBASE_TEXT_FIELD', 'document'),
             'metadata_field': os.getenv('OCEANBASE_METADATA_FIELD', 'metadata'),
-            'vidx_name': os.getenv('OCEANBASE_VIDX_NAME', 'memories_vidx')
+            'vidx_name': os.getenv('OCEANBASE_VIDX_NAME', 'memories_vidx'),
+            'include_sparse': os.getenv('SPARSE_VECTOR_ENABLE', 'false').lower() == 'true'
         }
     elif db_provider == 'postgres':
         # PostgreSQL configuration (pgvector)
@@ -244,6 +245,21 @@ def load_config_from_env() -> Dict[str, Any]:
             }
         }
     }
+    
+    # Build Sparse Embedder config (if enabled for OceanBase)
+    sparse_embedder_provider = os.getenv('SPARSE_EMBEDDER_PROVIDER')
+    if sparse_embedder_provider:
+        sparse_embedder_config = {
+            'api_key': os.getenv('SPARSE_EMBEDDER_API_KEY'),
+            'model': os.getenv('SPARSE_EMBEDDER_MODEL'),
+            'base_url': os.getenv('SPARSE_EMBEDDING_BASE_URL',''),
+            'embedding_dims': int(os.getenv('SPARSE_EMBEDDER_DIMS', '1536')),
+        }
+        
+        config['sparse_embedder'] = {
+            'provider': sparse_embedder_provider,
+            'config': sparse_embedder_config
+        }
     
     # Build graph_store config if enabled
     graph_store_enabled = os.getenv('GRAPH_STORE_ENABLED', 'false').lower() == 'true'

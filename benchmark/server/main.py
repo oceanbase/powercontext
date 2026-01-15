@@ -92,6 +92,7 @@ def load_config() -> Dict[str, Any]:
                 "vidx_metric_type": os.getenv("OCEANBASE_VIDX_METRIC_TYPE", "l2"),
                 "vector_weight": VECTOR_WEIGHT,
                 "fts_weight": FTS_WEIGHT,
+                'include_sparse': os.getenv('SPARSE_VECTOR_ENABLE', 'false').lower() == 'true'
             },
         }
     elif DB_TYPE == "postgres":
@@ -135,6 +136,22 @@ def load_config() -> Dict[str, Any]:
             }
         },
         "history_db_path": HISTORY_DB_PATH,
+        "reranker": {
+            "enabled": True,
+            "provider": "qwen",
+            "config": {
+                "api_key": EMBEDDER_API_KEY,
+                "model": "qwen3-rerank",
+            }
+        },
+        "sparse_embedder": {
+            "provider": "qwen",
+            "config": {
+                'api_key': EMBEDDER_API_KEY,
+                'model': EMBEDDER_MODEL,
+                'embedding_dims': int(os.getenv('SPARSE_EMBEDDER_DIMS', '1536')),
+            }
+        }
     }
 
 
