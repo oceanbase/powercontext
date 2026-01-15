@@ -67,7 +67,12 @@ async def create_memory(
     
     # Always return array of memories
     # Exclude None values to avoid returning null fields
-    message = "Memory created successfully" if len(memory_responses) == 1 else f"Created {len(memory_responses)} memories successfully"
+    if len(memory_responses) == 0:
+        message = "No memories were created (likely duplicates detected or no facts extracted)"
+    elif len(memory_responses) == 1:
+        message = "Memory created successfully"
+    else:
+        message = f"Created {len(memory_responses)} memories successfully"
     
     return APIResponse(
         success=True,

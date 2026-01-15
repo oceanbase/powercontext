@@ -45,6 +45,10 @@ class IntelligentMemoryConfig(BaseModel):
         default=0.8,
         description="Threshold for long-term memory classification"
     )
+    fallback_to_simple_add: bool = Field(
+        default=False,
+        description="Whether to fallback to simple add mode when intelligent processing fails (no facts extracted or no actions returned)"
+    )
 
 
 class TelemetryConfig(BaseModel):

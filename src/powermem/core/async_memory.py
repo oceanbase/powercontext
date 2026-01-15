@@ -611,12 +611,19 @@ class AsyncMemory(MemoryBase):
         # Use self.agent_id as fallback if agent_id is not provided
         agent_id = agent_id or self.agent_id
         
+        # Get intelligent memory config to check fallback setting
+        intelligent_config = self._get_intelligent_memory_config()
+        fallback_to_simple = intelligent_config.get("fallback_to_simple_add", False)
+        
         # Step 1: Extract facts from messages
         logger.info("Extracting facts from messages...")
         facts = await self._extract_facts(messages)
         
         if not facts:
             logger.debug("No facts extracted, skip intelligent add")
+            if fallback_to_simple:
+                logger.warning("No facts extracted from messages, falling back to simple add mode")
+                return await self._simple_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             return {"results": []}
 
         logger.info(f"Extracted {len(facts)} facts: {facts}")
@@ -697,6 +704,9 @@ class AsyncMemory(MemoryBase):
         
         if not actions:
             logger.warning("No actions returned from LLM, skip intelligent add")
+            if fallback_to_simple:
+                logger.warning("No actions returned from LLM, falling back to simple add mode")
+                return await self._simple_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             return {"results": []}
 
         for action in actions:
@@ -800,9 +810,12 @@ class AsyncMemory(MemoryBase):
             if graph_result:
                 result["relations"] = graph_result
             return result
-        # Return [] if we had no actions at all
+        # If we had actions but no results (all failed), check fallback setting
         else:
-            logger.warning("No actions returned from LLM, skip intelligent add")
+            logger.warning("Actions were processed but no results were created")
+            if fallback_to_simple:
+                logger.warning("Falling back to simple add mode")
+                return await self._simple_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             return {"results": []}
 
     async def _add_to_graph_async(

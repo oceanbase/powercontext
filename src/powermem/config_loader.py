@@ -203,7 +203,8 @@ def load_config_from_env() -> Dict[str, Any]:
             'reinforcement_factor': float(os.getenv('INTELLIGENT_MEMORY_REINFORCEMENT_FACTOR', '0.3')),
             'working_threshold': float(os.getenv('INTELLIGENT_MEMORY_WORKING_THRESHOLD', '0.3')),
             'short_term_threshold': float(os.getenv('INTELLIGENT_MEMORY_SHORT_TERM_THRESHOLD', '0.6')),
-            'long_term_threshold': float(os.getenv('INTELLIGENT_MEMORY_LONG_TERM_THRESHOLD', '0.8'))
+            'long_term_threshold': float(os.getenv('INTELLIGENT_MEMORY_LONG_TERM_THRESHOLD', '0.8')),
+            'fallback_to_simple_add': os.getenv('INTELLIGENT_MEMORY_FALLBACK_TO_SIMPLE_ADD', 'false').lower() == 'true'
         },
         'agent_memory': {
             'enabled': os.getenv('AGENT_ENABLED', 'true').lower() == 'true',
