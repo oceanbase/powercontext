@@ -583,7 +583,8 @@ class OceanBaseVectorStore(VectorStoreBase):
         for col_name in self.model_class.__table__.c.keys():
             # Check if Row contains this column (queries may not include all columns)
             if col_name in row._mapping.keys():
-                setattr(record, col_name, row._mapping[col_name])
+                attr_name = 'metadata_' if col_name == 'metadata' else col_name
+                setattr(record, attr_name, row._mapping[col_name])
         
         return record
 
