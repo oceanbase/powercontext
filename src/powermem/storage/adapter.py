@@ -387,6 +387,15 @@ class StorageAdapter:
         # Serialize datetime objects in update_data before merging
         serialized_update_data = serialize_datetime(update_data)
         
+        # Special handling for metadata: merge instead of replace
+        if "metadata" in serialized_update_data:
+            existing_metadata = updated_payload.get("metadata", {})
+            new_metadata = serialized_update_data.get("metadata", {})
+            # Merge: existing metadata + new metadata (new takes precedence)
+            merged_metadata = {**existing_metadata, **new_metadata}
+            serialized_update_data = serialized_update_data.copy()
+            serialized_update_data["metadata"] = merged_metadata
+        
         # Update other fields
         updated_payload.update(serialized_update_data)
         

@@ -854,7 +854,8 @@ class Memory(MemoryBase):
                     results.append({
                         "id": memory_id,
                         "memory": action_text,
-                        "event": event_type
+                        "event": event_type,
+                        "metadata": metadata or {}
                     })
                     action_counts["ADD"] += 1
                     
