@@ -381,7 +381,7 @@ class UserMemory:
             profile_content = self._call_llm_for_extraction(system_prompt, user_message)
 
             # Return empty string if response is empty or indicates no profile
-            if not profile_content or profile_content.lower() in ["", "none", "no profile information", "no relevant information"]:
+            if not profile_content or profile_content.lower() in ["","\"\"", "none", "no profile information", "no relevant information"]:
                 return ""
             
             return profile_content
