@@ -2321,3 +2321,25 @@ def main():
 
 if __name__ == "__main__":
     exit(main())
+
+
+# ==================== Pytest compatibility ====================
+# Dynamically create pytest-compatible test functions for all APITester test methods
+# pytest cannot collect test classes with __init__, so we create standalone functions
+
+def _create_pytest_wrapper(method_name):
+    """Create a pytest-compatible wrapper function for an APITester method"""
+    def wrapper():
+        tester = APITester()
+        method = getattr(tester, method_name)
+        method()
+    wrapper.__name__ = method_name
+    wrapper.__doc__ = f"Pytest wrapper for {method_name}"
+    return wrapper
+
+# Get all test methods from APITester class
+_test_methods = [name for name in dir(APITester) if name.startswith('test_') and callable(getattr(APITester, name))]
+
+# Dynamically create pytest-compatible functions for each test method
+for method_name in _test_methods:
+    globals()[method_name] = _create_pytest_wrapper(method_name)
