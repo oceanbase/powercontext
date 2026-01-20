@@ -5,7 +5,7 @@ This directory contains the benchmarking suite for PowerMem, including a REST AP
 ## Documentation
 
 - **[Benchmark Overview](../docs/benchmark/overview.md)**: Complete documentation covering setup, configuration, and usage of the benchmark suite
-- **[LOCOMO Benchmark](./lomoco/README.md)**: Details about the LOCOMO load testing tool and evaluation metrics
+- **[LOCOMO Benchmark](locomo/README.md)**: Details about the LOCOMO load testing tool and evaluation metrics
 
 ## Quick Links
 
