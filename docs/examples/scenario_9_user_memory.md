@@ -275,6 +275,89 @@ python user_profile_example.py
   2. Prefers agile development methodology (score: 0.78)
 ```
 
+## Optional: Query Rewrite with User Profile
+
+`UserMemory.search()` can optionally rewrite the query using the user's profile to improve recall. This feature is **optional** and disabled by default. It only runs when `query_rewrite.enabled=True` and a `user_id` with `profile_content` is available. If the profile is missing, the query is too short, or the rewrite fails, it falls back to the original query.
+
+Practical example (profile + ambiguous query):
+
+```python
+
+# user_profile_example.py
+from powermem import UserMemory, auto_config
+
+config = auto_config()
+user_memory = UserMemory(config=config)
+
+user_id = "user_rewrite_demo"
+
+# Build profile with relocation info
+user_memory.add(
+    messages="Last month I moved from Chengdu to Hangzhou, and started a new job.",
+    user_id=user_id,
+    profile_type="content"
+)
+
+# Ambiguous query that relies on profile context
+results = user_memory.search(
+    query="Recommend some delicious food near my place.",
+    user_id=user_id,
+    limit=5
+)
+```
+
+Contrast: rewrite enabled vs disabled
+
+```python
+import os
+
+# Enable query rewrite via env
+os.environ["QUERY_REWRITE_ENABLED"] = "true"
+user_memory_rewrite = UserMemory(config=auto_config())
+
+# Disable query rewrite via env
+os.environ["QUERY_REWRITE_ENABLED"] = "false"
+user_memory_no_rewrite = UserMemory(config=auto_config())
+
+# Same query, same user profile
+query = "Recommend some delicious food near my place."
+
+result_with_rewrite = user_memory_rewrite.search(
+    query=query,
+    user_id=user_id,
+    limit=5
+)
+
+result_without_rewrite = user_memory_no_rewrite.search(
+    query=query,
+    user_id=user_id,
+    limit=5
+)
+```
+
+Example config:
+
+```python
+config = {
+    # ... other config
+    "query_rewrite": {
+        "enabled": True,
+        # "prompt": "Rewrite queries to be specific and grounded in the user profile."
+    }
+}
+```
+
+Environment variables are also supported (see `.env.example`):
+
+```bash
+QUERY_REWRITE_ENABLED=false
+# QUERY_REWRITE_PROMPT=
+# QUERY_REWRITE_MODEL_OVERRIDE=
+```
+
+- `QUERY_REWRITE_PROMPT` is optional custom instructions for rewrite.
+- `QUERY_REWRITE_MODEL_OVERRIDE` is optional and must be another model from the same LLM provider family.
+
 ## Step 6: Search Memories With Profile
 
 Search memories and include the user profile in results:
@@ -512,6 +595,8 @@ python complete_user_profile_example.py
 7. **Profile updates**: Profiles are automatically updated when you add new conversations with the same `user_id`, `agent_id`, and `run_id` combination
 
 8. **Message filtering**: By default, only `user` role messages are used for profile extraction (assistant messages are excluded). You can customize this with `include_roles` and `exclude_roles` parameters
+
+9. **Query rewrite (optional)**: Enable `query_rewrite.enabled=True` to let `search()` rewrite queries using profile content; it falls back to the original query when unavailable
 
 ## Step 8: Filter Messages by Roles
 

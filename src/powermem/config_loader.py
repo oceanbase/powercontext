@@ -243,6 +243,11 @@ def load_config_from_env() -> Dict[str, Any]:
                 'model': os.getenv('RERANKER_MODEL'),
                 'api_key': os.getenv('RERANKER_API_KEY'),
             }
+        },
+        'query_rewrite': {
+            'enabled': os.getenv('QUERY_REWRITE_ENABLED', 'false').lower() == 'true',
+            'prompt': os.getenv('QUERY_REWRITE_PROMPT'),
+            'model_override': os.getenv('QUERY_REWRITE_MODEL_OVERRIDE'),
         }
     }
     
