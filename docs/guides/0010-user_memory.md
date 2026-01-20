@@ -347,6 +347,38 @@ for result in results.get('results', []):
     print(f"Score: {result.get('score', 0)}")
 ```
 
+#### Optional: Query rewrite with user profile
+
+`UserMemory.search()` can optionally rewrite the input query based on the user's profile to improve recall. This is disabled by default and requires `query_rewrite.enabled=True` in the config. When enabled:
+
+- rewrite runs only if `user_id` is provided and `profile_content` exists for the user
+- if profile is missing, query is too short, or rewrite fails, it falls back to the original query
+- the search API and return shape do not change
+
+Example config:
+
+```python
+config = {
+    # ... other config
+    "query_rewrite": {
+        "enabled": True,
+        # Optional custom instructions for the rewrite prompt
+        # "prompt": "Rewrite queries to be specific and grounded in the user profile."
+    }
+}
+```
+
+You can also enable this via environment variables (see `.env.example`):
+
+```bash
+QUERY_REWRITE_ENABLED=false
+# QUERY_REWRITE_PROMPT=
+# QUERY_REWRITE_MODEL_OVERRIDE=
+```
+
+- `QUERY_REWRITE_PROMPT` is optional custom instructions for rewrite.
+- `QUERY_REWRITE_MODEL_OVERRIDE` is optional and must be another model from the same LLM provider family.
+
 ### 3. `profile()` — Get user profile
 
 Directly get profile information for a specific user.

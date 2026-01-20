@@ -173,6 +173,23 @@ class HybridConfig(BaseModel):
     auto_switch_threshold: float = 0.8
 
 
+class QueryRewriteConfig(BaseModel):
+    """Configuration for query rewrite module."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Whether to enable query rewrite functionality"
+    )
+    prompt: Optional[str] = Field(
+        default=None,
+        description="Custom rewrite prompt, uses default prompt if None"
+    )
+    model_override: Optional[str] = Field(
+        default=None,
+        description="Optional independent LLM model for rewrite (e.g., use a faster model)"
+    )
+
+
 class MemoryConfig(BaseModel):
     """Main memory configuration class."""
 
@@ -240,7 +257,10 @@ class MemoryConfig(BaseModel):
         description="Configuration for audio language model",
         default=None,
     )
-
+    query_rewrite: Optional[QueryRewriteConfig] = Field(
+        description="Configuration for query rewrite module",
+        default=None,
+    )
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -256,3 +276,5 @@ class MemoryConfig(BaseModel):
             self.logging = LoggingConfig()
         if self.reranker is None:
             self.reranker = RerankConfig()
+        if self.query_rewrite is None:
+            self.query_rewrite = QueryRewriteConfig()
