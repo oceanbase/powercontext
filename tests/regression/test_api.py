@@ -2324,22 +2324,161 @@ if __name__ == "__main__":
 
 
 # ==================== Pytest compatibility ====================
-# Dynamically create pytest-compatible test functions for all APITester test methods
-# pytest cannot collect test classes with __init__, so we create standalone functions
+# Create ordered test functions for pytest to discover and run in correct sequence
+# Tests are numbered to ensure correct execution order (without_auth first, then with_auth)
 
-def _create_pytest_wrapper(method_name):
-    """Create a pytest-compatible wrapper function for an APITester method"""
+import pytest
+
+# Global tester instance to share state across tests
+_global_tester = None
+
+# Define test execution order (same as run_all_tests)
+# Tests without auth (Module 1) - executed first with auth disabled
+_WITHOUT_AUTH_TESTS = [
+    'test_health_check_without_auth',
+    'test_system_status_without_auth',
+    'test_system_metrics_without_auth',
+    'test_system_delete_all_memories_without_auth',
+    'test_create_memory_without_auth',
+    'test_batch_create_memories_without_auth',
+    'test_list_memories_without_auth',
+    'test_get_memory_without_auth',
+    'test_update_memory_without_auth',
+    'test_batch_update_memories_without_auth',
+    'test_delete_memory_without_auth',
+    'test_batch_delete_memories_without_auth',
+    'test_search_memories_without_auth',
+    'test_update_user_profile_without_auth',
+    'test_get_user_profile_without_auth',
+    'test_delete_user_profile_without_auth',
+    'test_get_user_memories_without_auth',
+    'test_delete_user_memories_without_auth',
+    'test_create_agent_memory_without_auth',
+    'test_get_agent_memories_without_auth',
+    'test_share_agent_memories_without_auth',
+    'test_get_shared_memories_without_auth',
+]
+
+# Tests with auth (Module 2) - executed after auth is enabled
+_WITH_AUTH_TESTS = [
+    'test_health_check_with_auth',
+    'test_system_status_with_auth',
+    'test_system_metrics_with_auth',
+    'test_system_delete_all_memories_with_auth',
+    'test_create_memory_with_auth',
+    'test_batch_create_memories_with_auth',
+    'test_list_memories_with_auth',
+    'test_get_memory_with_auth',
+    'test_update_memory_with_auth',
+    'test_batch_update_memories_with_auth',
+    'test_delete_memory_with_auth',
+    'test_batch_delete_memories_with_auth',
+    'test_search_memories_with_auth',
+    'test_update_user_profile_with_auth',
+    'test_get_user_profile_with_auth',
+    'test_delete_user_profile_with_auth',
+    'test_get_user_memories_with_auth',
+    'test_delete_user_memories_with_auth',
+    'test_create_agent_memory_with_auth',
+    'test_get_agent_memories_with_auth',
+    'test_share_agent_memories_with_auth',
+    'test_get_shared_memories_with_auth',
+    'test_auth_errors',
+    'test_validation_errors',
+]
+
+# First test in with_auth group - used to trigger auth mode switch
+_FIRST_WITH_AUTH_TEST = _WITH_AUTH_TESTS[0]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_api_server():
+    """
+    Pytest fixture to setup API server before running tests
+    Initial state: auth disabled (for Module 1 tests)
+    """
+    global _global_tester
+    
+    if _global_tester is None:
+        _global_tester = APITester()
+    
+    # Setup for Module 1: Tests without API Key (initial state)
+    print("\n" + "=" * 60)
+    print("Pytest Setup: Initializing API server (auth disabled)")
+    print("=" * 60)
+    
+    # Update .env file, set POWERMEM_SERVER_AUTH_ENABLED to false
+    print("\nUpdating .env file: POWERMEM_SERVER_AUTH_ENABLED=false")
+    _global_tester.update_env_file(auth_enabled=False)
+    
+    # Restart server to apply new configuration
+    if not _global_tester.restart_server():
+        pytest.fail("Server restart failed for initial setup (without auth), cannot continue testing")
+    
+    # Set initial auth state and expect_auth_required flag for without_auth tests
+    _global_tester._current_auth_state = 'disabled'
+    _global_tester.expect_auth_required = False
+    
+    yield  # All tests run here
+    
+    # Teardown: Could restore original server state here if needed
+
+
+def _create_pytest_wrapper(method_name, is_first_with_auth=False):
+    """
+    Create a pytest-compatible wrapper function for an APITester method
+    
+    Args:
+        method_name: The APITester method name to wrap
+        is_first_with_auth: If True, this wrapper will switch server to auth enabled mode
+    """
     def wrapper():
-        tester = APITester()
-        method = getattr(tester, method_name)
+        global _global_tester
+        if _global_tester is None:
+            _global_tester = APITester()
+        
+        # Switch to auth enabled mode at the start of with_auth tests
+        if is_first_with_auth:
+            current_auth_state = getattr(_global_tester, '_current_auth_state', None)
+            if current_auth_state != 'enabled':
+                print("\n" + "=" * 60)
+                print("Pytest: Switching to auth enabled mode for with_auth tests")
+                print("=" * 60)
+                test_api_keys = "key1,key2,key3"
+                _global_tester.update_env_file(auth_enabled=True, api_keys=test_api_keys)
+                if not _global_tester.restart_server():
+                    pytest.fail("Server restart failed when switching to auth mode")
+                _global_tester._current_auth_state = 'enabled'
+        
+        method = getattr(_global_tester, method_name)
         method()
+    
     wrapper.__name__ = method_name
     wrapper.__doc__ = f"Pytest wrapper for {method_name}"
     return wrapper
 
-# Get all test methods from APITester class
-_test_methods = [name for name in dir(APITester) if name.startswith('test_') and callable(getattr(APITester, name))]
 
-# Dynamically create pytest-compatible functions for each test method
-for method_name in _test_methods:
-    globals()[method_name] = _create_pytest_wrapper(method_name)
+# Create ordered test functions with numeric prefixes to ensure correct execution order
+# Tests are named test_XX_original_name to ensure pytest runs them in the right sequence
+
+def _register_ordered_tests():
+    """Register all tests with numeric prefixes to ensure execution order"""
+    test_idx = 0
+    
+    # Register without_auth tests (00-21)
+    for method_name in _WITHOUT_AUTH_TESTS:
+        ordered_name = f"test_{test_idx:02d}_{method_name[5:]}"  # Remove 'test_' prefix, add number
+        globals()[ordered_name] = _create_pytest_wrapper(method_name, is_first_with_auth=False)
+        test_idx += 1
+    
+    # Register with_auth tests (22-45)
+    for i, method_name in enumerate(_WITH_AUTH_TESTS):
+        ordered_name = f"test_{test_idx:02d}_{method_name[5:]}"  # Remove 'test_' prefix, add number
+        # First with_auth test triggers the auth mode switch
+        is_first = (i == 0)
+        globals()[ordered_name] = _create_pytest_wrapper(method_name, is_first_with_auth=is_first)
+        test_idx += 1
+
+
+# Register all tests
+_register_ordered_tests()
