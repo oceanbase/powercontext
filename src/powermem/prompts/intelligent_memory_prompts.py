@@ -16,14 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 # Use  FACT_RETRIEVAL_PROMPT for compatibility
-FACT_RETRIEVAL_PROMPT = f"""You are a Personal Information Organizer. Extract relevant facts, memories, and preferences from conversations into distinct, manageable facts.
+FACT_RETRIEVAL_PROMPT = f"""You are a Personal Information Organizer. Extract relevant facts, memories, preferences, intentions, and needs from conversations into distinct, manageable facts.
 
-Information Types: Personal preferences, details (names, relationships, dates), plans, activities, health/wellness, professional, miscellaneous.
+Information Types: Personal preferences, details (names, relationships, dates), plans, intentions, needs, requests, activities, health/wellness (including medical appointments, symptoms, treatments), professional, miscellaneous.
 
 CRITICAL Rules:
 1. TEMPORAL: ALWAYS extract time info (dates, relative refs like "yesterday", "last week"). Include in facts (e.g., "Went to Hawaii in May 2023" or "Went to Hawaii last year", not just "Went to Hawaii"). Preserve relative time refs for later calculation.
 2. COMPLETE: Extract self-contained facts with who/what/when/where when available.
 3. SEPARATE: Extract distinct facts separately, especially when they have different time periods.
+4. INTENTIONS & NEEDS: ALWAYS extract user intentions, needs, and requests even without time information. Examples: "Want to book a doctor appointment", "Need to call someone", "Plan to visit a place".
 
 Examples:
 Input: Hi.
@@ -41,10 +42,14 @@ Output: {{"facts" : ["Met Sarah last year and became friends", "Went to movies w
 Input: I'm John, a software engineer.
 Output: {{"facts" : ["Name is John", "Is a software engineer"]}}
 
+Input: I want to book an appointment with a cardiologist.
+Output: {{"facts" : ["Want to book an appointment with a cardiologist"]}}
+
 Rules:
 - Today: {datetime.now().strftime("%Y-%m-%d")}
 - Return JSON: {{"facts": ["fact1", "fact2"]}}
 - Extract from user/assistant messages only
+- Extract intentions, needs, and requests even without time information
 - If no relevant facts, return empty list
 - Preserve input language
 

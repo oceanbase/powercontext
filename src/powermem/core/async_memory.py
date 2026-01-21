@@ -1265,8 +1265,22 @@ class AsyncMemory(MemoryBase):
         limit: int = 100,
         offset: int = 0,
         filters: Optional[Dict[str, Any]] = None,
+        sort_by: Optional[str] = None,
+        order: str = "desc",
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Get all memories with optional filtering asynchronously.
+        """Get all memories with optional filtering and sorting asynchronously.
+        
+        Args:
+            user_id: Optional user ID filter
+            agent_id: Optional agent ID filter
+            run_id: Optional run ID filter
+            limit: Maximum number of results to return (default: 100)
+            offset: Number of results to skip (default: 0)
+            filters: Optional additional filters dictionary
+            sort_by: Optional field to sort results by. Options: "created_at" (creation time),
+                     "updated_at" (update time), "id" (memory ID). If None, results are returned
+                     in their original order (typically by ID).
+            order: Sort order. "desc" for descending (default), "asc" for ascending
         
         Returns:
             Dict[str, List[Dict[str, Any]]]: A dictionary containing all memories with the following structure:
@@ -1282,7 +1296,9 @@ class AsyncMemory(MemoryBase):
                 - "relations" (List[Dict], optional): Graph relations if graph store is enabled
         """
         try:
-            results = await self.storage.get_all_memories_async(user_id, agent_id, run_id, limit, offset)
+            results = await self.storage.get_all_memories_async(
+                user_id, agent_id, run_id, limit, offset, sort_by=sort_by, order=order
+            )
             
             await self.audit.log_event_async("memory.get_all", {
                 "user_id": user_id,

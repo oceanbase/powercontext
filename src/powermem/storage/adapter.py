@@ -459,8 +459,10 @@ class StorageAdapter:
         run_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        sort_by: Optional[str] = None,
+        order: str = "desc",
     ) -> List[Dict[str, Any]]:
-        """Get all memories with optional filtering."""
+        """Get all memories with optional filtering and sorting."""
         # Build filters for database-level filtering
         filters = {}
         if user_id:
@@ -535,8 +537,73 @@ class StorageAdapter:
             
             memories.append(memory)
         
+        # Apply sorting if specified
+        if sort_by:
+            memories = self._sort_memories(memories, sort_by, order)
+        
         # Apply offset and limit
         return memories[offset:offset + limit]
+    
+    def _sort_memories(
+        self,
+        memories: List[Dict[str, Any]],
+        sort_by: str,
+        order: str = "desc"
+    ) -> List[Dict[str, Any]]:
+        """
+        Sort memories by specified field.
+        
+        Args:
+            memories: List of memory dictionaries
+            sort_by: Field to sort by. Options: "created_at", "updated_at", "id"
+            order: Sort order. "desc" for descending (default), "asc" for ascending
+            
+        Returns:
+            Sorted list of memories
+        """
+        if not memories or not sort_by:
+            return memories
+        
+        reverse = (order.lower() == "desc")
+        
+        def get_sort_key(memory: Dict[str, Any]) -> Any:
+            """Get the sort key value from memory."""
+            if sort_by == "created_at":
+                created_at = memory.get("created_at")
+                if created_at is None:
+                    return datetime.min if reverse else datetime.max
+                # Handle both datetime objects and ISO format strings
+                if isinstance(created_at, str):
+                    try:
+                        from datetime import datetime as dt
+                        return dt.fromisoformat(created_at.replace('Z', '+00:00'))
+                    except (ValueError, AttributeError):
+                        return datetime.min if reverse else datetime.max
+                return created_at if isinstance(created_at, datetime) else datetime.min
+            elif sort_by == "updated_at":
+                updated_at = memory.get("updated_at")
+                if updated_at is None:
+                    return datetime.min if reverse else datetime.max
+                # Handle both datetime objects and ISO format strings
+                if isinstance(updated_at, str):
+                    try:
+                        from datetime import datetime as dt
+                        return dt.fromisoformat(updated_at.replace('Z', '+00:00'))
+                    except (ValueError, AttributeError):
+                        return datetime.min if reverse else datetime.max
+                return updated_at if isinstance(updated_at, datetime) else datetime.min
+            elif sort_by == "id":
+                return memory.get("id", 0)
+            else:
+                # Unknown sort field, return original order
+                return None
+        
+        try:
+            sorted_memories = sorted(memories, key=get_sort_key, reverse=reverse)
+            return sorted_memories
+        except Exception as e:
+            logger.warning(f"Failed to sort memories by {sort_by}: {e}, returning original order")
+            return memories
     
     def clear_memories(
         self,
@@ -589,10 +656,14 @@ class StorageAdapter:
         run_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        sort_by: Optional[str] = None,
+        order: str = "desc",
     ) -> List[Dict[str, Any]]:
-        """Get all memories with optional filtering asynchronously."""
+        """Get all memories with optional filtering and sorting asynchronously."""
         import asyncio
-        return await asyncio.to_thread(self.get_all_memories, user_id, agent_id, run_id, limit, offset)
+        return await asyncio.to_thread(
+            self.get_all_memories, user_id, agent_id, run_id, limit, offset, sort_by, order
+        )
     
     async def clear_memories_async(
         self,
