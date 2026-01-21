@@ -198,6 +198,10 @@ class DatabaseSettings(_BasePowermemSettings):
         default="memories_vidx",
         validation_alias=AliasChoices("OCEANBASE_VIDX_NAME"),
     )
+    oceanbase_include_sparse: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("SPARSE_VECTOR_ENABLE"),
+    )
     postgres_collection: str = Field(
         default="memories",
         validation_alias=AliasChoices("POSTGRES_COLLECTION"),
@@ -254,6 +258,7 @@ class DatabaseSettings(_BasePowermemSettings):
             "text_field": self.oceanbase_text_field,
             "metadata_field": self.oceanbase_metadata_field,
             "vidx_name": self.oceanbase_vidx_name,
+            "include_sparse": self.oceanbase_include_sparse,
         }
 
     def _build_postgres_config(self) -> Dict[str, Any]:
@@ -493,6 +498,48 @@ class RerankerSettings(_BasePowermemSettings):
                 "api_key": self.api_key,
             },
         }
+
+
+class QueryRewriteSettings(_BasePowermemSettings):
+    model_config = settings_config("QUERY_REWRITE_")
+
+    enabled: bool = Field(default=False)
+    prompt: Optional[str] = Field(default=None)
+    model_override: Optional[str] = Field(default=None)
+
+    def to_config(self) -> Dict[str, Any]:
+        return self.model_dump()
+
+
+class SparseEmbedderSettings(_BasePowermemSettings):
+    model_config = settings_config("SPARSE_EMBEDDER_")
+
+    provider: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("SPARSE_EMBEDDER_PROVIDER"),
+    )
+    api_key: Optional[str] = Field(default=None)
+    model: Optional[str] = Field(default=None)
+    base_url: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("SPARSE_EMBEDDING_BASE_URL"),
+    )
+    embedding_dims: Optional[int] = Field(
+        default=None,
+        validation_alias=AliasChoices("SPARSE_EMBEDDER_DIMS"),
+    )
+
+    def to_config(self) -> Optional[Dict[str, Any]]:
+        if not self.provider:
+            return None
+        config = {
+            "api_key": self.api_key,
+            "model": self.model,
+            "base_url": self.base_url,
+            "embedding_dims": self.embedding_dims,
+        }
+        config = {key: value for key, value in config.items() if value is not None}
+        return {"provider": self.provider.lower(), "config": config}
 
 
 class PerformanceSettings(_BasePowermemSettings):
@@ -745,6 +792,7 @@ class PowermemSettings:
         "agent_memory": ("agent_memory", AgentMemorySettings),
         "timezone": ("timezone", TimezoneSettings),
         "reranker": ("reranker", RerankerSettings),
+        "query_rewrite": ("query_rewrite", QueryRewriteSettings),
         "telemetry": ("telemetry", TelemetrySettings),
         "audit": ("audit", AuditSettings),
         "logging": ("logging", LoggingSettings),
@@ -757,15 +805,22 @@ class PowermemSettings:
         self.memory_decay = MemoryDecaySettings()
         self.performance = PerformanceSettings()
         self.security = SecuritySettings()
+        self.sparse_embedder = SparseEmbedderSettings()
 
     def to_config(self) -> Dict[str, Any]:
         config = {}
         for output_key, (attr_name, _) in self._COMPONENTS.items():
-            config[output_key] = getattr(self, attr_name).to_config()
+            component_config = getattr(self, attr_name).to_config()
+            if component_config is not None:
+                config[output_key] = component_config
 
         graph_store_config = self.graph_store.to_config(self.database)
         if graph_store_config:
             config["graph_store"] = graph_store_config
+
+        sparse_embedder_config = self.sparse_embedder.to_config()
+        if sparse_embedder_config:
+            config["sparse_embedder"] = sparse_embedder_config
 
         return config
 
