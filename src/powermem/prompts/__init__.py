@@ -20,6 +20,11 @@ from .user_profile_prompts import (
     USER_PROFILE_EXTRACTION_PROMPT,
     get_user_profile_extraction_prompt,
 )
+from .query_rewrite_prompts import (
+    DEFAULT_QUERY_REWRITE_INSTRUCTIONS,
+    QUERY_REWRITE_TEMPLATE,
+    build_query_rewrite_prompt,
+)
 
 __all__ = [
     "PromptTemplates",
@@ -34,4 +39,7 @@ __all__ = [
     "USER_PROFILE_TOPICS",
     "USER_PROFILE_EXTRACTION_PROMPT",
     "get_user_profile_extraction_prompt",
+    "DEFAULT_QUERY_REWRITE_INSTRUCTIONS",
+    "QUERY_REWRITE_TEMPLATE",
+    "build_query_rewrite_prompt",
 ]

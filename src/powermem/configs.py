@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 from powermem.integrations.embeddings.configs import EmbedderConfig
+from powermem.integrations.embeddings.config.sparse_base import SparseEmbedderConfig
 from powermem.integrations.llm import LlmConfig
 from powermem.storage.configs import VectorStoreConfig, GraphStoreConfig
 from powermem.integrations.rerank.configs import RerankConfig
@@ -44,6 +45,10 @@ class IntelligentMemoryConfig(BaseModel):
     long_term_threshold: float = Field(
         default=0.8,
         description="Threshold for long-term memory classification"
+    )
+    fallback_to_simple_add: bool = Field(
+        default=False,
+        description="Whether to fallback to simple add mode when intelligent processing fails (no facts extracted or no actions returned)"
     )
 
 
@@ -168,6 +173,23 @@ class HybridConfig(BaseModel):
     auto_switch_threshold: float = 0.8
 
 
+class QueryRewriteConfig(BaseModel):
+    """Configuration for query rewrite module."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Whether to enable query rewrite functionality"
+    )
+    prompt: Optional[str] = Field(
+        default=None,
+        description="Custom rewrite prompt, uses default prompt if None"
+    )
+    model_override: Optional[str] = Field(
+        default=None,
+        description="Optional independent LLM model for rewrite (e.g., use a faster model)"
+    )
+
+
 class MemoryConfig(BaseModel):
     """Main memory configuration class."""
 
@@ -189,6 +211,10 @@ class MemoryConfig(BaseModel):
     )
     reranker: Optional[RerankConfig] = Field(
         description="Configuration for the reranker",
+        default=None,
+    )
+    sparse_embedder: Optional[SparseEmbedderConfig] = Field(
+        description="Configuration for the sparse embedder (only supported for OceanBase)",
         default=None,
     )
     version: str = Field(
@@ -231,7 +257,10 @@ class MemoryConfig(BaseModel):
         description="Configuration for audio language model",
         default=None,
     )
-
+    query_rewrite: Optional[QueryRewriteConfig] = Field(
+        description="Configuration for query rewrite module",
+        default=None,
+    )
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -247,3 +276,5 @@ class MemoryConfig(BaseModel):
             self.logging = LoggingConfig()
         if self.reranker is None:
             self.reranker = RerankConfig()
+        if self.query_rewrite is None:
+            self.query_rewrite = QueryRewriteConfig()

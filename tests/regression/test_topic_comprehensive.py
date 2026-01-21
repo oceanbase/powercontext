@@ -225,7 +225,7 @@ def test_case_2_custom_topics(user_memory):
         
         # Cleanup
         try:
-            user_memory.delete_all(user_id="topic_user_002")
+            user_memory.delete_all(user_id="topic_user_002", delete_profile=True)
         except Exception:
             pass
         

@@ -79,6 +79,17 @@ class UserMemory:
         # Use factory to create UserProfileStore based on storage_type
         self.profile_store = UserProfileStoreFactory.create(provider, profile_store_config)
         
+        # Initialize Query rewriter (based on enabled config)
+        self.query_rewriter = None
+        query_rewrite_config = self.memory.config.get('query_rewrite') if isinstance(self.memory.config, dict) else getattr(self.memory.config, 'query_rewrite', None)
+        if query_rewrite_config is not None and query_rewrite_config.get('enabled', False):
+            from .query_rewrite.rewriter import QueryRewriter
+            self.query_rewriter = QueryRewriter(
+                llm=self.memory.llm,
+                config=query_rewrite_config
+            )
+            logger.info("Query rewrite enabled with user profile support")
+        
         logger.info("UserMemory initialized")
 
     def _filter_messages_by_roles(
@@ -370,7 +381,7 @@ class UserMemory:
             profile_content = self._call_llm_for_extraction(system_prompt, user_message)
 
             # Return empty string if response is empty or indicates no profile
-            if not profile_content or profile_content.lower() in ["", "none", "no profile information", "no relevant information"]:
+            if not profile_content or profile_content.lower() in ["","\"\"", "none", "no profile information", "no relevant information"]:
                 return ""
             
             return profile_content
@@ -473,9 +484,36 @@ class UserMemory:
             - "profile_content" (str, optional): Profile content text if add_profile is True and user_id is provided
         """
 
-        # Call memory.search()
+        # === Query rewrite step ===
+        effective_query = query
+        if self.query_rewriter and user_id:
+            # Get user profile from user_profiles table
+            try:
+                profile = self.profile_store.get_profile_by_user_id(user_id)
+                profile_content = None
+                if profile and profile.get("profile_content"):
+                    profile_content = profile["profile_content"]
+                
+                # Execute rewrite
+                if profile_content:
+                    rewrite_result = self.query_rewriter.rewrite(
+                        query=query,
+                        profile_content=profile_content
+                    )
+                    effective_query = rewrite_result.rewritten_query
+                    
+                    # Log original query for audit
+                    if rewrite_result.is_rewritten:
+                        logger.debug(f"Query rewritten from: {rewrite_result.original_query}")
+                else:
+                    logger.debug(f"No profile_content found for user_id: {user_id}, skipping rewrite")
+            except Exception as e:
+                logger.warning(f"Failed to get user profile for query rewrite: {e}, using original query")
+        # === End of query rewrite step ===
+
+        # Call memory.search() with rewritten query
         search_result = self.memory.search(
-            query=query,
+            query=effective_query,
             user_id=user_id,
             agent_id=agent_id,
             run_id=run_id,

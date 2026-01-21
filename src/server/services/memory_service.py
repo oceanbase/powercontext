@@ -77,12 +77,11 @@ class MemoryService:
             # Result format: {"results": [{"id": memory_id, ...}], ...}
             all_results = result.get("results", [])
             
+            # Empty results is acceptable (e.g., when intelligent processing detects duplicates)
+            # Return empty list instead of raising error
             if not all_results:
-                raise APIError(
-                    code=ErrorCode.MEMORY_CREATE_FAILED,
-                    message="No memories were created",
-                    status_code=500,
-                )
+                logger.info("No memories were created (likely duplicates detected or no facts extracted)")
+                return []
             
             logger.info(f"Created {len(all_results)} memory/memories")
             

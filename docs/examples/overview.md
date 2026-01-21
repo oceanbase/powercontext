@@ -19,6 +19,7 @@ Each scenario is available as both:
  - [Scenario 7: Multimodal Capability](./scenario_7_multimodal.md)
  - [Scenario 8: Ebbinghaus Forgetting Curve](./scenario_8_ebbinghaus_forgetting_curve.md)
  - [Scenario 9: User Profile Management](./scenario_9_user_memory.md)
+ - [Scenario 10: Sparse Vector](./scenario_10_sparse_vector.md)
 
 ## Quick Start
 
@@ -62,6 +63,7 @@ Each notebook includes:
 7. **Scenario 7** - Multimodal capability for image and multimedia processing
 8. **Scenario 8** - Ebbinghaus forgetting curve for time-based memory decay and retention optimization
 9. **Scenario 9** - User profile management for automatic user profile extraction and integration with memory search
+10. **Scenario 10** - Sparse vector for improved search accuracy with schema upgrade and data migration
 
 ## Requirements
 

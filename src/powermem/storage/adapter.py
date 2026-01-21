@@ -19,10 +19,11 @@ logger = logging.getLogger(__name__)
 class StorageAdapter:
     """Adapter that bridges VectorStoreBase interface with Memory class expectations."""
     
-    def __init__(self, vector_store: VectorStoreBase, embedding_service=None):
+    def __init__(self, vector_store: VectorStoreBase, embedding_service=None, sparse_embedder_service=None):
         """Initialize the adapter with a vector store and embedding service."""
         self.vector_store = vector_store
         self.embedding_service = embedding_service
+        self.sparse_embedder_service = sparse_embedder_service
         # get collection name from vector store attribute collection_name
         self.collection_name = getattr(vector_store, 'collection_name', 'memories')
 
@@ -32,6 +33,26 @@ class StorageAdapter:
 
         # Ensure collection exists (will be created with actual vector size when first vector is added)
         # self.vector_store.create_col(self.collection_name, vector_size=1536, distance="cosine")
+    
+    def _generate_sparse_embedding(self, content: str, memory_action: str) -> Optional[Any]:
+        """
+        Generate sparse embedding for given content.
+        
+        Args:
+            content: The text content to generate embedding for
+            memory_action: The action context ("add", "search", "update")
+        
+        Returns:
+            Sparse embedding if successful, None otherwise
+        """
+        if not self.sparse_embedder_service or not content:
+            return None
+        
+        try:
+            return self.sparse_embedder_service.embed_sparse(content, memory_action=memory_action)
+        except Exception as e:
+            logger.warning(f"Failed to generate sparse embedding ({memory_action}): {e}")
+            return None
     
     def add_memory(self, memory_data: Dict[str, Any]) -> int:
         """Add a memory to the store."""
@@ -59,6 +80,11 @@ class StorageAdapter:
                 # No embedding service available, use mock vector
                 vector = [0.1] * 1536
 
+        # Generate sparse embedding if sparse embedder service is available
+        sparse_embedding = memory_data.get("sparse_embedding")
+        if sparse_embedding is None:
+            sparse_embedding = self._generate_sparse_embedding(content, "add")
+
         # Create collection with actual vector size if not exists
         collection_name = getattr(target_store, 'collection_name', self.collection_name)
         if not hasattr(self, '_collection_created'):
@@ -79,13 +105,17 @@ class StorageAdapter:
             "fulltext_content": content,  # For full-text search
         }
         
+        # Add sparse embedding to payload if available
+        if sparse_embedding is not None:
+            payload["sparse_embedding"] = sparse_embedding
+        
         # Add only user-defined metadata (not system fields)
         user_metadata = memory_data.get("metadata", {})
         payload["metadata"] = serialize_datetime(user_metadata) if user_metadata else {}
         
         # Add any extra fields (excluding system fields and embedding)
         excluded_fields = ["id", "content", "data", "user_id", "agent_id", "run_id", "metadata", "filters", 
-                          "created_at", "updated_at", "actor_id", "hash", "category", "embedding"]
+                          "created_at", "updated_at", "actor_id", "hash", "category", "embedding", "sparse_embedding"]
         for key, value in memory_data.items():
             if key not in excluded_fields:
                 payload[key] = serialize_datetime(value)
@@ -116,6 +146,9 @@ class StorageAdapter:
             logger.warning("No query embedding provided for search")
             return []
         
+        # Generate sparse embedding if sparse embedder service is available and query is provided
+        sparse_embedding = self._generate_sparse_embedding(query, "search") if query else None
+        
         # Merge user_id/agent_id/run_id into filters to ensure consistency
         # This ensures filters are applied at the database level, avoiding redundant filtering
         effective_filters = filters.copy() if filters else {}
@@ -134,7 +167,13 @@ class StorageAdapter:
         try:
             # Try OceanBase format first - pass query text for hybrid search
             search_query = query if query else ""
-            results = target_store.search(search_query, vectors=query_vector, limit=limit, filters=effective_filters)
+            # Check if target_store.search supports sparse_embedding parameter
+            import inspect
+            search_sig = inspect.signature(target_store.search)
+            if 'sparse_embedding' in search_sig.parameters:
+                results = target_store.search(search_query, vectors=query_vector, limit=limit, filters=effective_filters, sparse_embedding=sparse_embedding)
+            else:
+                results = target_store.search(search_query, vectors=query_vector, limit=limit, filters=effective_filters)
         except TypeError:
             # Fallback to SQLite format (doesn't support query text parameter)
             # Pass filters to ensure filtering works correctly
@@ -335,12 +374,27 @@ class StorageAdapter:
         if "content" in update_data:
             updated_payload["data"] = update_data["content"]
             updated_payload["fulltext_content"] = update_data["content"]
+            
+            # Generate sparse embedding if sparse embedder service is available and content is updated
+            sparse_embedding = self._generate_sparse_embedding(update_data["content"], "update")
+            if sparse_embedding is not None:
+                updated_payload["sparse_embedding"] = sparse_embedding
+            
             # Remove content from update_data to avoid confusion
             update_data = update_data.copy()
             del update_data["content"]
         
         # Serialize datetime objects in update_data before merging
         serialized_update_data = serialize_datetime(update_data)
+        
+        # Special handling for metadata: merge instead of replace
+        if "metadata" in serialized_update_data:
+            existing_metadata = updated_payload.get("metadata", {})
+            new_metadata = serialized_update_data.get("metadata", {})
+            # Merge: existing metadata + new metadata (new takes precedence)
+            merged_metadata = {**existing_metadata, **new_metadata}
+            serialized_update_data = serialized_update_data.copy()
+            serialized_update_data["metadata"] = merged_metadata
         
         # Update other fields
         updated_payload.update(serialized_update_data)
@@ -691,16 +745,17 @@ class SubStorageAdapter(StorageAdapter):
     This class only contains sub-store management methods.
     """
 
-    def __init__(self, vector_store: VectorStoreBase, embedding_service=None):
+    def __init__(self, vector_store: VectorStoreBase, embedding_service=None, sparse_embedder_service=None):
         """
         Initialize the sub-storage adapter.
 
         Args:
             vector_store: The main vector store instance
             embedding_service: Optional embedding service for generating vectors
+            sparse_embedder_service: Optional sparse embedder service for generating sparse embeddings
         """
         # Initialize parent class
-        super().__init__(vector_store, embedding_service)
+        super().__init__(vector_store, embedding_service, sparse_embedder_service)
 
         # Initialize migration status management (database-backed)
         from powermem.storage.migration_manager import SubStoreMigrationManager
