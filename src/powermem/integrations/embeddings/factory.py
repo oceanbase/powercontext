@@ -31,17 +31,20 @@ class EmbedderFactory:
             if not vector_config:
                 return default
             if isinstance(vector_config, dict):
-                return vector_config.get('embedding_model_dims', default)
-            else:
-                return getattr(vector_config, 'embedding_model_dims', default)
+                value = vector_config.get('embedding_model_dims', default)
+                return default if value is None else value
+            value = getattr(vector_config, 'embedding_model_dims', default)
+            return default if value is None else value
 
         # Helper function to extract dimension from embedder config (handles dict and BaseSettings)
         def get_dimension_from_embedder_config(embedder_config, default=1536):
             if not embedder_config:
                 return default
             if isinstance(embedder_config, dict):
-                return embedder_config.get('embedding_dims', default)
-            return getattr(embedder_config, 'embedding_dims', default)
+                value = embedder_config.get('embedding_dims', default)
+                return default if value is None else value
+            value = getattr(embedder_config, 'embedding_dims', default)
+            return default if value is None else value
         
         # Handle mock provider directly
         if provider_name == "mock":
