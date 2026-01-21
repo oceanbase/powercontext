@@ -297,10 +297,11 @@ def test_step2_custom_embedder_provider() -> None:
     from powermem.integrations.embeddings.factory import EmbedderFactory
     
     # Register custom embedder
-    # EmbedderFactory doesn't have register_provider, so use provider_to_class.update()
-    EmbedderFactory.provider_to_class.update({
-        "custom": f"{__name__}.CustomEmbedder"
-    })
+    EmbedderFactory.register_provider(
+        "custom",
+        f"{__name__}.CustomEmbedder",
+        CustomEmbedderConfig,
+    )
     
     print("✓ CustomEmbedder class defined")
     print("✓ Custom Embedder provider registered successfully")

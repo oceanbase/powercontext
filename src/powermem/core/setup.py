@@ -14,7 +14,7 @@ import logging
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
-from ..config_loader import settings_config
+from ..settings import settings_config
 
 logger = logging.getLogger(__name__)
 

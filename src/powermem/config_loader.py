@@ -5,36 +5,17 @@ This module provides utilities for loading configuration from environment variab
 or other sources. It simplifies the configuration setup process.
 """
 
-from pathlib import Path
 from typing import Any, Dict, Optional
 import warnings
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
 
-
-def _get_default_env_file() -> Optional[str]:
-    project_root = Path(__file__).resolve().parents[2]
-    candidates = (
-        Path.cwd() / ".env",
-        project_root / ".env",
-        project_root / "examples" / "configs" / ".env",
-    )
-    for path in candidates:
-        if path.exists():
-            return str(path)
-    try:
-        from dotenv import find_dotenv
-
-        env_path = find_dotenv(usecwd=True)
-        if env_path:
-            return env_path
-    except Exception:
-        pass
-    return None
-
-
-_DEFAULT_ENV_FILE = _get_default_env_file()
+from powermem.integrations.embeddings.config.providers import (
+    CustomEmbeddingConfig,
+    PROVIDER_TO_CONFIG,
+)
+from powermem.settings import _DEFAULT_ENV_FILE, settings_config
 
 
 def _load_dotenv_if_available() -> None:
@@ -45,16 +26,6 @@ def _load_dotenv_if_available() -> None:
     except Exception:
         return
     load_dotenv(_DEFAULT_ENV_FILE, override=False)
-
-
-def settings_config(env_prefix: str = "") -> SettingsConfigDict:
-    return SettingsConfigDict(
-        case_sensitive=False,
-        extra="ignore",
-        env_prefix=env_prefix,
-        env_file=_DEFAULT_ENV_FILE,
-        env_file_encoding="utf-8",
-    )
 
 
 class _BasePowermemSettings(BaseSettings):
@@ -411,73 +382,24 @@ class EmbeddingSettings(_BasePowermemSettings):
     provider: str = Field(default="qwen")
     api_key: Optional[str] = Field(default=None)
     model: Optional[str] = Field(default=None)
-    dims: int = Field(default=1536)
-    qwen_base_url: str = Field(
-        default="https://dashscope.aliyuncs.com/api/v1",
-        validation_alias=AliasChoices("QWEN_EMBEDDING_BASE_URL"),
-    )
-    openai_base_url: str = Field(
-        default="https://api.openai.com/v1",
-        validation_alias=AliasChoices(
-            "OPENAI_EMBEDDING_BASE_URL",
-            "OPEN_EMBEDDING_BASE_URL",
-        ),
-    )
-    siliconflow_base_url: str = Field(
-        default="https://api.siliconflow.cn/v1",
-        validation_alias=AliasChoices("SILICONFLOW_EMBEDDING_BASE_URL"),
-    )
-    huggingface_base_url: Optional[str] = Field(
+    embedding_dims: Optional[int] = Field(
         default=None,
-        validation_alias=AliasChoices("HUGGINFACE_EMBEDDING_BASE_URL"),
+        validation_alias=AliasChoices("EMBEDDING_DIMS", "DIMS"),
     )
-    lmstudio_base_url: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("LMSTUDIO_EMBEDDING_BASE_URL"),
-    )
-    ollama_base_url: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("OLLAMA_EMBEDDING_BASE_URL"),
-    )
-
-    def _apply_provider_config(
-        self, provider: str, config: Dict[str, Any]
-    ) -> None:
-        configurer = getattr(self, f"_configure_{provider}", None)
-        if callable(configurer):
-            configurer(config)
-
-    def _configure_qwen(self, config: Dict[str, Any]) -> None:
-        config["dashscope_base_url"] = self.qwen_base_url
-
-    def _configure_openai(self, config: Dict[str, Any]) -> None:
-        config["openai_base_url"] = self.openai_base_url
-
-    def _configure_siliconflow(self, config: Dict[str, Any]) -> None:
-        config["siliconflow_base_url"] = self.siliconflow_base_url
-
-    def _configure_huggingface(self, config: Dict[str, Any]) -> None:
-        if self.huggingface_base_url is not None:
-            config["huggingface_base_url"] = self.huggingface_base_url
-
-    def _configure_lmstudio(self, config: Dict[str, Any]) -> None:
-        if self.lmstudio_base_url is not None:
-            config["lmstudio_base_url"] = self.lmstudio_base_url
-
-    def _configure_ollama(self, config: Dict[str, Any]) -> None:
-        if self.ollama_base_url is not None:
-            config["ollama_base_url"] = self.ollama_base_url
 
     def to_config(self) -> Dict[str, Any]:
         embedding_provider = self.provider.lower()
-        embedding_config = {
-            "api_key": self.api_key,
-            "model": self.model,
-            "embedding_dims": self.dims,
-        }
-
-        self._apply_provider_config(embedding_provider, embedding_config)
-
+        config_cls = PROVIDER_TO_CONFIG.get(embedding_provider, CustomEmbeddingConfig)
+        provider_settings = config_cls()
+        overrides = {}
+        for field in ("api_key", "model", "embedding_dims"):
+            if field in self.model_fields_set:
+                value = getattr(self, field)
+                if value is not None:
+                    overrides[field] = value
+        if overrides:
+            provider_settings = provider_settings.model_copy(update=overrides)
+        embedding_config = provider_settings.model_dump(exclude_none=True)
         return {"provider": embedding_provider, "config": embedding_config}
 
 

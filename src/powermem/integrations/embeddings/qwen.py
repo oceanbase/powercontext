@@ -38,7 +38,7 @@ class QwenEmbedding(EmbeddingBase):
 
         # Set base URL (if needed)
         base_url = (
-            self.config.dashscope_base_url
+            getattr(self.config, "dashscope_base_url", None)
             or os.getenv("DASHSCOPE_BASE_URL")
             or "https://dashscope.aliyuncs.com/api/v1"
         )
@@ -63,11 +63,11 @@ class QwenEmbedding(EmbeddingBase):
         # - "document" for add/update (RETRIEVAL_DOCUMENT equivalent)
         # - "query" for search (RETRIEVAL_QUERY equivalent)
         if memory_action == "add":
-            embedding_type = self.config.memory_add_embedding_type or "document"
+            embedding_type = getattr(self.config, "memory_add_embedding_type", None) or "document"
         elif memory_action == "search":
-            embedding_type = self.config.memory_search_embedding_type or "query"
+            embedding_type = getattr(self.config, "memory_search_embedding_type", None) or "query"
         elif memory_action == "update":
-            embedding_type = self.config.memory_update_embedding_type or "document"
+            embedding_type = getattr(self.config, "memory_update_embedding_type", None) or "document"
         else:
             # Default to "document" if memory_action is None or unknown
             embedding_type = "document"

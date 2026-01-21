@@ -1,9 +1,15 @@
 import powermem.config_loader as config_loader
+import powermem.settings as settings
 
 
 def _reset_env(monkeypatch, keys):
     for key in keys:
         monkeypatch.delenv(key, raising=False)
+
+
+def _disable_env_file(monkeypatch):
+    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None, raising=False)
+    monkeypatch.setattr(settings, "_DEFAULT_ENV_FILE", None, raising=False)
 
 
 def test_load_config_from_env_builds_core_config(monkeypatch):
@@ -28,7 +34,7 @@ def test_load_config_from_env_builds_core_config(monkeypatch):
             "AGENT_MEMORY_MODE",
         ],
     )
-    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None)
+    _disable_env_file(monkeypatch)
     monkeypatch.setenv("DATABASE_PROVIDER", "oceanbase")
     monkeypatch.setenv("OCEANBASE_HOST", "10.0.0.1")
     monkeypatch.setenv("OCEANBASE_PORT", "2881")
@@ -71,7 +77,7 @@ def test_load_config_from_env_graph_store_fallback(monkeypatch):
             "OCEANBASE_PORT",
         ],
     )
-    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None)
+    _disable_env_file(monkeypatch)
     monkeypatch.setenv("GRAPH_STORE_ENABLED", "true")
     monkeypatch.setenv("OCEANBASE_HOST", "127.0.0.2")
     monkeypatch.setenv("OCEANBASE_PORT", "2881")
@@ -95,7 +101,7 @@ def test_load_config_from_env_does_not_expose_internal_settings(monkeypatch):
             "DATABASE_SSLMODE",
         ],
     )
-    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None)
+    _disable_env_file(monkeypatch)
     monkeypatch.setenv("MEMORY_BATCH_SIZE", "200")
     monkeypatch.setenv("ENCRYPTION_ENABLED", "true")
     monkeypatch.setenv("ACCESS_CONTROL_ENABLED", "false")
@@ -118,7 +124,7 @@ def test_load_config_from_env_telemetry_aliases(monkeypatch):
             "TELEMETRY_FLUSH_INTERVAL",
         ],
     )
-    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None)
+    _disable_env_file(monkeypatch)
     monkeypatch.setenv("TELEMETRY_ENABLED", "true")
     monkeypatch.setenv("TELEMETRY_BATCH_SIZE", "42")
     monkeypatch.setenv("TELEMETRY_FLUSH_INTERVAL", "15")
@@ -131,3 +137,42 @@ def test_load_config_from_env_telemetry_aliases(monkeypatch):
     assert telemetry["telemetry_flush_interval"] == 15
     assert telemetry["batch_size"] == 42
     assert telemetry["flush_interval"] == 15
+
+
+def test_load_config_from_env_embedding_provider_values(monkeypatch):
+    _reset_env(
+        monkeypatch,
+        [
+            "EMBEDDING_PROVIDER",
+            "EMBEDDING_API_KEY",
+            "AZURE_OPENAI_API_KEY",
+        ],
+    )
+    _disable_env_file(monkeypatch)
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "azure_openai")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
+
+    config = config_loader.load_config_from_env()
+
+    assert config["embedder"]["provider"] == "azure_openai"
+    assert config["embedder"]["config"]["api_key"] == "azure-key"
+
+
+def test_load_config_from_env_embedding_common_override(monkeypatch):
+    _reset_env(
+        monkeypatch,
+        [
+            "EMBEDDING_PROVIDER",
+            "EMBEDDING_API_KEY",
+            "AZURE_OPENAI_API_KEY",
+        ],
+    )
+    _disable_env_file(monkeypatch)
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "azure_openai")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
+    monkeypatch.setenv("EMBEDDING_API_KEY", "common-key")
+
+    config = config_loader.load_config_from_env()
+
+    assert config["embedder"]["provider"] == "azure_openai"
+    assert config["embedder"]["config"]["api_key"] == "common-key"

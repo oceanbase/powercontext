@@ -16,12 +16,14 @@ class HuggingFaceEmbedding(EmbeddingBase):
     def __init__(self, config: Optional[BaseEmbedderConfig] = None):
         super().__init__(config)
 
-        if config.huggingface_base_url:
-            self.client = OpenAI(base_url=config.huggingface_base_url)
+        base_url = getattr(self.config, "huggingface_base_url", None)
+        if base_url:
+            self.client = OpenAI(base_url=base_url)
         else:
             self.config.model = self.config.model or "multi-qa-MiniLM-L6-cos-v1"
 
-            self.model = SentenceTransformer(self.config.model, **self.config.model_kwargs)
+            model_kwargs = getattr(self.config, "model_kwargs", {})
+            self.model = SentenceTransformer(self.config.model, **model_kwargs)
 
             self.config.embedding_dims = self.config.embedding_dims or self.model.get_sentence_embedding_dimension()
 
@@ -35,7 +37,7 @@ class HuggingFaceEmbedding(EmbeddingBase):
         Returns:
             list: The embedding vector.
         """
-        if self.config.huggingface_base_url:
+        if getattr(self.config, "huggingface_base_url", None):
             return self.client.embeddings.create(input=text, model="tei").data[0].embedding
         else:
             return self.model.encode(text, convert_to_numpy=True).tolist()

@@ -1,20 +1,39 @@
-from typing import Optional
+from typing import Any, Dict, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings
 
-from powermem.integrations.embeddings.factory import EmbedderFactory
+from powermem.settings import settings_config
+
+from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
+from powermem.integrations.embeddings.config.providers import (
+    CustomEmbeddingConfig,
+    PROVIDER_REGISTRY,
+    PROVIDER_TO_CONFIG,
+)
 
 
-class EmbedderConfig(BaseModel):
+class EmbedderConfig(BaseSettings):
+    model_config = settings_config()
+
     provider: str = Field(
         description="Provider of the embedding model (e.g., 'ollama', 'openai')",
         default="openai",
     )
-    config: Optional[dict] = Field(description="Configuration for the specific embedding model", default={})
+    config: Optional[Union[Dict[str, Any], BaseEmbedderConfig]] = Field(
+        description="Configuration for the specific embedding model",
+        default_factory=dict,
+    )
 
     @field_validator("config")
-    def validate_config(cls, v, values):
-        provider = values.data.get("provider")
+    def validate_config(cls, v, info):
+        provider = (info.data.get("provider") or "").lower()
+        if v is None:
+            return v
+        if isinstance(v, BaseEmbedderConfig):
+            return v
+        if not isinstance(v, dict):
+            raise ValueError("config must be a dict or BaseEmbedderConfig")
         initialized_providers = [
             "openai",
             "ollama",
@@ -27,9 +46,10 @@ class EmbedderConfig(BaseModel):
             "langchain",
             "aws_bedrock",
             "qwen",
+            "siliconflow",
             "zai",
         ]
-        if provider in initialized_providers or provider in EmbedderFactory.provider_to_class or provider == "mock":
-            return v
-        else:
-            raise ValueError(f"Unsupported embedding provider: {provider}")
+        if provider in initialized_providers or provider in PROVIDER_REGISTRY or provider == "mock":
+            config_cls = PROVIDER_TO_CONFIG.get(provider, CustomEmbeddingConfig)
+            return config_cls(**v)
+        raise ValueError(f"Unsupported embedding provider: {provider}")
