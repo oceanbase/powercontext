@@ -294,7 +294,14 @@ class LLMSettings(_BasePowermemSettings):
     model_config = settings_config("LLM_")
 
     provider: str = Field(default="qwen")
-    api_key: Optional[str] = Field(default=None)
+    api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "LLM_API_KEY",
+            "QWEN_API_KEY",
+            "DASHSCOPE_API_KEY",
+        ),
+    )
     model: Optional[str] = Field(default=None)
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=1000)

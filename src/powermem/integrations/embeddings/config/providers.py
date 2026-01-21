@@ -8,7 +8,7 @@ from powermem.settings import settings_config
 
 
 class OpenAIEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
     openai_base_url: Optional[str] = Field(
@@ -21,12 +21,24 @@ class OpenAIEmbeddingConfig(BaseEmbedderConfig):
 
 
 class QwenEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
+    api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "api_key",
+            "QWEN_API_KEY",
+            "DASHSCOPE_API_KEY",
+            "EMBEDDING_API_KEY",
+        ),
+    )
     model: Optional[str] = Field(default=None)
     dashscope_base_url: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("QWEN_EMBEDDING_BASE_URL"),
+        validation_alias=AliasChoices(
+            "dashscope_base_url",
+            "QWEN_EMBEDDING_BASE_URL",
+        ),
     )
     memory_add_embedding_type: Optional[str] = Field(default=None)
     memory_update_embedding_type: Optional[str] = Field(default=None)
@@ -34,7 +46,7 @@ class QwenEmbeddingConfig(BaseEmbedderConfig):
 
 
 class SiliconFlowEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
     siliconflow_base_url: Optional[str] = Field(
@@ -44,7 +56,7 @@ class SiliconFlowEmbeddingConfig(BaseEmbedderConfig):
 
 
 class HuggingFaceEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
     huggingface_base_url: Optional[str] = Field(
@@ -55,7 +67,7 @@ class HuggingFaceEmbeddingConfig(BaseEmbedderConfig):
 
 
 class OllamaEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
     ollama_base_url: Optional[str] = Field(
@@ -65,7 +77,7 @@ class OllamaEmbeddingConfig(BaseEmbedderConfig):
 
 
 class LMStudioEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
     lmstudio_base_url: Optional[str] = Field(
@@ -75,7 +87,7 @@ class LMStudioEmbeddingConfig(BaseEmbedderConfig):
 
 
 class AzureOpenAIEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
     api_key: Optional[str] = Field(
@@ -108,14 +120,14 @@ class AzureOpenAIEmbeddingConfig(BaseEmbedderConfig):
 
 
 class GeminiEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
     output_dimensionality: Optional[int] = Field(default=None)
 
 
 class VertexAIEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
     vertex_credentials_json: Optional[str] = Field(default=None)
@@ -125,13 +137,13 @@ class VertexAIEmbeddingConfig(BaseEmbedderConfig):
 
 
 class TogetherEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
 
 
 class AWSBedrockEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
     aws_access_key_id: Optional[str] = Field(default=None)
@@ -140,20 +152,20 @@ class AWSBedrockEmbeddingConfig(BaseEmbedderConfig):
 
 
 class ZaiEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
     zai_base_url: Optional[str] = Field(default=None)
 
 
 class LangchainEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="forbid")
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[Any] = Field(default=None)
 
 
 class CustomEmbeddingConfig(BaseEmbedderConfig):
-    model_config = settings_config("EMBEDDING_", extra="allow")
+    model_config = settings_config("EMBEDDING_", extra="allow", env_file=None)
 
 
 PROVIDER_REGISTRY: dict[str, dict[str, object]] = {}

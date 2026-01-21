@@ -32,12 +32,13 @@ def settings_config(
     env_prefix: str = "",
     extra: str = "ignore",
     arbitrary_types_allowed: bool = True,
+    env_file: Optional[str] = _DEFAULT_ENV_FILE,
 ) -> SettingsConfigDict:
     return SettingsConfigDict(
         case_sensitive=False,
         extra=extra,
         env_prefix=env_prefix,
-        env_file=_DEFAULT_ENV_FILE,
+        env_file=env_file,
         env_file_encoding="utf-8",
         arbitrary_types_allowed=arbitrary_types_allowed,
     )

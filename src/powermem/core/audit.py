@@ -46,6 +46,9 @@ class AuditLogger:
         
         # Create file handler if not exists
         if not self.audit_logger.handlers:
+            log_dir = os.path.dirname(self.log_file)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
             handler = logging.FileHandler(self.log_file)
             formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'

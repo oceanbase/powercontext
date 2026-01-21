@@ -9,7 +9,7 @@ from powermem.settings import settings_config
 class BaseEmbedderConfig(BaseSettings):
     """Common embedding configuration shared by all providers."""
 
-    model_config = settings_config("EMBEDDING_", extra="allow")
+    model_config = settings_config("EMBEDDING_", extra="allow", env_file=None)
 
     model: Optional[Any] = Field(
         default=None,
