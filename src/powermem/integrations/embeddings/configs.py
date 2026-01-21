@@ -8,8 +8,6 @@ from powermem.settings import settings_config
 from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
 from powermem.integrations.embeddings.config.providers import (
     CustomEmbeddingConfig,
-    PROVIDER_REGISTRY,
-    PROVIDER_TO_CONFIG,
 )
 
 
@@ -49,7 +47,10 @@ class EmbedderConfig(BaseSettings):
             "siliconflow",
             "zai",
         ]
-        if provider in initialized_providers or provider in PROVIDER_REGISTRY or provider == "mock":
-            config_cls = PROVIDER_TO_CONFIG.get(provider, CustomEmbeddingConfig)
+        if provider in initialized_providers or BaseEmbedderConfig.has_provider(provider) or provider == "mock":
+            config_cls = (
+                BaseEmbedderConfig.get_provider_config_cls(provider)
+                or CustomEmbeddingConfig
+            )
             return config_cls(**v)
         raise ValueError(f"Unsupported embedding provider: {provider}")

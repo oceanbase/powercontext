@@ -11,10 +11,8 @@ import warnings
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings
 
-from powermem.integrations.embeddings.config.providers import (
-    CustomEmbeddingConfig,
-    PROVIDER_TO_CONFIG,
-)
+from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
+from powermem.integrations.embeddings.config.providers import CustomEmbeddingConfig
 from powermem.settings import _DEFAULT_ENV_FILE, settings_config
 
 
@@ -401,7 +399,10 @@ class EmbeddingSettings(_BasePowermemSettings):
 
     def to_config(self) -> Dict[str, Any]:
         embedding_provider = self.provider.lower()
-        config_cls = PROVIDER_TO_CONFIG.get(embedding_provider, CustomEmbeddingConfig)
+        config_cls = (
+            BaseEmbedderConfig.get_provider_config_cls(embedding_provider)
+            or CustomEmbeddingConfig
+        )
         provider_settings = config_cls()
         overrides = {}
         for field in ("api_key", "model", "embedding_dims"):

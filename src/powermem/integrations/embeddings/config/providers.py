@@ -8,6 +8,9 @@ from powermem.settings import settings_config
 
 
 class OpenAIEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "openai"
+    _class_path = "powermem.integrations.embeddings.openai.OpenAIEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
@@ -21,6 +24,9 @@ class OpenAIEmbeddingConfig(BaseEmbedderConfig):
 
 
 class QwenEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "qwen"
+    _class_path = "powermem.integrations.embeddings.qwen.QwenEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     api_key: Optional[str] = Field(
@@ -46,6 +52,9 @@ class QwenEmbeddingConfig(BaseEmbedderConfig):
 
 
 class SiliconFlowEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "siliconflow"
+    _class_path = "powermem.integrations.embeddings.siliconflow.SiliconFlowEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
@@ -56,6 +65,9 @@ class SiliconFlowEmbeddingConfig(BaseEmbedderConfig):
 
 
 class HuggingFaceEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "huggingface"
+    _class_path = "powermem.integrations.embeddings.huggingface.HuggingFaceEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
@@ -67,6 +79,9 @@ class HuggingFaceEmbeddingConfig(BaseEmbedderConfig):
 
 
 class OllamaEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "ollama"
+    _class_path = "powermem.integrations.embeddings.ollama.OllamaEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
@@ -77,6 +92,9 @@ class OllamaEmbeddingConfig(BaseEmbedderConfig):
 
 
 class LMStudioEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "lmstudio"
+    _class_path = "powermem.integrations.embeddings.lmstudio.LMStudioEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
@@ -87,6 +105,9 @@ class LMStudioEmbeddingConfig(BaseEmbedderConfig):
 
 
 class AzureOpenAIEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "azure_openai"
+    _class_path = "powermem.integrations.embeddings.azure_openai.AzureOpenAIEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
@@ -120,6 +141,9 @@ class AzureOpenAIEmbeddingConfig(BaseEmbedderConfig):
 
 
 class GeminiEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "gemini"
+    _class_path = "powermem.integrations.embeddings.gemini.GoogleGenAIEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
@@ -127,6 +151,9 @@ class GeminiEmbeddingConfig(BaseEmbedderConfig):
 
 
 class VertexAIEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "vertexai"
+    _class_path = "powermem.integrations.embeddings.vertexai.VertexAIEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
@@ -137,12 +164,18 @@ class VertexAIEmbeddingConfig(BaseEmbedderConfig):
 
 
 class TogetherEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "together"
+    _class_path = "powermem.integrations.embeddings.together.TogetherEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
 
 
 class AWSBedrockEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "aws_bedrock"
+    _class_path = "powermem.integrations.embeddings.aws_bedrock.AWSBedrockEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
@@ -152,6 +185,9 @@ class AWSBedrockEmbeddingConfig(BaseEmbedderConfig):
 
 
 class ZaiEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "zai"
+    _class_path = "powermem.integrations.embeddings.zai.ZaiEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[str] = Field(default=None)
@@ -159,6 +195,9 @@ class ZaiEmbeddingConfig(BaseEmbedderConfig):
 
 
 class LangchainEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "langchain"
+    _class_path = "powermem.integrations.embeddings.langchain.LangchainEmbedding"
+
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[Any] = Field(default=None)
@@ -166,84 +205,3 @@ class LangchainEmbeddingConfig(BaseEmbedderConfig):
 
 class CustomEmbeddingConfig(BaseEmbedderConfig):
     model_config = settings_config("EMBEDDING_", extra="allow", env_file=None)
-
-
-PROVIDER_REGISTRY: dict[str, dict[str, object]] = {}
-PROVIDER_TO_CONFIG: dict[str, type[BaseEmbedderConfig]] = {}
-PROVIDER_TO_CLASS: dict[str, str] = {}
-
-
-def register_provider(name: str, config_cls: type[BaseEmbedderConfig], class_path: str) -> None:
-    PROVIDER_REGISTRY[name] = {
-        "config": config_cls,
-        "class_path": class_path,
-    }
-    PROVIDER_TO_CONFIG[name] = config_cls
-    PROVIDER_TO_CLASS[name] = class_path
-
-
-register_provider(
-    "openai",
-    OpenAIEmbeddingConfig,
-    "powermem.integrations.embeddings.openai.OpenAIEmbedding",
-)
-register_provider(
-    "siliconflow",
-    SiliconFlowEmbeddingConfig,
-    "powermem.integrations.embeddings.siliconflow.SiliconFlowEmbedding",
-)
-register_provider(
-    "ollama",
-    OllamaEmbeddingConfig,
-    "powermem.integrations.embeddings.ollama.OllamaEmbedding",
-)
-register_provider(
-    "huggingface",
-    HuggingFaceEmbeddingConfig,
-    "powermem.integrations.embeddings.huggingface.HuggingFaceEmbedding",
-)
-register_provider(
-    "azure_openai",
-    AzureOpenAIEmbeddingConfig,
-    "powermem.integrations.embeddings.azure_openai.AzureOpenAIEmbedding",
-)
-register_provider(
-    "gemini",
-    GeminiEmbeddingConfig,
-    "powermem.integrations.embeddings.gemini.GoogleGenAIEmbedding",
-)
-register_provider(
-    "vertexai",
-    VertexAIEmbeddingConfig,
-    "powermem.integrations.embeddings.vertexai.VertexAIEmbedding",
-)
-register_provider(
-    "together",
-    TogetherEmbeddingConfig,
-    "powermem.integrations.embeddings.together.TogetherEmbedding",
-)
-register_provider(
-    "lmstudio",
-    LMStudioEmbeddingConfig,
-    "powermem.integrations.embeddings.lmstudio.LMStudioEmbedding",
-)
-register_provider(
-    "langchain",
-    LangchainEmbeddingConfig,
-    "powermem.integrations.embeddings.langchain.LangchainEmbedding",
-)
-register_provider(
-    "aws_bedrock",
-    AWSBedrockEmbeddingConfig,
-    "powermem.integrations.embeddings.aws_bedrock.AWSBedrockEmbedding",
-)
-register_provider(
-    "qwen",
-    QwenEmbeddingConfig,
-    "powermem.integrations.embeddings.qwen.QwenEmbedding",
-)
-register_provider(
-    "zai",
-    ZaiEmbeddingConfig,
-    "powermem.integrations.embeddings.zai.ZaiEmbedding",
-)

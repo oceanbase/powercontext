@@ -8,12 +8,7 @@ import importlib
 from typing import Optional
 
 from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
-from powermem.integrations.embeddings.config.providers import (
-    CustomEmbeddingConfig,
-    PROVIDER_TO_CLASS,
-    PROVIDER_TO_CONFIG,
-    register_provider,
-)
+from powermem.integrations.embeddings.config.providers import CustomEmbeddingConfig
 from powermem.integrations.embeddings.mock import MockEmbeddings
 
 
@@ -67,18 +62,17 @@ class EmbedderFactory:
                 dimension = get_dimension_from_vector_config(vector_config, dimension)
                 dimension = get_dimension_from_embedder_config(config, dimension)
                 return MockEmbeddings(dimension=dimension)
-        class_type = PROVIDER_TO_CLASS.get(provider_name)
+        class_type = BaseEmbedderConfig.get_provider_class_path(provider_name)
         if class_type:
             embedder_instance = load_class(class_type)
             if isinstance(config, BaseEmbedderConfig):
                 base_config = config
             else:
                 config_data = config or {}
-                config_cls = PROVIDER_TO_CONFIG.get(provider_name, CustomEmbeddingConfig)
+                config_cls = (
+                    BaseEmbedderConfig.get_provider_config_cls(provider_name)
+                    or CustomEmbeddingConfig
+                )
                 base_config = config_cls(**config_data)
             return embedder_instance(base_config)
         raise ValueError(f"Unsupported Embedder provider: {provider_name}")
-
-    @classmethod
-    def register_provider(cls, name: str, class_path: str, config_cls: type[BaseEmbedderConfig]) -> None:
-        register_provider(name, config_cls, class_path)
