@@ -120,18 +120,14 @@ class AsyncMemory(MemoryBase):
             # Use MemoryConfig object directly
             self.memory_config = config
             # For backward compatibility, also store as dict
-            self.config = config.model_dump()
+            self.config = config.to_dict()
         else:
             # Convert dict config
             dict_config = config or {}
             dict_config = _auto_convert_config(dict_config)
             self.config = dict_config
-            # Try to create MemoryConfig from dict, fallback to dict if fails
-            try:
-                self.memory_config = MemoryConfig(**dict_config)
-            except Exception as e:
-                logger.warning(f"Could not parse config as MemoryConfig: {e}, using dict mode")
-                self.memory_config = None
+            self.memory_config = None
+            logger.debug("Using dict config mode")
 
         self.agent_id = agent_id
         

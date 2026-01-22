@@ -8,7 +8,8 @@ of the memory system.
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 
-from powermem.integrations.embeddings.configs import EmbedderConfig
+from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
+from powermem.integrations.embeddings.config.providers import OpenAIEmbeddingConfig
 from powermem.integrations.embeddings.config.sparse_base import SparseEmbedderConfig
 from powermem.integrations.llm import LlmConfig
 from powermem.storage.configs import VectorStoreConfig, GraphStoreConfig
@@ -201,9 +202,9 @@ class MemoryConfig(BaseModel):
         description="Configuration for the language model",
         default_factory=LlmConfig,
     )
-    embedder: EmbedderConfig = Field(
+    embedder: BaseEmbedderConfig = Field(
         description="Configuration for the embedding model",
-        default_factory=EmbedderConfig,
+        default_factory=OpenAIEmbeddingConfig,
     )
     graph_store: GraphStoreConfig = Field(
         description="Configuration for the graph",
@@ -278,3 +279,13 @@ class MemoryConfig(BaseModel):
             self.reranker = RerankConfig()
         if self.query_rewrite is None:
             self.query_rewrite = QueryRewriteConfig()
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = self.model_dump(exclude_none=True)
+
+        for field in ['embedder', 'llm', 'vector_store']:
+            obj = getattr(self, field, None)
+            if obj and hasattr(obj, 'to_component_dict'):
+                result[field] = obj.to_component_dict()
+
+        return result
