@@ -59,14 +59,6 @@ class BaseEmbedderConfig(BaseSettings):
         description="Embedding vector dimensions, when configurable by provider.",
     )
 
-    @property
-    def provider(self) -> Optional[str]:
-        return self._provider_name
-
-    @property
-    def config(self) -> Dict[str, Any]:
-        return self.model_dump(exclude_none=True)
-
     def to_component_dict(self) -> Dict[str, Any]:
         return {
             "provider": self._provider_name,
