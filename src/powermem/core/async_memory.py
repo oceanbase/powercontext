@@ -120,7 +120,7 @@ class AsyncMemory(MemoryBase):
             # Use MemoryConfig object directly
             self.memory_config = config
             # For backward compatibility, also store as dict
-            self.config = config.model_dump()
+            self.config = config.to_dict()
         else:
             # Convert dict config
             dict_config = config or {}

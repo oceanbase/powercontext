@@ -120,11 +120,12 @@ class Memory(MemoryBase):
         Example:
             ```python
             # Method 1: Using MemoryConfig object (recommended)
+            from powermem.integrations.embeddings.config.providers import QwenEmbeddingConfig
 
             config = MemoryConfig(
                 vector_store=VectorStoreConfig(provider="oceanbase", config={...}),
                 llm=LlmConfig(provider="qwen", config={...}),
-                embedder=EmbedderConfig(provider="qwen", config={...})
+                embedder=QwenEmbeddingConfig(model="text-embedding-v4", api_key="...")
             )
             memory = Memory(config)
 
@@ -148,7 +149,7 @@ class Memory(MemoryBase):
             # Use MemoryConfig object directly
             self.memory_config = config
             # For backward compatibility, also store as dict
-            self.config = config.model_dump()
+            self.config = config.to_dict()
         else:
             # Convert dict config
             dict_config = config or {}
