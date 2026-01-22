@@ -30,13 +30,15 @@ class AWSBedrockEmbedding(EmbeddingBase):
         aws_session_token = os.environ.get("AWS_SESSION_TOKEN", "")
 
         # Check if AWS config is provided in the config
-        if hasattr(self.config, "aws_access_key_id"):
-            aws_access_key = self.config.aws_access_key_id
-        if hasattr(self.config, "aws_secret_access_key"):
-            aws_secret_key = self.config.aws_secret_access_key
+        aws_access_key_override = getattr(self.config, "aws_access_key_id", None)
+        if aws_access_key_override:
+            aws_access_key = aws_access_key_override
+        aws_secret_key_override = getattr(self.config, "aws_secret_access_key", None)
+        if aws_secret_key_override:
+            aws_secret_key = aws_secret_key_override
         
         # AWS region is always set in config - see BaseEmbedderConfig
-        aws_region = self.config.aws_region or "us-west-2"
+        aws_region = getattr(self.config, "aws_region", None) or "us-west-2"
 
         self.client = boto3.client(
             "bedrock-runtime",

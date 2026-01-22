@@ -8,6 +8,7 @@ import importlib
 from typing import Optional
 
 from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
+from powermem.integrations.embeddings.config.providers import CustomEmbeddingConfig
 from powermem.integrations.embeddings.mock import MockEmbeddings
 
 
@@ -18,22 +19,6 @@ def load_class(class_type):
 
 
 class EmbedderFactory:
-    provider_to_class = {
-        "openai": "powermem.integrations.embeddings.openai.OpenAIEmbedding",
-        "siliconflow": "powermem.integrations.embeddings.siliconflow.SiliconFlowEmbedding",
-        "ollama": "powermem.integrations.embeddings.ollama.OllamaEmbedding",
-        "huggingface": "powermem.integrations.embeddings.huggingface.HuggingFaceEmbedding",
-        "azure_openai": "powermem.integrations.embeddings.azure_openai.AzureOpenAIEmbedding",
-        "gemini": "powermem.integrations.embeddings.gemini.GoogleGenAIEmbedding",
-        "vertexai": "powermem.integrations.embeddings.vertexai.VertexAIEmbedding",
-        "together": "powermem.integrations.embeddings.together.TogetherEmbedding",
-        "lmstudio": "powermem.integrations.embeddings.lmstudio.LMStudioEmbedding",
-        "langchain": "powermem.integrations.embeddings.langchain.LangchainEmbedding",
-        "aws_bedrock": "powermem.integrations.embeddings.aws_bedrock.AWSBedrockEmbedding",
-        "qwen": "powermem.integrations.embeddings.qwen.QwenEmbedding",
-        "zai": "powermem.integrations.embeddings.zai.ZaiEmbedding",
-    }
-
     @classmethod
     def create(cls, provider_name, config, vector_config: Optional[dict]):
         # Helper function to extract dimension from vector_config (handles both dict and object)
@@ -41,17 +26,27 @@ class EmbedderFactory:
             if not vector_config:
                 return default
             if isinstance(vector_config, dict):
-                return vector_config.get('embedding_model_dims', default)
-            else:
-                return getattr(vector_config, 'embedding_model_dims', default)
+                value = vector_config.get('embedding_model_dims', default)
+                return default if value is None else value
+            value = getattr(vector_config, 'embedding_model_dims', default)
+            return default if value is None else value
+
+        # Helper function to extract dimension from embedder config (handles dict and BaseSettings)
+        def get_dimension_from_embedder_config(embedder_config, default=1536):
+            if not embedder_config:
+                return default
+            if isinstance(embedder_config, dict):
+                value = embedder_config.get('embedding_dims', default)
+                return default if value is None else value
+            value = getattr(embedder_config, 'embedding_dims', default)
+            return default if value is None else value
         
         # Handle mock provider directly
         if provider_name == "mock":
             # Extract dimension from vector_config or embedder config, default to 1536
             dimension = 1536  # Default dimension
             dimension = get_dimension_from_vector_config(vector_config, dimension)
-            if config:
-                dimension = config.get('embedding_dims', dimension)
+            dimension = get_dimension_from_embedder_config(config, dimension)
             return MockEmbeddings(dimension=dimension)
         if provider_name == "upstash_vector" and vector_config:
             # Check enable_embeddings (handles both dict and object)
@@ -65,13 +60,19 @@ class EmbedderFactory:
                 # Extract dimension from vector_config or embedder config, default to 1536
                 dimension = 1536  # Default dimension
                 dimension = get_dimension_from_vector_config(vector_config, dimension)
-                if config:
-                    dimension = config.get('embedding_dims', dimension)
+                dimension = get_dimension_from_embedder_config(config, dimension)
                 return MockEmbeddings(dimension=dimension)
-        class_type = cls.provider_to_class.get(provider_name)
+        class_type = BaseEmbedderConfig.get_provider_class_path(provider_name)
         if class_type:
             embedder_instance = load_class(class_type)
-            base_config = BaseEmbedderConfig(**config)
+            if isinstance(config, BaseEmbedderConfig):
+                base_config = config
+            else:
+                config_data = config or {}
+                config_cls = (
+                    BaseEmbedderConfig.get_provider_config_cls(provider_name)
+                    or CustomEmbeddingConfig
+                )
+                base_config = config_cls(**config_data)
             return embedder_instance(base_config)
-        else:
-            raise ValueError(f"Unsupported Embedder provider: {provider_name}")
+        raise ValueError(f"Unsupported Embedder provider: {provider_name}")

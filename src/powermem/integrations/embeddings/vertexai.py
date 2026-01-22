@@ -15,12 +15,15 @@ class VertexAIEmbedding(EmbeddingBase):
         self.config.embedding_dims = self.config.embedding_dims or 256
 
         self.embedding_types = {
-            "add": self.config.memory_add_embedding_type or "RETRIEVAL_DOCUMENT",
-            "update": self.config.memory_update_embedding_type or "RETRIEVAL_DOCUMENT",
-            "search": self.config.memory_search_embedding_type or "RETRIEVAL_QUERY",
+            "add": getattr(self.config, "memory_add_embedding_type", None)
+            or "RETRIEVAL_DOCUMENT",
+            "update": getattr(self.config, "memory_update_embedding_type", None)
+            or "RETRIEVAL_DOCUMENT",
+            "search": getattr(self.config, "memory_search_embedding_type", None)
+            or "RETRIEVAL_QUERY",
         }
 
-        credentials_path = self.config.vertex_credentials_json
+        credentials_path = getattr(self.config, "vertex_credentials_json", None)
 
         if credentials_path:
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path

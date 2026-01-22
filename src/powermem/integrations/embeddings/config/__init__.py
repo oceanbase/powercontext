@@ -1,0 +1,35 @@
+from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
+from powermem.integrations.embeddings.config.providers import (
+    AWSBedrockEmbeddingConfig,
+    AzureOpenAIEmbeddingConfig,
+    CustomEmbeddingConfig,
+    GeminiEmbeddingConfig,
+    HuggingFaceEmbeddingConfig,
+    LangchainEmbeddingConfig,
+    LMStudioEmbeddingConfig,
+    OllamaEmbeddingConfig,
+    OpenAIEmbeddingConfig,
+    QwenEmbeddingConfig,
+    SiliconFlowEmbeddingConfig,
+    TogetherEmbeddingConfig,
+    VertexAIEmbeddingConfig,
+    ZaiEmbeddingConfig,
+)
+
+__all__ = [
+    "AWSBedrockEmbeddingConfig",
+    "AzureOpenAIEmbeddingConfig",
+    "BaseEmbedderConfig",
+    "CustomEmbeddingConfig",
+    "GeminiEmbeddingConfig",
+    "HuggingFaceEmbeddingConfig",
+    "LangchainEmbeddingConfig",
+    "LMStudioEmbeddingConfig",
+    "OllamaEmbeddingConfig",
+    "OpenAIEmbeddingConfig",
+    "QwenEmbeddingConfig",
+    "SiliconFlowEmbeddingConfig",
+    "TogetherEmbeddingConfig",
+    "VertexAIEmbeddingConfig",
+    "ZaiEmbeddingConfig",
+]
