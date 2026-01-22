@@ -203,5 +203,12 @@ class LangchainEmbeddingConfig(BaseEmbedderConfig):
     model: Optional[Any] = Field(default=None)
 
 
+class MockEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "mock"
+    _class_path = "powermem.integrations.embeddings.mock.MockEmbeddings"
+
+    model_config = settings_config("EMBEDDING_", extra="allow", env_file=None)
+
+
 class CustomEmbeddingConfig(BaseEmbedderConfig):
     model_config = settings_config("EMBEDDING_", extra="allow", env_file=None)

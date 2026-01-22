@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
+from powermem.integrations.embeddings.config.providers import OpenAIEmbeddingConfig
 from powermem.integrations.embeddings.config.sparse_base import SparseEmbedderConfig
 from powermem.integrations.llm import LlmConfig
 from powermem.storage.configs import VectorStoreConfig, GraphStoreConfig
@@ -203,7 +204,7 @@ class MemoryConfig(BaseModel):
     )
     embedder: BaseEmbedderConfig = Field(
         description="Configuration for the embedding model",
-        default_factory=lambda: BaseEmbedderConfig.get_provider_config_cls("openai")(),
+        default_factory=OpenAIEmbeddingConfig,
     )
     graph_store: GraphStoreConfig = Field(
         description="Configuration for the graph",
