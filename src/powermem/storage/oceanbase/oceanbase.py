@@ -1184,7 +1184,8 @@ class OceanBaseVectorStore(VectorStoreBase):
                         "rank_window_size": limit,
                         "rank_constant": k
                     }
-                }
+                },
+                "size":limit
             }
 
             # Add filters if present
