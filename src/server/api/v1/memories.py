@@ -3,26 +3,24 @@ Memory management API routes
 """
 
 import logging
-from typing import List, Optional
-from fastapi import APIRouter, Depends, Query, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from typing import Optional
 
+from fastapi import APIRouter, Depends, Query, Request
+
+from ...middleware.auth import verify_api_key
+from ...middleware.rate_limit import get_rate_limit_string, limiter
 from ...models.request import (
-    MemoryCreateRequest,
-    MemoryBatchCreateRequest,
-    MemoryUpdateRequest,
-    MemoryBatchUpdateRequest,
     BulkDeleteRequest,
+    MemoryBatchCreateRequest,
+    MemoryBatchUpdateRequest,
+    MemoryCreateRequest,
+    MemoryUpdateRequest,
 )
 from ...models.response import (
     APIResponse,
-    MemoryResponse,
     MemoryListResponse,
 )
 from ...services.memory_service import MemoryService
-from ...middleware.auth import verify_api_key
-from ...middleware.rate_limit import limiter, get_rate_limit_string
 from ...utils.converters import memory_dict_to_response
 
 logger = logging.getLogger("server")
@@ -60,11 +58,11 @@ async def create_memory(
         memory_type=body.memory_type,
         infer=body.infer,
     )
-    
+
     # Convert all created memories to response format
     # results is now a list of memory dictionaries
     memory_responses = [memory_dict_to_response(m) for m in results]
-    
+
     # Always return array of memories
     # Exclude None values to avoid returning null fields
     if len(memory_responses) == 0:
@@ -73,10 +71,10 @@ async def create_memory(
         message = "Memory created successfully"
     else:
         message = f"Created {len(memory_responses)} memories successfully"
-    
+
     return APIResponse(
         success=True,
-        data=[m.model_dump(mode='json', exclude_none=True) for m in memory_responses],
+        data=[m.model_dump(mode="json", exclude_none=True) for m in memory_responses],
         message=message,
     )
 
@@ -106,7 +104,7 @@ async def batch_create_memories(
         }
         for item in body.memories
     ]
-    
+
     result = service.batch_create_memories(
         memories=memories_data,
         user_id=body.user_id,
@@ -114,7 +112,7 @@ async def batch_create_memories(
         run_id=body.run_id,
         infer=body.infer,
     )
-    
+
     # Convert created memories to response format
     created_memories = []
     for item in result["created"]:
@@ -124,26 +122,32 @@ async def batch_create_memories(
                 user_id=body.user_id,
                 agent_id=body.agent_id,
             )
-            created_memories.append(memory_dict_to_response(memory).model_dump(mode='json'))
+            created_memories.append(
+                memory_dict_to_response(memory).model_dump(mode="json")
+            )
         except Exception as e:
-            logger.warning(f"Failed to retrieve created memory {item['memory_id']}: {e}")
+            logger.warning(
+                f"Failed to retrieve created memory {item['memory_id']}: {e}"
+            )
             # Include basic info even if full retrieval fails
-            created_memories.append({
-                "memory_id": item["memory_id"],
-                "content": item["content"],
-            })
-    
+            created_memories.append(
+                {
+                    "memory_id": item["memory_id"],
+                    "content": item["content"],
+                }
+            )
+
     response_data = {
         "memories": created_memories,
         "total": result["total"],
         "created_count": result["created_count"],
         "failed_count": result["failed_count"],
     }
-    
+
     # Only include failed items if there are any
     if result["failed_count"] > 0:
         response_data["failed"] = result["failed"]
-    
+
     return APIResponse(
         success=True,
         data=response_data,
@@ -164,8 +168,12 @@ async def list_memories(
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
-    sort_by: Optional[str] = Query(None, description="Field to sort by: 'created_at', 'updated_at', 'id'"),
-    order: str = Query("desc", description="Sort order: 'desc' (descending) or 'asc' (ascending)"),
+    sort_by: Optional[str] = Query(
+        None, description="Field to sort by: 'created_at', 'updated_at', 'id'"
+    ),
+    order: str = Query(
+        "desc", description="Sort order: 'desc' (descending) or 'asc' (ascending)"
+    ),
     api_key: str = Depends(verify_api_key),
     service: MemoryService = Depends(get_memory_service),
 ):
@@ -178,20 +186,69 @@ async def list_memories(
         sort_by=sort_by,
         order=order,
     )
-    
+
     memory_responses = [memory_dict_to_response(m) for m in memories]
-    
+
     response_data = MemoryListResponse(
         memories=memory_responses,
         total=len(memory_responses),
         limit=limit,
         offset=offset,
     )
-    
+
     return APIResponse(
         success=True,
-        data=response_data.model_dump(mode='json'),
+        data=response_data.model_dump(mode="json"),
         message="Memories retrieved successfully",
+    )
+
+
+@router.get(
+    "/stats",
+    response_model=APIResponse,
+    summary="Get memory statistics",
+    description="Get statistics about memories for a user or agent",
+)
+@limiter.limit(get_rate_limit_string())
+async def get_memory_stats(
+    request: Request,
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    api_key: str = Depends(verify_api_key),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """Get memory statistics"""
+    stats = service.get_statistics(
+        user_id=user_id,
+        agent_id=agent_id,
+    )
+
+    return APIResponse(
+        success=True,
+        data=stats,
+        message="Statistics retrieved successfully",
+    )
+
+
+@router.get(
+    "/users",
+    response_model=APIResponse,
+    summary="Get unique users",
+    description="Get a list of unique user IDs who have memories stored",
+)
+@limiter.limit(get_rate_limit_string())
+async def get_unique_users(
+    request: Request,
+    api_key: str = Depends(verify_api_key),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """Get unique users"""
+    users = service.get_users()
+
+    return APIResponse(
+        success=True,
+        data=users,
+        message="Users retrieved successfully",
     )
 
 
@@ -216,12 +273,12 @@ async def get_memory(
         user_id=user_id,
         agent_id=agent_id,
     )
-    
+
     memory_response = memory_dict_to_response(memory)
-    
+
     return APIResponse(
         success=True,
-        data=memory_response.model_dump(mode='json'),
+        data=memory_response.model_dump(mode="json"),
         message="Memory retrieved successfully",
     )
 
@@ -249,13 +306,13 @@ async def batch_update_memories(
         }
         for item in body.updates
     ]
-    
+
     result = service.batch_update_memories(
         updates=updates_data,
         user_id=body.user_id,
         agent_id=body.agent_id,
     )
-    
+
     # Convert updated memories to response format
     updated_memories = []
     for item in result["updated"]:
@@ -265,25 +322,31 @@ async def batch_update_memories(
                 user_id=body.user_id,
                 agent_id=body.agent_id,
             )
-            updated_memories.append(memory_dict_to_response(memory).model_dump(mode='json'))
+            updated_memories.append(
+                memory_dict_to_response(memory).model_dump(mode="json")
+            )
         except Exception as e:
-            logger.warning(f"Failed to retrieve updated memory {item['memory_id']}: {e}")
+            logger.warning(
+                f"Failed to retrieve updated memory {item['memory_id']}: {e}"
+            )
             # Include basic info even if full retrieval fails
-            updated_memories.append({
-                "memory_id": item["memory_id"],
-            })
-    
+            updated_memories.append(
+                {
+                    "memory_id": item["memory_id"],
+                }
+            )
+
     response_data = {
         "memories": updated_memories,
         "total": result["total"],
         "updated_count": result["updated_count"],
         "failed_count": result["failed_count"],
     }
-    
+
     # Only include failed items if there are any
     if result["failed_count"] > 0:
         response_data["failed"] = result["failed"]
-    
+
     return APIResponse(
         success=True,
         data=response_data,
@@ -310,13 +373,14 @@ async def update_memory(
     """Update a memory"""
     # At least one of content or metadata must be provided
     if body.content is None and body.metadata is None:
-        from ...models.errors import ErrorCode, APIError
+        from ...models.errors import APIError, ErrorCode
+
         raise APIError(
             code=ErrorCode.INVALID_REQUEST,
             message="At least one of content or metadata must be provided",
             status_code=400,
         )
-    
+
     result = service.update_memory(
         memory_id=memory_id,
         content=body.content,
@@ -324,12 +388,12 @@ async def update_memory(
         agent_id=agent_id,
         metadata=body.metadata,
     )
-    
+
     memory_response = memory_dict_to_response(result)
-    
+
     return APIResponse(
         success=True,
-        data=memory_response.model_dump(mode='json'),
+        data=memory_response.model_dump(mode="json"),
         message="Memory updated successfully",
     )
 
@@ -353,7 +417,7 @@ async def bulk_delete_memories(
         user_id=body.user_id,
         agent_id=body.agent_id,
     )
-    
+
     return APIResponse(
         success=True,
         data=result,
@@ -382,7 +446,7 @@ async def delete_memory(
         user_id=user_id,
         agent_id=agent_id,
     )
-    
+
     return APIResponse(
         success=True,
         data={"memory_id": memory_id},
