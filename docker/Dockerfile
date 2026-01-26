@@ -1,4 +1,12 @@
 # Multi-stage build for PowerMem Server
+FROM node:20-slim as frontend-builder
+WORKDIR /dashboard-build
+RUN corepack enable && corepack prepare pnpm@latest --activate
+COPY dashboard/package.json dashboard/pnpm-lock.yaml ./
+RUN pnpm install
+COPY dashboard/ ./
+RUN pnpm build
+
 FROM python:3.11-slim as builder
 
 # Build argument for pip index URL (optional, for using mirror sources)
@@ -31,6 +39,9 @@ RUN if [ -n "$DEBIAN_MIRROR" ]; then \
 COPY pyproject.toml ./
 COPY README.md ./
 COPY src/ ./src/
+
+# Inject frontend assets before pip install
+COPY --from=frontend-builder /dashboard-build/dist/ ./src/server/dashboard/
 
 # Install the package in build stage
 # Increase timeout to handle slow network connections
@@ -104,4 +115,3 @@ ENTRYPOINT ["docker-entrypoint.sh"]
 
 # Default command
 CMD ["powermem-server"]
-
