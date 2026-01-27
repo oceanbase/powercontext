@@ -200,6 +200,10 @@ class DatabaseSettings(_BasePowermemSettings):
         default=False,
         validation_alias=AliasChoices("SPARSE_VECTOR_ENABLE"),
     )
+    enable_native_hybrid: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("OCEANBASE_ENABLE_NATIVE_HYBRID"),
+    )
     postgres_collection: str = Field(
         default="memories",
         validation_alias=AliasChoices("POSTGRES_COLLECTION"),
@@ -257,6 +261,7 @@ class DatabaseSettings(_BasePowermemSettings):
             "metadata_field": self.oceanbase_metadata_field,
             "vidx_name": self.oceanbase_vidx_name,
             "include_sparse": self.oceanbase_include_sparse,
+            "enable_native_hybrid": self.enable_native_hybrid,
         }
 
     def _build_postgres_config(self) -> Dict[str, Any]:
