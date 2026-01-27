@@ -37,23 +37,23 @@ class StorageAdapter:
     def _generate_sparse_embedding(self, content: str, memory_action: str) -> Optional[Any]:
         """
         Generate sparse embedding for given content.
-        
+
         Args:
             content: The text content to generate embedding for
             memory_action: The action context ("add", "search", "update")
-        
+
         Returns:
             Sparse embedding if successful, None otherwise
         """
         if not self.sparse_embedder_service or not content:
             return None
-        
+
         try:
             return self.sparse_embedder_service.embed_sparse(content, memory_action=memory_action)
         except Exception as e:
             logger.warning(f"Failed to generate sparse embedding ({memory_action}): {e}")
             return None
-    
+
     def add_memory(self, memory_data: Dict[str, Any]) -> int:
         """Add a memory to the store."""
         # ID will be generated using Snowflake algorithm before insertion
@@ -108,7 +108,7 @@ class StorageAdapter:
         # Add sparse embedding to payload if available
         if sparse_embedding is not None:
             payload["sparse_embedding"] = sparse_embedding
-        
+
         # Add only user-defined metadata (not system fields)
         user_metadata = memory_data.get("metadata", {})
         payload["metadata"] = serialize_datetime(user_metadata) if user_metadata else {}
@@ -136,6 +136,7 @@ class StorageAdapter:
         filters: Optional[Dict[str, Any]] = None,
         limit: int = 30,
         query: Optional[str] = None,
+        threshold: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
         """Search for memories."""
         # Use the provided query embedding or generate one
@@ -148,7 +149,7 @@ class StorageAdapter:
         
         # Generate sparse embedding if sparse embedder service is available and query is provided
         sparse_embedding = self._generate_sparse_embedding(query, "search") if query else None
-        
+
         # Merge user_id/agent_id/run_id into filters to ensure consistency
         # This ensures filters are applied at the database level, avoiding redundant filtering
         effective_filters = filters.copy() if filters else {}
@@ -167,13 +168,24 @@ class StorageAdapter:
         try:
             # Try OceanBase format first - pass query text for hybrid search
             search_query = query if query else ""
-            # Check if target_store.search supports sparse_embedding parameter
+            # Check if target_store.search supports sparse_embedding and threshold parameters
             import inspect
             search_sig = inspect.signature(target_store.search)
-            if 'sparse_embedding' in search_sig.parameters:
-                results = target_store.search(search_query, vectors=query_vector, limit=limit, filters=effective_filters, sparse_embedding=sparse_embedding)
-            else:
-                results = target_store.search(search_query, vectors=query_vector, limit=limit, filters=effective_filters)
+            search_params = search_sig.parameters
+
+            # Build search kwargs based on supported parameters
+            search_kwargs = {
+                "query": search_query,
+                "vectors": query_vector,
+                "limit": limit,
+                "filters": effective_filters,
+            }
+            if 'sparse_embedding' in search_params:
+                search_kwargs["sparse_embedding"] = sparse_embedding
+            if 'threshold' in search_params:
+                search_kwargs["threshold"] = threshold
+
+            results = target_store.search(**search_kwargs)
         except TypeError:
             # Fallback to SQLite format (doesn't support query text parameter)
             # Pass filters to ensure filtering works correctly
@@ -374,12 +386,12 @@ class StorageAdapter:
         if "content" in update_data:
             updated_payload["data"] = update_data["content"]
             updated_payload["fulltext_content"] = update_data["content"]
-            
+
             # Generate sparse embedding if sparse embedder service is available and content is updated
             sparse_embedding = self._generate_sparse_embedding(update_data["content"], "update")
             if sparse_embedding is not None:
                 updated_payload["sparse_embedding"] = sparse_embedding
-            
+
             # Remove content from update_data to avoid confusion
             update_data = update_data.copy()
             del update_data["content"]
@@ -395,7 +407,7 @@ class StorageAdapter:
             merged_metadata = {**existing_metadata, **new_metadata}
             serialized_update_data = serialized_update_data.copy()
             serialized_update_data["metadata"] = merged_metadata
-        
+
         # Update other fields
         updated_payload.update(serialized_update_data)
         
@@ -459,8 +471,10 @@ class StorageAdapter:
         run_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        sort_by: Optional[str] = None,
+        order: str = "desc",
     ) -> List[Dict[str, Any]]:
-        """Get all memories with optional filtering."""
+        """Get all memories with optional filtering and sorting."""
         # Build filters for database-level filtering
         filters = {}
         if user_id:
@@ -535,8 +549,73 @@ class StorageAdapter:
             
             memories.append(memory)
         
+        # Apply sorting if specified
+        if sort_by:
+            memories = self._sort_memories(memories, sort_by, order)
+        
         # Apply offset and limit
         return memories[offset:offset + limit]
+    
+    def _sort_memories(
+        self,
+        memories: List[Dict[str, Any]],
+        sort_by: str,
+        order: str = "desc"
+    ) -> List[Dict[str, Any]]:
+        """
+        Sort memories by specified field.
+        
+        Args:
+            memories: List of memory dictionaries
+            sort_by: Field to sort by. Options: "created_at", "updated_at", "id"
+            order: Sort order. "desc" for descending (default), "asc" for ascending
+            
+        Returns:
+            Sorted list of memories
+        """
+        if not memories or not sort_by:
+            return memories
+        
+        reverse = (order.lower() == "desc")
+        
+        def get_sort_key(memory: Dict[str, Any]) -> Any:
+            """Get the sort key value from memory."""
+            if sort_by == "created_at":
+                created_at = memory.get("created_at")
+                if created_at is None:
+                    return datetime.min if reverse else datetime.max
+                # Handle both datetime objects and ISO format strings
+                if isinstance(created_at, str):
+                    try:
+                        from datetime import datetime as dt
+                        return dt.fromisoformat(created_at.replace('Z', '+00:00'))
+                    except (ValueError, AttributeError):
+                        return datetime.min if reverse else datetime.max
+                return created_at if isinstance(created_at, datetime) else datetime.min
+            elif sort_by == "updated_at":
+                updated_at = memory.get("updated_at")
+                if updated_at is None:
+                    return datetime.min if reverse else datetime.max
+                # Handle both datetime objects and ISO format strings
+                if isinstance(updated_at, str):
+                    try:
+                        from datetime import datetime as dt
+                        return dt.fromisoformat(updated_at.replace('Z', '+00:00'))
+                    except (ValueError, AttributeError):
+                        return datetime.min if reverse else datetime.max
+                return updated_at if isinstance(updated_at, datetime) else datetime.min
+            elif sort_by == "id":
+                return memory.get("id", 0)
+            else:
+                # Unknown sort field, return original order
+                return None
+        
+        try:
+            sorted_memories = sorted(memories, key=get_sort_key, reverse=reverse)
+            return sorted_memories
+        except Exception as e:
+            logger.warning(f"Failed to sort memories by {sort_by}: {e}, returning original order")
+            return memories
     
     def clear_memories(
         self,
@@ -589,10 +668,14 @@ class StorageAdapter:
         run_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        sort_by: Optional[str] = None,
+        order: str = "desc",
     ) -> List[Dict[str, Any]]:
-        """Get all memories with optional filtering asynchronously."""
+        """Get all memories with optional filtering and sorting asynchronously."""
         import asyncio
-        return await asyncio.to_thread(self.get_all_memories, user_id, agent_id, run_id, limit, offset)
+        return await asyncio.to_thread(
+            self.get_all_memories, user_id, agent_id, run_id, limit, offset, sort_by, order
+        )
     
     async def clear_memories_async(
         self,

@@ -28,7 +28,7 @@ class OllamaEmbedding(EmbeddingBase):
         self.config.model = self.config.model or "nomic-embed-text"
         self.config.embedding_dims = self.config.embedding_dims or 512
 
-        self.client = Client(host=self.config.ollama_base_url)
+        self.client = Client(host=getattr(self.config, "ollama_base_url", None))
         self._ensure_model_exists()
 
     def _ensure_model_exists(self):

@@ -5,6 +5,7 @@ This module provides the synchronous memory management interface.
 """
 
 import logging
+import warnings
 import hashlib
 import json
 from typing import Any, Dict, List, Optional, Union
@@ -119,11 +120,12 @@ class Memory(MemoryBase):
         Example:
             ```python
             # Method 1: Using MemoryConfig object (recommended)
+            from powermem.integrations.embeddings.config.providers import QwenEmbeddingConfig
 
             config = MemoryConfig(
                 vector_store=VectorStoreConfig(provider="oceanbase", config={...}),
                 llm=LlmConfig(provider="qwen", config={...}),
-                embedder=EmbedderConfig(provider="qwen", config={...})
+                embedder=QwenEmbeddingConfig(model="text-embedding-v4", api_key="...")
             )
             memory = Memory(config)
 
@@ -147,18 +149,14 @@ class Memory(MemoryBase):
             # Use MemoryConfig object directly
             self.memory_config = config
             # For backward compatibility, also store as dict
-            self.config = config.model_dump()
+            self.config = config.to_dict()
         else:
             # Convert dict config
             dict_config = config or {}
             dict_config = _auto_convert_config(dict_config)
             self.config = dict_config
-            # Try to create MemoryConfig from dict, fallback to dict if fails
-            try:
-                self.memory_config = MemoryConfig(**dict_config)
-            except Exception as e:
-                logger.warning(f"Could not parse config as MemoryConfig: {e}, using dict mode")
-                self.memory_config = None
+            self.memory_config = None
+            logger.debug("Using dict config mode")
 
         self.agent_id = agent_id
         
@@ -241,12 +239,12 @@ class Memory(MemoryBase):
         if self.storage_type.lower() == 'oceanbase' and include_sparse:
             sparse_config_obj = None
             sparse_embedder_provider = None
-            
+
             if self.memory_config and hasattr(self.memory_config, 'sparse_embedder') and self.memory_config.sparse_embedder:
                 sparse_config_obj = self.memory_config.sparse_embedder
             elif self.config.get('sparse_embedder'):
                 sparse_config_obj = self.config.get('sparse_embedder')
-            
+
             if sparse_config_obj:
                 try:
                     # Handle SparseEmbedderConfig (BaseModel with provider and config) or dict format
@@ -262,13 +260,13 @@ class Memory(MemoryBase):
                         logger.warning(f"Unknown sparse_embedder config format: {type(sparse_config_obj)}. Expected SparseEmbedderConfig or dict with 'provider' and 'config' keys.")
                         sparse_embedder_provider = None
                         config_dict = {}
-                    
+
                     if sparse_embedder_provider:
                         self.sparse_embedder = SparseEmbedderFactory.create(sparse_embedder_provider, config_dict)
                         logger.info(f"Sparse embedder initialized: {sparse_embedder_provider}")
                 except Exception as e:
                     logger.warning(f"Failed to initialize sparse embedder: {e}")
-        
+
         # Initialize storage adapter with embedding service and sparse embedder service
         # Automatically select adapter based on sub_stores configuration
         sub_stores_list = self.config.get('sub_stores', [])
@@ -283,8 +281,14 @@ class Memory(MemoryBase):
             logger.info("Using basic StorageAdapter")
 
         self.intelligence = IntelligenceManager(self.config)
-        self.telemetry = TelemetryManager(self.config)
-        self.audit = AuditLogger(self.config)
+        telemetry_config = self.config.get("telemetry")
+        if telemetry_config is None:
+            telemetry_config = self.config
+        self.telemetry = TelemetryManager(telemetry_config)
+        audit_config = self.config.get("audit")
+        if audit_config is None:
+            audit_config = self.config
+        self.audit = AuditLogger(audit_config)
 
         # Save custom prompts from config
         if self.memory_config:
@@ -732,7 +736,7 @@ class Memory(MemoryBase):
         # Get intelligent memory config to check fallback setting
         intelligent_config = self._get_intelligent_memory_config()
         fallback_to_simple = intelligent_config.get("fallback_to_simple_add", False)
-        
+
         # Step 1: Extract facts from messages
         logger.info("Extracting facts from messages...")
         facts = self._extract_facts(messages)
@@ -1122,7 +1126,8 @@ class Memory(MemoryBase):
                 run_id=run_id,
                 filters=filters,
                 limit=limit,
-                query=query  # Pass query text for hybrid search (vector + full-text + sparse vector)
+                query=query,  # Pass query text for hybrid search (vector + full-text + sparse vector)
+                threshold=threshold,  # Pass threshold to storage for native hybrid search condition check
             )
             
             # Process results with intelligence manager (only if enabled to avoid unnecessary calls)
@@ -1150,18 +1155,18 @@ class Memory(MemoryBase):
             transformed_results = []
             for result in processed_results:
                 score = result.get("score", 0.0)
-                
+
                 # Get quality score for threshold filtering
                 # Quality score represents absolute similarity quality (0-1 range)
                 # It's calculated from weighted average of all search paths' similarity scores
                 metadata = result.get("metadata", {})
                 quality_score = metadata.get("_quality_score")
-                
+
                 # If quality_score is not available (e.g., from older data or non-hybrid search),
                 # fall back to using the ranking score
                 if quality_score is None:
                     quality_score = score
-                
+
                 # Apply threshold filtering using quality score
                 # Only include results if threshold is None or quality_score >= threshold
                 if threshold is not None and quality_score < threshold:
@@ -1421,8 +1426,22 @@ class Memory(MemoryBase):
         limit: int = 100,
         offset: int = 0,
         filters: Optional[Dict[str, Any]] = None,
+        sort_by: Optional[str] = None,
+        order: str = "desc",
     ) -> dict[str, list[dict[str, Any]]]:
-        """Get all memories with optional filtering.
+        """Get all memories with optional filtering and sorting.
+        
+        Args:
+            user_id: Optional user ID filter
+            agent_id: Optional agent ID filter
+            run_id: Optional run ID filter
+            limit: Maximum number of results to return (default: 100)
+            offset: Number of results to skip (default: 0)
+            filters: Optional additional filters dictionary
+            sort_by: Optional field to sort results by. Options: "created_at" (creation time),
+                     "updated_at" (update time), "id" (memory ID). If None, results are returned
+                     in their original order (typically by ID).
+            order: Sort order. "desc" for descending (default), "asc" for ascending
         
         Returns:
             dict[str, list[dict[str, Any]]]: A dictionary containing all memories with the following structure:
@@ -1438,7 +1457,9 @@ class Memory(MemoryBase):
                 - "relations" (List[Dict], optional): Graph relations if graph store is enabled
         """
         try:
-            results = self.storage.get_all_memories(user_id, agent_id, run_id, limit, offset)
+            results = self.storage.get_all_memories(
+                user_id, agent_id, run_id, limit, offset, sort_by=sort_by, order=order
+            )
             
             self.audit.log_event("memory.get_all", {
                 "user_id": user_id,
@@ -1705,6 +1726,8 @@ class Memory(MemoryBase):
     def from_config(cls, config: Optional[Dict[str, Any]] = None, **kwargs):
         """
         Create Memory instance from configuration.
+
+        Deprecated: prefer `create_memory()` or `auto_config()`.
         
         Args:
             config: Configuration dictionary
@@ -1722,6 +1745,11 @@ class Memory(MemoryBase):
             })
             ```
         """
+        warnings.warn(
+            "Memory.from_config is deprecated; prefer create_memory() or auto_config().",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if config is None:
             # Use auto config from environment
             from ..config_loader import auto_config

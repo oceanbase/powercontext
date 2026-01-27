@@ -24,7 +24,7 @@ class SiliconFlowEmbedding(EmbeddingBase):
             or os.getenv("EMBEDDING_API_KEY")
         )
         base_url = (
-            self.config.siliconflow_base_url
+            getattr(self.config, "siliconflow_base_url", None)
             or os.getenv("SILICONFLOW_EMBEDDING_BASE_URL")
             or "https://api.siliconflow.cn/v1"
         )
@@ -60,5 +60,4 @@ class SiliconFlowEmbedding(EmbeddingBase):
             )
 
         return self.client.embeddings.create(input=[text], model=self.config.model).data[0].embedding
-
 

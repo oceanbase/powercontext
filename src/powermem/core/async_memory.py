@@ -6,6 +6,7 @@ This module provides the asynchronous memory management interface.
 
 import asyncio
 import logging
+import warnings
 import hashlib
 import json
 from typing import Any, Dict, List, Optional, Union
@@ -119,18 +120,14 @@ class AsyncMemory(MemoryBase):
             # Use MemoryConfig object directly
             self.memory_config = config
             # For backward compatibility, also store as dict
-            self.config = config.model_dump()
+            self.config = config.to_dict()
         else:
             # Convert dict config
             dict_config = config or {}
             dict_config = _auto_convert_config(dict_config)
             self.config = dict_config
-            # Try to create MemoryConfig from dict, fallback to dict if fails
-            try:
-                self.memory_config = MemoryConfig(**dict_config)
-            except Exception as e:
-                logger.warning(f"Could not parse config as MemoryConfig: {e}, using dict mode")
-                self.memory_config = None
+            self.memory_config = None
+            logger.debug("Using dict config mode")
 
         self.agent_id = agent_id
         
@@ -176,8 +173,14 @@ class AsyncMemory(MemoryBase):
             logger.info("Using basic StorageAdapter")
         
         self.intelligence = IntelligenceManager(self.config)
-        self.telemetry = TelemetryManager(self.config)
-        self.audit = AuditLogger(self.config)
+        telemetry_config = self.config.get("telemetry")
+        if telemetry_config is None:
+            telemetry_config = self.config
+        self.telemetry = TelemetryManager(telemetry_config)
+        audit_config = self.config.get("audit")
+        if audit_config is None:
+            audit_config = self.config
+        self.audit = AuditLogger(audit_config)
 
         # Save custom prompts from config
         if self.memory_config:
@@ -1265,8 +1268,22 @@ class AsyncMemory(MemoryBase):
         limit: int = 100,
         offset: int = 0,
         filters: Optional[Dict[str, Any]] = None,
+        sort_by: Optional[str] = None,
+        order: str = "desc",
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Get all memories with optional filtering asynchronously.
+        """Get all memories with optional filtering and sorting asynchronously.
+        
+        Args:
+            user_id: Optional user ID filter
+            agent_id: Optional agent ID filter
+            run_id: Optional run ID filter
+            limit: Maximum number of results to return (default: 100)
+            offset: Number of results to skip (default: 0)
+            filters: Optional additional filters dictionary
+            sort_by: Optional field to sort results by. Options: "created_at" (creation time),
+                     "updated_at" (update time), "id" (memory ID). If None, results are returned
+                     in their original order (typically by ID).
+            order: Sort order. "desc" for descending (default), "asc" for ascending
         
         Returns:
             Dict[str, List[Dict[str, Any]]]: A dictionary containing all memories with the following structure:
@@ -1282,7 +1299,9 @@ class AsyncMemory(MemoryBase):
                 - "relations" (List[Dict], optional): Graph relations if graph store is enabled
         """
         try:
-            results = await self.storage.get_all_memories_async(user_id, agent_id, run_id, limit, offset)
+            results = await self.storage.get_all_memories_async(
+                user_id, agent_id, run_id, limit, offset, sort_by=sort_by, order=order
+            )
             
             await self.audit.log_event_async("memory.get_all", {
                 "user_id": user_id,
@@ -1573,6 +1592,8 @@ class AsyncMemory(MemoryBase):
     async def from_config(cls, config: Optional[Dict[str, Any]] = None, **kwargs):
         """
         Create AsyncMemory instance from configuration.
+
+        Deprecated: prefer `create_memory()` or `auto_config()`.
         
         Args:
             config: Configuration dictionary
@@ -1590,6 +1611,11 @@ class AsyncMemory(MemoryBase):
             })
             ```
         """
+        warnings.warn(
+            "AsyncMemory.from_config is deprecated; prefer create_memory() or auto_config().",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if config is None:
             # Use auto config from environment
             from ..config_loader import auto_config

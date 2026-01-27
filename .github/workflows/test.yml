@@ -9,7 +9,7 @@ on:
       - 'pyproject.toml'
       - 'Makefile'
       - '.github/workflows/test.yml'
-      - 'benchmark/lomoco/requirements.txt'
+      - '../../benchmark/locomo/requirements.txt'
   pull_request:
     branches: [main, develop]
     paths:
@@ -18,7 +18,7 @@ on:
       - 'pyproject.toml'
       - 'Makefile'
       - '.github/workflows/test.yml'
-      - 'benchmark/lomoco/requirements.txt'
+      - '../../benchmark/locomo/requirements.txt'
   workflow_dispatch:
 
 jobs:

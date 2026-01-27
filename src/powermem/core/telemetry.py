@@ -28,14 +28,31 @@ class TelemetryManager:
             config: Configuration dictionary
         """
         self.config = config or {}
-        self.enabled = self.config.get("enable_telemetry", False)
-        self.endpoint = self.config.get("telemetry_endpoint", "https://telemetry.powermem.ai")
-        self.api_key = self.config.get("telemetry_api_key")
-        self.batch_size = self.config.get("telemetry_batch_size", 100)
-        self.flush_interval = self.config.get("telemetry_flush_interval", 30)
+        self.enabled = self._get_config_value(
+            ["enable_telemetry", "enabled"], False
+        )
+        self.endpoint = self._get_config_value(
+            ["telemetry_endpoint", "endpoint"],
+            "https://telemetry.powermem.ai",
+        )
+        self.api_key = self._get_config_value(
+            ["telemetry_api_key", "api_key"], None
+        )
+        self.batch_size = self._get_config_value(
+            ["batch_size", "telemetry_batch_size"], 100
+        )
+        self.flush_interval = self._get_config_value(
+            ["flush_interval", "telemetry_flush_interval"], 30
+        )
         
         self.events = []
         self.last_flush = time.time()
+
+    def _get_config_value(self, keys, default):
+        for key in keys:
+            if key in self.config:
+                return self.config[key]
+        return default
         
         logger.info(f"TelemetryManager initialized - enabled: {self.enabled}")
     

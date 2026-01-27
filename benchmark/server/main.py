@@ -92,7 +92,8 @@ def load_config() -> Dict[str, Any]:
                 "vidx_metric_type": os.getenv("OCEANBASE_VIDX_METRIC_TYPE", "l2"),
                 "vector_weight": VECTOR_WEIGHT,
                 "fts_weight": FTS_WEIGHT,
-                'include_sparse': os.getenv('SPARSE_VECTOR_ENABLE', 'false').lower() == 'true'
+                'include_sparse': os.getenv('SPARSE_VECTOR_ENABLE', 'false').lower() == 'true',
+                'enable_native_hybrid': os.getenv('OCEANBASE_ENABLE_NATIVE_HYBRID', 'false').lower() == 'true'
             },
         }
     elif DB_TYPE == "postgres":

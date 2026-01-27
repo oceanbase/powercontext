@@ -79,6 +79,9 @@ class CustomLLMConfig(BaseLLMConfig):
 
 class CustomEmbedderConfig(BaseEmbedderConfig):
     """Custom Embedder configuration with dims support"""
+
+    _provider_name = "custom"
+    _class_path = f"{__name__}.CustomEmbedder"
     
     def __init__(
         self,
@@ -187,23 +190,19 @@ def test_step1_custom_llm_provider() -> None:
     _print_step("Step 1: Custom LLM Provider")
     
     from powermem.integrations.llm.factory import LLMFactory
-    from powermem.integrations.embeddings.factory import EmbedderFactory
     from powermem.storage.factory import VectorStoreFactory
     
     # Register custom LLM (using module path)
     LLMFactory.register_provider("custom", f"{__name__}.CustomLLM", CustomLLMConfig)
     
-    # Also register custom embedder and vector store for testing
-    EmbedderFactory.provider_to_class.update({
-        "custom": f"{__name__}.CustomEmbedder"
-    })
+    # Also register custom vector store for testing
     VectorStoreFactory.provider_to_class.update({
         "custom": f"{__name__}.CustomVectorStore"
     })
     
     print("✓ CustomLLM class defined")
     print("✓ Custom LLM provider registered successfully")
-    print("✓ Custom Embedder and Vector Store also registered for testing")
+    print("✓ Custom Vector Store also registered for testing")
     
     # Example configuration
     config_llm = {
@@ -293,15 +292,7 @@ class CustomEmbedder(EmbeddingBase):
 def test_step2_custom_embedder_provider() -> None:
     """Step 2: Custom Embedding Provider"""
     _print_step("Step 2: Custom Embedding Provider")
-    
-    from powermem.integrations.embeddings.factory import EmbedderFactory
-    
-    # Register custom embedder
-    # EmbedderFactory doesn't have register_provider, so use provider_to_class.update()
-    EmbedderFactory.provider_to_class.update({
-        "custom": f"{__name__}.CustomEmbedder"
-    })
-    
+
     print("✓ CustomEmbedder class defined")
     print("✓ Custom Embedder provider registered successfully")
     
@@ -930,16 +921,14 @@ def test_step5_fastapi_integration() -> None:
         if FASTAPI_AVAILABLE:
             from powermem import AsyncMemory
             from powermem.integrations.llm.factory import LLMFactory
-            from powermem.integrations.embeddings.factory import EmbedderFactory
+            from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
             from powermem.storage.factory import VectorStoreFactory
             
             # Ensure custom providers are registered
             if 'custom' not in LLMFactory.provider_to_class:
                 LLMFactory.register_provider("custom", f"{__name__}.CustomLLM", CustomLLMConfig)
-            if 'custom' not in EmbedderFactory.provider_to_class:
-                EmbedderFactory.provider_to_class.update({
-                    "custom": f"{__name__}.CustomEmbedder"
-                })
+            if not BaseEmbedderConfig.has_provider("custom"):
+                print("⚠ Custom embedder config is not registered")
             if 'custom' not in VectorStoreFactory.provider_to_class:
                 VectorStoreFactory.provider_to_class.update({
                     "custom": f"{__name__}.CustomVectorStore"
@@ -1488,12 +1477,12 @@ def main() -> None:
     
     # Check registrations
     from powermem.integrations.llm.factory import LLMFactory
-    from powermem.integrations.embeddings.factory import EmbedderFactory
+    from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
     from powermem.storage.factory import VectorStoreFactory
     
     print("\n✓ Registration Status:")
     print(f"  - Custom LLM Provider: {'✓' if 'custom' in LLMFactory.provider_to_class else '✗'}")
-    print(f"  - Custom Embedder Provider: {'✓' if 'custom' in EmbedderFactory.provider_to_class else '✗'}")
+    print(f"  - Custom Embedder Provider: {'✓' if BaseEmbedderConfig.has_provider('custom') else '✗'}")
     print(f"  - Custom Vector Store Provider: {'✓' if 'custom' in VectorStoreFactory.provider_to_class else '✗'}")
     
     print("\n✓ Implementation Status:")

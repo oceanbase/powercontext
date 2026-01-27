@@ -27,10 +27,18 @@ class AuditLogger:
             config: Configuration dictionary
         """
         self.config = config or {}
-        self.enabled = self.config.get("enable_audit", True)
-        self.log_file = self.config.get("audit_log_file", "audit.log")
-        self.log_level = self.config.get("audit_log_level", "INFO")
-        self.retention_days = self.config.get("audit_retention_days", 90)
+        self.enabled = self._get_config_value(
+            ["enabled", "enable_audit"], True
+        )
+        self.log_file = self._get_config_value(
+            ["log_file", "audit_log_file"], "audit.log"
+        )
+        self.log_level = self._get_config_value(
+            ["log_level", "audit_log_level"], "INFO"
+        )
+        self.retention_days = self._get_config_value(
+            ["retention_days", "audit_retention_days"], 90
+        )
         
         # Setup audit logger
         self.audit_logger = logging.getLogger("audit")
@@ -38,6 +46,9 @@ class AuditLogger:
         
         # Create file handler if not exists
         if not self.audit_logger.handlers:
+            log_dir = os.path.dirname(self.log_file)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
             handler = logging.FileHandler(self.log_file)
             formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -45,7 +56,15 @@ class AuditLogger:
             handler.setFormatter(formatter)
             self.audit_logger.addHandler(handler)
         
-        logger.info(f"AuditLogger initialized - enabled: {self.enabled}, log_file: {self.log_file}")
+        logger.info(
+            f"AuditLogger initialized - enabled: {self.enabled}, log_file: {self.log_file}"
+        )
+
+    def _get_config_value(self, keys, default):
+        for key in keys:
+            if key in self.config:
+                return self.config[key]
+        return default
     
     def log_event(
         self,

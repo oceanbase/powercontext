@@ -500,7 +500,15 @@ curl -X POST "http://localhost:8000/api/v1/memories/batch" \
 ### List Memories
 **Endpoint**: `GET /api/v1/memories`
 
-**Description**: Get a list of memories with pagination and filtering support
+**Description**: Get a list of memories with pagination, filtering, and sorting support
+
+**Query Parameters**:
+- `user_id` (optional): Filter by user ID
+- `agent_id` (optional): Filter by agent ID
+- `limit` (optional, default: 100): Maximum number of results (1-1000)
+- `offset` (optional, default: 0): Number of results to skip
+- `sort_by` (optional): Field to sort by. Options: `created_at`, `updated_at`, `id`. If not specified, results are returned in their original order
+- `order` (optional, default: `desc`): Sort order. Options: `desc` (descending), `asc` (ascending)
 
 **Request Example**:
 
@@ -515,6 +523,18 @@ curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&limit=20&off
 
 # Filter by agent
 curl -X GET "http://localhost:8000/api/v1/memories?agent_id=agent-456&limit=50&offset=0" \
+  -H "X-API-Key: test-api-key-123"
+
+# Sort by updated_at (descending - most recent first)
+curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&limit=10&sort_by=updated_at&order=desc" \
+  -H "X-API-Key: test-api-key-123"
+
+# Sort by created_at (ascending - oldest first)
+curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&limit=10&sort_by=created_at&order=asc" \
+  -H "X-API-Key: test-api-key-123"
+
+# Combined: filter, pagination, and sorting
+curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&agent_id=agent-456&limit=20&offset=0&sort_by=updated_at&order=desc" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -568,6 +588,11 @@ curl -X GET "http://localhost:8000/api/v1/memories?agent_id=agent-456&limit=50&o
 | Filter by user | user_id=user-123 | Returns only memories for that user |
 | Filter by agent | agent_id=agent-456 | Returns only memories for that agent |
 | Combined filters | user_id + agent_id | Returns records matching both |
+| Sort by updated_at desc | sort_by=updated_at&order=desc | Returns memories sorted by update time, newest first |
+| Sort by created_at asc | sort_by=created_at&order=asc | Returns memories sorted by creation time, oldest first |
+| Sort by id desc | sort_by=id&order=desc | Returns memories sorted by ID, highest first |
+| Combined: filter + sort | user_id + sort_by=updated_at | Returns filtered and sorted results |
+| Combined: filter + sort + pagination | user_id + sort_by=updated_at + limit + offset | Returns filtered, sorted, and paginated results |
 | Limit exceeds max | limit=2000 | Returns 422 Validation Error |
 | Negative offset | offset=-1 | Returns 422 Validation Error |
 | Empty results | No matching records | Returns empty array |
