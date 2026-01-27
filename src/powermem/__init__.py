@@ -5,6 +5,7 @@ An AI-powered intelligent memory management system that provides a persistent me
 """
 
 import importlib.metadata
+import warnings
 from typing import Any
 
 __version__ = importlib.metadata.version("powermem")
@@ -37,6 +38,8 @@ def create_memory(
     
     Returns:
         Memory instance
+
+    Preferred entrypoint for creating Memory instances.
         
     Example:
         ```python
@@ -62,6 +65,8 @@ def create_memory(
 def from_config(config: Any = None, **kwargs):
     """
     Create Memory instance from configuration
+
+    Deprecated: prefer `create_memory()` or `auto_config()`.
     
     Args:
         config: Optional configuration dictionary. If None, auto-loads from .env file.
@@ -87,17 +92,25 @@ def from_config(config: Any = None, **kwargs):
                  - config (Dict[str, Any]): Provider-specific configuration
                    - api_key (str, optional): API key for the embedding provider
                    - model (str, optional): Embedding model name (e.g., 'text-embedding-v4', 'text-embedding-ada-002')
-                   - embedding_dims (int, optional): Embedding dimensions (default: 1536)
+                   - embedding_dims (int, optional): Embedding dimensions
                    - ollama_base_url (str, optional): Base URL for Ollama
                    - openai_base_url (str, optional): Base URL for OpenAI-compatible APIs
                    - huggingface_base_url (str, optional): Base URL for HuggingFace
                    - model_kwargs (Dict, optional): Additional model arguments for HuggingFace
-                   - azure_kwargs (Dict, optional): Azure-specific configuration
+                   - azure_deployment (str, optional): Azure OpenAI deployment name
+                   - azure_endpoint (str, optional): Azure OpenAI endpoint URL
+                   - api_version (str, optional): Azure OpenAI API version
+                   - default_headers (Dict, optional): Default headers for Azure OpenAI requests
                    - vertex_credentials_json (str, optional): Path to Vertex AI credentials JSON
                    - lmstudio_base_url (str, optional): Base URL for LM Studio
                    - aws_access_key_id (str, optional): AWS access key for Bedrock
                    - aws_secret_access_key (str, optional): AWS secret key for Bedrock
                    - aws_region (str, optional): AWS region for Bedrock
+                 
+                 Note:
+                 When using `auto_config()` or `load_config_from_env()`, provider-specific settings are
+                 loaded via the provider's pydantic-settings class. Common `EMBEDDING_` fields only
+                 override provider settings if explicitly set.
                
                - **vector_store** (Dict[str, Any]): Vector store configuration
                  - provider (str): Vector store provider (e.g., 'oceanbase', 'pgvector', 'sqlite', 'postgres')
@@ -250,11 +263,25 @@ def from_config(config: Any = None, **kwargs):
         memory = from_config()
         ```
     """
+    warnings.warn(
+        "from_config is deprecated; prefer create_memory() or auto_config().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from .core.setup import from_config as _from_config
     return _from_config(config=config, **kwargs)
 
 
-Memory.from_config = classmethod(lambda cls, config=None, **kwargs: create_memory(config, **kwargs))
+def _deprecated_memory_from_config(cls, config=None, **kwargs):
+    warnings.warn(
+        "Memory.from_config is deprecated; prefer create_memory() or auto_config().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return create_memory(config, **kwargs)
+
+
+Memory.from_config = classmethod(_deprecated_memory_from_config)
 
 
 __all__ = [

@@ -1,4 +1,3 @@
-import os
 from typing import Literal, Optional
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
@@ -14,11 +13,11 @@ class AzureOpenAIEmbedding(EmbeddingBase):
     def __init__(self, config: Optional[BaseEmbedderConfig] = None):
         super().__init__(config)
 
-        api_key = self.config.azure_kwargs.api_key or os.getenv("EMBEDDING_AZURE_OPENAI_API_KEY")
-        azure_deployment = self.config.azure_kwargs.azure_deployment or os.getenv("EMBEDDING_AZURE_DEPLOYMENT")
-        azure_endpoint = self.config.azure_kwargs.azure_endpoint or os.getenv("EMBEDDING_AZURE_ENDPOINT")
-        api_version = self.config.azure_kwargs.api_version or os.getenv("EMBEDDING_AZURE_API_VERSION")
-        default_headers = self.config.azure_kwargs.default_headers
+        api_key = getattr(self.config, "api_key", None)
+        azure_deployment = getattr(self.config, "azure_deployment", None)
+        azure_endpoint = getattr(self.config, "azure_endpoint", None)
+        api_version = getattr(self.config, "api_version", None)
+        default_headers = getattr(self.config, "default_headers", None)
 
         # If the API key is not provided or is a placeholder, use DefaultAzureCredential.
         if api_key is None or api_key == "" or api_key == "your-api-key":
@@ -37,7 +36,7 @@ class AzureOpenAIEmbedding(EmbeddingBase):
             azure_ad_token_provider=azure_ad_token_provider,
             api_version=api_version,
             api_key=api_key,
-            http_client=self.config.http_client,
+            http_client=getattr(self.config, "http_client", None),
             default_headers=default_headers,
         )
 

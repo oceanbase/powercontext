@@ -7,15 +7,39 @@ This module provides setup functions compatible with initialization,
 import json
 import os
 import uuid
+from pathlib import Path
 from typing import Optional, Dict, Any
 import logging
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings
+
+from ..settings import settings_config
 
 logger = logging.getLogger(__name__)
 
 # Set up the directory path
 VECTOR_ID = str(uuid.uuid4())
-home_dir = os.path.expanduser("~")
-powermem_dir = os.environ.get("POWERMEM_DIR") or os.path.join(home_dir, ".powermem")
+class _LocalSettings(BaseSettings):
+    model_config = settings_config()
+
+    powermem_dir: Path = Field(
+        default=Path.home() / ".powermem", validation_alias="POWERMEM_DIR"
+    )
+
+    @field_validator("powermem_dir", mode="before")
+    @classmethod
+    def expand_user_path(cls, value: object) -> object:
+        if isinstance(value, str):
+            return Path(os.path.expanduser(value))
+        return value
+
+
+def get_powermem_dir() -> Path:
+    return _LocalSettings().powermem_dir
+
+
+powermem_dir = get_powermem_dir()
 os.makedirs(powermem_dir, exist_ok=True)
 
 
@@ -47,6 +71,8 @@ def get_user_id() -> str:
 def from_config(config: Optional[Dict[str, Any]] = None, **kwargs):
     """
     Create Memory instance from configuration.
+
+    Deprecated: prefer `create_memory()` or `auto_config()`.
     
     powermem now uses field names natively: 'embedder' and 'vector_store'.
     
@@ -159,4 +185,3 @@ def get_or_create_user_id(vector_store=None) -> str:
         pass
     
     return user_id
-
