@@ -1,7 +1,7 @@
 import json
 import logging
 from contextlib import contextmanager
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Dict
 
 from powermem.storage.base import VectorStoreBase, OutputData
 from powermem.utils.utils import generate_snowflake_id
@@ -148,10 +148,25 @@ class PGVectorStore(VectorStoreBase):
                 CREATE TABLE IF NOT EXISTS {self.collection_name} (
                     id BIGINT PRIMARY KEY,
                     vector vector({self.embedding_model_dims}),
-                    payload JSONB
+                    payload JSONB,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 """
             )
+            
+            # Add created_at column if it doesn't exist (for existing tables)
+            cur.execute(
+                f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                                   WHERE table_name='{self.collection_name}' AND column_name='created_at') THEN
+                        ALTER TABLE {self.collection_name} ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                    END IF;
+                END $$;
+                """
+            )
+
             if self.use_diskann and self.embedding_model_dims < 2000:
                 cur.execute("SELECT * FROM pg_extension WHERE extname = 'vectorscale'")
                 if cur.fetchone():
@@ -418,3 +433,128 @@ class PGVectorStore(VectorStoreBase):
         logger.warning(f"Resetting index {self.collection_name}...")
         self.delete_col()
         self.create_col()
+
+    def get_statistics(
+        self, filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Get statistics for the memories in PGVector."""
+        stats = {
+            "total_memories": 0,
+            "by_type": {},
+            "avg_importance": 0.0,
+            "top_accessed": [],
+            "growth_trend": {},
+            "age_distribution": {
+                "< 1 day": 0,
+                "1-7 days": 0,
+                "7-30 days": 0,
+                "> 30 days": 0,
+            },
+        }
+
+        filter_conditions = []
+        filter_params = []
+
+        if filters:
+            for k, v in filters.items():
+                filter_conditions.append("payload->>%s = %s")
+                filter_params.extend([k, str(v)])
+
+        filter_clause = "WHERE " + " AND ".join(filter_conditions) if filter_conditions else ""
+
+        with self._get_cursor() as cur:
+            # Get total count
+            cur.execute(f"SELECT COUNT(*) FROM {self.collection_name} {filter_clause}", filter_params)
+            stats["total_memories"] = cur.fetchone()[0]
+
+            if stats["total_memories"] == 0:
+                return stats
+
+            # Get distribution by type
+            cur.execute(
+                f"""
+                SELECT 
+                    COALESCE(payload->>'category', payload->>'type', 'unknown') as type, 
+                    COUNT(*) 
+                FROM {self.collection_name} 
+                {filter_clause}
+                GROUP BY type
+                """,
+                filter_params
+            )
+            for row in cur.fetchall():
+                stats["by_type"][row[0]] = row[1]
+
+            # Get average importance
+            cur.execute(
+                f"""
+                SELECT AVG(CAST(COALESCE(payload->>'importance', payload->'metadata'->>'importance', '0') AS FLOAT))
+                FROM {self.collection_name}
+                {filter_clause}
+                """,
+                filter_params
+            )
+            stats["avg_importance"] = round(float(cur.fetchone()[0] or 0.0), 2)
+
+            # Get top accessed
+            cur.execute(
+                f"""
+                SELECT id, payload->>'data' as content, 
+                       CAST(COALESCE(payload->>'access_count', payload->'metadata'->>'access_count', '0') AS INTEGER) as access_count
+                FROM {self.collection_name}
+                {filter_clause}
+                ORDER BY access_count DESC
+                LIMIT 10
+                """,
+                filter_params
+            )
+            for row in cur.fetchall():
+                stats["top_accessed"].append({
+                    "id": row[0],
+                    "content": (row[1] or "")[:50],
+                    "access_count": row[2]
+                })
+
+            # Growth trend
+            cur.execute(
+                f"""
+                SELECT DATE(created_at) as date, COUNT(*)
+                FROM {self.collection_name}
+                {filter_clause}
+                GROUP BY date
+                ORDER BY date
+                """,
+                filter_params
+            )
+            for row in cur.fetchall():
+                stats["growth_trend"][str(row[0])] = row[1]
+
+            # Age distribution
+            cur.execute(
+                f"""
+                SELECT 
+                    CASE 
+                        WHEN created_at > NOW() - INTERVAL '1 day' THEN '< 1 day'
+                        WHEN created_at > NOW() - INTERVAL '7 days' THEN '1-7 days'
+                        WHEN created_at > NOW() - INTERVAL '30 days' THEN '7-30 days'
+                        ELSE '> 30 days'
+                    END as age_bucket,
+                    COUNT(*)
+                FROM {self.collection_name}
+                {filter_clause}
+                GROUP BY age_bucket
+                """,
+                filter_params
+            )
+            for row in cur.fetchall():
+                if row[0] in stats["age_distribution"]:
+                    stats["age_distribution"][row[0]] = row[1]
+
+        return stats
+
+    def get_unique_users(self) -> List[str]:
+        """Get a list of unique user IDs from PGVector."""
+        query = f"SELECT DISTINCT payload->>'user_id' FROM {self.collection_name} WHERE payload ? 'user_id'"
+        with self._get_cursor() as cur:
+            cur.execute(query)
+            return [str(row[0]) for row in cur.fetchall() if row[0] is not None]

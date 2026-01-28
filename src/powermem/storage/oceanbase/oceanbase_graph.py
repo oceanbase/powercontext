@@ -3,13 +3,23 @@ OceanBase graph storage implementation
 
 This module provides OceanBase-based graph storage for memory data.
 """
+
 import json
 import logging
 import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from sqlalchemy import bindparam, text, MetaData, Column, String, Index, Table, BigInteger
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    Index,
+    MetaData,
+    String,
+    Table,
+    bindparam,
+    text,
+)
 from sqlalchemy.dialects.mysql import TIMESTAMP
 from sqlalchemy.exc import SAWarning
 
@@ -20,7 +30,7 @@ warnings.filterwarnings(
     "ignore",
     message="Unknown schema content",
     category=SAWarning,
-    module="pyobvector.*"
+    module="pyobvector.*",
 )
 
 # Suppress pkg_resources deprecation warning from jieba internal usage
@@ -29,22 +39,28 @@ warnings.filterwarnings(
     "ignore",
     message="pkg_resources is deprecated as an API",
     category=UserWarning,
-    module="jieba.*"
+    module="jieba.*",
 )
 
-from pyobvector import ObVecClient, l2_distance, VECTOR, VecIndexType
+from pyobvector import VECTOR, ObVecClient, VecIndexType, l2_distance
 
 from powermem.integrations import EmbedderFactory, LLMFactory
 from powermem.storage.base import GraphStoreBase
-from powermem.utils.utils import format_entities, remove_code_blocks, generate_snowflake_id, get_current_datetime
+from powermem.utils.utils import (
+    format_entities,
+    generate_snowflake_id,
+    get_current_datetime,
+    remove_code_blocks,
+)
 
 try:
     from rank_bm25 import BM25Okapi
 except ImportError:
-    raise ImportError("rank_bm25 is not installed. Please install it using pip install rank-bm25")
+    raise ImportError(
+        "rank_bm25 is not installed. Please install it using pip install rank-bm25"
+    )
 
 from powermem.prompts import GraphPrompts, GraphToolsPrompts
-
 from powermem.storage.oceanbase import constants
 
 logger = logging.getLogger(__name__)
@@ -53,8 +69,10 @@ logger = logging.getLogger(__name__)
 try:
     import jieba
 except ImportError:
-    logger.warning("jieba is not installed. Falling back to simple space-based tokenization. "
-                   "Install jieba for better Chinese text segmentation: pip install jieba")
+    logger.warning(
+        "jieba is not installed. Falling back to simple space-based tokenization. "
+        "Install jieba for better Chinese text segmentation: pip install jieba"
+    )
     jieba = None
 
 
@@ -93,8 +111,9 @@ class MemoryGraph(GraphStoreBase):
 
         # Get vidx parameters with defaults.
         self.index_type = get_config_value("index_type", constants.DEFAULT_INDEX_TYPE)
-        self.vidx_metric_type = get_config_value("vidx_metric_type",
-                                                 constants.DEFAULT_OCEANBASE_VECTOR_METRIC_TYPE)
+        self.vidx_metric_type = get_config_value(
+            "vidx_metric_type", constants.DEFAULT_OCEANBASE_VECTOR_METRIC_TYPE
+        )
         self.vidx_name = get_config_value("vidx_name", constants.DEFAULT_VIDX_NAME)
 
         # Get graph search parameters
@@ -142,7 +161,7 @@ class MemoryGraph(GraphStoreBase):
         graph_config = {}
         if self.config.graph_store:
             # Convert GraphStoreConfig to dict if needed
-            if hasattr(self.config.graph_store, 'model_dump'):
+            if hasattr(self.config.graph_store, "model_dump"):
                 graph_config = self.config.graph_store.model_dump()
             elif isinstance(self.config.graph_store, dict):
                 graph_config = self.config.graph_store
@@ -151,7 +170,7 @@ class MemoryGraph(GraphStoreBase):
         # Merge top-level config if it's a dict
         if isinstance(self.config, dict):
             prompts_config.update(self.config)
-        
+
         self.graph_prompts = GraphPrompts(prompts_config)
         self.graph_tools_prompts = GraphToolsPrompts(prompts_config)
 
@@ -162,9 +181,11 @@ class MemoryGraph(GraphStoreBase):
             LLM provider name.
         """
         # Check graph_store.llm.provider first
-        if (self.config.graph_store and
-                self.config.graph_store.llm and
-                self.config.graph_store.llm.provider):
+        if (
+            self.config.graph_store
+            and self.config.graph_store.llm
+            and self.config.graph_store.llm.provider
+        ):
             return self.config.graph_store.llm.provider
 
         # Check config.llm.provider
@@ -181,9 +202,11 @@ class MemoryGraph(GraphStoreBase):
             LLM configuration object or None.
         """
         # Check graph_store.llm.config first
-        if (self.config.graph_store and
-                self.config.graph_store.llm and
-                hasattr(self.config.graph_store.llm, "config")):
+        if (
+            self.config.graph_store
+            and self.config.graph_store.llm
+            and hasattr(self.config.graph_store.llm, "config")
+        ):
             return self.config.graph_store.llm.config
 
         # Check config.llm.config
@@ -212,9 +235,7 @@ class MemoryGraph(GraphStoreBase):
         return ", ".join(identity_parts)
 
     def _build_filter_conditions(
-            self,
-            filters: Dict[str, Any],
-            prefix: str = ""
+        self, filters: Dict[str, Any], prefix: str = ""
     ) -> Tuple[List[str], Dict[str, Any]]:
         """Build SQL filter conditions and parameters from filters.
 
@@ -282,8 +303,16 @@ class MemoryGraph(GraphStoreBase):
                 Column("name", String(255), nullable=False),
                 Column("entity_type", String(64)),
                 Column("embedding", VECTOR(self.embedding_dims)),
-                Column("created_at", TIMESTAMP, server_default=text("CURRENT_TIMESTAMP")),
-                Column("updated_at", TIMESTAMP, server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")),
+                Column(
+                    "created_at", TIMESTAMP, server_default=text("CURRENT_TIMESTAMP")
+                ),
+                Column(
+                    "updated_at",
+                    TIMESTAMP,
+                    server_default=text(
+                        "CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+                    ),
+                ),
             ]
             # Define regular indexes
             indexes = [
@@ -326,7 +355,6 @@ class MemoryGraph(GraphStoreBase):
 
         # Create relationships table using pyobvector API
         if not self.client.check_table_exists(constants.TABLE_RELATIONSHIPS):
-
             # Define columns for relationships table
             cols = [
                 Column("id", BigInteger, primary_key=True, autoincrement=False),
@@ -336,13 +364,27 @@ class MemoryGraph(GraphStoreBase):
                 Column("user_id", String(128)),
                 Column("agent_id", String(128)),
                 Column("run_id", String(128)),
-                Column("created_at", TIMESTAMP, server_default=text("CURRENT_TIMESTAMP")),
-                Column("updated_at", TIMESTAMP, server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")),
+                Column(
+                    "created_at", TIMESTAMP, server_default=text("CURRENT_TIMESTAMP")
+                ),
+                Column(
+                    "updated_at",
+                    TIMESTAMP,
+                    server_default=text(
+                        "CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+                    ),
+                ),
             ]
 
             # Define regular indexes
             indexes = [
-                Index("idx_r_covering", "user_id","source_entity_id", "destination_entity_id","relationship_type"),
+                Index(
+                    "idx_r_covering",
+                    "user_id",
+                    "source_entity_id",
+                    "destination_entity_id",
+                    "relationship_type",
+                ),
             ]
 
             # Create table without vector index (relationships table has no vectors)
@@ -381,17 +423,15 @@ class MemoryGraph(GraphStoreBase):
             return None
         except Exception as e:
             logger.warning(
-                "Failed to get vector dimension for %s: %s",
-                constants.TABLE_ENTITIES,
-                e
+                "Failed to get vector dimension for %s: %s", constants.TABLE_ENTITIES, e
             )
             return None
 
     def _build_where_clause_with_filters(
-            self,
-            filters: Dict[str, Any],
-            prefix: str = "",
-            additional_params: Optional[Dict[str, Any]] = None
+        self,
+        filters: Dict[str, Any],
+        prefix: str = "",
+        additional_params: Optional[Dict[str, Any]] = None,
     ) -> Tuple[List[Any], Dict[str, Any]]:
         """Build where clause and parameters from filters using bindparam.
 
@@ -433,16 +473,26 @@ class MemoryGraph(GraphStoreBase):
             Dictionary containing deleted_entities and added_entities.
         """
         entity_type_map = self._retrieve_nodes_from_data(data, filters)
-        to_be_added = self._establish_nodes_relations_from_data(data, filters, entity_type_map)
-        search_output = self._search_graph_db(node_list=list(entity_type_map.keys()), filters=filters)
-        to_be_deleted = self._get_delete_entities_from_search_output(search_output, data, filters)
+        to_be_added = self._establish_nodes_relations_from_data(
+            data, filters, entity_type_map
+        )
+        search_output = self._search_graph_db(
+            node_list=list(entity_type_map.keys()), filters=filters
+        )
+        to_be_deleted = self._get_delete_entities_from_search_output(
+            search_output, data, filters
+        )
 
         deleted_entities = self._delete_entities(to_be_deleted, filters)
         added_entities = self._add_entities(to_be_added, filters, entity_type_map)
-        logger.debug("Deleted entities: %s, Added entities: %s", deleted_entities, added_entities)
+        logger.debug(
+            "Deleted entities: %s, Added entities: %s", deleted_entities, added_entities
+        )
         return {"deleted_entities": deleted_entities, "added_entities": added_entities}
 
-    def search(self, query: str, filters: Dict[str, Any], limit: int = 100) -> List[Dict[str, str]]:
+    def search(
+        self, query: str, filters: Dict[str, Any], limit: int = 100
+    ) -> List[Dict[str, str]]:
         """Search for memories and related graph data.
 
         Args:
@@ -454,7 +504,9 @@ class MemoryGraph(GraphStoreBase):
             List of search results containing source, relationship, and destination.
         """
         entity_type_map = self._retrieve_nodes_from_data(query, filters)
-        search_output = self._search_graph_db(node_list=list(entity_type_map.keys()), filters=filters, limit=limit)
+        search_output = self._search_graph_db(
+            node_list=list(entity_type_map.keys()), filters=filters, limit=limit
+        )
 
         if not search_output:
             return []
@@ -463,42 +515,52 @@ class MemoryGraph(GraphStoreBase):
         search_outputs_sequence = []
         for item in search_output:
             # Combine source, relationship, destination into a single text for better tokenization
-            combined_text = f"{item['source']} {item['relationship']} {item['destination']}"
+            combined_text = (
+                f"{item['source']} {item['relationship']} {item['destination']}"
+            )
             tokenized_item = self._tokenize_text(combined_text)
             search_outputs_sequence.append(tokenized_item)
-        
+
         bm25 = BM25Okapi(search_outputs_sequence)
 
         # Tokenize query using the same method
         tokenized_query = self._tokenize_text(query)
-        
+
         # Get top N results based on BM25 scores
         scores = bm25.get_scores(tokenized_query)
         # Get indices sorted by score (descending)
-        sorted_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
-        top_n_indices = sorted_indices[:constants.DEFAULT_BM25_TOP_N]
-        
+        sorted_indices = sorted(
+            range(len(scores)), key=lambda i: scores[i], reverse=True
+        )
+        top_n_indices = sorted_indices[: constants.DEFAULT_BM25_TOP_N]
+
         # Build reranked results
         search_results = []
         for idx in top_n_indices:
             if idx < len(search_output):
                 item = search_output[idx]
-                search_results.append({
-                    "source": item["source"], 
-                    "relationship": item["relationship"], 
-                    "destination": item["destination"]
-                })
+                search_results.append(
+                    {
+                        "source": item["source"],
+                        "relationship": item["relationship"],
+                        "destination": item["destination"],
+                    }
+                )
 
-        logger.info("Returned %d search results (from %d candidates)", len(search_results), len(search_output))
+        logger.info(
+            "Returned %d search results (from %d candidates)",
+            len(search_results),
+            len(search_output),
+        )
 
         return search_results
-    
+
     def _tokenize_text(self, text: str) -> List[str]:
         """Tokenize text using jieba for Chinese or simple split for other languages.
-        
+
         Args:
             text: Text to tokenize.
-            
+
         Returns:
             List of tokens.
         """
@@ -526,7 +588,7 @@ class MemoryGraph(GraphStoreBase):
                 table_name=constants.TABLE_RELATIONSHIPS,
                 ids=None,
                 output_column_name=["id", "source_entity_id", "destination_entity_id"],
-                where_clause=where_clause
+                where_clause=where_clause,
             )
 
             # Collect unique entity IDs from relationships
@@ -537,8 +599,7 @@ class MemoryGraph(GraphStoreBase):
 
             # Delete the relationships
             self.client.delete(
-                table_name=constants.TABLE_RELATIONSHIPS,
-                where_clause=where_clause
+                table_name=constants.TABLE_RELATIONSHIPS, where_clause=where_clause
             )
             logger.info("Deleted relationships for filters: %s", filters)
 
@@ -548,13 +609,17 @@ class MemoryGraph(GraphStoreBase):
                     table_name=constants.TABLE_ENTITIES,
                     ids=list(entity_ids),
                 )
-                logger.info("Deleted %d entities for filters: %s", len(entity_ids), filters)
+                logger.info(
+                    "Deleted %d entities for filters: %s", len(entity_ids), filters
+                )
         except Exception as e:
             logger.warning("Error deleting graph data: %s", e)
 
         logger.info("Deleted all graph data for filters: %s", filters)
 
-    def get_all(self, filters: Dict[str, Any], limit: int = 100) -> List[Dict[str, str]]:
+    def get_all(
+        self, filters: Dict[str, Any], limit: int = 100
+    ) -> List[Dict[str, str]]:
         """Retrieve all nodes and relationships from the graph database.
 
         Args:
@@ -570,8 +635,14 @@ class MemoryGraph(GraphStoreBase):
         relationships_results = self.client.get(
             table_name=constants.TABLE_RELATIONSHIPS,
             ids=None,
-            output_column_name=["id", "source_entity_id", "relationship_type", "destination_entity_id", "updated_at"],
-            where_clause=where_clause
+            output_column_name=[
+                "id",
+                "source_entity_id",
+                "relationship_type",
+                "destination_entity_id",
+                "updated_at",
+            ],
+            where_clause=where_clause,
         )
 
         relationships = relationships_results.fetchall()
@@ -592,7 +663,7 @@ class MemoryGraph(GraphStoreBase):
         entities_results = self.client.get(
             table_name=constants.TABLE_ENTITIES,
             ids=list(entity_ids),
-            output_column_name=["id", "name"]
+            output_column_name=["id", "name"],
         )
 
         # Create a mapping from entity_id to entity_name
@@ -606,12 +677,14 @@ class MemoryGraph(GraphStoreBase):
             source_name = entity_map.get(source_id, f"Unknown_{source_id}")
             dest_name = entity_map.get(dest_id, f"Unknown_{dest_id}")
 
-            final_results.append({
-                "source": source_name,
-                "relationship": relationship_type,
-                "target": dest_name,
-                "_updated_at": updated_at,  # Keep for sorting
-            })
+            final_results.append(
+                {
+                    "source": source_name,
+                    "relationship": relationship_type,
+                    "target": dest_name,
+                    "_updated_at": updated_at,  # Keep for sorting
+                }
+            )
 
         # Sort by updated_at (descending)
         final_results.sort(key=lambda x: x["_updated_at"], reverse=True)
@@ -623,7 +696,9 @@ class MemoryGraph(GraphStoreBase):
         logger.info("Retrieved %d relationships", len(final_results))
         return final_results
 
-    def _retrieve_nodes_from_data(self, data: str, filters: Dict[str, Any]) -> Dict[str, str]:
+    def _retrieve_nodes_from_data(
+        self, data: str, filters: Dict[str, Any]
+    ) -> Dict[str, str]:
         """Extract all the entities mentioned in the query.
 
         Args:
@@ -635,7 +710,9 @@ class MemoryGraph(GraphStoreBase):
         """
         _tools = [self.graph_tools_prompts.get_extract_entities_tool()]
         if constants.is_structured_llm_provider(self.llm_provider):
-            _tools = [self.graph_tools_prompts.get_extract_entities_tool(structured=True)]
+            _tools = [
+                self.graph_tools_prompts.get_extract_entities_tool(structured=True)
+            ]
 
         search_results = self.llm.generate_response(
             messages=[
@@ -670,21 +747,20 @@ class MemoryGraph(GraphStoreBase):
                 "Error in search tool: %s, llm_provider=%s, search_results=%s",
                 e,
                 self.llm_provider,
-                search_results
+                search_results,
             )
 
         entity_type_map = {
             k.lower().replace(" ", "_"): v.lower().replace(" ", "_")
             for k, v in entity_type_map.items()
         }
-        logger.debug("Entity type map: %s\n search_results=%s", entity_type_map, search_results)
+        logger.debug(
+            "Entity type map: %s\n search_results=%s", entity_type_map, search_results
+        )
         return entity_type_map
 
     def _establish_nodes_relations_from_data(
-            self,
-            data: str,
-            filters: Dict[str, Any],
-            entity_type_map: Dict[str, str]
+        self, data: str, filters: Dict[str, Any], entity_type_map: Dict[str, str]
     ) -> List[Dict[str, str]]:
         """Establish relations among the extracted nodes.
 
@@ -701,7 +777,9 @@ class MemoryGraph(GraphStoreBase):
         if self.config.graph_store.custom_prompt:
             system_content = self.graph_prompts.get_system_prompt("extract_relations")
             system_content = system_content.replace("USER_ID", user_identity)
-            system_content = system_content.replace("CUSTOM_PROMPT", f"4. {self.config.graph_store.custom_prompt}")
+            system_content = system_content.replace(
+                "CUSTOM_PROMPT", f"4. {self.config.graph_store.custom_prompt}"
+            )
             messages = [
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": data},
@@ -713,7 +791,7 @@ class MemoryGraph(GraphStoreBase):
                 {"role": "system", "content": system_content},
                 {
                     "role": "user",
-                    "content": f"List of entities: {list(entity_type_map.keys())}. \n\nText: {data}"
+                    "content": f"List of entities: {list(entity_type_map.keys())}. \n\nText: {data}",
                 },
             ]
 
@@ -743,10 +821,7 @@ class MemoryGraph(GraphStoreBase):
         return entities
 
     def _search_graph_db(
-            self,
-            node_list: List[str],
-            filters: Dict[str, Any],
-            limit: int = 100
+        self, node_list: List[str], filters: Dict[str, Any], limit: int = 100
     ) -> List[Dict[str, Any]]:
         """Search similar nodes and their relationships using vector similarity with multi-hop support.
 
@@ -784,13 +859,13 @@ class MemoryGraph(GraphStoreBase):
         return result_relations
 
     def _execute_single_hop_query(
-            self,
-            source_entity_ids: List[int],
-            filters: Dict[str, Any],
-            hop_number: int,
-            visited_edges: set = None,
-            conn=None,
-            max_edges_per_hop: int = 1000
+        self,
+        source_entity_ids: List[int],
+        filters: Dict[str, Any],
+        hop_number: int,
+        visited_edges: set = None,
+        conn=None,
+        max_edges_per_hop: int = 1000,
     ) -> List[Dict[str, Any]]:
         """Execute a single hop query from given source entities.
 
@@ -853,8 +928,13 @@ class MemoryGraph(GraphStoreBase):
         # Add parameters
         params["entity_ids"] = tuple(source_entity_ids)
         params["max_edges_per_hop"] = max_edges_per_hop
-        logger.debug("Executing hop %d with max_edges_per_hop=%d\n query: %s\n params: %s",
-                     hop_number, max_edges_per_hop, query, params)
+        logger.debug(
+            "Executing hop %d with max_edges_per_hop=%d\n query: %s\n params: %s",
+            hop_number,
+            max_edges_per_hop,
+            query,
+            params,
+        )
 
         # Execute query - use provided connection or create new one
         if conn is not None:
@@ -878,23 +958,22 @@ class MemoryGraph(GraphStoreBase):
             if edge_key in visited_edges:
                 continue
 
-            formatted_results.append({
-                "source": row[0],
-                "source_id": source_id,
-                "relationship": row[2],
-                "relation_id": row[3],
-                "destination": row[4],
-                "destination_id": dest_id,
-                "hop_count": hop_number,
-            })
+            formatted_results.append(
+                {
+                    "source": row[0],
+                    "source_id": source_id,
+                    "relationship": row[2],
+                    "relation_id": row[3],
+                    "destination": row[4],
+                    "destination_id": dest_id,
+                    "hop_count": hop_number,
+                }
+            )
 
         return formatted_results
 
     def _multi_hop_search(
-            self,
-            entity_ids: List[int],
-            filters: Dict[str, Any],
-            limit: int
+        self, entity_ids: List[int], filters: Dict[str, Any], limit: int
     ) -> List[Dict[str, Any]]:
         """Perform multi-hop graph search with application-level early stopping.
 
@@ -924,7 +1003,9 @@ class MemoryGraph(GraphStoreBase):
 
             all_results = []
             visited_edges = set()  # Track visited edges to prevent cycles
-            visited_nodes = set(entity_ids)  # Track all visited nodes (start with seed entities)
+            visited_nodes = set(
+                entity_ids
+            )  # Track all visited nodes (start with seed entities)
             current_source_ids = entity_ids  # Start from seed entities
 
             # Iteratively execute each hop until limit is satisfied or max_hops reached
@@ -935,7 +1016,7 @@ class MemoryGraph(GraphStoreBase):
                     filters=filters,
                     hop_number=hop,
                     visited_edges=visited_edges,
-                    conn=conn
+                    conn=conn,
                 )
 
                 # If no results at this hop, stop early
@@ -966,7 +1047,10 @@ class MemoryGraph(GraphStoreBase):
                 # If no new nodes, all destinations are already visited - stop early
                 # This means we've exhausted all reachable nodes in the graph
                 if not new_nodes:
-                    logger.info("STOP early: All destinations are already visited at hop %s", hop)
+                    logger.info(
+                        "STOP early: All destinations are already visited at hop %s",
+                        hop,
+                    )
                     break
 
                 # Update visited nodes and prepare for next hop
@@ -974,14 +1058,14 @@ class MemoryGraph(GraphStoreBase):
                 current_source_ids = list(next_source_ids)
 
             # Return all accumulated results
-            logger.debug("Transaction completed for multi-hop search, returning %d results", len(all_results))
+            logger.debug(
+                "Transaction completed for multi-hop search, returning %d results",
+                len(all_results),
+            )
             return all_results
 
     def _get_delete_entities_from_search_output(
-            self,
-            search_output: List[Dict[str, Any]],
-            data: str,
-            filters: Dict[str, Any]
+        self, search_output: List[Dict[str, Any]], data: str, filters: Dict[str, Any]
     ) -> List[Dict[str, str]]:
         """Get the entities to be deleted from the search output.
 
@@ -995,7 +1079,9 @@ class MemoryGraph(GraphStoreBase):
         """
         search_output_string = format_entities(search_output)
         user_identity = self._build_user_identity(filters)
-        system_prompt, user_prompt = self.graph_prompts.get_delete_relations_prompt(search_output_string, data, user_identity)
+        system_prompt, user_prompt = self.graph_prompts.get_delete_relations_prompt(
+            search_output_string, data, user_identity
+        )
 
         _tools = [self.graph_tools_prompts.get_delete_tool()]
         if constants.is_structured_llm_provider(self.llm_provider):
@@ -1022,9 +1108,7 @@ class MemoryGraph(GraphStoreBase):
         return to_be_deleted
 
     def _delete_entities(
-            self,
-            to_be_deleted: List[Dict[str, str]],
-            filters: Dict[str, Any]
+        self, to_be_deleted: List[Dict[str, str]], filters: Dict[str, Any]
     ) -> List[Dict[str, int]]:
         """Delete the specified relationships from the graph.
 
@@ -1047,18 +1131,22 @@ class MemoryGraph(GraphStoreBase):
                 table_name=constants.TABLE_ENTITIES,
                 ids=None,
                 output_column_name=["id", "name"],
-                where_clause=[text(f"name = :source_name").bindparams(
-                    bindparam("source_name", source)
-                )]
+                where_clause=[
+                    text(f"name = :source_name").bindparams(
+                        bindparam("source_name", source)
+                    )
+                ],
             )
 
             dest_entities = self.client.get(
                 table_name=constants.TABLE_ENTITIES,
                 ids=None,
                 output_column_name=["id", "name"],
-                where_clause=[text(f"name = :dest_name").bindparams(
-                    bindparam("dest_name", destination)
-                )]
+                where_clause=[
+                    text(f"name = :dest_name").bindparams(
+                        bindparam("dest_name", destination)
+                    )
+                ],
             )
 
             # Get entity IDs
@@ -1075,7 +1163,7 @@ class MemoryGraph(GraphStoreBase):
                     source,
                     len(source_ids),
                     destination,
-                    len(dest_ids)
+                    len(dest_ids),
                 )
                 results.append({"deleted_count": 0})
                 continue
@@ -1098,14 +1186,12 @@ class MemoryGraph(GraphStoreBase):
                 params["run_id"] = filters["run_id"]
 
             # Add source and destination entity ID conditions.
-            source_conditions = " OR ".join([
-                f"source_entity_id = :src_id_{i}"
-                for i in range(len(source_ids))
-            ])
-            dest_conditions = " OR ".join([
-                f"destination_entity_id = :dest_id_{i}"
-                for i in range(len(dest_ids))
-            ])
+            source_conditions = " OR ".join(
+                [f"source_entity_id = :src_id_{i}" for i in range(len(source_ids))]
+            )
+            dest_conditions = " OR ".join(
+                [f"destination_entity_id = :dest_id_{i}" for i in range(len(dest_ids))]
+            )
 
             where_clauses.append(f"({source_conditions}) AND ({dest_conditions})")
 
@@ -1122,12 +1208,10 @@ class MemoryGraph(GraphStoreBase):
             try:
                 delete_result = self.client.delete(
                     table_name=constants.TABLE_RELATIONSHIPS,
-                    where_clause=[where_clause]
+                    where_clause=[where_clause],
                 )
                 deleted_count = (
-                    delete_result.rowcount
-                    if hasattr(delete_result, "rowcount")
-                    else 1
+                    delete_result.rowcount if hasattr(delete_result, "rowcount") else 1
                 )
                 results.append({"deleted_count": deleted_count})
             except Exception as e:
@@ -1137,10 +1221,10 @@ class MemoryGraph(GraphStoreBase):
         return results
 
     def _add_entities(
-            self,
-            to_be_added: List[Dict[str, str]],
-            filters: Dict[str, Any],
-            entity_type_map: Dict[str, str]
+        self,
+        to_be_added: List[Dict[str, str]],
+        filters: Dict[str, Any],
+        entity_type_map: Dict[str, str],
     ) -> List[Dict[str, str]]:
         """Add new entities and relationships to the graph.
 
@@ -1163,38 +1247,56 @@ class MemoryGraph(GraphStoreBase):
             dest_embedding = self.embedding_model.embed(destination)
 
             # Search for existing similar nodes.
-            source_node = self._search_source_node(source_embedding, filters,
-                                                   threshold=constants.DEFAULT_SIMILARITY_THRESHOLD, limit=1)
-            dest_node = self._search_destination_node(dest_embedding, filters,
-                                                      threshold=constants.DEFAULT_SIMILARITY_THRESHOLD, limit=1)
+            source_node = self._search_source_node(
+                source_embedding,
+                filters,
+                threshold=constants.DEFAULT_SIMILARITY_THRESHOLD,
+                limit=1,
+            )
+            dest_node = self._search_destination_node(
+                dest_embedding,
+                filters,
+                threshold=constants.DEFAULT_SIMILARITY_THRESHOLD,
+                limit=1,
+            )
 
             # Get or create source entity
             if source_node:
                 source_id = source_node["id"]
             else:
-                source_id = self._create_entity(source, entity_type_map.get(source, "entity"),
-                                                source_embedding, filters)
+                source_id = self._create_entity(
+                    source,
+                    entity_type_map.get(source, "entity"),
+                    source_embedding,
+                    filters,
+                )
 
             # Get or create destination entity
             if dest_node:
                 dest_id = dest_node["id"]
             else:
-                dest_id = self._create_entity(destination, entity_type_map.get(destination, "entity"),
-                                              dest_embedding, filters)
+                dest_id = self._create_entity(
+                    destination,
+                    entity_type_map.get(destination, "entity"),
+                    dest_embedding,
+                    filters,
+                )
 
             # Create or update relationship
-            rel_result = self._create_or_update_relationship(source_id, dest_id, relationship, filters)
+            rel_result = self._create_or_update_relationship(
+                source_id, dest_id, relationship, filters
+            )
             results.append(rel_result)
 
         return results
 
     def _search_node(
-            self,
-            name: Optional[str],
-            embedding: List[float],
-            filters: Dict[str, Any],
-            threshold: float = None,
-            limit: int = 10
+        self,
+        name: Optional[str],
+        embedding: List[float],
+        filters: Dict[str, Any],
+        threshold: float = None,
+        limit: int = 10,
     ) -> Union[Dict[str, Any], List[Dict[str, Any]], None]:
         """Search for a node by embedding similarity within threshold.
 
@@ -1214,7 +1316,9 @@ class MemoryGraph(GraphStoreBase):
             threshold = constants.DEFAULT_SIMILARITY_THRESHOLD
 
         # Create Table object to access columns for WHERE clause.
-        table = Table(constants.TABLE_ENTITIES, self.metadata, autoload_with=self.engine)
+        table = Table(
+            constants.TABLE_ENTITIES, self.metadata, autoload_with=self.engine
+        )
         vec_str = "[" + ",".join([str(np.float32(v)) for v in embedding]) + "]"
         distance_expr = l2_distance(table.c.embedding, vec_str)
         where_clause = [distance_expr < threshold]
@@ -1240,16 +1344,18 @@ class MemoryGraph(GraphStoreBase):
 
                 return {"id": entity_id, "name": entity_name, "distance": distance}
             else:
-                return [{"id": row[0], "name": row[1], "distance": row[-1]} for row in rows]
+                return [
+                    {"id": row[0], "name": row[1], "distance": row[-1]} for row in rows
+                ]
 
         return None
 
     def _create_entity(
-            self,
-            name: str,
-            entity_type: str,
-            embedding: List[float],
-            filters: Dict[str, Any]
+        self,
+        name: str,
+        entity_type: str,
+        embedding: List[float],
+        filters: Dict[str, Any],
     ) -> int:
         """Create a new entity in the graph.
 
@@ -1285,11 +1391,11 @@ class MemoryGraph(GraphStoreBase):
         return entity_id
 
     def _create_or_update_relationship(
-            self,
-            source_id: int,
-            dest_id: int,
-            relationship_type: str,
-            filters: Dict[str, Any]
+        self,
+        source_id: int,
+        dest_id: int,
+        relationship_type: str,
+        filters: Dict[str, Any],
     ) -> Dict[str, str]:
         """Create or update a relationship between two entities.
 
@@ -1311,11 +1417,9 @@ class MemoryGraph(GraphStoreBase):
         # Rebuild the where clause with additional conditions
         where_str = str(where_clause[0].text) + additional_conditions
 
-        params.update({
-            "source_id": source_id,
-            "dest_id": dest_id,
-            "rel_type": relationship_type
-        })
+        params.update(
+            {"source_id": source_id, "dest_id": dest_id, "rel_type": relationship_type}
+        )
 
         where_clause_with_params = text(where_str).bindparams(**params)
 
@@ -1324,7 +1428,7 @@ class MemoryGraph(GraphStoreBase):
             table_name=constants.TABLE_RELATIONSHIPS,
             ids=None,
             output_column_name=["id"],
-            where_clause=[where_clause_with_params]
+            where_clause=[where_clause_with_params],
         )
 
         existing_rows = existing_relationships.fetchall()
@@ -1353,13 +1457,13 @@ class MemoryGraph(GraphStoreBase):
         source_entity = self.client.get(
             table_name=constants.TABLE_ENTITIES,
             ids=[source_id],
-            output_column_name=["id", "name"]
+            output_column_name=["id", "name"],
         ).fetchone()
 
         dest_entity = self.client.get(
             table_name=constants.TABLE_ENTITIES,
             ids=[dest_id],
-            output_column_name=["id", "name"]
+            output_column_name=["id", "name"],
         ).fetchone()
 
         return {
@@ -1368,7 +1472,9 @@ class MemoryGraph(GraphStoreBase):
             "target": dest_entity[1] if dest_entity else None,
         }
 
-    def _remove_spaces_from_entities(self, entity_list: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    def _remove_spaces_from_entities(
+        self, entity_list: List[Dict[str, str]]
+    ) -> List[Dict[str, str]]:
         """Clean entity names by replacing spaces with underscores.
 
         Args:
@@ -1384,11 +1490,11 @@ class MemoryGraph(GraphStoreBase):
         return entity_list
 
     def _search_source_node(
-            self,
-            source_embedding: List[float],
-            filters: Dict[str, Any],
-            threshold: float = None,
-            limit: int = 10
+        self,
+        source_embedding: List[float],
+        filters: Dict[str, Any],
+        threshold: float = None,
+        limit: int = 10,
     ) -> Union[Dict[str, Any], List[Dict[str, Any]], None]:
         """Search for a source node by embedding similarity (compatibility method).
 
@@ -1405,11 +1511,11 @@ class MemoryGraph(GraphStoreBase):
         return self._search_node("source", source_embedding, filters, threshold, limit)
 
     def _search_destination_node(
-            self,
-            destination_embedding: List[float],
-            filters: Dict[str, Any],
-            threshold: float = None,
-            limit: int = 10
+        self,
+        destination_embedding: List[float],
+        filters: Dict[str, Any],
+        threshold: float = None,
+        limit: int = 10,
     ) -> Union[Dict[str, Any], List[Dict[str, Any]], None]:
         """Search for a destination node by embedding similarity (compatibility method).
 
@@ -1423,7 +1529,9 @@ class MemoryGraph(GraphStoreBase):
         Returns:
             Search results from _search_node method.
         """
-        return self._search_node("destination", destination_embedding, filters, threshold, limit)
+        return self._search_node(
+            "destination", destination_embedding, filters, threshold, limit
+        )
 
     def reset(self) -> None:
         """Reset the graph by clearing all nodes and relationships.
@@ -1445,3 +1553,104 @@ class MemoryGraph(GraphStoreBase):
         self._create_tables()
 
         logger.info("Graph reset completed")
+
+    def get_statistics(
+        self, filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Get statistics for the graph data."""
+        from sqlalchemy import Table, func, or_, select
+
+        stats = {
+            "total_entities": 0,
+            "total_relationships": 0,
+            "by_type": {},
+            "growth_trend": {},
+        }
+
+        try:
+            where_clause, _ = self._build_where_clause_with_filters(filters)
+
+            # Explicitly define tables if not already autoloaded
+            entities_table = Table(
+                constants.TABLE_ENTITIES, self.metadata, autoload_with=self.engine
+            )
+            rels_table = Table(
+                constants.TABLE_RELATIONSHIPS, self.metadata, autoload_with=self.engine
+            )
+
+            with self.engine.connect() as conn:
+                # 1. Total Entities
+                if not filters:
+                    stats["total_entities"] = (
+                        conn.execute(
+                            select(func.count()).select_from(entities_table)
+                        ).scalar()
+                        or 0
+                    )
+                else:
+                    stmt = select(
+                        func.count(func.distinct(entities_table.c.id))
+                    ).select_from(
+                        entities_table.join(
+                            rels_table,
+                            or_(
+                                entities_table.c.id == rels_table.c.source_entity_id,
+                                entities_table.c.id
+                                == rels_table.c.destination_entity_id,
+                            ),
+                        )
+                    )
+                    if where_clause:
+                        for cond in where_clause:
+                            stmt = stmt.where(cond)
+                    stats["total_entities"] = conn.execute(stmt).scalar() or 0
+
+                # 2. Total Relationships
+                stmt = select(func.count()).select_from(rels_table)
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+                stats["total_relationships"] = conn.execute(stmt).scalar() or 0
+
+                # 3. Distribution by Relationship Type
+                stmt = select(rels_table.c.relationship_type, func.count()).select_from(
+                    rels_table
+                )
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+                stmt = stmt.group_by(rels_table.c.relationship_type)
+                for r_type, count in conn.execute(stmt):
+                    stats["by_type"][r_type or "unknown"] = count
+
+                # 4. Growth Trend
+                date_expr = func.substring(rels_table.c.created_at, 1, 10)
+                stmt = select(date_expr, func.count()).select_from(rels_table)
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+                stmt = stmt.group_by(date_expr).order_by(date_expr)
+                for dt, count in conn.execute(stmt):
+                    if dt:
+                        stats["growth_trend"][dt] = count
+
+        except Exception as e:
+            logger.error(f"Failed to get statistics from OceanBase graph: {e}")
+
+        return stats
+
+    def get_unique_users(self) -> List[str]:
+        """Get a list of unique user IDs from OceanBase graph."""
+        from sqlalchemy import Table, func, select
+
+        try:
+            rels_table = Table(
+                constants.TABLE_RELATIONSHIPS, self.metadata, autoload_with=self.engine
+            )
+            stmt = select(func.distinct(rels_table.c.user_id))
+            with self.engine.connect() as conn:
+                results = conn.execute(stmt)
+                return [str(row[0]) for row in results if row[0] is not None]
+        except Exception as e:
+            logger.error(f"Failed to get unique users from OceanBase graph: {e}")
+            return []
