@@ -1,4 +1,4 @@
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Dict, Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -58,3 +58,9 @@ class BaseEmbedderConfig(BaseSettings):
         default=None,
         description="Embedding vector dimensions, when configurable by provider.",
     )
+
+    def to_component_dict(self) -> Dict[str, Any]:
+        return {
+            "provider": self._provider_name,
+            "config": self.model_dump(exclude_none=True)
+        }
