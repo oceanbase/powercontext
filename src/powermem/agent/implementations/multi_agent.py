@@ -343,8 +343,8 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
                 agent_id=memory_data.get('agent_id'),
                 run_id=memory_data.get('run_id'),
                 metadata={
-                    'scope': memory_data.get('scope').value if memory_data.get('scope') else None,
-                    'memory_type': memory_data.get('memory_type').value if memory_data.get('memory_type') else None,
+                    'scope': getattr(memory_data.get('scope'), 'value', memory_data.get('scope')),
+                    'memory_type': getattr(memory_data.get('memory_type'), 'value', memory_data.get('memory_type')),
                     'retention_score': memory_data.get('retention_score'),
                     'importance_level': memory_data.get('importance_level'),
                     **memory_data.get('metadata', {})

@@ -339,9 +339,11 @@ class Memory(MemoryBase):
         """
         if self.memory_config:
             component_obj = getattr(self.memory_config, component, None)
-            return component_obj.provider if component_obj else default
+            provider = getattr(component_obj, 'provider', None) if component_obj else None
+            return provider if provider is not None else default
         else:
-            return self.config.get(component, {}).get('provider', default)
+            provider = self.config.get(component, {}).get('provider')
+            return provider if provider is not None else default
 
     def _get_component_config(self, component: str) -> Dict[str, Any]:
         """
@@ -355,9 +357,11 @@ class Memory(MemoryBase):
         """
         if self.memory_config:
             component_obj = getattr(self.memory_config, component, None)
-            return component_obj.config or {} if component_obj else {}
+            config = getattr(component_obj, 'config', {}) if component_obj else {}
+            return config if config is not None else {}
         else:
-            return self.config.get(component, {}).get('config', {})
+            config = self.config.get(component, {}).get('config')
+            return config if config is not None else {}
 
     def _get_graph_enabled(self) -> bool:
         """
