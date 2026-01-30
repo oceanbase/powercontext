@@ -73,6 +73,18 @@ The project uses several development tools that are installed with `dev` depende
 - **flake8**: Linter
 - **mypy**: Type checker
 
+### Build dashboard
+
+To build the dashboard, you need to have Node.js and pnpm installed. Then run:
+
+```bash
+cd dashboard
+pnpm install
+pnpm build
+cd ..
+cp -r dashboard/dist/* src/server/dashboard/
+```
+
 ## Building the Project
 
 ### Build Distribution Packages

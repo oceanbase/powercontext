@@ -283,7 +283,138 @@ class SQLiteVectorStore(VectorStoreBase):
         """Reset by deleting and recreating the collection."""
         self.delete_col()
         self.create_col()
-    
+
+    def get_statistics(
+        self, filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Get statistics for the memories in SQLite."""
+        query = f"SELECT id, payload, created_at FROM {self.collection_name}"
+        query_params = []
+
+        if filters:
+            conditions = []
+            for key, value in filters.items():
+                conditions.append(f"json_extract(payload, '$.{key}') = ?")
+                query_params.append(value)
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+
+        stats = {
+            "total_memories": 0,
+            "by_type": {},
+            "avg_importance": 0.0,
+            "top_accessed": [],
+            "growth_trend": {},
+            "age_distribution": {
+                "< 1 day": 0,
+                "1-7 days": 0,
+                "7-30 days": 0,
+                "> 30 days": 0,
+            },
+        }
+
+        total_importance = 0.0
+        importance_count = 0
+
+        with self._lock:
+            cursor = self.connection.execute(query, query_params)
+            rows = cursor.fetchall()
+
+            stats["total_memories"] = len(rows)
+            if not rows:
+                return stats
+
+            from datetime import datetime
+
+            now = datetime.now()
+
+            memories_with_access = []
+
+            for row in rows:
+                row_id, payload_str, created_at_str = row
+                payload = json.loads(payload_str)
+
+                # Type distribution (category is the unified field for memory type)
+                m_type = payload.get("category") or payload.get("type") or "unknown"
+                stats["by_type"][m_type] = stats["by_type"].get(m_type, 0) + 1
+
+                # Importance (usually nested in metadata)
+                user_metadata = payload.get("metadata", {})
+                importance = user_metadata.get("importance") or payload.get(
+                    "importance"
+                )
+                if importance is not None:
+                    try:
+                        total_importance += float(importance)
+                        importance_count += 1
+                    except (ValueError, TypeError):
+                        pass
+
+                # Access count for top_accessed (usually nested in metadata)
+                access_count = (
+                    user_metadata.get("access_count")
+                    or payload.get("access_count")
+                    or 0
+                )
+
+                # Content (unified field name is 'data')
+                content = payload.get("data") or payload.get("content") or ""
+
+                memories_with_access.append(
+                    {
+                        "id": row_id,
+                        "content": content[:50],
+                        "access_count": int(access_count),
+                    }
+                )
+
+                # Growth trend (by date)
+                if created_at_str:
+                    date_part = created_at_str.split(" ")[0]
+                    stats["growth_trend"][date_part] = (
+                        stats["growth_trend"].get(date_part, 0) + 1
+                    )
+
+                    # Age distribution
+                    try:
+                        # SQLite created_at is usually 'YYYY-MM-DD HH:MM:SS'
+                        created_at = datetime.fromisoformat(
+                            created_at_str.replace(" ", "T")
+                        )
+                        days_old = (now - created_at).days
+                        if days_old < 1:
+                            stats["age_distribution"]["< 1 day"] += 1
+                        elif days_old < 7:
+                            stats["age_distribution"]["1-7 days"] += 1
+                        elif days_old < 30:
+                            stats["age_distribution"]["7-30 days"] += 1
+                        else:
+                            stats["age_distribution"]["> 30 days"] += 1
+                    except Exception:
+                        pass
+
+            if importance_count > 0:
+                stats["avg_importance"] = round(total_importance / importance_count, 2)
+
+            # Sort top accessed and take top 10
+            memories_with_access.sort(key=lambda x: x["access_count"], reverse=True)
+            stats["top_accessed"] = memories_with_access[:10]
+
+        return stats
+
+    def get_unique_users(self) -> List[str]:
+        """Get a list of unique user IDs from SQLite."""
+        query = f"SELECT DISTINCT json_extract(payload, '$.user_id') FROM {self.collection_name}"
+
+        users = []
+        with self._lock:
+            cursor = self.connection.execute(query)
+            for row in cursor.fetchall():
+                if row[0]:
+                    users.append(str(row[0]))
+
+        return users
+
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """Calculate cosine similarity between two vectors."""
         if len(vec1) != len(vec2):

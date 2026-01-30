@@ -77,6 +77,19 @@ class VectorStoreBase(ABC):
         """Reset by delete the collection and recreate it."""
         pass
 
+    @abstractmethod
+    def get_statistics(
+        self, filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Get statistics for the memories."""
+        pass
+
+    @abstractmethod
+    def get_unique_users(self) -> List[str]:
+        """Get a list of unique user IDs."""
+        pass
+
+
 class GraphStoreBase(ABC):
     """
     Abstract base class for graph storage implementations.
@@ -106,4 +119,16 @@ class GraphStoreBase(ABC):
     @abstractmethod
     def reset(self) -> None:
         """Reset the graph by clearing all nodes and relationships."""
+        pass
+
+    @abstractmethod
+    def get_statistics(
+        self, filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Get statistics for the graph data."""
+        pass
+
+    @abstractmethod
+    def get_unique_users(self) -> List[str]:
+        """Get a list of unique user IDs."""
         pass

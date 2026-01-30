@@ -196,6 +196,55 @@ async def list_memories(
 
 
 @router.get(
+    "/stats",
+    response_model=APIResponse,
+    summary="Get memory statistics",
+    description="Get statistics about memories for a user or agent",
+)
+@limiter.limit(get_rate_limit_string())
+async def get_memory_stats(
+    request: Request,
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    api_key: str = Depends(verify_api_key),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """Get memory statistics"""
+    stats = service.get_statistics(
+        user_id=user_id,
+        agent_id=agent_id,
+    )
+
+    return APIResponse(
+        success=True,
+        data=stats,
+        message="Statistics retrieved successfully",
+    )
+
+
+@router.get(
+    "/users",
+    response_model=APIResponse,
+    summary="Get unique users",
+    description="Get a list of unique user IDs who have memories stored",
+)
+@limiter.limit(get_rate_limit_string())
+async def get_unique_users(
+    request: Request,
+    api_key: str = Depends(verify_api_key),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """Get unique users"""
+    users = service.get_users()
+
+    return APIResponse(
+        success=True,
+        data=users,
+        message="Users retrieved successfully",
+    )
+
+
+@router.get(
     "/{memory_id}",
     response_model=APIResponse,
     summary="Get a memory",

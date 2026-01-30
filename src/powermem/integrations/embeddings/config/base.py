@@ -59,8 +59,34 @@ class BaseEmbedderConfig(BaseSettings):
         description="Embedding vector dimensions, when configurable by provider.",
     )
 
+    @property
+    def provider(self) -> Optional[str]:
+        """Return the provider name."""
+        # 1. Try the class-level _provider_name
+        p = getattr(type(self), "_provider_name", None)
+        if p:
+            return p
+        # 2. Try extra fields (e.g. if loaded from a dict that had a "provider" key)
+        if hasattr(self, "model_extra") and self.model_extra:
+            return self.model_extra.get("provider")
+        return None
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        """Return the configuration dictionary."""
+        # 1. Try extra fields (e.g. if loaded from a dict that had a "config" key)
+        if hasattr(self, "model_extra") and self.model_extra and "config" in self.model_extra:
+            val = self.model_extra["config"]
+            if isinstance(val, dict):
+                return val
+        # 2. Return the model fields, excluding provider/config if they are extras
+        exclude = {"provider", "config"}
+        if hasattr(self, "model_dump"):
+            return self.model_dump(exclude_none=True, exclude=exclude)
+        return getattr(self, "dict", lambda **kwargs: {})(exclude_none=True, exclude=exclude)
+
     def to_component_dict(self) -> Dict[str, Any]:
         return {
-            "provider": self._provider_name,
-            "config": self.model_dump(exclude_none=True)
+            "provider": self.provider,
+            "config": self.config
         }

@@ -488,6 +488,29 @@ class CustomVectorStore(VectorStoreBase):
         self.create_col(col_name, 768, "cosine")
         return True
 
+    def get_statistics(self, filters=None):
+        """Get statistics for the memories"""
+        return {
+            "total_memories": len(self._vectors.get(self.collection_name, [])),
+            "by_type": {},
+            "avg_importance": 0.0,
+            "top_accessed": [],
+            "growth_trend": {},
+            "age_distribution": {},
+        }
+
+    def get_unique_users(self):
+        """Get a list of unique user IDs"""
+        users = set()
+        col_name = self.collection_name
+        if col_name in self._vectors:
+            for item in self._vectors[col_name]:
+                user_id = item["payload"].get("user_id")
+                if user_id:
+                    users.add(str(user_id))
+        return list(users)
+
+
 # Register custom Vector Store Provider
 def test_step3_custom_vector_store() -> None:
     """Step 3: Custom Storage Backend"""

@@ -338,7 +338,17 @@ class MemoryService:
                 message=f"Failed to update memory: {str(e)}",
                 status_code=500,
             )
-    
+
+    def get_statistics(
+        self, user_id: Optional[str] = None, agent_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get memory statistics"""
+        return self.memory.get_statistics(user_id=user_id, agent_id=agent_id)
+
+    def get_users(self) -> List[str]:
+        """Get a list of unique user IDs"""
+        return self.memory.get_users()
+
     def delete_memory(
         self,
         memory_id: int,
