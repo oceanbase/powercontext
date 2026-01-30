@@ -2,20 +2,23 @@
 Main FastAPI application for PowerMem API Server
 """
 
-import os
-
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
+from fastapi.responses import Response
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
 
-from .api.v1 import router as v1_router
 from .config import config
-from .middleware.error_handler import error_handler
-from .middleware.logging import LoggingMiddleware, setup_logging
+from .api.v1 import router as v1_router
+from .middleware.logging import setup_logging, LoggingMiddleware
 from .middleware.rate_limit import rate_limit_middleware
+from .middleware.error_handler import error_handler
+from .middleware.auth import verify_api_key
+
+import os
 
 # Setup logging
 setup_logging()
@@ -100,7 +103,7 @@ async def api_root():
 
 if __name__ == "__main__":
     import uvicorn
-
+    
     uvicorn.run(
         "server.main:app",
         host=config.host,
