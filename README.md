@@ -189,7 +189,7 @@ Add the following configuration to your Claude Desktop config file:
 The MCP server provides tools for memory management including adding, searching, updating, and deleting memories. For complete MCP documentation and usage examples, see the [MCP Server Documentation](docs/api/0004-mcp.md).
 
 ## 🔗 Integrations & Demos
-
+- 🔗 **Moltbot Memory Plugin**: Use PowerMem as long-term memory in [Moltbot](https://github.com/moltbot/moltbot) via HTTP API—intelligent extraction, Ebbinghaus forgetting curve, multi-agent isolation. [View Plugin](https://github.com/oceanbase/moltbot-extension-powermem)
 - 🔗 **LangChain Integration**: Build medical support chatbot using LangChain + PowerMem + OceanBase, [View Example](examples/langchain/README.md)
 - 🔗 **LangGraph Integration**: Build customer service chatbot using LangGraph + PowerMem + OceanBase, [View Example](examples/langgraph/README.md)
 

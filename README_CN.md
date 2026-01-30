@@ -190,7 +190,7 @@ uvx powermem-mcp streamable-http 8001
 MCP Server提供记忆管理工具，包括添加、搜索、更新和删除记忆。完整的 MCP 文档和使用示例，请参阅 [MCP Server文档](docs/api/0004-mcp.md)。
 
 ## 🔗 集成与演示
-
+- 🔗 **Moltbot 外挂记忆插件**：在 [Moltbot](https://github.com/moltbot/moltbot) 中通过 HTTP API 使用 PowerMem 长期记忆，支持智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。[查看插件](https://github.com/oceanbase/moltbot-extension-powermem)
 - 🔗 **LangChain 集成**：基于 LangChain + PowerMem + OceanBase 构建医疗支持机器人，[查看示例](examples/langchain/README.md)
 - 🔗 **LangGraph 集成**：基于 LangGraph + PowerMem + OceanBase 构建客户服务机器人，[查看示例](examples/langgraph/README.md)
 

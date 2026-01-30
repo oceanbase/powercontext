@@ -189,7 +189,7 @@ Claude Desktop 設定ファイルに次の設定を追加します：
 MCP サーバーは、メモリの追加、検索、更新、削除を含むメモリ管理ツールを提供します。完全な MCP ドキュメントと使用例については、[MCP サーバードキュメント](docs/api/0004-mcp.md) を参照してください。
 
 ## 🔗 統合とデモ
-
+- 🔗 **Moltbot メモリプラグイン**: [Moltbot](https://github.com/moltbot/moltbot) で HTTP API により PowerMem を長期メモリとして利用。インテリジェント抽出、エビングハウス忘却曲線、マルチエージェント分離に対応。[プラグインを参照](https://github.com/oceanbase/moltbot-extension-powermem)
 - 🔗 **LangChain 統合**: LangChain + PowerMem + OceanBase を使用して医療サポートロボットを構築、[例を参照](examples/langchain/README.md)
 - 🔗 **LangGraph 統合**: LangGraph + PowerMem + OceanBase を使用してカスタマーサービスロボットを構築、[例を参照](examples/langgraph/README.md)
 
