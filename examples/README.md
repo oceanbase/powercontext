@@ -55,7 +55,6 @@ This directory contains various examples demonstrating how to use powermem with 
 - **Language**: Go 1.24+
 - **Database**: SQLite (default, no OceanBase required)
 - **Purpose**: Lightweight HTTP client for PowerMem API integration
-- **Features**: Zero dependencies (standard library only), 64-bit ID handling, full API coverage
 - **Run**: `cd examples/go && go run .`
 - **Demonstrates**:
   - HTTP client setup with proper timeout settings

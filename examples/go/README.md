@@ -66,24 +66,11 @@ cd examples/go
 # Run with default settings (localhost:8000, no auth)
 go run .
 
-# Or with API key if authentication is enabled on the server
-POWERMEM_BASE_URL=http://localhost:8000 POWERMEM_API_KEY=your-api-key-123 go run .
-```
-
-## Configuration
-
-The client can be configured via environment variables:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `POWERMEM_BASE_URL` | Base URL of the PowerMem API server | `http://localhost:8000` |
-| `POWERMEM_API_KEY` | API key for authentication | (empty - auth disabled) |
-
-### Example with Authentication
-
-```bash
+# Or with custom configuration
+# Base URL of the PowerMem API server
 export POWERMEM_BASE_URL=http://localhost:8000
-export POWERMEM_API_KEY=your-api-key-123
+# API key for authentication (if server auth enabled)
+export POWERMEM_API_KEY=your-api-key-123 
 go run .
 ```
 
