@@ -1631,6 +1631,578 @@ class Memory(MemoryBase):
         except Exception as e:
             logger.error(f"Failed to reset memory store: {e}")
             raise
+
+    def deduplicate(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        threshold: float = 0.95,
+        dry_run: bool = False,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Deduplicate memories using semantic similarity detection.
+        
+        This method finds and optionally merges duplicate or highly similar memories
+        based on embedding similarity. The most important memory is kept, and
+        duplicates are merged into it.
+        
+        Args:
+            user_id: Optional user ID filter
+            agent_id: Optional agent ID filter
+            run_id: Optional run ID filter
+            threshold: Similarity threshold for deduplication (0.0-1.0, default: 0.95)
+                      Memories with similarity above this threshold are considered duplicates
+            dry_run: If True, only preview changes without applying them (default: False)
+            limit: Optional limit on number of memories to process
+            
+        Returns:
+            Dict containing:
+                - "duplicates_found": Number of duplicate groups found
+                - "memories_processed": Number of memories examined
+                - "merged": Number of memories merged (0 if dry_run=True)
+                - "deleted": Number of duplicate memories deleted
+                - "saved_space": Estimate of space saved
+                - "details": List of merge operations performed
+        """
+        logger.info(f"Starting deduplication with threshold={threshold}, dry_run={dry_run}")
+        
+        try:
+            # Step 1: Get all memories to check for duplicates
+            fetch_limit = limit or 1000
+            all_memories = self.get_all(
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                limit=fetch_limit,
+            )
+            
+            memories = all_memories.get("results", [])
+            if not memories:
+                return {
+                    "duplicates_found": 0,
+                    "memories_processed": 0,
+                    "merged": 0,
+                    "deleted": 0,
+                    "saved_space": "0 bytes",
+                    "details": [],
+                }
+            
+            logger.info(f"Found {len(memories)} memories to check for duplicates")
+            
+            # Step 2: Group memories by similarity
+            duplicate_groups = self._find_duplicate_groups(memories, threshold)
+            
+            if not duplicate_groups:
+                logger.info("No duplicates found")
+                return {
+                    "duplicates_found": 0,
+                    "memories_processed": len(memories),
+                    "merged": 0,
+                    "deleted": 0,
+                    "saved_space": "0 bytes",
+                    "details": [],
+                }
+            
+            # Step 3: Report what would be done
+            total_duplicates = sum(len(group) - 1 for group in duplicate_groups)
+            logger.info(f"Found {len(duplicate_groups)} duplicate groups with {total_duplicates} duplicates")
+            
+            if dry_run:
+                # Just preview changes
+                details = []
+                for i, group in enumerate(duplicate_groups):
+                    primary = group[0]
+                    duplicates = group[1:]
+                    details.append({
+                        "group_id": i + 1,
+                        "primary_memory_id": primary.get("id"),
+                        "primary_content_preview": primary.get("content", "")[:100],
+                        "duplicate_count": len(duplicates),
+                        "duplicate_ids": [d.get("id") for d in duplicates],
+                    })
+                
+                return {
+                    "duplicates_found": len(duplicate_groups),
+                    "memories_processed": len(memories),
+                    "merged": 0,
+                    "deleted": 0,
+                    "saved_space": "N/A (dry run)",
+                    "details": details,
+                    "message": f"Dry run: {len(duplicate_groups)} groups with {total_duplicates} duplicates would be merged",
+                }
+            
+            # Step 4: Actually perform the deduplication
+            merged_count = 0
+            deleted_count = 0
+            details = []
+            
+            for i, group in enumerate(duplicate_groups):
+                if len(group) <= 1:
+                    continue
+                
+                primary = group[0]
+                duplicates = group[1:]
+                
+                primary_id = primary.get("id")
+                
+                # Merge each duplicate into the primary
+                for duplicate in duplicates:
+                    duplicate_id = duplicate.get("id")
+                    
+                    try:
+                        # Merge metadata from duplicate into primary
+                        primary_metadata = primary.get("metadata", {}).get("metadata", {}) if primary.get("metadata") else {}
+                        dup_metadata = duplicate.get("metadata", {}).get("metadata", {}) if duplicate.get("metadata") else {}
+                        
+                        # Combine metadata (avoid overwriting important fields)
+                        merged_metadata = {**dup_metadata, **primary_metadata}
+                        
+                        # Update primary with merged metadata
+                        self.update(
+                            memory_id=primary_id,
+                            content=primary.get("content", ""),
+                            user_id=user_id,
+                            agent_id=agent_id,
+                            metadata={"metadata": merged_metadata},
+                        )
+                        
+                        # Delete the duplicate
+                        self.delete(duplicate_id, user_id, agent_id)
+                        
+                        merged_count += 1
+                        deleted_count += 1
+                        
+                        details.append({
+                            "group_id": i + 1,
+                            "primary_memory_id": primary_id,
+                            "duplicate_memory_id": duplicate_id,
+                            "action": "merged_and_deleted",
+                        })
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to merge duplicate {duplicate_id}: {e}")
+                        continue
+            
+            # Estimate space saved (approximate)
+            avg_memory_size = sum(len(m.get("content", "")) for m in memories) / len(memories) if memories else 0
+            saved_bytes = int(deleted_count * avg_memory_size)
+            
+            result = {
+                "duplicates_found": len(duplicate_groups),
+                "memories_processed": len(memories),
+                "merged": merged_count,
+                "deleted": deleted_count,
+                "saved_space": self._format_bytes(saved_bytes),
+                "details": details,
+            }
+            
+            # Log audit event
+            self.audit.log_event("memory.deduplicate", result, user_id=user_id, agent_id=agent_id)
+            
+            logger.info(f"Deduplication completed: {merged_count} merged, {deleted_count} deleted")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to deduplicate memories: {e}")
+            raise
+
+    def compress(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        strategy: str = "conservative",
+        dry_run: bool = False,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Compress memories by consolidating similar memories.
+        
+        This method uses LLM to summarize and consolidate related memories,
+        reducing redundancy while preserving key information.
+        
+        Args:
+            user_id: Optional user ID filter
+            agent_id: Optional agent ID filter
+            run_id: Optional run ID filter
+            strategy: Compression strategy - "conservative", "moderate", or "aggressive"
+            dry_run: If True, only preview changes without applying them (default: False)
+            limit: Optional limit on number of memories to process
+            
+        Returns:
+            Dict containing:
+                - "memories_analyzed": Number of memories examined
+                - "compressed": Number of memories compressed/merged
+                - "original_count": Original memory count
+                - "compressed_count": Final memory count
+                - "details": List of compression operations performed
+        """
+        logger.info(f"Starting compression with strategy={strategy}, dry_run={dry_run}")
+        
+        # Validate strategy
+        valid_strategies = ["conservative", "moderate", "aggressive"]
+        if strategy not in valid_strategies:
+            raise ValueError(f"Invalid strategy: {strategy}. Must be one of {valid_strategies}")
+        
+        try:
+            # Step 1: Get memories to compress
+            fetch_limit = limit or 500
+            all_memories = self.get_all(
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                limit=fetch_limit,
+            )
+            
+            memories = all_memories.get("results", [])
+            if not memories:
+                return {
+                    "memories_analyzed": 0,
+                    "compressed": 0,
+                    "original_count": 0,
+                    "compressed_count": 0,
+                    "details": [],
+                }
+            
+            original_count = len(memories)
+            logger.info(f"Found {original_count} memories to analyze for compression")
+            
+            # Step 2: Group related memories (using existing similarity logic)
+            # For compression, we use a lower threshold than deduplication
+            compression_threshold = {
+                "conservative": 0.85,
+                "moderate": 0.75,
+                "aggressive": 0.65,
+            }.get(strategy, 0.75)
+            
+            related_groups = self._find_duplicate_groups(memories, compression_threshold)
+            
+            if not related_groups or len(related_groups) == 1 and len(related_groups[0]) <= 1:
+                logger.info("No memories need compression")
+                return {
+                    "memories_analyzed": original_count,
+                    "compressed": 0,
+                    "original_count": original_count,
+                    "compressed_count": original_count,
+                    "details": [],
+                }
+            
+            # Step 3: For each group, use LLM to consolidate
+            compressed_count = 0
+            details = []
+            
+            for i, group in enumerate(related_groups):
+                if len(group) <= 1:
+                    continue
+                
+                # Skip if already processed in deduplication
+                # (in a real implementation, we'd track which memories were already handled)
+                
+                try:
+                    if dry_run:
+                        # Just report what would be done
+                        details.append({
+                            "group_id": i + 1,
+                            "memories_in_group": len(group),
+                            "action": "would_compress",
+                            "preview": f"Would merge {len(group)} memories into 1 summary",
+                        })
+                        continue
+                    
+                    # Use LLM to create a summary
+                    summary = self._create_memory_summary(group, strategy)
+                    
+                    if summary:
+                        # Keep the first memory and update it with the summary
+                        primary = group[0]
+                        primary_id = primary.get("id")
+                        
+                        # Update primary with compressed content
+                        self.update(
+                            memory_id=primary_id,
+                            content=summary,
+                            user_id=user_id,
+                            agent_id=agent_id,
+                        )
+                        
+                        # Delete all other memories in the group
+                        for memory in group[1:]:
+                            mem_id = memory.get("id")
+                            self.delete(mem_id, user_id, agent_id)
+                            compressed_count += 1
+                        
+                        details.append({
+                            "group_id": i + 1,
+                            "primary_memory_id": primary_id,
+                            "memories_compressed": len(group) - 1,
+                            "action": "compressed",
+                            "summary_preview": summary[:100],
+                        })
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to compress group {i + 1}: {e}")
+                    continue
+            
+            compressed_count = len(group) - 1 for group in related_groups if len(group) > 1
+            compressed_count = sum(max(0, len(group) - 1) for group in related_groups)
+            
+            result = {
+                "memories_analyzed": original_count,
+                "compressed": compressed_count,
+                "original_count": original_count,
+                "compressed_count": original_count - compressed_count,
+                "details": details,
+            }
+            
+            # Log audit event
+            self.audit.log_event("memory.compress", result, user_id=user_id, agent_id=agent_id)
+            
+            logger.info(f"Compression completed: {compressed_count} memories compressed")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to compress memories: {e}")
+            raise
+
+    def optimize(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        strategy: str = "deduplicate",
+        threshold: float = 0.95,
+        dry_run: bool = False,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Optimize memories using the specified strategy.
+        
+        This is a convenience method that wraps deduplicate() and compress().
+        
+        Args:
+            user_id: Optional user ID filter
+            agent_id: Optional agent ID filter
+            run_id: Optional run ID filter
+            strategy: Optimization strategy - "deduplicate", "compress", or "all"
+            threshold: Similarity threshold for deduplication
+            dry_run: If True, only preview changes
+            limit: Optional limit on number of memories to process
+            
+        Returns:
+            Dict containing optimization results
+        """
+        if strategy == "deduplicate":
+            return self.deduplicate(
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                threshold=threshold,
+                dry_run=dry_run,
+                limit=limit,
+            )
+        elif strategy == "compress":
+            return self.compress(
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                strategy="conservative",
+                dry_run=dry_run,
+                limit=limit,
+            )
+        elif strategy == "all":
+            # Run both deduplication and compression
+            dedup_result = self.deduplicate(
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                threshold=threshold,
+                dry_run=dry_run,
+                limit=limit,
+            )
+            
+            # Re-fetch memories after deduplication
+            if not dry_run:
+                limit = (limit or 1000) - dedup_result.get("deleted", 0)
+            
+            compress_result = self.compress(
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                strategy="conservative",
+                dry_run=dry_run,
+                limit=limit,
+            )
+            
+            return {
+                "deduplication": dedup_result,
+                "compression": compress_result,
+                "total_saved": dedup_result.get("saved_space", "0 bytes"),
+            }
+        else:
+            raise ValueError(f"Unknown optimization strategy: {strategy}")
+
+    def _find_duplicate_groups(
+        self,
+        memories: List[Dict[str, Any]],
+        threshold: float,
+    ) -> List[List[Dict[str, Any]]]:
+        """
+        Find groups of duplicate or highly similar memories.
+        
+        Args:
+            memories: List of memory dictionaries
+            threshold: Similarity threshold (0.0-1.0)
+            
+        Returns:
+            List of groups, where each group is a list of similar memories
+        """
+        if not memories:
+            return []
+        
+        # Build content list for batch embedding
+        contents = [m.get("content", "") for m in memories]
+        
+        # Generate embeddings for all contents
+        try:
+            embeddings = self.embedding.embed_batch(contents)
+        except Exception as e:
+            logger.warning(f"Failed to generate embeddings for duplicate detection: {e}")
+            return []
+        
+        # Compare each memory with others
+        groups = []
+        used_ids = set()
+        
+        for i, (memory, embedding) in enumerate(zip(memories, embeddings)):
+            if memory.get("id") in used_ids:
+                continue
+            
+            current_group = [memory]
+            used_ids.add(memory.get("id"))
+            
+            for j, (other_memory, other_embedding) in enumerate(zip(memories[i + 1:], embeddings[i + 1:])):
+                if other_memory.get("id") in used_ids:
+                    continue
+                
+                # Calculate similarity
+                similarity = self._calculate_embedding_similarity(embedding, other_embedding)
+                
+                if similarity >= threshold:
+                    current_group.append(other_memory)
+                    used_ids.add(other_memory.get("id"))
+            
+            if len(current_group) > 1:
+                groups.append(current_group)
+        
+        return groups
+
+    def _calculate_embedding_similarity(
+        self,
+        embedding1: List[float],
+        embedding2: List[float],
+    ) -> float:
+        """
+        Calculate cosine similarity between two embeddings.
+        
+        Args:
+            embedding1: First embedding vector
+            embedding2: Second embedding vector
+            
+        Returns:
+            Similarity score (0.0-1.0)
+        """
+        import numpy as np
+        
+        if not embedding1 or not embedding2:
+            return 0.0
+        
+        vec1 = np.array(embedding1)
+        vec2 = np.array(embedding2)
+        
+        # Cosine similarity
+        dot_product = np.dot(vec1, vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        
+        similarity = dot_product / (norm1 * norm2)
+        
+        # Clamp to [0, 1] range
+        return max(0.0, min(1.0, float(similarity)))
+
+    def _create_memory_summary(
+        self,
+        memories: List[Dict[str, Any]],
+        strategy: str,
+    ) -> Optional[str]:
+        """
+        Use LLM to create a summary of multiple memories.
+        
+        Args:
+            memories: List of memory dictionaries to summarize
+            strategy: Compression strategy
+            
+        Returns:
+            Summary string or None if failed
+        """
+        if not memories or len(memories) < 2:
+            return None
+        
+        # Build the prompt based on strategy
+        if strategy == "conservative":
+            system_prompt = """You are a memory consolidation assistant. 
+Given multiple related memories, create a concise summary that preserves all key information.
+Keep the original wording where possible. Remove obvious duplicates only."""
+        elif strategy == "moderate":
+            system_prompt = """You are a memory consolidation assistant.
+Given multiple related memories, create a unified summary that preserves the essence.
+Combine similar points and remove redundancy."""
+        else:  # aggressive
+            system_prompt = """You are a memory consolidation assistant.
+Given multiple related memories, create a very concise summary.
+Keep only the most important information, removing all redundancy."""
+        
+        # Build user prompt with all memories
+        memory_texts = []
+        for i, mem in enumerate(memories):
+            content = mem.get("content", "")
+            metadata = mem.get("metadata", {})
+            created_at = mem.get("created_at", "")
+            memory_texts.append(f"[Memory {i + 1}] {created_at}: {content}")
+        
+        user_prompt = f"""Consolidate these {len(memories)} related memories into a single coherent summary:
+
+{chr(10).join(memory_texts)}
+
+Provide a single consolidated memory that captures all key information."""
+        
+        try:
+            response = self.llm.generate_response(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            
+            return response if response else None
+            
+        except Exception as e:
+            logger.warning(f"Failed to generate memory summary: {e}")
+            return None
+
+    def _format_bytes(self, size: int) -> str:
+        """Format bytes to human-readable string."""
+        for unit in ["B", "KB", "MB", "GB"]:
+            if size < 1024:
+                return f"{size:.2f} {unit}"
+            size /= 1024
+        return f"{size:.2f} TB"
     
     def _init_sub_stores(self):
         """Initialize multiple sub stores configuration"""

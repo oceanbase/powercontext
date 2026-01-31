@@ -1394,6 +1394,68 @@ class AsyncMemory(MemoryBase):
             logger.error(f"Failed to reset memory store: {e}")
             raise
 
+    async def deduplicate(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        threshold: float = 0.95,
+        dry_run: bool = False,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Deduplicate memories asynchronously. See Memory.deduplicate()"""
+        return await asyncio.to_thread(
+            self.deduplicate,
+            user_id=user_id,
+            agent_id=agent_id,
+            run_id=run_id,
+            threshold=threshold,
+            dry_run=dry_run,
+            limit=limit,
+        )
+
+    async def compress(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        strategy: str = "conservative",
+        dry_run: bool = False,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Compress memories asynchronously. See Memory.compress()"""
+        return await asyncio.to_thread(
+            self.compress,
+            user_id=user_id,
+            agent_id=agent_id,
+            run_id=run_id,
+            strategy=strategy,
+            dry_run=dry_run,
+            limit=limit,
+        )
+
+    async def optimize(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        strategy: str = "deduplicate",
+        threshold: float = 0.95,
+        dry_run: bool = False,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Optimize memories asynchronously. See Memory.optimize()"""
+        return await asyncio.to_thread(
+            self.optimize,
+            user_id=user_id,
+            agent_id=agent_id,
+            run_id=run_id,
+            strategy=strategy,
+            threshold=threshold,
+            dry_run=dry_run,
+            limit=limit,
+        )
+
     def _init_sub_stores(self):
         """Initialize multiple sub stores configuration"""
         if self.sub_stores_config:
