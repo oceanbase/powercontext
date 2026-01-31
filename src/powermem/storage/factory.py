@@ -15,6 +15,7 @@ def load_class(class_type):
 class VectorStoreFactory:
     provider_to_class = {
         "oceanbase": "powermem.storage.oceanbase.oceanbase.OceanBaseVectorStore",
+        "pyseekdb": "powermem.storage.pyseekdb.pyseekdb_store.PySeekDBVectorStore",
         "sqlite": "powermem.storage.sqlite.sqlite_vector_store.SQLiteVectorStore",
         "pgvector": "powermem.storage.pgvector.pgvector.PGVectorStore",
         "postgres": "powermem.storage.pgvector.pgvector.PGVectorStore",  # Alias for pgvector
