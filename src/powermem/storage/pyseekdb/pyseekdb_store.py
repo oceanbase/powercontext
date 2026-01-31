@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from powermem.storage.base import OutputData, VectorStoreBase
+from powermem.utils.filter_parser import parse_advanced_filters
 
 try:
     import pyseekdb
@@ -87,11 +88,14 @@ class PySeekDBVectorStore(VectorStoreBase):
         if self.collection is None:
             raise ValueError("Collection not initialized")
 
+        # Parse advanced filters (time range, tags, etc.)
+        parsed_filters = parse_advanced_filters(filters)
+
         # pyseekdb query format
         results = self.collection.query(
             query_embeddings=[query],
             n_results=limit,
-            where=filters  # type: ignore
+            where=parsed_filters  # type: ignore
         )
 
         # Convert results to OutputData
@@ -185,7 +189,10 @@ class PySeekDBVectorStore(VectorStoreBase):
         if self.collection is None:
             raise ValueError("Collection not initialized")
 
-        res = self.collection.get(where=filters, limit=limit) # type: ignore
+        # Parse advanced filters
+        parsed_filters = parse_advanced_filters(filters)
+
+        res = self.collection.get(where=parsed_filters, limit=limit) # type: ignore
 
         output = []
         if res and 'ids' in res and res['ids']:
@@ -221,7 +228,9 @@ class PySeekDBVectorStore(VectorStoreBase):
 
         if filters:
             # If filtered count is needed
-            res = self.collection.get(where=filters, include=[]) # type: ignore
+            # We also apply filter parsing here for consistency
+            parsed_filters = parse_advanced_filters(filters)
+            res = self.collection.get(where=parsed_filters, include=[]) # type: ignore
             count = len(res['ids']) if res and 'ids' in res else 0
             return {"count": count}
 
