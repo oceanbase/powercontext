@@ -270,35 +270,3 @@ if err != nil {
     log.Printf("Error: %v", err)
 }
 ```
-
-## Extending the Client
-
-### Adding Custom Timeout
-
-Configure a custom request timeout for slow networks or large responses. The default timeout is 30 seconds.
-
-```go
-client := NewClientWithTimeout(
-    "http://localhost:8000",
-    "your-api-key",
-    60*time.Second,
-)
-```
-
-### Using Custom HTTP Client
-
-For advanced use cases, you can provide your own `http.Client` with custom transport settings such as connection pooling, proxy configuration, or TLS settings.
-
-```go
-client := &Client{
-    BaseURL: "http://localhost:8000",
-    APIKey:  "your-api-key",
-    HTTPClient: &http.Client{
-        Timeout: 30 * time.Second,
-        Transport: &http.Transport{
-            MaxIdleConns:        100,
-            MaxIdleConnsPerHost: 100,
-        },
-    },
-}
-```
