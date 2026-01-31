@@ -26,14 +26,14 @@ class TestMemoryDeduplication:
         memory = Mock(spec=Memory)
         memory.get_all.return_value = {
             "results": [
-                {"id": 1, "content": "Memory 1", "metadata": {}},
-                {"id": 2, "content": "Memory 2", "metadata": {}},
+                {"id": 1, "content": "Memory 1", "metadata": {"metadata": {}}},
+                {"id": 2, "content": "Memory 2", "metadata": {"metadata": {}}},
             ]
         }
-        memory.embedding.embed_batch.return_value = [[0.1, 0.9], [0.9, 0.1]]
+        memory._find_duplicate_groups.return_value = []
+        memory._format_bytes.return_value = "0 bytes"
         
-        with patch.object(Memory, '_find_duplicate_groups', return_value=[]):
-            result = Memory.deduplicate(memory, user_id="user123", threshold=0.95)
+        result = Memory.deduplicate(memory, user_id="user123", threshold=0.95)
         
         assert result["duplicates_found"] == 0
         assert result["memories_processed"] == 2
@@ -47,16 +47,18 @@ class TestMemoryDeduplication:
                 {"id": 2, "content": "Memory 1", "metadata": {"metadata": {}}},  # Duplicate
             ]
         }
-        
-        # Simulate finding duplicates
-        with patch.object(Memory, '_find_duplicate_groups', return_value=[
+        memory._find_duplicate_groups.return_value = [
             [
                 {"id": 1, "content": "Memory 1", "metadata": {"metadata": {}}},
                 {"id": 2, "content": "Memory 1", "metadata": {"metadata": {}}},
             ]
-        ]):
-            with patch.object(Memory, '_format_bytes', return_value="100 bytes"):
-                result = Memory.deduplicate(memory, user_id="user123", threshold=0.95, dry_run=True)
+        ]
+        memory._format_bytes.return_value = "100 bytes"
+        memory.update = Mock()
+        memory.delete = Mock()
+        
+        with patch.object(Memory, '_format_bytes', return_value="100 bytes"):
+            result = Memory.deduplicate(memory, user_id="user123", threshold=0.95, dry_run=True)
         
         assert result["duplicates_found"] == 1
         assert result["merged"] == 0  # dry_run=True
@@ -70,6 +72,7 @@ class TestMemoryDeduplication:
                 {"id": 1, "content": "Test", "metadata": {"metadata": {}}},
             ]
         }
+        memory._find_duplicate_groups.return_value = []
         
         result = Memory.deduplicate(memory, user_id="user123", dry_run=True)
         
@@ -125,6 +128,7 @@ class TestMemoryCompression:
                 {"id": 1, "content": "Test", "metadata": {"metadata": {}}},
             ]
         }
+        memory._find_duplicate_groups.return_value = []
         
         result = Memory.compress(memory, user_id="user123", dry_run=True)
         
@@ -138,9 +142,9 @@ class TestMemoryOptimization:
         """Test optimization with deduplicate strategy."""
         memory = Mock(spec=Memory)
         memory.get_all.return_value = {"results": []}
+        memory.deduplicate.return_value = {"merged": 0, "deleted": 0}
         
-        with patch.object(Memory, 'deduplicate', return_value={"merged": 0, "deleted": 0}):
-            result = Memory.optimize(memory, user_id="user123", strategy="deduplicate")
+        result = Memory.optimize(memory, user_id="user123", strategy="deduplicate")
         
         assert "merged" in result
 
@@ -148,9 +152,9 @@ class TestMemoryOptimization:
         """Test optimization with compress strategy."""
         memory = Mock(spec=Memory)
         memory.get_all.return_value = {"results": []}
+        memory.compress.return_value = {"compressed": 0}
         
-        with patch.object(Memory, 'compress', return_value={"compressed": 0}):
-            result = Memory.optimize(memory, user_id="user123", strategy="compress")
+        result = Memory.optimize(memory, user_id="user123", strategy="compress")
         
         assert "compressed" in result
 
@@ -158,10 +162,10 @@ class TestMemoryOptimization:
         """Test optimization with all strategy."""
         memory = Mock(spec=Memory)
         memory.get_all.return_value = {"results": []}
+        memory.deduplicate.return_value = {"merged": 0, "deleted": 0, "saved_space": "0 bytes"}
+        memory.compress.return_value = {"compressed": 0}
         
-        with patch.object(Memory, 'deduplicate', return_value={"merged": 0, "deleted": 0, "saved_space": "0 bytes"}):
-            with patch.object(Memory, 'compress', return_value={"compressed": 0}):
-                result = Memory.optimize(memory, user_id="user123", strategy="all")
+        result = Memory.optimize(memory, user_id="user123", strategy="all")
         
         assert "deduplication" in result
         assert "compression" in result

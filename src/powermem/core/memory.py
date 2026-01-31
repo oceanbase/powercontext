@@ -1946,7 +1946,6 @@ class Memory(MemoryBase):
                     logger.warning(f"Failed to compress group {i + 1}: {e}")
                     continue
             
-            compressed_count = len(group) - 1 for group in related_groups if len(group) > 1
             compressed_count = sum(max(0, len(group) - 1) for group in related_groups)
             
             result = {
