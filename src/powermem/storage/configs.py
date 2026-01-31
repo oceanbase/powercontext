@@ -25,6 +25,7 @@ class VectorStoreConfig(BaseModel):
 
     _provider_configs: Dict[str, str] = {
         "oceanbase": "OceanBaseConfig",
+        "pyseekdb": "PySeekDBConfig",
         "pgvector": "PGVectorConfig",
         "sqlite": "SQLiteConfig",
     }
