@@ -1,0 +1,7 @@
+Icons need to be created manually.
+Create three PNG files:
+- icon16.png (16x16)
+- icon48.png (48x48)  
+- icon128.png (128x128)
+
+Use any image editing tool or online generator.

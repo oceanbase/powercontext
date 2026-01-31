@@ -1,0 +1,86 @@
+.error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md);
+  background-color: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  border-radius: var(--border-radius);
+  margin: var(--spacing-md);
+}
+
+@media (prefers-color-scheme: dark) {
+  .error-banner {
+    background-color: #7F1D1D;
+    border-color: #991B1B;
+  }
+}
+
+.error-banner-content {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+}
+
+.error-banner-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.error-banner-message {
+  font-size: var(--font-size-sm);
+  color: #991B1B;
+  flex: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+  .error-banner-message {
+    color: #FCA5A5;
+  }
+}
+
+.error-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.error-banner-btn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.error-banner-retry {
+  background-color: #DC2626;
+  color: white;
+}
+
+.error-banner-retry:hover {
+  background-color: #B91C1C;
+}
+
+.error-banner-dismiss {
+  background-color: transparent;
+  color: #991B1B;
+  font-size: 18px;
+  padding: 4px 8px;
+}
+
+.error-banner-dismiss:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  .error-banner-dismiss {
+    color: #FCA5A5;
+  }
+  
+  .error-banner-dismiss:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+}

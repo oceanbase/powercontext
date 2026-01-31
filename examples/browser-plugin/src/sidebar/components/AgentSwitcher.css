@@ -1,0 +1,124 @@
+.agent-switcher {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.agent-switcher-loading {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.agent-switcher-current {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.agent-switcher-current:hover {
+  background-color: var(--bg-hover);
+}
+
+.agent-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.agent-info {
+  flex: 1;
+  text-align: left;
+}
+
+.agent-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.agent-count {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.agent-arrow {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  transition: transform 0.2s;
+}
+
+.agent-arrow.open {
+  transform: rotate(180deg);
+}
+
+.agent-switcher-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.agent-menu-header {
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.agent-menu-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.agent-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  text-align: left;
+}
+
+.agent-menu-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.agent-menu-item.active {
+  background-color: var(--bg-active);
+}
+
+.agent-menu-item .agent-info {
+  flex: 1;
+}
+
+.agent-description {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.agent-check {
+  font-size: 16px;
+  color: var(--accent-color);
+}

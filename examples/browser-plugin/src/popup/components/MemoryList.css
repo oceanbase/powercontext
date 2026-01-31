@@ -1,0 +1,33 @@
+.memory-list {
+  max-height: 450px;
+  overflow-y: auto;
+  background-color: var(--bg-primary);
+}
+
+.memory-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.memory-list::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.memory-list::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.memory-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+.memory-list-loading {
+  padding: var(--spacing-md);
+}
+
+.memory-list-end {
+  padding: var(--spacing-lg);
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+}

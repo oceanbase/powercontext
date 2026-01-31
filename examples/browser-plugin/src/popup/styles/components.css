@@ -1,0 +1,83 @@
+/**
+ * Popup 容器样式
+ * 固定宽度 400px，最大高度 600px
+ */
+.popup-container {
+  width: 400px;
+  max-height: 600px;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--bg-primary);
+}
+
+/**
+ * Popup 头部
+ */
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md);
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.popup-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.popup-logo-icon {
+  font-size: 24px;
+}
+
+.popup-settings-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.popup-settings-btn:hover {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/**
+ * 全局样式重置
+ */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+button {
+  font-family: inherit;
+}
+
+/**
+ * 高亮标记样式
+ */
+mark {
+  background-color: #FEF08A;
+  color: inherit;
+  padding: 2px 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  mark {
+    background-color: #854D0E;
+  }
+}

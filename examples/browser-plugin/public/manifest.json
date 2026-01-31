@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "PowerMem - Intelligent Memory Capture",
+  "version": "0.1.0",
+  "description": "Capture and retrieve memories from your browsing with PowerMem AI",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "contextMenus",
+    "notifications",
+    "scripting"
+  ],
+  "optional_permissions": [
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background/index.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/index.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "PowerMem Memory Capture"
+  },
+  "side_panel": {
+    "default_path": "src/sidebar/index.html"
+  },
+  "options_page": "src/options/index.html",
+  "commands": {
+    "save-selection": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Save selected text to PowerMem"
+    }
+  }
+}

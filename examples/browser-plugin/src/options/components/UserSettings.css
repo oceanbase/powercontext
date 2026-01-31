@@ -1,0 +1,21 @@
+.user-settings {
+  max-width: 600px;
+}
+
+.user-id-section {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.user-id-section > div:first-child {
+  flex: 1;
+}
+
+.agent-description {
+  font-size: 13px;
+  color: #6b7280;
+  margin-top: -8px;
+  margin-bottom: 16px;
+  padding-left: 4px;
+}

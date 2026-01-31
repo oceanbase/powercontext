@@ -1,0 +1,47 @@
+{
+  "name": "powermem-extension",
+  "version": "0.1.0",
+  "description": "PowerMem - Intelligent Memory Capture Browser Extension",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "lint": "tsc --noEmit",
+    "optimize-images": "imagemin public/icons/*.png --out-dir=dist/icons",
+    "prepare-release": "npm run lint && npm run test && npm run build"
+  },
+  "dependencies": {
+    "axios": "^1.13.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zustand": "^5.0.10"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/chrome": "^0.0.260",
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.19",
+    "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/ui": "^4.0.18",
+    "imagemin": "^9.0.1",
+    "imagemin-cli": "^8.0.0",
+    "imagemin-pngquant": "^10.0.0",
+    "jsdom": "^27.4.0",
+    "terser": "^5.46.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.0",
+    "vite-plugin-compression": "^0.5.1",
+    "vite-plugin-web-extension": "^4.0.0",
+    "vitest": "^4.0.18"
+  }
+}

@@ -188,6 +188,10 @@ config/production.yaml
 .env.local
 .env.production
 
+# Node.js
+node_modules/
+package-lock.json
+
 # Test data
 test_data/
 test_output/

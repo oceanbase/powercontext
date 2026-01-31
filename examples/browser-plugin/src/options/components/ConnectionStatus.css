@@ -1,0 +1,89 @@
+.connection-status {
+  padding: 16px;
+  border-radius: 8px;
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.connection-status.idle {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+}
+
+.connection-status.testing {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+
+.connection-status.success {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.connection-status.failed {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.status-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.status-content {
+  flex: 1;
+}
+
+.status-message {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+}
+
+.status-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.detail-item {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.detail-label {
+  color: #6b7280;
+}
+
+.detail-value {
+  color: #059669;
+  font-weight: 500;
+}
+
+.error-message {
+  font-size: 13px;
+  color: #dc2626;
+  margin-bottom: 8px;
+}
+
+.error-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 8px;
+}
+
+.error-type,
+.error-code {
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  font-family: monospace;
+}

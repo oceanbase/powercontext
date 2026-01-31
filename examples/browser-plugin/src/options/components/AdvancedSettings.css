@@ -1,0 +1,13 @@
+.advanced-settings {
+  max-width: 600px;
+}
+
+.warning-banner {
+  padding: 12px 16px;
+  background: #fef3c7;
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #92400e;
+  margin-bottom: 20px;
+}
