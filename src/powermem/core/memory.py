@@ -27,6 +27,8 @@ from .telemetry import TelemetryManager
 from .audit import AuditLogger
 from ..intelligence.plugin import IntelligentMemoryPlugin, EbbinghausIntelligencePlugin
 from ..utils.utils import remove_code_blocks, convert_config_object_to_dict, parse_vision_messages
+from ..utils.io import export_to_json, export_to_csv, import_from_json, import_from_csv
+import os
 from ..prompts.intelligent_memory_prompts import (
     FACT_RETRIEVAL_PROMPT,
     FACT_EXTRACTION_PROMPT,
@@ -1869,5 +1871,140 @@ class Memory(MemoryBase):
             config = auto_config()
 
         converted_config = _auto_convert_config(config)
-        
+
         return cls(config=converted_config, **kwargs)
+
+    def export_memories(
+        self,
+        file_path: Optional[str] = None,
+        format: str = "json",
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        limit: int = 1000,
+    ) -> str:
+        """
+        Export memories to a file or return as string.
+
+        Args:
+            file_path: Optional path to save the exported data
+            format: Export format ("json" or "csv")
+            user_id: Filter by user ID
+            agent_id: Filter by agent ID
+            run_id: Filter by run ID
+            limit: Maximum number of memories to export
+
+        Returns:
+            str: The exported content string, or the file path if file_path provided
+        """
+        # Get all memories
+        result = self.get_all(user_id=user_id, agent_id=agent_id, run_id=run_id, limit=limit)
+        memories = result.get("results", [])
+
+        if format.lower() == "json":
+            content = export_to_json(memories)
+        elif format.lower() == "csv":
+            content = export_to_csv(memories)
+        else:
+            raise ValueError(f"Unsupported export format: {format}")
+
+        if file_path:
+            # Create dir if not exists
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                logger.info(f"Exported {len(memories)} memories to {file_path}")
+                return file_path
+            except Exception as e:
+                logger.error(f"Failed to write export file: {e}")
+                raise
+
+        return content
+
+    def import_memories(
+        self,
+        source: str,
+        format: str = "json",
+        is_file: bool = True,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """
+        Import memories from a file path or content string.
+
+        Args:
+            source: File path or content string
+            format: Import format ("json" or "csv")
+            is_file: Whether source is a file path (True) or raw content (False)
+            user_id: Override user ID for imported memories
+            agent_id: Override agent ID for imported memories
+
+        Returns:
+            Dict with 'success' and 'failed' counts
+        """
+        # Read content
+        if is_file:
+            try:
+                with open(source, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except Exception as e:
+                logger.error(f"Failed to read import file: {e}")
+                raise
+        else:
+            content = source
+
+        # Parse content
+        try:
+            if format.lower() == "json":
+                memories = import_from_json(content)
+            elif format.lower() == "csv":
+                memories = import_from_csv(content)
+            else:
+                raise ValueError(f"Unsupported import format: {format}")
+        except Exception as e:
+            logger.error(f"Failed to parse import content: {e}")
+            raise
+
+        # Import memories
+        success_count = 0
+        failed_count = 0
+
+        logger.info(f"Starting import of {len(memories)} memories...")
+
+        for mem in memories:
+            try:
+                # Extract fields with fallbacks
+                text = mem.get("content") or mem.get("memory")
+                if not text:
+                    failed_count += 1
+                    continue
+
+                # Use provided overrides or original values
+                uid = user_id or mem.get("user_id")
+                aid = agent_id or mem.get("agent_id")
+                rid = mem.get("run_id")
+
+                # Handle metadata
+                meta = mem.get("metadata")
+                if isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta)
+                    except:
+                        meta = {}
+
+                # Use simple add for bulk import (faster, avoids re-inference)
+                self._simple_add(
+                    messages=text,
+                    user_id=uid,
+                    agent_id=aid,
+                    run_id=rid,
+                    metadata=meta
+                )
+                success_count += 1
+            except Exception as e:
+                logger.error(f"Failed to import memory item: {e}")
+                failed_count += 1
+
+        logger.info(f"Import completed. Success: {success_count}, Failed: {failed_count}")
+        return {"success": success_count, "failed": failed_count}
