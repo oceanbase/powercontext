@@ -19,16 +19,8 @@ A simple, lightweight Go client example demonstrating how to integrate PowerMem'
 > - Authentication is **disabled** by default (`POWERMEM_SERVER_AUTH_ENABLED=false`)
 
 ```bash
-# Method 1: Using pip (auth disabled by default)
 pip install powermem
 powermem-server --host 0.0.0.0 --port 8000
-
-# Method 2: Using Docker
-docker-compose -f docker/docker-compose.yml up -d
-
-# Method 3: From source
-cd powermem
-make server-start
 ```
 
 #### Configure API Keys (Required)
