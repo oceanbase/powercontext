@@ -2,7 +2,7 @@
 Request models for PowerMem API
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 
@@ -72,6 +72,7 @@ class SearchRequest(BaseModel):
     run_id: Optional[str] = Field(None, description="Filter by run ID")
     filters: Optional[Dict[str, Any]] = Field(None, description="Additional filters")
     limit: int = Field(default=30, ge=1, le=100, description="Maximum number of results")
+    sort_by: Optional[Union[str, List[str]]] = Field(None, description="Sorting criteria: 'relevance', 'date_asc', 'date_desc', 'importance_asc', 'importance_desc', 'access_count_desc', 'retention_desc', or list for multi-criteria sorting")
 
 
 class UserProfileAddRequest(BaseModel):

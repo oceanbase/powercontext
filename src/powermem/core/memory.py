@@ -1100,8 +1100,22 @@ class Memory(MemoryBase):
         filters: Optional[Dict[str, Any]] = None,
         limit: int = 30,
         threshold: Optional[float] = None,
+        sort_by: Optional[Union[str, List[str]]] = None,
     ) -> Dict[str, Any]:
         """Search for memories.
+        
+        Args:
+            query: Search query string
+            user_id: Optional user ID filter
+            agent_id: Optional agent ID filter
+            run_id: Optional run ID filter
+            filters: Optional additional filters dictionary
+            limit: Maximum number of results to return (default: 30)
+            threshold: Optional minimum quality score threshold (0-1)
+            sort_by: Optional sorting criteria. Can be:
+                    - Single value: "relevance" (default), "date_asc", "date_desc", 
+                      "importance_asc", "importance_desc", "access_count_desc", "retention_desc"
+                    - List: Multiple sort keys for multi-criteria sorting (e.g., ["relevance", "date_desc"])
         
         Returns:
             Dict[str, Any]: A dictionary containing search results with the following structure:
@@ -1193,6 +1207,10 @@ class Memory(MemoryBase):
                     transformed_result["memory_id"] = transformed_result["id"]
                 transformed_results.append(transformed_result)
             
+            # Apply sorting if sort_by is specified
+            if sort_by is not None:
+                transformed_results = self._sort_search_results(transformed_results, sort_by)
+            
             # Log audit event
             self.audit.log_event(
                 "memory.search",
@@ -1250,6 +1268,107 @@ class Memory(MemoryBase):
             logger.error(f"Failed to search memories: {e}")
             self.telemetry.capture_event("memory.search.error", {"error": str(e)})
             raise
+
+    def _sort_search_results(
+        self,
+        results: List[Dict[str, Any]],
+        sort_by: Union[str, List[str]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Sort search results based on specified criteria.
+        
+        Args:
+            results: List of search result dictionaries
+            sort_by: Sorting criteria - single value or list of values.
+                    Options: "relevance" (default), "date_asc", "date_desc",
+                             "importance_asc", "importance_desc", 
+                             "access_count_desc", "retention_desc"
+        
+        Returns:
+            Sorted list of results
+        """
+        # Normalize sort_by to list
+        sort_keys = [sort_by] if isinstance(sort_by, str) else sort_by
+        
+        # Define sort key functions for each criterion
+        def get_sort_key(result: Dict[str, Any]) -> tuple:
+            """Generate sort key tuple for multi-criteria sorting."""
+            keys = []
+            for criterion in sort_keys:
+                criterion = criterion.lower().strip()
+                
+                if criterion == "relevance" or not criterion:
+                    # Sort by quality score (descending - higher relevance first)
+                    metadata = result.get("metadata", {})
+                    quality_score = metadata.get("_quality_score", result.get("score", 0.0))
+                    keys.append(-float(quality_score) if quality_score else 0)
+                
+                elif criterion == "date_asc":
+                    # Sort by creation time ascending (oldest first)
+                    created_at = result.get("created_at", "")
+                    keys.append(created_at or "")
+                
+                elif criterion == "date_desc":
+                    # Sort by creation time descending (newest first)
+                    created_at = result.get("created_at", "")
+                    # For descending, we use negative timestamp for reverse sorting
+                    if created_at:
+                        try:
+                            # Parse ISO format datetime and convert to timestamp
+                            dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                            timestamp = dt.timestamp()
+                            keys.append(-timestamp)  # Negative for descending
+                        except (ValueError, TypeError):
+                            # If parsing fails, use the string for comparison
+                            keys.append(created_at)
+                    else:
+                        # Empty dates should sort last in descending order
+                        keys.append(float('inf'))
+                
+                elif criterion == "importance_asc":
+                    # Sort by importance score ascending (lower importance first)
+                    metadata = result.get("metadata", {})
+                    user_metadata = metadata.get("metadata", {}) if metadata else {}
+                    importance = user_metadata.get("importance_score", 0.5)  # Default 0.5 if not set
+                    keys.append(float(importance))
+                
+                elif criterion == "importance_desc":
+                    # Sort by importance score descending (higher importance first)
+                    metadata = result.get("metadata", {})
+                    user_metadata = metadata.get("metadata", {}) if metadata else {}
+                    importance = user_metadata.get("importance_score", 0.5)
+                    keys.append(-float(importance))
+                
+                elif criterion == "access_count_desc":
+                    # Sort by access count descending (most accessed first)
+                    metadata = result.get("metadata", {})
+                    user_metadata = metadata.get("metadata", {}) if metadata else {}
+                    access_count = user_metadata.get("access_count", 0)
+                    keys.append(-int(access_count))
+                
+                elif criterion == "retention_desc":
+                    # Sort by retention score descending (higher retention first)
+                    metadata = result.get("metadata", {})
+                    user_metadata = metadata.get("metadata", {}) if metadata else {}
+                    retention = user_metadata.get("retention_score", 0.0)
+                    keys.append(-float(retention))
+                
+                else:
+                    # Unknown criterion, use relevance as fallback
+                    logger.warning(f"Unknown sort criterion: {criterion}, using relevance")
+                    quality_score = result.get("metadata", {}).get("_quality_score", result.get("score", 0.0))
+                    keys.append(-float(quality_score) if quality_score else 0)
+            
+            return tuple(keys)
+        
+        # Sort results - use reverse for descending sorts (handled in get_sort_key)
+        try:
+            sorted_results = sorted(results, key=get_sort_key, reverse=False)
+            logger.debug(f"Sorted {len(results)} results by criteria: {sort_keys}")
+            return sorted_results
+        except Exception as e:
+            logger.error(f"Failed to sort results: {e}")
+            return results
     
     def get(
         self,

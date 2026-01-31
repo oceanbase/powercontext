@@ -3,7 +3,7 @@ Search service for PowerMem API
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from powermem import Memory, auto_config
 from ..models.errors import ErrorCode, APIError
 from ..utils.metrics import get_metrics_collector
@@ -35,6 +35,7 @@ class SearchService:
         run_id: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
         limit: int = 30,
+        sort_by: Optional[Union[str, List[str]]] = None,
     ) -> Dict[str, Any]:
         """
         Search memories.
@@ -46,6 +47,9 @@ class SearchService:
             run_id: Filter by run ID
             filters: Additional filters
             limit: Maximum number of results
+            sort_by: Sorting criteria: 'relevance', 'date_asc', 'date_desc', 
+                     'importance_asc', 'importance_desc', 'access_count_desc', 
+                     'retention_desc', or list for multi-criteria sorting
             
         Returns:
             Search results dictionary
@@ -68,6 +72,7 @@ class SearchService:
                 run_id=run_id,
                 filters=filters,
                 limit=limit,
+                sort_by=sort_by,
             )
             
             logger.info(f"Search completed: {len(results.get('results', []))} results")

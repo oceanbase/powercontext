@@ -2,7 +2,7 @@
 Memory search API routes
 """
 
-from typing import Optional
+from typing import Optional, Union, List
 from fastapi import APIRouter, Depends, Query, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -43,6 +43,7 @@ async def search_memories_post(
         run_id=body.run_id,
         filters=body.filters,
         limit=body.limit,
+        sort_by=body.sort_by,
     )
     
     search_results = [
@@ -76,6 +77,7 @@ async def search_memories_get(
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
     run_id: Optional[str] = Query(None, description="Filter by run ID"),
     limit: int = Query(30, ge=1, le=100, description="Maximum number of results"),
+    sort_by: Optional[str] = Query(None, description="Sorting criteria: 'relevance', 'date_asc', 'date_desc', 'importance_asc', 'importance_desc', 'access_count_desc', 'retention_desc'"),
     api_key: str = Depends(verify_api_key),
     service: SearchService = Depends(get_search_service),
 ):
@@ -87,6 +89,7 @@ async def search_memories_get(
         run_id=run_id,
         filters=None,  # GET method doesn't support complex filters
         limit=limit,
+        sort_by=sort_by,
     )
     
     search_results = [
