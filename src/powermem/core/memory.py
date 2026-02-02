@@ -26,7 +26,7 @@ from ..integrations.rerank.factory import RerankFactory
 from .telemetry import TelemetryManager
 from .audit import AuditLogger
 from ..intelligence.plugin import IntelligentMemoryPlugin, EbbinghausIntelligencePlugin
-from ..utils.utils import remove_code_blocks, convert_config_object_to_dict, parse_vision_messages
+from ..utils.utils import remove_code_blocks, convert_config_object_to_dict, parse_vision_messages, set_timezone
 from ..prompts.intelligent_memory_prompts import (
     FACT_RETRIEVAL_PROMPT,
     FACT_EXTRACTION_PROMPT,
@@ -159,6 +159,12 @@ class Memory(MemoryBase):
             logger.debug("Using dict config mode")
 
         self.agent_id = agent_id
+        
+        # Set timezone from config if provided (priority: config > env)
+        timezone_config = self.config.get('timezone')
+        if timezone_config:
+            set_timezone(timezone_config)
+            logger.debug(f"Timezone set from config: {timezone_config}")
         
         # Extract providers from config with fallbacks
         self.storage_type = storage_type or self._get_provider('vector_store', 'oceanbase')
@@ -385,6 +391,7 @@ class Memory(MemoryBase):
         """
         Helper method to get intelligent memory configuration.
         Supports both "intelligence" and "intelligent_memory" config keys for backward compatibility.
+        Also merges "memory_decay" config into intelligent_memory config for Ebbinghaus algorithm.
 
         Returns:
             Merged intelligent memory configuration dictionary
@@ -395,6 +402,17 @@ class Memory(MemoryBase):
             # Merge custom_importance_evaluation_prompt from top level if present
             if self.memory_config.custom_importance_evaluation_prompt:
                 cfg["custom_importance_evaluation_prompt"] = self.memory_config.custom_importance_evaluation_prompt
+            # Merge memory_decay config if present (for Ebbinghaus algorithm parameters)
+            memory_decay_cfg = self.config.get("memory_decay", {})
+            if memory_decay_cfg:
+                # Merge memory_decay fields into intelligent_memory config
+                # These fields are used by EbbinghausAlgorithm
+                if memory_decay_cfg.get("base_retention") is not None:
+                    cfg["initial_retention"] = memory_decay_cfg["base_retention"]
+                if memory_decay_cfg.get("forgetting_rate") is not None:
+                    cfg["decay_rate"] = memory_decay_cfg["forgetting_rate"]
+                if memory_decay_cfg.get("reinforcement_factor") is not None:
+                    cfg["reinforcement_factor"] = memory_decay_cfg["reinforcement_factor"]
             return cfg
         else:
             # Fallback to dict access
@@ -404,6 +422,17 @@ class Memory(MemoryBase):
             # Merge custom_importance_evaluation_prompt from top level if present
             if "custom_importance_evaluation_prompt" in self.config:
                 merged_cfg["custom_importance_evaluation_prompt"] = self.config["custom_importance_evaluation_prompt"]
+            # Merge memory_decay config if present (for Ebbinghaus algorithm parameters)
+            memory_decay_cfg = (self.config or {}).get("memory_decay", {})
+            if memory_decay_cfg:
+                # Merge memory_decay fields into intelligent_memory config
+                # These fields are used by EbbinghausAlgorithm
+                if memory_decay_cfg.get("base_retention") is not None:
+                    merged_cfg["initial_retention"] = memory_decay_cfg["base_retention"]
+                if memory_decay_cfg.get("forgetting_rate") is not None:
+                    merged_cfg["decay_rate"] = memory_decay_cfg["forgetting_rate"]
+                if memory_decay_cfg.get("reinforcement_factor") is not None:
+                    merged_cfg["reinforcement_factor"] = memory_decay_cfg["reinforcement_factor"]
             return merged_cfg
 
     def _extract_facts(self, messages: Any) -> List[str]:

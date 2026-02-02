@@ -274,28 +274,17 @@ class IntelligentMemorySettings(_BasePowermemSettings):
 
 
 class MemoryDecaySettings(_BasePowermemSettings):
-    model_config = settings_config()
+    model_config = settings_config("MEMORY_DECAY_")
 
-    enabled: bool = Field(
-        default=True,
-        validation_alias=AliasChoices("MEMORY_DECAY_ENABLED"),
-    )
-    algorithm: str = Field(
-        default="ebbinghaus",
-        validation_alias=AliasChoices("MEMORY_DECAY_ALGORITHM"),
-    )
-    base_retention: float = Field(
-        default=1.0,
-        validation_alias=AliasChoices("MEMORY_DECAY_BASE_RETENTION"),
-    )
-    forgetting_rate: float = Field(
-        default=0.1,
-        validation_alias=AliasChoices("MEMORY_DECAY_FORGETTING_RATE"),
-    )
-    reinforcement_factor: float = Field(
-        default=0.3,
-        validation_alias=AliasChoices("MEMORY_DECAY_REINFORCEMENT_FACTOR"),
-    )
+    enabled: bool = Field(default=True)
+    algorithm: str = Field(default="ebbinghaus")
+    base_retention: float = Field(default=1.0)
+    forgetting_rate: float = Field(default=0.1)
+    reinforcement_factor: float = Field(default=0.3)
+
+    def to_config(self) -> Dict[str, Any]:
+        """Convert MemoryDecaySettings to config dict."""
+        return self.model_dump()
 
 
 class AgentMemorySettings(_BasePowermemSettings):
@@ -469,6 +458,10 @@ class PerformanceSettings(_BasePowermemSettings):
         validation_alias=AliasChoices("VECTOR_STORE_INDEX_REBUILD_INTERVAL"),
     )
 
+    def to_config(self) -> Dict[str, Any]:
+        """Convert PerformanceSettings to config dict."""
+        return self.model_dump()
+
 
 class SecuritySettings(_BasePowermemSettings):
     model_config = settings_config()
@@ -497,6 +490,10 @@ class SecuritySettings(_BasePowermemSettings):
         default="admin,root",
         validation_alias=AliasChoices("ACCESS_CONTROL_ADMIN_USERS"),
     )
+
+    def to_config(self) -> Dict[str, Any]:
+        """Convert SecuritySettings to config dict."""
+        return self.model_dump()
 
 
 class GraphStoreSettings(_BasePowermemSettings):
@@ -576,15 +573,15 @@ class PowermemSettings:
         "telemetry": ("telemetry", TelemetrySettings),
         "audit": ("audit", AuditSettings),
         "logging": ("logging", LoggingSettings),
+        "performance": ("performance", PerformanceSettings),
+        "security": ("security", SecuritySettings),
+        "memory_decay": ("memory_decay", MemoryDecaySettings),
     }
 
     def __init__(self) -> None:
         for _, (attr_name, component_cls) in self._COMPONENTS.items():
             setattr(self, attr_name, component_cls())
         self.graph_store = GraphStoreSettings()
-        self.memory_decay = MemoryDecaySettings()
-        self.performance = PerformanceSettings()
-        self.security = SecuritySettings()
         self.sparse_embedder = SparseEmbedderSettings()
 
     def to_config(self) -> Dict[str, Any]:

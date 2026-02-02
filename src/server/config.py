@@ -6,7 +6,9 @@ from __future__ import annotations
 from typing import List, Optional
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
+
+from powermem.settings import settings_config
 
 
 def _parse_boolish(value: object) -> object:
@@ -32,11 +34,8 @@ def _parse_boolish(value: object) -> object:
 
 
 class ServerSettings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
+    model_config = settings_config(
         env_prefix="POWERMEM_SERVER_",
-        case_sensitive=False,
         extra="ignore",
     )
 
