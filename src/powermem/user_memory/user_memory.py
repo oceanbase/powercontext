@@ -151,8 +151,8 @@ class UserMemory:
         profile_type: str = "content",
         custom_topics: Optional[str] = None,
         strict_mode: bool = False,
-        include_roles: Optional[List[str]] = ["user"],
-        exclude_roles: Optional[List[str]] = ["assistant"],
+        include_roles: Optional[List[str]] = None,
+        exclude_roles: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Add messages and extract user profile information.
@@ -185,9 +185,9 @@ class UserMemory:
                 - Descriptions are for reference only and should NOT be used as keys in the output
             strict_mode: If True, only output topics from the provided list. Only used when profile_type="topics". Default: False
             include_roles: List of roles to include when filtering messages for profile extraction.
-                Defaults to ["user"]. If explicitly set to None or [], no include filter is applied.
+                Defaults to None. If explicitly set to None or [], no include filter is applied.
             exclude_roles: List of roles to exclude when filtering messages for profile extraction.
-                Defaults to ["assistant"]. If explicitly set to None or [], no exclude filter is applied.
+                Defaults to None. If explicitly set to None or [], no exclude filter is applied.
 
         Returns:
             Dict[str, Any]: A dictionary containing the add operation results with the following structure:
