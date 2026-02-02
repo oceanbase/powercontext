@@ -8,6 +8,7 @@ import logging
 import warnings
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 from powermem.utils.utils import get_current_datetime
@@ -35,6 +36,12 @@ from ..prompts.intelligent_memory_prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Global background thread pool for async memory operations
+_BACKGROUND_EXECUTOR = ThreadPoolExecutor(
+    max_workers=3,
+    thread_name_prefix="MemoryBgWorker"
+)
 
 
 def _auto_convert_config(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -1180,16 +1187,25 @@ class Memory(MemoryBase):
             # Intelligent plugin lifecycle management on search
             if self._intelligence_plugin and self._intelligence_plugin.enabled:
                 updates, deletes = self._intelligence_plugin.on_search(processed_results)
-                for mem_id, upd in updates:
-                    try:
-                        self.storage.update_memory(mem_id, {**upd}, user_id, agent_id)
-                    except Exception:
-                        continue
-                for mem_id in deletes:
-                    try:
-                        self.storage.delete_memory(mem_id, user_id, agent_id)
-                    except Exception:
-                        continue
+                if updates:
+                    for mem_id, upd in updates:
+                        _BACKGROUND_EXECUTOR.submit(
+                            self.storage.update_memory,
+                            mem_id,
+                            {**upd},
+                            user_id,
+                            agent_id
+                        )
+                    logger.info(f"Submitted {len(updates)} update operations to background executor")
+                if deletes:
+                    for mem_id in deletes:
+                        _BACKGROUND_EXECUTOR.submit(
+                            self.storage.delete_memory,
+                            mem_id,
+                            user_id,
+                            agent_id
+                        )
+                    logger.info(f"Submitted {len(deletes)} delete operations to background executor")
             
             # Transform results to match benchmark expected format
             # Benchmark expects: {"results": [{"memory": ..., "metadata": {...}, "score": ...}], "relations": [...]}
