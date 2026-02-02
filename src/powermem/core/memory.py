@@ -38,10 +38,7 @@ from ..prompts.intelligent_memory_prompts import (
 logger = logging.getLogger(__name__)
 
 # Global background thread pool for async memory operations
-_BACKGROUND_EXECUTOR = ThreadPoolExecutor(
-    max_workers=3,
-    thread_name_prefix="MemoryBgWorker"
-)
+_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=3)
 
 
 def _auto_convert_config(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -1189,22 +1186,11 @@ class Memory(MemoryBase):
                 updates, deletes = self._intelligence_plugin.on_search(processed_results)
                 if updates:
                     for mem_id, upd in updates:
-                        _BACKGROUND_EXECUTOR.submit(
-                            self.storage.update_memory,
-                            mem_id,
-                            {**upd},
-                            user_id,
-                            agent_id
-                        )
+                        _BACKGROUND_EXECUTOR.submit(self.storage.update_memory,mem_id,{**upd},user_id,agent_id)
                     logger.info(f"Submitted {len(updates)} update operations to background executor")
                 if deletes:
                     for mem_id in deletes:
-                        _BACKGROUND_EXECUTOR.submit(
-                            self.storage.delete_memory,
-                            mem_id,
-                            user_id,
-                            agent_id
-                        )
+                        _BACKGROUND_EXECUTOR.submit(self.storage.delete_memory,mem_id,user_id,agent_id)
                     logger.info(f"Submitted {len(deletes)} delete operations to background executor")
             
             # Transform results to match benchmark expected format
