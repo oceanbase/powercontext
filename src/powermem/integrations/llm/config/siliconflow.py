@@ -22,10 +22,10 @@ class SiliconFlowConfig(OpenAIConfig):
     api_key: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices(
+            "SILICONFLOW_API_KEY",
             "api_key",
             "LLM_API_KEY",
             "OPENAI_API_KEY",
-            "SILICONFLOW_API_KEY",
         ),
         description="SiliconFlow API key"
     )
@@ -34,9 +34,9 @@ class SiliconFlowConfig(OpenAIConfig):
     openai_base_url: Optional[str] = Field(
         default="https://api.siliconflow.cn/v1",
         validation_alias=AliasChoices(
+            "SILICONFLOW_LLM_BASE_URL",
             "openai_base_url",
             "OPENAI_LLM_BASE_URL",
-            "SILICONFLOW_LLM_BASE_URL",
         ),
         description="SiliconFlow API base URL (OpenAI-compatible)"
     )
