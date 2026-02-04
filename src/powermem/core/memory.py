@@ -124,12 +124,11 @@ class Memory(MemoryBase):
         Example:
             ```python
             # Method 1: Using MemoryConfig object (recommended)
-            from powermem.integrations.embeddings.config.providers import QwenEmbeddingConfig
 
             config = MemoryConfig(
                 vector_store=VectorStoreConfig(provider="oceanbase", config={...}),
                 llm=LlmConfig(provider="qwen", config={...}),
-                embedder=QwenEmbeddingConfig(model="text-embedding-v4", api_key="...")
+                embedder=EmbedderConfig(provider="qwen", config={...})
             )
             memory = Memory(config)
 
@@ -153,14 +152,18 @@ class Memory(MemoryBase):
             # Use MemoryConfig object directly
             self.memory_config = config
             # For backward compatibility, also store as dict
-            self.config = config.to_dict()
+            self.config = config.model_dump()
         else:
             # Convert dict config
             dict_config = config or {}
             dict_config = _auto_convert_config(dict_config)
             self.config = dict_config
-            self.memory_config = None
-            logger.debug("Using dict config mode")
+            # Try to create MemoryConfig from dict, fallback to dict if fails
+            try:
+                self.memory_config = MemoryConfig(**dict_config)
+            except Exception as e:
+                logger.warning(f"Could not parse config as MemoryConfig: {e}, using dict mode")
+                self.memory_config = None
 
         self.agent_id = agent_id
         
@@ -352,9 +355,11 @@ class Memory(MemoryBase):
         """
         if self.memory_config:
             component_obj = getattr(self.memory_config, component, None)
-            return component_obj.provider if component_obj else default
+            provider = getattr(component_obj, 'provider', None) if component_obj else None
+            return provider if provider is not None else default
         else:
-            return self.config.get(component, {}).get('provider', default)
+            provider = self.config.get(component, {}).get('provider')
+            return provider if provider is not None else default
 
     def _get_component_config(self, component: str) -> Dict[str, Any]:
         """
@@ -368,9 +373,11 @@ class Memory(MemoryBase):
         """
         if self.memory_config:
             component_obj = getattr(self.memory_config, component, None)
-            return component_obj.config or {} if component_obj else {}
+            config = getattr(component_obj, 'config', {}) if component_obj else {}
+            return config if config is not None else {}
         else:
-            return self.config.get(component, {}).get('config', {})
+            config = self.config.get(component, {}).get('config')
+            return config if config is not None else {}
 
     def _get_graph_enabled(self) -> bool:
         """
@@ -1231,13 +1238,41 @@ class Memory(MemoryBase):
                 transformed_results.append(transformed_result)
             
             # Log audit event
-            self.audit.log_event("memory.search", {
-                "query": query,
-                "user_id": user_id,
-                "agent_id": agent_id,
-                "results_count": len(transformed_results)
-            }, user_id=user_id, agent_id=agent_id)
-            
+            self.audit.log_event(
+                "memory.search",
+                {
+                    "query": query,
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                    "results_count": len(transformed_results),
+                },
+                user_id=user_id,
+                agent_id=agent_id,
+            )
+
+            # Track access count for analytics
+            for result in transformed_results:
+                try:
+                    memory_id = result.get("id")
+                    metadata = result.get("metadata", {})
+                    if metadata and "metadata" in metadata:
+                        user_metadata = metadata.get("metadata", {})
+                        access_count = user_metadata.get("access_count", 0) + 1
+                        user_metadata["access_count"] = access_count
+                        user_metadata["last_accessed_at"] = (
+                            get_current_datetime().isoformat()
+                        )
+
+                        # Update in storage directly to avoid re-embedding
+                        if hasattr(self.storage, "vector_store"):
+                            self.storage.vector_store.update(
+                                vector_id=memory_id, payload={"metadata": user_metadata}
+                            )
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to update access count for search result: {e}"
+                    )
+
             # Capture telemetry
             self.telemetry.capture_event("memory.search", {
                 "user_id": user_id,
@@ -1297,12 +1332,31 @@ class Memory(MemoryBase):
                             self.storage.update_memory(memory_id, {**updates}, user_id, agent_id)
                     except Exception:
                         pass
-                self.audit.log_event("memory.get", {
-                    "memory_id": memory_id,
-                    "user_id": user_id,
-                    "agent_id": agent_id
-                }, user_id=user_id, agent_id=agent_id)
-            
+                # Track access count for analytics
+                try:
+                    metadata = result.get("metadata", {})
+                    if metadata and "metadata" in metadata:
+                        user_metadata = metadata.get("metadata", {})
+                        access_count = user_metadata.get("access_count", 0) + 1
+                        user_metadata["access_count"] = access_count
+                        user_metadata["last_accessed_at"] = (
+                            get_current_datetime().isoformat()
+                        )
+
+                        if hasattr(self.storage, "vector_store"):
+                            self.storage.vector_store.update(
+                                vector_id=memory_id, payload={"metadata": user_metadata}
+                            )
+                except Exception as e:
+                    logger.debug(f"Failed to update access count for get result: {e}")
+
+                self.audit.log_event(
+                    "memory.get",
+                    {"memory_id": memory_id, "user_id": user_id, "agent_id": agent_id},
+                    user_id=user_id,
+                    agent_id=agent_id,
+                )
+
             return result
             
         except Exception as e:
@@ -1525,7 +1579,67 @@ class Memory(MemoryBase):
         except Exception as e:
             logger.error(f"Failed to get all memories: {e}")
             raise
-    
+
+    def get_statistics(
+        self, user_id: Optional[str] = None, agent_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get statistics for the memories.
+
+        Args:
+            user_id: Optional user ID to filter by
+            agent_id: Optional agent ID to filter by
+
+        Returns:
+            Dict[str, Any]: Statistics including total count, type distribution, etc.
+        """
+        filters = {}
+        if user_id:
+            filters["user_id"] = user_id
+        if agent_id or self.agent_id:
+            filters["agent_id"] = agent_id or self.agent_id
+
+        try:
+            # Check if storage has get_statistics, otherwise use vector_store directly
+            if hasattr(self.storage, "get_statistics"):
+                return self.storage.get_statistics(filters=filters)
+            elif hasattr(self.storage, "vector_store") and hasattr(
+                self.storage.vector_store, "get_statistics"
+            ):
+                return self.storage.vector_store.get_statistics(filters=filters)
+            else:
+                return {
+                    "total_memories": 0,
+                    "by_type": {},
+                    "avg_importance": 0.0,
+                    "top_accessed": [],
+                    "growth_trend": {},
+                }
+        except Exception as e:
+            logger.error(f"Failed to get statistics: {e}")
+            return {}
+
+    def get_users(self) -> List[str]:
+        """
+        Get a list of unique user IDs.
+
+        Returns:
+            List[str]: List of unique user IDs
+        """
+        try:
+            # Check if storage has get_unique_users, otherwise use vector_store directly
+            if hasattr(self.storage, "get_unique_users"):
+                return self.storage.get_unique_users()
+            elif hasattr(self.storage, "vector_store") and hasattr(
+                self.storage.vector_store, "get_unique_users"
+            ):
+                return self.storage.vector_store.get_unique_users()
+            else:
+                return []
+        except Exception as e:
+            logger.error(f"Failed to get users: {e}")
+            return []
+
     def reset(self):
         """
         Reset the memory store by:

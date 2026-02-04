@@ -37,6 +37,7 @@ dependencies = [
     "click>=8.0.0",
     "rank-bm25>=0.2.2",
     "pyobvector>=0.2.22,<0.3.0",
+    "pyseekdb>=1.0.0",
     "jieba>=0.42.1",
     "azure-identity>=1.24.0",
     "psycopg2-binary>=2.9.0",
@@ -85,14 +86,22 @@ Documentation = "https://powermem.readthedocs.io"
 Repository = "https://github.com/powermem/powermem.git"
 Issues = "https://github.com/powermem/powermem/issues"
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-dir]
 "" = "src"
 
+[tool.setuptools.package-data]
+server = ["dashboard/**"]
+
 [project.scripts]
 powermem-server = "server.cli.server:server"
+pmem = "powermem.cli.main:cli"
+powermem-cli = "powermem.cli.main:cli"
 
 [tool.black]
 line-length = 88

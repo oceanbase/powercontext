@@ -785,7 +785,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             self.vector_field: (
                 vector if not self.normalize else OceanBaseUtil.normalize(vector)
             ),
-            self.text_field: payload.get("data", ""),
+            self.text_field: payload.get("data") or payload.get("content") or "",
             self.metadata_field: serialized_metadata,
             "user_id": payload.get("user_id", ""),
             "agent_id": payload.get("agent_id", ""),
@@ -794,7 +794,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             "hash": payload.get("hash", ""),
             "created_at": serialize_datetime(payload.get("created_at", "")),
             "updated_at": serialize_datetime(payload.get("updated_at", "")),
-            "category": payload.get("category", ""),
+            "category": payload.get("category") or payload.get("type") or "",
         }
 
         # Add hybrid search fields if enabled
@@ -807,7 +807,12 @@ class OceanBaseVectorStore(VectorStoreBase):
                 raise ValueError(f"Sparse embedding must be a dict, got {type(sparse_embedding)}")
 
         # Always add full-text content (enabled by default)
-        fulltext_content = payload.get("fulltext_content") or payload.get("data", "")
+        fulltext_content = (
+            payload.get("fulltext_content")
+            or payload.get("data")
+            or payload.get("content")
+            or ""
+        )
         record[self.fulltext_field] = fulltext_content
 
         return record
@@ -2060,6 +2065,164 @@ class OceanBaseVectorStore(VectorStoreBase):
         except Exception as e:
             logger.error(f"Failed to reset collection '{self.collection_name}': {e}", exc_info=True)
             raise
+
+    def get_statistics(
+        self, filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Get statistics for the memories in OceanBase."""
+        stats = {
+            "total_memories": 0,
+            "by_type": {},
+            "avg_importance": 0.0,
+            "top_accessed": [],
+            "growth_trend": {},
+            "age_distribution": {
+                "< 1 day": 0,
+                "1-7 days": 0,
+                "7-30 days": 0,
+                "> 30 days": 0,
+            },
+        }
+
+        try:
+            where_clause = self._generate_where_clause(filters)
+
+            with self.obvector.engine.connect() as conn:
+                # 1. Total Count
+                stmt = select(func.count()).select_from(self.table)
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+                stats["total_memories"] = conn.execute(stmt).scalar() or 0
+
+                if stats["total_memories"] == 0:
+                    return stats
+
+                # 2. Distribution by Category (Type)
+                stmt = select(self.table.c.category, func.count()).select_from(
+                    self.table
+                )
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+                stmt = stmt.group_by(self.table.c.category)
+                for cat, count in conn.execute(stmt):
+                    stats["by_type"][cat or "unknown"] = count
+
+                # 3. Average Importance
+                # Use JSON_EXTRACT on the metadata column
+                importance_expr = func.json_extract(
+                    self.table.c[self.metadata_field], "$.importance"
+                )
+                stmt = select(func.avg(importance_expr)).select_from(self.table)
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+                avg_val = conn.execute(stmt).scalar()
+                if avg_val is not None:
+                    stats["avg_importance"] = round(float(avg_val), 2)
+
+                # 4. Top Accessed
+                access_expr = func.json_extract(
+                    self.table.c[self.metadata_field], "$.access_count"
+                )
+                stmt = (
+                    select(
+                        self.table.c[self.primary_field],
+                        self.table.c[self.text_field],
+                        access_expr.label("access_count"),
+                    )
+                    .select_from(self.table)
+                    .order_by(text("access_count DESC"))
+                    .limit(10)
+                )
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+
+                for row in conn.execute(stmt):
+                    stats["top_accessed"].append(
+                        {
+                            "id": row[0],
+                            "content": row[1][:50] if row[1] else "",
+                            "access_count": int(row[2]) if row[2] is not None else 0,
+                        }
+                    )
+
+                # 5. Growth Trend (Daily)
+                # created_at is String(128), typically 'YYYY-MM-DD HH:MM:SS'
+                date_expr = func.substring(self.table.c.created_at, 1, 10)
+                stmt = (
+                    select(date_expr, func.count())
+                    .select_from(self.table)
+                    .group_by(date_expr)
+                    .order_by(date_expr)
+                )
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+
+                for dt, count in conn.execute(stmt):
+                    if dt:
+                        stats["growth_trend"][dt] = count
+
+                # 6. Age Distribution
+                # Calculate in Python based on created_at strings for broader compatibility
+                stmt = select(self.table.c.created_at).select_from(self.table)
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+
+                from datetime import datetime
+
+                now = datetime.now()
+                for (created_at_str,) in conn.execute(stmt):
+                    if not created_at_str:
+                        continue
+                    try:
+                        # Handle potential space in 'YYYY-MM-DD HH:MM:SS'
+                        dt_str = created_at_str.replace(" ", "T")
+                        created_at = datetime.fromisoformat(dt_str)
+                        days_old = (now - created_at).days
+                        if days_old < 1:
+                            stats["age_distribution"]["< 1 day"] += 1
+                        elif days_old < 7:
+                            stats["age_distribution"]["1-7 days"] += 1
+                        elif days_old < 30:
+                            stats["age_distribution"]["7-30 days"] += 1
+                        else:
+                            stats["age_distribution"]["> 30 days"] += 1
+                    except Exception:
+                        continue
+
+        except Exception as e:
+            logger.error(f"Failed to get statistics from OceanBase: {e}")
+
+        return stats
+
+    def get_unique_users(self) -> List[str]:
+        """Get a list of unique user IDs from OceanBase."""
+        # user_id is stored in the metadata JSON column
+        sql = f"SELECT DISTINCT JSON_EXTRACT({self.metadata_field}, '$.user_id') AS user_id FROM {self.collection_name}"
+
+        users = []
+        try:
+            results = self.execute_sql(sql)
+            for row in results:
+                val = row.get("user_id")
+                if val is not None:
+                    # Remove quotes if it's a JSON string returned by JSON_EXTRACT
+                    if (
+                        isinstance(val, str)
+                        and val.startswith('"')
+                        and val.endswith('"')
+                    ):
+                        val = val[1:-1]
+                    users.append(str(val))
+        except Exception as e:
+            logger.error(f"Failed to get unique users from OceanBase: {e}")
+
+        return users
 
     def _check_and_create_fulltext_index(self):
         # Check whether the full-text index exists, if not, create it

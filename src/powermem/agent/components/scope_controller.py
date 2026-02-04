@@ -206,7 +206,9 @@ class ScopeController(AgentScopeManagerBase):
                         'PRIVATE': MemoryScope.PRIVATE,
                         'PUBLIC': MemoryScope.PUBLIC,
                         'AGENT_GROUP': MemoryScope.AGENT_GROUP,
+                        'AGENT': MemoryScope.AGENT_GROUP,
                         'USER_GROUP': MemoryScope.USER_GROUP,
+                        'USER': MemoryScope.USER_GROUP,
                         'RESTRICTED': MemoryScope.RESTRICTED,
                     }
                     
@@ -221,16 +223,65 @@ class ScopeController(AgentScopeManagerBase):
                         return scope
                 else:
                     # Already a MemoryScope enum
-                    logger.info(f"Determined scope '{suggested_scope.value}' for content from agent '{agent_id}'")
-                    return suggested_scope
+                    if isinstance(suggested_scope, MemoryScope):
+                        logger.info(f"Determined scope '{suggested_scope.value}' for content from agent '{agent_id}'")
+                        return suggested_scope
+                    # Fallback if it's some other type (e.g. a string that somehow got here)
+                    raise ValueError(f"Invalid scope type: {type(suggested_scope)}")
                     
             except (ValueError, AttributeError):
                 logger.warning(f"Invalid scope '{suggested_scope}' suggested by LLM, using default")
-                return self.multi_agent_config.default_scope
+                
+                # Ensure we return a MemoryScope enum
+                default_scope = self.multi_agent_config.default_scope
+                if isinstance(default_scope, MemoryScope):
+                    return default_scope
+                
+                # Handle common string mappings for default scope
+                default_scope_str = str(default_scope).upper()
+                fallback_mapping = {
+                    'PRIVATE': MemoryScope.PRIVATE,
+                    'PUBLIC': MemoryScope.PUBLIC,
+                    'AGENT_GROUP': MemoryScope.AGENT_GROUP,
+                    'AGENT': MemoryScope.AGENT_GROUP,
+                    'USER_GROUP': MemoryScope.USER_GROUP,
+                    'USER': MemoryScope.USER_GROUP,
+                    'RESTRICTED': MemoryScope.RESTRICTED,
+                }
+                if default_scope_str in fallback_mapping:
+                    return fallback_mapping[default_scope_str]
+                
+                try:
+                    return MemoryScope(str(default_scope).lower())
+                except ValueError:
+                    return MemoryScope.PRIVATE
                 
         except Exception as e:
             logger.error(f"Error determining scope: {e}")
-            return self.multi_agent_config.default_scope
+            
+            # Ensure we return a MemoryScope enum
+            default_scope = self.multi_agent_config.default_scope
+            if isinstance(default_scope, MemoryScope):
+                return default_scope
+            
+            # Handle common string mappings for default scope
+            default_scope_str = str(default_scope).upper()
+            fallback_mapping = {
+                'PRIVATE': MemoryScope.PRIVATE,
+                'PUBLIC': MemoryScope.PUBLIC,
+                'AGENT_GROUP': MemoryScope.AGENT_GROUP,
+                'AGENT': MemoryScope.AGENT_GROUP,
+                'USER_GROUP': MemoryScope.USER_GROUP,
+                'USER': MemoryScope.USER_GROUP,
+                'RESTRICTED': MemoryScope.RESTRICTED,
+            }
+            if default_scope_str in fallback_mapping:
+                return fallback_mapping[default_scope_str]
+                
+            try:
+                return MemoryScope(str(default_scope).lower())
+            except ValueError:
+                return MemoryScope.PRIVATE
     
     def get_accessible_memories(
         self,

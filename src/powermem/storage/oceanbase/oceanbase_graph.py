@@ -1454,3 +1454,104 @@ class MemoryGraph(GraphStoreBase):
         self._create_tables()
 
         logger.info("Graph reset completed")
+
+    def get_statistics(
+        self, filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Get statistics for the graph data."""
+        from sqlalchemy import Table, func, or_, select
+
+        stats = {
+            "total_entities": 0,
+            "total_relationships": 0,
+            "by_type": {},
+            "growth_trend": {},
+        }
+
+        try:
+            where_clause, _ = self._build_where_clause_with_filters(filters)
+
+            # Explicitly define tables if not already autoloaded
+            entities_table = Table(
+                constants.TABLE_ENTITIES, self.metadata, autoload_with=self.engine
+            )
+            rels_table = Table(
+                constants.TABLE_RELATIONSHIPS, self.metadata, autoload_with=self.engine
+            )
+
+            with self.engine.connect() as conn:
+                # 1. Total Entities
+                if not filters:
+                    stats["total_entities"] = (
+                        conn.execute(
+                            select(func.count()).select_from(entities_table)
+                        ).scalar()
+                        or 0
+                    )
+                else:
+                    stmt = select(
+                        func.count(func.distinct(entities_table.c.id))
+                    ).select_from(
+                        entities_table.join(
+                            rels_table,
+                            or_(
+                                entities_table.c.id == rels_table.c.source_entity_id,
+                                entities_table.c.id
+                                == rels_table.c.destination_entity_id,
+                            ),
+                        )
+                    )
+                    if where_clause:
+                        for cond in where_clause:
+                            stmt = stmt.where(cond)
+                    stats["total_entities"] = conn.execute(stmt).scalar() or 0
+
+                # 2. Total Relationships
+                stmt = select(func.count()).select_from(rels_table)
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+                stats["total_relationships"] = conn.execute(stmt).scalar() or 0
+
+                # 3. Distribution by Relationship Type
+                stmt = select(rels_table.c.relationship_type, func.count()).select_from(
+                    rels_table
+                )
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+                stmt = stmt.group_by(rels_table.c.relationship_type)
+                for r_type, count in conn.execute(stmt):
+                    stats["by_type"][r_type or "unknown"] = count
+
+                # 4. Growth Trend
+                date_expr = func.substring(rels_table.c.created_at, 1, 10)
+                stmt = select(date_expr, func.count()).select_from(rels_table)
+                if where_clause:
+                    for cond in where_clause:
+                        stmt = stmt.where(cond)
+                stmt = stmt.group_by(date_expr).order_by(date_expr)
+                for dt, count in conn.execute(stmt):
+                    if dt:
+                        stats["growth_trend"][dt] = count
+
+        except Exception as e:
+            logger.error(f"Failed to get statistics from OceanBase graph: {e}")
+
+        return stats
+
+    def get_unique_users(self) -> List[str]:
+        """Get a list of unique user IDs from OceanBase graph."""
+        from sqlalchemy import Table, func, select
+
+        try:
+            rels_table = Table(
+                constants.TABLE_RELATIONSHIPS, self.metadata, autoload_with=self.engine
+            )
+            stmt = select(func.distinct(rels_table.c.user_id))
+            with self.engine.connect() as conn:
+                results = conn.execute(stmt)
+                return [str(row[0]) for row in results if row[0] is not None]
+        except Exception as e:
+            logger.error(f"Failed to get unique users from OceanBase graph: {e}")
+            return []
