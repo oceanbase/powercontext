@@ -129,6 +129,7 @@ class BenchmarkSettings(BaseSettings):
     oceanbase_primary_field: str = Field(default="id")
     oceanbase_metadata_field: str = Field(default="metadata")
     oceanbase_vidx_name: str = Field(default="memories_vidx")
+    oceanbase_enable_native_hybrid: bool = Field(default=False)
 
     # PostgreSQL Configuration
     postgres_host: str = Field(default="127.0.0.1")
@@ -305,6 +306,8 @@ SPARSE_EMBEDDER_MODEL = settings.sparse_embedder_model
 SPARSE_EMBEDDING_BASE_URL = settings.sparse_embedding_base_url
 SPARSE_EMBEDDER_DIMS = settings.sparse_embedder_dims
 
+OCEANBASE_ENABLE_NATIVE_HYBRID = settings.oceanbase_enable_native_hybrid
+
 
 def load_config() -> Dict[str, Any]:
     """Load and build configuration dictionary from settings."""
@@ -333,6 +336,8 @@ def load_config() -> Dict[str, Any]:
         # Add sparse vector support if enabled
         if SPARSE_VECTOR_ENABLE:
             vector_store_config["include_sparse"] = True
+        if OCEANBASE_ENABLE_NATIVE_HYBRID:
+            vector_store_config['enable_native_hybrid'] = True
 
         vector_store = {
             "provider": "oceanbase",
