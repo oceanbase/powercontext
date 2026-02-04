@@ -15,9 +15,9 @@ export default defineConfig(({ mode }) => ({
     webExtension({
       manifest: resolve(__dirname, 'public/manifest.json'),
       additionalInputs: [
-        'src/popup/index.html',
-        'src/sidebar/index.html',
-        'src/options/index.html',
+        'src/view/popup/index.html',
+        'src/view/sidebar/index.html',
+        'src/view/options/index.html',
       ],
     }),
     // 生产环境启用 gzip 压缩

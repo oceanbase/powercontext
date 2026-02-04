@@ -154,12 +154,12 @@ export class PowerMemClient {
         }
     }
     /**
-     * 健康检查
-     * @returns 服务器是否健康
+     * Health check
+     * @returns Whether server is healthy
      */
     async healthCheck() {
         try {
-            const response = await this.client.get('/health');
+            const response = await this.client.get('/system/health');
             return response.status === 200;
         }
         catch (error) {

@@ -34,7 +34,7 @@
     }
   ],
   "action": {
-    "default_popup": "src/popup/index.html",
+    "default_popup": "src/view/popup/index.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -43,9 +43,9 @@
     "default_title": "PowerMem Memory Capture"
   },
   "side_panel": {
-    "default_path": "src/sidebar/index.html"
+    "default_path": "src/view/sidebar/index.html"
   },
-  "options_page": "src/options/index.html",
+  "options_page": "src/view/options/index.html",
   "commands": {
     "save-selection": {
       "suggested_key": {
