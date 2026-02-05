@@ -10,10 +10,13 @@ from pydantic import BaseModel, Field
 
 from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
 from powermem.integrations.embeddings.config.providers import OpenAIEmbeddingConfig
-from powermem.integrations.embeddings.config.sparse_base import SparseEmbedderConfig
-from powermem.integrations.llm import LlmConfig
-from powermem.storage.configs import VectorStoreConfig, GraphStoreConfig
-from powermem.integrations.rerank.configs import RerankConfig
+from powermem.integrations.embeddings.config.sparse_base import BaseSparseEmbedderConfig
+from powermem.integrations.llm.config.base import BaseLLMConfig
+from powermem.integrations.llm.config.qwen import QwenConfig
+from powermem.storage.config.base import BaseVectorStoreConfig, BaseGraphStoreConfig
+from powermem.storage.config.sqlite import SQLiteConfig
+from powermem.storage.config.oceanbase import OceanBaseGraphConfig
+from powermem.integrations.rerank.config.base import BaseRerankConfig
 
 
 class IntelligentMemoryConfig(BaseModel):
@@ -194,27 +197,27 @@ class QueryRewriteConfig(BaseModel):
 class MemoryConfig(BaseModel):
     """Main memory configuration class."""
 
-    vector_store: VectorStoreConfig = Field(
+    vector_store: BaseVectorStoreConfig = Field(
         description="Configuration for the vector store",
-        default_factory=VectorStoreConfig,
+        default_factory=SQLiteConfig,
     )
-    llm: LlmConfig = Field(
+    llm: BaseLLMConfig = Field(
         description="Configuration for the language model",
-        default_factory=LlmConfig,
+        default_factory=QwenConfig,
     )
     embedder: BaseEmbedderConfig = Field(
         description="Configuration for the embedding model",
         default_factory=OpenAIEmbeddingConfig,
     )
-    graph_store: GraphStoreConfig = Field(
-        description="Configuration for the graph",
-        default_factory=GraphStoreConfig,
+    graph_store: Optional[BaseGraphStoreConfig] = Field(
+        description="Configuration for the graph store (None means disabled)",
+        default=None,
     )
-    reranker: Optional[RerankConfig] = Field(
+    reranker: Optional[BaseRerankConfig] = Field(
         description="Configuration for the reranker",
         default=None,
     )
-    sparse_embedder: Optional[SparseEmbedderConfig] = Field(
+    sparse_embedder: Optional[BaseSparseEmbedderConfig] = Field(
         description="Configuration for the sparse embedder (only supported for OceanBase)",
         default=None,
     )
@@ -254,7 +257,7 @@ class MemoryConfig(BaseModel):
         description="Configuration for application logging",
         default=None,
     )
-    audio_llm: Optional[LlmConfig] = Field(
+    audio_llm: Optional[BaseLLMConfig] = Field(
         description="Configuration for audio language model",
         default=None,
     )
@@ -276,14 +279,25 @@ class MemoryConfig(BaseModel):
         if self.logging is None:
             self.logging = LoggingConfig()
         if self.reranker is None:
-            self.reranker = RerankConfig()
+            self.reranker = BaseRerankConfig()
         if self.query_rewrite is None:
             self.query_rewrite = QueryRewriteConfig()
+        
+        # Sync embedding_model_dims from embedder if not set in vector_store/graph_store
+        embedder_dims = getattr(self.embedder, 'embedding_dims', None)
+        if embedder_dims is not None:
+            # Sync to vector_store if not set
+            if hasattr(self.vector_store, 'embedding_model_dims') and self.vector_store.embedding_model_dims is None:
+                self.vector_store.embedding_model_dims = embedder_dims
+            # Sync to graph_store if not set
+            if self.graph_store is not None:
+                if hasattr(self.graph_store, 'embedding_model_dims') and self.graph_store.embedding_model_dims is None:
+                    self.graph_store.embedding_model_dims = embedder_dims
 
     def to_dict(self) -> Dict[str, Any]:
         result = self.model_dump(exclude_none=True)
 
-        for field in ['embedder', 'llm', 'vector_store']:
+        for field in ['embedder', 'llm', 'vector_store', 'reranker', 'graph_store', 'sparse_embedder']:
             obj = getattr(self, field, None)
             if obj and hasattr(obj, 'to_component_dict'):
                 result[field] = obj.to_component_dict()

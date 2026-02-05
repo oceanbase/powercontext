@@ -5,59 +5,78 @@ This module provides a factory for creating different rerank instances.
 """
 
 import importlib
-from typing import Optional
+from typing import Optional, Union
 
 from powermem.integrations.rerank.config.base import BaseRerankConfig
-
-
-def load_class(class_type):
-    """Dynamically load a class from a string path"""
-    module_path, class_name = class_type.rsplit(".", 1)
-    module = importlib.import_module(module_path)
-    return getattr(module, class_name)
+# Trigger automatic registration by importing provider configs
+from powermem.integrations.rerank.config.providers import (
+    QwenRerankConfig,
+    JinaRerankConfig,
+    ZaiRerankConfig,
+    GenericRerankConfig,
+)
 
 
 class RerankFactory:
-    """Factory class for creating rerank model instances
-    """
-    
-    provider_to_class = {
-        "qwen": "powermem.integrations.rerank.qwen.QwenRerank",
-        "jina": "powermem.integrations.rerank.jina.JinaRerank",
-        "generic": "powermem.integrations.rerank.generic.GenericRerank",
-        "zai": "powermem.integrations.rerank.zai.ZaiRerank",
-    }
+    """Factory class for creating rerank model instances"""
 
     @classmethod
-    def create(cls, provider_name: str = "qwen", config: Optional[dict] = None):
+    def create(
+        cls,
+        provider_name: str = "qwen",
+        config: Optional[Union[dict, BaseRerankConfig]] = None
+    ):
         """
         Create a rerank instance based on provider name.
 
         Args:
             provider_name (str): Name of the rerank provider. Defaults to "qwen"
-            config (Optional[dict]): Configuration dictionary for the rerank model
+            config (Optional[Union[dict, BaseRerankConfig]]): 
+                Configuration dictionary or BaseRerankConfig instance for the rerank model
 
         Returns:
             RerankBase: An instance of the requested rerank provider
 
         Raises:
             ValueError: If the provider is not supported
+            TypeError: If config type is invalid
         """
-        class_type = cls.provider_to_class.get(provider_name)
-        if class_type:
-            reranker_class = load_class(class_type)
-            # Create config if provided
-            if config:
-                base_config = BaseRerankConfig(**config)
-                return reranker_class(base_config)
-            else:
-                return reranker_class()
-        else:
-            supported = ", ".join(cls.provider_to_class.keys())
+        # Get config class from registry
+        config_cls = BaseRerankConfig.get_provider_config_cls(provider_name)
+        if not config_cls:
+            supported = ", ".join(BaseRerankConfig._registry.keys())
             raise ValueError(
                 f"Unsupported rerank provider: {provider_name}. "
                 f"Supported providers: {supported}"
             )
+
+        # Get class path from registry
+        class_path = BaseRerankConfig.get_provider_class_path(provider_name)
+        if not class_path:
+            raise ValueError(f"No class path registered for provider: {provider_name}")
+
+        # Load reranker class
+        module_path, class_name = class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        reranker_class = getattr(module, class_name)
+
+        # Create config instance
+        if config is None:
+            # Use default config
+            config_instance = config_cls()
+        elif isinstance(config, dict):
+            # Create config from dict
+            config_instance = config_cls(**config)
+        elif isinstance(config, BaseRerankConfig):
+            # Use provided config instance directly
+            config_instance = config
+        else:
+            raise TypeError(
+                f"config must be dict or BaseRerankConfig, got {type(config)}"
+            )
+
+        # Create and return reranker instance
+        return reranker_class(config_instance)
 
     @classmethod
     def list_providers(cls) -> list:
@@ -67,5 +86,5 @@ class RerankFactory:
         Returns:
             list: List of supported provider names
         """
-        return list(cls.provider_to_class.keys())
+        return list(BaseRerankConfig._registry.keys())
 

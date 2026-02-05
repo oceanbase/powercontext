@@ -10,7 +10,12 @@ from typing import Dict, Optional, List
 
 try:
     from sqlalchemy import text
+    from sqlalchemy.schema import CreateTable
     from pyobvector import FtsParser
+    from pyobvector.schema import ObTable, VectorIndex, FtsIndex
+    from pyobvector.client.index_param import IndexParams
+    from pyobvector.client.fts_index_param import FtsIndexParam
+    from pyobvector.client.partitions import ObPartition
 except ImportError as e:
     raise ImportError(
         f"Required dependencies not found: {e}. Please install sqlalchemy and pyobvector."
@@ -286,6 +291,108 @@ class OceanBaseUtil:
             return False
 
     @staticmethod
+    def check_native_hybrid_version_support(obvector, table_name: str) -> bool:
+        """
+        Check if the database version and table type support native hybrid search (DBMS_HYBRID_SEARCH.SEARCH).
+
+        Args:
+            obvector: The ObVecClient instance.
+            table_name: The name of the table.
+
+        Returns:
+            True if version is seekdb or OceanBase >= 4.4.1, and table is heap table or doesn't exist.
+            False otherwise.
+        """
+        # Check if it's seekdb
+        if OceanBaseUtil.is_seekdb(obvector):
+            logger.info("Detected seekdb, native hybrid search is supported")
+            # Also check if table is heap table (or doesn't exist)
+            if not OceanBaseUtil.check_table_is_heap_or_not_exists(obvector, table_name):
+                logger.warning(
+                    f"Table '{table_name}' is not a heap table (ORGANIZATION HEAP). "
+                    "Native hybrid search requires heap table."
+                )
+                return False
+            return True
+
+        # Check if it's OceanBase and version >= 4.4.1
+        version_dict = OceanBaseUtil.get_version_number(obvector)
+        if version_dict is None:
+            logger.warning("Could not determine database version, assuming native hybrid search not supported")
+            return False
+
+        major = version_dict["major"]
+        minor = version_dict["minor"]
+        patch = version_dict["patch"]
+
+        # Check version >= 4.4.1
+        if major > 4 or (major == 4 and (minor > 4 or (minor == 4 and patch >= 1))):
+            logger.info(f"Detected OceanBase version {major}.{minor}.{patch}, native hybrid search is supported")
+            # Also check if table is heap table (or doesn't exist)
+            if not OceanBaseUtil.check_table_is_heap_or_not_exists(obvector, table_name):
+                logger.warning(
+                    f"Table '{table_name}' is not a heap table (ORGANIZATION HEAP). "
+                    "Native hybrid search requires heap table."
+                )
+                return False
+            return True
+        else:
+            logger.warning(
+                f"Detected OceanBase version {major}.{minor}.{patch}, "
+                "native hybrid search requires OceanBase >= 4.4.1"
+            )
+            return False
+
+    @staticmethod
+    def check_table_is_heap_or_not_exists(obvector, table_name: str) -> bool:
+        """
+        Check if the table is a heap table (ORGANIZATION HEAP) or doesn't exist.
+
+        DBMS_HYBRID_SEARCH.SEARCH requires heap table, not index-organized table.
+
+        Args:
+            obvector: The ObVecClient instance.
+            table_name: The name of the table.
+
+        Returns:
+            True if table is heap table or doesn't exist, False if it's index-organized table.
+        """
+        try:
+            with obvector.engine.connect() as conn:
+                # Check if table exists first
+                result = conn.execute(text(
+                    f"SELECT COUNT(*) FROM information_schema.TABLES "
+                    f"WHERE TABLE_SCHEMA = DATABASE() "
+                    f"AND TABLE_NAME = '{table_name}'"
+                ))
+                if result.scalar() == 0:
+                    # Table doesn't exist, will be created as heap table
+                    logger.debug(f"Table '{table_name}' doesn't exist, will be created as heap table")
+                    return True
+
+                # Check table organization type using SHOW CREATE TABLE
+                result = conn.execute(text(f"SHOW CREATE TABLE `{table_name}`"))
+                row = result.fetchone()
+                if row and len(row) >= 2:
+                    create_statement = row[1]
+                    # Check for ORGANIZATION keyword
+                    if "ORGANIZATION INDEX" in create_statement.upper():
+                        logger.debug(f"Table '{table_name}' is an index-organized table")
+                        return False
+                    elif "ORGANIZATION HEAP" in create_statement.upper():
+                        logger.debug(f"Table '{table_name}' is a heap table")
+                        return True
+                    else:
+                        # No ORGANIZATION keyword, default is index-organized in OceanBase
+                        # when table has primary key
+                        logger.debug(f"Table '{table_name}' has no explicit ORGANIZATION, assuming index-organized")
+                        return False
+                return False
+        except Exception as e:
+            logger.error(f"An error occurred while checking table organization type: {e}")
+            return False
+
+    @staticmethod
     def format_sparse_vector(sparse_dict: Dict[int, float]) -> str:
         """
         Format sparse vector dictionary to string format for SQL query.
@@ -428,3 +535,252 @@ class OceanBaseUtil:
         
         logger.info(f"Sparse vector support validated successfully for table '{collection_name}'")
         return True
+
+    @staticmethod
+    def check_filters_all_in_columns(filters: Optional[Dict], model_class) -> bool:
+        """
+        Check if all filter fields are in standard table columns.
+
+        This is used to determine if native hybrid search can be used.
+        Native hybrid search doesn't support JSON path filtering well,
+        so we only use it when all filters are on actual table columns.
+
+        Args:
+            filters: The filter conditions in mem0 format.
+            model_class: SQLAlchemy ORM model class with __table__ attribute.
+
+        Returns:
+            True if all filter fields are in table columns, False otherwise.
+        """
+        if not filters:
+            return True
+
+        # Get column names from model_class
+        try:
+            table_columns = set(model_class.__table__.c.keys())
+        except AttributeError:
+            logger.warning("model_class does not have __table__ attribute, native hybrid search disabled")
+            return False
+
+        def check_filter_keys(filter_dict: Dict) -> bool:
+            """Recursively check if all keys are in table columns."""
+            for key, value in filter_dict.items():
+                # Handle AND/OR logic
+                if key in ["AND", "OR"]:
+                    if isinstance(value, list):
+                        for sub_filter in value:
+                            if not check_filter_keys(sub_filter):
+                                return False
+                else:
+                    # Check if this key is a table column
+                    if key not in table_columns:
+                        logger.debug(f"Filter field '{key}' not in table columns, native hybrid search disabled")
+                        return False
+            return True
+
+        return check_filter_keys(filters)
+
+    @staticmethod
+    def convert_filters_to_native_format(
+        filters: Optional[Dict],
+        model_class,
+        metadata_field: str = "metadata"
+    ) -> List[Dict]:
+        """
+        Convert filter format to OceanBase native DBMS_HYBRID_SEARCH.SEARCH filter format.
+
+        Follows the SEARCH API specification:
+        - term: Exact match (strings, numbers, booleans)
+        - range: Range queries (gte, gt, lte, lt)
+        - match: Fuzzy match (full-text)
+        - bool: Complex logic (must, should, must_not, filter)
+
+        Args:
+            filters: The filter conditions in mem0 format.
+            model_class: SQLAlchemy ORM model class with __table__ attribute.
+            metadata_field: Name of the metadata field (default: "metadata").
+
+        Returns:
+            List[Dict]: Filter conditions in OceanBase SEARCH native format.
+        """
+        if not filters:
+            return []
+
+        # Get column names from model_class
+        try:
+            table_columns = set(model_class.__table__.c.keys())
+        except AttributeError:
+            logger.warning("model_class does not have __table__ attribute")
+            table_columns = set()
+
+        def get_field_name(key: str) -> Optional[str]:
+            """Get the field name for filter."""
+            if key in table_columns:
+                return key
+            else:
+                # Skip non-table fields for native hybrid search
+                logger.debug(f"Skipping non-table field in native hybrid search: {key}")
+                return None
+
+        def process_single_filter(key: str, value) -> Optional[Dict]:
+            """Process a single filter condition."""
+            field_name = get_field_name(key)
+            if field_name is None:
+                return None
+
+            # List values -> IN query -> bool.should with multiple term queries
+            if isinstance(value, list):
+                if not value:
+                    return None
+                return {
+                    "bool": {
+                        "should": [{"term": {field_name: v}} for v in value]
+                    }
+                }
+
+            # Dict values -> May be range query or other operators
+            if isinstance(value, dict):
+                range_ops = {"gte", "gt", "lte", "lt"}
+                if any(op in value for op in range_ops):
+                    range_params = {op: value[op] for op in range_ops if op in value}
+                    return {"range": {field_name: range_params}}
+
+                if "eq" in value:
+                    return {"term": {field_name: value["eq"]}}
+
+                if "ne" in value:
+                    return {"bool": {"must_not": [{"term": {field_name: value["ne"]}}]}}
+
+                if "in" in value:
+                    if not isinstance(value["in"], list) or not value["in"]:
+                        return None
+                    return {
+                        "bool": {
+                            "should": [{"term": {field_name: v}} for v in value["in"]]
+                        }
+                    }
+
+                if "nin" in value:
+                    if not isinstance(value["nin"], list) or not value["nin"]:
+                        return None
+                    return {
+                        "bool": {
+                            "must_not": [
+                                {"bool": {"should": [{"term": {field_name: v}} for v in value["nin"]]}}
+                            ]
+                        }
+                    }
+
+                if "like" in value or "ilike" in value:
+                    query_str = value.get("like") or value.get("ilike")
+                    query_str = str(query_str).replace("%", "").replace("_", " ").strip()
+                    if query_str:
+                        return {"match": {field_name: {"query": query_str}}}
+                    return None
+
+            # None values -> Not supported, skip
+            if value is None:
+                logger.warning(f"NULL filter not supported in native search, skipping: {key}")
+                return None
+
+            # Simple values -> term query
+            return {"term": {field_name: value}}
+
+        def process_complex_filter(filters_dict: Dict) -> List[Dict]:
+            """Process complex filters with AND/OR logic."""
+            if "AND" in filters_dict:
+                conditions = []
+                for sub_filter in filters_dict["AND"]:
+                    result = process_complex_filter(sub_filter)
+                    if result:
+                        conditions.extend(result)
+                if conditions:
+                    return [{"bool": {"filter": conditions}}]
+                return []
+
+            if "OR" in filters_dict:
+                conditions = []
+                for sub_filter in filters_dict["OR"]:
+                    result = process_complex_filter(sub_filter)
+                    if result:
+                        conditions.extend(result)
+                if conditions:
+                    return [{"bool": {"should": conditions}}]
+                return []
+
+            results = []
+            for k, v in filters_dict.items():
+                if k not in ["AND", "OR"]:
+                    result = process_single_filter(k, v)
+                    if result:
+                        results.append(result)
+            return results
+
+        return process_complex_filter(filters)
+
+    @staticmethod
+    def parse_native_hybrid_results(
+        result_json_str: str,
+        primary_field: str = "id",
+        text_field: str = "document",
+        metadata_field: str = "metadata"
+    ) -> List[Dict]:
+        """
+        Parse the JSON results from OceanBase native DBMS_HYBRID_SEARCH.SEARCH.
+
+        Args:
+            result_json_str: JSON string returned from DBMS_HYBRID_SEARCH.SEARCH
+            primary_field: Name of the primary key field
+            text_field: Name of the text content field
+            metadata_field: Name of the metadata field
+
+        Returns:
+            List[Dict]: List of parsed result dictionaries, each containing:
+                - vector_id: Primary key value
+                - text_content: Text content
+                - score: Relevance score from _score field
+                - user_id, agent_id, run_id, actor_id: Standard ID fields
+                - hash, created_at, updated_at, category: Standard fields
+                - metadata_json: Raw metadata JSON
+        """
+        try:
+            result_data = json.loads(result_json_str)
+
+            if not isinstance(result_data, list):
+                logger.warning(f"Unexpected result format: {type(result_data)}, expected list")
+                return []
+
+            output_list = []
+
+            for doc in result_data:
+                vector_id = doc.get(primary_field)
+                score = doc.get("_score", 0.0)
+
+                if not vector_id:
+                    logger.warning(f"Document missing primary key '{primary_field}', skipping")
+                    continue
+
+                output_list.append({
+                    "vector_id": vector_id,
+                    "text_content": doc.get(text_field, ""),
+                    "score": score,
+                    "user_id": doc.get("user_id", ""),
+                    "agent_id": doc.get("agent_id", ""),
+                    "run_id": doc.get("run_id", ""),
+                    "actor_id": doc.get("actor_id", ""),
+                    "hash": doc.get("hash", ""),
+                    "created_at": doc.get("created_at", ""),
+                    "updated_at": doc.get("updated_at", ""),
+                    "category": doc.get("category", ""),
+                    "metadata_json": doc.get(metadata_field, {}),
+                })
+
+            logger.debug(f"Parsed {len(output_list)} results from native hybrid search")
+            return output_list
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse native hybrid search JSON results: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error parsing native hybrid search results: {e}")
+            return []

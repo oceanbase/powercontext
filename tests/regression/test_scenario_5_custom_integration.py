@@ -196,9 +196,7 @@ def test_step1_custom_llm_provider() -> None:
     LLMFactory.register_provider("custom", f"{__name__}.CustomLLM", CustomLLMConfig)
     
     # Also register custom vector store for testing
-    VectorStoreFactory.provider_to_class.update({
-        "custom": f"{__name__}.CustomVectorStore"
-    })
+    VectorStoreFactory.register_provider("custom", f"{__name__}.CustomVectorStore")
     
     print("✓ CustomLLM class defined")
     print("✓ Custom LLM provider registered successfully")
@@ -518,9 +516,7 @@ def test_step3_custom_vector_store() -> None:
     
     from powermem.storage.factory import VectorStoreFactory
     
-    VectorStoreFactory.provider_to_class.update({
-        "custom": f"{__name__}.CustomVectorStore"
-    })
+    VectorStoreFactory.register_provider("custom", f"{__name__}.CustomVectorStore")
     
     print("✓ CustomVectorStore class defined")
     print("✓ Custom Vector Store provider registered successfully")
@@ -948,14 +944,12 @@ def test_step5_fastapi_integration() -> None:
             from powermem.storage.factory import VectorStoreFactory
             
             # Ensure custom providers are registered
-            if 'custom' not in LLMFactory.provider_to_class:
+            if 'custom' not in LLMFactory.get_supported_providers():
                 LLMFactory.register_provider("custom", f"{__name__}.CustomLLM", CustomLLMConfig)
             if not BaseEmbedderConfig.has_provider("custom"):
                 print("⚠ Custom embedder config is not registered")
-            if 'custom' not in VectorStoreFactory.provider_to_class:
-                VectorStoreFactory.provider_to_class.update({
-                    "custom": f"{__name__}.CustomVectorStore"
-                })
+            if 'custom' not in VectorStoreFactory.get_supported_providers():
+                VectorStoreFactory.register_provider("custom", f"{__name__}.CustomVectorStore")
             
             # Define Pydantic models for request/response
             class MemoryRequest(BaseModel):

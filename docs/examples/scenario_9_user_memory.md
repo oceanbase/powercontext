@@ -421,7 +421,80 @@ python user_profile_example.py
   1. Works as a UX designer, loves creating beautiful interfaces (score: 0.92)
 ```
 
-## Step 7: Delete User Profile
+## Step 7: Extract Profile in Native Language
+
+You can specify a native language for profile extraction, ensuring the profile is written in the user's preferred language regardless of the conversation language:
+
+```python
+# user_profile_example.py
+from powermem import UserMemory, auto_config
+
+config = auto_config()
+user_memory = UserMemory(config=config)
+
+# Example 1: English conversation, Chinese profile
+conversation_en = [
+    {"role": "user", "content": "I am a software engineer working in Beijing. I love drinking tea and reading books."},
+    {"role": "assistant", "content": "That sounds great!"}
+]
+
+result_zh = user_memory.add(
+    messages=conversation_en,
+    user_id="user_bilingual_001",
+    native_language="zh"  # Extract profile in Chinese
+)
+
+print("✓ English conversation processed")
+if result_zh.get('profile_content'):
+    print(f"  - Profile (Chinese): {result_zh['profile_content']}")
+
+# Example 2: Chinese conversation, English profile
+conversation_zh = [
+    {"role": "user", "content": "I'm 25 years old, working at Microsoft in Seattle."},
+    {"role": "assistant", "content": "Nice to meet you"}
+]
+
+result_en = user_memory.add(
+    messages=conversation_zh,
+    user_id="user_bilingual_002",
+    native_language="en"  # Extract profile in English
+)
+
+print("\n✓ Chinese conversation processed")
+if result_en.get('profile_content'):
+    print(f"  - Profile (English): {result_en['profile_content']}")
+
+# Example 3: Structured topics with native language
+result_topics = user_memory.add(
+    messages="I'm 25 years old, working at Microsoft in Seattle.",
+    user_id="user_bilingual_003",
+    profile_type="topics",
+    native_language="zh"  # Topic values in Chinese, keys remain English
+)
+
+print("\n✓ Structured topics extracted")
+if result_topics.get('topics'):
+    print(f"  - Topics: {result_topics['topics']}")
+```
+
+**Run this code:**
+```bash
+python user_profile_example.py
+```
+
+**Supported Language Codes:**
+
+| Code | Language | Code | Language |
+|------|----------|------|----------|
+| zh | Chinese | en | English |
+| ja | Japanese | ko | Korean |
+| fr | French | de | German |
+| es | Spanish | it | Italian |
+| pt | Portuguese | ru | Russian |
+| ar | Arabic | hi | Hindi |
+| th | Thai | vi | Vietnamese |
+
+## Step 8: Delete User Profile
 
 Delete a user profile:
 

@@ -5,10 +5,14 @@ from powermem.integrations.llm.config.anthropic import AnthropicConfig
 from powermem.integrations.llm.config.azure import AzureOpenAIConfig
 from powermem.integrations.llm.config.base import BaseLLMConfig
 from powermem.integrations.llm.config.deepseek import DeepSeekConfig
+from powermem.integrations.llm.config.gemini import GeminiConfig
+from powermem.integrations.llm.config.langchain import LangchainConfig
 from powermem.integrations.llm.config.ollama import OllamaConfig
 from powermem.integrations.llm.config.openai import OpenAIConfig
+from powermem.integrations.llm.config.openai_structured import OpenAIStructuredConfig
 from powermem.integrations.llm.config.qwen import QwenConfig
 from powermem.integrations.llm.config.qwen_asr import QwenASRConfig
+from powermem.integrations.llm.config.siliconflow import SiliconFlowConfig
 from powermem.integrations.llm.config.vllm import VllmConfig
 from powermem.integrations.llm.config.zai import ZaiConfig
 
@@ -22,25 +26,8 @@ def load_class(class_type):
 class LLMFactory:
     """
     Factory for creating LLM instances with appropriate configurations.
-    Supports both old-style BaseLLMConfig and new provider-specific configs.
+    Uses provider registration mechanism from BaseLLMConfig.
     """
-
-    # Provider mappings with their config classes
-    provider_to_class = {
-        "ollama": ("powermem.integrations.llm.ollama.OllamaLLM", OllamaConfig),
-        "openai": ("powermem.integrations.llm.openai.OpenAILLM", OpenAIConfig),
-        "openai_structured": ("powermem.integrations.llm.openai_structured.OpenAIStructuredLLM", OpenAIConfig),
-        "anthropic": ("powermem.integrations.llm.anthropic.AnthropicLLM", AnthropicConfig),
-        "azure": ("powermem.integrations.llm.azure.AzureLLM", AzureOpenAIConfig),
-        "gemini": ("powermem.integrations.llm.gemini.GeminiLLM", BaseLLMConfig),
-        "deepseek": ("powermem.integrations.llm.deepseek.DeepSeekLLM", DeepSeekConfig),
-        "vllm": ("powermem.integrations.llm.vllm.VllmLLM", VllmConfig),
-        "langchain": ("powermem.integrations.llm.langchain.LangchainLLM", BaseLLMConfig),
-        "qwen": ("powermem.integrations.llm.qwen.QwenLLM", QwenConfig),
-        "qwen_asr": ("powermem.integrations.llm.qwen_asr.QwenASR", QwenASRConfig),
-        "siliconflow": ("powermem.integrations.llm.siliconflow.SiliconFlowLLM", OpenAIConfig),
-        "zai": ("powermem.integrations.llm.zai.ZaiLLM", ZaiConfig),
-    }
 
     @classmethod
     def create(cls, provider_name: str, config: Optional[Union[BaseLLMConfig, Dict]] = None, **kwargs):
@@ -49,8 +36,8 @@ class LLMFactory:
 
         Args:
             provider_name (str): The provider name (e.g., 'openai', 'anthropic')
-            config: Configuration object or dict. If None, will create default config
-            **kwargs: Additional configuration parameters
+            config: Configuration object or dict. If None, will create default config from environment
+            **kwargs: Additional configuration parameters (overrides)
 
         Returns:
             Configured LLM instance
@@ -58,45 +45,34 @@ class LLMFactory:
         Raises:
             ValueError: If provider is not supported
         """
-        if provider_name not in cls.provider_to_class:
+        # 1. Get class_path from registry
+        class_path = BaseLLMConfig.get_provider_class_path(provider_name)
+        if not class_path:
             raise ValueError(f"Unsupported Llm provider: {provider_name}")
 
-        class_type, config_class = cls.provider_to_class[provider_name]
-        llm_class = load_class(class_type)
+        # 2. Get config_cls from registry
+        config_cls = BaseLLMConfig.get_provider_config_cls(provider_name) or BaseLLMConfig
 
-        # Handle configuration
+        # 3. Handle configuration
         if config is None:
-            # Create default config with kwargs
-            config = config_class(**kwargs)
+            # Create default config from environment variables
+            provider_settings = config_cls()
         elif isinstance(config, dict):
-            # Merge dict config with kwargs
-            config.update(kwargs)
-            config = config_class(**config)
+            # Create config from dict
+            provider_settings = config_cls(**config)
         elif isinstance(config, BaseLLMConfig):
-            # Convert base config to provider-specific config if needed
-            if config_class != BaseLLMConfig:
-                # Convert to provider-specific config
-                config_dict = {
-                    "model": config.model,
-                    "temperature": config.temperature,
-                    "api_key": config.api_key,
-                    "max_tokens": config.max_tokens,
-                    "top_p": config.top_p,
-                    "top_k": config.top_k,
-                    "enable_vision": config.enable_vision,
-                    "vision_details": config.vision_details,
-                    "http_client_proxies": config.http_client,
-                }
-                config_dict.update(kwargs)
-                config = config_class(**config_dict)
-            else:
-                # Use base config as-is
-                pass
+            # Use existing config as-is
+            provider_settings = config
         else:
-            # Assume it's already the correct config type
-            pass
+            raise TypeError(f"config must be BaseLLMConfig, dict, or None, got {type(config)}")
 
-        return llm_class(config)
+        # 4. Apply overrides (kwargs)
+        if kwargs:
+            provider_settings = provider_settings.model_copy(update=kwargs)
+
+        # 5. Create LLM instance
+        llm_class = load_class(class_path)
+        return llm_class(provider_settings)
 
     @classmethod
     def register_provider(cls, name: str, class_path: str, config_class=None):
@@ -110,7 +86,10 @@ class LLMFactory:
         """
         if config_class is None:
             config_class = BaseLLMConfig
-        cls.provider_to_class[name] = (class_path, config_class)
+
+        # Register directly in BaseLLMConfig registry
+        BaseLLMConfig._registry[name] = config_class
+        BaseLLMConfig._class_paths[name] = class_path
 
     @classmethod
     def get_supported_providers(cls) -> list:
@@ -120,4 +99,4 @@ class LLMFactory:
         Returns:
             list: List of supported provider names
         """
-        return list(cls.provider_to_class.keys())
+        return list(BaseLLMConfig._registry.keys())

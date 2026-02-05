@@ -71,6 +71,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             fts_weight: float = 0.5,
             sparse_weight: float = 0.25,
             reranker: Optional[Any] = None,
+            enable_native_hybrid: bool = False,
             **kwargs,
     ):
         """
@@ -101,6 +102,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             fts_weight (float): Weight for full-text search in hybrid search (default: 0.5).
             sparse_weight (Optional[float]): Weight for sparse vector search in hybrid search.
             reranker (Optional[Any]): Reranker model for fine ranking.
+            enable_native_hybrid (bool): Whether to enable OceanBase native hybrid search (DBMS_HYBRID_SEARCH.SEARCH).
         """
         self.normalize = normalize
         self.include_sparse = include_sparse
@@ -111,6 +113,7 @@ class OceanBaseVectorStore(VectorStoreBase):
         self.fts_weight = fts_weight
         self.sparse_weight = sparse_weight
         self.reranker = reranker
+        self.enable_native_hybrid = enable_native_hybrid
 
         # Validate fulltext parser
         if self.fulltext_parser not in constants.OCEANBASE_SUPPORTED_FULLTEXT_PARSERS:
@@ -170,6 +173,12 @@ class OceanBaseVectorStore(VectorStoreBase):
         # Initialize client
         self._create_client(**kwargs)
         assert self.obvector is not None
+
+        # Check if native hybrid search is supported by version and table type
+        if self.enable_native_hybrid:
+            if not OceanBaseUtil.check_native_hybrid_version_support(self.obvector, self.collection_name):
+                logger.warning("Falling back to application-level hybrid search.")
+                self.enable_native_hybrid = False
 
         # Autoconfigure vector index settings if enabled
         if self.auto_configure_vector_index:
@@ -238,9 +247,12 @@ class OceanBaseVectorStore(VectorStoreBase):
 
     def _create_table_with_index_by_embedding_model_dims(self) -> None:
         """Create table with vector index based on embedding dimension.
-        
+
         If include_sparse is True and database supports sparse vector,
         the sparse_embedding column will be included in the table schema.
+
+        If enable_native_hybrid is True, creates heap table (ORGANIZATION HEAP)
+        for native hybrid search support.
         """
         cols = [
             # Primary key - Snowflake ID (BIGINT without AUTO_INCREMENT)
@@ -264,7 +276,7 @@ class OceanBaseVectorStore(VectorStoreBase):
 
         # Create vector index parameters
         vidx_params = self.obvector.prepare_index_params()
-        
+
         # Add dense vector index
         vidx_params.add_index(
             field_name=self.vector_field,
@@ -303,8 +315,13 @@ class OceanBaseVectorStore(VectorStoreBase):
                     "Creating table without sparse vector support. "
                     "Upgrade to seekdb or OceanBase >= 4.5.0 for sparse vector."
                 )
-        
-        # Create table with vector indexes (both dense and sparse if configured)
+
+        # Determine table options based on native hybrid search setting
+        table_kwargs = {}
+        if self.enable_native_hybrid:
+            table_kwargs['mysql_organization'] = 'heap'
+            logger.info(f"Creating heap table '{self.collection_name}' for native hybrid search support")
+
         self.obvector.create_table_with_index_params(
             table_name=self.collection_name,
             columns=cols,
@@ -312,6 +329,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             vidxs=vidx_params,
             fts_idxs=[fts_index_param] if fts_index_param is not None else None,
             partitions=None,
+            **table_kwargs,
         )
 
         logger.debug(f"Table '{self.collection_name}' created successfully")
@@ -358,7 +376,7 @@ class OceanBaseVectorStore(VectorStoreBase):
 
     def _create_col(self):
         """Create a new collection."""
-        
+
         if self.embedding_model_dims is None:
             raise ValueError(
                 "embedding_model_dims is required for OceanBase vector operations. "
@@ -379,7 +397,7 @@ class OceanBaseVectorStore(VectorStoreBase):
         else:
             # Existing table: validate schema
             logger.info(f"Table {self.collection_name} already exists, preserving existing data")
-            
+
             # Check if the existing table's vector dimension matches the requested dimension
             existing_dim = self._get_existing_vector_dimension()
             if existing_dim is not None and existing_dim != self.embedding_model_dims:
@@ -391,12 +409,12 @@ class OceanBaseVectorStore(VectorStoreBase):
 
         if self.hybrid_search:
             self._check_and_create_fulltext_index()
-        
+
         # Validate sparse vector support if enabled
         if self.include_sparse:
             if not OceanBaseUtil.check_sparse_vector_ready(self.obvector, self.collection_name, self.sparse_vector_field):
                 self.include_sparse = False
-        
+
         self.model_class = create_memory_model(
             table_name=self.collection_name,
             embedding_dims=self.embedding_model_dims,
@@ -408,7 +426,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             fulltext_field=self.fulltext_field,
             sparse_vector_field=self.sparse_vector_field
         )
-        
+
         # Use model_class.__table__ as table reference
         self.table = self.model_class.__table__
 
@@ -569,7 +587,7 @@ class OceanBaseVectorStore(VectorStoreBase):
     def _row_to_model(self, row):
         """
         Convert SQLAlchemy Row object to ORM Model instance.
-        
+
         Args:
             row: SQLAlchemy Row object (query result)
         
@@ -578,14 +596,14 @@ class OceanBaseVectorStore(VectorStoreBase):
         """
         # Create a new Model instance (not bound to Session)
         record = self.model_class()
-        
+
         # Iterate through all columns in the table, map values from Row to Model instance
         for col_name in self.model_class.__table__.c.keys():
             # Check if Row contains this column (queries may not include all columns)
             if col_name in row._mapping.keys():
                 attr_name = 'metadata_' if col_name == 'metadata' else col_name
                 setattr(record, attr_name, row._mapping[col_name])
-        
+
         return record
 
     def _get_standard_select_columns(self) -> List:
@@ -605,11 +623,11 @@ class OceanBaseVectorStore(VectorStoreBase):
             self.table.c["updated_at"],
             self.table.c["category"],
         ]
-        
+
         # Only include sparse_embedding if sparse search is enabled
         if self.include_sparse:
             columns.append(self.table.c[self.sparse_vector_field])
-        
+
         return columns
 
     def _get_standard_column_names(self, include_vector_field: bool = False) -> List[str]:
@@ -619,11 +637,11 @@ class OceanBaseVectorStore(VectorStoreBase):
         column_names = [
             self.text_field,
         ]
-        
+
         # Include vector_field if requested
         if include_vector_field:
             column_names.append(self.vector_field)
-        
+
         column_names.extend([
             self.metadata_field,
             self.primary_field,
@@ -636,23 +654,23 @@ class OceanBaseVectorStore(VectorStoreBase):
             "updated_at",
             "category",
         ])
-        
+
         # Only include sparse_embedding if sparse search is enabled
         if self.include_sparse:
             column_names.append(self.sparse_vector_field)
-        
+
         return column_names
 
     def _parse_row_to_dict(self, row, include_vector: bool = False, extract_score: bool = True) -> Dict:
         """
         Parse a database row and return all fields as a dictionary.
         Now uses ORM Model instance internally for cleaner field access.
-        
+
         Args:
             row: Database row result
             include_vector: Whether the row includes vector field (for get/list methods)
             extract_score: Whether to extract score/distance field (for search methods)
-        
+
         Returns:
             Dict containing all parsed fields:
             - text_content: Text content from the row
@@ -665,7 +683,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             - score_or_distance: Score or distance value (only if extract_score=True)
         """
         record = self._row_to_model(row)
-        
+
         text_content = record.document
         metadata_json = record.metadata_
         vector_id = record.id
@@ -677,12 +695,12 @@ class OceanBaseVectorStore(VectorStoreBase):
         created_at = record.created_at
         updated_at = record.updated_at
         category = record.category
-        
+
         # Handle optional fields
         vector = None
         sparse_embedding = None
         score_or_distance = None
-        
+
         if include_vector:
             # get/list scenario: includes vector field
             vector = record.embedding
@@ -692,7 +710,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             # Search scenario: does not include vector, but may include sparse_embedding
             if self.include_sparse and hasattr(record, 'sparse_embedding') and record.sparse_embedding is not None:
                 sparse_embedding = record.sparse_embedding
-        
+
         # Extract additional score/distance fields (these fields are not in Model, need to get from original row)
         if extract_score:
             if 'score' in row._mapping.keys():
@@ -701,7 +719,7 @@ class OceanBaseVectorStore(VectorStoreBase):
                 score_or_distance = row._mapping['distance']
             elif 'anon_1' in row._mapping.keys():
                 score_or_distance = row._mapping['anon_1']
-        
+
         # Build standard metadata
         metadata = {
             "user_id": user_id,
@@ -715,7 +733,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             # Store user metadata as nested structure to preserve it
             "metadata": OceanBaseUtil.parse_metadata(metadata_json)
         }
-        
+
         # Build result dictionary
         result = {
             "text_content": text_content,
@@ -731,14 +749,14 @@ class OceanBaseVectorStore(VectorStoreBase):
             "category": category,
             "metadata": metadata,
         }
-        
+
         # Add optional fields
         if include_vector:
             result["vector"] = vector
-        
+
         if extract_score:
             result["score_or_distance"] = score_or_distance
-        
+
         return result
 
     def _create_output_data(self, vector_id: int, text_content: str, score: float,
@@ -804,11 +822,12 @@ class OceanBaseVectorStore(VectorStoreBase):
                vectors: List[List[float]],
                limit: int = 5,
                filters: Optional[Dict] = None,
-               sparse_embedding: Optional[Dict[int, float]] = None) -> list[OutputData]:
+               sparse_embedding: Optional[Dict[int, float]] = None,
+               threshold: Optional[float] = None) -> list[OutputData]:
         # Check if hybrid search is enabled, and we have query text
         # Full-text search is always enabled by default
         if self.hybrid_search and query:
-            return self._hybrid_search(query, vectors, limit, filters, sparse_embedding)
+            return self._hybrid_search(query, vectors, limit, filters, sparse_embedding, threshold=threshold)
         else:
             return self._vector_search(query, vectors, limit, filters)
 
@@ -831,13 +850,13 @@ class OceanBaseVectorStore(VectorStoreBase):
                 return []
 
             table = Table(self.collection_name, self.obvector.metadata_obj, autoload_with=self.obvector.engine)
-            
+
             # Build where clause from filters using the same table object
             where_clause = self._generate_where_clause(filters, table=table)
 
             # Build output column names list
             output_columns = self._get_standard_column_names()
-            
+
             # Perform vector search - pyobvector expects a single vector, not a list of vectors
             results = self.obvector.ann_search(
                 table_name=self.collection_name,
@@ -854,14 +873,14 @@ class OceanBaseVectorStore(VectorStoreBase):
             search_results = []
             for row in results.fetchall():
                 parsed = self._parse_row_to_dict(row, include_vector=False, extract_score=True)
-                
+
                 # Convert distance to similarity score (0-1 range, higher is better)
                 # Handle None distance (shouldn't happen but be defensive)
                 distance = parsed["score_or_distance"]
                 vector_id = parsed["vector_id"]
                 text_content = parsed["text_content"]
                 metadata = parsed["metadata"]
-                
+
                 if distance is None:
                     logger.warning(f"Distance is None for vector_id {vector_id}, using default similarity 0.0")
                     similarity = 0.0
@@ -882,10 +901,10 @@ class OceanBaseVectorStore(VectorStoreBase):
                 else:
                     # Unknown metric, use default
                     similarity = 0.0
-                
+
                 # Store original similarity in metadata
                 metadata['_vector_similarity'] = similarity
-                
+
                 # For pure vector search (no fusion), quality score equals vector similarity
                 metadata['_quality_score'] = similarity
 
@@ -991,18 +1010,18 @@ class OceanBaseVectorStore(VectorStoreBase):
         fts_results = []
         for row in rows:
             parsed = self._parse_row_to_dict(row, include_vector=False, extract_score=True)
-            
+
             # FTS score is already in 0-1 range (higher is better)
             fts_score = float(parsed["score_or_distance"])
-            
+
             # Store original similarity in metadata
             metadata = parsed["metadata"]
             metadata['_fts_score'] = fts_score
-            
+
             fts_results.append(self._create_output_data(
-                parsed["vector_id"], 
-                parsed["text_content"], 
-                fts_score, 
+                parsed["vector_id"],
+                parsed["text_content"],
+                fts_score,
                 metadata
             ))
 
@@ -1012,12 +1031,12 @@ class OceanBaseVectorStore(VectorStoreBase):
     def _sparse_search(self, sparse_embedding: Dict[int, float], limit: int = 5, filters: Optional[Dict] = None) -> list[OutputData]:
         """
         Perform sparse vector search using OceanBase SPARSEVECTOR.
-        
+
         Args:
             sparse_embedding: Sparse embedding dictionary (token_id -> weight)
             limit: Maximum number of results to return
             filters: Optional filter conditions
-            
+
         Returns:
             List of OutputData objects with search results
         """
@@ -1025,20 +1044,20 @@ class OceanBaseVectorStore(VectorStoreBase):
         if not self.include_sparse:
             logger.debug("Sparse vector search is not enabled")
             return []
-        
+
         # Check if sparse embedding is provided
         if not sparse_embedding or not isinstance(sparse_embedding, dict):
             logger.debug("Sparse embedding not provided, skipping sparse search")
             return []
-        
+
         try:
-            
+
             # Format sparse vector for SQL query
             sparse_vector_str = OceanBaseUtil.format_sparse_vector(sparse_embedding)
-            
+
             # Generate where clause from filters
             filter_where_clause = self._generate_where_clause(filters)
-            
+
             # Build the sparse vector search query
             # Use negative_inner_product for ordering (lower is better, so we negate)
             columns = self._get_standard_select_columns() + [
@@ -1046,21 +1065,21 @@ class OceanBaseVectorStore(VectorStoreBase):
                 # Directly embed sparse_vector_str in SQL as per OceanBase syntax
                 text(f"negative_inner_product({self.sparse_vector_field}, '{sparse_vector_str}') as score")
             ]
-            
+
             stmt = select(*columns)
-            
+
             # Add where conditions
             if filter_where_clause:
                 for condition in filter_where_clause:
                     stmt = stmt.where(condition)
-            
+
             # Order by score ASC (lower negative_inner_product means higher similarity)
             stmt = stmt.order_by(text('score ASC'))
-            
+
             # Add APPROXIMATE LIMIT (using regular LIMIT as APPROXIMATE may not be supported in all versions)
             if limit:
                 stmt = stmt.limit(limit)
-            
+
             # Execute the query
             with self.obvector.engine.connect() as conn:
                 with conn.begin():
@@ -1068,12 +1087,12 @@ class OceanBaseVectorStore(VectorStoreBase):
                     # Execute the query
                     results = conn.execute(stmt)
                     rows = results.fetchall()
-            
+
             # Convert results to OutputData objects
             sparse_results = []
             for row in rows:
                 parsed = self._parse_row_to_dict(row, include_vector=False, extract_score=True)
-                
+
                 # Convert negative_inner_product to similarity (0-1 range, higher is better)
                 # negative_inner_product returns negative values, negate to get inner product
                 sparse_score = parsed["score_or_distance"]
@@ -1089,57 +1108,236 @@ class OceanBaseVectorStore(VectorStoreBase):
                         similarity = max(0.0, 1.0 / (1.0 - inner_prod))
                 else:
                     similarity = 0.0
-                
+
                 # Store original similarity in metadata
                 metadata = parsed["metadata"]
                 metadata['_sparse_similarity'] = similarity
-                
+
                 sparse_results.append(self._create_output_data(
-                    parsed["vector_id"], 
-                    parsed["text_content"], 
-                    similarity, 
+                    parsed["vector_id"],
+                    parsed["text_content"],
+                    similarity,
                     metadata
                 ))
-            
+
             logger.debug(f"_sparse_search results, len : {len(sparse_results)}")
             return sparse_results
-            
+
         except Exception as e:
             logger.error(f"Sparse vector search failed: {e}", exc_info=True)
             # Return empty results on error rather than raising
             return []
 
+    def _native_hybrid_search(
+            self,
+            query: str,
+            vectors: List[List[float]],
+            limit: int,
+            filters: Optional[Dict],
+            sparse_embedding: Optional[Dict[int, float]] = None,
+            k: int = 60
+    ) -> List[OutputData]:
+        """
+        Perform hybrid search using OceanBase native DBMS_HYBRID_SEARCH.SEARCH.
+
+        This method leverages the database's native hybrid search capabilities to combine
+        full-text search and vector search (and optionally sparse vector search) with
+        RRF (Reciprocal Rank Fusion) ranking.
+
+        Note: This method does NOT perform normalization or weight adjustments.
+        It uses the database's native RRF fusion.
+
+        Args:
+            query: Text query for full-text search
+            vectors: Query vector(s) for vector search
+            limit: Maximum number of results to return
+            filters: Filter conditions in mem0 format
+            sparse_embedding: Optional sparse vector for sparse search
+            k: RRF rank_constant parameter (default: 60)
+
+        Returns:
+            List[OutputData]: Search results sorted by relevance score
+        """
+        try:
+            # 1. Extract query vector (no normalization for native hybrid search)
+            if isinstance(vectors[0], (int, float)):
+                query_vector = vectors
+            else:
+                query_vector = vectors[0]
+
+            # 2. Convert filters to native format
+            native_filters = OceanBaseUtil.convert_filters_to_native_format(
+                filters, self.model_class, self.metadata_field
+            )
+
+            # 3. Build search parameters JSON
+            safe_query = query.replace("'", "''") if query else query
+            search_params = {
+                "query": {
+                    "bool": {
+                        "must": [
+                            {
+                                "query_string": {
+                                    "fields": [self.fulltext_field],
+                                    "query": safe_query
+                                }
+                            }
+                        ]
+                    }
+                },
+                "rank": {
+                    "rrf": {
+                        "rank_window_size": limit,
+                        "rank_constant": k
+                    }
+                },
+                "size":limit
+            }
+
+            # Add filters if present
+            if native_filters:
+                search_params["query"]["bool"]["filter"] = native_filters
+
+            # 4. Build knn array (supports both dense and sparse vectors)
+            knn_list = [
+                {
+                    "field": self.vector_field,
+                    "k": limit,
+                    "query_vector": query_vector
+                }
+            ]
+
+            # Add filters to dense vector search if present
+            if native_filters:
+                knn_list[0]["filter"] = native_filters
+
+            # Add sparse vector search if sparse_embedding is provided
+            if sparse_embedding is not None and self.include_sparse:
+                sparse_vector_str = OceanBaseUtil.format_sparse_vector(sparse_embedding)
+                knn_list.append({
+                    "field": self.sparse_vector_field,
+                    "k": limit,
+                    "query_vector": sparse_vector_str
+                })
+
+            search_params["knn"] = knn_list
+
+            # 5. Execute native hybrid search with simplified SQL
+            body_str = json.dumps(search_params)
+            sql = text("SELECT DBMS_HYBRID_SEARCH.SEARCH(:index, :body_str)")
+
+            with self.obvector.engine.connect() as conn:
+                with conn.begin():
+                    res = conn.execute(sql, {"index": self.collection_name, "body_str": body_str}).fetchone()
+                    result_json_str = res[0] if res else None
+
+            # 6. Parse and return results
+            if not result_json_str:
+                logger.warning("Native hybrid search returned empty result")
+                return []
+
+            parsed_results = OceanBaseUtil.parse_native_hybrid_results(
+                result_json_str,
+                self.primary_field,
+                self.text_field,
+                self.metadata_field
+            )
+
+            # 7. Convert to OutputData objects
+            output_list = []
+            for doc in parsed_results:
+                metadata = {
+                    "user_id": doc["user_id"],
+                    "agent_id": doc["agent_id"],
+                    "run_id": doc["run_id"],
+                    "actor_id": doc["actor_id"],
+                    "hash": doc["hash"],
+                    "created_at": doc["created_at"],
+                    "updated_at": doc["updated_at"],
+                    "category": doc["category"],
+                    "metadata": OceanBaseUtil.parse_metadata(doc["metadata_json"])
+                }
+
+                output_list.append(
+                    self._create_output_data(doc["vector_id"], doc["text_content"], doc["score"], metadata)
+                )
+
+            logger.debug(f"Native hybrid search returned {len(output_list)} results")
+            return output_list
+
+        except Exception as e:
+            logger.error(f"Native hybrid search failed: {e}")
+            raise  # Re-raise to trigger fallback in _hybrid_search
+
     def _hybrid_search(self, query: str, vectors: List[List[float]], limit: int = 5, filters: Optional[Dict] = None,
                        sparse_embedding: Optional[Dict[int, float]] = None,
-                       fusion_method: str = "rrf", k: int = 60):
-        """Perform hybrid search combining vector, full-text, and sparse vector search with optional reranking."""
+                       fusion_method: str = "rrf", k: int = 60,
+                       threshold: Optional[float] = None):
+        """Perform hybrid search combining vector, full-text, and sparse vector search with optional reranking.
+
+        When enable_native_hybrid is True and conditions are met, uses OceanBase native
+        DBMS_HYBRID_SEARCH.SEARCH for better performance.
+        """
+        # Check if native hybrid search can be used:
+        # 1. enable_native_hybrid must be True
+        # 2. threshold must be None (native search doesn't support threshold filtering)
+        # 3. All filter fields must be in table columns
+        use_native = (
+            self.enable_native_hybrid
+            and threshold is None
+            and OceanBaseUtil.check_filters_all_in_columns(filters, self.model_class)
+        )
+
+        if use_native:
+            try:
+                logger.debug("Using OceanBase native hybrid search (DBMS_HYBRID_SEARCH.SEARCH)")
+                native_candidate_limit = limit * 2
+                native_results = self._native_hybrid_search(
+                    query, vectors, native_candidate_limit, filters, sparse_embedding, k
+                )
+
+                # Fine ranking (optional): use reranker for precision sorting
+                if self.reranker and query and native_results:
+                    try:
+                        final_results = self._apply_rerank(query, native_results, limit)
+                        logger.debug(f"Native results reranked, final results: {len(final_results)}")
+                        return final_results
+                    except Exception as e:
+                        logger.warning(f"Native rerank failed, falling back to native coarse ranking: {e}")
+                        return native_results[:limit]
+
+                return native_results[:limit]
+            except Exception as e:
+                logger.warning(f"Native hybrid search failed: {e}, falling back to application-level hybrid search")
+
+        # Application-level hybrid search
         # Determine candidate limit for reranking
         candidate_limit = limit * 3 if self.reranker else limit
 
         # Determine which searches to perform
         perform_sparse = self.include_sparse and sparse_embedding is not None
-        
+
         # Perform searches in parallel for better performance
         search_tasks = []
         with ThreadPoolExecutor(max_workers=3 if perform_sparse else 2) as executor:
             # Submit vector search
             vector_future = executor.submit(self._vector_search, query, vectors, candidate_limit, filters)
             search_tasks.append(('vector', vector_future))
-            
+
             # Submit full-text search
             fts_future = executor.submit(self._fulltext_search, query, candidate_limit, filters)
             search_tasks.append(('fts', fts_future))
-            
+
             # Submit sparse vector search if enabled
             if perform_sparse:
                 sparse_future = executor.submit(self._sparse_search, sparse_embedding, candidate_limit, filters)
                 search_tasks.append(('sparse', sparse_future))
-            
+
             # Wait for all searches to complete and get results
             vector_results = None
             fts_results = None
             sparse_results = None
-            
+
             for search_type, future in search_tasks:
                 try:
                     results = future.result()
@@ -1250,11 +1448,11 @@ class OceanBaseVectorStore(VectorStoreBase):
     ) -> float:
         """
         Calculate quality score from multiple search paths.
-        
+
         Quality score represents the absolute similarity quality (0-1 range),
         used for threshold filtering. Unlike fusion scores used for ranking,
         quality scores maintain semantic meaning across different search scenarios.
-        
+
         Args:
             vector_similarity: Vector search similarity (0-1, higher is better)
             fts_score: Full-text search score (0-1, higher is better)
@@ -1262,10 +1460,10 @@ class OceanBaseVectorStore(VectorStoreBase):
             vector_weight: Weight for vector search (default: 0.5)
             fts_weight: Weight for full-text search (default: 0.3)
             sparse_weight: Weight for sparse vector search (default: 0.2)
-            
+
         Returns:
             Quality score in range [0, 1], where higher means better quality
-            
+
         Algorithm:
             1. Identify which search paths participated (have non-None scores)
             2. Sum the weights of active paths
@@ -1274,33 +1472,33 @@ class OceanBaseVectorStore(VectorStoreBase):
         """
         # Collect active search paths and their scores
         active_paths = []
-        
+
         if vector_similarity is not None:
             active_paths.append((vector_weight, vector_similarity))
-        
+
         if fts_score is not None:
             active_paths.append((fts_weight, fts_score))
-        
+
         if sparse_similarity is not None:
             active_paths.append((sparse_weight, sparse_similarity))
-        
+
         # If no active paths, return 0
         if not active_paths:
             return 0.0
-        
+
         # Calculate total weight of active paths
         total_weight = sum(weight for weight, _ in active_paths)
-        
+
         # Handle edge case where total weight is 0
         if total_weight == 0:
             return 0.0
-        
+
         # Calculate weighted average quality score
         quality_score = sum(
-            (weight / total_weight) * score 
+            (weight / total_weight) * score
             for weight, score in active_paths
         )
-        
+
         # Ensure result is in [0, 1] range
         return max(0.0, min(1.0, quality_score))
 
@@ -1310,7 +1508,7 @@ class OceanBaseVectorStore(VectorStoreBase):
         """Combine and rerank vector, full-text, and sparse vector search results using RRF or weighted fusion."""
         if sparse_results is None:
             sparse_results = []
-        
+
         if fusion_method == "rrf":
             return self._rrf_fusion(vector_results, fts_results, sparse_results, limit, k, sparse_embedding)
         else:
@@ -1326,18 +1524,18 @@ class OceanBaseVectorStore(VectorStoreBase):
     ) -> Dict:
         """
         Adaptively normalize weights for each document.
-        
+
         Principle: Dynamically adjust the total weight to 1.0 based on how many retrieval paths
         the document was actually retrieved from, solving the unfairness issue in mixed states
         (some data has sparse vectors, some don't).
-        
+
         Args:
             all_docs: Document dictionary {doc_id: {'result': ..., 'vector_rank': ..., 'fts_rank': ..., 'sparse_rank': ..., 'rrf_score': ...}}
             vector_w: Vector search weight
             fts_w: Full-text search weight
             sparse_w: Sparse vector search weight
             k: RRF constant (default: 60)
-        
+
         Returns:
             Normalized all_docs (rrf_score modified)
         """
@@ -1350,22 +1548,22 @@ class OceanBaseVectorStore(VectorStoreBase):
                 active_weights.append(('fts', fts_w, doc_data['fts_rank']))
             if doc_data['sparse_rank'] is not None:
                 active_weights.append(('sparse', sparse_w, doc_data['sparse_rank']))
-            
+
             # Calculate total effective weight
             total_weight = sum(w for _, w, _ in active_weights)
-            
+
             if total_weight == 0:
                 continue
-            
+
             # Normalize and recalculate rrf_score
             normalized_score = 0.0
-            
+
             for path, weight, rank in active_weights:
                 normalized_weight = weight / total_weight
                 normalized_score += normalized_weight * (1.0 / (k + rank))
-            
+
             doc_data['rrf_score'] = normalized_score
-        
+
         return all_docs
 
     def _rrf_fusion(self, vector_results: List[OutputData], fts_results: List[OutputData],
@@ -1378,14 +1576,14 @@ class OceanBaseVectorStore(VectorStoreBase):
         """
         if sparse_results is None:
             sparse_results = []
-        
+
         vector_w = self.vector_weight if self.vector_weight is not None else 0
         fts_w = self.fts_weight if self.fts_weight is not None else 0
         sparse_w = 0
 
         if self.include_sparse and sparse_results and sparse_embedding:
             sparse_w = self.sparse_weight if self.sparse_weight is not None else 0
-        
+
         # Create mapping of document ID to result data
         all_docs = {}
 
@@ -1455,12 +1653,12 @@ class OceanBaseVectorStore(VectorStoreBase):
         final_results = []
         for score, _, doc_data in sorted(heap, key=lambda x: x[0], reverse=True):
             result = doc_data['result']
-            
+
             # Extract original similarity scores from metadata
             vector_similarity = result.payload.get('_vector_similarity')
             fts_score = result.payload.get('_fts_score')
             sparse_similarity = result.payload.get('_sparse_similarity')
-            
+
             # Calculate quality score for threshold filtering
             quality_score = self._calculate_quality_score(
                 vector_similarity=vector_similarity,
@@ -1470,13 +1668,13 @@ class OceanBaseVectorStore(VectorStoreBase):
                 fts_weight=fts_w,
                 sparse_weight=sparse_w
             )
-            
+
             # Store quality score in payload
             result.payload['_quality_score'] = quality_score
-            
+
             # Store fusion score (RRF score) in payload for debugging
             result.payload['_fusion_score'] = score
-            
+
             # Set result.score to fusion score (used for ranking)
             result.score = score
             # Add ranking information to metadata for debugging
@@ -1499,20 +1697,20 @@ class OceanBaseVectorStore(VectorStoreBase):
                          limit: int, vector_weight: float = 0.7, text_weight: float = 0.3, sparse_weight: float = 0.0):
         """
         Traditional weighted score fusion (fallback method).
-        
+
         Note: All input scores are already in 0-1 similarity range (higher is better),
         so no normalization is needed.
         """
         if sparse_results is None:
             sparse_results = []
-        
+
         # Use instance weights if available
         vector_w = self.vector_weight if self.vector_weight is not None else vector_weight
         fts_w = self.fts_weight if self.fts_weight is not None else text_weight
         sparse_w = 0.0
         if self.include_sparse and sparse_results:
             sparse_w = self.sparse_weight if self.sparse_weight is not None else sparse_weight
-        
+
         # Create a mapping of id to results for deduplication
         combined_results = {}
 
@@ -1538,7 +1736,7 @@ class OceanBaseVectorStore(VectorStoreBase):
                     'fts_score': result.score,
                     'sparse_score': 0.0
                 }
-        
+
         # Add sparse vector search results (scores are already 0-1 similarity)
         for result in sparse_results:
             if result.id in combined_results:
@@ -1568,12 +1766,12 @@ class OceanBaseVectorStore(VectorStoreBase):
         final_results = []
         for score, _, doc_data in sorted(heap, key=lambda x: x[0], reverse=True):
             result = doc_data['result']
-            
+
             # Extract original similarity scores from metadata
             vector_similarity = result.payload.get('_vector_similarity')
             fts_score = result.payload.get('_fts_score')
             sparse_similarity = result.payload.get('_sparse_similarity')
-            
+
             # Calculate quality score for threshold filtering
             quality_score = self._calculate_quality_score(
                 vector_similarity=vector_similarity,
@@ -1583,13 +1781,13 @@ class OceanBaseVectorStore(VectorStoreBase):
                 fts_weight=fts_w,
                 sparse_weight=sparse_w
             )
-            
+
             # Store quality score in payload
             result.payload['_quality_score'] = quality_score
-            
+
             # Store fusion score in payload for debugging
             result.payload['_fusion_score'] = score
-            
+
             # Set result.score to fusion score (used for ranking)
             result.score = score
             # Add fusion info for debugging
@@ -1630,7 +1828,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             has_sparse_column = OceanBaseUtil.check_column_exists(self.obvector, self.collection_name, self.sparse_vector_field)
             if has_sparse_column:
                 output_columns.append(self.sparse_vector_field)
-            
+
             existing_result = self.obvector.get(
                 table_name=self.collection_name,
                 ids=[vector_id],
@@ -1694,7 +1892,7 @@ class OceanBaseVectorStore(VectorStoreBase):
         try:
             # Build output column name list
             output_columns = self._get_standard_column_names(include_vector_field=True)
-            
+
             results = self.obvector.get(
                 table_name=self.collection_name,
                 ids=[vector_id],
@@ -1710,9 +1908,9 @@ class OceanBaseVectorStore(VectorStoreBase):
 
             logger.debug(f"Successfully retrieved vector with ID: {vector_id} from collection '{self.collection_name}'")
             return self._create_output_data(
-                parsed["vector_id"], 
-                parsed["text_content"], 
-                0.0, 
+                parsed["vector_id"],
+                parsed["text_content"],
+                0.0,
                 parsed["metadata"]
             )
             
@@ -1797,7 +1995,7 @@ class OceanBaseVectorStore(VectorStoreBase):
         """List all memories."""
         try:
             table = Table(self.collection_name, self.obvector.metadata_obj, autoload_with=self.obvector.engine)
-            
+
             # Build where clause from filters using the same table object
             where_clause = self._generate_where_clause(filters, table=table)
 
@@ -1817,9 +2015,9 @@ class OceanBaseVectorStore(VectorStoreBase):
                 parsed = self._parse_row_to_dict(row, include_vector=True, extract_score=False)
 
                 memories.append(self._create_output_data(
-                    parsed["vector_id"], 
-                    parsed["text_content"], 
-                    0.0, 
+                    parsed["vector_id"],
+                    parsed["text_content"],
+                    0.0,
                     parsed["metadata"]
                 ))
 
@@ -1836,11 +2034,11 @@ class OceanBaseVectorStore(VectorStoreBase):
     def reset(self):
         """
         Reset collection by deleting and recreating it.
-        
+
         Note: After reset, the table will be recreated with the current configuration.
         If include_sparse=True and database supports it, sparse vector will be included.
         For existing tables that need sparse vector support, use the upgrade script:
-        
+
             from script import ScriptManager
             from powermem import auto_config
             config = auto_config()
@@ -1849,21 +2047,21 @@ class OceanBaseVectorStore(VectorStoreBase):
         try:
             logger.info(f"Resetting collection '{self.collection_name}'")
             self.delete_col()
-            
+
             if self.embedding_model_dims is not None:
                 # Create baseline table (020: dense vector + fulltext only)
                 self._create_table_with_index_by_embedding_model_dims()
 
             if self.hybrid_search:
                 self._check_and_create_fulltext_index()
-            
+
             # Note: Sparse vector support is NOT created in reset()
             # Users should reinitialize OceanBaseVectorStore to get upgraded features
             
             logger.info(
                 f"Successfully reset collection '{self.collection_name}' to baseline schema (020). "
             )
-            
+
         except Exception as e:
             logger.error(f"Failed to reset collection '{self.collection_name}': {e}", exc_info=True)
             raise

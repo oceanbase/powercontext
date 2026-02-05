@@ -142,9 +142,10 @@ class ZaiLLM(LLMBase):
         response = self.client.chat.completions.create(**params)
         parsed_response = self._parse_response(response, tools)
 
-        if self.config.response_callback:
+        response_callback = getattr(self.config, "response_callback", None)
+        if response_callback:
             try:
-                self.config.response_callback(self, response, params)
+                response_callback(self, response, params)
             except Exception as e:
                 # Log error but don't propagate
                 logging.error(f"Error due to callback: {e}")

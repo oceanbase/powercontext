@@ -49,34 +49,34 @@ logger = logging.getLogger(__name__)
 def _parse_boolish(value: object) -> object:
     """
     Backward-compatible boolean parsing.
-    
+
     Historically we accepted values like: true/1/yes/on/enabled.
     `pydantic` already accepts many truthy strings, but "enabled"/"disabled" are not
     guaranteed across versions, so we normalize explicitly.
     """
     if value is None or isinstance(value, bool):
         return value
-    
+
     if isinstance(value, str):
         text = value.strip().lower()
         if text in {"1", "true", "t", "yes", "y", "on", "enabled"}:
             return True
         if text in {"0", "false", "f", "no", "n", "off", "disabled"}:
             return False
-    
+
     return value
 
 
 class BenchmarkSettings(BaseSettings):
     """Configuration settings for PowerMem Benchmark Server."""
-    
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
-    
+
     # LLM Configuration
     llm_provider: str = Field(default="openai")
     llm_api_key: str = Field(...)  # Required
@@ -85,7 +85,7 @@ class BenchmarkSettings(BaseSettings):
     llm_max_tokens: int = Field(default=1000)
     llm_top_p: float = Field(default=0.8)
     llm_top_k: int = Field(default=50)
-    
+
     # LLM Base URLs
     openai_llm_base_url: str = Field(default="https://api.openai.com/v1")
     qwen_llm_base_url: str = Field(default="https://dashscope.aliyuncs.com/api/v1")
@@ -94,13 +94,13 @@ class BenchmarkSettings(BaseSettings):
     vllm_llm_base_url: str = Field(default="")
     anthropic_llm_base_url: str = Field(default="https://api.anthropic.com")
     deepseek_llm_base_url: str = Field(default="https://api.deepseek.com")
-    
+
     # Embedding Configuration
     embedding_provider: str = Field(default="qwen")
     embedding_api_key: str = Field(...)  # Required
     embedding_model: str = Field(default="text-embedding-v4")
     embedding_dims: int = Field(default=1536)
-    
+
     # Embedding Base URLs
     qwen_embedding_base_url: str = Field(default="https://dashscope.aliyuncs.com/api/v1")
     openai_embedding_base_url: str = Field(default="https://api.openai.com/v1")
@@ -108,12 +108,12 @@ class BenchmarkSettings(BaseSettings):
     huggingface_embedding_base_url: str = Field(default="")
     lmstudio_embedding_base_url: str = Field(default="")
     ollama_embedding_base_url: str = Field(default="")
-    
+
     # Database Configuration
     database_provider: str = Field(default="oceanbase")
     vector_weight: float = Field(default=0.5)
     fts_weight: float = Field(default=0.5)
-    
+
     # OceanBase Configuration
     oceanbase_host: str = Field(default="127.0.0.1")
     oceanbase_port: str = Field(default="2881")
@@ -129,7 +129,8 @@ class BenchmarkSettings(BaseSettings):
     oceanbase_primary_field: str = Field(default="id")
     oceanbase_metadata_field: str = Field(default="metadata")
     oceanbase_vidx_name: str = Field(default="memories_vidx")
-    
+    oceanbase_enable_native_hybrid: bool = Field(default=False)
+
     # PostgreSQL Configuration
     postgres_host: str = Field(default="127.0.0.1")
     postgres_port: str = Field(default="5432")
@@ -140,21 +141,21 @@ class BenchmarkSettings(BaseSettings):
     postgres_embedding_model_dims: int = Field(default=1536)
     postgres_diskann: bool = Field(default=True)
     postgres_hnsw: bool = Field(default=True)
-    
+
     # Token Counting Configuration
     token_counting: bool = Field(default=True)
-    
+
     # Application Configuration
     history_db_path: str = Field(default="history.db")
     config_version: str = Field(default="v1.1")
-    
+
     # Reranker Configuration
     reranker_enabled: bool = Field(default=True)
     reranker_provider: str = Field(default="qwen")
     reranker_model: str = Field(default="qwen3-rerank")
     reranker_api_key: Optional[str] = Field(default=None)  # Falls back to embedding_api_key
     reranker_base_url: str = Field(default="")
-    
+
     # Sparse Embedding Configuration
     sparse_vector_enable: bool = Field(default=False)
     sparse_embedder_provider: str = Field(default="qwen")
@@ -162,7 +163,7 @@ class BenchmarkSettings(BaseSettings):
     sparse_embedder_model: Optional[str] = Field(default=None)  # Falls back to embedding_model
     sparse_embedding_base_url: str = Field(default="")
     sparse_embedder_dims: int = Field(default=1536)
-    
+
     @field_validator(
         "llm_provider",
         "embedding_provider",
@@ -177,7 +178,7 @@ class BenchmarkSettings(BaseSettings):
         if isinstance(value, str):
             return value.lower()
         return value
-    
+
     @field_validator(
         "token_counting",
         "reranker_enabled",
@@ -190,22 +191,22 @@ class BenchmarkSettings(BaseSettings):
     def normalize_bool_fields(cls, value: object) -> object:
         """Normalize boolean fields."""
         return _parse_boolish(value)
-    
+
     @model_validator(mode="after")
     def set_defaults(self) -> "BenchmarkSettings":
         """Set default values for fields that depend on other fields."""
         # Set reranker_api_key to embedding_api_key if not provided
         if not self.reranker_api_key:
             self.reranker_api_key = self.embedding_api_key
-        
+
         # Set sparse_embedder_api_key to embedding_api_key if not provided
         if not self.sparse_embedder_api_key:
             self.sparse_embedder_api_key = self.embedding_api_key
-        
+
         # Set sparse_embedder_model to embedding_model if not provided
         if not self.sparse_embedder_model:
             self.sparse_embedder_model = self.embedding_model
-        
+
         # Set sparse_embedding_base_url based on provider if not provided
         if not self.sparse_embedding_base_url:
             base_url_map = {
@@ -217,16 +218,16 @@ class BenchmarkSettings(BaseSettings):
                 "ollama": self.ollama_embedding_base_url,
             }
             self.sparse_embedding_base_url = base_url_map.get(self.sparse_embedder_provider, "")
-        
+
         return self
-    
+
     def model_post_init(self, __context: Any) -> None:
         """Post-initialization hook to set DASHSCOPE_BASE_URL for Qwen reranker."""
         super().model_post_init(__context)
         # For Qwen reranker, set DASHSCOPE_BASE_URL if RERANKER_BASE_URL is provided
         if self.reranker_base_url and self.reranker_provider == "qwen":
             os.environ["DASHSCOPE_BASE_URL"] = self.reranker_base_url
-    
+
     def get_llm_base_url(self, provider: str) -> str:
         """Get base URL for LLM provider."""
         url_map = {
@@ -239,7 +240,7 @@ class BenchmarkSettings(BaseSettings):
             "deepseek": self.deepseek_llm_base_url,
         }
         return url_map.get(provider, "")
-    
+
     def get_embedding_base_url(self, provider: str) -> str:
         """Get base URL for embedding provider."""
         url_map = {
@@ -258,7 +259,7 @@ def load_benchmark_settings() -> BenchmarkSettings:
     """Load benchmark settings from .env file in the same directory as this script."""
     script_dir = Path(__file__).parent
     env_path = script_dir / ".env"
-    
+
     if env_path.exists():
         logger.info(f"Loading environment variables from {env_path}")
         return BenchmarkSettings(_env_file=str(env_path))
@@ -305,6 +306,8 @@ SPARSE_EMBEDDER_MODEL = settings.sparse_embedder_model
 SPARSE_EMBEDDING_BASE_URL = settings.sparse_embedding_base_url
 SPARSE_EMBEDDER_DIMS = settings.sparse_embedder_dims
 
+OCEANBASE_ENABLE_NATIVE_HYBRID = settings.oceanbase_enable_native_hybrid
+
 
 def load_config() -> Dict[str, Any]:
     """Load and build configuration dictionary from settings."""
@@ -329,11 +332,13 @@ def load_config() -> Dict[str, Any]:
             "metadata_field": settings.oceanbase_metadata_field,
             "vidx_name": settings.oceanbase_vidx_name,
         }
-        
+
         # Add sparse vector support if enabled
         if SPARSE_VECTOR_ENABLE:
             vector_store_config["include_sparse"] = True
-        
+        if OCEANBASE_ENABLE_NATIVE_HYBRID:
+            vector_store_config['enable_native_hybrid'] = True
+
         vector_store = {
             "provider": "oceanbase",
             "config": vector_store_config,
@@ -366,7 +371,7 @@ def load_config() -> Dict[str, Any]:
         "temperature": LLM_TEMPERATURE,
         "model": LLM_MODEL,
     }
-    
+
     # Add provider-specific base URL if available
     # Note: Each provider has its own specific field name for base URL
     if llm_base_url:
@@ -387,7 +392,7 @@ def load_config() -> Dict[str, Any]:
             # SiliconFlow may use a generic base_url or siliconflow_base_url
             # Using siliconflow_base_url as fallback
             llm_config["siliconflow_base_url"] = llm_base_url
-    
+
     # Add optional parameters
     if LLM_MAX_TOKENS:
         llm_config["max_tokens"] = LLM_MAX_TOKENS
@@ -403,7 +408,7 @@ def load_config() -> Dict[str, Any]:
         "model": EMBEDDING_MODEL,
         "embedding_dims": EMBEDDING_DIMS,
     }
-    
+
     # Add provider-specific base URL if available
     # Note: Each provider has its own specific field name for base URL
     if embedding_base_url:
@@ -435,7 +440,7 @@ def load_config() -> Dict[str, Any]:
         },
         "history_db_path": HISTORY_DB_PATH,
     }
-    
+
     # Add reranker if enabled
     if RERANKER_ENABLED:
         reranker_config = {
@@ -445,13 +450,13 @@ def load_config() -> Dict[str, Any]:
         # Add base URL for Qwen reranker (uses dashscope_base_url)
         if RERANKER_BASE_URL and RERANKER_PROVIDER == "qwen":
             reranker_config["dashscope_base_url"] = RERANKER_BASE_URL
-        
+
         config["reranker"] = {
             "enabled": True,
             "provider": RERANKER_PROVIDER,
             "config": reranker_config,
         }
-    
+
     # Add sparse embedder if enabled
     if SPARSE_VECTOR_ENABLE:
         sparse_config = {
@@ -462,7 +467,7 @@ def load_config() -> Dict[str, Any]:
         # Sparse embedder uses generic base_url field, not provider-specific
         if SPARSE_EMBEDDING_BASE_URL:
             sparse_config["base_url"] = SPARSE_EMBEDDING_BASE_URL
-        
+
         config["sparse_embedder"] = {
             "provider": SPARSE_EMBEDDER_PROVIDER,
             "config": sparse_config,

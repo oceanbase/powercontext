@@ -73,7 +73,16 @@ class MemoryGraph(GraphStoreBase):
         self.config = config
 
         # Get OceanBase config
-        ob_config = self.config.graph_store.config
+        # Support both old format (graph_store.config) and new format (graph_store is the config)
+        if self.config.graph_store:
+            if hasattr(self.config.graph_store, 'config'):
+                # Old format: GraphStoreConfig with .config field
+                ob_config = self.config.graph_store.config
+            else:
+                # New format: graph_store is BaseGraphStoreConfig itself
+                ob_config = self.config.graph_store
+        else:
+            ob_config = {}
 
         # Helper function to get config value (supports both dict and object)
         def get_config_value(key: str, default: Any = None) -> Any:
@@ -141,7 +150,7 @@ class MemoryGraph(GraphStoreBase):
         # Pass graph_store config or full config to prompts
         graph_config = {}
         if self.config.graph_store:
-            # Convert GraphStoreConfig to dict if needed
+            # Convert BaseGraphStoreConfig to dict if needed
             if hasattr(self.config.graph_store, 'model_dump'):
                 graph_config = self.config.graph_store.model_dump()
             elif isinstance(self.config.graph_store, dict):

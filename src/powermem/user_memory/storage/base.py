@@ -5,7 +5,7 @@ This module defines the user profile storage interface that all implementations 
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, ClassVar
 
 
 class UserProfileStoreBase(ABC):
@@ -14,6 +14,35 @@ class UserProfileStoreBase(ABC):
     
     This class defines the interface that all user profile storage backends must implement.
     """
+    
+    # Registry mechanism (same as VectorStore/GraphStore)
+    _provider_name: ClassVar[Optional[str]] = None
+    _class_path: ClassVar[Optional[str]] = None
+    _registry: ClassVar[Dict[str, type["UserProfileStoreBase"]]] = {}
+    _class_paths: ClassVar[Dict[str, str]] = {}
+    
+    def __init_subclass__(cls, **kwargs) -> None:
+        """Called when a class inherits from UserProfileStoreBase."""
+        super().__init_subclass__(**kwargs)
+        cls._register_provider()
+    
+    @classmethod
+    def _register_provider(cls) -> None:
+        """Register provider in the global registry."""
+        provider = getattr(cls, "_provider_name", None)
+        class_path = getattr(cls, "_class_path", None)
+        if provider:
+            UserProfileStoreBase._registry[provider] = cls
+            if class_path:
+                UserProfileStoreBase._class_paths[provider] = class_path
+    
+    @classmethod
+    def get_provider_class_path(cls, provider: str) -> Optional[str]:
+        """Get the class path for a specific provider."""
+        provider = provider.lower()
+        if provider == "postgres":
+            provider = "pgvector"
+        return cls._class_paths.get(provider)
 
     @abstractmethod
     def save_profile(

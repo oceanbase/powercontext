@@ -104,6 +104,7 @@ def add(
     strict_mode: bool = False,
     include_roles: Optional[List[str]] = ["user"],
     exclude_roles: Optional[List[str]] = ["assistant"],
+    native_language: Optional[str] = None,
 ) -> Dict[str, Any]
 ```
 
@@ -137,6 +138,7 @@ Same as `Memory.add()`
 - `strict_mode` (bool): If True, only output topics from the provided list. Only used when profile_type="topics". Default: False
 - `include_roles` (List[str], optional): List of roles to include when filtering messages for profile extraction. Default: `["user"]`. If explicitly set to `None` or `[]`, no include filter is applied.
 - `exclude_roles` (List[str], optional): List of roles to exclude when filtering messages for profile extraction. Default: `["assistant"]`. If explicitly set to `None` or `[]`, no exclude filter is applied.
+- `native_language` (str, optional): ISO 639-1 language code (e.g., "zh", "en", "ja") to specify the target language for profile extraction. If specified, the extracted profile will be written in this language regardless of the languages used in the conversation. If not specified, the profile language will follow the conversation language. Default: None
 
 #### Return value
 
@@ -251,6 +253,30 @@ result = user_memory.add(
     include_roles=["user", "system"],
     exclude_roles=["tool"]
 )
+
+# Example 6: specify native language for profile extraction
+# User speaks English, but wants profile in Chinese
+result = user_memory.add(
+    messages="I am a software engineer working in Beijing. I love drinking tea.",
+    user_id="user_002",
+    native_language="zh"  # Extract profile in Chinese
+)
+
+if result.get('profile_content'):
+    print(f"Profile (in Chinese): {result['profile_content']}")
+    # Output: "用户是一名在北京工作的软件工程师。喜欢喝茶。"
+
+# Extract structured topics with native language
+result = user_memory.add(
+    messages="I'm 28 years old, working at Google in California.",
+    user_id="user_003",
+    profile_type="topics",
+    native_language="zh"  # Topic values in Chinese, keys remain in English
+)
+
+if result.get('topics'):
+    print(f"Topics: {result['topics']}")
+    # Output: {"basic_information": {"user_age": "28"}, "employment": {"company": "谷歌", "location": "加利福尼亚"}}
 ```
 
 ### 2. `search()` — Search memories (optionally include profile)

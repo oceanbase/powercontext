@@ -77,6 +77,7 @@ async def add_user_profile(
         strict_mode=body.strict_mode,
         include_roles=body.include_roles,
         exclude_roles=body.exclude_roles,
+        native_language=body.native_language,
     )
     
     return APIResponse(

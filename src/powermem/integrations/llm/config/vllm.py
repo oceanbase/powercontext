@@ -1,6 +1,9 @@
 from typing import Optional
 
+from pydantic import AliasChoices, Field
+
 from powermem.integrations.llm.config.base import BaseLLMConfig
+from powermem.settings import settings_config
 
 
 class VllmConfig(BaseLLMConfig):
@@ -9,48 +12,17 @@ class VllmConfig(BaseLLMConfig):
     Inherits from BaseLLMConfig and adds vLLM-specific settings.
     """
 
-    def __init__(
-            self,
-            # Base parameters
-            model: Optional[str] = None,
-            temperature: float = 0.1,
-            api_key: Optional[str] = None,
-            max_tokens: int = 2000,
-            top_p: float = 0.1,
-            top_k: int = 1,
-            enable_vision: bool = False,
-            vision_details: Optional[str] = "auto",
-            http_client_proxies: Optional[dict] = None,
-            # vLLM-specific parameters
-            vllm_base_url: Optional[str] = None,
-    ):
-        """
-        Initialize vLLM configuration.
+    _provider_name = "vllm"
+    _class_path = "powermem.integrations.llm.vllm.VllmLLM"
 
-        Args:
-            model: vLLM model to use, defaults to None
-            temperature: Controls randomness, defaults to 0.1
-            api_key: vLLM API key, defaults to None
-            max_tokens: Maximum tokens to generate, defaults to 2000
-            top_p: Nucleus sampling parameter, defaults to 0.1
-            top_k: Top-k sampling parameter, defaults to 1
-            enable_vision: Enable vision capabilities, defaults to False
-            vision_details: Vision detail level, defaults to "auto"
-            http_client_proxies: HTTP client proxy settings, defaults to None
-            vllm_base_url: vLLM base URL, defaults to None
-        """
-        # Initialize base parameters
-        super().__init__(
-            model=model,
-            temperature=temperature,
-            api_key=api_key,
-            max_tokens=max_tokens,
-            top_p=top_p,
-            top_k=top_k,
-            enable_vision=enable_vision,
-            vision_details=vision_details,
-            http_client_proxies=http_client_proxies,
-        )
+    model_config = settings_config("LLM_", extra="forbid", env_file=None)
 
-        # vLLM-specific parameters
-        self.vllm_base_url = vllm_base_url or "http://localhost:8000/v1"
+    # vLLM-specific fields
+    vllm_base_url: Optional[str] = Field(
+        default="http://localhost:8000/v1",
+        validation_alias=AliasChoices(
+            "vllm_base_url",
+            "VLLM_LLM_BASE_URL",
+        ),
+        description="vLLM base URL"
+    )

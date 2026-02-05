@@ -39,13 +39,13 @@ class OpenAILLM(LLMBase):
         if os.environ.get("OPENROUTER_API_KEY"):  # Use OpenRouter
             self.client = OpenAI(
                 api_key=os.environ.get("OPENROUTER_API_KEY"),
-                base_url=self.config.openrouter_base_url
+                base_url=getattr(self.config, "openrouter_base_url", None)
                 or os.getenv("OPENROUTER_API_BASE")
                 or "https://openrouter.ai/api/v1",
             )
         else:
             api_key = self.config.api_key or os.getenv("OPENAI_API_KEY")
-            base_url = self.config.openai_base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+            base_url = getattr(self.config, "openai_base_url", None) or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 
             self.client = OpenAI(api_key=api_key, base_url=base_url)
 
@@ -129,15 +129,18 @@ class OpenAILLM(LLMBase):
 
         if os.getenv("OPENROUTER_API_KEY"):
             openrouter_params = {}
-            if self.config.models:
-                openrouter_params["models"] = self.config.models
-                openrouter_params["route"] = self.config.route
+            models = getattr(self.config, "models", None)
+            if models:
+                openrouter_params["models"] = models
+                openrouter_params["route"] = getattr(self.config, "route", "fallback")
                 params.pop("model")
 
-            if self.config.site_url and self.config.app_name:
+            site_url = getattr(self.config, "site_url", None)
+            app_name = getattr(self.config, "app_name", None)
+            if site_url and app_name:
                 extra_headers = {
-                    "HTTP-Referer": self.config.site_url,
-                    "X-Title": self.config.app_name,
+                    "HTTP-Referer": site_url,
+                    "X-Title": app_name,
                 }
                 openrouter_params["extra_headers"] = extra_headers
 
@@ -156,9 +159,10 @@ class OpenAILLM(LLMBase):
             params["tool_choice"] = tool_choice
         response = self.client.chat.completions.create(**params)
         parsed_response = self._parse_response(response, tools)
-        if self.config.response_callback:
+        response_callback = getattr(self.config, "response_callback", None)
+        if response_callback:
             try:
-                self.config.response_callback(self, response, params)
+                response_callback(self, response, params)
             except Exception as e:
                 # Log error but don't propagate
                 logging.error(f"Error due to callback: {e}")

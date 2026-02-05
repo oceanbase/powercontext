@@ -36,15 +36,29 @@ else:
     print(f"   2. Edit {env_path} and add your API keys")
     print("\n  create_memory will fall back to mock providers if keys are missing.")
 
-# Get API key from environment variable (GitHub Secrets) or .env file
-# Priority: DASHSCOPE_API_KEY (GitHub Secrets) > LLM_API_KEY > .env file > default fallback
-dashscope_api_key = os.getenv("QWEN_API_KEY")
+# Get API key from environment variable with multiple fallback options
+# Priority: QWEN_API_KEY > DASHSCOPE_API_KEY > LLM_API_KEY > EMBEDDING_API_KEY
+# This follows the same pattern as config_loader.py LLMSettings
+dashscope_api_key = (
+    os.getenv("QWEN_API_KEY") or 
+    os.getenv("DASHSCOPE_API_KEY") or 
+    os.getenv("LLM_API_KEY") or 
+    os.getenv("EMBEDDING_API_KEY")
+)
+
 # Handle empty string from GitHub Secrets (if secret is not set, it returns empty string)
-if not dashscope_api_key or dashscope_api_key.strip() == "":
-    # Fallback to default for local development (not recommended for production)
-    print("⚠ Warning: Using default API key. For production, set QWEN environment variable or GitHub Secret.")
+if dashscope_api_key:
+    dashscope_api_key = dashscope_api_key.strip()
+
+if not dashscope_api_key:
+    # Skip all tests in this module if no API key is found
+    pytest.skip(
+        "No API key found. Please set one of: QWEN_API_KEY, DASHSCOPE_API_KEY, LLM_API_KEY, or EMBEDDING_API_KEY\n"
+        f"You can also create a .env file at: {env_path}",
+        allow_module_level=True
+    )
 else:
-    print("✓ API key loaded from environment variable or GitHub Secrets")
+    print(f"✓ API key loaded successfully (length: {len(dashscope_api_key)})")
 
 custom_config = {
     "llm": {

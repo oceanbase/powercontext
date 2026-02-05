@@ -30,23 +30,44 @@ except ImportError:
 
 # Cache for timezone to avoid repeated lookups
 _timezone_cache: Optional[Any] = None
+_timezone_str: Optional[str] = None  # Store timezone string from config
 _timezone_lock = threading.Lock()
+
+
+def set_timezone(timezone_str: str) -> None:
+    """
+    Set the timezone from configuration.
+    
+    This function should be called during Memory initialization if timezone
+    is specified in the config. It takes precedence over environment variables.
+    
+    Args:
+        timezone_str: Timezone string (e.g., 'Asia/Shanghai', 'UTC')
+    """
+    global _timezone_cache, _timezone_str
+    
+    with _timezone_lock:
+        _timezone_str = timezone_str
+        _timezone_cache = None  # Reset cache to force re-initialization
 
 
 def get_timezone() -> Any:
     """
-    Get the configured timezone from environment variable.
+    Get the configured timezone from config or environment variable.
     
-    This function reads the TIMEZONE environment variable to determine the timezone
-    to use for all datetime operations in powermem. The timezone is cached after first
+    This function first checks if timezone was set via set_timezone() (from config),
+    then falls back to TIMEZONE environment variable. The timezone is cached after first
     access for performance.
     
     Configuration:
-        Set TIMEZONE in your .env file or environment variables:
-        - TIMEZONE=Asia/Shanghai (for China Standard Time)
-        - TIMEZONE=America/New_York (for US Eastern Time)
-        - TIMEZONE=Europe/London (for UK Time)
-        - TIMEZONE=UTC (default, if not specified)
+        Timezone can be configured in two ways:
+        1. Via config dict/JSON: Set 'timezone' in your config, which will be
+           automatically applied during Memory initialization.
+        2. Via environment variable: Set TIMEZONE in your .env file or environment:
+           - TIMEZONE=Asia/Shanghai (for China Standard Time)
+           - TIMEZONE=America/New_York (for US Eastern Time)
+           - TIMEZONE=Europe/London (for UK Time)
+           - TIMEZONE=UTC (default, if not specified)
         
         Common timezone names:
         - Asia/Shanghai, Asia/Tokyo, Asia/Hong_Kong
@@ -60,9 +81,9 @@ def get_timezone() -> Any:
         
     Note:
         The timezone is cached globally. To reset the cache (e.g., after changing
-        the TIMEZONE environment variable), call reset_timezone_cache().
+        the timezone), call reset_timezone_cache().
     """
-    global _timezone_cache
+    global _timezone_cache, _timezone_str
     
     if _timezone_cache is not None:
         return _timezone_cache
@@ -71,8 +92,12 @@ def get_timezone() -> Any:
         if _timezone_cache is not None:
             return _timezone_cache
         
-        # Try to get timezone from environment variable
-        timezone_str = os.getenv('TIMEZONE', 'UTC')
+        # Priority: config > environment variable > default
+        if _timezone_str is not None:
+            timezone_str = _timezone_str
+        else:
+            # Fallback to environment variable (for backward compatibility)
+            timezone_str = os.getenv('TIMEZONE', 'UTC')
         
         try:
             if _HAS_ZONEINFO:
@@ -134,9 +159,10 @@ def reset_timezone_cache():
     """
     Reset the timezone cache. Useful for testing or when timezone changes.
     """
-    global _timezone_cache
+    global _timezone_cache, _timezone_str
     with _timezone_lock:
         _timezone_cache = None
+        _timezone_str = None
 
 
 def generate_memory_id(content: str, user_id: Optional[str] = None) -> str:

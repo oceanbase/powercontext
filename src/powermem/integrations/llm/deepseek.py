@@ -36,7 +36,7 @@ class DeepSeekLLM(LLMBase):
             self.config.model = "deepseek-chat"
 
         api_key = self.config.api_key or os.getenv("DEEPSEEK_API_KEY")
-        base_url = self.config.deepseek_base_url or os.getenv("DEEPSEEK_API_BASE") or "https://api.deepseek.com"
+        base_url = getattr(self.config, "deepseek_base_url", None) or os.getenv("DEEPSEEK_API_BASE") or "https://api.deepseek.com"
         self.client = OpenAI(api_key=api_key, base_url=base_url)
 
     def _parse_response(self, response, tools):

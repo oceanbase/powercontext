@@ -28,7 +28,8 @@ class ZaiRerank(RerankBase):
         super().__init__(config)
 
         # Set default model
-        self.config.model = self.config.model or "rerank"
+        if not self.config.model:
+            self.config.model = "rerank"
 
         # Check if httpx is available
         if httpx is None:
@@ -36,17 +37,19 @@ class ZaiRerank(RerankBase):
                 "httpx is not installed. Please install it with: pip install httpx"
             )
 
-        # Set API key
-        api_key = self.config.api_key or os.getenv("ZAI_API_KEY")
-        if not api_key:
+        # Validate API key (config already handles env var loading)
+        if not self.config.api_key:
             raise ValueError(
-                "API key is required. Set ZAI_API_KEY environment variable or pass api_key in config."
+                "API key is required. Set ZAI_API_KEY or RERANK_API_KEY environment variable, "
+                "or pass api_key in config."
             )
 
-        self.api_key = api_key
-        self.api_base_url = getattr(self.config, 'api_base_url', None) or os.getenv(
-            "ZAI_API_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/rerank"
-        )
+        # Set API key and base URL
+        self.api_key = self.config.api_key
+        self.api_base_url = self.config.api_base_url or "https://open.bigmodel.cn/api/paas/v4/rerank"
+        
+        # Use http_client from config if available
+        self.http_client = self.config.http_client
 
     def rerank(
         self, 
@@ -101,9 +104,9 @@ class ZaiRerank(RerankBase):
             payload["top_n"] = top_n
 
         try:
-            # Make API request
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(
+            # Use configured http_client or create temporary one
+            if self.http_client:
+                response = self.http_client.post(
                     self.api_base_url,
                     json=payload,
                     headers={
@@ -111,10 +114,23 @@ class ZaiRerank(RerankBase):
                         "Authorization": f"Bearer {self.api_key}",
                     },
                 )
-
-                # Check response status
                 response.raise_for_status()
                 result = response.json()
+            else:
+                # Make API request with temporary client
+                with httpx.Client(timeout=60.0) as client:
+                    response = client.post(
+                        self.api_base_url,
+                        json=payload,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {self.api_key}",
+                        },
+                    )
+
+                    # Check response status
+                    response.raise_for_status()
+                    result = response.json()
 
             # Parse results
             results = []

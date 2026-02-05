@@ -91,6 +91,7 @@ class UserProfileAddRequest(BaseModel):
     strict_mode: bool = Field(False, description="Only output topics from provided list (only used when profile_type='topics')")
     include_roles: Optional[List[str]] = Field(["user"], description="Roles to include when filtering messages. Default: ['user']. Set to None or [] to disable.")
     exclude_roles: Optional[List[str]] = Field(["assistant"], description="Roles to exclude when filtering messages. Default: ['assistant']. Set to None or [] to disable.")
+    native_language: Optional[str] = Field(None, description="ISO 639-1 language code (e.g., 'zh', 'en') for profile extraction. If specified, profile will be extracted in this language.")
 
 
 class UserProfileUpdateRequest(BaseModel):

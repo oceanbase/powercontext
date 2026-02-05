@@ -153,6 +153,7 @@ class UserMemory:
         strict_mode: bool = False,
         include_roles: Optional[List[str]] = None,
         exclude_roles: Optional[List[str]] = None,
+        native_language: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Add messages and extract user profile information.
@@ -188,6 +189,10 @@ class UserMemory:
                 Defaults to None. If explicitly set to None or [], no include filter is applied.
             exclude_roles: List of roles to exclude when filtering messages for profile extraction.
                 Defaults to None. If explicitly set to None or [], no exclude filter is applied.
+            native_language: Optional ISO 639-1 language code (e.g., "zh", "en") to specify the target language
+                for profile extraction. If specified, the extracted profile will be written in this language
+                regardless of the languages used in the conversation. If not specified, the profile language
+                will follow the conversation language. Default: None
 
         Returns:
             Dict[str, Any]: A dictionary containing the add operation results with the following structure:
@@ -229,6 +234,7 @@ class UserMemory:
                     user_id=user_id,
                     custom_topics=custom_topics,
                     strict_mode=strict_mode,
+                    native_language=native_language,
                 )
                 result_key = "topics"
             else:
@@ -236,6 +242,7 @@ class UserMemory:
                 extracted_data = self._extract_profile(
                     messages=filtered_messages,
                     user_id=user_id,
+                    native_language=native_language,
                 )
                 result_key = "profile_content"
 
@@ -346,6 +353,7 @@ class UserMemory:
         self,
         messages: Any,
         user_id: str,
+        native_language: Optional[str] = None,
     ) -> str:
         """
         Extract user profile information from conversation using LLM.
@@ -354,6 +362,8 @@ class UserMemory:
         Args:
             messages: Conversation messages (str, dict, or list[dict])
             user_id: User identifier
+            native_language: Optional ISO 639-1 language code (e.g., "zh", "en") to specify the target language
+                for profile extraction. If specified, the extracted profile will be written in this language.
 
         Returns:
             Extracted profile content as text string, or empty string if no profile found
@@ -373,7 +383,8 @@ class UserMemory:
         # Generate system prompt and user message
         system_prompt, user_message = get_user_profile_extraction_prompt(
             conversation_text,
-            existing_profile=existing_profile
+            existing_profile=existing_profile,
+            native_language=native_language,
         )
 
         # Call LLM to extract profile
@@ -396,6 +407,7 @@ class UserMemory:
         user_id: str,
         custom_topics: Optional[str] = None,
         strict_mode: bool = False,
+        native_language: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Extract structured user profile topics from conversation using LLM.
@@ -406,6 +418,8 @@ class UserMemory:
             user_id: User identifier
             custom_topics: Optional custom topics JSON string. Format: {"main_topic": {"sub_topic": "description", ...}}
             strict_mode: If True, only output topics from the provided list
+            native_language: Optional ISO 639-1 language code (e.g., "zh", "en") to specify the target language
+                for topic value extraction. If specified, the topic values will be written in this language.
 
         Returns:
             Extracted topics as dictionary, or None if no topics found
@@ -428,6 +442,7 @@ class UserMemory:
             existing_topics=existing_topics,
             custom_topics=custom_topics,
             strict_mode=strict_mode,
+            native_language=native_language,
         )
 
         # Call LLM to extract topics

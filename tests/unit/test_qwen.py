@@ -343,9 +343,10 @@ def test_api_key_from_environment():
     config = QwenConfig(model="qwen-turbo")
     llm = QwenLLM(config)
     
-    # Verify API key is set in dashscope module (not in config)
-    # The config.api_key remains None, but dashscope.api_key is set
-    assert llm.config.api_key is None
+    # Verify API key is set from environment variable
+    # When using validation_alias with AliasChoices, pydantic will read the env var
+    # and set it to the api_key field
+    assert llm.config.api_key == "env_api_key"
     
     # Clean up
     del os.environ["DASHSCOPE_API_KEY"]
@@ -353,13 +354,15 @@ def test_api_key_from_environment():
 
 def test_dashscope_import_error():
     # Test when dashscope is not installed
-    with patch("builtins.__import__", side_effect=ImportError("No module named 'dashscope'")):
-        config = QwenConfig(model="qwen-turbo", api_key="test_key")
-        
-        with pytest.raises(ImportError) as exc_info:
-            QwenLLM(config)
-        
-        assert "DashScope SDK is not installed" in str(exc_info.value)
+    config = QwenConfig(model="qwen-turbo", api_key="test_key")
+    
+    with patch("powermem.integrations.llm.qwen.Generation", None), \
+         patch("powermem.integrations.llm.qwen.DashScopeAPIResponse", None), \
+         patch.dict('sys.modules', {'dashscope': None, 'dashscope.api_entities.dashscope_response': None}), \
+         pytest.raises(ImportError) as exc_info:
+        QwenLLM(config)
+    
+    assert "DashScope SDK is not installed" in str(exc_info.value)
 
 
 def test_model_default_value():
