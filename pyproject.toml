@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "powermem"
-version = "0.4.0"
+version = "0.5.0"
 description = "Intelligent Memory System - Persistent memory layer for LLM applications"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -36,8 +36,8 @@ dependencies = [
     "slowapi>=0.1.9",
     "click>=8.0.0",
     "rank-bm25>=0.2.2",
-    "pyobvector>=0.2.22,<0.3.0",
     "pyseekdb>=1.0.0",
+    "pyobvector>=0.2.24,<0.3.0",
     "jieba>=0.42.1",
     "azure-identity>=1.24.0",
     "psycopg2-binary>=2.9.0",

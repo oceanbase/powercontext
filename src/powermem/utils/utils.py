@@ -34,7 +34,7 @@ _timezone_str: Optional[str] = None  # Store timezone string from config
 _timezone_lock = threading.Lock()
 
 
-def set_timezone(timezone_str: str) -> None:
+def set_timezone(timezone_str: Any) -> None:
     """
     Set the timezone from configuration.
     
@@ -47,7 +47,16 @@ def set_timezone(timezone_str: str) -> None:
     global _timezone_cache, _timezone_str
     
     with _timezone_lock:
-        _timezone_str = timezone_str
+        tz = timezone_str
+        if isinstance(tz, dict):
+            tz = tz.get("timezone") or tz.get("tz")
+
+        # Only apply when we have a valid non-empty string
+        if not isinstance(tz, str) or not tz.strip():
+            logger.warning("Invalid timezone config: %r", timezone_str)
+            return
+
+        _timezone_str = tz
         _timezone_cache = None  # Reset cache to force re-initialization
 
 

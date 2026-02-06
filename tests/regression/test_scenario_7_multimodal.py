@@ -106,6 +106,7 @@ custom_config = {
         "config": {
             "model": "qwen3-asr-flash",  # ASR model for speech-to-text
             "api_key": dashscope_api_key,
+            "dashscope_base_url": "https://dashscope.aliyuncs.com/api/v1",
         }
     },
 }
