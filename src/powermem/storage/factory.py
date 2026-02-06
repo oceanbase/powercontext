@@ -90,53 +90,6 @@ class VectorStoreFactory:
         """
         return list(BaseVectorStoreConfig._registry.keys())
 
-        # 2. Get config_cls from registry
-        config_cls = BaseVectorStoreConfig.get_provider_config_cls(provider_name) or BaseVectorStoreConfig
-
-        # 3. Handle config parameter
-        if isinstance(config, dict):
-            # Convert dict to provider config instance
-            provider_config = config_cls(**config)
-        elif isinstance(config, BaseVectorStoreConfig):
-            # Use config instance directly
-            provider_config = config
-        else:
-            raise TypeError(f"config must be BaseVectorStoreConfig or dict, got {type(config)}")
-
-        # 4. Export to dict for VectorStore constructor
-        config_dict = provider_config.model_dump(exclude_none=True)
-
-        # 5. Create VectorStore instance
-        vector_store_class = load_class(class_path)
-        return vector_store_class(**config_dict)
-
-    @classmethod
-    def register_provider(cls, name: str, class_path: str, config_class=None):
-        """
-        Register a new vector store provider.
-
-        Args:
-            name (str): Provider name
-            class_path (str): Full path to VectorStore class
-            config_class: Configuration class for the provider (defaults to BaseVectorStoreConfig)
-        """
-        if config_class is None:
-            config_class = BaseVectorStoreConfig
-
-        # Register directly in BaseVectorStoreConfig registry
-        BaseVectorStoreConfig._registry[name] = config_class
-        BaseVectorStoreConfig._class_paths[name] = class_path
-
-    @classmethod
-    def get_supported_providers(cls) -> list:
-        """
-        Get list of supported providers.
-
-        Returns:
-            list: List of supported provider names
-        """
-        return list(BaseVectorStoreConfig._registry.keys())
-
     @classmethod
     def reset(cls, instance):
         instance.reset()

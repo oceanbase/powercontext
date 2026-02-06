@@ -36,7 +36,6 @@ dependencies = [
     "slowapi>=0.1.9",
     "click>=8.0.0",
     "rank-bm25>=0.2.2",
-    "pyseekdb>=1.0.0",
     "pyobvector>=0.2.24,<0.3.0",
     "jieba>=0.42.1",
     "azure-identity>=1.24.0",
