@@ -341,7 +341,21 @@ def load_config() -> Dict[str, Any]:
 
         vector_store = {
             "provider": "oceanbase",
-            "config": vector_store_config,
+            "config": {
+                "host": os.getenv("OCEANBASE_HOST", "127.0.0.1"),
+                "port": os.getenv("OCEANBASE_PORT", "2881"),
+                "user": os.getenv("OCEANBASE_USER", "root"),
+                "password": os.getenv("OCEANBASE_PASSWORD", ""),
+                "db_name": os.getenv("OCEANBASE_DB_NAME", "ai_work"),
+                "collection_name": os.getenv("OCEANBASE_COLLECTION_NAME", "powermem_collection"),
+                "embedding_model_dims": int(os.getenv("OCEANBASE_EMBEDDING_DIMS", str(EMBEDDER_DIMS))),
+                "index_type": os.getenv("OCEANBASE_INDEX_TYPE", "HNSW"),
+                "vidx_metric_type": os.getenv("OCEANBASE_VIDX_METRIC_TYPE", "l2"),
+                "vector_weight": VECTOR_WEIGHT,
+                "fts_weight": FTS_WEIGHT,
+                'include_sparse': os.getenv('SPARSE_VECTOR_ENABLE', 'false').lower() == 'true',
+                'enable_native_hybrid': os.getenv('OCEANBASE_ENABLE_NATIVE_HYBRID', 'false').lower() == 'true'
+            },
         }
     elif DATABASE_PROVIDER == "postgres":
         vector_store = {

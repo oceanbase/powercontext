@@ -123,9 +123,9 @@ def get_user_profile_extraction_prompt(
     conversation: str,
     existing_profile: Optional[str] = None,
     native_language: Optional[str] = None,
-) -> Tuple[str, str]:
+) -> str:
     """
-    Generate the system prompt and user message for user profile extraction.
+    Generate the user prompt for user profile extraction.
     
     Args:
         conversation: The conversation text to analyze
@@ -135,9 +135,7 @@ def get_user_profile_extraction_prompt(
             regardless of the languages used in the conversation.
         
     Returns:
-        Tuple of (system_prompt, user_message):
-        - system_prompt: Fixed instructions and context for the LLM
-        - user_message: The conversation text to analyze
+        str: The complete user prompt containing instructions and conversation text
     """
     # Build the prompt with optional Current User Profile section
     current_profile_section = ""
@@ -158,13 +156,15 @@ def get_user_profile_extraction_prompt(
 [Language Requirement]:
 You MUST extract and write the profile content in {target_language}, regardless of what languages are used in the conversation."""
     
-    system_prompt = f"""{USER_PROFILE_EXTRACTION_PROMPT}{current_profile_section}{language_instruction}
+    user_prompt = f"""{USER_PROFILE_EXTRACTION_PROMPT}{current_profile_section}{language_instruction}
 
 [Target]:
-Extract and return the user profile information as a text description:"""
-    user_message = conversation
+Extract and return the user profile information as a text description:
+
+[Conversation]:
+{conversation}"""
     
-    return system_prompt, user_message
+    return user_prompt
 
 
 
@@ -174,9 +174,9 @@ def get_user_profile_topics_extraction_prompt(
     custom_topics: Optional[str] = None,
     strict_mode: bool = False,
     native_language: Optional[str] = None,
-) -> Tuple[str, str]:
+) -> str:
     """
-    Generate the system prompt and user message for structured topic extraction.
+    Generate the user prompt for structured topic extraction.
 
     Args:
         conversation: The conversation text to analyze
@@ -196,9 +196,7 @@ def get_user_profile_topics_extraction_prompt(
             language regardless of the languages used in the conversation.
 
     Returns:
-        Tuple of (system_prompt, user_message):
-        - system_prompt: Fixed instructions and context for the LLM
-        - user_message: The conversation text to analyze
+        str: The complete user prompt containing instructions and conversation text
     """
     # Use custom topics if provided, otherwise use default
     if custom_topics:
@@ -275,7 +273,7 @@ The following topics are for reference. All topic keys in your output must be in
 [Language Requirement]:
 You MUST extract and write all topic values in {target_language}, regardless of what languages are used in the conversation. Keep the topic keys in snake_case English format, but write the values in {target_language}."""
 
-    system_prompt = f"""You are a user profile topic extraction specialist. Your task is to analyze conversations and extract user profile information as structured topics.
+    user_prompt = f"""You are a user profile topic extraction specialist. Your task is to analyze conversations and extract user profile information as structured topics.
 
 {topics_section}{description_warning}
 
@@ -307,9 +305,10 @@ Return a valid JSON object with the following structure:
 }}
 
 All keys must be in snake_case (lowercase with underscores). Values can be strings, numbers, or nested objects as needed.
-Remember: Use only the topic names as keys, NOT the descriptions."""
+Remember: Use only the topic names as keys, NOT the descriptions.
 
-    user_message = conversation
+[Conversation]:
+{conversation}"""
 
-    return system_prompt, user_message
+    return user_prompt
 

@@ -209,6 +209,7 @@ The MCP server provides tools for memory management including adding, searching,
 
 | Version | Release Date | Function |
 |---------|--------------|---------|
+| 0.5.0 | 2026.02.06   | <ul><li>Unified configuration governance across SDK/API Server (pydantic-settings based)</li><li>Added OceanBase native hybrid search support</li><li>Enhanced Memory query handling and added sorting support for memory list operations</li><li>Added user profile support for custom native-language output</li></ul> |
 | 0.4.0 | 2026.01.20   | <ul><li>Sparse vector support for enhanced hybrid retrieval, combining dense vector, full-text, and sparse vector search</li><li>User memory query rewriting - automatically enhances search queries based on user profiles for improved recall</li><li>Schema upgrade and data migration tools for existing tables</li></ul> |
 | 0.3.0 | 2026.01.09   | <ul><li>Production-ready HTTP API Server with RESTful endpoints for all memory operations</li><li>Docker support for easy deployment and containerization</li></ul> |
 | 0.2.0 | 2025.12.16   | <ul><li>Advanced user profile management, supporting "personalized experience" for AI applications</li><li>Expanded multimodal support, including text, image, and audio memory</li></ul> |

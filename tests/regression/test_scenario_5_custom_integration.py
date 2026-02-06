@@ -85,7 +85,7 @@ class CustomEmbedderConfig(BaseEmbedderConfig):
     
     def __init__(
         self,
-        dims: int = 768,
+        dims: int = 1536,
         embedding_dims: Optional[int] = None,
         model: Optional[str] = None,
         api_key: Optional[str] = None,
@@ -217,7 +217,7 @@ def test_step1_custom_llm_provider() -> None:
             'config': {
                 'api_key': 'test_key',
                 'model': 'test_model',
-                'embedding_dims': 768
+                'embedding_dims': 1536
             }
         }
     }
@@ -273,7 +273,7 @@ class CustomEmbedder(EmbeddingBase):
         # Access config attributes
         self.api_key = getattr(self.config, 'api_key', '')
         self.model = getattr(self.config, 'model', 'default')
-        self.dims = getattr(self.config, 'dims', 768)
+        self.dims = getattr(self.config, 'dims', 1536)
     
     def embed(self, text, memory_action=None) -> List[float]:
         """Generate embedding for text"""
@@ -305,7 +305,7 @@ def test_step2_custom_embedder_provider() -> None:
             'config': {
                 'api_key': 'your_key',
                 'model': 'your_model',
-                'embedding_dims': 768
+                'embedding_dims': 1536
             }
         }
 
@@ -377,7 +377,7 @@ class CustomVectorStore(VectorStoreBase):
         """Insert vectors into a collection"""
         col_name = self.collection_name
         if col_name not in self._storage:
-            self.create_col(col_name, len(vectors[0]) if vectors else 768, "cosine")
+            self.create_col(col_name, len(vectors[0]) if vectors else 1536, "cosine")
         
         if ids is None:
             ids = [f"mem_{len(self._vectors[col_name]) + i}" for i in range(len(vectors))]
@@ -483,7 +483,7 @@ class CustomVectorStore(VectorStoreBase):
         """Reset by delete the collection and recreate it"""
         col_name = self.collection_name
         self.delete_col()
-        self.create_col(col_name, 768, "cosine")
+        self.create_col(col_name, 1536, "cosine")
         return True
 
     def get_statistics(self, filters=None):
@@ -536,7 +536,7 @@ def test_step3_custom_vector_store() -> None:
             'config': {
                 'api_key': 'test_key',
                 'model': 'test_model',
-                'embedding_dims': 768
+                'embedding_dims': 1536
             }
         },
         'vector_store': {
@@ -676,7 +676,7 @@ def test_step4_langchain_integration() -> None:
                 'config': {
                     'api_key': 'test_key',
                     'model': 'test_model',
-                    'embedding_dims': 768
+                    'embedding_dims': 1536
                 }
             },
             'vector_store': {
@@ -808,7 +808,7 @@ def test_step4_langchain_integration() -> None:
                     'config': {
                         'api_key': 'test_key',
                         'model': 'test_model',
-                        'embedding_dims': 768
+                        'embedding_dims': 1536
                     }
                 },
                 'vector_store': {
@@ -981,7 +981,7 @@ def test_step5_fastapi_integration() -> None:
                     'config': {
                         'api_key': 'test_key',
                         'model': 'test_model',
-                        'embedding_dims': 768
+                        'embedding_dims': 1536
                     }
                 },
                 'vector_store': {
@@ -1409,7 +1409,7 @@ def test_complete_example() -> None:
                 'config': {
                     'api_key': 'test_key',
                     'model': 'test_model',
-                    'embedding_dims': 768
+                    'embedding_dims': 1536
                 }
             },
             'vector_store': {

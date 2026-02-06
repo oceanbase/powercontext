@@ -1163,6 +1163,12 @@ class Memory(MemoryBase):
                 - "relations" (List, optional): Graph relations if graph store is enabled
         """
         try:
+            if not query or not query.strip():
+                return {
+                    "results": [],
+                    "relations": []
+                }
+            
             # Select embedding service based on filters (for sub-store routing)
             embedding_service = self._get_embedding_service(filters)
 
