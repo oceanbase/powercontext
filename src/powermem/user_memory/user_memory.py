@@ -151,8 +151,8 @@ class UserMemory:
         profile_type: str = "content",
         custom_topics: Optional[str] = None,
         strict_mode: bool = False,
-        include_roles: Optional[List[str]] = ["user"],
-        exclude_roles: Optional[List[str]] = ["assistant"],
+        include_roles: Optional[List[str]] = None,
+        exclude_roles: Optional[List[str]] = None,
         native_language: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -186,9 +186,9 @@ class UserMemory:
                 - Descriptions are for reference only and should NOT be used as keys in the output
             strict_mode: If True, only output topics from the provided list. Only used when profile_type="topics". Default: False
             include_roles: List of roles to include when filtering messages for profile extraction.
-                Defaults to ["user"]. If explicitly set to None or [], no include filter is applied.
+                Defaults to None. If explicitly set to None or [], no include filter is applied.
             exclude_roles: List of roles to exclude when filtering messages for profile extraction.
-                Defaults to ["assistant"]. If explicitly set to None or [], no exclude filter is applied.
+                Defaults to None. If explicitly set to None or [], no exclude filter is applied.
             native_language: Optional ISO 639-1 language code (e.g., "zh", "en") to specify the target language
                 for profile extraction. If specified, the extracted profile will be written in this language
                 regardless of the languages used in the conversation. If not specified, the profile language
