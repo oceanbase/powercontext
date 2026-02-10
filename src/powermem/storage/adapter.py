@@ -484,14 +484,13 @@ class StorageAdapter:
         if run_id:
             filters["run_id"] = run_id
         
-        # Get memories from vector store with filters (if supported)
-        if filters and hasattr(self.vector_store, 'list'):
-            # Pass filters to vector store's list method for database-level filtering
-            # Request more records to support offset
-            results = self.vector_store.list(filters=filters, limit=limit + offset)
-        else:
-            # Fallback: get all and filter in memory
-            results = self.vector_store.list(limit=limit + offset)
+        results = self.vector_store.list(
+            filters=filters if filters else None,
+            limit=limit,
+            offset=offset,
+            order_by=sort_by,
+            order=order
+        )
         
         # OceanBase returns [memories], SQLite/PGVector return memories directly
         if results and isinstance(results[0], list):
@@ -549,73 +548,7 @@ class StorageAdapter:
             
             memories.append(memory)
         
-        # Apply sorting if specified
-        if sort_by:
-            memories = self._sort_memories(memories, sort_by, order)
-        
-        # Apply offset and limit
-        return memories[offset:offset + limit]
-    
-    def _sort_memories(
-        self,
-        memories: List[Dict[str, Any]],
-        sort_by: str,
-        order: str = "desc"
-    ) -> List[Dict[str, Any]]:
-        """
-        Sort memories by specified field.
-        
-        Args:
-            memories: List of memory dictionaries
-            sort_by: Field to sort by. Options: "created_at", "updated_at", "id"
-            order: Sort order. "desc" for descending (default), "asc" for ascending
-            
-        Returns:
-            Sorted list of memories
-        """
-        if not memories or not sort_by:
-            return memories
-        
-        reverse = (order.lower() == "desc")
-        
-        def get_sort_key(memory: Dict[str, Any]) -> Any:
-            """Get the sort key value from memory."""
-            if sort_by == "created_at":
-                created_at = memory.get("created_at")
-                if created_at is None:
-                    return datetime.min if reverse else datetime.max
-                # Handle both datetime objects and ISO format strings
-                if isinstance(created_at, str):
-                    try:
-                        from datetime import datetime as dt
-                        return dt.fromisoformat(created_at.replace('Z', '+00:00'))
-                    except (ValueError, AttributeError):
-                        return datetime.min if reverse else datetime.max
-                return created_at if isinstance(created_at, datetime) else datetime.min
-            elif sort_by == "updated_at":
-                updated_at = memory.get("updated_at")
-                if updated_at is None:
-                    return datetime.min if reverse else datetime.max
-                # Handle both datetime objects and ISO format strings
-                if isinstance(updated_at, str):
-                    try:
-                        from datetime import datetime as dt
-                        return dt.fromisoformat(updated_at.replace('Z', '+00:00'))
-                    except (ValueError, AttributeError):
-                        return datetime.min if reverse else datetime.max
-                return updated_at if isinstance(updated_at, datetime) else datetime.min
-            elif sort_by == "id":
-                return memory.get("id", 0)
-            else:
-                # Unknown sort field, return original order
-                return None
-        
-        try:
-            sorted_memories = sorted(memories, key=get_sort_key, reverse=reverse)
-            return sorted_memories
-        except Exception as e:
-            logger.warning(f"Failed to sort memories by {sort_by}: {e}, returning original order")
-            return memories
+        return memories
     
     def clear_memories(
         self,

@@ -116,11 +116,11 @@ def test_load_config_from_env_loads_internal_settings(monkeypatch):
     # These settings should be included in the config
     assert "performance" in config
     assert config["performance"]["memory_batch_size"] == 200
-
+    
     assert "security" in config
     assert config["security"]["encryption_enabled"] is True
     assert config["security"]["access_control_enabled"] is False
-
+    
     assert "memory_decay" in config
     assert config["memory_decay"]["enabled"] is False
 
