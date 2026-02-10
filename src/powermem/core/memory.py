@@ -26,6 +26,7 @@ from ..integrations.embeddings.sparse_factory import SparseEmbedderFactory
 from ..integrations.rerank.factory import RerankFactory
 from .telemetry import TelemetryManager
 from .audit import AuditLogger
+from ..intelligence.memory_optimizer import MemoryOptimizer
 from ..intelligence.plugin import IntelligentMemoryPlugin, EbbinghausIntelligencePlugin
 from ..utils.utils import remove_code_blocks, convert_config_object_to_dict, parse_vision_messages, set_timezone
 from ..prompts.intelligent_memory_prompts import (
@@ -308,6 +309,9 @@ class Memory(MemoryBase):
         if audit_config is None:
             audit_config = self.config
         self.audit = AuditLogger(audit_config)
+
+        # Initialize memory optimizer
+        self.optimizer = MemoryOptimizer(self.storage, self.llm)
 
         # Save custom prompts from config
         if self.memory_config:
@@ -1585,6 +1589,33 @@ class Memory(MemoryBase):
         except Exception as e:
             logger.error(f"Failed to get all memories: {e}")
             raise
+
+    def optimize(self, strategy: str = "deduplicate", **kwargs) -> Dict[str, Any]:
+        """
+        Optimize memory storage.
+
+        Args:
+            strategy: "deduplicate" or "compress"
+            **kwargs: Additional args like threshold, user_id, dedup_strategy
+
+        Returns:
+            Optimization stats
+        """
+        if strategy == "deduplicate":
+            # Extract specific args
+            sub_strategy = kwargs.get("dedup_strategy", "exact")
+            return self.optimizer.deduplicate(
+                user_id=kwargs.get("user_id"),
+                strategy=sub_strategy,
+                threshold=kwargs.get("threshold", 0.95)
+            )
+        elif strategy == "compress":
+            return self.optimizer.compress(
+                user_id=kwargs.get("user_id"),
+                threshold=kwargs.get("threshold", 0.85)
+            )
+        else:
+            raise ValueError(f"Unknown optimization strategy: {strategy}")
 
     def get_statistics(
         self, user_id: Optional[str] = None, agent_id: Optional[str] = None
