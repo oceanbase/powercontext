@@ -16,6 +16,9 @@ from powermem.integrations.embeddings.config.providers import (
     VertexAIEmbeddingConfig,
     ZaiEmbeddingConfig,
 )
+from powermem.integrations.embeddings.config.sparse_providers import (
+    QwenSparseEmbeddingConfig,
+)
 
 __all__ = [
     "AWSBedrockEmbeddingConfig",
@@ -29,6 +32,7 @@ __all__ = [
     "MockEmbeddingConfig",
     "OllamaEmbeddingConfig",
     "OpenAIEmbeddingConfig",
+    "QwenSparseEmbeddingConfig",
     "QwenEmbeddingConfig",
     "SiliconFlowEmbeddingConfig",
     "TogetherEmbeddingConfig",

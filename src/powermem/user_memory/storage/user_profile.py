@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 class OceanBaseUserProfileStore(UserProfileStoreBase):
     """OceanBase-based user profile storage implementation"""
+    
+    _provider_name = "oceanbase"
+    _class_path = "powermem.user_memory.storage.user_profile.OceanBaseUserProfileStore"
 
     def __init__(
             self,

@@ -26,7 +26,7 @@ from ..integrations.rerank.factory import RerankFactory
 from .telemetry import TelemetryManager
 from .audit import AuditLogger
 from ..intelligence.plugin import IntelligentMemoryPlugin, EbbinghausIntelligencePlugin
-from ..utils.utils import remove_code_blocks, convert_config_object_to_dict, parse_vision_messages
+from ..utils.utils import remove_code_blocks, convert_config_object_to_dict, parse_vision_messages, set_timezone
 from ..utils.io import export_to_json, export_to_csv, import_from_json, import_from_csv
 import os
 from ..prompts.intelligent_memory_prompts import (

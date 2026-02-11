@@ -2,60 +2,41 @@ import powermem.config_loader as config_loader
 import powermem.settings as settings
 
 
-def _reset_env(monkeypatch, keys=None):
-    import os
-    # List of prefixes to clear to avoid environment leakage from .env or shell
-    # We clear a broad set of prefixes used across the project
-    prefixes = [
-        "DATABASE_", "OCEANBASE_", "LLM_", "EMBEDDING_", "AGENT_",
-        "GRAPH_STORE_", "TELEMETRY_", "AUDIT_", "LOGGING_",
-        "QWEN_", "OPENAI_", "AZURE_", "GEMINI_", "DASHSCOPE_", "ANTHROPIC_",
-        "SQLITE_", "PG_", "POSTGRES_", "REWRITER_"
-    ]
-    for key in list(os.environ.keys()):
-        upper_key = key.upper()
-        if any(upper_key.startswith(p) for p in prefixes):
-            monkeypatch.delenv(key, raising=False)
-    
-    # Also clear specific common keys that might not have the prefix
-    common_keys = ["API_KEY", "MODEL", "PORT", "HOST", "DATABASE", "TOKEN"]
-    for key in common_keys:
+def _reset_env(monkeypatch, keys):
+    for key in keys:
         monkeypatch.delenv(key, raising=False)
-
-    if keys:
-        for key in keys:
-            monkeypatch.delenv(key, raising=False)
 
 
 def _disable_env_file(monkeypatch):
-    # This monkeypatching of _DEFAULT_ENV_FILE is often not enough because 
-    # the classes are already defined with the default value of the argument.
     monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None, raising=False)
     monkeypatch.setattr(settings, "_DEFAULT_ENV_FILE", None, raising=False)
-    monkeypatch.setattr(config_loader, "_load_dotenv_if_available", lambda: None)
-    
-    # We need to reach into the classes and disable env_file in their model_config
-    import powermem.config_loader as cl
-    import powermem.integrations.embeddings.config.providers as embed_prov
-    from pydantic_settings import SettingsConfigDict
-    
-    # List of modules to check for settings classes
-    for module in [cl, embed_prov]:
-        for name in dir(module):
-            obj = getattr(module, name)
-            if isinstance(obj, type) and hasattr(obj, "model_config"):
-                try:
-                    # Check if it's a dict or SettingsConfigDict
-                    if isinstance(obj.model_config, (dict, SettingsConfigDict)):
-                        new_config = dict(obj.model_config)
-                        new_config["env_file"] = None
-                        monkeypatch.setattr(obj, "model_config", SettingsConfigDict(**new_config))
-                except Exception:
-                    continue
+    new_config = dict(config_loader.EmbeddingSettings.model_config)
+    new_config["env_file"] = None
+    monkeypatch.setattr(config_loader.EmbeddingSettings, "model_config", new_config)
 
 
 def test_load_config_from_env_builds_core_config(monkeypatch):
-    _reset_env(monkeypatch)
+    _reset_env(
+        monkeypatch,
+        [
+            "DATABASE_PROVIDER",
+            "OCEANBASE_HOST",
+            "OCEANBASE_PORT",
+            "OCEANBASE_USER",
+            "OCEANBASE_PASSWORD",
+            "OCEANBASE_DATABASE",
+            "OCEANBASE_COLLECTION",
+            "LLM_PROVIDER",
+            "LLM_API_KEY",
+            "LLM_MODEL",
+            "QWEN_LLM_BASE_URL",
+            "EMBEDDING_PROVIDER",
+            "EMBEDDING_API_KEY",
+            "EMBEDDING_MODEL",
+            "OPENAI_EMBEDDING_BASE_URL",
+            "AGENT_MEMORY_MODE",
+        ],
+    )
     _disable_env_file(monkeypatch)
     monkeypatch.setenv("DATABASE_PROVIDER", "oceanbase")
     monkeypatch.setenv("OCEANBASE_HOST", "10.0.0.1")
@@ -89,7 +70,16 @@ def test_load_config_from_env_builds_core_config(monkeypatch):
 
 
 def test_load_config_from_env_graph_store_fallback(monkeypatch):
-    _reset_env(monkeypatch)
+    _reset_env(
+        monkeypatch,
+        [
+            "GRAPH_STORE_ENABLED",
+            "GRAPH_STORE_HOST",
+            "GRAPH_STORE_MAX_HOPS",
+            "OCEANBASE_HOST",
+            "OCEANBASE_PORT",
+        ],
+    )
     _disable_env_file(monkeypatch)
     monkeypatch.setenv("GRAPH_STORE_ENABLED", "true")
     monkeypatch.setenv("OCEANBASE_HOST", "127.0.0.2")
@@ -103,8 +93,17 @@ def test_load_config_from_env_graph_store_fallback(monkeypatch):
     assert graph_store["config"]["max_hops"] == 3
 
 
-def test_load_config_from_env_does_not_expose_internal_settings(monkeypatch):
-    _reset_env(monkeypatch)
+def test_load_config_from_env_loads_internal_settings(monkeypatch):
+    _reset_env(
+        monkeypatch,
+        [
+            "MEMORY_BATCH_SIZE",
+            "ENCRYPTION_ENABLED",
+            "ACCESS_CONTROL_ENABLED",
+            "MEMORY_DECAY_ENABLED",
+            "DATABASE_SSLMODE",
+        ],
+    )
     _disable_env_file(monkeypatch)
     monkeypatch.setenv("MEMORY_BATCH_SIZE", "200")
     monkeypatch.setenv("ENCRYPTION_ENABLED", "true")
@@ -114,13 +113,27 @@ def test_load_config_from_env_does_not_expose_internal_settings(monkeypatch):
 
     config = config_loader.load_config_from_env()
 
-    assert "performance" not in config
-    assert "security" not in config
-    assert "memory_decay" not in config
+    # These settings should be included in the config
+    assert "performance" in config
+    assert config["performance"]["memory_batch_size"] == 200
+
+    assert "security" in config
+    assert config["security"]["encryption_enabled"] is True
+    assert config["security"]["access_control_enabled"] is False
+
+    assert "memory_decay" in config
+    assert config["memory_decay"]["enabled"] is False
 
 
 def test_load_config_from_env_telemetry_aliases(monkeypatch):
-    _reset_env(monkeypatch)
+    _reset_env(
+        monkeypatch,
+        [
+            "TELEMETRY_ENABLED",
+            "TELEMETRY_BATCH_SIZE",
+            "TELEMETRY_FLUSH_INTERVAL",
+        ],
+    )
     _disable_env_file(monkeypatch)
     monkeypatch.setenv("TELEMETRY_ENABLED", "true")
     monkeypatch.setenv("TELEMETRY_BATCH_SIZE", "42")
@@ -137,7 +150,14 @@ def test_load_config_from_env_telemetry_aliases(monkeypatch):
 
 
 def test_load_config_from_env_embedding_provider_values(monkeypatch):
-    _reset_env(monkeypatch)
+    _reset_env(
+        monkeypatch,
+        [
+            "EMBEDDING_PROVIDER",
+            "EMBEDDING_API_KEY",
+            "AZURE_OPENAI_API_KEY",
+        ],
+    )
     _disable_env_file(monkeypatch)
     monkeypatch.setenv("EMBEDDING_PROVIDER", "azure_openai")
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
@@ -149,7 +169,14 @@ def test_load_config_from_env_embedding_provider_values(monkeypatch):
 
 
 def test_load_config_from_env_embedding_common_override(monkeypatch):
-    _reset_env(monkeypatch)
+    _reset_env(
+        monkeypatch,
+        [
+            "EMBEDDING_PROVIDER",
+            "EMBEDDING_API_KEY",
+            "AZURE_OPENAI_API_KEY",
+        ],
+    )
     _disable_env_file(monkeypatch)
     monkeypatch.setenv("EMBEDDING_PROVIDER", "azure_openai")
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")

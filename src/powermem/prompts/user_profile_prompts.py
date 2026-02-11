@@ -11,6 +11,27 @@ from typing import Optional, Tuple, Dict, Any
 logger = logging.getLogger(__name__)
 
 
+# Language code to language name mapping
+# Supports ISO 639-1 two-letter language codes
+# If a language code is not found in this mapping, it will be passed directly to the prompt
+LANGUAGE_CODE_MAPPING = {
+    "zh": "Chinese",
+    "en": "English",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "fr": "French",
+    "de": "German",
+    "es": "Spanish",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "ar": "Arabic",
+    "hi": "Hindi",
+    "th": "Thai",
+    "vi": "Vietnamese",
+}
+
+
 # User profile topics for reference in prompt
 USER_PROFILE_TOPICS = """
 - Basic Information  
@@ -98,18 +119,23 @@ The following topics are for guidance only. Please selectively extract informati
 """
 
 
-def get_user_profile_extraction_prompt(conversation: str, existing_profile: Optional[str] = None) -> Tuple[str, str]:
+def get_user_profile_extraction_prompt(
+    conversation: str,
+    existing_profile: Optional[str] = None,
+    native_language: Optional[str] = None,
+) -> str:
     """
-    Generate the system prompt and user message for user profile extraction.
+    Generate the user prompt for user profile extraction.
     
     Args:
         conversation: The conversation text to analyze
         existing_profile: Optional existing user profile content to update
+        native_language: Optional ISO 639-1 language code (e.g., "zh", "en") to specify the target language
+            for profile extraction. If specified, the extracted profile will be written in this language
+            regardless of the languages used in the conversation.
         
     Returns:
-        Tuple of (system_prompt, user_message):
-        - system_prompt: Fixed instructions and context for the LLM
-        - user_message: The conversation text to analyze
+        str: The complete user prompt containing instructions and conversation text
     """
     # Build the prompt with optional Current User Profile section
     current_profile_section = ""
@@ -120,14 +146,25 @@ def get_user_profile_extraction_prompt(conversation: str, existing_profile: Opti
 ```
 {existing_profile}
 ```"""
+
+    # Build language instruction section
+    language_instruction = ""
+    if native_language:
+        target_language = LANGUAGE_CODE_MAPPING.get(native_language, native_language)
+        language_instruction = f"""
+
+[Language Requirement]:
+You MUST extract and write the profile content in {target_language}, regardless of what languages are used in the conversation."""
     
-    system_prompt = f"""{USER_PROFILE_EXTRACTION_PROMPT}{current_profile_section}
+    user_prompt = f"""{USER_PROFILE_EXTRACTION_PROMPT}{current_profile_section}{language_instruction}
 
 [Target]:
-Extract and return the user profile information as a text description:"""
-    user_message = conversation
+Extract and return the user profile information as a text description:
+
+[Conversation]:
+{conversation}"""
     
-    return system_prompt, user_message
+    return user_prompt
 
 
 
@@ -136,9 +173,10 @@ def get_user_profile_topics_extraction_prompt(
     existing_topics: Optional[Dict[str, Any]] = None,
     custom_topics: Optional[str] = None,
     strict_mode: bool = False,
-) -> Tuple[str, str]:
+    native_language: Optional[str] = None,
+) -> str:
     """
-    Generate the system prompt and user message for structured topic extraction.
+    Generate the user prompt for structured topic extraction.
 
     Args:
         conversation: The conversation text to analyze
@@ -153,11 +191,12 @@ def get_user_profile_topics_extraction_prompt(
             - All keys must be in snake_case (lowercase, underscores, no spaces)
             - Descriptions are for reference only and should NOT be used as keys in the output
         strict_mode: If True, only output topics from the provided list; if False, can extend
+        native_language: Optional ISO 639-1 language code (e.g., "zh", "en") to specify the target language
+            for topic value extraction. If specified, the extracted topic values will be written in this
+            language regardless of the languages used in the conversation.
 
     Returns:
-        Tuple of (system_prompt, user_message):
-        - system_prompt: Fixed instructions and context for the LLM
-        - user_message: The conversation text to analyze
+        str: The complete user prompt containing instructions and conversation text
     """
     # Use custom topics if provided, otherwise use default
     if custom_topics:
@@ -225,7 +264,16 @@ The following topics are for reference. All topic keys in your output must be in
 {formatted_topics}
 """
 
-    system_prompt = f"""You are a user profile topic extraction specialist. Your task is to analyze conversations and extract user profile information as structured topics.
+    # Build language instruction section
+    language_instruction = ""
+    if native_language:
+        target_language = LANGUAGE_CODE_MAPPING.get(native_language, native_language)
+        language_instruction = f"""
+
+[Language Requirement]:
+You MUST extract and write all topic values in {target_language}, regardless of what languages are used in the conversation. Keep the topic keys in snake_case English format, but write the values in {target_language}."""
+
+    user_prompt = f"""You are a user profile topic extraction specialist. Your task is to analyze conversations and extract user profile information as structured topics.
 
 {topics_section}{description_warning}
 
@@ -242,7 +290,7 @@ The following topics are for reference. All topic keys in your output must be in
 7. If no relevant profile information is found in the conversation, return the current topics as-is
 8. If no user profile information can be extracted from the conversation at all, return an empty JSON object {{}}
 9. Focus on current state and characteristics of the user
-{strict_instruction}{existing_topics_section}
+{strict_instruction}{existing_topics_section}{language_instruction}
 
 [Output Format]:
 Return a valid JSON object with the following structure:
@@ -257,9 +305,10 @@ Return a valid JSON object with the following structure:
 }}
 
 All keys must be in snake_case (lowercase with underscores). Values can be strings, numbers, or nested objects as needed.
-Remember: Use only the topic names as keys, NOT the descriptions."""
+Remember: Use only the topic names as keys, NOT the descriptions.
 
-    user_message = conversation
+[Conversation]:
+{conversation}"""
 
-    return system_prompt, user_message
+    return user_prompt
 

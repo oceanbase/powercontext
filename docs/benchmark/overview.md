@@ -13,7 +13,7 @@ The PowerMem Benchmark suite consists of two main components:
    - Token usage tracking
    - Support for multiple database backends (OceanBase, PostgreSQL)
 
-2. **Load Testing Tool** (`benchmark/lomoco/`): A comprehensive benchmarking tool that:
+2. **Load Testing Tool** (`benchmark/locomo/`): A comprehensive benchmarking tool that:
    - Tests memory addition and search performance
    - Evaluates response quality using multiple metrics
    - Measures latency and token consumption
@@ -39,10 +39,10 @@ uvicorn benchmark.server.main:app --host 0.0.0.0 --port 8000 --reload
 
 ```bash
 # Install load testing dependencies
-pip install -r benchmark/lomoco/requirements.txt
+pip install -r benchmark/locomo/requirements.txt
 
 # Configure environment
-cd benchmark/lomoco
+cd benchmark/locomo
 cp .env.example .env
 # Edit .env with your API keys and server URL
 
@@ -181,12 +181,12 @@ The LOCOMO benchmark tool performs comprehensive evaluations of memory systems u
 
    From the project root:
    ```bash
-   pip install -r benchmark/lomoco/requirements.txt
+   pip install -r benchmark/locomo/requirements.txt
    ```
 
-   Or from the lomoco directory:
+   Or from the locomo directory:
    ```bash
-   cd benchmark/lomoco
+   cd benchmark/locomo
    pip install -r requirements.txt
    ```
 
@@ -195,13 +195,13 @@ The LOCOMO benchmark tool performs comprehensive evaluations of memory systems u
 1. **Create environment configuration file**
 
    ```bash
-   cd benchmark/lomoco
+   cd benchmark/locomo
    cp .env.example .env
    ```
 
 2. **Edit the `.env` file**
 
-   Open `benchmark/lomoco/.env` and configure the following variables:
+   Open `benchmark/locomo/.env` and configure the following variables:
 
    ```bash
    # OpenAI API configuration
@@ -234,15 +234,15 @@ The LOCOMO benchmark tool performs comprehensive evaluations of memory systems u
 
 2. **Run the complete test script**
 
-   From the `benchmark/lomoco` directory:
+   From the `benchmark/locomo` directory:
    ```bash
-   cd benchmark/lomoco
+   cd benchmark/locomo
    bash run.sh [output_folder]
    ```
 
    Or from the project root:
    ```bash
-   cd benchmark/lomoco && bash run.sh results
+   cd benchmark/locomo && bash run.sh results
    ```
 
    The `output_folder` parameter is optional (defaults to `results`).
@@ -264,13 +264,13 @@ You can also run individual test methods manually:
 
 **Memory Addition Test:**
 ```bash
-cd benchmark/lomoco
+cd benchmark/locomo
 python3 run_experiments.py --method add --output_folder results
 ```
 
 **Memory Search Test:**
 ```bash
-cd benchmark/lomoco
+cd benchmark/locomo
 python3 run_experiments.py --method search --output_folder results --top_k 30
 ```
 
@@ -380,7 +380,7 @@ The benchmark evaluates performance using multiple metrics:
 
 #### "api_base_url is not set"
 - **Solution**: 
-  - Create `.env` file in `benchmark/lomoco/` directory
+  - Create `.env` file in `benchmark/locomo/` directory
   - Verify that `API_BASE_URL` is set correctly
   - Ensure the URL matches your running server address
 
@@ -392,13 +392,13 @@ The benchmark evaluates performance using multiple metrics:
 
 #### "model is not set" or "openai_api_key is not set"
 - **Solution**: 
-  - Check that `MODEL` and `OPENAI_API_KEY` are set in `benchmark/lomoco/.env`
+  - Check that `MODEL` and `OPENAI_API_KEY` are set in `benchmark/locomo/.env`
   - Verify the API key is valid
   - Ensure no extra quotes or spaces in the values
 
 #### Import errors
 - **Solution**: 
-  - Install all dependencies: `pip install -r benchmark/lomoco/requirements.txt`
+  - Install all dependencies: `pip install -r benchmark/locomo/requirements.txt`
   - Ensure you're running from the correct directory
   - Check Python version (requires 3.10+)
 

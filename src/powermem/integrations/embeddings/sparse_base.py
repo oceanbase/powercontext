@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from src.powermem.integrations.embeddings.config.sparse_base import BaseSparseEmbedderConfig
+from powermem.integrations.embeddings.config.sparse_base import BaseSparseEmbedderConfig
 
 
 class SparseEmbeddingBase(ABC):

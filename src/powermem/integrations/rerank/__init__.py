@@ -9,8 +9,14 @@ from .factory import RerankFactory
 from .qwen import QwenRerank
 from .jina import JinaRerank
 from .generic import GenericRerank
+from .zai import ZaiRerank
 from .config.base import BaseRerankConfig
-from .configs import RerankConfig
+from .config.providers import (
+    QwenRerankConfig,
+    JinaRerankConfig,
+    ZaiRerankConfig,
+    GenericRerankConfig,
+)
 
 __all__ = [
     "RerankBase",
@@ -18,7 +24,11 @@ __all__ = [
     "QwenRerank",
     "JinaRerank",
     "GenericRerank",
+    "ZaiRerank",
     "BaseRerankConfig",
-    "RerankConfig",
+    "QwenRerankConfig",
+    "JinaRerankConfig",
+    "ZaiRerankConfig",
+    "GenericRerankConfig",
 ]
 

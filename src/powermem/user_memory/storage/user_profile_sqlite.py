@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 class SQLiteUserProfileStore(UserProfileStoreBase):
     """SQLite-based user profile storage implementation"""
+    
+    _provider_name = "sqlite"
+    _class_path = "powermem.user_memory.storage.user_profile_sqlite.SQLiteUserProfileStore"
 
     def __init__(
             self,

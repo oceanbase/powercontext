@@ -85,6 +85,7 @@ class UserService:
         strict_mode: bool = False,
         include_roles: Optional[List[str]] = ["user"],
         exclude_roles: Optional[List[str]] = ["assistant"],
+        native_language: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Add messages and extract user profile.
@@ -105,6 +106,7 @@ class UserService:
             strict_mode: Only output topics from provided list
             include_roles: Roles to include when filtering messages
             exclude_roles: Roles to exclude when filtering messages
+            native_language: ISO 639-1 language code (e.g., 'zh', 'en') for profile extraction
             
         Returns:
             Result dict with memory and profile extraction results
@@ -136,6 +138,7 @@ class UserService:
                 strict_mode=strict_mode,
                 include_roles=include_roles,
                 exclude_roles=exclude_roles,
+                native_language=native_language,
             )
             
             logger.info(f"User profile added: {user_id}")

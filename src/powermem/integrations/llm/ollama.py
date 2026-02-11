@@ -36,7 +36,7 @@ class OllamaLLM(LLMBase):
         if not self.config.model:
             self.config.model = "llama3.1:70b"
 
-        self.client = Client(host=self.config.ollama_base_url)
+        self.client = Client(host=getattr(self.config, "ollama_base_url", "http://localhost:11434"))
 
     def _parse_response(self, response, tools):
         """

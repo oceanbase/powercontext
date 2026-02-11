@@ -1,6 +1,9 @@
 from typing import Optional
 
+from pydantic import AliasChoices, Field
+
 from powermem.integrations.llm.config.base import BaseLLMConfig
+from powermem.settings import settings_config
 
 
 class DeepSeekConfig(BaseLLMConfig):
@@ -9,48 +12,28 @@ class DeepSeekConfig(BaseLLMConfig):
     Inherits from BaseLLMConfig and adds DeepSeek-specific settings.
     """
 
-    def __init__(
-            self,
-            # Base parameters
-            model: Optional[str] = None,
-            temperature: float = 0.1,
-            api_key: Optional[str] = None,
-            max_tokens: int = 2000,
-            top_p: float = 0.1,
-            top_k: int = 1,
-            enable_vision: bool = False,
-            vision_details: Optional[str] = "auto",
-            http_client_proxies: Optional[dict] = None,
-            # DeepSeek-specific parameters
-            deepseek_base_url: Optional[str] = None,
-    ):
-        """
-        Initialize DeepSeek configuration.
+    _provider_name = "deepseek"
+    _class_path = "powermem.integrations.llm.deepseek.DeepSeekLLM"
 
-        Args:
-            model: DeepSeek model to use, defaults to None
-            temperature: Controls randomness, defaults to 0.1
-            api_key: DeepSeek API key, defaults to None
-            max_tokens: Maximum tokens to generate, defaults to 2000
-            top_p: Nucleus sampling parameter, defaults to 0.1
-            top_k: Top-k sampling parameter, defaults to 1
-            enable_vision: Enable vision capabilities, defaults to False
-            vision_details: Vision detail level, defaults to "auto"
-            http_client_proxies: HTTP client proxy settings, defaults to None
-            deepseek_base_url: DeepSeek API base URL, defaults to None
-        """
-        # Initialize base parameters
-        super().__init__(
-            model=model,
-            temperature=temperature,
-            api_key=api_key,
-            max_tokens=max_tokens,
-            top_p=top_p,
-            top_k=top_k,
-            enable_vision=enable_vision,
-            vision_details=vision_details,
-            http_client_proxies=http_client_proxies,
-        )
+    model_config = settings_config("LLM_", extra="forbid", env_file=None)
 
-        # DeepSeek-specific parameters
-        self.deepseek_base_url = deepseek_base_url
+    # Override base fields with DeepSeek-specific validation_alias
+    api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "api_key",
+            "LLM_API_KEY",
+            "DEEPSEEK_API_KEY",
+        ),
+        description="DeepSeek API key"
+    )
+
+    # DeepSeek-specific fields
+    deepseek_base_url: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "deepseek_base_url",
+            "DEEPSEEK_LLM_BASE_URL",
+        ),
+        description="DeepSeek API base URL"
+    )

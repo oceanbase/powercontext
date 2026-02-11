@@ -62,7 +62,7 @@ class QwenLLM(LLMBase):
         dashscope.api_key = api_key
 
         # Set base URL
-        base_url = self.config.dashscope_base_url or os.getenv(
+        base_url = getattr(self.config, "dashscope_base_url", None) or os.getenv(
             "DASHSCOPE_BASE_URL") or "https://dashscope.aliyuncs.com/api/v1"
 
         if base_url:
@@ -175,10 +175,11 @@ class QwenLLM(LLMBase):
         }
 
         # Add Qwen-specific parameters
-        if self.config.enable_search:
+        if getattr(self.config, "enable_search", False):
             generation_params["enable_search"] = True
-            if self.config.search_params:
-                generation_params.update(self.config.search_params)
+            search_params = getattr(self.config, "search_params", None)
+            if search_params:
+                generation_params.update(search_params)
 
         # Add tools if provided
         if tools:
@@ -193,9 +194,10 @@ class QwenLLM(LLMBase):
             response = Generation.call(**generation_params)
             parsed_response = self._parse_response(response, tools)
 
-            if self.config.response_callback:
+            response_callback = getattr(self.config, "response_callback", None)
+            if response_callback:
                 try:
-                    self.config.response_callback(self, response, generation_params)
+                    response_callback(self, response, generation_params)
                 except Exception as e:
                     # Log error but don't propagate
                     logging.error(f"Error due to callback: {e}")

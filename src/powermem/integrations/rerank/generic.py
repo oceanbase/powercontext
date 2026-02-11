@@ -55,24 +55,26 @@ class GenericRerank(RerankBase):
                 "httpx is not installed. Please install it with: pip install httpx"
             )
 
-        # Set API base URL (required)
-        self.api_base_url = getattr(self.config, 'api_base_url', None) or os.getenv(
-            "RERANK_API_BASE_URL"
-        )
-        if not self.api_base_url:
+        # Validate API base URL (required, config handles env var loading)
+        if not self.config.api_base_url:
             raise ValueError(
                 "api_base_url is required. Set RERANK_API_BASE_URL environment variable "
                 "or pass api_base_url in config."
             )
 
-        # Set model (required)
+        # Validate model (required)
         if not self.config.model:
             raise ValueError(
-                "model is required. Pass model name or UID in config."
+                "model is required. Set RERANK_MODEL environment variable "
+                "or pass model name/UID in config."
             )
 
-        # API key is optional
-        self.api_key = self.config.api_key or os.getenv("RERANK_API_KEY")
+        # Set API base URL and optional API key
+        self.api_base_url = self.config.api_base_url
+        self.api_key = self.config.api_key
+        
+        # Use http_client from config if available
+        self.http_client = self.config.http_client
 
     def rerank(
         self, 
@@ -127,17 +129,27 @@ class GenericRerank(RerankBase):
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
 
-            # Make API request
-            with httpx.Client(timeout=30.0) as client:
-                response = client.post(
+            # Use configured http_client or create temporary one
+            if self.http_client:
+                response = self.http_client.post(
                     self.api_base_url,
                     json=payload,
                     headers=headers,
                 )
-
-                # Check response status
                 response.raise_for_status()
                 result = response.json()
+            else:
+                # Make API request with temporary client
+                with httpx.Client(timeout=30.0) as client:
+                    response = client.post(
+                        self.api_base_url,
+                        json=payload,
+                        headers=headers,
+                    )
+
+                    # Check response status
+                    response.raise_for_status()
+                    result = response.json()
 
             # Parse results
             results = []

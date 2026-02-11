@@ -1,8 +1,8 @@
 import os
 from typing import Literal, Optional
 
-from src.powermem.integrations.embeddings.config.sparse_base import BaseSparseEmbedderConfig
-from src.powermem.integrations.embeddings.sparse_base import SparseEmbeddingBase
+from powermem.integrations.embeddings.config.sparse_base import BaseSparseEmbedderConfig
+from powermem.integrations.embeddings.sparse_base import SparseEmbeddingBase
 
 try:
     from dashscope import TextEmbedding

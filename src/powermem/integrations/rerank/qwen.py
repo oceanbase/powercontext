@@ -27,8 +27,9 @@ class QwenRerank(RerankBase):
     def __init__(self, config: Optional[BaseRerankConfig] = None):
         super().__init__(config)
 
-        # Set default model
-        self.config.model = self.config.model or "qwen3-rerank"
+        # Set default model (if not already set in config)
+        if not self.config.model:
+            self.config.model = "qwen3-rerank"
 
         # Check if dashscope is available
         if TextReRank is None or dashscope is None:
@@ -36,15 +37,19 @@ class QwenRerank(RerankBase):
                 "DashScope SDK is not installed. Please install it with: pip install dashscope"
             )
 
-        # Set API key
-        api_key = self.config.api_key or os.getenv("DASHSCOPE_API_KEY")
-        if not api_key:
+        # Validate API key (config already handles env var loading)
+        if not self.config.api_key:
             raise ValueError(
-                "API key is required. Set DASHSCOPE_API_KEY environment variable or pass api_key in config."
+                "API key is required. Set DASHSCOPE_API_KEY, QWEN_API_KEY, or RERANK_API_KEY environment variable, "
+                "or pass api_key in config."
             )
 
         # Set API key for DashScope SDK
-        dashscope.api_key = api_key
+        dashscope.api_key = self.config.api_key
+        
+        # Set base URL if provided
+        if self.config.api_base_url:
+            dashscope.base_http_api_url = self.config.api_base_url
 
     def rerank(
         self, 

@@ -9,7 +9,7 @@ on:
       - 'pyproject.toml'
       - 'Makefile'
       - '.github/workflows/test.yml'
-      - 'benchmark/lomoco/requirements.txt'
+      - '../../benchmark/locomo/requirements.txt'
   pull_request:
     branches: [main, develop]
     paths:
@@ -18,7 +18,7 @@ on:
       - 'pyproject.toml'
       - 'Makefile'
       - '.github/workflows/test.yml'
-      - 'benchmark/lomoco/requirements.txt'
+      - '../../benchmark/locomo/requirements.txt'
   workflow_dispatch:
 
 jobs:
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
       fail-fast: false
 
     steps:
@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
       fail-fast: false
 
     steps:
@@ -83,7 +83,7 @@ jobs:
           pip install --upgrade setuptools wheel
 
       - name: Install and verify dependencies
-        working-directory: benchmark/lomoco
+        working-directory: benchmark/locomo
         run: |
           pip install -r requirements.txt
           pip check

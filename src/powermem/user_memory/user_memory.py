@@ -151,8 +151,9 @@ class UserMemory:
         profile_type: str = "content",
         custom_topics: Optional[str] = None,
         strict_mode: bool = False,
-        include_roles: Optional[List[str]] = ["user"],
-        exclude_roles: Optional[List[str]] = ["assistant"],
+        include_roles: Optional[List[str]] = None,
+        exclude_roles: Optional[List[str]] = None,
+        native_language: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Add messages and extract user profile information.
@@ -185,9 +186,13 @@ class UserMemory:
                 - Descriptions are for reference only and should NOT be used as keys in the output
             strict_mode: If True, only output topics from the provided list. Only used when profile_type="topics". Default: False
             include_roles: List of roles to include when filtering messages for profile extraction.
-                Defaults to ["user"]. If explicitly set to None or [], no include filter is applied.
+                Defaults to None. If explicitly set to None or [], no include filter is applied.
             exclude_roles: List of roles to exclude when filtering messages for profile extraction.
-                Defaults to ["assistant"]. If explicitly set to None or [], no exclude filter is applied.
+                Defaults to None. If explicitly set to None or [], no exclude filter is applied.
+            native_language: Optional ISO 639-1 language code (e.g., "zh", "en") to specify the target language
+                for profile extraction. If specified, the extracted profile will be written in this language
+                regardless of the languages used in the conversation. If not specified, the profile language
+                will follow the conversation language. Default: None
 
         Returns:
             Dict[str, Any]: A dictionary containing the add operation results with the following structure:
@@ -229,6 +234,7 @@ class UserMemory:
                     user_id=user_id,
                     custom_topics=custom_topics,
                     strict_mode=strict_mode,
+                    native_language=native_language,
                 )
                 result_key = "topics"
             else:
@@ -236,6 +242,7 @@ class UserMemory:
                 extracted_data = self._extract_profile(
                     messages=filtered_messages,
                     user_id=user_id,
+                    native_language=native_language,
                 )
                 result_key = "profile_content"
 
@@ -321,23 +328,20 @@ class UserMemory:
 
     def _call_llm_for_extraction(
         self,
-        system_prompt: str,
-        user_message: str,
+        user_prompt: str,
     ) -> str:
         """
         Call LLM to extract profile information.
 
         Args:
-            system_prompt: System prompt for LLM
-            user_message: User message for LLM
+            user_prompt: User prompt for LLM
 
         Returns:
             LLM response text
         """
         response = self.memory.llm.generate_response(
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
+                {"role": "user", "content": user_prompt},
             ],
         )
         return remove_code_blocks(response).strip()
@@ -346,6 +350,7 @@ class UserMemory:
         self,
         messages: Any,
         user_id: str,
+        native_language: Optional[str] = None,
     ) -> str:
         """
         Extract user profile information from conversation using LLM.
@@ -354,6 +359,8 @@ class UserMemory:
         Args:
             messages: Conversation messages (str, dict, or list[dict])
             user_id: User identifier
+            native_language: Optional ISO 639-1 language code (e.g., "zh", "en") to specify the target language
+                for profile extraction. If specified, the extracted profile will be written in this language.
 
         Returns:
             Extracted profile content as text string, or empty string if no profile found
@@ -370,15 +377,16 @@ class UserMemory:
             data_key="profile_content",
         )
         
-        # Generate system prompt and user message
-        system_prompt, user_message = get_user_profile_extraction_prompt(
+        # Generate user prompt
+        user_prompt = get_user_profile_extraction_prompt(
             conversation_text,
-            existing_profile=existing_profile
+            existing_profile=existing_profile,
+            native_language=native_language,
         )
 
         # Call LLM to extract profile
         try:
-            profile_content = self._call_llm_for_extraction(system_prompt, user_message)
+            profile_content = self._call_llm_for_extraction(user_prompt)
 
             # Return empty string if response is empty or indicates no profile
             if not profile_content or profile_content.lower() in ["","\"\"", "none", "no profile information", "no relevant information"]:
@@ -396,6 +404,7 @@ class UserMemory:
         user_id: str,
         custom_topics: Optional[str] = None,
         strict_mode: bool = False,
+        native_language: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Extract structured user profile topics from conversation using LLM.
@@ -406,6 +415,8 @@ class UserMemory:
             user_id: User identifier
             custom_topics: Optional custom topics JSON string. Format: {"main_topic": {"sub_topic": "description", ...}}
             strict_mode: If True, only output topics from the provided list
+            native_language: Optional ISO 639-1 language code (e.g., "zh", "en") to specify the target language
+                for topic value extraction. If specified, the topic values will be written in this language.
 
         Returns:
             Extracted topics as dictionary, or None if no topics found
@@ -422,17 +433,18 @@ class UserMemory:
             data_key="topics",
         )
 
-        # Generate system prompt and user message
-        system_prompt, user_message = get_user_profile_topics_extraction_prompt(
+        # Generate user prompt
+        user_prompt = get_user_profile_topics_extraction_prompt(
             conversation_text,
             existing_topics=existing_topics,
             custom_topics=custom_topics,
             strict_mode=strict_mode,
+            native_language=native_language,
         )
 
         # Call LLM to extract topics
         try:
-            topics_text = self._call_llm_for_extraction(system_prompt, user_message)
+            topics_text = self._call_llm_for_extraction(user_prompt)
 
             # Return None if response is empty or indicates no topics
             if not topics_text or topics_text.lower() in ["", "none", "no profile information", "no relevant information", "{}"]:

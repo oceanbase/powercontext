@@ -35,7 +35,7 @@ This directory contains various examples demonstrating how to use powermem with 
   - Conflict resolution (contradiction handling)
   - Comparison between simple and intelligent modes
 
-### 4. Healthcare Support Bot (`healthcare_support_bot/`)
+### 4. Healthcare Support Bot (`langchain/`)
 - **Database**: OceanBase
 - **Purpose**: AI Healthcare Support Bot using PowerMem + LangChain
 - **Features**: Patient memory management, symptom tracking, medical history, intelligent context retrieval
@@ -50,6 +50,20 @@ This directory contains various examples demonstrating how to use powermem with 
   - Privacy-aware patient data isolation
   - Multi-turn conversation support
   - Scalable storage with OceanBase vector database
+
+### 5. Go Client Example (`go/`)
+- **Language**: Go 1.24+
+- **Database**: SQLite (default, no OceanBase required)
+- **Purpose**: Lightweight HTTP client for PowerMem API integration
+- **Run**: `cd examples/go && go run .`
+- **Demonstrates**:
+  - HTTP client setup with proper timeout settings
+  - All core memory operations (CRUD + search)
+  - Intelligent memory extraction (infer=true)
+  - Semantic search with relevance scoring
+  - Environment-based configuration
+  - Proper handling of 64-bit memory IDs
+  - Error handling best practices
 
 ## Configuration Files
 
@@ -87,9 +101,15 @@ This directory contains various examples demonstrating how to use powermem with 
    python examples/intelligent_memory_demo.py compare  # Compare modes
    
    # Healthcare Support Bot (PowerMem + LangChain integration with OceanBase)
-   cd examples/healthcare_support_bot
+   cd examples/langchain
    python healthcare_support_bot.py --mode demo  # Predefined demo conversation
    python healthcare_support_bot.py --mode interactive  # Interactive chat mode
+   
+   # Go Client Example (requires Go 1.21+ and running PowerMem server)
+   cd examples/go
+   go run .  # Uses default http://localhost:8000
+   # Or with custom config:
+   POWERMEM_BASE_URL=http://localhost:8000 POWERMEM_API_KEY=your-key go run .
    ```
 
 ## Database Backends

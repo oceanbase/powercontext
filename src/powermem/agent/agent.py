@@ -221,15 +221,24 @@ class AgentMemory:
         self._initialize_multi_agent()
     
     def _get_default_multi_agent_config(self) -> Dict[str, Any]:
-        """Get default multi-agent configuration with environment variable support."""
-        import os
+        """Get default multi-agent configuration from config or use AgentMemorySettings defaults."""
+        # Try to get from config first
+        agent_config = None
+        if 'agent_memory' in self.config:
+            agent_config = self.config['agent_memory']
+            if isinstance(agent_config, ConfigObject):
+                agent_config = agent_config._data if hasattr(agent_config, '_data') else agent_config.to_dict()
         
-        # Get environment variables with defaults
-        enabled = os.getenv('AGENT_ENABLED', 'true').lower() == 'true'
-        default_scope = os.getenv('AGENT_DEFAULT_SCOPE', 'AGENT')
-        default_privacy_level = os.getenv('AGENT_DEFAULT_PRIVACY_LEVEL', 'PRIVATE')
-        default_collaboration_level = os.getenv('AGENT_DEFAULT_COLLABORATION_LEVEL', 'READ_ONLY')
-        default_access_permission = os.getenv('AGENT_DEFAULT_ACCESS_PERMISSION', 'OWNER_ONLY')
+        # Use AgentMemorySettings defaults (aligned with config_loader)
+        from powermem.config_loader import AgentMemorySettings
+        settings = AgentMemorySettings()
+        
+        # Extract values from config if available, otherwise use Settings defaults
+        enabled = agent_config.get('enabled', settings.enabled) if agent_config else settings.enabled
+        default_scope = agent_config.get('default_scope', settings.default_scope) if agent_config else settings.default_scope
+        default_privacy_level = agent_config.get('default_privacy_level', settings.default_privacy_level) if agent_config else settings.default_privacy_level
+        default_collaboration_level = agent_config.get('default_collaboration_level', settings.default_collaboration_level) if agent_config else settings.default_collaboration_level
+        default_access_permission = agent_config.get('default_access_permission', settings.default_access_permission) if agent_config else settings.default_access_permission
         
         return {
             'enabled': enabled,
@@ -267,15 +276,25 @@ class AgentMemory:
         }
     
     def _get_default_multi_user_config(self) -> Dict[str, Any]:
-        """Get default multi-user configuration with environment variable support."""
-        import os
+        """Get default multi-user configuration from config or use AgentMemorySettings defaults."""
+        # Try to get from config first
+        agent_config = None
+        if 'agent_memory' in self.config:
+            agent_config = self.config['agent_memory']
+            if isinstance(agent_config, ConfigObject):
+                agent_config = agent_config._data if hasattr(agent_config, '_data') else agent_config.to_dict()
         
-        # Get environment variables with defaults
-        enabled = os.getenv('AGENT_ENABLED', 'true').lower() == 'true'
-        default_scope = os.getenv('AGENT_DEFAULT_SCOPE', 'USER_GROUP')
-        default_privacy_level = os.getenv('AGENT_DEFAULT_PRIVACY_LEVEL', 'PRIVATE')
-        default_collaboration_level = os.getenv('AGENT_DEFAULT_COLLABORATION_LEVEL', 'READ_ONLY')
-        default_access_permission = os.getenv('AGENT_DEFAULT_ACCESS_PERMISSION', 'OWNER_ONLY')
+        # Use AgentMemorySettings defaults (aligned with config_loader)
+        from powermem.config_loader import AgentMemorySettings
+        settings = AgentMemorySettings()
+        
+        # Extract values from config if available, otherwise use Settings defaults
+        # For multi_user mode, default_scope should be 'USER_GROUP' if not specified
+        enabled = agent_config.get('enabled', settings.enabled) if agent_config else settings.enabled
+        default_scope = agent_config.get('default_scope', 'USER_GROUP') if agent_config else 'USER_GROUP'
+        default_privacy_level = agent_config.get('default_privacy_level', settings.default_privacy_level) if agent_config else settings.default_privacy_level
+        default_collaboration_level = agent_config.get('default_collaboration_level', settings.default_collaboration_level) if agent_config else settings.default_collaboration_level
+        default_access_permission = agent_config.get('default_access_permission', settings.default_access_permission) if agent_config else settings.default_access_permission
         
         return {
             'enabled': enabled,
@@ -300,15 +319,24 @@ class AgentMemory:
         }
     
     def _get_default_hybrid_config(self) -> Dict[str, Any]:
-        """Get default hybrid configuration with environment variable support."""
-        import os
+        """Get default hybrid configuration from config or use AgentMemorySettings defaults."""
+        # Try to get from config first
+        agent_config = None
+        if 'agent_memory' in self.config:
+            agent_config = self.config['agent_memory']
+            if isinstance(agent_config, ConfigObject):
+                agent_config = agent_config._data if hasattr(agent_config, '_data') else agent_config.to_dict()
         
-        # Get environment variables with defaults
-        enabled = os.getenv('AGENT_ENABLED', 'true').lower() == 'true'
-        default_scope = os.getenv('AGENT_DEFAULT_SCOPE', 'AGENT')
-        default_privacy_level = os.getenv('AGENT_DEFAULT_PRIVACY_LEVEL', 'PRIVATE')
-        default_collaboration_level = os.getenv('AGENT_DEFAULT_COLLABORATION_LEVEL', 'READ_ONLY')
-        default_access_permission = os.getenv('AGENT_DEFAULT_ACCESS_PERMISSION', 'OWNER_ONLY')
+        # Use AgentMemorySettings defaults (aligned with config_loader)
+        from powermem.config_loader import AgentMemorySettings
+        settings = AgentMemorySettings()
+        
+        # Extract values from config if available, otherwise use Settings defaults
+        enabled = agent_config.get('enabled', settings.enabled) if agent_config else settings.enabled
+        default_scope = agent_config.get('default_scope', settings.default_scope) if agent_config else settings.default_scope
+        default_privacy_level = agent_config.get('default_privacy_level', settings.default_privacy_level) if agent_config else settings.default_privacy_level
+        default_collaboration_level = agent_config.get('default_collaboration_level', settings.default_collaboration_level) if agent_config else settings.default_collaboration_level
+        default_access_permission = agent_config.get('default_access_permission', settings.default_access_permission) if agent_config else settings.default_access_permission
         
         return {
             'enabled': enabled,

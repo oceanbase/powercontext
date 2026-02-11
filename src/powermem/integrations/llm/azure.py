@@ -46,7 +46,7 @@ class AzureLLM(LLMBase):
 
         # Get Azure endpoint from config or environment
         azure_endpoint = (
-            self.config.azure_endpoint
+            getattr(self.config, "azure_endpoint", None)
             or os.getenv("AZURE_OPENAI_ENDPOINT")
             or os.getenv("ENDPOINT_URL")
         )
@@ -59,18 +59,19 @@ class AzureLLM(LLMBase):
 
         # Get API version from config or environment
         api_version = (
-            self.config.api_version
+            getattr(self.config, "api_version", None)
             or os.getenv("AZURE_OPENAI_API_VERSION")
             or "2025-01-01-preview"
         )
 
         # Initialize Azure OpenAI client
         # Support both API key and Azure AD token authentication
-        if self.config.azure_ad_token_provider:
+        azure_ad_token_provider = getattr(self.config, "azure_ad_token_provider", None)
+        if azure_ad_token_provider:
             # Use Azure AD token provider (Entra ID authentication)
             self.client = AzureOpenAI(
                 azure_endpoint=azure_endpoint,
-                azure_ad_token_provider=self.config.azure_ad_token_provider,
+                azure_ad_token_provider=azure_ad_token_provider,
                 api_version=api_version,
             )
         else:
@@ -190,9 +191,10 @@ class AzureLLM(LLMBase):
         response = self.client.chat.completions.create(**params)
         parsed_response = self._parse_response(response, tools)
 
-        if hasattr(self.config, "response_callback") and self.config.response_callback:
+        response_callback = getattr(self.config, "response_callback", None)
+        if response_callback:
             try:
-                self.config.response_callback(self, response, params)
+                response_callback(self, response, params)
             except Exception as e:
                 # Log error but don't propagate
                 logging.error(f"Error due to callback: {e}")

@@ -1,65 +1,73 @@
-from abc import ABC
-from typing import Optional
+from typing import Any, ClassVar, Dict, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field
+from pydantic_settings import BaseSettings
 
-
-class BaseSparseEmbedderConfig(ABC):
-    """
-    Base config for Sparse Embeddings.
-    This is an abstract base class used by specific sparse embedding implementations.
-    """
-
-    def __init__(
-        self,
-        model: Optional[str] = None,
-        api_key: Optional[str] = None,
-        embedding_dims: Optional[int] = None,
-        base_url: Optional[str] = None,
-    ):
-        """
-        Initializes a configuration class instance for the Sparse Embeddings.
-
-        :param model: Embedding model to use, defaults to None
-        :type model: Optional[str], optional
-        :param api_key: API key to use, defaults to None
-        :type api_key: Optional[str], optional
-        :param embedding_dims: The number of dimensions in the embedding, defaults to None
-        :type embedding_dims: Optional[int], optional
-        :param base_url: Base URL for the API, defaults to None
-        :type base_url: Optional[str], optional
-        """
-
-        self.model = model
-        self.api_key = api_key
-        self.embedding_dims = embedding_dims
-        self.base_url = base_url
+from powermem.settings import settings_config
 
 
-class SparseEmbedderConfig(BaseModel):
-    """
-    Configuration for sparse embedder in MemoryConfig.
-    This is a Pydantic model used in MemoryConfig, similar to EmbedderConfig.
-    """
+class BaseSparseEmbedderConfig(BaseSettings):
+    """Common sparse embedding configuration shared by all providers."""
 
-    provider: str = Field(
-        description="Provider of the sparse embedding model (e.g., 'qwen')",
+    model_config = settings_config("SPARSE_EMBEDDER_", extra="allow", env_file=None)
+
+    _provider_name: ClassVar[Optional[str]] = None
+    _class_path: ClassVar[Optional[str]] = None
+    _registry: ClassVar[dict[str, type["BaseSparseEmbedderConfig"]]] = {}
+    _class_paths: ClassVar[dict[str, str]] = {}
+
+    @classmethod
+    def _register_provider(cls) -> None:
+        provider = getattr(cls, "_provider_name", None)
+        class_path = getattr(cls, "_class_path", None)
+        if provider:
+            BaseSparseEmbedderConfig._registry[provider] = cls
+            if class_path:
+                BaseSparseEmbedderConfig._class_paths[provider] = class_path
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+        cls._register_provider()
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs) -> None:
+        super().__pydantic_init_subclass__(**kwargs)
+        cls._register_provider()
+
+    @classmethod
+    def get_provider_config_cls(
+        cls, provider: str
+    ) -> Optional[type["BaseSparseEmbedderConfig"]]:
+        return cls._registry.get(provider)
+
+    @classmethod
+    def get_provider_class_path(cls, provider: str) -> Optional[str]:
+        return cls._class_paths.get(provider)
+
+    @classmethod
+    def has_provider(cls, provider: str) -> bool:
+        return provider in cls._registry
+
+    model: Optional[str] = Field(
         default=None,
+        description="Sparse embedding model identifier.",
     )
-    config: Optional[dict] = Field(
-        description="Configuration for the specific sparse embedding model",
-        default={}
+    api_key: Optional[str] = Field(
+        default=None,
+        description="API key used for provider authentication.",
+    )
+    embedding_dims: Optional[int] = Field(
+        default=None,
+        description="Sparse embedding vector dimensions, when configurable.",
+    )
+    base_url: Optional[str] = Field(
+        default=None,
+        description="Base URL for the sparse embedding provider.",
     )
 
-    @field_validator("config")
-    def validate_config(cls, v, values):
-        provider = values.data.get("provider")
-        
-        # Import here to avoid circular import
-        from powermem.integrations.embeddings.sparse_factory import SparseEmbedderFactory
-        
-        if provider in SparseEmbedderFactory.provider_to_class:
-            return v
-        else:
-            raise ValueError(f"Unsupported sparse embedding provider: {provider}")
+    def to_component_dict(self) -> Dict[str, Any]:
+        return {
+            "provider": self._provider_name,
+            "config": self.model_dump(exclude_none=True),
+        }
 

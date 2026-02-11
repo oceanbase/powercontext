@@ -85,7 +85,7 @@ class CustomEmbedderConfig(BaseEmbedderConfig):
     
     def __init__(
         self,
-        dims: int = 768,
+        dims: int = 1536,
         embedding_dims: Optional[int] = None,
         model: Optional[str] = None,
         api_key: Optional[str] = None,
@@ -196,9 +196,7 @@ def test_step1_custom_llm_provider() -> None:
     LLMFactory.register_provider("custom", f"{__name__}.CustomLLM", CustomLLMConfig)
     
     # Also register custom vector store for testing
-    VectorStoreFactory.provider_to_class.update({
-        "custom": f"{__name__}.CustomVectorStore"
-    })
+    VectorStoreFactory.register_provider("custom", f"{__name__}.CustomVectorStore")
     
     print("✓ CustomLLM class defined")
     print("✓ Custom LLM provider registered successfully")
@@ -219,7 +217,7 @@ def test_step1_custom_llm_provider() -> None:
             'config': {
                 'api_key': 'test_key',
                 'model': 'test_model',
-                'embedding_dims': 768
+                'embedding_dims': 1536
             }
         }
     }
@@ -275,7 +273,7 @@ class CustomEmbedder(EmbeddingBase):
         # Access config attributes
         self.api_key = getattr(self.config, 'api_key', '')
         self.model = getattr(self.config, 'model', 'default')
-        self.dims = getattr(self.config, 'dims', 768)
+        self.dims = getattr(self.config, 'dims', 1536)
     
     def embed(self, text, memory_action=None) -> List[float]:
         """Generate embedding for text"""
@@ -307,7 +305,7 @@ def test_step2_custom_embedder_provider() -> None:
             'config': {
                 'api_key': 'your_key',
                 'model': 'your_model',
-                'embedding_dims': 768
+                'embedding_dims': 1536
             }
         }
 
@@ -379,7 +377,7 @@ class CustomVectorStore(VectorStoreBase):
         """Insert vectors into a collection"""
         col_name = self.collection_name
         if col_name not in self._storage:
-            self.create_col(col_name, len(vectors[0]) if vectors else 768, "cosine")
+            self.create_col(col_name, len(vectors[0]) if vectors else 1536, "cosine")
         
         if ids is None:
             ids = [f"mem_{len(self._vectors[col_name]) + i}" for i in range(len(vectors))]
@@ -485,7 +483,7 @@ class CustomVectorStore(VectorStoreBase):
         """Reset by delete the collection and recreate it"""
         col_name = self.collection_name
         self.delete_col()
-        self.create_col(col_name, 768, "cosine")
+        self.create_col(col_name, 1536, "cosine")
         return True
 
     def get_statistics(self, filters=None):
@@ -518,9 +516,7 @@ def test_step3_custom_vector_store() -> None:
     
     from powermem.storage.factory import VectorStoreFactory
     
-    VectorStoreFactory.provider_to_class.update({
-        "custom": f"{__name__}.CustomVectorStore"
-    })
+    VectorStoreFactory.register_provider("custom", f"{__name__}.CustomVectorStore")
     
     print("✓ CustomVectorStore class defined")
     print("✓ Custom Vector Store provider registered successfully")
@@ -540,7 +536,7 @@ def test_step3_custom_vector_store() -> None:
             'config': {
                 'api_key': 'test_key',
                 'model': 'test_model',
-                'embedding_dims': 768
+                'embedding_dims': 1536
             }
         },
         'vector_store': {
@@ -680,7 +676,7 @@ def test_step4_langchain_integration() -> None:
                 'config': {
                     'api_key': 'test_key',
                     'model': 'test_model',
-                    'embedding_dims': 768
+                    'embedding_dims': 1536
                 }
             },
             'vector_store': {
@@ -812,7 +808,7 @@ def test_step4_langchain_integration() -> None:
                     'config': {
                         'api_key': 'test_key',
                         'model': 'test_model',
-                        'embedding_dims': 768
+                        'embedding_dims': 1536
                     }
                 },
                 'vector_store': {
@@ -948,14 +944,12 @@ def test_step5_fastapi_integration() -> None:
             from powermem.storage.factory import VectorStoreFactory
             
             # Ensure custom providers are registered
-            if 'custom' not in LLMFactory.provider_to_class:
+            if 'custom' not in LLMFactory.get_supported_providers():
                 LLMFactory.register_provider("custom", f"{__name__}.CustomLLM", CustomLLMConfig)
             if not BaseEmbedderConfig.has_provider("custom"):
                 print("⚠ Custom embedder config is not registered")
-            if 'custom' not in VectorStoreFactory.provider_to_class:
-                VectorStoreFactory.provider_to_class.update({
-                    "custom": f"{__name__}.CustomVectorStore"
-                })
+            if 'custom' not in VectorStoreFactory.get_supported_providers():
+                VectorStoreFactory.register_provider("custom", f"{__name__}.CustomVectorStore")
             
             # Define Pydantic models for request/response
             class MemoryRequest(BaseModel):
@@ -987,7 +981,7 @@ def test_step5_fastapi_integration() -> None:
                     'config': {
                         'api_key': 'test_key',
                         'model': 'test_model',
-                        'embedding_dims': 768
+                        'embedding_dims': 1536
                     }
                 },
                 'vector_store': {
@@ -1415,7 +1409,7 @@ def test_complete_example() -> None:
                 'config': {
                     'api_key': 'test_key',
                     'model': 'test_model',
-                    'embedding_dims': 768
+                    'embedding_dims': 1536
                 }
             },
             'vector_store': {

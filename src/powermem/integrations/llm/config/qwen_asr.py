@@ -1,6 +1,9 @@
 from typing import Optional
 
+from pydantic import AliasChoices, Field
+
 from powermem.integrations.llm.config.base import BaseLLMConfig
+from powermem.settings import settings_config
 
 
 class QwenASRConfig(BaseLLMConfig):
@@ -9,38 +12,39 @@ class QwenASRConfig(BaseLLMConfig):
     Inherits from BaseLLMConfig and adds ASR-specific settings.
     """
 
-    def __init__(
-            self,
-            # Base parameters (only model and api_key are used for ASR)
-            model: Optional[str] = None,
-            api_key: Optional[str] = None,
-            # ASR-specific parameters
-            dashscope_base_url: Optional[str] = None,
-            asr_options: Optional[dict] = None,
-            result_format: str = "message",
-    ):
-        """
-        Initialize Qwen ASR configuration.
+    _provider_name = "qwen_asr"
+    _class_path = "powermem.integrations.llm.qwen_asr.QwenASR"
 
-        Args:
-            model: Qwen ASR model to use, defaults to "qwen3-asr-flash"
-            api_key: DashScope API key, defaults to None
-            dashscope_base_url: DashScope API base URL, defaults to None
-            asr_options: ASR-specific options (e.g., language, enable_itn), defaults to {"enable_itn": True}
-            result_format: Result format for ASR response, defaults to "message"
-        """
-        # Initialize base parameters with defaults (ASR doesn't use these parameters)
-        super().__init__(
-            model=model,
-            api_key=api_key,
-        )
+    model_config = settings_config("LLM_", extra="forbid", env_file=None)
 
-        # ASR-specific parameters
-        self.dashscope_base_url = dashscope_base_url
-        # Default asr_options with enable_itn enabled
-        if asr_options is None:
-            self.asr_options = {"enable_itn": True}
-        else:
-            self.asr_options = asr_options
-        self.result_format = result_format
+    # Override base fields with ASR-specific validation_alias
+    api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "api_key",
+            "LLM_API_KEY",
+            "QWEN_API_KEY",
+            "DASHSCOPE_API_KEY",
+        ),
+        description="DashScope API key for Qwen ASR"
+    )
 
+    # ASR-specific fields
+    dashscope_base_url: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "dashscope_base_url",
+            "QWEN_LLM_BASE_URL",
+        ),
+        description="DashScope API base URL"
+    )
+    
+    asr_options: Optional[dict] = Field(
+        default_factory=lambda: {"enable_itn": True},
+        description="ASR-specific options (e.g., language, enable_itn)"
+    )
+    
+    result_format: str = Field(
+        default="message",
+        description="Result format for ASR response"
+    )

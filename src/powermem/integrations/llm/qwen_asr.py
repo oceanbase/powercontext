@@ -55,7 +55,7 @@ class QwenASR(LLMBase):
         dashscope.api_key = api_key
 
         # Set base URL
-        base_url = self.config.dashscope_base_url or os.getenv(
+        base_url = getattr(self.config, "dashscope_base_url", None) or os.getenv(
             "DASHSCOPE_BASE_URL") or "https://dashscope.aliyuncs.com/api/v1"
 
         if base_url:
@@ -119,11 +119,12 @@ class QwenASR(LLMBase):
             "api_key": self.config.api_key or os.getenv("DASHSCOPE_API_KEY"),
             "model": self.config.model,
             "messages": messages,
-            "result_format": self.config.result_format,
+            "result_format": getattr(self.config, "result_format", "message"),
         }
 
         # Add ASR options
-        asr_options = kwargs.get("asr_options", self.config.asr_options)
+        config_asr_options = getattr(self.config, "asr_options", None)
+        asr_options = kwargs.get("asr_options", config_asr_options)
         if asr_options:
             asr_params["asr_options"] = asr_options
 
@@ -167,5 +168,5 @@ class QwenASR(LLMBase):
             }
         ]
 
-        return self.generate_response(messages, asr_options=asr_options or self.config.asr_options)
+        return self.generate_response(messages, asr_options=asr_options or getattr(self.config, "asr_options", None))
 

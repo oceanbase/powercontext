@@ -47,7 +47,7 @@ class SiliconFlowLLM(LLMBase):
         api_key = self.config.api_key or os.getenv("SILICONFLOW_API_KEY") or os.getenv("LLM_API_KEY")
         # Default base URL for SiliconFlow
         base_url = (
-            self.config.openai_base_url
+            getattr(self.config, "openai_base_url", None)
             or os.getenv("SILICONFLOW_LLM_BASE_URL")
             or "https://api.siliconflow.cn/v1"
         )
@@ -141,9 +141,10 @@ class SiliconFlowLLM(LLMBase):
         response = self.client.chat.completions.create(**params)
         parsed_response = self._parse_response(response, tools)
         
-        if self.config.response_callback:
+        response_callback = getattr(self.config, "response_callback", None)
+        if response_callback:
             try:
-                self.config.response_callback(self, response, params)
+                response_callback(self, response, params)
             except Exception as e:
                 # Log error but don't propagate
                 logging.error(f"Error due to callback: {e}")

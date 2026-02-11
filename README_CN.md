@@ -210,8 +210,9 @@ MCP Server提供记忆管理工具，包括添加、搜索、更新和删除记�
 
 | Version | Release Date | Function |
 |---------|-------|---------|
+| 0.5.0 | 2026.02.06 | <ul><li>统一 SDK/API Server 配置治理（基于 pydantic-settings）</li><li>新增 OceanBase native hybrid search 支持<li>增强 Memory 查询处理并支持记忆列表排序</li><li>新增用户画像支持自定义原生语言<li></ul> |
 | 0.4.0 | 2026.01.20 | <ul><li>稀疏向量支持，增强混合检索能力，融合密集向量、全文检索和稀疏向量三种检索方式</li><li>用户画像查询改写功能，基于用户画像自动改写查询以提升搜索召回率</li><li>表结构升级和数据迁移工具，支持现有表的平滑升级</li></ul> |
-| 0.3.0 |  2026.01.09 | <ul><li>生产就绪的 HTTP API Server，提供所有记忆操作的 RESTful 端点</li><li>Docker 支持，便于部署和容器化</li>></ul> |
+| 0.3.0 |  2026.01.09 | <ul><li>生产就绪的 HTTP API Server，提供所有记忆操作的 RESTful 接口</li><li>Docker 支持，便于部署和容器化</li>></ul> |
 | 0.2.0 | 2025.12.16 | <ul><li>高级用户画像管理，支持 AI 应用的"千人千面"</li><li>扩展多模态支持，包括文本、图像和音频记忆</li></ul> |
 | 0.1.0 | 2025.11.14 | <ul><li>核心记忆管理功能，支持持久化存储记忆</li><li>支持向量、全文和图的混合检索</li><li>基于 LLM 的事实提取智能记忆</li><li>支持基于艾宾浩斯遗忘曲线的全生命周期记忆管理</li><li>支持 Multi-Agent 记忆管理</li><li>多存储后端支持（OceanBase、PostgreSQL、SQLite）</li><li>支持通过多跳图检索的方式处理知识图谱的检索</li></ul> |
 
