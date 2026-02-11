@@ -5,6 +5,7 @@ This module provides the synchronous memory management interface.
 """
 
 import logging
+import os
 import warnings
 import hashlib
 import json
@@ -29,6 +30,7 @@ from .audit import AuditLogger
 from ..intelligence.memory_optimizer import MemoryOptimizer
 from ..intelligence.plugin import IntelligentMemoryPlugin, EbbinghausIntelligencePlugin
 from ..utils.utils import remove_code_blocks, convert_config_object_to_dict, parse_vision_messages, set_timezone
+from ..utils.io import export_to_json, export_to_csv, import_from_json, import_from_csv
 from ..prompts.intelligent_memory_prompts import (
     FACT_RETRIEVAL_PROMPT,
     FACT_EXTRACTION_PROMPT,
@@ -1952,3 +1954,80 @@ class Memory(MemoryBase):
         converted_config = _auto_convert_config(config)
         
         return cls(config=converted_config, **kwargs)
+
+    def export_memories(
+        self,
+        format: str = "json",
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        limit: int = 1000,
+    ) -> str:
+        """Export memories to JSON or CSV format.
+        
+        Args:
+            format: Export format ("json" or "csv")
+            user_id: Filter by user ID
+            agent_id: Filter by agent ID
+            run_id: Filter by run ID
+            limit: Maximum number of memories to export
+            
+        Returns:
+            str: Exported content string
+        """
+        result = self.get_all(user_id=user_id, agent_id=agent_id, run_id=run_id, limit=limit)
+        memories = result.get("results", [])
+        
+        if format.lower() == "json":
+            return export_to_json(memories)
+        elif format.lower() == "csv":
+            return export_to_csv(memories)
+        else:
+            raise ValueError(f"Unsupported export format: {format}")
+
+    def import_memories(
+        self,
+        source: str,
+        format: str = "json",
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """Import memories from JSON or CSV format.
+        
+        Args:
+            source: Content string to import
+            format: Import format ("json" or "csv")
+            user_id: Override user ID for imported memories
+            agent_id: Override agent ID for imported memories
+            
+        Returns:
+            Dict with success and failed counts
+        """
+        if format.lower() == "json":
+            memories = import_from_json(source)
+        elif format.lower() == "csv":
+            memories = import_from_csv(source)
+        else:
+            raise ValueError(f"Unsupported import format: {format}")
+        
+        success = 0
+        failed = 0
+        
+        for memory in memories:
+            try:
+                # Use overridden IDs if provided
+                mem_user_id = user_id or memory.get('user_id')
+                mem_agent_id = agent_id or memory.get('agent_id')
+                
+                self.add(
+                    content=memory['content'],
+                    user_id=mem_user_id,
+                    agent_id=mem_agent_id,
+                    metadata=memory.get('metadata', {}),
+                )
+                success += 1
+            except Exception as e:
+                logger.error(f"Failed to import memory: {e}")
+                failed += 1
+        
+        return {"success": success, "failed": failed}
