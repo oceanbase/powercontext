@@ -43,6 +43,55 @@ class TestListMemoriesSorting:
             output_data_list.append(output_data)
         return output_data_list
     
+    def _create_mock_list_with_sorting(self, output_data_list):
+        """Create a mock list function that supports sorting and pagination."""
+        def list_side_effect(filters=None, limit=None, offset=None, order_by=None, order="desc"):
+            # Start with all data
+            result = output_data_list[:]
+            
+            # Apply sorting if order_by is specified
+            if order_by:
+                # Extract sort key from payload or object attributes
+                def get_sort_key(item):
+                    # Special handling for 'id' field - it's on the object itself
+                    if order_by == 'id':
+                        value = item.id if hasattr(item, 'id') else item.get('id')
+                    # For other fields, check payload first
+                    elif hasattr(item, 'payload'):
+                        value = item.payload.get(order_by)
+                    else:
+                        value = item.get(order_by)
+                    
+                    # Handle None values - put them at the end for both asc and desc
+                    if value is None:
+                        # Use a very large/small value to push None to the end
+                        from datetime import datetime
+                        if order == "desc":
+                            return datetime.min  # None goes to end (smallest)
+                        else:
+                            return datetime.max  # None goes to end (largest)
+                    
+                    return value
+                
+                # Sort the results
+                reverse = (order == "desc")
+                try:
+                    result = sorted(result, key=get_sort_key, reverse=reverse)
+                except Exception as e:
+                    # If sorting fails, return unsorted
+                    print(f"Sorting failed: {e}")
+                    pass
+            
+            # Apply pagination (offset and limit)
+            if offset is not None:
+                result = result[offset:]
+            if limit is not None:
+                result = result[:limit]
+            
+            return result
+        
+        return list_side_effect
+    
     def test_get_all_with_sort_by_updated_at_desc(self, mock_memory):
         """Test get_all with sorting by updated_at in descending order."""
         # Create test data with different update times
@@ -71,12 +120,9 @@ class TestListMemoriesSorting:
         # Mock vector_store.list to return OutputData objects
         # Need to handle both with filters and without filters calls
         output_data_list = self._create_output_data_list(test_memories_data)
-        
-        def list_side_effect(filters=None, limit=None):
-            # Return the mock data regardless of filters (filtering happens in get_all_memories)
-            return output_data_list
-        
-        mock_memory.storage.vector_store.list = MagicMock(side_effect=list_side_effect)
+        mock_memory.storage.vector_store.list = MagicMock(
+            side_effect=self._create_mock_list_with_sorting(output_data_list)
+        )
         
         result = mock_memory.get_all(
             user_id="test_user",
@@ -120,11 +166,9 @@ class TestListMemoriesSorting:
         ]
         
         output_data_list = self._create_output_data_list(test_memories_data)
-        
-        def list_side_effect(filters=None, limit=None):
-            return output_data_list
-        
-        mock_memory.storage.vector_store.list = MagicMock(side_effect=list_side_effect)
+        mock_memory.storage.vector_store.list = MagicMock(
+            side_effect=self._create_mock_list_with_sorting(output_data_list)
+        )
         
         result = mock_memory.get_all(
             user_id="test_user",
@@ -168,11 +212,9 @@ class TestListMemoriesSorting:
         ]
         
         output_data_list = self._create_output_data_list(test_memories_data)
-        
-        def list_side_effect(filters=None, limit=None):
-            return output_data_list
-        
-        mock_memory.storage.vector_store.list = MagicMock(side_effect=list_side_effect)
+        mock_memory.storage.vector_store.list = MagicMock(
+            side_effect=self._create_mock_list_with_sorting(output_data_list)
+        )
         
         result = mock_memory.get_all(
             user_id="test_user",
@@ -199,11 +241,9 @@ class TestListMemoriesSorting:
         ]
         
         output_data_list = self._create_output_data_list(test_memories_data)
-        
-        def list_side_effect(filters=None, limit=None):
-            return output_data_list
-        
-        mock_memory.storage.vector_store.list = MagicMock(side_effect=list_side_effect)
+        mock_memory.storage.vector_store.list = MagicMock(
+            side_effect=self._create_mock_list_with_sorting(output_data_list)
+        )
         
         result = mock_memory.get_all(
             user_id="test_user",
@@ -230,11 +270,9 @@ class TestListMemoriesSorting:
         ]
         
         output_data_list = self._create_output_data_list(test_memories_data)
-        
-        def list_side_effect(filters=None, limit=None):
-            return output_data_list
-        
-        mock_memory.storage.vector_store.list = MagicMock(side_effect=list_side_effect)
+        mock_memory.storage.vector_store.list = MagicMock(
+            side_effect=self._create_mock_list_with_sorting(output_data_list)
+        )
         
         result = mock_memory.get_all(
             user_id="test_user",
@@ -276,11 +314,9 @@ class TestListMemoriesSorting:
         ]
         
         output_data_list = self._create_output_data_list(test_memories_data)
-        
-        def list_side_effect(filters=None, limit=None):
-            return output_data_list
-        
-        mock_memory.storage.vector_store.list = MagicMock(side_effect=list_side_effect)
+        mock_memory.storage.vector_store.list = MagicMock(
+            side_effect=self._create_mock_list_with_sorting(output_data_list)
+        )
         
         result = mock_memory.get_all(
             user_id="test_user",
@@ -316,11 +352,9 @@ class TestListMemoriesSorting:
         ]
         
         output_data_list = self._create_output_data_list(test_memories_data)
-        
-        def list_side_effect(filters=None, limit=None):
-            return output_data_list
-        
-        mock_memory.storage.vector_store.list = MagicMock(side_effect=list_side_effect)
+        mock_memory.storage.vector_store.list = MagicMock(
+            side_effect=self._create_mock_list_with_sorting(output_data_list)
+        )
         
         # Get first page
         result1 = mock_memory.get_all(
