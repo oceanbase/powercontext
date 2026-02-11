@@ -4,7 +4,8 @@ Memory management API routes
 
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, UploadFile, File
+from fastapi.responses import Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -436,4 +437,80 @@ async def delete_memory(
         success=True,
         data={"memory_id": memory_id},
         message="Memory deleted successfully",
+    )
+
+
+@router.get(
+    "/export",
+    summary="Export memories",
+    description="Export memories to JSON or CSV file",
+)
+@limiter.limit(get_rate_limit_string())
+async def export_memories(
+    request: Request,
+    format: str = Query("json", description="Export format (json/csv)"),
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    run_id: Optional[str] = Query(None, description="Filter by run ID"),
+    limit: int = Query(1000, ge=1, le=10000, description="Max memories to export"),
+    api_key: str = Depends(verify_api_key),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """Export memories"""
+    content = service.memory.export_memories(
+        format=format,
+        user_id=user_id,
+        agent_id=agent_id,
+        run_id=run_id,
+        limit=limit,
+    )
+
+    media_type = "application/json" if format.lower() == "json" else "text/csv"
+    filename = f"memories_export.{format.lower()}"
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.post(
+    "/import",
+    response_model=APIResponse,
+    summary="Import memories",
+    description="Import memories from JSON or CSV file",
+)
+@limiter.limit(get_rate_limit_string())
+async def import_memories(
+    request: Request,
+    file: UploadFile = File(...),
+    user_id: Optional[str] = Query(None, description="Override user ID"),
+    agent_id: Optional[str] = Query(None, description="Override agent ID"),
+    api_key: str = Depends(verify_api_key),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """Import memories"""
+    content = (await file.read()).decode("utf-8")
+
+    # Auto-detect format from filename extension
+    filename = file.filename or "import.json"
+    fmt = "json"
+    if filename.lower().endswith(".csv"):
+        fmt = "csv"
+    elif filename.lower().endswith(".json"):
+        fmt = "json"
+
+    result = service.memory.import_memories(
+        source=content,
+        format=fmt,
+        is_file=False,
+        user_id=user_id,
+        agent_id=agent_id,
+    )
+
+    return APIResponse(
+        success=True,
+        data=result,
+        message=f"Import completed: {result['success']} success, {result['failed']} failed",
     )
