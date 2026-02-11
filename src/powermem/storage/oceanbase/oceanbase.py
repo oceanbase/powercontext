@@ -477,7 +477,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             logger.error(f"Failed to insert vectors into collection '{self.collection_name}': {e}", exc_info=True)
             raise
 
-    def _generate_where_clause(self, filters: Optional[Dict] = None, table = None) -> Optional[List]:
+    def _generate_where_clause(self, filters: Optional[Dict] = None, table = None):
         """
         Generate a properly formatted where clause for OceanBase.
 
@@ -497,7 +497,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             table: SQLAlchemy Table object to use for column references. If None, uses self.table.
 
         Returns:
-            Optional[List]: List of SQLAlchemy ColumnElement objects for where clause.
+            SQLAlchemy ColumnElement or None: A single SQLAlchemy expression for where clause, or None if no filters.
         """
         # Use provided table or fall back to self.table
         if table is None:
@@ -582,7 +582,7 @@ class OceanBaseVectorStore(VectorStoreBase):
 
         # Handle complex filters with AND/OR
         result = process_condition(filters)
-        return [result] if result is not None else None
+        return result
 
     def _row_to_model(self, row):
         """
@@ -934,8 +934,8 @@ class OceanBaseVectorStore(VectorStoreBase):
 
         # Combine FTS condition with filter conditions
         where_conditions = [fts_condition]
-        if filter_where_clause:
-            where_conditions.extend(filter_where_clause)
+        if filter_where_clause is not None:
+            where_conditions.append(filter_where_clause)
 
         # Build custom query to include score field
         try:
@@ -1069,9 +1069,8 @@ class OceanBaseVectorStore(VectorStoreBase):
             stmt = select(*columns)
 
             # Add where conditions
-            if filter_where_clause:
-                for condition in filter_where_clause:
-                    stmt = stmt.where(condition)
+            if filter_where_clause is not None:
+                stmt = stmt.where(filter_where_clause)
 
             # Order by score ASC (lower negative_inner_product means higher similarity)
             stmt = stmt.order_by(text('score ASC'))
