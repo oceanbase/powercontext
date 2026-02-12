@@ -38,7 +38,7 @@ class JinaRerank(RerankBase):
         # Validate API key (config already handles env var loading)
         if not self.config.api_key:
             raise ValueError(
-                "API key is required. Set JINA_API_KEY or RERANK_API_KEY environment variable, "
+                "API key is required. Set JINA_API_KEY or RERANKER_API_KEY environment variable, "
                 "or pass api_key in config."
             )
 

@@ -58,7 +58,7 @@ class GenericRerank(RerankBase):
         # Validate API base URL (required, config handles env var loading)
         if not self.config.api_base_url:
             raise ValueError(
-                "api_base_url is required. Set RERANK_API_BASE_URL environment variable "
+                "api_base_url is required. Set RERANKER_API_BASE_URL environment variable "
                 "or pass api_base_url in config."
             )
 
