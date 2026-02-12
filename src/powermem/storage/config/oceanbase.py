@@ -219,6 +219,11 @@ class OceanBaseConfig(BaseVectorStoreConfig):
         default=None,
         description="Weight for sparse vector search"
     )
+    
+    reranker: Optional[Any] = Field(
+        default=None,
+        description="Reranker model for fine ranking in hybrid search"
+    )
 
 
 
