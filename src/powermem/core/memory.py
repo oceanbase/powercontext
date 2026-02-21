@@ -831,6 +831,13 @@ class Memory(MemoryBase):
                 }
                 search_filters.update(simple_metadata)
 
+            # Ensure user_id/agent_id are always in search_filters for correct isolation
+            # This prevents cross-user memory deduplication when content is similar
+            if user_id is not None:
+                search_filters['user_id'] = user_id
+            if agent_id is not None:
+                search_filters['agent_id'] = agent_id
+
             # Search for similar memories with reduced limit to reduce noise
             # Pass fact text to enable hybrid search for better results
             similar = self.storage.search_memories(

@@ -40,12 +40,12 @@ class PGVectorConfig(BaseVectorStoreConfig):
     )
     
     user: Optional[str] = Field(
-        default=None,
+        default="postgres",
         validation_alias=AliasChoices(
             "POSTGRES_USER",
             "user", # avoid using system USER environment variable first
         ),
-        description="Database user"
+        description="Database user. Default is postgres"
     )
     
     password: Optional[str] = Field(
@@ -58,7 +58,7 @@ class PGVectorConfig(BaseVectorStoreConfig):
     )
     
     host: Optional[str] = Field(
-        default=None,
+        default="127.0.0.1",
         validation_alias=AliasChoices(
             "host",
             "POSTGRES_HOST",
@@ -67,7 +67,7 @@ class PGVectorConfig(BaseVectorStoreConfig):
     )
     
     port: Optional[int] = Field(
-        default=None,
+        default=5432,
         validation_alias=AliasChoices(
             "port",
             "POSTGRES_PORT",
@@ -131,10 +131,17 @@ class PGVectorConfig(BaseVectorStoreConfig):
             return values
         user, password = values.get("user"), values.get("password")
         host, port = values.get("host"), values.get("port")
-        if user is not None or password is not None:
-            if not user or not password:
-                raise ValueError("Both 'user' and 'password' must be provided.")
-        if host is not None or port is not None:
-            if not host or not port:
-                raise ValueError("Both 'host' and 'port' must be provided.")
+        # Only enforce pairing when one is explicitly provided as non-default
+        # Allow defaults to fill in missing values
+        if user is not None and password is not None:
+            # Both explicitly provided — ok
+            pass
+        elif user is not None and user != "postgres" and password is None:
+            raise ValueError("'password' must be provided when 'user' is set.")
+        if host is not None and port is not None:
+            pass
+        elif host is not None and host != "127.0.0.1" and port is None:
+            raise ValueError("'port' must be provided when 'host' is set.")
+        elif port is not None and port != 5432 and host is None:
+            raise ValueError("'host' must be provided when 'port' is set.")
         return values
