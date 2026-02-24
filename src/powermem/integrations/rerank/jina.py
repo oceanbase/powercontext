@@ -143,7 +143,7 @@ class JinaRerank(RerankBase):
                 error_detail = e.response.json()
                 if "detail" in error_detail:
                     error_msg += f": {error_detail['detail']}"
-            except:
+            except (ValueError, KeyError):
                 error_msg += f": {e.response.text}"
             raise Exception(f"Failed to rerank documents: {error_msg}")
         except Exception as e:
