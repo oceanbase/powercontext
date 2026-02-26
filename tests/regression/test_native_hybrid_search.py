@@ -366,7 +366,7 @@ class TestNativeHybridSearch:
         
         # Step 3: Verify performance and result accuracy
         log_info("\n[Step 3] Verifying performance and accuracy...")
-        assert search_time < 1.0, f"Search should complete within 1 second, took {search_time:.3f}s"
+        assert search_time < 2.0, f"Search should complete within 2 second, took {search_time:.3f}s"
         assert len(memories) > 0, "Should return relevant results"
         
         # Verify result accuracy

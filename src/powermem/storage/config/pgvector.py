@@ -129,8 +129,10 @@ class PGVectorConfig(BaseVectorStoreConfig):
             return values
         if values.get("connection_string") is not None:
             return values
-        user, password = values.get("user"), values.get("password")
-        host, port = values.get("host"), values.get("port")
+        user = values.get("user") or values.get("POSTGRES_USER")
+        password = values.get("password") or values.get("POSTGRES_PASSWORD")
+        host = values.get("host") or values.get("POSTGRES_HOST")
+        port = values.get("port") or values.get("POSTGRES_PORT")
         if user is not None or password is not None:
             if not user or not password:
                 raise ValueError("Both 'user' and 'password' must be provided.")

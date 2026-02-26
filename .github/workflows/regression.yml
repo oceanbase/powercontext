@@ -88,18 +88,12 @@ jobs:
         run: |
           pip install -e ".[dev,test]"
 
-      # - name: Install Docker
-      #   run: |
-      #     curl -fsSL https://get.docker.com -o get-docker.sh
-      #     sudo sh get-docker.sh
-      
-
       - name: Deploy SeekDB (OceanBase)
         run: |
           # Remove existing container if it exists
           sudo docker rm -f seekdb 2>/dev/null || true
           # Start SeekDB container
-          sudo docker run -d -p 10001:2881 --name seekdb oceanbase/seekdb
+          sudo docker run -d -p 10001:2881 -e MEMORY_LIMIT=4G -e LOG_DISK_SIZE=4G -e DATAFILE_SIZE=4G -e DATAFILE_NEXT=4G -e DATAFILE_MAXSIZE=100G --name seekdb oceanbase/seekdb
           # Wait for database to be ready
           echo "Waiting for SeekDB to be ready..."
           timeout=60
@@ -149,6 +143,7 @@ jobs:
           sed -i 's|^GRAPH_STORE_PASSWORD=.*|GRAPH_STORE_PASSWORD=|' .env
           sed -i "s|^LLM_API_KEY=.*|LLM_API_KEY=${SILICONFLOW_CN_API_KEY}|" .env
           sed -i "s|^EMBEDDING_API_KEY=.*|EMBEDDING_API_KEY=${QWEN_API_KEY}|" .env
+          sed -i "s|^POWERMEM_SERVER_API_KEYS=.*|POWERMEM_SERVER_API_KEYS=key1,key2,key3|" .env
 
       - name: Run regression tests
         env:

@@ -240,8 +240,8 @@ class SQLiteVectorStore(VectorStoreBase):
                 "db_path": self.db_path
             }
     
-    def list(self, filters=None, limit=None) -> List[OutputData]:
-        """List all memories with optional filtering."""
+    def list(self, filters=None, limit=None, offset=None, order_by=None, order="desc") -> List[OutputData]:
+        """List all memories with optional filtering, pagination and sorting."""
         query = f"SELECT id, vector, payload FROM {self.collection_name}"
         query_params = []
         
@@ -256,8 +256,22 @@ class SQLiteVectorStore(VectorStoreBase):
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
         
+        # Add ORDER BY clause for sorting
+        if order_by:
+            order_upper = order.upper()
+            if order_by in ["created_at", "updated_at"]:
+                # Sort by JSON field in payload
+                query += f" ORDER BY json_extract(payload, '$.{order_by}') {order_upper}"
+            elif order_by == "id":
+                # Sort by id column
+                query += f" ORDER BY id {order_upper}"
+        
+        # Add LIMIT and OFFSET for pagination
+        # Note: In SQLite, LIMIT must come after ORDER BY and before OFFSET
         if limit:
             query += f" LIMIT {limit}"
+        if offset:
+            query += f" OFFSET {offset}"
         
         results = []
         with self._lock:

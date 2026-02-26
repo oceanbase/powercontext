@@ -68,8 +68,16 @@ class VectorStoreBase(ABC):
         pass
 
     @abstractmethod
-    def list(self, filters=None, limit=None):
-        """List all memories."""
+    def list(self, filters=None, limit=None, offset=None, order_by=None, order="desc"):
+        """List all memories with optional filtering, pagination and sorting.
+        
+        Args:
+            filters: Optional filters to apply
+            limit: Maximum number of results to return
+            offset: Number of results to skip
+            order_by: Field to sort by (e.g., "created_at", "updated_at", "id")
+            order: Sort order, "desc" for descending or "asc" for ascending
+        """
         pass
 
     @abstractmethod

@@ -25,6 +25,7 @@ CRITICAL Rules:
 2. COMPLETE: Extract self-contained facts with who/what/when/where when available.
 3. SEPARATE: Extract distinct facts separately, especially when they have different time periods.
 4. INTENTIONS & NEEDS: ALWAYS extract user intentions, needs, and requests even without time information. Examples: "Want to book a doctor appointment", "Need to call someone", "Plan to visit a place".
+5. LANGUAGE: DO NOT translate. Preserve the original language of the source text for each extracted fact. If the input is Chinese, output facts in Chinese; if English, output in English; if mixed-language, keep each fact in the language it appears in.
 
 Examples:
 Input: Hi.
@@ -51,7 +52,7 @@ Rules:
 - Extract from user/assistant messages only
 - Extract intentions, needs, and requests even without time information
 - If no relevant facts, return empty list
-- Preserve input language
+- Output must preserve the input language (no translation)
 
 Extract facts from the conversation below:"""
 
@@ -87,6 +88,7 @@ Update (enhance): Memory: [{{"id":"0","text":"Likes cricket"}}], Facts: ["Loves 
 Delete: Only clear contradictions (e.g., "Loves pizza" vs "Dislikes pizza"). Prefer UPDATE for time conflicts.
 
 Important: Use existing IDs only. Keep same ID when updating. Always preserve temporal information.
+LANGUAGE (CRITICAL): Do NOT translate memory text. Keep the same language as the incoming fact(s) and the original memory whenever possible.
 """
 
 # Alias for compatibility

@@ -380,7 +380,10 @@ class PGVectorStore(VectorStoreBase):
     def list(
         self,
         filters: Optional[dict] = None,
-        limit: Optional[int] = 100
+        limit: Optional[int] = 100,
+        offset: Optional[int] = None,
+        order_by: Optional[str] = None,
+        order: str = "desc"
     ) -> List[OutputData]:
         """
         List all vectors in a collection.
@@ -388,6 +391,9 @@ class PGVectorStore(VectorStoreBase):
         Args:
             filters (Dict, optional): Filters to apply to the list.
             limit (int, optional): Number of vectors to return. Defaults to 100.
+            offset (int, optional): Number of results to skip.
+            order_by (str, optional): Field to sort by (e.g., "created_at", "updated_at", "id").
+            order (str, optional): Sort order, "desc" for descending or "asc" for ascending.
 
         Returns:
             List[OutputData]: List of vectors.
@@ -401,16 +407,38 @@ class PGVectorStore(VectorStoreBase):
                 filter_params.extend([k, str(v)])
 
         filter_clause = "WHERE " + " AND ".join(filter_conditions) if filter_conditions else ""
+        
+        # Build ORDER BY clause for sorting
+        order_clause = ""
+        if order_by:
+            order_upper = order.upper()
+            if order_by in ["created_at", "updated_at"]:
+                # Sort by JSON field in payload
+                order_clause = f"ORDER BY payload->>'{order_by}' {order_upper}"
+            elif order_by == "id":
+                # Sort by id column
+                order_clause = f"ORDER BY id {order_upper}"
 
-        query = f"""
-            SELECT id, vector, payload
-            FROM {self.collection_name}
-            {filter_clause}
-            LIMIT %s
-        """
+        # Build query with all clauses
+        query_parts = [
+            f"SELECT id, vector, payload",
+            f"FROM {self.collection_name}",
+            filter_clause,
+            order_clause,
+        ]
+        
+        # Add OFFSET and LIMIT
+        if offset is not None:
+            query_parts.append("OFFSET %s")
+            filter_params.append(offset)
+        
+        query_parts.append("LIMIT %s")
+        filter_params.append(limit)
+        
+        query = "\n".join(part for part in query_parts if part)
 
         with self._get_cursor() as cur:
-            cur.execute(query, (*filter_params, limit))
+            cur.execute(query, tuple(filter_params))
             results = cur.fetchall()
         return [OutputData(id=r[0], score=None, payload=r[2]) for r in results]
 
