@@ -1,5 +1,10 @@
 version: '3.8'
 
+networks:
+  powermem-network:
+    driver: bridge
+    name: powermem-network
+
 services:
   powermem-server:
     build:
@@ -22,12 +27,19 @@ services:
       - POWERMEM_SERVER_CORS_ENABLED=${POWERMEM_SERVER_CORS_ENABLED:-true}
       - POWERMEM_SERVER_CORS_ORIGINS=${POWERMEM_SERVER_CORS_ORIGINS:-*}
       - POWERMEM_DATABASE_URL=${POWERMEM_DATABASE_URL:-}
+      # Database configuration for connecting to seekdb
+      # Use SEEKDB_ROOT_PASSWORD variable for unified password management
+      - DATABASE_PROVIDER=oceanbase
+      - OCEANBASE_HOST=seekdb
+      - OCEANBASE_PORT=2881
+      - OCEANBASE_USER=root@sys
+      - OCEANBASE_PASSWORD=${SEEKDB_ROOT_PASSWORD:-}
+      - OCEANBASE_DATABASE=powermem
+      - OCEANBASE_COLLECTION=memories
     env_file:
       - .env
     volumes:
       - ./logs:/app/logs
-      # Mount .env file so both SDK and Server can use the same configuration
-      - ./.env:/app/.env:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/system/health"]
@@ -40,4 +52,46 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    depends_on:
+      - seekdb
+    networks:
+      - powermem-network
+
+  seekdb:
+    image: oceanbase/seekdb:latest
+    container_name: powermem-seekdb
+    ports:
+      - "2881:2881"
+      - "2886:2886"
+    environment:
+      # Unified password variable for both seekdb and PowerMem Server
+      - ROOT_PASSWORD=${SEEKDB_ROOT_PASSWORD:-}
+      - CPU_COUNT=4
+      - MEMORY_LIMIT=4G
+      - LOG_DISK_SIZE=2G
+      - DATAFILE_SIZE=2G
+      - DATAFILE_NEXT=2G
+      - DATAFILE_MAXSIZE=50G
+      - SEEKDB_DATABASE=powermem
+    volumes:
+      - seekdb_data:/var/lib/oceanbase
+      # Mount init.sql for database initialization (optional)
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "if [ -z \"${SEEKDB_ROOT_PASSWORD}\" ]; then mysqladmin ping -h localhost -P 2881 -u root; else mysqladmin ping -h localhost -P 2881 -u root -p${SEEKDB_ROOT_PASSWORD}; fi"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - powermem-network
+
+volumes:
+  seekdb_data:
 
