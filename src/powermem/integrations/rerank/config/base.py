@@ -21,14 +21,14 @@ class BaseRerankConfig(BaseSettings):
     All rerank provider configurations should inherit from this base class.
     
     Environment Variables:
-        RERANK_ENABLED: Whether to enable reranker (default: False)
-        RERANK_MODEL: The rerank model to use
-        RERANK_API_KEY: API key for the rerank service
-        RERANK_API_BASE_URL: Base URL for the rerank API endpoint
-        RERANK_TOP_N: Default number of top results to return
+        RERANKER_ENABLED: Whether to enable reranker (default: False)
+        RERANKER_MODEL: The rerank model to use
+        RERANKER_API_KEY: API key for the rerank service
+        RERANKER_API_BASE_URL: Base URL for the rerank API endpoint
+        RERANKER_TOP_N: Default number of top results to return
     """
 
-    model_config = settings_config("RERANK_", extra="allow", env_file=None)
+    model_config = settings_config("RERANKER_", extra="allow", env_file=None)
 
     # Class variables for provider registration
     _provider_name: ClassVar[Optional[str]] = None

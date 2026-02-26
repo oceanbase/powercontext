@@ -15,14 +15,14 @@ class QwenRerankConfig(BaseRerankConfig):
     _provider_name = "qwen"
     _class_path = "powermem.integrations.rerank.qwen.QwenRerank"
     
-    model_config = settings_config("RERANK_", extra="forbid", env_file=None)
+    model_config = settings_config("RERANKER_", extra="forbid", env_file=None)
     
     # Override base fields with Qwen-specific aliases
     api_key: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices(
             "api_key",  # Must include field name itself!
-            "RERANK_API_KEY",
+            "RERANKER_API_KEY",
             "QWEN_API_KEY",
             "DASHSCOPE_API_KEY",
         ),
@@ -38,7 +38,7 @@ class QwenRerankConfig(BaseRerankConfig):
         default=None,
         validation_alias=AliasChoices(
             "api_base_url",
-            "RERANK_API_BASE_URL",
+            "RERANKER_API_BASE_URL",
             "QWEN_RERANK_BASE_URL",
             "DASHSCOPE_BASE_URL",
         ),
@@ -52,14 +52,14 @@ class JinaRerankConfig(BaseRerankConfig):
     _provider_name = "jina"
     _class_path = "powermem.integrations.rerank.jina.JinaRerank"
     
-    model_config = settings_config("RERANK_", extra="forbid", env_file=None)
+    model_config = settings_config("RERANKER_", extra="forbid", env_file=None)
     
     # Override base fields with Jina-specific aliases
     api_key: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices(
             "api_key",
-            "RERANK_API_KEY",
+            "RERANKER_API_KEY",
             "JINA_API_KEY",
         ),
         description="API key for Jina AI"
@@ -74,7 +74,7 @@ class JinaRerankConfig(BaseRerankConfig):
         default="https://api.jina.ai/v1/rerank",
         validation_alias=AliasChoices(
             "api_base_url",
-            "RERANK_API_BASE_URL",
+            "RERANKER_API_BASE_URL",
             "JINA_API_BASE_URL",
         ),
         description="Base URL for Jina AI rerank API"
@@ -87,14 +87,14 @@ class ZaiRerankConfig(BaseRerankConfig):
     _provider_name = "zai"
     _class_path = "powermem.integrations.rerank.zai.ZaiRerank"
     
-    model_config = settings_config("RERANK_", extra="forbid", env_file=None)
+    model_config = settings_config("RERANKER_", extra="forbid", env_file=None)
     
     # Override base fields with Zhipu AI-specific aliases
     api_key: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices(
             "api_key",
-            "RERANK_API_KEY",
+            "RERANKER_API_KEY",
             "ZAI_API_KEY",
         ),
         description="API key for Zhipu AI"
@@ -109,7 +109,7 @@ class ZaiRerankConfig(BaseRerankConfig):
         default="https://open.bigmodel.cn/api/paas/v4/rerank",
         validation_alias=AliasChoices(
             "api_base_url",
-            "RERANK_API_BASE_URL",
+            "RERANKER_API_BASE_URL",
             "ZAI_API_BASE_URL",
         ),
         description="Base URL for Zhipu AI rerank API"
@@ -122,6 +122,6 @@ class GenericRerankConfig(BaseRerankConfig):
     _provider_name = "generic"
     _class_path = "powermem.integrations.rerank.generic.GenericRerank"
     
-    model_config = settings_config("RERANK_", extra="forbid", env_file=None)
+    model_config = settings_config("RERANKER_", extra="forbid", env_file=None)
     
     # Generic uses base class default configuration

@@ -40,7 +40,7 @@ class ZaiRerank(RerankBase):
         # Validate API key (config already handles env var loading)
         if not self.config.api_key:
             raise ValueError(
-                "API key is required. Set ZAI_API_KEY or RERANK_API_KEY environment variable, "
+                "API key is required. Set ZAI_API_KEY or RERANKER_API_KEY environment variable, "
                 "or pass api_key in config."
             )
 
@@ -152,7 +152,7 @@ class ZaiRerank(RerankBase):
                 error_detail = e.response.json()
                 if "detail" in error_detail:
                     error_msg += f": {error_detail['detail']}"
-            except:
+            except (ValueError, KeyError):
                 error_msg += f": {e.response.text}"
             raise Exception(f"Failed to rerank documents: {error_msg}")
         except Exception as e:

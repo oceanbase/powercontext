@@ -58,7 +58,7 @@ class GenericRerank(RerankBase):
         # Validate API base URL (required, config handles env var loading)
         if not self.config.api_base_url:
             raise ValueError(
-                "api_base_url is required. Set RERANK_API_BASE_URL environment variable "
+                "api_base_url is required. Set RERANKER_API_BASE_URL environment variable "
                 "or pass api_base_url in config."
             )
 
@@ -180,7 +180,7 @@ class GenericRerank(RerankBase):
                     error_msg += f": {error_detail['detail']}"
                 elif "error" in error_detail:
                     error_msg += f": {error_detail['error']}"
-            except:
+            except (ValueError, KeyError):
                 error_msg += f": {e.response.text}"
             raise Exception(f"Failed to rerank documents: {error_msg}")
         except Exception as e:
