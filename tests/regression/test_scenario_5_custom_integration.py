@@ -469,12 +469,14 @@ class CustomVectorStore(VectorStoreBase):
             }
         return None
     
-    def list(self, filters=None, limit=None):
+    def list(self, filters=None, limit=None, offset=0, order_by=None, order="desc"):
         """List all memories"""
         col_name = self.collection_name
         if col_name not in self._vectors:
             return []
         results = self._vectors[col_name]
+        if offset:
+            results = results[offset:]
         if limit:
             results = results[:limit]
         return [{'id': v['id'], 'payload': v['payload']} for v in results]

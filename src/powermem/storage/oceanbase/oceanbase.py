@@ -497,7 +497,9 @@ class OceanBaseVectorStore(VectorStoreBase):
             table: SQLAlchemy Table object to use for column references. If None, uses self.table.
 
         Returns:
-            SQLAlchemy ColumnElement or None: A single SQLAlchemy expression for where clause, or None if no filters.
+            List[SQLAlchemy ColumnElement]: A list containing a single combined SQLAlchemy expression,
+            or an empty list if no filters are provided. Callers should use stmt.where(*clause) or
+            extend/append into another conditions list.
         """
         # Use provided table or fall back to self.table
         if table is None:
@@ -582,7 +584,7 @@ class OceanBaseVectorStore(VectorStoreBase):
 
         # Handle complex filters with AND/OR
         result = process_condition(filters)
-        return result
+        return [result] if result is not None else []
 
     def _row_to_model(self, row):
         """
@@ -861,7 +863,7 @@ class OceanBaseVectorStore(VectorStoreBase):
                 with_dist=True,
                 topk=limit,
                 output_column_names=output_columns,
-                where_clause=where_clause,
+                where_clause=where_clause if where_clause else None,
             )
 
             # Convert results to OutputData objects
@@ -929,8 +931,8 @@ class OceanBaseVectorStore(VectorStoreBase):
 
         # Combine FTS condition with filter conditions
         where_conditions = [fts_condition]
-        if filter_where_clause is not None:
-            where_conditions.append(filter_where_clause)
+        if filter_where_clause:
+            where_conditions.extend(filter_where_clause)
 
         # Build custom query to include score field
         try:
@@ -1064,8 +1066,8 @@ class OceanBaseVectorStore(VectorStoreBase):
             stmt = select(*columns)
 
             # Add where conditions
-            if filter_where_clause is not None:
-                stmt = stmt.where(filter_where_clause)
+            if filter_where_clause:
+                stmt = stmt.where(*filter_where_clause)
 
             # Order by score ASC (lower negative_inner_product means higher similarity)
             stmt = stmt.order_by(text('score ASC'))
@@ -2002,8 +2004,8 @@ class OceanBaseVectorStore(VectorStoreBase):
             stmt = select(*output_columns)
             
             # Apply WHERE clause
-            if where_clause is not None:
-                stmt = stmt.where(where_clause)
+            if where_clause:
+                stmt = stmt.where(*where_clause)
             
             # Apply ORDER BY clause for sorting
             if order_by:
