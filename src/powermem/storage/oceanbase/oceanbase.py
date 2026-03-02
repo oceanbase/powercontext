@@ -937,7 +937,7 @@ class OceanBaseVectorStore(VectorStoreBase):
         # Combine FTS condition with filter conditions
         where_conditions = [fts_condition]
         if filter_where_clause is not None:
-            where_conditions.append(filter_where_clause)
+            where_conditions.extend(filter_where_clause)
 
         # Build custom query to include score field
         try:
