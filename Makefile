@@ -265,7 +265,13 @@ server-stop: ## Stop the PowerMem API server
 		fi; \
 		echo "Server stopped"; \
 	else \
-		echo "Server process (PID: $$PID) not found, cleaning up PID file"; \
+		echo "Server process (PID: $$PID) not found (stale PID), cleaning up PID file"; \
+		PORT_PID=$$(lsof -t -i:$(SERVER_PORT) 2>/dev/null || echo ""); \
+		if [ -n "$$PORT_PID" ]; then \
+			echo "Found process $$PORT_PID on port $(SERVER_PORT), stopping it..."; \
+			kill $$PORT_PID 2>/dev/null || kill -9 $$PORT_PID 2>/dev/null; \
+			echo "Port $(SERVER_PORT) cleared"; \
+		fi; \
 	fi; \
 	rm -f $(SERVER_PID_FILE); \
 	echo "✓ Server stopped"
