@@ -122,6 +122,9 @@ celerybeat.pid
 # Environments
 .env
 .venv
+
+# PowerMem backup / local data
+data/
 env/
 venv/
 ENV/

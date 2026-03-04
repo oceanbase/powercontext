@@ -286,9 +286,10 @@ class StorageAdapter:
         result = self.vector_store.get(memory_id)
         
         if result and result.payload:
+            content = result.payload.get("data") or result.payload.get("content") or ""
             memory = {
                 "id": result.id,
-                "content": result.payload.get("content", ""),
+                "content": content,
                 "user_id": result.payload.get("user_id"),
                 "agent_id": result.payload.get("agent_id"),
                 "run_id": result.payload.get("run_id"),
@@ -311,9 +312,10 @@ class StorageAdapter:
                 try:
                     result = sub_config.vector_store.get(memory_id)
                     if result and result.payload:
+                        content = result.payload.get("data") or result.payload.get("content") or ""
                         memory = {
                             "id": result.id,
-                            "content": result.payload.get("content", ""),
+                             "content": content,
                             "user_id": result.payload.get("user_id"),
                             "agent_id": result.payload.get("agent_id"),
                             "run_id": result.payload.get("run_id"),

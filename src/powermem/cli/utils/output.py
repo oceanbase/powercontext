@@ -290,9 +290,6 @@ class OutputFormatter:
                     lines.append(f"{prefix}{key}:")
                     format_dict(value, prefix + "  ")
                 else:
-                    # Mask sensitive values
-                    if "key" in key.lower() or "password" in key.lower() or "secret" in key.lower():
-                        value = "***" if value else "Not set"
                     lines.append(f"{prefix}{key}: {value}")
         
         format_dict(config)
@@ -324,8 +321,6 @@ class OutputFormatter:
                     inner_config = section_config.get("config", {})
                     if isinstance(inner_config, dict):
                         for key, value in inner_config.items():
-                            if "key" in key.lower() or "password" in key.lower():
-                                value = "***" if value else "Not set"
                             lines.append(f"  {key}: {value}")
         
         lines.append("\n" + "=" * 60)

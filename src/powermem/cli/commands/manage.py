@@ -13,6 +13,7 @@ import json
 import sys
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from ..main import pass_context, CLIContext
@@ -90,6 +91,9 @@ def backup_cmd(ctx: CLIContext, output, user_id, agent_id, run_id, limit, includ
             "memories": memories,
         }
         
+        # Create parent directory if needed
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         # Write to file
         with open(output, "w", encoding="utf-8") as f:
             json.dump(backup_data, f, indent=2, default=str, ensure_ascii=False)

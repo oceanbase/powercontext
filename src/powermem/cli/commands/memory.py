@@ -177,6 +177,9 @@ def get_cmd(ctx: CLIContext, memory_id, user_id, agent_id):
     """
     Get a specific memory by ID.
     
+    MEMORY_ID is globally unique. If --user-id or --agent-id is provided, the
+    memory is returned only when it belongs to that user/agent (access control).
+    
     \b
     Examples:
         pmem get 123456789
