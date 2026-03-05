@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check publish-pypi publish-testpypi install-build-tools upload docs bump-version server-start server-stop server-restart server-status server-logs docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
+.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check publish-pypi publish-testpypi install-build-tools upload docs bump-version server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
 
 help: ## Show help information
 	@echo "powermem Project Build Tools"
@@ -322,6 +322,18 @@ server-logs-last: ## Show last 50 lines of server logs
 		exit 1; \
 	fi
 	@tail -n 50 server.log
+
+server-dashboard-start: ## Deploy dashboard assets and restart server
+	@echo "[1/5] Stopping service..."
+	@$(MAKE) server-stop
+	@echo "[2/5] Installing and building dashboard..."
+	@cd dashboard && pnpm install && pnpm build
+	@echo "[3/5] Syncing frontend artifacts to backend static directory..."
+	@mkdir -p src/server/dashboard
+	@cp -r dashboard/dist/* src/server/dashboard/
+	@echo "[4/5] Starting service..."
+	@$(MAKE) server-start
+	@echo "[5/5] Done."
 
 # Docker commands
 DOCKER_IMAGE := oceanbase/powermem-server

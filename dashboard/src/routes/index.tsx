@@ -10,6 +10,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Bar,
   BarChart,
@@ -22,6 +23,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { toast } from "sonner";
 import { api } from "../lib/api";
 
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +36,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   type ChartConfig,
   ChartContainer,
   ChartLegend,
@@ -42,6 +51,7 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -50,6 +60,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { SystemHealthCard } from "@/components/system-health-card";
+import { MemoryQualityCard } from "@/components/memory-quality-card";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -75,9 +88,12 @@ const chartConfig = {
 function OverviewPage() {
   const { user_id, agent_id } = Route.useSearch();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [apiKeyInput, setApiKeyInput] = useState(
     localStorage.getItem("powermem_api_key") || "",
   );
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [timeRange, setTimeRange] = useState<string>("30d");
 
   const {
     data: stats,
@@ -85,9 +101,28 @@ function OverviewPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["stats", user_id, agent_id],
-    queryFn: () => api.getStats({ user_id, agent_id }),
+    queryKey: ["stats", user_id, agent_id, timeRange],
+    queryFn: () => api.getStats({ user_id, agent_id, time_range: timeRange }),
     // to instantly show the API key error without waiting
+    retry: false,
+  });
+
+  const {
+    data: systemStatus,
+    refetch: refetchStatus,
+  } = useQuery({
+    queryKey: ["system-status"],
+    queryFn: () => api.getSystemStatus(),
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
+    retry: false,
+  });
+
+  const {
+    data: memoryQuality,
+    refetch: refetchQuality,
+  } = useQuery({
+    queryKey: ["memory-quality", user_id, agent_id, timeRange],
+    queryFn: () => api.getMemoryQuality({ user_id, agent_id, time_range: timeRange }),
     retry: false,
   });
 
@@ -96,10 +131,79 @@ function OverviewPage() {
     refetch();
   };
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        refetch(),
+        refetchStatus(),
+        refetchQuality(),
+      ]);
+      toast.success(t("dashboard.refresh"), {
+        description: t("common.noData"),
+      });
+    } catch (error) {
+      toast.error(t("common.error"), {
+        description: t("common.tryAgain"),
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <RefreshCcw className="h-12 w-12 animate-spin text-primary" />
+      <div className="p-4 space-y-6 max-w-7xl mx-auto">
+        {/* Header skeleton */}
+        <div className="flex justify-between items-center">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-96" />
+          </div>
+          <Skeleton className="h-9 w-24" />
+        </div>
+        
+        {/* Stats cards skeleton */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-4" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-16 mb-1" />
+                <Skeleton className="h-3 w-32" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        
+        {/* System health card skeleton */}
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-4 w-48 mt-2" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-[200px] w-full" />
+          </CardContent>
+        </Card>
+        
+        {/* Charts skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {[...Array(2)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader>
+                <Skeleton className="h-5 w-32" />
+                <Skeleton className="h-4 w-48 mt-2" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-[300px] w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }
@@ -111,7 +215,7 @@ function OverviewPage() {
           <CardHeader>
             <CardTitle className="text-destructive flex items-center gap-2">
               <AlertCircle size={20} />
-              Error loading statistics
+              {t("dashboard.error.title")}
             </CardTitle>
             <CardDescription className="text-destructive/80">
               {(error as Error).message}
@@ -121,13 +225,13 @@ function OverviewPage() {
             <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 type="password"
-                placeholder="Enter API Key"
+                placeholder={t("dashboard.error.apiKeyPlaceholder")}
                 className="max-w-xs"
                 value={apiKeyInput}
                 onChange={(e) => setApiKeyInput(e.target.value)}
               />
               <Button variant="destructive" onClick={saveApiKey}>
-                Update Key & Retry
+                {t("dashboard.error.updateKey")}
               </Button>
             </div>
           </CardContent>
@@ -167,7 +271,7 @@ function OverviewPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            Memory Overview
+            {t("dashboard.title")}
             {user_id && (
               <Badge variant="secondary" className="font-mono text-[10px]">
                 USER: {user_id}
@@ -175,104 +279,134 @@ function OverviewPage() {
             )}
           </h1>
           <p className="text-muted-foreground text-sm">
-            Real-time analytics for your intelligent memory system.
+            {t("dashboard.subtitle")}
           </p>
         </div>
-        {user_id && (
+        <div className="flex items-center gap-2">
+          <Select value={timeRange} onValueChange={setTimeRange}>
+            <SelectTrigger className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">{t("dashboard.timeRange.last7days")}</SelectItem>
+              <SelectItem value="30d">{t("dashboard.timeRange.last30days")}</SelectItem>
+              <SelectItem value="90d">{t("dashboard.timeRange.last90days")}</SelectItem>
+              <SelectItem value="all">{t("dashboard.timeRange.allTime")}</SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             variant="outline"
             size="sm"
-            onClick={() =>
-              navigate({
-                to: "/",
-                search: { user_id: undefined, agent_id: undefined },
-              })
-            }
+            onClick={handleRefresh}
+            disabled={isRefreshing}
           >
-            Clear Filters
+            <RefreshCcw className={`size-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? t("dashboard.refreshing") : t("dashboard.refresh")}
           </Button>
-        )}
+          {user_id && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                navigate({
+                  to: "/",
+                  search: { user_id: undefined, agent_id: undefined },
+                })
+              }
+            >
+              {t("dashboard.clearFilters")}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           icon={<Database className="size-4" />}
-          label="Total Memories"
+          label={t("dashboard.stats.totalMemories")}
           value={stats.total_memories.toLocaleString()}
-          description="Stored vector records"
+          description={t("dashboard.stats.totalMemoriesDesc")}
         />
         <StatCard
           icon={<TrendingUp className="size-4" />}
-          label="Avg. Importance"
+          label={t("dashboard.stats.avgImportance")}
           value={stats.avg_importance.toFixed(2)}
-          description="Aggregate priority score"
+          description={t("dashboard.stats.avgImportanceDesc")}
         />
         <StatCard
           icon={<Activity className="size-4" />}
-          label="Access Density"
+          label={t("dashboard.stats.accessDensity")}
           value={(
             stats.top_accessed.reduce(
               (acc, curr) => acc + curr.access_count,
               0,
             ) / (stats.total_memories || 1)
           ).toFixed(2)}
-          description="Average hits per record"
+          description={t("dashboard.stats.accessDensityDesc")}
         />
         <StatCard
           icon={<Clock className="size-4" />}
-          label="Unique Dates"
+          label={t("dashboard.stats.uniqueDates")}
           value={trendData.length.toString()}
-          description="Days with activity"
+          description={t("dashboard.stats.uniqueDatesDesc")}
         />
       </div>
 
+      {/* System Health Panel */}
+      <ErrorBoundary>
+        <SystemHealthCard status={systemStatus} />
+      </ErrorBoundary>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Growth Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <TrendingUp className="size-4 text-primary" />
-              Growth Trend
-            </CardTitle>
-            <CardDescription>Daily memory creation volume</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={chartConfig} className="h-[300px] w-full">
-              <LineChart
-                data={trendData}
-                margin={{ top: 20, left: 12, right: 12 }}
-              >
-                <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="date"
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                  minTickGap={32}
-                />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Line
-                  type="monotone"
-                  dataKey="count"
-                  stroke="var(--color-count)"
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </LineChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
+        <ErrorBoundary>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <TrendingUp className="size-4 text-primary" />
+                {t("dashboard.charts.growthTrend")}
+              </CardTitle>
+              <CardDescription>{t("dashboard.charts.growthTrendDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={chartConfig} className="h-[300px] w-full">
+                <LineChart
+                  data={trendData}
+                  margin={{ top: 20, left: 12, right: 12 }}
+                >
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="date"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    minTickGap={32}
+                  />
+                  <YAxis tickLine={false} axisLine={false} tickMargin={8} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Line
+                    type="monotone"
+                    dataKey="count"
+                    stroke="var(--color-count)"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </LineChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </ErrorBoundary>
 
         {/* Category Distribution */}
-        <Card>
+        <ErrorBoundary>
+          <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <BarChart3 className="size-4 text-primary" />
-              Memory Categories
+              {t("dashboard.charts.memoryCategories")}
             </CardTitle>
-            <CardDescription>Distribution by classification</CardDescription>
+            <CardDescription>{t("dashboard.charts.memoryCategoriesDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer
@@ -301,26 +435,28 @@ function OverviewPage() {
             </ChartContainer>
           </CardContent>
         </Card>
+        </ErrorBoundary>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Top Accessed */}
-        <Card className="lg:col-span-2">
+        <ErrorBoundary>
+          <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Activity className="size-4 text-primary" />
-              Hot Memories
+              {t("dashboard.charts.hotMemories")}
             </CardTitle>
             <CardDescription>
-              Top retrieved records by access count
+              {t("dashboard.charts.hotMemoriesDesc")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Content Snippet</TableHead>
-                  <TableHead className="text-right">Hits</TableHead>
+                  <TableHead>{t("dashboard.charts.contentSnippet")}</TableHead>
+                  <TableHead className="text-right">{t("dashboard.charts.hits")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -342,7 +478,7 @@ function OverviewPage() {
                       colSpan={2}
                       className="text-center py-8 text-muted-foreground text-xs"
                     >
-                      No access records found
+                      {t("dashboard.charts.noAccessRecords")}
                     </TableCell>
                   </TableRow>
                 )}
@@ -350,15 +486,17 @@ function OverviewPage() {
             </Table>
           </CardContent>
         </Card>
+        </ErrorBoundary>
 
         {/* Age Distribution */}
-        <Card>
+        <ErrorBoundary>
+          <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Clock className="size-4 text-primary" />
-              Retention Age
+              {t("dashboard.charts.retentionAge")}
             </CardTitle>
-            <CardDescription>Memory lifecycle distribution</CardDescription>
+            <CardDescription>{t("dashboard.charts.retentionAgeDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={chartConfig} className="h-[300px] w-full">
@@ -387,6 +525,14 @@ function OverviewPage() {
             </ChartContainer>
           </CardContent>
         </Card>
+        </ErrorBoundary>
+      </div>
+
+      {/* Memory Quality Analysis */}
+      <div className="grid grid-cols-1 gap-6">
+        <ErrorBoundary>
+          <MemoryQualityCard quality={memoryQuality} />
+        </ErrorBoundary>
       </div>
     </div>
   );

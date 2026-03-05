@@ -1,6 +1,6 @@
 from typing import Any, ClassVar, Dict, Optional
 
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from powermem.settings import settings_config
 
 from powermem.storage.config.base import BaseVectorStoreConfig, BaseGraphStoreConfig
@@ -46,7 +46,14 @@ class OceanBaseConfig(BaseVectorStoreConfig):
         ),
         description="OceanBase server port"
     )
-    
+
+    @field_validator("port", mode="before")
+    @classmethod
+    def _coerce_port_to_str(cls, value: Any) -> Any:
+        if isinstance(value, int):
+            return str(value)
+        return value
+
     user: str = Field(
         default="root@test",
         validation_alias=AliasChoices(

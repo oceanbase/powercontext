@@ -442,6 +442,35 @@ class PGVectorStore(VectorStoreBase):
             results = cur.fetchall()
         return [OutputData(id=r[0], score=None, payload=r[2]) for r in results]
 
+    def count(self, filters: Optional[dict] = None) -> int:
+        """
+        Count all vectors in a collection with optional filtering.
+
+        Args:
+            filters (Dict, optional): Filters to apply to the count.
+
+        Returns:
+            int: Total count of vectors matching the filters.
+        """
+        filter_conditions = []
+        filter_params = []
+
+        if filters:
+            for k, v in filters.items():
+                filter_conditions.append("payload->>%s = %s")
+                filter_params.extend([k, str(v)])
+
+        filter_clause = "WHERE " + " AND ".join(filter_conditions) if filter_conditions else ""
+        
+        # Build count query
+        query = f"SELECT COUNT(*) FROM {self.collection_name} {filter_clause}"
+
+        with self._get_cursor() as cur:
+            cur.execute(query, tuple(filter_params))
+            count = cur.fetchone()[0]
+        
+        return count
+
     def __del__(self) -> None:
         """
         Close the database connection pool when the object is deleted.

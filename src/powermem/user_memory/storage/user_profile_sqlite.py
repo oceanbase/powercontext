@@ -542,6 +542,27 @@ class SQLiteUserProfileStore(UserProfileStoreBase):
                 logger.debug(f"Deleted profile with id: {profile_id}")
             return deleted
 
+    def count_profiles(self, user_id: Optional[str] = None) -> int:
+        """
+        Count user profiles with optional user_id filter.
+
+        Args:
+            user_id: Optional user ID filter
+
+        Returns:
+            Total count of profiles
+        """
+        query = f"SELECT COUNT(*) FROM {self.table_name}"
+        params = []
+        if user_id:
+            query += " WHERE user_id = ?"
+            params.append(user_id)
+        
+        with self._lock:
+            cursor = self.connection.execute(query, params)
+            count = cursor.fetchone()[0]
+        return count
+
     def close(self) -> None:
         """Close the database connection."""
         if hasattr(self, 'connection') and self.connection:

@@ -495,3 +495,23 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
             if deleted:
                 logger.debug(f"Deleted profile with id: {profile_id}")
             return deleted
+
+    def count_profiles(self, user_id: Optional[str] = None) -> int:
+        """
+        Count user profiles with optional user_id filter.
+
+        Args:
+            user_id: Optional user ID filter
+
+        Returns:
+            Total count of profiles
+        """
+        with self.obvector.engine.connect() as conn:
+            if user_id:
+                stmt = self.table.select().where(self.table.c.user_id == user_id).with_only_columns(func.count())
+            else:
+                stmt = self.table.select().with_only_columns(func.count())
+            
+            result = conn.execute(stmt)
+            count = result.scalar()
+            return count or 0

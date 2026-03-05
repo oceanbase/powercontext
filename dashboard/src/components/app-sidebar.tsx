@@ -3,7 +3,7 @@ import {
   Database,
   LayoutDashboard,
   Settings,
-  Users,
+  UserCircle,
 } from "lucide-react";
 
 import {
@@ -19,33 +19,35 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { Link } from "@tanstack/react-router";
-
-// Menu items.
-const items = [
-  {
-    title: "Overview",
-    url: "/",
-    icon: LayoutDashboard,
-    search: { user_id: undefined, agent_id: undefined },
-  },
-  {
-    title: "Memories",
-    url: "/memories",
-    icon: Database,
-  },
-  {
-    title: "Users",
-    url: "/users",
-    icon: Users,
-  },
-  {
-    title: "Settings",
-    url: "/settings",
-    icon: Settings,
-  },
-];
+import { useTranslation } from "react-i18next";
 
 export function AppSidebar() {
+  const { t } = useTranslation();
+
+  const items = [
+    {
+      title: t("nav.overview"),
+      url: "/",
+      icon: LayoutDashboard,
+      search: { user_id: undefined, agent_id: undefined },
+    },
+    {
+      title: t("nav.memories"),
+      url: "/memories",
+      icon: Database,
+    },
+    {
+      title: t("nav.userProfile"),
+      url: "/user-profile",
+      icon: UserCircle,
+    },
+    {
+      title: t("nav.settings"),
+      url: "/settings",
+      icon: Settings,
+    },
+  ];
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -59,7 +61,7 @@ export function AppSidebar() {
                 <div className="flex flex-col gap-0.5 leading-none">
                   <span className="font-semibold">PowerMem</span>
                   <span className="text-xs text-muted-foreground">
-                    Dashboard
+                    {t("nav.dashboardSubtitle")}
                   </span>
                 </div>
               </Link>
@@ -69,7 +71,7 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Application</SidebarGroupLabel>
+          <SidebarGroupLabel>{t("nav.application")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {items.map((item) => (

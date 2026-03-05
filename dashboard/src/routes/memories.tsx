@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { api, type Memory } from "../lib/api";
 
 import { Badge } from "@/components/ui/badge";
@@ -64,14 +65,22 @@ export const Route = createFileRoute("/memories")({
 const LIMIT = 20;
 
 function MemoriesPage() {
+  const { t } = useTranslation();
   const { user_id, agent_id, page } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
+  const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [userIdInput, setUserIdInput] = useState("");
+  const [userIdFilterTerm, setUserIdFilterTerm] = useState("");
+  const [agentIdInput, setAgentIdInput] = useState("");
+  const [agentIdFilterTerm, setAgentIdFilterTerm] = useState("");
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isFiltering, setIsFiltering] = useState(false);
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["memories", user_id, agent_id, page],
+    queryKey: ["memories", user_id, agent_id, page, searchTerm],
     queryFn: () =>
       api.getMemories({
         user_id,
@@ -84,12 +93,12 @@ function MemoriesPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string | number) => api.deleteMemory(id),
     onSuccess: () => {
-      toast.success("Memory deleted successfully");
+      toast.success(t("memories.toast.deleted"));
       queryClient.invalidateQueries({ queryKey: ["memories"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     },
     onError: (err) => {
-      toast.error(`Failed to delete memory: ${err.message}`);
+      toast.error(t("memories.toast.deleteFailed", { error: err.message }));
     },
   });
 
@@ -97,11 +106,78 @@ function MemoriesPage() {
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / LIMIT);
 
-  const filteredMemories = memories.filter(
-    (m) =>
-      m.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.category?.toLowerCase().includes(searchTerm.toLowerCase()),
-  );
+  const filteredMemories = memories.filter((m) => {
+    const contentMatch = !searchTerm || 
+      m.content.toLowerCase().includes(searchTerm.toLowerCase());
+    const userIdMatch = !userIdFilterTerm || 
+      m.user_id?.toLowerCase().includes(userIdFilterTerm.toLowerCase());
+    const agentIdMatch = !agentIdFilterTerm || 
+      m.agent_id?.toLowerCase().includes(agentIdFilterTerm.toLowerCase());
+    return contentMatch && userIdMatch && agentIdMatch;
+  });
+
+  const handleFilter = async () => {
+    setIsFiltering(true);
+    try {
+      setSearchTerm(searchInput);
+      setUserIdFilterTerm(userIdInput);
+      setAgentIdFilterTerm(agentIdInput);
+      if (page !== 1) {
+        await navigate({
+          search: (prev: any) => ({ ...prev, page: 1 }),
+        });
+      }
+      // Give a brief moment for the UI to update
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const hasFilters = searchInput.trim() || userIdInput.trim() || agentIdInput.trim();
+      if (hasFilters) {
+        toast.success(t("memories.toast.filterApplied"));
+      } else {
+        toast.success(t("memories.toast.filterCleared"));
+      }
+    } catch (error) {
+      toast.error(t("common.error"), {
+        description: t("common.tryAgain"),
+      });
+    } finally {
+      setIsFiltering(false);
+    }
+  };
+
+  const handleClearFilters = async () => {
+    setSearchInput("");
+    setUserIdInput("");
+    setAgentIdInput("");
+    setSearchTerm("");
+    setUserIdFilterTerm("");
+    setAgentIdFilterTerm("");
+    if (page !== 1) {
+      await navigate({
+        search: (prev: any) => ({ ...prev, page: 1 }),
+      });
+    }
+    toast.success(t("memories.toast.filterCleared"));
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleFilter();
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+      toast.success(t("memories.toast.refreshed"));
+    } catch (error) {
+      toast.error(t("common.error"), {
+        description: t("common.tryAgain"),
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   if (error) {
     return (
@@ -109,7 +185,7 @@ function MemoriesPage() {
         <Card className="border-destructive/50 bg-destructive/5">
           <CardHeader>
             <CardTitle className="text-destructive flex items-center gap-2">
-              Error loading memories
+              {t("memories.error")}
             </CardTitle>
             <CardDescription className="text-destructive/80">
               {(error as Error).message}
@@ -126,10 +202,10 @@ function MemoriesPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Database className="text-primary" />
-            Memories
+            {t("memories.title")}
           </h1>
           <p className="text-muted-foreground text-sm">
-            Manage and explore stored cognitive records.
+            {t("memories.subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -138,31 +214,68 @@ function MemoriesPage() {
               <User size={12} /> {user_id}
             </Badge>
           )}
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
             <RefreshCcw
-              className={`size-4 mr-2 ${isLoading ? "animate-spin" : ""}`}
+              className={`size-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`}
             />
-            Refresh
+            {isRefreshing ? t("dashboard.refreshing") : t("memories.refresh")}
           </Button>
         </div>
       </div>
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex flex-col md:flex-row md:items-center gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4" />
-              <Input
-                placeholder="Filter by content or category..."
-                className="pl-9"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4" />
+                <Input
+                  placeholder={t("memories.filterByUserId")}
+                  className="pl-9 h-9"
+                  value={userIdInput}
+                  onChange={(e) => setUserIdInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                />
+              </div>
+              <div className="relative">
+                <Database className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4" />
+                <Input
+                  placeholder={t("memories.filterByAgentId")}
+                  className="pl-9 h-9"
+                  value={agentIdInput}
+                  onChange={(e) => setAgentIdInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                />
+              </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4" />
+                <Input
+                  placeholder={t("memories.filterByContent")}
+                  className="pl-9 h-9"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                />
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="h-9 gap-2">
-                <Filter className="size-4" />
-                Filters
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="h-9 gap-2"
+                onClick={handleFilter}
+                disabled={isFiltering}
+              >
+                <Filter className={`size-4 ${isFiltering ? "animate-pulse" : ""}`} />
+                {isFiltering ? t("memories.filtering") : t("memories.applyFilters")}
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-9 gap-2"
+                onClick={handleClearFilters}
+              >
+                {t("memories.clearAllFilters")}
               </Button>
             </div>
           </div>
@@ -172,13 +285,14 @@ function MemoriesPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
-                  <TableHead className="w-[100px]">Category</TableHead>
-                  <TableHead>Content</TableHead>
+                  <TableHead className="w-[120px]">{t("memories.columns.userId")}</TableHead>
+                  <TableHead className="w-[120px]">{t("memories.columns.agentId")}</TableHead>
+                  <TableHead>{t("memories.columns.content")}</TableHead>
                   <TableHead className="hidden md:table-cell">
-                    Metadata
+                    {t("memories.columns.metadata")}
                   </TableHead>
                   <TableHead className="hidden lg:table-cell">
-                    Created At
+                    {t("memories.columns.createdAt")}
                   </TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
@@ -187,10 +301,10 @@ function MemoriesPage() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      <TableCell colSpan={5} className="h-16 text-center">
+                      <TableCell colSpan={6} className="h-16 text-center">
                         <div className="flex items-center justify-center gap-2 text-muted-foreground">
                           <RefreshCcw className="size-4 animate-spin" />
-                          Loading memories...
+                          {t("memories.loading")}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -202,29 +316,16 @@ function MemoriesPage() {
                       className="group cursor-pointer hover:bg-accent/30 transition-colors"
                       onClick={() => setSelectedMemory(memory)}
                     >
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Badge
-                          variant="secondary"
-                          className="font-mono text-[10px] capitalize"
-                        >
-                          {memory.category || "General"}
-                        </Badge>
+                      <TableCell className="text-xs font-mono text-muted-foreground">
+                        {memory.user_id || "-"}
+                      </TableCell>
+                      <TableCell className="text-xs font-mono text-muted-foreground">
+                        {memory.agent_id || "-"}
                       </TableCell>
                       <TableCell className="max-w-[300px] lg:max-w-[500px]">
-                        <div className="flex flex-col gap-1">
-                          <p className="text-sm line-clamp-2 leading-snug">
-                            {memory.content}
-                          </p>
-                          {(memory.user_id || memory.agent_id) && (
-                            <div className="flex gap-2 mt-1">
-                              {memory.user_id && (
-                                <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                                  <User size={10} /> {memory.user_id}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                        <p className="text-sm line-clamp-2 leading-snug">
+                          {memory.content}
+                        </p>
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         <div className="flex flex-wrap gap-1">
@@ -264,12 +365,12 @@ function MemoriesPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuLabel>{t("memories.columns.actions")}</DropdownMenuLabel>
                             <DropdownMenuItem
                               onClick={() => setSelectedMemory(memory)}
                             >
                               <Database className="size-4 mr-2" />
-                              View Details
+                              {t("memories.actions.viewDetails")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
@@ -279,7 +380,7 @@ function MemoriesPage() {
                               }}
                             >
                               <Trash2 className="size-4 mr-2" />
-                              Delete Memory
+                              {t("memories.actions.delete")}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
@@ -287,10 +388,10 @@ function MemoriesPage() {
                                 e.stopPropagation();
                                 const json = JSON.stringify(memory, null, 2);
                                 navigator.clipboard.writeText(json);
-                                toast.success("JSON copied to clipboard");
+                                toast.success(t("memories.actions.jsonCopied"));
                               }}
                             >
-                              Copy Raw JSON
+                              {t("memories.actions.copyJson")}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -300,10 +401,10 @@ function MemoriesPage() {
                 ) : (
                   <TableRow>
                     <TableCell
-                      colSpan={5}
+                      colSpan={6}
                       className="h-32 text-center text-muted-foreground italic"
                     >
-                      No memories found.
+                      {t("memories.noMemories")}
                     </TableCell>
                   </TableRow>
                 )}
@@ -313,7 +414,9 @@ function MemoriesPage() {
 
           <div className="flex items-center justify-between mt-4">
             <p className="text-xs text-muted-foreground">
-              Showing {filteredMemories.length} of {total} memories
+              {searchTerm
+                ? `${filteredMemories.length} filtered results from page ${page}`
+                : t("memories.showing", { count: memories.length, total })}
             </p>
             <div className="flex items-center gap-2">
               <Button
@@ -327,10 +430,10 @@ function MemoriesPage() {
                 }
               >
                 <ChevronLeft className="size-4 mr-1" />
-                Prev
+                {t("memories.prev")}
               </Button>
               <span className="text-xs font-medium">
-                Page {page} of {totalPages || 1}
+                {t("memories.page", { page, total: totalPages || 1 })}
               </span>
               <Button
                 variant="outline"
@@ -342,7 +445,7 @@ function MemoriesPage() {
                   })
                 }
               >
-                Next
+                {t("memories.next")}
                 <ChevronRight className="size-4 ml-1" />
               </Button>
             </div>
@@ -354,16 +457,16 @@ function MemoriesPage() {
         open={!!selectedMemory}
         onOpenChange={(open) => !open && setSelectedMemory(null)}
       >
-        <SheetContent className="sm:max-w-xl overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Memory Details</SheetTitle>
-            <SheetDescription>ID: {selectedMemory?.id}</SheetDescription>
+        <SheetContent className="sm:max-w-xl overflow-y-auto p-6">
+          <SheetHeader className="space-y-2">
+            <SheetTitle>{t("memories.detail.title")}</SheetTitle>
+            <SheetDescription>{t("memories.detail.id")}: {selectedMemory?.memory_id || selectedMemory?.id}</SheetDescription>
           </SheetHeader>
           {selectedMemory && (
-            <div className="mt-6 space-y-6">
+            <div className="mt-6 space-y-6 px-1">
               <div className="space-y-2">
                 <h3 className="text-sm font-medium text-muted-foreground">
-                  Content
+                  {t("memories.detail.content")}
                 </h3>
                 <p className="text-sm bg-muted p-3 rounded-md whitespace-pre-wrap leading-relaxed">
                   {selectedMemory.content}
@@ -372,33 +475,33 @@ function MemoriesPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Category</p>
+                  <p className="text-xs text-muted-foreground">{t("memories.detail.category")}</p>
                   <Badge variant="secondary">
                     {selectedMemory.category || "General"}
                   </Badge>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Created At</p>
+                  <p className="text-xs text-muted-foreground">{t("memories.detail.createdAt")}</p>
                   <p className="text-sm">
                     {new Date(selectedMemory.created_at).toLocaleString()}
                   </p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">User ID</p>
+                  <p className="text-xs text-muted-foreground">{t("memories.detail.userId")}</p>
                   <p className="text-sm font-mono">
-                    {selectedMemory.user_id || "None"}
+                    {selectedMemory.user_id || t("memories.detail.none")}
                   </p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Agent ID</p>
+                  <p className="text-xs text-muted-foreground">{t("memories.detail.agentId")}</p>
                   <p className="text-sm font-mono">
-                    {selectedMemory.agent_id || "None"}
+                    {selectedMemory.agent_id || t("memories.detail.none")}
                   </p>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <h3 className="text-sm font-medium">Metadata</h3>
+                <h3 className="text-sm font-medium">{t("memories.detail.metadata")}</h3>
                 <div className="bg-muted p-3 rounded-md overflow-x-auto">
                   <pre className="text-xs">
                     {JSON.stringify(selectedMemory.metadata, null, 2)}
@@ -408,7 +511,7 @@ function MemoriesPage() {
 
               {selectedMemory.run_id && (
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Run ID</p>
+                  <p className="text-xs text-muted-foreground">{t("memories.detail.runId")}</p>
                   <p className="text-sm font-mono">{selectedMemory.run_id}</p>
                 </div>
               )}

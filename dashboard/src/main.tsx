@@ -1,3 +1,5 @@
+import "./i18n/config";
+
 import {
   RouterProvider,
   createHashHistory,

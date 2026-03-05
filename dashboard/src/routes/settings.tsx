@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Key, Save, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { getApiKey, setApiKey } from "../lib/api";
 
 import { Button } from "@/components/ui/button";
@@ -20,18 +21,19 @@ export const Route = createFileRoute("/settings")({
 });
 
 function SettingsPage() {
+  const { t } = useTranslation();
   const [apiKey, setApiKeyInput] = useState(getApiKey());
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setApiKey(apiKey.trim());
-      toast.success("Settings updated", {
-        description: "API Key has been saved to local storage.",
+      toast.success(t("settings.toast.saved"), {
+        description: t("settings.toast.savedDesc"),
       });
     } catch (err) {
-      toast.error("Save failed", {
-        description: "Could not save the API key to your browser.",
+      toast.error(t("settings.toast.failed"), {
+        description: t("settings.toast.failedDesc"),
       });
     }
   };
@@ -41,52 +43,50 @@ function SettingsPage() {
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
           <Key className="text-primary" />
-          Settings
+          {t("settings.title")}
         </h1>
         <p className="text-muted-foreground">
-          Manage your dashboard configuration and authentication keys.
+          {t("settings.subtitle")}
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Configuration</CardTitle>
+          <CardTitle>{t("settings.configTitle")}</CardTitle>
           <CardDescription>
-            Configure how the dashboard connects to the PowerMem server.
+            {t("settings.configDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex items-start gap-4 p-4 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400">
             <ShieldCheck className="mt-0.5 shrink-0" size={20} />
             <div className="text-sm">
-              <p className="font-bold">Privacy & Security</p>
+              <p className="font-bold">{t("settings.privacy")}</p>
               <p className="opacity-90 leading-relaxed">
-                Your API key is stored only in your browser's Local Storage. It
-                is never transmitted to any third-party analytics or external
-                servers.
+                {t("settings.privacyDesc")}
               </p>
             </div>
           </div>
 
           <form onSubmit={handleSave} className="space-y-4">
             <div className="grid w-full items-center gap-2">
-              <Label htmlFor="api-key">Server API Key</Label>
+              <Label htmlFor="api-key">{t("settings.apiKeyLabel")}</Label>
               <Input
                 id="api-key"
                 type="password"
-                placeholder="Enter your PowerMem API Key..."
+                placeholder={t("settings.apiKeyPlaceholder")}
                 value={apiKey}
                 onChange={(e) => setApiKeyInput(e.target.value)}
                 className="font-mono"
               />
               <p className="text-[0.8rem] text-muted-foreground">
-                Required if `auth_enabled` is set to true on the server.
+                {t("settings.apiKeyHint")}
               </p>
             </div>
 
             <Button type="submit" className="w-full sm:w-auto gap-2">
               <Save size={16} />
-              Save Changes
+              {t("settings.save")}
             </Button>
           </form>
         </CardContent>

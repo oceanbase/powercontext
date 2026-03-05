@@ -372,3 +372,57 @@ class UserService:
                 message=f"Failed to delete user profile: {str(e)}",
                 status_code=500,
             )
+
+    def get_all_profiles(
+        self,
+        user_id: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all user profiles with optional filtering.
+        
+        Args:
+            user_id: Optional user ID filter
+            limit: Maximum number of results
+            offset: Number of results to skip
+            
+        Returns:
+            List of user profiles
+            
+        Raises:
+            APIError: If retrieval fails
+        """
+        try:
+            profiles = self.user_memory.profile_store.get_profile(
+                user_id=user_id,
+                limit=limit,
+                offset=offset,
+            )
+            return profiles if profiles else []
+            
+        except Exception as e:
+            logger.error(f"Failed to get profiles: {e}", exc_info=True)
+            raise APIError(
+                code=ErrorCode.INTERNAL_ERROR,
+                message=f"Failed to get profiles: {str(e)}",
+                status_code=500,
+            )
+
+    def count_profiles(self, user_id: Optional[str] = None) -> int:
+        """
+        Count user profiles with optional filtering.
+        
+        Args:
+            user_id: Optional user ID filter
+            
+        Returns:
+            Total count of profiles
+        """
+        try:
+            count = self.user_memory.profile_store.count_profiles(user_id=user_id)
+            return count
+            
+        except Exception as e:
+            logger.error(f"Failed to count profiles: {e}", exc_info=True)
+            return 0

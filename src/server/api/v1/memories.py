@@ -4,6 +4,7 @@ Memory management API routes
 
 import logging
 from typing import List, Optional
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query, Request, UploadFile, File
 from fastapi.responses import Response
 from slowapi import Limiter
@@ -18,7 +19,6 @@ from ...models.request import (
 )
 from ...models.response import (
     APIResponse,
-    MemoryResponse,
     MemoryListResponse,
 )
 from ...services.memory_service import MemoryService
@@ -171,6 +171,13 @@ async def list_memories(
     service: MemoryService = Depends(get_memory_service),
 ):
     """List memories with pagination and sorting"""
+    # Get total count first
+    total_count = service.count_memories(
+        user_id=user_id,
+        agent_id=agent_id,
+    )
+    
+    # Get paginated memories
     memories = service.list_memories(
         user_id=user_id,
         agent_id=agent_id,
@@ -184,7 +191,7 @@ async def list_memories(
     
     response_data = MemoryListResponse(
         memories=memory_responses,
-        total=len(memory_responses),
+        total=total_count,  # Use actual total count
         limit=limit,
         offset=offset,
     )
@@ -207,19 +214,70 @@ async def get_memory_stats(
     request: Request,
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    time_range: Optional[str] = Query(
+        None,
+        regex="^(7d|30d|90d|all)$",
+        description="Time range filter: 7d, 30d, 90d, or all"
+    ),
     api_key: str = Depends(verify_api_key),
     service: MemoryService = Depends(get_memory_service),
 ):
     """Get memory statistics"""
+    # Calculate cutoff date based on time_range
+    cutoff_date = None
+    if time_range and time_range != "all":
+        days = int(time_range[:-1])  # Extract number from "7d", "30d", "90d"
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+    
     stats = service.get_statistics(
         user_id=user_id,
         agent_id=agent_id,
+        cutoff_date=cutoff_date,
     )
 
     return APIResponse(
         success=True,
         data=stats,
         message="Statistics retrieved successfully",
+    )
+
+
+@router.get(
+    "/quality",
+    response_model=APIResponse,
+    summary="Get memory quality metrics",
+    description="Analyze memory quality and identify potential issues",
+)
+@limiter.limit(get_rate_limit_string())
+async def get_memory_quality(
+    request: Request,
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    time_range: Optional[str] = Query(
+        None,
+        regex="^(7d|30d|90d|all)$",
+        description="Time range filter: 7d, 30d, 90d, or all"
+    ),
+    api_key: str = Depends(verify_api_key),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """Get memory quality metrics"""
+    # Calculate cutoff date based on time_range
+    cutoff_date = None
+    if time_range and time_range != "all":
+        days = int(time_range[:-1])  # Extract number from "7d", "30d", "90d"
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+    
+    quality_metrics = await service.analyze_memory_quality(
+        user_id=user_id,
+        agent_id=agent_id,
+        cutoff_date=cutoff_date,
+    )
+
+    return APIResponse(
+        success=True,
+        data=quality_metrics,
+        message="Quality metrics retrieved successfully",
     )
 
 
@@ -254,7 +312,7 @@ async def get_unique_users(
 @limiter.limit(get_rate_limit_string())
 async def get_memory(
     request: Request,
-    memory_id: int,
+    memory_id: str,
     user_id: Optional[str] = Query(None, description="User ID for access control"),
     agent_id: Optional[str] = Query(None, description="Agent ID for access control"),
     api_key: str = Depends(verify_api_key),
@@ -262,7 +320,7 @@ async def get_memory(
 ):
     """Get a memory by ID"""
     memory = service.get_memory(
-        memory_id=memory_id,
+        memory_id=int(memory_id),
         user_id=user_id,
         agent_id=agent_id,
     )
@@ -350,7 +408,7 @@ async def batch_update_memories(
 @limiter.limit(get_rate_limit_string())
 async def update_memory(
     request: Request,
-    memory_id: int,
+    memory_id: str,
     body: MemoryUpdateRequest,
     user_id: Optional[str] = Query(None, description="User ID for access control"),
     agent_id: Optional[str] = Query(None, description="Agent ID for access control"),
@@ -368,7 +426,7 @@ async def update_memory(
         )
     
     result = service.update_memory(
-        memory_id=memory_id,
+        memory_id=int(memory_id),
         content=body.content,
         user_id=user_id,
         agent_id=agent_id,
@@ -420,7 +478,7 @@ async def bulk_delete_memories(
 @limiter.limit(get_rate_limit_string())
 async def delete_memory(
     request: Request,
-    memory_id: int,
+    memory_id: str,
     user_id: Optional[str] = Query(None, description="User ID for access control"),
     agent_id: Optional[str] = Query(None, description="Agent ID for access control"),
     api_key: str = Depends(verify_api_key),
@@ -428,7 +486,7 @@ async def delete_memory(
 ):
     """Delete a memory"""
     service.delete_memory(
-        memory_id=memory_id,
+        memory_id=int(memory_id),
         user_id=user_id,
         agent_id=agent_id,
     )

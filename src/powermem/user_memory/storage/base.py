@@ -117,3 +117,16 @@ class UserProfileStoreBase(ABC):
             True if deleted, False if not found
         """
         pass
+
+    @abstractmethod
+    def count_profiles(self, user_id: Optional[str] = None) -> int:
+        """
+        Count user profiles with optional filter.
+
+        Args:
+            user_id: Optional user ID filter
+
+        Returns:
+            Total count of profiles
+        """
+        pass

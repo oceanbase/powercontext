@@ -202,3 +202,37 @@ async def delete_user_memories(
         data=result,
         message=f"Deleted {result['deleted_count']} memories for user {user_id}",
     )
+
+
+@router.get(
+    "/profiles",
+    response_model=APIResponse,
+    summary="Get all user profiles",
+    description="Get all user profiles with optional filtering and pagination",
+)
+@limiter.limit(get_rate_limit_string())
+async def get_all_user_profiles(
+    request: Request,
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    limit: int = Query(20, ge=1, le=1000, description="Maximum number of results"),
+    offset: int = Query(0, ge=0, description="Number of results to skip"),
+    api_key: str = Depends(verify_api_key),
+    service: UserService = Depends(get_user_service),
+):
+    """Get all user profiles with pagination"""
+    # Get total count first
+    total_count = service.count_profiles(user_id=user_id)
+    
+    # Get profiles
+    profiles = service.get_all_profiles(user_id=user_id, limit=limit, offset=offset)
+    
+    return APIResponse(
+        success=True,
+        data={
+            "profiles": profiles,
+            "total": total_count,
+            "limit": limit,
+            "offset": offset,
+        },
+        message="User profiles retrieved successfully",
+    )

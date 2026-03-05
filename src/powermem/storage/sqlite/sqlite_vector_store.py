@@ -293,6 +293,39 @@ class SQLiteVectorStore(VectorStoreBase):
         
         return results
     
+    def count(self, filters=None) -> int:
+        """Count all memories with optional filtering.
+        
+        Args:
+            filters: Optional filters dictionary
+            
+        Returns:
+            int: Total count of memories matching the filters
+        """
+        query = f"SELECT COUNT(*) FROM {self.collection_name}"
+        query_params = []
+        
+        # Apply filters if provided
+        if filters:
+            conditions = []
+            for key, value in filters.items():
+                # Filter by JSON field in payload
+                conditions.append(f"json_extract(payload, '$.{key}') = ?")
+                query_params.append(value)
+            
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+        
+        with self._lock:
+            if query_params:
+                cursor = self.connection.execute(query, query_params)
+            else:
+                cursor = self.connection.execute(query)
+            
+            count = cursor.fetchone()[0]
+        
+        return count
+    
     def reset(self) -> None:
         """Reset by deleting and recreating the collection."""
         self.delete_col()

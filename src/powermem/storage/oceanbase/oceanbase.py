@@ -2050,6 +2050,42 @@ class OceanBaseVectorStore(VectorStoreBase):
             logger.error(f"Failed to list memories from collection '{self.collection_name}': {e}", exc_info=True)
             raise
 
+    def count(self, filters: Optional[Dict] = None) -> int:
+        """Count all memories with optional filtering.
+        
+        Args:
+            filters: Optional filters dictionary
+            
+        Returns:
+            int: Total count of memories matching the filters
+        """
+        try:
+            from sqlalchemy import func
+            
+            table = Table(self.collection_name, self.obvector.metadata_obj, autoload_with=self.obvector.engine)
+
+            # Build where clause from filters
+            where_clause = self._generate_where_clause(filters, table=table)
+
+            # Build count query
+            stmt = select(func.count()).select_from(table)
+            
+            # Apply WHERE clause
+            if where_clause is not None:
+                stmt = stmt.where(where_clause)
+
+            # Execute query
+            with self.obvector.engine.connect() as conn:
+                result = conn.execute(stmt)
+                count = result.scalar()
+
+            logger.debug(f"Successfully counted {count} memories from collection '{self.collection_name}'")
+            return count
+            
+        except Exception as e:
+            logger.error(f"Failed to count memories from collection '{self.collection_name}': {e}", exc_info=True)
+            return 0
+
     def reset(self):
         """
         Reset collection by deleting and recreating it.

@@ -17,6 +17,7 @@ class OpenAIEmbeddingConfig(BaseEmbedderConfig):
     openai_base_url: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices(
+            "openai_base_url",
             "OPENAI_EMBEDDING_BASE_URL",
             "OPEN_EMBEDDING_BASE_URL",
         ),

@@ -1338,8 +1338,13 @@ class Memory(MemoryBase):
                     updates, delete_flag = self._intelligence_plugin.on_get(result)
                     try:
                         if delete_flag:
-                            self.storage.delete_memory(memory_id, user_id, agent_id)
-                            return None
+                            logger.info(f"Memory {memory_id} marked as 'should_forget' by intelligence plugin")
+                            
+                            if updates is None:
+                                updates = {}
+                            updates["should_forget"] = True
+                            updates["marked_for_forgetting_at"] = get_current_datetime().isoformat()
+                        
                         if updates:
                             self.storage.update_memory(memory_id, {**updates}, user_id, agent_id)
                     except Exception:
@@ -1591,6 +1596,42 @@ class Memory(MemoryBase):
         except Exception as e:
             logger.error(f"Failed to get all memories: {e}")
             raise
+
+    def count_all(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Count all memories with optional filtering.
+        
+        Args:
+            user_id: Optional user ID filter
+            agent_id: Optional agent ID filter
+            run_id: Optional run ID filter
+            filters: Optional additional filters dictionary
+        
+        Returns:
+            int: Total count of memories matching the filters
+        """
+        try:
+            count = self.storage.count_all_memories(
+                user_id, agent_id, run_id
+            )
+            
+            self.audit.log_event("memory.count_all", {
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "run_id": run_id,
+                "count": count
+            }, user_id=user_id, agent_id=agent_id)
+            
+            return count
+            
+        except Exception as e:
+            logger.error(f"Failed to count all memories: {e}")
+            return 0
 
     def optimize(self, strategy: str = "deduplicate", **kwargs) -> Dict[str, Any]:
         """
