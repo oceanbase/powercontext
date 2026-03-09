@@ -127,12 +127,14 @@ def add_cmd(ctx: CLIContext, content, user_id, agent_id, run_id, metadata,
 def search_cmd(ctx: CLIContext, query, user_id, agent_id, run_id, limit,
                threshold, filters, json_output):
     """
-    Search for memories.
+    Search for memories. Use --threshold / -t to only return results with
+    similarity score >= threshold (e.g. 0.3 for score > 0.3).
     
     \b
     Examples:
         pmem memory search "user preferences" --user-id user123
         pmem memory search "dark mode" --limit 5 --json
+        pmem memory search "123" -t 0.3
     """
     ctx.json_output = ctx.json_output or json_output
     try:

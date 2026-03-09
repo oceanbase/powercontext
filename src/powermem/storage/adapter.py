@@ -255,9 +255,9 @@ class StorageAdapter:
             # These fields (like "category") were extracted from metadata for filtering purposes
             # but should still be visible in the returned metadata
             for key, value in payload.items():
-                if key not in core_and_promoted_keys and key not in user_metadata and value:
-                    # Only include non-empty values that aren't already in metadata
-                    user_metadata[key] = value
+                if key not in core_and_promoted_keys and key not in user_metadata:
+                    if value is not None and (value or value == 0 or value == 0.0):
+                        user_metadata[key] = value
             
             memory = {
                 "id": memory_id,

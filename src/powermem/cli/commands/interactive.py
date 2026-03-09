@@ -31,8 +31,8 @@ Available commands:
   add <content> [--user-id <id>] [--agent-id <id>]
       Add a new memory
       
-  search <query> [--user-id <id>] [--limit <n>]
-      Search for memories
+  search <query> [--user-id <id>] [--limit <n>] [--threshold <t>]
+      Search for memories (--threshold: min similarity, e.g. 0.3)
       
   get <memory_id> [--user-id <id>]
       Get a specific memory
@@ -231,11 +231,17 @@ Examples:
         positional, options = self._parse_options(args)
         
         if not positional:
-            print_error("Usage: search <query> [--user-id <id>] [--limit <n>]")
+            print_error("Usage: search <query> [--user-id <id>] [--limit <n>] [--threshold <t>]")
             return
         
         query = " ".join(positional)
         limit = int(options.get("limit", 10))
+        threshold = options.get("threshold")
+        if threshold is not None:
+            try:
+                threshold = float(threshold)
+            except (TypeError, ValueError):
+                threshold = None
         
         try:
             result = self.ctx.memory.search(
@@ -243,6 +249,7 @@ Examples:
                 user_id=self._get_user_id(options),
                 agent_id=self._get_agent_id(options),
                 limit=limit,
+                threshold=threshold,
             )
             
             memories = result.get("results", [])
