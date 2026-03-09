@@ -1,5 +1,5 @@
 from typing import Any, ClassVar, Dict, Optional, Union
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings
 from powermem.settings import settings_config
 
@@ -121,7 +121,14 @@ class BaseGraphStoreConfig(BaseVectorStoreConfig):
         ),
         description="Database server port"
     )
-    
+
+    @field_validator("port", mode="before")
+    @classmethod
+    def _coerce_port_to_str(cls, value: Any) -> Any:
+        if isinstance(value, int):
+            return str(value)
+        return value
+
     user: str = Field(
         default="root@test",
         validation_alias=AliasChoices(

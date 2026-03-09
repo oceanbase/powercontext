@@ -31,8 +31,8 @@ Available commands:
   add <content> [--user-id <id>] [--agent-id <id>]
       Add a new memory
       
-  search <query> [--user-id <id>] [--limit <n>]
-      Search for memories
+  search <query> [--user-id <id>] [--limit <n>] [--threshold <t>]
+      Search for memories (--threshold: min similarity, e.g. 0.3)
       
   get <memory_id> [--user-id <id>]
       Get a specific memory
@@ -231,11 +231,17 @@ Examples:
         positional, options = self._parse_options(args)
         
         if not positional:
-            print_error("Usage: search <query> [--user-id <id>] [--limit <n>]")
+            print_error("Usage: search <query> [--user-id <id>] [--limit <n>] [--threshold <t>]")
             return
         
         query = " ".join(positional)
         limit = int(options.get("limit", 10))
+        threshold = options.get("threshold")
+        if threshold is not None:
+            try:
+                threshold = float(threshold)
+            except (TypeError, ValueError):
+                threshold = None
         
         try:
             result = self.ctx.memory.search(
@@ -243,6 +249,7 @@ Examples:
                 user_id=self._get_user_id(options),
                 agent_id=self._get_agent_id(options),
                 limit=limit,
+                threshold=threshold,
             )
             
             memories = result.get("results", [])
@@ -320,13 +327,16 @@ Examples:
         content = " ".join(positional[1:])
         
         try:
-            self.ctx.memory.update(
+            result = self.ctx.memory.update(
                 memory_id=memory_id,
                 content=content,
                 user_id=self._get_user_id(options),
                 agent_id=self._get_agent_id(options),
             )
-            print_success(f"Memory updated: ID={memory_id}")
+            if result is None or not isinstance(result, dict) or not result:
+                print_error(f"Memory not found or access denied: {memory_id}")
+            else:
+                print_success(f"Memory updated: ID={memory_id}")
             
         except Exception as e:
             print_error(f"Failed: {e}")
@@ -360,7 +370,8 @@ Examples:
             if result:
                 print_success(f"Memory deleted: ID={memory_id}")
             else:
-                print_error(f"Failed to delete memory: {memory_id}")
+                # Consistent with update: same prompt for not found or access denied (issue #299)
+                print_error(f"Memory not found or access denied: {memory_id}")
                 
         except Exception as e:
             print_error(f"Failed: {e}")
@@ -487,31 +498,13 @@ Examples:
         self.running = False
 
 
-@click.command(name="interactive")
-@pass_context
-def interactive_cmd(ctx: CLIContext):
-    """
-    Start interactive mode (REPL).
-    
-    Provides a shell-like interface for PowerMem operations.
-    
-    \b
-    Examples:
-        pmem interactive
-    """
-    try:
-        session = InteractiveSession(ctx)
-        session.run()
-    except Exception as e:
-        print_error(f"Interactive mode error: {e}")
-        sys.exit(1)
-
-
 @click.command(name="shell")
 @pass_context
 def shell_cmd(ctx: CLIContext):
     """
-    Start interactive mode (alias for 'interactive').
+    Start interactive mode (REPL).
+    
+    Provides a shell-like interface for PowerMem operations.
     
     \b
     Examples:

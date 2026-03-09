@@ -122,6 +122,9 @@ celerybeat.pid
 # Environments
 .env
 .venv
+
+# PowerMem backup / local data
+data/
 env/
 venv/
 ENV/
@@ -187,6 +190,7 @@ config/secrets.yaml
 config/production.yaml
 .env.local
 .env.production
+.env.bak*
 
 # Test data
 test_data/

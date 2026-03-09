@@ -14,7 +14,6 @@ from powermem.integrations.llm import LLMBase
 from powermem.integrations.llm.config.base import BaseLLMConfig
 from powermem.integrations.llm.config.qwen import QwenConfig
 from powermem.utils.utils import extract_json
-import dashscope
 
 
 class QwenLLM(LLMBase):
@@ -52,14 +51,11 @@ class QwenLLM(LLMBase):
         if not self.config.model:
             self.config.model = "qwen-turbo"
 
-        # Set API key
-        api_key = self.config.api_key or os.getenv("DASHSCOPE_API_KEY")
-        if not api_key:
+        # Store API key per-instance so multiple Qwen LLM/embedder instances do not overwrite each other
+        self.api_key = self.config.api_key or os.getenv("DASHSCOPE_API_KEY")
+        if not self.api_key:
             raise ValueError(
                 "API key is required. Set DASHSCOPE_API_KEY environment variable or pass api_key in config.")
-
-        # Set API key for DashScope SDK
-        dashscope.api_key = api_key
 
         # Set base URL
         base_url = getattr(self.config, "dashscope_base_url", None) or os.getenv(
@@ -191,7 +187,7 @@ class QwenLLM(LLMBase):
             generation_params["response_format"] = response_format
 
         try:
-            response = Generation.call(**generation_params)
+            response = Generation.call(api_key=self.api_key, **generation_params)
             parsed_response = self._parse_response(response, tools)
 
             response_callback = getattr(self.config, "response_callback", None)

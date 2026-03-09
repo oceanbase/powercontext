@@ -1,0 +1,205 @@
+{
+  "nav": {
+    "overview": "Overview",
+    "dashboard": "Dashboard",
+    "memories": "Memories",
+    "userProfile": "UserProfile",
+    "settings": "Settings",
+    "application": "Application",
+    "dashboardSubtitle": "Dashboard"
+  },
+  "dashboard": {
+    "title": "Memory Overview",
+    "subtitle": "Real-time analytics for your intelligent memory system.",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing...",
+    "clearFilters": "Clear Filters",
+    "about": {
+      "title": "About",
+      "subtitle": "PowerMem Dashboard Information",
+      "version": "Version",
+      "website": "Website",
+      "copyright": "Copyright",
+      "allRightsReserved": "All rights reserved."
+    },
+    "stats": {
+      "totalMemories": "Total Memories",
+      "totalMemoriesDesc": "Stored vector records",
+      "avgImportance": "Avg. Importance",
+      "avgImportanceDesc": "Aggregate priority score",
+      "accessDensity": "Access Density",
+      "accessDensityDesc": "Average hits per record",
+      "uniqueDates": "Unique Dates",
+      "uniqueDatesDesc": "Days with activity"
+    },
+    "systemHealth": {
+      "title": "System Health",
+      "status": "Status",
+      "version": "Version",
+      "uptime": "Uptime",
+      "dependencies": "Dependencies",
+      "vectorStore": "Vector Store",
+      "database": "Database",
+      "llm": "LLM Provider",
+      "statusOperational": "Operational",
+      "statusDegraded": "Degraded",
+      "statusDown": "Down",
+      "latency": "latency",
+      "noStatus": "No status available",
+      "loading": "Loading system status..."
+    },
+    "charts": {
+      "growthTrend": "Growth Trend",
+      "growthTrendDesc": "Daily memory creation volume",
+      "memoryCategories": "Memory Categories",
+      "memoryCategoriesDesc": "Distribution by classification",
+      "hotMemories": "Hot Memories",
+      "hotMemoriesDesc": "Top retrieved records by access count",
+      "contentSnippet": "Content Snippet",
+      "hits": "Hits",
+      "noAccessRecords": "No access records found",
+      "retentionAge": "Retention Age",
+      "retentionAgeDesc": "Memory lifecycle distribution"
+    },
+    "quality": {
+      "title": "Memory Quality",
+      "subtitle": "Quality analysis of stored memories",
+      "lowQualityRatio": "Low Quality Ratio",
+      "memoriesAnalyzed": "memories analyzed",
+      "qualityIssues": "Quality Issues",
+      "missingMetadata": "Missing Metadata",
+      "emptyContent": "Empty Content",
+      "lowImportance": "Low Importance",
+      "noEmbedding": "No Embedding",
+      "statusGood": "Good",
+      "statusWarning": "Warning",
+      "statusCritical": "Critical",
+      "noData": "No quality data available",
+      "loading": "Loading quality metrics..."
+    },
+    "timeRange": {
+      "last7days": "Last 7 days",
+      "last30days": "Last 30 days",
+      "last90days": "Last 90 days",
+      "allTime": "All time"
+    },
+    "error": {
+      "title": "Error loading statistics",
+      "updateKey": "Update Key & Retry",
+      "apiKeyPlaceholder": "Enter API Key"
+    }
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "noData": "No data available",
+    "tryAgain": "Try Again",
+    "componentError": "Component Error"
+  },
+  "memories": {
+    "title": "Memories",
+    "subtitle": "Manage and explore stored cognitive records.",
+    "refresh": "Refresh",
+    "filterByUserId": "Filter by User ID...",
+    "filterByAgentId": "Filter by Agent ID...",
+    "filterByContent": "Filter by content...",
+    "applyFilters": "Apply Filters",
+    "clearAllFilters": "Clear All",
+    "filterPlaceholder": "Filter by content or category...",
+    "filters": "Filters",
+    "filtering": "Filtering...",
+    "columns": {
+      "userId": "User ID",
+      "agentId": "Agent ID",
+      "category": "Category",
+      "content": "Content",
+      "metadata": "Metadata",
+      "createdAt": "Created At",
+      "actions": "Actions"
+    },
+    "loading": "Loading memories...",
+    "noMemories": "No memories found.",
+    "showing": "Showing {{count}} of {{total}} memories",
+    "page": "Page {{page}} of {{total}}",
+    "prev": "Prev",
+    "next": "Next",
+    "actions": {
+      "viewDetails": "View Details",
+      "delete": "Delete Memory",
+      "copyJson": "Copy Raw JSON",
+      "jsonCopied": "JSON copied to clipboard"
+    },
+    "detail": {
+      "title": "Memory Details",
+      "id": "ID",
+      "content": "Content",
+      "category": "Category",
+      "createdAt": "Created At",
+      "userId": "User ID",
+      "agentId": "Agent ID",
+      "metadata": "Metadata",
+      "runId": "Run ID",
+      "none": "None"
+    },
+    "toast": {
+      "deleted": "Memory deleted successfully",
+      "deleteFailed": "Failed to delete memory: {{error}}",
+      "refreshed": "Memories refreshed successfully",
+      "filterApplied": "Filter applied successfully",
+      "filterCleared": "Filter cleared successfully"
+    },
+    "error": "Error loading memories"
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Manage your dashboard configuration and authentication keys.",
+    "configTitle": "Configuration",
+    "configDesc": "Configure how the dashboard connects to the PowerMem server.",
+    "privacy": "Privacy & Security",
+    "privacyDesc": "Your API key is stored only in your browser's Local Storage. It is never transmitted to any third-party analytics or external servers.",
+    "apiKeyLabel": "Server API Key",
+    "apiKeyPlaceholder": "Enter your PowerMem API Key...",
+    "apiKeyHint": "Required if `auth_enabled` is set to true on the server.",
+    "save": "Save Changes",
+    "toast": {
+      "saved": "Settings updated",
+      "savedDesc": "API Key has been saved to local storage.",
+      "failed": "Save failed",
+      "failedDesc": "Could not save the API key to your browser."
+    }
+  },
+  "userProfile": {
+    "title": "User Profile",
+    "description": "View and manage user profiles",
+    "filterByUserId": "Filter by User ID",
+    "search": "Search",
+    "searching": "Searching...",
+    "filterApplied": "Filter applied successfully",
+    "filterCleared": "Filter applied successfully",
+    "clearFilter": "Clear",
+    "noProfilesEnabled": "User profiling is not enabled",
+    "noProfiles": "No user profiles found",
+    "columns": {
+      "userId": "User ID",
+      "profileContent": "Profile Content",
+      "topics": "Topics",
+      "updatedAt": "Updated At",
+      "actions": "Actions"
+    },
+    "viewDetails": "View Details",
+    "loading": "Loading profiles...",
+    "showing": "Showing {{count}} of {{total}} profiles",
+    "page": "Page {{page}} of {{total}}",
+    "prev": "Prev",
+    "next": "Next",
+    "detail": {
+      "title": "Profile Details",
+      "userId": "User ID",
+      "content": "Content",
+      "topics": "Topics",
+      "createdAt": "Created At",
+      "updatedAt": "Updated At",
+      "none": "None"
+    }
+  }
+}

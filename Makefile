@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check publish-pypi publish-testpypi install-build-tools upload docs bump-version server-start server-stop server-restart server-status server-logs docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
+.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check publish-pypi publish-testpypi install-build-tools upload docs bump-version server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
 
 help: ## Show help information
 	@echo "powermem Project Build Tools"
@@ -167,26 +167,17 @@ bump-version: ## Bump version number (usage: make bump-version VERSION=0.2.0)
 	@sed -i 's/^version = ".*"/version = "$(VERSION)"/' pyproject.toml
 	@# Update src/powermem/version.py
 	@sed -i 's/^__version__ = ".*"/__version__ = "$(VERSION)"/' src/powermem/version.py
-	@# Update examples/langgraph/__init__.py
-	@sed -i 's/^__version__ = ".*"/__version__ = "$(VERSION)"/' examples/langgraph/__init__.py
 	@# Update src/powermem/core/telemetry.py (all occurrences)
 	@sed -i 's/"version": "0\.[0-9]\+\.[0-9]\+"/"version": "$(VERSION)"/g' src/powermem/core/telemetry.py
 	@# Update src/powermem/core/audit.py
 	@sed -i 's/"version": "0\.[0-9]\+\.[0-9]\+"/"version": "$(VERSION)"/g' src/powermem/core/audit.py
-	@# Update examples/langgraph/requirements.txt
-	@sed -i 's/powermem>=0\.[0-9]\+\.[0-9]\+/powermem>=$(VERSION)/' examples/langgraph/requirements.txt
-	@# Update examples/langchain/requirements.txt
-	@sed -i 's/powermem>=0\.[0-9]\+\.[0-9]\+/powermem>=$(VERSION)/' examples/langchain/requirements.txt
-	@echo "✓ Version updated to $(VERSION) in all files"
+	@echo "✓ Version updated to $(VERSION) in all files (excluding examples/)"
 	@echo ""
 	@echo "Updated files:"
 	@echo "  - pyproject.toml"
 	@echo "  - src/powermem/version.py"
-	@echo "  - examples/langgraph/__init__.py"
 	@echo "  - src/powermem/core/telemetry.py"
 	@echo "  - src/powermem/core/audit.py"
-	@echo "  - examples/langgraph/requirements.txt"
-	@echo "  - examples/langchain/requirements.txt"
 	@echo ""
 	@echo "Note: Don't forget to update VERSION_HISTORY in src/powermem/version.py manually!"
 
@@ -265,7 +256,13 @@ server-stop: ## Stop the PowerMem API server
 		fi; \
 		echo "Server stopped"; \
 	else \
-		echo "Server process (PID: $$PID) not found, cleaning up PID file"; \
+		echo "Server process (PID: $$PID) not found (stale PID), cleaning up PID file"; \
+		PORT_PID=$$(lsof -t -i:$(SERVER_PORT) 2>/dev/null || echo ""); \
+		if [ -n "$$PORT_PID" ]; then \
+			echo "Found process $$PORT_PID on port $(SERVER_PORT), stopping it..."; \
+			kill $$PORT_PID 2>/dev/null || kill -9 $$PORT_PID 2>/dev/null; \
+			echo "Port $(SERVER_PORT) cleared"; \
+		fi; \
 	fi; \
 	rm -f $(SERVER_PID_FILE); \
 	echo "✓ Server stopped"
@@ -316,6 +313,18 @@ server-logs-last: ## Show last 50 lines of server logs
 		exit 1; \
 	fi
 	@tail -n 50 server.log
+
+server-dashboard-start: ## Deploy dashboard assets and restart server
+	@echo "[1/5] Stopping service..."
+	@$(MAKE) server-stop
+	@echo "[2/5] Installing and building dashboard..."
+	@cd dashboard && pnpm install && pnpm build
+	@echo "[3/5] Syncing frontend artifacts to backend static directory..."
+	@mkdir -p src/server/dashboard
+	@cp -r dashboard/dist/* src/server/dashboard/
+	@echo "[4/5] Starting service..."
+	@$(MAKE) server-start
+	@echo "[5/5] Done."
 
 # Docker commands
 DOCKER_IMAGE := oceanbase/powermem-server

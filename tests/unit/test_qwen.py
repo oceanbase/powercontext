@@ -18,12 +18,6 @@ def mock_dashscope_generation():
         yield mock_generation
 
 
-@pytest.fixture
-def mock_dashscope_import():
-    with patch("powermem.integrations.llm.qwen.dashscope") as mock_dashscope:
-        yield mock_dashscope
-
-
 def test_qwen_llm_base_url():
     # case1: default config: with default dashscope base url
     config = QwenConfig(model="qwen-turbo", temperature=0.7, max_tokens=100, top_p=1.0, api_key="api_key")
@@ -64,11 +58,12 @@ def test_generate_response_without_tools(mock_dashscope_generation):
     response = llm.generate_response(messages)
 
     mock_dashscope_generation.call.assert_called_once_with(
-        model="qwen-turbo", 
-        messages=messages, 
-        temperature=0.7, 
-        max_tokens=100, 
-        top_p=1.0
+        api_key="test_key",
+        model="qwen-turbo",
+        messages=messages,
+        temperature=0.7,
+        max_tokens=100,
+        top_p=1.0,
     )
     assert response == "I'm doing well, thank you for asking!"
 
@@ -104,13 +99,14 @@ def test_generate_response_with_tools(mock_dashscope_generation):
     response = llm.generate_response(messages, tools=tools)
 
     mock_dashscope_generation.call.assert_called_once_with(
-        model="qwen-turbo", 
-        messages=messages, 
-        temperature=0.7, 
-        max_tokens=100, 
-        top_p=1.0, 
-        tools=tools, 
-        tool_choice="auto"
+        api_key="test_key",
+        model="qwen-turbo",
+        messages=messages,
+        temperature=0.7,
+        max_tokens=100,
+        top_p=1.0,
+        tools=tools,
+        tool_choice="auto",
     )
 
     assert response["content"] == "I've added the memory for you."

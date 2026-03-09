@@ -7,7 +7,6 @@ try:
 except ImportError:
     TextEmbedding = None
     DashScopeAPIResponse = None
-import dashscope
 
 from powermem.integrations.embeddings.base import EmbeddingBase
 from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
@@ -27,14 +26,11 @@ class QwenEmbedding(EmbeddingBase):
                 "DashScope SDK is not installed. Please install it with: pip install dashscope"
             )
 
-        # Set API key
-        api_key = self.config.api_key or os.getenv("DASHSCOPE_API_KEY")
-        if not api_key:
+        # Store API key per-instance so multiple Qwen LLM/embedder instances do not overwrite each other
+        self.api_key = self.config.api_key or os.getenv("DASHSCOPE_API_KEY")
+        if not self.api_key:
             raise ValueError(
                 "API key is required. Set DASHSCOPE_API_KEY environment variable or pass api_key in config.")
-
-        # Set API key for DashScope SDK
-        dashscope.api_key = api_key
 
         # Set base URL (if needed)
         base_url = (
@@ -86,8 +82,8 @@ class QwenEmbedding(EmbeddingBase):
             # Add embedding type (always set, either from config or default)
             params["text_type"] = embedding_type
 
-            # Call the API
-            response = TextEmbedding.call(**params)
+            # Call the API (pass api_key per-call to avoid global dashscope.api_key pollution)
+            response = TextEmbedding.call(api_key=self.api_key, **params)
 
             if response.status_code != 200:
                 raise Exception(f"API request failed with status {response.status_code}: {response.message}")

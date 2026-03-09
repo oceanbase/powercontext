@@ -1,0 +1,205 @@
+{
+  "nav": {
+    "overview": "概览",
+    "dashboard": "仪表盘",
+    "memories": "记忆管理",
+    "userProfile": "用户画像",
+    "settings": "设置",
+    "application": "应用",
+    "dashboardSubtitle": "仪表盘"
+  },
+  "dashboard": {
+    "title": "记忆统计概览",
+    "subtitle": "智能记忆系统实时分析。",
+    "refresh": "刷新",
+    "refreshing": "刷新中...",
+    "clearFilters": "清除筛选",
+    "about": {
+      "title": "关于",
+      "subtitle": "PowerMem 仪表盘信息",
+      "version": "版本",
+      "website": "官网",
+      "copyright": "版权",
+      "allRightsReserved": "版权所有。"
+    },
+    "stats": {
+      "totalMemories": "总记忆数",
+      "totalMemoriesDesc": "已存储向量记录",
+      "avgImportance": "平均重要性",
+      "avgImportanceDesc": "综合优先级评分",
+      "accessDensity": "访问密度",
+      "accessDensityDesc": "每条记录平均命中数",
+      "uniqueDates": "活跃天数",
+      "uniqueDatesDesc": "有访问记录的天数"
+    },
+    "systemHealth": {
+      "title": "系统健康",
+      "status": "状态",
+      "version": "版本",
+      "uptime": "运行时长",
+      "dependencies": "依赖项",
+      "vectorStore": "向量库",
+      "database": "数据库",
+      "llm": "语言模型",
+      "statusOperational": "正常",
+      "statusDegraded": "降级",
+      "statusDown": "故障",
+      "latency": "延迟",
+      "noStatus": "暂无状态信息",
+      "loading": "加载系统状态中..."
+    },
+    "charts": {
+      "growthTrend": "增长趋势",
+      "growthTrendDesc": "每日记忆创建量",
+      "memoryCategories": "记忆分类",
+      "memoryCategoriesDesc": "按分类分布",
+      "hotMemories": "热门记忆",
+      "hotMemoriesDesc": "按访问次数排序的热门记录",
+      "contentSnippet": "内容摘要",
+      "hits": "命中数",
+      "noAccessRecords": "暂无访问记录",
+      "retentionAge": "留存时长",
+      "retentionAgeDesc": "记忆生命周期分布"
+    },
+    "quality": {
+      "title": "记忆质量",
+      "subtitle": "已存储记忆的质量分析",
+      "lowQualityRatio": "低质量占比",
+      "memoriesAnalyzed": "条记忆已分析",
+      "qualityIssues": "质量问题",
+      "missingMetadata": "缺少元数据",
+      "emptyContent": "空内容",
+      "lowImportance": "重要性低",
+      "noEmbedding": "无向量",
+      "statusGood": "良好",
+      "statusWarning": "需注意",
+      "statusCritical": "严重",
+      "noData": "暂无质量数据",
+      "loading": "加载质量指标中..."
+    },
+    "timeRange": {
+      "last7days": "最近 7 天",
+      "last30days": "最近 30 天",
+      "last90days": "最近 90 天",
+      "allTime": "全部"
+    },
+    "error": {
+      "title": "加载统计数据失败",
+      "updateKey": "更新密钥并重试",
+      "apiKeyPlaceholder": "输入 API Key"
+    }
+  },
+  "common": {
+    "loading": "加载中...",
+    "error": "错误",
+    "noData": "暂无数据",
+    "tryAgain": "重试",
+    "componentError": "组件错误"
+  },
+  "memories": {
+    "title": "记忆管理",
+    "subtitle": "管理和探索已存储的认知记录。",
+    "refresh": "刷新",
+    "filterByUserId": "按用户 ID 筛选...",
+    "filterByAgentId": "按代理 ID 筛选...",
+    "filterByContent": "按内容筛选...",
+    "applyFilters": "应用筛选",
+    "clearAllFilters": "清除全部",
+    "filterPlaceholder": "按内容或分类筛选...",
+    "filters": "筛选器",
+    "filtering": "筛选中...",
+    "columns": {
+      "userId": "用户 ID",
+      "agentId": "代理 ID",
+      "category": "分类",
+      "content": "内容",
+      "metadata": "元数据",
+      "createdAt": "创建时间",
+      "actions": "操作"
+    },
+    "loading": "加载记忆中...",
+    "noMemories": "未找到记忆。",
+    "showing": "显示 {{total}} 条中的 {{count}} 条记忆",
+    "page": "第 {{page}} 页，共 {{total}} 页",
+    "prev": "上一页",
+    "next": "下一页",
+    "actions": {
+      "viewDetails": "查看详情",
+      "delete": "删除记忆",
+      "copyJson": "复制原始 JSON",
+      "jsonCopied": "JSON 已复制到剪贴板"
+    },
+    "detail": {
+      "title": "记忆详情",
+      "id": "ID",
+      "content": "内容",
+      "category": "分类",
+      "createdAt": "创建时间",
+      "userId": "用户 ID",
+      "agentId": "代理 ID",
+      "metadata": "元数据",
+      "runId": "运行 ID",
+      "none": "无"
+    },
+    "toast": {
+      "deleted": "记忆已成功删除",
+      "deleteFailed": "删除记忆失败：{{error}}",
+      "refreshed": "记忆已成功刷新",
+      "filterApplied": "筛选已应用",
+      "filterCleared": "筛选已清除"
+    },
+    "error": "加载记忆失败"
+  },
+  "settings": {
+    "title": "设置",
+    "subtitle": "管理您的仪表盘配置和认证密钥。",
+    "configTitle": "配置",
+    "configDesc": "配置仪表盘如何连接到 PowerMem 服务器。",
+    "privacy": "隐私与安全",
+    "privacyDesc": "您的 API 密钥仅存储在浏览器的本地存储中，不会传输到任何第三方分析或外部服务器。",
+    "apiKeyLabel": "服务器 API 密钥",
+    "apiKeyPlaceholder": "输入您的 PowerMem API 密钥...",
+    "apiKeyHint": "如果服务器上的 `auth_enabled` 设置为 true，则此项为必填。",
+    "save": "保存更改",
+    "toast": {
+      "saved": "设置已更新",
+      "savedDesc": "API 密钥已保存到本地存储。",
+      "failed": "保存失败",
+      "failedDesc": "无法将 API 密钥保存到您的浏览器。"
+    }
+  },
+  "userProfile": {
+    "title": "用户画像",
+    "description": "查看和管理用户画像",
+    "filterByUserId": "按用户 ID 过滤",
+    "search": "搜索",
+    "searching": "搜索中...",
+    "filterApplied": "搜索完成",
+    "filterCleared": "搜索完成",
+    "clearFilter": "清除",
+    "noProfilesEnabled": "未开启用户画像",
+    "noProfiles": "未找到用户画像",
+    "columns": {
+      "userId": "用户 ID",
+      "profileContent": "画像内容",
+      "topics": "主题",
+      "updatedAt": "更新时间",
+      "actions": "操作"
+    },
+    "viewDetails": "查看详情",
+    "loading": "加载画像中...",
+    "showing": "显示 {{total}} 条中的 {{count}} 条画像",
+    "page": "第 {{page}} 页，共 {{total}} 页",
+    "prev": "上一页",
+    "next": "下一页",
+    "detail": {
+      "title": "画像详情",
+      "userId": "用户 ID",
+      "content": "内容",
+      "topics": "主题",
+      "createdAt": "创建时间",
+      "updatedAt": "更新时间",
+      "none": "无"
+    }
+  }
+}

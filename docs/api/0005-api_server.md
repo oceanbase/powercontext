@@ -56,6 +56,22 @@ make server-restart
 
 ```
 
+### Optional: Build dashboard assets and sync to backend static directory
+
+If you need the backend service to serve the latest dashboard static files, run the following steps before starting or restarting the server. You can skip this section if frontend assets are not required in your deployment.
+
+```bash
+# 1) Build dashboard
+cd dashboard
+pnpm install
+pnpm build
+cd ..
+
+# 2) Sync frontend artifacts to backend static directory
+mkdir -p src/server/dashboard
+cp -r dashboard/dist/* src/server/dashboard/
+```
+
 ### PowerMem .env Configuration
 The PowerMem SDK configuration is the same as the previous v0.2.0 version, with the addition of PowerMem server configuration section 12. PowerMem HTTP API Server Configuration. In most cases, the default configuration can be kept.
 

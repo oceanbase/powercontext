@@ -49,7 +49,7 @@ In AI application development, enabling large language models to persistently "r
 ## 🚀 Core Features
 
 ### 👨‍💻 Developer Friendly
-- 🔌 **[Lightweight Integration](docs/examples/scenario_1_basic_usage.md)**: Provides a simple Python SDK, automatically loads configuration from `.env` files, enabling developers to quickly integrate into existing projects. Also supports [MCP Server](docs/api/0004-mcp.md) and [HTTP API Server](docs/api/0005-api_server.md) integration methods
+- 🔌 **[Lightweight Integration](docs/examples/scenario_1_basic_usage.md)**: Provides a simple Python SDK, automatically loads configuration from `.env` files, enabling developers to quickly integrate into existing projects. Also supports [CLI](docs/guides/0012-cli_usage.md) (`pmem`), [MCP Server](docs/api/0004-mcp.md), and [HTTP API Server](docs/api/0005-api_server.md) integration methods
 
 ### 🧠 Intelligent Memory Management
 - 🔍 **[Intelligent Memory Extraction](docs/examples/scenario_2_intelligent_memory.md)**: Automatically extracts key facts from conversations through LLM, intelligently detects duplicates, updates conflicting information, and merges related memories to ensure accuracy and consistency of the memory database
@@ -98,6 +98,26 @@ for result in results.get('results', []):
 ```
 
 For more detailed examples and usage patterns, see the [Getting Started Guide](docs/guides/0001-getting_started.md).
+
+### ⌨️ PowerMem CLI (1.0.0+)
+
+PowerMem provides a command-line interface (`pmem`) for memory operations, configuration, backup/restore, and an interactive shell—without writing Python code.
+
+```bash
+# Add and search memories
+pmem memory add "User prefers dark mode" --user-id user123
+pmem memory search "preferences" --user-id user123
+
+# Configuration and statistics
+pmem config show
+pmem config init          # Interactive .env wizard
+pmem stats --json
+
+# Interactive shell
+pmem shell
+```
+
+For full CLI reference and examples, see the [CLI Usage Guide](docs/guides/0012-cli_usage.md).
 
 ### 🌐 HTTP API Server
 
@@ -196,6 +216,7 @@ The MCP server provides tools for memory management including adding, searching,
 ## 📚 Documentation
 
 - 📖 **[Getting Started](docs/guides/0001-getting_started.md)**: Installation and quick start guide
+- ⌨️ **[CLI Usage Guide](docs/guides/0012-cli_usage.md)**: PowerMem CLI (pmem) reference (1.0.0+)
 - ⚙️ **[Configuration Guide](docs/guides/0003-configuration.md)**: Complete configuration options
 - 🤖 **[Multi-Agent Guide](docs/guides/0005-multi_agent.md)**: Multi-agent scenarios and examples
 - 🔌 **[Integrations Guide](docs/guides/0009-integrations.md)**: Integrations Guide

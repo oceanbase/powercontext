@@ -36,7 +36,7 @@ The powermem system is organized into five main layers:
                     ↓
 ┌─────────────────────────────────────────┐
 │         API Layer                       │
-│  (Python SDK, MCP Server)               │
+│  (Python SDK, CLI, MCP Server)          │
 └─────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────┐
@@ -70,6 +70,7 @@ Both agents and users interact with the system through the API layer.
 The API layer provides multiple interfaces for accessing the memory system:
 
 - **Python SDK**: Primary programmatic interface for Python applications
+- **CLI (`pmem`)**: Command-line interface for memory operations, configuration, backup/restore, and interactive shell (see [CLI Usage Guide](../guides/0012-cli_usage.md))
 - **MCP (Model Context Protocol)**: Standardized protocol for model context management
 
 The API layer handles request routing, authentication, and provides a unified interface to the core memory engine.

@@ -34,6 +34,8 @@ Using a `.env` file allows you to:
 
 For more configuration options, see the full example in `.env.example` or refer to the [Configuration Guide](./0003-configuration.md).
 
+**Alternative:** You can use the PowerMem CLI to create or update your `.env` interactively: run `pmem config init`. See the [CLI Usage Guide](./0012-cli_usage.md) for details.
+
 ## Initializing Memory
 
 The first step in using powermem is to create a memory instance. This instance will handle all memory operations for your application.

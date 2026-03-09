@@ -1306,7 +1306,8 @@ class AsyncMemory(MemoryBase):
         """
         try:
             results = await self.storage.get_all_memories_async(
-                user_id, agent_id, run_id, limit, offset, sort_by=sort_by, order=order
+                user_id, agent_id, run_id, limit, offset,
+                sort_by=sort_by, order=order, filters=filters
             )
             
             await self.audit.log_event_async("memory.get_all", {
