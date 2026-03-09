@@ -61,8 +61,8 @@ def add_cmd(ctx: CLIContext, content, user_id, agent_id, run_id, metadata,
     
     \b
     Examples:
-        pmem add "User prefers dark mode" --user-id user123
-        pmem add "API key is stored in vault" --metadata '{"category": "security"}'
+        pmem memory add "User prefers dark mode" --user-id user123
+        pmem memory add "API key is stored in vault" --metadata '{"category": "security"}'
     """
     ctx.json_output = ctx.json_output or json_output
     try:
@@ -131,8 +131,8 @@ def search_cmd(ctx: CLIContext, query, user_id, agent_id, run_id, limit,
     
     \b
     Examples:
-        pmem search "user preferences" --user-id user123
-        pmem search "dark mode" --limit 5 --json
+        pmem memory search "user preferences" --user-id user123
+        pmem memory search "dark mode" --limit 5 --json
     """
     ctx.json_output = ctx.json_output or json_output
     try:
@@ -187,8 +187,8 @@ def get_cmd(ctx: CLIContext, memory_id, user_id, agent_id, json_output):
     
     \b
     Examples:
-        pmem get 123456789
-        pmem get 123456789 --user-id user123
+        pmem memory get 123456789
+        pmem memory get 123456789 --user-id user123
     """
     ctx.json_output = ctx.json_output or json_output
     try:
@@ -235,8 +235,8 @@ def update_cmd(ctx: CLIContext, memory_id, content, user_id, agent_id, metadata,
     
     \b
     Examples:
-        pmem update 123456789 "Updated content"
-        pmem update 123456789 "New content" --metadata '{"updated": true}'
+        pmem memory update 123456789 "Updated content"
+        pmem memory update 123456789 "New content" --metadata '{"updated": true}'
     """
     ctx.json_output = ctx.json_output or json_output
     try:
@@ -289,8 +289,8 @@ def delete_cmd(ctx: CLIContext, memory_id, user_id, agent_id, yes):
     
     \b
     Examples:
-        pmem delete 123456789
-        pmem delete 123456789 --yes
+        pmem memory delete 123456789
+        pmem memory delete 123456789 --yes
     """
     try:
         # Confirm deletion
@@ -351,9 +351,9 @@ def list_cmd(ctx: CLIContext, user_id, agent_id, run_id, limit, offset,
     
     \b
     Examples:
-        pmem list --user-id user123
-        pmem list --limit 20 --offset 0
-        pmem list --sort-by created_at --order desc
+        pmem memory list --user-id user123
+        pmem memory list --limit 20 --offset 0
+        pmem memory list --sort-by created_at --order desc
     """
     ctx.json_output = ctx.json_output or json_output
     try:
@@ -413,8 +413,8 @@ def delete_all_cmd(ctx: CLIContext, user_id, agent_id, run_id, confirm):
     
     \b
     Examples:
-        pmem delete-all --user-id user123 --confirm
-        pmem delete-all --run-id session1 --confirm
+        pmem memory delete-all --user-id user123 --confirm
+        pmem memory delete-all --run-id session1 --confirm
     """
     if not confirm:
         print_error("This will delete ALL matching memories!")

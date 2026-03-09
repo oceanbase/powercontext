@@ -491,31 +491,13 @@ Examples:
         self.running = False
 
 
-@click.command(name="interactive")
-@pass_context
-def interactive_cmd(ctx: CLIContext):
-    """
-    Start interactive mode (REPL).
-    
-    Provides a shell-like interface for PowerMem operations.
-    
-    \b
-    Examples:
-        pmem interactive
-    """
-    try:
-        session = InteractiveSession(ctx)
-        session.run()
-    except Exception as e:
-        print_error(f"Interactive mode error: {e}")
-        sys.exit(1)
-
-
 @click.command(name="shell")
 @pass_context
 def shell_cmd(ctx: CLIContext):
     """
-    Start interactive mode (alias for 'interactive').
+    Start interactive mode (REPL).
+    
+    Provides a shell-like interface for PowerMem operations.
     
     \b
     Examples:

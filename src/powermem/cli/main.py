@@ -76,8 +76,7 @@ def json_option(f):
 # Static command tree for fast shell completion (no Python process on TAB).
 # Keep in sync with cli.add_command / group.add_command below.
 _COMPLETION_COMMANDS = [
-    "add", "config", "delete", "delete-all", "get", "interactive", "list",
-    "manage", "memory", "search", "shell", "stats", "update",
+    "config", "manage", "memory", "shell", "stats",
 ]
 _COMPLETION_SUBCOMMANDS = {
     "config": ["init", "show", "test", "validate"],
@@ -117,8 +116,8 @@ def cli(ctx, env_file, json_output, verbose, install_completion):
     
     \b
     Examples:
-        pmem add "User prefers dark mode" --user-id user123
-        pmem search "preferences" --user-id user123
+        pmem memory add "User prefers dark mode" --user-id user123
+        pmem memory search "preferences" --user-id user123
         pmem stats --json
         pmem config show
     
@@ -152,9 +151,10 @@ def _static_bash_completion_script() -> str:
         "_pmem_completion() {",
         "  local cur=${COMP_WORDS[COMP_CWORD]}",
         "  local prev=${COMP_WORDS[COMP_CWORD-1]}",
-        "  if [ $COMP_CWORD -eq 1 ]; then",
+        "  local cword=${COMP_CWORD:-0}",
+        "  if [ \"$cword\" -eq 1 ]; then",
         f"    COMPREPLY=($(compgen -W \"{top}\" -- \"$cur\"))",
-        "  elif [ $COMP_CWORD -eq 2 ]; then",
+        "  elif [ \"$cword\" -eq 2 ]; then",
         "    case \"$prev\" in",
     ]
     for group, subcmds in _COMPLETION_SUBCOMMANDS.items():
@@ -178,9 +178,10 @@ def _static_zsh_completion_script() -> str:
     cmds = " ".join(_COMPLETION_COMMANDS)
     return f"""#compdef pmem powermem-cli
 _pmem_completion() {{
-  if [ $CURRENT -eq 2 ]; then
+  local current=${{CURRENT:-0}}
+  if [ "$current" -eq 2 ]; then
     compadd ${{(s: :)'{cmds}'}}
-  elif [ $CURRENT -eq 3 ]; then
+  elif [ "$current" -eq 3 ]; then
     case ${{words[2]}} in
       config) compadd init show test validate ;;
       manage) compadd backup cleanup migrate restore ;;
@@ -300,27 +301,19 @@ Register-ArgumentCompleter -Native -CommandName pmem,powermem-cli -ScriptBlock $
 
 
 # Import and register command groups
-from .commands.memory import add_cmd, search_cmd, get_cmd, update_cmd, delete_cmd, list_cmd, delete_all_cmd
+from .commands.memory import memory_group
 from .commands.config import config_group
 from .commands.stats import stats_cmd
 from .commands.manage import manage_group
-from .commands.interactive import interactive_cmd, shell_cmd
+from .commands.interactive import shell_cmd
 
-# Memory commands at root: add, search, get, update, delete, list, delete-all
-
-cli.add_command(add_cmd)
-cli.add_command(search_cmd)
-cli.add_command(get_cmd)
-cli.add_command(update_cmd)
-cli.add_command(delete_cmd)
-cli.add_command(list_cmd)
-cli.add_command(delete_all_cmd)
+# Memory commands under "memory": pmem memory add/search/get/update/delete/list/delete-all
+cli.add_command(memory_group)
 
 # Register other command groups
 cli.add_command(config_group)
 cli.add_command(stats_cmd)
 cli.add_command(manage_group)
-cli.add_command(interactive_cmd)
 cli.add_command(shell_cmd)
 
 
