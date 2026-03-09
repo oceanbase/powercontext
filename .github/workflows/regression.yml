@@ -291,7 +291,7 @@ jobs:
           SILICONFLOW_COM_API_KEY: "${{ secrets.SILICONFLOW_COM_API_KEY }}"
         run: |
           mkdir -p report
-          pytest tests/regression/test_*.py --ignore=tests/regression/test_scenario*.py -vs --junitxml=report/test2.xml
+          pytest tests/regression/ --ignore-glob='*test_scenario*.py' -vs --junitxml=report/test2.xml
       - name: Upload JUnit report
         if: always() && (steps.run_tests.outcome == 'success' || steps.run_tests.outcome == 'failure')
         uses: actions/upload-artifact@v4
@@ -315,11 +315,17 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: junit-*
+      - name: Collect JUnit reports
+        run: |
+          mkdir -p all-reports
+          # download-artifact 解压后可能是 junit-test1/report/test1.xml 或 junit-test1/test1.xml，用 find 兼容两种结构
+          find junit-test1 junit-test2 -maxdepth 3 -name '*.xml' -exec cp {} all-reports/ \;
+          ls -la all-reports/
       - name: Publish Test Report Summary
         uses: mikepenz/action-junit-report@v4
         if: always()
         with:
-          report_paths: '**/report/**/*.xml'
+          report_paths: 'all-reports/*.xml'
           require_tests: false
           job_name: Regression Tests
           check_name: Test Report
