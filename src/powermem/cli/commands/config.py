@@ -1116,19 +1116,37 @@ def init_cmd(ctx: CLIContext, env_file: Optional[str], dry_run: bool, test: bool
     click.echo("=" * 60)
     click.echo(f"Target env file: {target_path}")
 
+    use_example_as_template = False
     if Path(target_path).exists():
         if not click.confirm("Use this file?", default=True):
+            use_example_as_template = True
             target_path = click.prompt("Enter target .env file path", default=target_path, show_default=True)
     else:
         if not click.confirm("File does not exist. Create it?", default=True):
             print_info("Cancelled.")
             sys.exit(0)
 
-    # If the target file doesn't exist, use `.env.example` as the source of defaults,
-    # so prompts match the template values and subsequent writes preserve its layout.
-    if Path(target_path).exists():
+    # If the target file doesn't exist, use `.env.example` as the source of defaults.
+    # When the user answered "n" to "Use this file?", also use `.env.example` as the
+    # template and merge with existing target values so .env values are not lost.
+    if use_example_as_template:
+        template_path = _discover_env_example(Path.cwd())
+        if template_path:
+            _, existing = read_env_file(str(template_path))
+            if Path(target_path).exists():
+                _, from_target = read_env_file(target_path)
+                for k, v in from_target.items():
+                    if (v or "").strip() and (v or "").strip().lower() not in _ENV_PLACEHOLDER_VALUES:
+                        existing[k] = v
+        else:
+            template_path = None
+            if Path(target_path).exists():
+                _, existing = read_env_file(target_path)
+            else:
+                existing = {}
+    elif Path(target_path).exists():
         _, existing = read_env_file(target_path)
-        template_path: Optional[Path] = None
+        template_path = None
     else:
         template_path = _discover_env_example(Path.cwd())
         if template_path:

@@ -190,6 +190,7 @@ config/secrets.yaml
 config/production.yaml
 .env.local
 .env.production
+.env.bak*
 
 # Test data
 test_data/
