@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from ..main import pass_context, CLIContext
+from ..main import pass_context, CLIContext, json_option
 from ..utils.output import (
     format_output,
     print_success,
@@ -44,8 +44,9 @@ def manage_group():
 @click.option("--run-id", "-r", help="Filter by run/session ID")
 @click.option("--limit", "-l", type=int, default=10000, help="Maximum memories to export (default: 10000)")
 @click.option("--include-metadata", is_flag=True, default=True, help="Include metadata in backup")
+@json_option
 @pass_context
-def backup_cmd(ctx: CLIContext, output, user_id, agent_id, run_id, limit, include_metadata):
+def backup_cmd(ctx: CLIContext, output, user_id, agent_id, run_id, limit, include_metadata, json_output):
     """
     Export memories to a JSON file.
     
@@ -55,6 +56,7 @@ def backup_cmd(ctx: CLIContext, output, user_id, agent_id, run_id, limit, includ
         pmem manage backup --user-id user123 --output user_backup.json
         pmem manage backup --limit 1000
     """
+    ctx.json_output = ctx.json_output or json_output
     try:
         print_info("Starting backup...")
         
@@ -129,8 +131,9 @@ def backup_cmd(ctx: CLIContext, output, user_id, agent_id, run_id, limit, includ
 @click.option("--agent-id", "-a", help="Override agent ID for all restored memories")
 @click.option("--dry-run", is_flag=True, help="Preview restore without making changes")
 @click.option("--skip-duplicates", is_flag=True, default=True, help="Skip memories that already exist")
+@json_option
 @pass_context
-def restore_cmd(ctx: CLIContext, input_file, user_id, agent_id, dry_run, skip_duplicates):
+def restore_cmd(ctx: CLIContext, input_file, user_id, agent_id, dry_run, skip_duplicates, json_output):
     """
     Import memories from a JSON backup file.
     
@@ -140,6 +143,7 @@ def restore_cmd(ctx: CLIContext, input_file, user_id, agent_id, dry_run, skip_du
         pmem manage restore --input backup.json --dry-run
         pmem manage restore --input backup.json --user-id new_user
     """
+    ctx.json_output = ctx.json_output or json_output
     try:
         print_info(f"Reading backup file: {input_file}")
         
@@ -260,8 +264,9 @@ def restore_cmd(ctx: CLIContext, input_file, user_id, agent_id, dry_run, skip_du
 @click.option("--agent-id", "-a", help="Filter by agent ID")
 @click.option("--dry-run", is_flag=True, help="Preview cleanup without making changes")
 @click.option("--force", "-f", is_flag=True, help="Skip confirmation")
+@json_option
 @pass_context
-def cleanup_cmd(ctx: CLIContext, threshold, archive_threshold, user_id, agent_id, dry_run, force):
+def cleanup_cmd(ctx: CLIContext, threshold, archive_threshold, user_id, agent_id, dry_run, force, json_output):
     """
     Clean up forgotten or stale memories.
     
@@ -273,6 +278,7 @@ def cleanup_cmd(ctx: CLIContext, threshold, archive_threshold, user_id, agent_id
         pmem manage cleanup --threshold 0.2
         pmem manage cleanup --user-id user123 --force
     """
+    ctx.json_output = ctx.json_output or json_output
     try:
         print_info("Analyzing memories for cleanup...")
         
@@ -408,8 +414,9 @@ def cleanup_cmd(ctx: CLIContext, threshold, archive_threshold, user_id, agent_id
 @click.option("--delete-source", is_flag=True, default=False,
               help="Delete from source after migration")
 @click.option("--dry-run", is_flag=True, help="Preview migration without making changes")
+@json_option
 @pass_context
-def migrate_cmd(ctx: CLIContext, target_store, source_store, delete_source, dry_run):
+def migrate_cmd(ctx: CLIContext, target_store, source_store, delete_source, dry_run, json_output):
     """
     Migrate data between stores.
     
@@ -420,6 +427,7 @@ def migrate_cmd(ctx: CLIContext, target_store, source_store, delete_source, dry_
         pmem manage migrate --target-store 0 --dry-run
         pmem manage migrate --target-store 1 --delete-source
     """
+    ctx.json_output = ctx.json_output or json_output
     try:
         print_info(f"Preparing migration to sub-store {target_store}...")
         

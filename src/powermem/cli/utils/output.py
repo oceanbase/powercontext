@@ -86,8 +86,8 @@ class OutputFormatter:
         lines = []
         memory_id = memory.get("id") or memory.get("memory_id", "N/A")
         content = memory.get("memory") or memory.get("content", "N/A")
-        user_id = memory.get("user_id", "N/A")
-        agent_id = memory.get("agent_id", "N/A")
+        user_id = self._nullable_display(memory.get("user_id"))
+        agent_id = self._nullable_display(memory.get("agent_id"))
         created_at = memory.get("created_at", "N/A")
         
         lines.append(f"ID: {memory_id}")
@@ -111,12 +111,12 @@ class OutputFormatter:
         
         memory_id = memory.get("id") or memory.get("memory_id", "N/A")
         content = memory.get("memory") or memory.get("content", "N/A")
-        user_id = memory.get("user_id", "N/A")
-        agent_id = memory.get("agent_id", "N/A")
-        run_id = memory.get("run_id", "N/A")
+        user_id = self._nullable_display(memory.get("user_id"))
+        agent_id = self._nullable_display(memory.get("agent_id"))
+        run_id = self._nullable_display(memory.get("run_id"))
         created_at = memory.get("created_at", "N/A")
         updated_at = memory.get("updated_at", "N/A")
-        
+
         lines.append(f"{'ID:':<15} {memory_id}")
         lines.append(f"{'Content:':<15} {self._truncate(content, 80)}")
         lines.append(f"{'User ID:':<15} {user_id}")
@@ -163,8 +163,8 @@ class OutputFormatter:
         # Rows
         for memory in memories:
             memory_id = str(memory.get("id") or memory.get("memory_id", "N/A"))[:18]
-            user_id = str(memory.get("user_id", "N/A"))[:13]
-            agent_id = str(memory.get("agent_id", "N/A"))[:13]
+            user_id = self._nullable_display(memory.get("user_id"))[:13]
+            agent_id = self._nullable_display(memory.get("agent_id"))[:13]
             content = memory.get("memory") or memory.get("content", "N/A")
             content = self._truncate(content, 38)
             
@@ -210,10 +210,10 @@ class OutputFormatter:
             memory_id = str(memory.get("id") or memory.get("memory_id", "N/A"))[:18]
             score = memory.get("score", 0)
             score_str = f"{score:.4f}" if isinstance(score, float) else str(score)
-            user_id = str(memory.get("user_id", "N/A"))[:10]
+            user_id = self._nullable_display(memory.get("user_id"))[:10]
             content = memory.get("memory") or memory.get("content", "N/A")
             content = self._truncate(content, 43)
-            
+
             lines.append(f"{memory_id:<20} {score_str:<10} {user_id:<12} {content:<45}")
         
         lines.append("=" * len(header))
@@ -279,7 +279,44 @@ class OutputFormatter:
         lines.append("=" * 50)
         return "\n".join(lines)
     
-    # Config formatting
+    # Config formatting: order and (Required)/(Optional) follow .env.example; timezone is separate (before Database)
+    _CONFIG_SECTIONS = [
+        ("Timezone", ""),
+        ("Database", "Required"),
+        ("LLM", "Required"),
+        ("Embedding", "Required"),
+        ("Rerank", "Optional"),
+        ("Agent", "Optional"),
+        ("Intelligent Memory", "Optional"),
+        ("Performance", "Optional"),
+        ("Security", "Optional"),
+        ("Telemetry", "Optional"),
+        ("Audit", "Optional"),
+        ("Logging", "Optional"),
+        ("Graph Store", "Optional"),
+        ("Sparse Embedding", "Optional"),
+        ("Query Rewrite", "Optional"),
+        ("PowerMem HTTP API Server", "Optional"),
+    ]
+    _CONFIG_SECTION_KEYS = [
+        ["timezone"],
+        ["vector_store"],
+        ["llm"],
+        ["embedder"],
+        ["reranker"],
+        ["agent_memory"],
+        ["intelligent_memory", "memory_decay"],
+        ["performance"],
+        ["security"],
+        ["telemetry"],
+        ["audit"],
+        ["logging"],
+        ["graph_store"],
+        ["sparse_embedder"],
+        ["query_rewrite"],
+        ["server"],
+    ]
+
     def _format_config_plain(self, config: Dict[str, Any]) -> str:
         """Format configuration as plain text."""
         lines = []
@@ -296,33 +333,58 @@ class OutputFormatter:
         return "\n".join(lines)
     
     def _format_config_table(self, config: Dict[str, Any]) -> str:
-        """Format configuration as a table."""
+        """Format configuration in the order of .env.example (15 blocks); show all keys in each block."""
         lines = []
         lines.append("=" * 60)
         lines.append("PowerMem Configuration")
         lines.append("=" * 60)
-        
-        # Main sections
-        sections = ["llm", "embedder", "vector_store", "graph_store", 
-                   "intelligent_memory", "agent_memory", "reranker"]
-        
-        for section in sections:
-            section_config = config.get(section, {})
-            if section_config:
-                lines.append(f"\n[{section.upper()}]")
-                if isinstance(section_config, dict):
-                    provider = section_config.get("provider", "N/A")
-                    enabled = section_config.get("enabled", True)
-                    lines.append(f"  Provider: {provider}")
-                    if "enabled" in section_config:
-                        lines.append(f"  Enabled: {enabled}")
-                    
-                    # Show config details (masked)
-                    inner_config = section_config.get("config", {})
-                    if isinstance(inner_config, dict):
-                        for key, value in inner_config.items():
-                            lines.append(f"  {key}: {value}")
-        
+
+        def format_section_value(value: Any, indent: str, keys_shown_above: Optional[set] = None) -> None:
+            """Output config keys in uppercase; skip unset/empty; skip key if already shown at parent level (e.g. ENABLED once)."""
+            if keys_shown_above is None:
+                keys_shown_above = set()
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    if k.lower() in keys_shown_above:
+                        continue
+                    if v is None:
+                        continue
+                    if isinstance(v, str) and v.strip() == "":
+                        continue
+                    if isinstance(v, dict):
+                        if not v:
+                            continue
+                        key_display = k.upper()
+                        lines.append(f"{indent}{key_display}:")
+                        format_section_value(v, indent + "  ", keys_shown_above)
+                    else:
+                        key_display = k.upper()
+                        lines.append(f"{indent}{key_display}: {v}")
+                    keys_shown_above.add(k.lower())
+            else:
+                lines.append(f"{indent}{value}")
+
+        for i, (title, tag) in enumerate(self._CONFIG_SECTIONS):
+            config_keys = self._CONFIG_SECTION_KEYS[i] if i < len(self._CONFIG_SECTION_KEYS) else []
+            header = f"[{title.upper()}]" if not tag else f"[{title.upper()} ({tag})]"
+            lines.append(f"\n{header}")
+            has_any = False
+            for key in config_keys:
+                section_config = config.get(key)
+                if section_config is not None:
+                    has_any = True
+                    indent = "  "
+                    if len(config_keys) > 1:
+                        sublabel = key.upper().replace("_", " ")
+                        lines.append(f"  {sublabel}:")
+                        indent = "    "
+                    if isinstance(section_config, dict):
+                        format_section_value(section_config, indent)
+                    else:
+                        lines.append(f"{indent}{section_config}")
+            if not has_any:
+                lines.append("  (not set)")
+
         lines.append("\n" + "=" * 60)
         return "\n".join(lines)
     
@@ -334,6 +396,13 @@ class OutputFormatter:
         if len(text) > max_length:
             return text[:max_length - 3] + "..."
         return text
+
+    @staticmethod
+    def _nullable_display(value: Any) -> str:
+        """Display value for nullable DB fields: None or empty string -> 'NULL' (consistent with database)."""
+        if value is None or (isinstance(value, str) and value.strip() == ""):
+            return "NULL"
+        return str(value)
 
 
 def format_output(

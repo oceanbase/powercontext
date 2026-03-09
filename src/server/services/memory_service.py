@@ -326,6 +326,12 @@ class MemoryService:
         try:
             # First check if memory exists
             existing = self.get_memory(memory_id, user_id, agent_id)
+            if existing is None:
+                raise APIError(
+                    code=ErrorCode.MEMORY_NOT_FOUND,
+                    message=f"Memory not found: {memory_id}",
+                    status_code=404,
+                )
             
             # At least one of content or metadata must be provided
             if content is None and metadata is None:
@@ -348,6 +354,12 @@ class MemoryService:
                 agent_id=agent_id,
                 metadata=final_metadata,
             )
+            if result is None:
+                raise APIError(
+                    code=ErrorCode.MEMORY_NOT_FOUND,
+                    message=f"Memory not found or access denied: {memory_id}",
+                    status_code=404,
+                )
             
             # Ensure result contains id field (storage.update_memory returns payload without id)
             if result and "id" not in result:

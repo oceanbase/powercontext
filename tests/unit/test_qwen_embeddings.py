@@ -19,14 +19,7 @@ def mock_dashscope():
         yield mock_text_embedding
 
 
-@pytest.fixture
-def mock_dashscope_api():
-    """Mock dashscope.api_key setting"""
-    with patch("powermem.integrations.embeddings.qwen.dashscope") as mock_dashscope:
-        yield mock_dashscope
-
-
-def test_embed_default_model(mock_dashscope, mock_dashscope_api):
+def test_embed_default_model(mock_dashscope):
     config = BaseEmbedderConfig(api_key="test_key")
     embedder = QwenEmbedding(config)
     
@@ -41,15 +34,16 @@ def test_embed_default_model(mock_dashscope, mock_dashscope_api):
     result = embedder.embed("Hello world")
 
     mock_dashscope.call.assert_called_once_with(
+        api_key="test_key",
         model="text-embedding-v4",
         input="Hello world",
         dimension=1536,
-        text_type="document"
+        text_type="document",
     )
     assert result == [0.1, 0.2, 0.3]
 
 
-def test_embed_custom_model(mock_dashscope, mock_dashscope_api):
+def test_embed_custom_model(mock_dashscope):
     config = BaseEmbedderConfig(model="custom-model", embedding_dims=1024, api_key="test_key")
     embedder = QwenEmbedding(config)
     
@@ -64,15 +58,16 @@ def test_embed_custom_model(mock_dashscope, mock_dashscope_api):
     result = embedder.embed("Test embedding")
 
     mock_dashscope.call.assert_called_once_with(
+        api_key="test_key",
         model="custom-model",
         input="Test embedding",
         dimension=1024,
-        text_type="document"
+        text_type="document",
     )
     assert result == [0.4, 0.5, 0.6]
 
 
-def test_embed_removes_newlines(mock_dashscope, mock_dashscope_api):
+def test_embed_removes_newlines(mock_dashscope):
     config = BaseEmbedderConfig(api_key="test_key")
     embedder = QwenEmbedding(config)
     
@@ -87,15 +82,16 @@ def test_embed_removes_newlines(mock_dashscope, mock_dashscope_api):
     result = embedder.embed("Hello\nworld")
 
     mock_dashscope.call.assert_called_once_with(
+        api_key="test_key",
         model="text-embedding-v4",
         input="Hello world",
         dimension=1536,
-        text_type="document"
+        text_type="document",
     )
     assert result == [0.7, 0.8, 0.9]
 
 
-def test_embed_with_api_key_in_config(mock_dashscope, mock_dashscope_api):
+def test_embed_with_api_key_in_config(mock_dashscope):
     config = BaseEmbedderConfig(api_key="test_api_key")
     embedder = QwenEmbedding(config)
     
@@ -110,15 +106,16 @@ def test_embed_with_api_key_in_config(mock_dashscope, mock_dashscope_api):
     result = embedder.embed("Testing API key")
 
     mock_dashscope.call.assert_called_once_with(
+        api_key="test_api_key",
         model="text-embedding-v4",
         input="Testing API key",
         dimension=1536,
-        text_type="document"
+        text_type="document",
     )
     assert result == [1.0, 1.1, 1.2]
 
 
-def test_embed_uses_environment_api_key(mock_dashscope, mock_dashscope_api, monkeypatch):
+def test_embed_uses_environment_api_key(mock_dashscope, monkeypatch):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "env_key")
     config = BaseEmbedderConfig()
     embedder = QwenEmbedding(config)
@@ -134,15 +131,16 @@ def test_embed_uses_environment_api_key(mock_dashscope, mock_dashscope_api, monk
     result = embedder.embed("Environment key test")
 
     mock_dashscope.call.assert_called_once_with(
+        api_key="env_key",
         model="text-embedding-v4",
         input="Environment key test",
         dimension=1536,
-        text_type="document"
+        text_type="document",
     )
     assert result == [1.3, 1.4, 1.5]
 
 
-def test_embed_with_memory_action(mock_dashscope, mock_dashscope_api):
+def test_embed_with_memory_action(mock_dashscope):
     config = BaseEmbedderConfig(
         api_key="test_key",
         memory_add_embedding_type="query",
@@ -161,15 +159,16 @@ def test_embed_with_memory_action(mock_dashscope, mock_dashscope_api):
     result = embedder.embed("Test with memory action", memory_action="add")
 
     mock_dashscope.call.assert_called_once_with(
+        api_key="test_key",
         model="text-embedding-v4",
         input="Test with memory action",
         dimension=1536,
-        text_type="query"
+        text_type="query",
     )
     assert result == [2.0, 2.1, 2.2]
 
 
-def test_embed_api_error(mock_dashscope, mock_dashscope_api):
+def test_embed_api_error(mock_dashscope):
     config = BaseEmbedderConfig(api_key="test_key")
     embedder = QwenEmbedding(config)
     

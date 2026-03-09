@@ -11,9 +11,9 @@ import click
 import sys
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from ..main import pass_context, CLIContext
+from ..main import pass_context, CLIContext, json_option
 from ..utils.output import (
     format_output,
     print_success,
@@ -30,32 +30,26 @@ def config_group():
     pass
 
 
+# Keys to mask in config show (explicit list only; add new entries here when needed)
+# Use the key names as they appear in the nested config (e.g. api_key, password under each section),
+# not env-style names (e.g. LLM_API_KEY only matches when config is flattened).
+_SENSITIVE_KEYS = frozenset({
+    "api_key",
+    "password",
+    "oceanbase_password",
+    "postgres_password",
+    "llm_api_key",
+    "embedding_api_key",
+    "reranker_api_key",
+    "graph_store_password",
+    "sparse_embedder_api_key",
+    "powermem_server_api_keys",
+})
+
+
 def _is_sensitive_name(name: str) -> bool:
-    """
-    Determine whether a key name should be treated as sensitive.
-    Keep this strict to avoid masking non-secret fields (e.g., 'max_tokens').
-    """
-    n = name.lower()
-    exact = {
-        "api_key",
-        "apikey",
-        "password",
-        "token",
-        "secret",
-        "credential",
-        "credentials",
-        "access_key",
-        "secret_key",
-        "private_key",
-        "client_secret",
-    }
-    if n in exact:
-        return True
-    if n.endswith(("_api_key", "_access_key", "_secret_key", "_private_key", "_token", "_password", "_secret")):
-        return True
-    if any(s in n for s in ("password", "secret", "token", "credential")):
-        return True
-    return False
+    """True if the key is in the explicit sensitive list (masked in config show)."""
+    return name.lower() in _SENSITIVE_KEYS
 
 
 def _mask_for_display(key: str, value: Any) -> str:
@@ -191,8 +185,9 @@ def _prompt_optional_float(label: str, current: Optional[str], default: float) -
     help="Configuration section to show (default: all)"
 )
 @click.option("--show-secrets", is_flag=True, help="Show API keys and passwords (USE WITH CAUTION)")
+@json_option
 @pass_context
-def show_cmd(ctx: CLIContext, section, show_secrets):
+def show_cmd(ctx: CLIContext, section, show_secrets, json_output):
     """
     Display current configuration.
     
@@ -202,19 +197,11 @@ def show_cmd(ctx: CLIContext, section, show_secrets):
         pmem config show --section llm
         pmem config show --json
     """
+    ctx.json_output = ctx.json_output or json_output
     try:
-        config = ctx.config
-        
-        # Filter by section if specified
-        if section != "all":
-            config = {section: config.get(section, {})}
-        
-        # Mask secrets unless explicitly requested
-        if not show_secrets:
-            config = _mask_secrets(config)
-        
-        # Do not display connection_args under vector_store (sensitive connection details)
-        config = _strip_vector_store_connection_args(config)
+        # Show only what is in .env; only show the selected provider's vars per section
+        env_path = ctx.env_file or _resolve_default_env_file()
+        config = _config_from_env_file(env_path, section if section != "all" else None, mask_secrets=not show_secrets)
         
         # Format output
         output = format_output(
@@ -328,8 +315,9 @@ def _load_config_with_env_file(env_file: Optional[str]) -> Dict[str, Any]:
     help="Path to .env file to validate"
 )
 @click.option("--strict", is_flag=True, help="Enable strict validation mode")
+@json_option
 @pass_context
-def validate_cmd(ctx: CLIContext, env_file, strict):
+def validate_cmd(ctx: CLIContext, env_file, strict, json_output):
     """
     Validate configuration file.
     
@@ -339,6 +327,7 @@ def validate_cmd(ctx: CLIContext, env_file, strict):
         pmem config validate --env-file .env.production
         pmem config validate --strict
     """
+    ctx.json_output = ctx.json_output or json_output
     try:
         print_info("Validating configuration...")
         config = _load_config_with_env_file(env_file or ctx.env_file)
@@ -378,8 +367,9 @@ def validate_cmd(ctx: CLIContext, env_file, strict):
               type=click.Choice(["database", "llm", "embedder", "all"]),
               default="all",
               help="Component to test (default: all)")
+@json_option
 @pass_context
-def test_cmd(ctx: CLIContext, component):
+def test_cmd(ctx: CLIContext, component, json_output):
     """
     Test configuration connectivity.
     
@@ -389,6 +379,7 @@ def test_cmd(ctx: CLIContext, component):
         pmem config test --component database
         pmem config test --component llm
     """
+    ctx.json_output = ctx.json_output or json_output
     results = {
         "database": None,
         "llm": None,
@@ -543,6 +534,122 @@ def _strip_vector_store_connection_args(config: dict) -> dict:
     return result
 
 
+# Env var -> section for "config show" (only show what is in .env). Order: first match wins.
+_ENV_SECTION_PREFIXES: List[Tuple[str, List[str]]] = [
+    ("timezone", ["TIMEZONE"]),
+    ("vector_store", ["DATABASE_", "SQLITE_", "OCEANBASE_", "POSTGRES_"]),
+    ("llm", ["LLM_", "QWEN_LLM_", "OPENAI_LLM_", "SILICONFLOW_LLM_", "OLLAMA_LLM_", "VLLM_LLM_", "ANTHROPIC_LLM_", "DEEPSEEK_LLM_"]),
+    ("embedder", ["EMBEDDING_", "QWEN_EMBEDDING_", "OPENAI_EMBEDDING_", "SILICONFLOW_EMBEDDING_", "HUGGINFACE_EMBEDDING_", "LMSTUDIO_EMBEDDING_", "OLLAMA_EMBEDDING_"]),
+    ("reranker", ["RERANKER_"]),
+    ("agent_memory", ["AGENT_"]),
+    ("intelligent_memory", ["INTELLIGENT_MEMORY_"]),
+    ("memory_decay", ["MEMORY_DECAY_"]),
+    ("performance", ["MEMORY_BATCH_SIZE", "MEMORY_CACHE_SIZE", "MEMORY_CACHE_TTL", "MEMORY_SEARCH_", "VECTOR_STORE_BATCH_SIZE", "VECTOR_STORE_CACHE_SIZE", "VECTOR_STORE_INDEX_REBUILD"]),
+    ("security", ["ENCRYPTION_", "ACCESS_CONTROL_"]),
+    ("telemetry", ["TELEMETRY_"]),
+    ("audit", ["AUDIT_"]),
+    ("logging", ["LOGGING_"]),
+    ("graph_store", ["GRAPH_STORE_"]),
+    ("sparse_embedder", ["SPARSE_VECTOR_", "SPARSE_EMBEDDER_"]),
+    ("query_rewrite", ["QUERY_REWRITE_"]),
+    ("server", ["POWERMEM_SERVER_"]),
+]
+
+# Per-section: env key that holds provider choice -> allowed prefix(s) for that provider (only show these when selected).
+_ENV_PROVIDER_FILTER: Dict[str, Tuple[str, Dict[str, List[str]]]] = {
+    "vector_store": ("DATABASE_PROVIDER", {
+        "oceanbase": ["DATABASE_PROVIDER", "OCEANBASE_"],
+        "sqlite": ["DATABASE_PROVIDER", "SQLITE_"],
+        "postgres": ["DATABASE_PROVIDER", "POSTGRES_"],
+    }),
+    "llm": ("LLM_PROVIDER", {
+        "qwen": ["LLM_", "QWEN_LLM_"],
+        "openai": ["LLM_", "OPENAI_LLM_"],
+        "siliconflow": ["LLM_", "SILICONFLOW_LLM_"],
+        "ollama": ["LLM_", "OLLAMA_LLM_"],
+        "vllm": ["LLM_", "VLLM_LLM_"],
+        "anthropic": ["LLM_", "ANTHROPIC_LLM_"],
+        "deepseek": ["LLM_", "DEEPSEEK_LLM_"],
+    }),
+    "embedder": ("EMBEDDING_PROVIDER", {
+        "qwen": ["EMBEDDING_", "QWEN_EMBEDDING_"],
+        "openai": ["EMBEDDING_", "OPENAI_EMBEDDING_"],
+        "siliconflow": ["EMBEDDING_", "SILICONFLOW_EMBEDDING_"],
+        "huggingface": ["EMBEDDING_", "HUGGINFACE_EMBEDDING_"],
+        "lmstudio": ["EMBEDDING_", "LMSTUDIO_EMBEDDING_"],
+        "ollama": ["EMBEDDING_", "OLLAMA_EMBEDDING_"],
+    }),
+    "reranker": ("RERANKER_PROVIDER", {
+        "qwen": ["RERANKER_"],
+        "jina": ["RERANKER_"],
+        "zhipu": ["RERANKER_"],
+    }),
+    "sparse_embedder": ("SPARSE_EMBEDDER_PROVIDER", {
+        "qwen": ["SPARSE_EMBEDDER_", "SPARSE_VECTOR_"],
+        "openai": ["SPARSE_EMBEDDER_", "SPARSE_VECTOR_"],
+    }),
+}
+
+
+def _assign_env_key_to_section(key: str) -> Optional[str]:
+    """Return section_key for this env var, or None if not in any known section."""
+    for section_key, prefixes in _ENV_SECTION_PREFIXES:
+        for p in prefixes:
+            if key == p or key.startswith(p):
+                return section_key
+    return None
+
+
+def _env_key_matches_provider_filter(key: str, section_key: str, env_dict: Dict[str, str]) -> bool:
+    """True if key should be shown for this section given the selected provider (only show selected provider's vars)."""
+    spec = _ENV_PROVIDER_FILTER.get(section_key)
+    if not spec:
+        return True
+    provider_key, provider_prefixes = spec
+    provider = (env_dict.get(provider_key) or "").strip().lower()
+    allowed = provider_prefixes.get(provider)
+    if not allowed:
+        return True  # unknown provider, show all keys that were assigned to this section
+    for prefix in allowed:
+        if key == prefix or key.startswith(prefix):
+            return True
+    return False
+
+
+def _config_from_env_file(
+    env_path: str,
+    section_filter: Optional[str],
+    mask_secrets: bool = True,
+) -> Dict[str, Any]:
+    """
+    Build config from .env only: show keys present in .env; per section show only the selected provider's vars.
+    """
+    from ..utils.envfile import read_env_file
+
+    _, env_dict = read_env_file(env_path)
+    if not env_dict:
+        return {} if not section_filter else {section_filter: {}}
+
+    sections: Dict[str, Dict[str, str]] = {sk: {} for sk, _ in _ENV_SECTION_PREFIXES}
+    for env_key, value in env_dict.items():
+        section_key = _assign_env_key_to_section(env_key)
+        if section_key is None:
+            continue
+        if not _env_key_matches_provider_filter(env_key, section_key, env_dict):
+            continue
+        if mask_secrets and _is_sensitive_name(env_key):
+            value = "***" if (value or "").strip() else "(not set)"
+        sections[section_key][env_key] = value
+
+    result = {}
+    for section_key, _ in _ENV_SECTION_PREFIXES:
+        if sections[section_key]:
+            result[section_key] = sections[section_key]
+    if section_filter is not None:
+        result = {section_filter: result.get(section_filter, {})}
+    return result
+
+
 def _resolve_default_env_file() -> str:
     try:
         from powermem.settings import _DEFAULT_ENV_FILE  # type: ignore
@@ -597,7 +704,7 @@ def _wizard_database(existing: Dict[str, str]) -> Dict[str, str]:
     provider_default = existing.get("DATABASE_PROVIDER") or "sqlite"
     provider = click.prompt(
         "Database provider",
-        type=click.Choice(["sqlite", "oceanbase", "postgres"], case_sensitive=False),
+        type=click.Choice(["oceanbase", "postgres", "sqlite"], case_sensitive=False),
         default=provider_default,
         show_default=True,
     ).lower()
@@ -1014,8 +1121,8 @@ def init_cmd(ctx: CLIContext, env_file: Optional[str], dry_run: bool, test: bool
             target_path = click.prompt("Enter target .env file path", default=target_path, show_default=True)
     else:
         if not click.confirm("File does not exist. Create it?", default=True):
-            print_error("Aborted.")
-            sys.exit(1)
+            print_info("Cancelled.")
+            sys.exit(0)
 
     # If the target file doesn't exist, use `.env.example` as the source of defaults,
     # so prompts match the template values and subsequent writes preserve its layout.

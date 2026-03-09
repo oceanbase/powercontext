@@ -62,6 +62,17 @@ class CLIContext:
 
 pass_context = click.make_pass_decorator(CLIContext, ensure=True)
 
+
+def json_option(f):
+    """Add --json/-j to a subcommand so it works before or after the subcommand."""
+    return click.option(
+        "--json", "-j", "json_output",
+        is_flag=True,
+        default=False,
+        help="Output results in JSON format",
+    )(f)
+
+
 # Static command tree for fast shell completion (no Python process on TAB).
 # Keep in sync with cli.add_command / group.add_command below.
 _COMPLETION_COMMANDS = [

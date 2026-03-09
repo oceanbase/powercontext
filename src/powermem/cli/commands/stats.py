@@ -9,7 +9,7 @@ import click
 import sys
 from typing import Optional
 
-from ..main import pass_context, CLIContext
+from ..main import pass_context, CLIContext, json_option
 from ..utils.output import (
     format_output,
     print_success,
@@ -23,8 +23,9 @@ from ..utils.output import (
 @click.option("--user-id", "-u", help="Filter statistics by user ID")
 @click.option("--agent-id", "-a", help="Filter statistics by agent ID")
 @click.option("--detailed", "-d", is_flag=True, help="Show detailed statistics")
+@json_option
 @pass_context
-def stats_cmd(ctx: CLIContext, user_id, agent_id, detailed):
+def stats_cmd(ctx: CLIContext, user_id, agent_id, detailed, json_output):
     """
     Display memory statistics.
     
@@ -38,6 +39,7 @@ def stats_cmd(ctx: CLIContext, user_id, agent_id, detailed):
         pmem stats --agent-id agent1 --json
         pmem stats --detailed
     """
+    ctx.json_output = ctx.json_output or json_output
     try:
         print_info("Gathering statistics...")
         
