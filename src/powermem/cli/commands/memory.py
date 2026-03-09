@@ -326,7 +326,7 @@ def delete_cmd(ctx: CLIContext, memory_id, user_id, agent_id, yes):
 @click.option("--user-id", "-u", help="Filter by user ID")
 @click.option("--agent-id", "-a", help="Filter by agent ID")
 @click.option("--run-id", "-r", help="Filter by run/session ID")
-@click.option("--limit", "-l", default=50, type=int, help="Maximum results (default: 50)")
+@click.option("--limit", "-l", default=50, type=int, help="Maximum results (default: 50). Use a negative value (e.g. -1) for no limit.")
 @click.option("--offset", "-o", default=0, type=int, help="Offset for pagination (default: 0)")
 @click.option(
     "--sort-by", "-s",
@@ -367,12 +367,15 @@ def list_cmd(ctx: CLIContext, user_id, agent_id, run_id, limit, offset,
             except json.JSONDecodeError as e:
                 print_error(f"Invalid filters JSON: {e}")
                 sys.exit(1)
-        
+
+        # Negative limit (e.g. -1, -2) means no limit; pass None so backend does not add LIMIT (MySQL/OceanBase reject negative LIMIT)
+        effective_limit = None if limit < 0 else limit
+
         result = ctx.memory.get_all(
             user_id=user_id,
             agent_id=agent_id,
             run_id=run_id,
-            limit=limit,
+            limit=effective_limit,
             offset=offset,
             filters=filter_dict,
             sort_by=sort_by,
