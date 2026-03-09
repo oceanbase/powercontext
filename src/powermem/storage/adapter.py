@@ -475,19 +475,20 @@ class StorageAdapter:
         offset: int = 0,
         sort_by: Optional[str] = None,
         order: str = "desc",
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Get all memories with optional filtering and sorting."""
-        # Build filters for database-level filtering
-        filters = {}
+        # Build filters for database-level filtering (only scope keys; backends use payload top-level)
+        db_filters: Dict[str, Any] = {}
         if user_id:
-            filters["user_id"] = user_id
+            db_filters["user_id"] = user_id
         if agent_id:
-            filters["agent_id"] = agent_id
+            db_filters["agent_id"] = agent_id
         if run_id:
-            filters["run_id"] = run_id
-        
+            db_filters["run_id"] = run_id
+        # Pass only scope to DB; extra filters (e.g. metadata.name) applied in-memory below
         results = self.vector_store.list(
-            filters=filters if filters else None,
+            filters=db_filters if db_filters else None,
             limit=limit,
             offset=offset,
             order_by=sort_by,
@@ -547,6 +548,21 @@ class StorageAdapter:
                 continue
             if run_id and memory.get("run_id") != run_id:
                 continue
+            # Apply extra filters (e.g. metadata or payload fields backend may not have filtered)
+            if filters:
+                for key, expected in filters.items():
+                    if key in ("user_id", "agent_id", "run_id"):
+                        continue
+                    actual = memory.get(key)
+                    if actual is None and memory.get("metadata"):
+                        actual = memory["metadata"].get(key)
+                    if actual != expected:
+                        break
+                else:
+                    pass  # all extra filters matched
+                    memories.append(memory)
+                    continue
+                continue  # one extra filter did not match, skip this memory
             
             memories.append(memory)
         
@@ -605,11 +621,12 @@ class StorageAdapter:
         offset: int = 0,
         sort_by: Optional[str] = None,
         order: str = "desc",
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Get all memories with optional filtering and sorting asynchronously."""
         import asyncio
         return await asyncio.to_thread(
-            self.get_all_memories, user_id, agent_id, run_id, limit, offset, sort_by, order
+            self.get_all_memories, user_id, agent_id, run_id, limit, offset, sort_by, order, filters
         )
     
     async def clear_memories_async(

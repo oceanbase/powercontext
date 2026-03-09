@@ -1572,7 +1572,8 @@ class Memory(MemoryBase):
         """
         try:
             results = self.storage.get_all_memories(
-                user_id, agent_id, run_id, limit, offset, sort_by=sort_by, order=order
+                user_id, agent_id, run_id, limit, offset,
+                sort_by=sort_by, order=order, filters=filters
             )
             
             self.audit.log_event("memory.get_all", {
