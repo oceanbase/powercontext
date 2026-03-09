@@ -7,7 +7,7 @@ __version_info__ = tuple(map(int, __version__.split(".")))
 
 # Version history
 VERSION_HISTORY = {
-    "0.5.0": "2026-03-13 - Version 1.0.0 release",
+    "1.0.0": "2026-03-13 - Version 1.0.0 release",
     "0.5.0": "2026-02-06 - Version 0.5.0 release",
     "0.4.0": "2026-01-20 - Version 0.4.0 release",
     "0.3.0": "2026-01-09 - Version 0.3.0 release",

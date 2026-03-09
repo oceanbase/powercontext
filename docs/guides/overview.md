@@ -13,6 +13,7 @@ Comprehensive guides for using powermem effectively.
 - **[Multimodal Capability](../examples/scenario_7_multimodal.md)** - Image and multimedia processing
 - **[UserMemory Guide](./0010-user_memory.md)** - User profile management and extraction
 - **[Sparse Vector Guide](./0011-sparse_vector.md)** - Sparse vector configuration, upgrade and migration
+- **[CLI Usage Guide](./0012-cli_usage.md)** - PowerMem CLI (pmem) usage and reference (1.0.0+)
 
 ## Other Notes
 
@@ -28,3 +29,4 @@ Comprehensive guides for using powermem effectively.
 - **Multimodal?** See [Multimodal Capability](../examples/scenario_7_multimodal.md)
 - **User profiles?** See [UserMemory Guide](./0010-user_memory.md)
 - **Sparse vector?** See [Sparse Vector Guide](./0011-sparse_vector.md)
+- **CLI (pmem)?** See [CLI Usage Guide](./0012-cli_usage.md)
