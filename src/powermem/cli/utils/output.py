@@ -98,7 +98,7 @@ class OutputFormatter:
         
         metadata = memory.get("metadata", {})
         if metadata:
-            lines.append(f"Metadata: {json.dumps(metadata, default=str)}")
+            lines.append(f"Metadata: {json.dumps(metadata, default=str, ensure_ascii=False)}")
         
         return "\n".join(lines)
     
@@ -127,7 +127,7 @@ class OutputFormatter:
         
         metadata = memory.get("metadata", {})
         if metadata:
-            lines.append(f"{'Metadata:':<15} {json.dumps(metadata, default=str)}")
+            lines.append(f"{'Metadata:':<15} {json.dumps(metadata, default=str, ensure_ascii=False)}")
         
         lines.append("=" * 60)
         return "\n".join(lines)

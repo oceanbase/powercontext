@@ -250,7 +250,7 @@ def format_memory_for_display(memory: Dict[str, Any]) -> str:
     if created_at:
         formatted += f"Created: {created_at}\n"
     if metadata:
-        formatted += f"Metadata: {json.dumps(metadata, indent=2)}\n"
+        formatted += f"Metadata: {json.dumps(metadata, indent=2, ensure_ascii=False)}\n"
     
     return formatted
 
