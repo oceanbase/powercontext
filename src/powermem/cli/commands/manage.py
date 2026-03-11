@@ -165,6 +165,8 @@ def restore_cmd(ctx: CLIContext, input_file, user_id, agent_id, dry_run, skip_du
         if dry_run:
             print_warning("DRY RUN MODE - No changes will be made")
             click.echo(f"\nWould restore {len(memories)} memories")
+            if skip_duplicates:
+                click.echo("(With --skip-duplicates, memories that already exist will be skipped.)")
             
             # Show sample
             if memories:
@@ -205,6 +207,30 @@ def restore_cmd(ctx: CLIContext, input_file, user_id, agent_id, dry_run, skip_du
                 mem_run_id = mem.get("run_id")
                 mem_metadata = mem.get("metadata")
                 
+                # When skip_duplicates, check if this memory already exists (same content + user_id + agent_id)
+                is_duplicate = False
+                if skip_duplicates:
+                    try:
+                        existing = ctx.memory.search(
+                            query=content,
+                            user_id=mem_user_id,
+                            agent_id=mem_agent_id,
+                            limit=10,
+                            threshold=0.99,
+                        )
+                        for r in existing.get("results") or []:
+                            if (r.get("memory") or "").strip() == content.strip():
+                                is_duplicate = True
+                                break
+                    except Exception as e:
+                        if ctx.verbose:
+                            print_warning(f"Duplicate check failed for memory {i}, will attempt add: {e}")
+                        # On error, proceed to add
+                
+                if is_duplicate:
+                    skip_count += 1
+                    continue
+                
                 # Add memory
                 result = ctx.memory.add(
                     messages=content,
@@ -219,7 +245,7 @@ def restore_cmd(ctx: CLIContext, input_file, user_id, agent_id, dry_run, skip_du
                 if results:
                     success_count += 1
                 else:
-                    skip_count += 1  # Likely deduplicated
+                    skip_count += 1
                 
                 # Progress indicator
                 if (i + 1) % 100 == 0:
