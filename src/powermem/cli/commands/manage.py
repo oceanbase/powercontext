@@ -283,9 +283,9 @@ def restore_cmd(ctx: CLIContext, input_file, user_id, agent_id, dry_run, skip_du
 
 @click.command(name="cleanup")
 @click.option("--threshold", "-t", type=float, default=0.1,
-              help="Retention score threshold for deletion (default: 0.1)")
+              help="Retention score threshold for deletion, in (0, 1] (default: 0.1)")
 @click.option("--archive-threshold", type=float, default=0.3,
-              help="Retention score threshold for archiving (default: 0.3)")
+              help="Retention score threshold for archiving, in (0, 1]; must be > threshold (default: 0.3)")
 @click.option("--user-id", "-u", help="Filter by user ID")
 @click.option("--agent-id", "-a", help="Filter by agent ID")
 @click.option("--dry-run", is_flag=True, help="Preview cleanup without making changes")
@@ -306,6 +306,31 @@ def cleanup_cmd(ctx: CLIContext, threshold, archive_threshold, user_id, agent_id
     """
     ctx.json_output = ctx.json_output or json_output
     try:
+        # Validate threshold: retention score is in [0, 1], threshold must be in (0, 1]
+        if threshold <= 0:
+            print_error(
+                f"Invalid --threshold {threshold}: must be greater than 0. "
+                "Retention score is in [0, 1]; threshold 0 or negative would be unreasonable."
+            )
+            sys.exit(1)
+        if threshold > 1:
+            print_error(
+                f"Invalid --threshold {threshold}: retention score is in [0, 1], "
+                "so threshold must not exceed 1. Use a value between 0 and 1 (e.g. 0.1, 0.3)."
+            )
+            sys.exit(1)
+        if archive_threshold <= 0 or archive_threshold > 1:
+            print_error(
+                f"Invalid --archive-threshold {archive_threshold}: must be in (0, 1]."
+            )
+            sys.exit(1)
+        if threshold >= archive_threshold:
+            print_error(
+                f"Invalid: --threshold ({threshold}) must be less than --archive-threshold ({archive_threshold}). "
+                "Memories with score < threshold are deleted; those between threshold and archive-threshold are archived."
+            )
+            sys.exit(1)
+
         print_info("Analyzing memories for cleanup...")
         
         # Get all memories to analyze
@@ -446,7 +471,10 @@ def migrate_cmd(ctx: CLIContext, target_store, source_store, delete_source, dry_
     """
     Migrate data between stores.
     
-    Used to move memories between main store and sub-stores.
+    Used to move memories between main store and sub-stores. Sub-stores must be
+    defined in your config under 'sub_stores' before running migrate .
+    There is no CLI command to create sub-stores; 
+    they are configured in config only.
     
     \b
     Examples:
@@ -455,6 +483,16 @@ def migrate_cmd(ctx: CLIContext, target_store, source_store, delete_source, dry_
     """
     ctx.json_output = ctx.json_output or json_output
     try:
+        # Migrate (sub-store) is only supported with OceanBase; intercept for SQLite etc.
+        storage_type = (getattr(ctx.memory, "storage_type", None) or "").lower()
+        if storage_type != "oceanbase":
+            print_error(
+                f"Migration is only supported with OceanBase storage. "
+                f"Current storage: {storage_type or 'unknown'}. "
+                "Use OceanBase as DATABASE_PROVIDER to use sub-stores and migrate."
+            )
+            sys.exit(1)
+
         print_info(f"Preparing migration to sub-store {target_store}...")
         
         if dry_run:
@@ -464,17 +502,22 @@ def migrate_cmd(ctx: CLIContext, target_store, source_store, delete_source, dry_
             stats = ctx.memory.get_statistics()
             total = stats.get("total_memories", 0)
             
+            source_display = "Main store" if source_store is None else f"Sub-store {source_store}"
+            target_display = f"Sub-store {target_store}"
+            
             click.echo(f"\nMigration Preview:")
-            click.echo(f"  Source: {'Main store' if source_store is None else f'Sub-store {source_store}'}")
-            click.echo(f"  Target: Sub-store {target_store}")
+            click.echo(f"  Source: {source_display}")
+            click.echo(f"  Target: {target_display}")
             click.echo(f"  Memories to migrate: ~{total}")
             click.echo(f"  Delete source: {delete_source}")
             
             if ctx.json_output:
                 click.echo(format_output({
                     "dry_run": True,
-                    "source": source_store,
-                    "target": target_store,
+                    "source": source_display,
+                    "target": target_display,
+                    "source_store_index": source_store,
+                    "target_store_index": target_store,
                     "estimated_count": total,
                     "delete_source": delete_source,
                 }, "generic", json_output=True))
@@ -492,17 +535,31 @@ def migrate_cmd(ctx: CLIContext, target_store, source_store, delete_source, dry_
         
         # Perform migration
         print_info("Starting migration...")
-        result = ctx.memory.migrate_to_sub_store(
-            sub_store_index=target_store,
-            delete_source=delete_source,
-        )
+        try:
+            result = ctx.memory.migrate_to_sub_store(
+                sub_store_index=target_store,
+                delete_source=delete_source,
+            )
+        except ValueError as e:
+            if "No sub stores configured" in str(e):
+                print_error(
+                    "No sub stores configured. Sub-stores must be defined in your config "
+                    "(e.g. config file or environment) under 'sub_stores' before running migrate. "
+                )
+                print_info(
+                    "Tip: There is no CLI command to create sub-stores; add them in config and restart."
+                )
+                sys.exit(1)
+            raise
         
         print_success("Migration completed")
         
         if ctx.json_output:
+            target_display = f"Sub-store {target_store}"
             click.echo(format_output({
                 "status": "success",
-                "target": target_store,
+                "target": target_display,
+                "target_store_index": target_store,
                 "delete_source": delete_source,
                 "result": result,
             }, "generic", json_output=True))

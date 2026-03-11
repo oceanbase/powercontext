@@ -2,15 +2,25 @@
 PowerMem CLI Interactive Mode
 
 This module provides an interactive REPL (Read-Eval-Print Loop) for PowerMem.
+Tab completion and Up/Down history are enabled when the readline module is
+available (typical on Unix; on Windows install pyreadline for similar behavior).
 """
 
+import atexit
 import click
-import sys
+import os
 import shlex
+import sys
 from typing import Optional, List
+
+try:
+    import readline
+except ImportError:
+    readline = None
 
 from ..main import pass_context, CLIContext
 from ..utils.output import (
+    format_output,
     print_success,
     print_error,
     print_warning,
@@ -23,13 +33,19 @@ class InteractiveSession:
     
     PROMPT = "powermem> "
     
+    # Commands for Tab completion (first word only)
+    COMMANDS = [
+        "add", "search", "get", "update", "delete", "list", "stats",
+        "set", "show", "clear", "help", "exit", "quit", "q", "memory",
+    ]
+    
     HELP_TEXT = """
 PowerMem Interactive Mode
 =========================
 
-Available commands:
+Available commands (you can also use "memory <cmd> ..." e.g. memory add "..."):
   add <content> [--user-id <id>] [--agent-id <id>]
-      Add a new memory
+      Add a new memory (same as CLI: pmem memory add ...)
       
   search <query> [--user-id <id>] [--limit <n>] [--threshold <t>]
       Search for memories (--threshold: min similarity, e.g. 0.3)
@@ -43,8 +59,8 @@ Available commands:
   delete <memory_id> [--user-id <id>]
       Delete a memory
       
-  list [--user-id <id>] [--limit <n>]
-      List memories
+  list [--user-id <id>] [--limit <n>] [-j|--json]
+      List memories (-j/--json for JSON output)
       
   stats [--user-id <id>]
       Show statistics
@@ -83,9 +99,39 @@ Examples:
         self.default_agent_id: Optional[str] = None
         self.json_output: bool = ctx.json_output
         self.running: bool = True
+        self._completion_matches: List[str] = []
+    
+    def _completer(self, text: str, state: int):
+        """Readline completer: Tab completion for command names."""
+        if state == 0:
+            t = text.lower()
+            self._completion_matches = [c for c in self.COMMANDS if c.startswith(t)]
+        try:
+            return self._completion_matches[state] + " "
+        except IndexError:
+            return None
+    
+    def _setup_readline(self):
+        """Enable Tab completion and Up/Down history when readline is available."""
+        if readline is None:
+            return
+        readline.set_completer(self._completer)
+        readline.parse_and_bind("tab: complete")
+        histfile = os.path.join(os.path.expanduser("~"), ".powermem_history")
+        try:
+            readline.read_history_file(histfile)
+        except OSError:
+            pass
+        def _save_history(path=histfile):
+            try:
+                readline.write_history_file(path)
+            except OSError:
+                pass
+        atexit.register(_save_history)
     
     def run(self):
         """Run the interactive session."""
+        self._setup_readline()
         self._print_welcome()
         
         while self.running:
@@ -113,6 +159,8 @@ Examples:
         click.echo("  PowerMem Interactive Mode")
         click.echo("=" * 50)
         click.echo("Type 'help' for available commands, 'exit' to quit")
+        if readline:
+            click.echo("Tab: complete commands; Up/Down: command history")
         click.echo()
     
     def _process_command(self, line: str):
@@ -129,6 +177,12 @@ Examples:
         
         cmd = parts[0].lower()
         args = parts[1:]
+        
+        # Support "memory add ..." / "memory search ..." etc. so interactive mode
+        # is consistent with CLI command-line usage (pmem memory add ...).
+        if cmd == "memory" and args:
+            cmd = args[0].lower()
+            args = args[1:]
         
         # Route to command handler
         handlers = {
@@ -174,7 +228,7 @@ Examples:
             elif arg.startswith("-"):
                 # Short options
                 key = arg[1:]
-                short_map = {"u": "user_id", "a": "agent_id", "l": "limit", "r": "run_id"}
+                short_map = {"u": "user_id", "a": "agent_id", "l": "limit", "r": "run_id", "j": "json"}
                 key = short_map.get(key, key)
                 if i + 1 < len(args) and not args[i + 1].startswith("-"):
                     options[key] = args[i + 1]
@@ -382,6 +436,7 @@ Examples:
         
         limit = int(options.get("limit", 20))
         offset = int(options.get("offset", 0))
+        use_json = options.get("json") or self.json_output
         
         try:
             result = self.ctx.memory.get_all(
@@ -393,7 +448,14 @@ Examples:
             
             memories = result.get("results", [])
             if not memories:
-                print_info("No memories found")
+                if use_json:
+                    click.echo(format_output([], "memories", json_output=True))
+                else:
+                    print_info("No memories found")
+                return
+            
+            if use_json:
+                click.echo(format_output(memories, "memories", json_output=True))
                 return
             
             click.echo(f"\nFound {len(memories)} memories:")
