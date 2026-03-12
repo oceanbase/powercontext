@@ -20,10 +20,10 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/user-profile")({
   component: UserProfilePage,
@@ -82,9 +82,32 @@ function UserProfilePage() {
     }
   };
 
-  const truncateText = (text: string | undefined, maxLength: number) => {
-    if (!text) return t("userProfile.detail.none");
-    return text.length > maxLength ? text.substring(0, maxLength) + "..." : text;
+  const renderTruncatedWithTooltip = (
+    value: string | undefined,
+    fallback: string,
+    maxWidthClass: string,
+  ) => {
+    const displayValue = value || fallback;
+    const textNode = (
+      <span className={`block ${maxWidthClass} truncate`}>{displayValue}</span>
+    );
+
+    if (!value) {
+      return textNode;
+    }
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{textNode}</TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="start"
+          className="max-w-[460px] break-all text-xs"
+        >
+          {value}
+        </TooltipContent>
+      </Tooltip>
+    );
   };
 
   const formatTopics = (topics: Record<string, any> | undefined) => {
@@ -162,9 +185,19 @@ function UserProfilePage() {
                 <TableBody>
                   {profiles.map((profile) => (
                     <TableRow key={profile.id}>
-                      <TableCell className="font-medium">{profile.user_id}</TableCell>
+                      <TableCell className="font-medium">
+                        {renderTruncatedWithTooltip(
+                          profile.user_id,
+                          t("userProfile.detail.none"),
+                          "max-w-[220px]",
+                        )}
+                      </TableCell>
                       <TableCell className="max-w-md">
-                        {truncateText(profile.profile_content, 100)}
+                        {renderTruncatedWithTooltip(
+                          profile.profile_content,
+                          t("userProfile.detail.none"),
+                          "max-w-[420px]",
+                        )}
                       </TableCell>
                       <TableCell>{formatTopics(profile.topics)}</TableCell>
                       <TableCell>{formatDate(profile.updated_at)}</TableCell>
@@ -225,12 +258,16 @@ function UserProfilePage() {
         <SheetContent className="sm:max-w-xl overflow-y-auto p-6">
           <SheetHeader className="space-y-2">
             <SheetTitle>{t("userProfile.detail.title")}</SheetTitle>
-            <SheetDescription>
-              {t("userProfile.detail.userId")}: {selectedProfile?.user_id}
-            </SheetDescription>
           </SheetHeader>
           {selectedProfile && (
             <div className="mt-6 space-y-6 px-1">
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold">{t("userProfile.detail.userId")}</h4>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap break-all">
+                  {selectedProfile.user_id || t("userProfile.detail.none")}
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <h4 className="text-sm font-semibold">{t("userProfile.detail.content")}</h4>
                 <p className="text-sm text-muted-foreground whitespace-pre-wrap">
