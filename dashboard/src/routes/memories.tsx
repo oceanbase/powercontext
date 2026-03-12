@@ -119,9 +119,13 @@ function MemoriesPage() {
   const handleFilter = async () => {
     setIsFiltering(true);
     try {
-      setSearchTerm(searchInput);
-      setUserIdFilterTerm(userIdInput);
-      setAgentIdFilterTerm(agentIdInput);
+    const normalizedSearch = searchInput.trim();
+    const normalizedUserId = userIdInput.trim();
+    const normalizedAgentId = agentIdInput.trim();
+
+    setSearchTerm(normalizedSearch);
+    setUserIdFilterTerm(normalizedUserId);
+    setAgentIdFilterTerm(normalizedAgentId);
       if (page !== 1) {
         await navigate({
           search: (prev: any) => ({ ...prev, page: 1 }),
@@ -129,12 +133,7 @@ function MemoriesPage() {
       }
       // Give a brief moment for the UI to update
       await new Promise(resolve => setTimeout(resolve, 300));
-      const hasFilters = searchInput.trim() || userIdInput.trim() || agentIdInput.trim();
-      if (hasFilters) {
-        toast.success(t("memories.toast.filterApplied"));
-      } else {
-        toast.success(t("memories.toast.filterCleared"));
-      }
+    toast.success(t("memories.toast.filterApplied"));
     } catch (error) {
       toast.error(t("common.error"), {
         description: t("common.tryAgain"),
