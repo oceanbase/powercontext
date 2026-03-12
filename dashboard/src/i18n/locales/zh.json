@@ -34,6 +34,7 @@
     },
     "systemHealth": {
       "title": "系统健康",
+      "description": "实时系统状态与依赖健康情况",
       "status": "状态",
       "version": "版本",
       "uptime": "运行时长",

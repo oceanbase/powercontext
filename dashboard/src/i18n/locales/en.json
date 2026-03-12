@@ -34,6 +34,7 @@
     },
     "systemHealth": {
       "title": "System Health",
+      "description": "Real-time system status and dependency health",
       "status": "Status",
       "version": "Version",
       "uptime": "Uptime",
