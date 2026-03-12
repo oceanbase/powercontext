@@ -388,25 +388,25 @@ class MemoryService:
         """Get memory statistics with optional time filtering"""
         # Get base statistics from Memory
         stats = self.memory.get_statistics(user_id=user_id, agent_id=agent_id)
-        
-        # If cutoff_date is provided, we need to filter the results
+
+        # Load memories once, then reuse the same importance calculation path
+        all_memories = self.memory.get_all(
+            user_id=user_id,
+            agent_id=agent_id,
+            limit=10000
+        ).get("results", [])
+
+        # If cutoff_date is provided, recalculate all stats from filtered memories.
+        # Otherwise keep store-level stats and only normalize avg_importance formula.
         if cutoff_date:
-            # Get all memories to filter by date
-            all_memories = self.memory.get_all(
-                user_id=user_id,
-                agent_id=agent_id,
-                limit=10000
-            ).get("results", [])
-            
-            # Filter memories by created_at
             filtered_memories = [
                 m for m in all_memories
                 if self._parse_datetime(m.get("created_at")) >= cutoff_date
             ]
-            
-            # Recalculate statistics for filtered memories
             stats = self._calculate_stats_from_memories(filtered_memories)
-        
+        else:
+            stats["avg_importance"] = self._calculate_avg_importance(all_memories)
+
         return stats
     
     def _parse_datetime(self, date_str: Optional[str]) -> datetime:
@@ -444,6 +444,7 @@ class MemoryService:
         # Calculate statistics
         by_type = defaultdict(int)
         total_importance = 0.0
+        importance_count = 0
         access_counts = []
         growth_by_date = defaultdict(int)
         age_distribution = {
@@ -461,8 +462,10 @@ class MemoryService:
             by_type[mem_type] += 1
             
             # Importance
-            importance = m.get("importance") or 0.5
-            total_importance += float(importance)
+            importance = self._extract_importance(m)
+            if importance is not None and importance > 0:
+                total_importance += importance
+                importance_count += 1
             
             # Access count
             access_count = m.get("access_count", 0)
@@ -498,11 +501,49 @@ class MemoryService:
         return {
             "total_memories": total_memories,
             "by_type": dict(by_type),
-            "avg_importance": total_importance / total_memories if total_memories > 0 else 0.0,
+            "avg_importance": round(total_importance / importance_count, 2) if importance_count > 0 else 0.0,
             "top_accessed": top_accessed,
             "growth_trend": dict(growth_by_date),
             "age_distribution": age_distribution,
         }
+
+    def _extract_importance(self, memory: Dict[str, Any]) -> Optional[float]:
+        """Extract importance from memory and return None when missing/invalid."""
+        metadata = memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}
+        intelligence = metadata.get("intelligence") if isinstance(metadata.get("intelligence"), dict) else {}
+
+        # Prefer intelligence.importance_score first when available.
+        # Fallback to other historical locations for compatibility.
+        candidates = (
+            intelligence.get("importance_score"),
+            metadata.get("importance"),
+            metadata.get("importance_score"),
+            memory.get("importance"),
+            memory.get("importance_score"),
+        )
+
+        for value in candidates:
+            if value is None or value == "":
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def _calculate_avg_importance(self, memories: List[Dict]) -> float:
+        """Calculate avg importance using only non-missing values."""
+        total_importance = 0.0
+        importance_count = 0
+
+        for memory in memories:
+            importance = self._extract_importance(memory)
+            if importance is None or importance <= 0:
+                continue
+            total_importance += importance
+            importance_count += 1
+
+        return round(total_importance / importance_count, 2) if importance_count > 0 else 0.0
 
     def get_users(self) -> List[str]:
         """Get a list of unique user IDs"""
@@ -841,9 +882,9 @@ class MemoryService:
                     quality_issues["empty_content"] += 1
                     low_quality_memories.add(memory_id)
                 
-                # Check for low importance (if importance field exists)
-                importance = memory.get("importance")
-                if importance is not None and float(importance) < 0.3:
+                # Check for low importance using the same extraction rule as stats.
+                importance = self._extract_importance(memory)
+                if importance is not None and importance < 0.3:
                     quality_issues["low_importance"] += 1
                     low_quality_memories.add(memory_id)
             
