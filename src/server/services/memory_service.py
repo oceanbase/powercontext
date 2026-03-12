@@ -458,7 +458,12 @@ class MemoryService:
         
         for m in memories:
             # Type distribution
-            mem_type = m.get("type") or m.get("memory_type") or "unknown"
+            metadata = m.get("metadata") if isinstance(m.get("metadata"), dict) else {}
+            mem_type = (
+                m.get("category")
+                or metadata.get("category")
+                or "unknown"
+            )
             by_type[mem_type] += 1
             
             # Importance

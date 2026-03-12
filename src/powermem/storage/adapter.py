@@ -535,6 +535,7 @@ class StorageAdapter:
                 "user_id": payload.get("user_id"),
                 "agent_id": payload.get("agent_id"),
                 "run_id": payload.get("run_id"),
+                "category": payload.get("category"),
                 "metadata": payload.get("metadata", {}),
                 "created_at": created_at,
                 "updated_at": updated_at,
