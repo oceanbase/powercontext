@@ -545,7 +545,7 @@ function MemoriesPage() {
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">{t("memories.detail.agentId")}</p>
                   <p className="text-sm font-mono">
-                    {selectedMemory.agent_id || t("memories.detail.none")}
+                    {selectedMemory.agent_id || "NULL"}
                   </p>
                 </div>
               </div>
