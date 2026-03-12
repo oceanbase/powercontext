@@ -202,6 +202,28 @@ function MemoriesPage() {
     }
   };
 
+  const getDisplayRunId = (memory: Memory): string | undefined => {
+    if (memory.run_id) {
+      return memory.run_id;
+    }
+
+    const metadata = memory.metadata;
+    if (!metadata || typeof metadata !== "object") {
+      return undefined;
+    }
+
+    const metadataRunId =
+      (metadata as Record<string, unknown>).run_id ??
+      (typeof (metadata as Record<string, unknown>).filters === "object" &&
+      (metadata as Record<string, unknown>).filters !== null
+        ? ((metadata as Record<string, unknown>).filters as Record<string, unknown>).run_id
+        : undefined);
+
+    return typeof metadataRunId === "string" && metadataRunId.trim()
+      ? metadataRunId
+      : undefined;
+  };
+
   if (error) {
     return (
       <div className="p-6">
@@ -505,7 +527,7 @@ function MemoriesPage() {
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">{t("memories.detail.category")}</p>
                   <Badge variant="secondary">
-                    {selectedMemory.category || "General"}
+                    {selectedMemory.category || "unknown"}
                   </Badge>
                 </div>
                 <div className="space-y-1">
@@ -528,6 +550,13 @@ function MemoriesPage() {
                 </div>
               </div>
 
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">{t("memories.detail.runId")}</p>
+                <p className="text-sm font-mono">
+                  {getDisplayRunId(selectedMemory) || t("memories.detail.none")}
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">{t("memories.detail.metadata")}</h3>
                 <div className="bg-muted p-3 rounded-md overflow-x-auto">
@@ -536,13 +565,6 @@ function MemoriesPage() {
                   </pre>
                 </div>
               </div>
-
-              {selectedMemory.run_id && (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">{t("memories.detail.runId")}</p>
-                  <p className="text-sm font-mono">{selectedMemory.run_id}</p>
-                </div>
-              )}
             </div>
           )}
         </SheetContent>
