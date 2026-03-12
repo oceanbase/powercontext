@@ -473,13 +473,20 @@ class MemoryService:
                 importance_count += 1
             
             # Access count
-            access_count = m.get("access_count", 0)
-            if access_count > 0:
-                access_counts.append({
-                    "id": m.get("id") or m.get("memory_id"),
-                    "content": (m.get("memory") or m.get("content") or "")[:100],
-                    "access_count": access_count,
-                })
+            raw_access_count = m.get("access_count")
+            if raw_access_count is None:
+                raw_access_count = metadata.get("access_count", 0)
+            try:
+                access_count = int(raw_access_count)
+            except (TypeError, ValueError):
+                access_count = 0
+
+            # Keep entries even when access_count is 0 to align with store-level statistics.
+            access_counts.append({
+                "id": m.get("id") or m.get("memory_id"),
+                "content": (m.get("memory") or m.get("content") or "")[:100],
+                "access_count": access_count,
+            })
             
             # Growth trend by date
             created_at = m.get("created_at")
