@@ -44,7 +44,8 @@ function UserProfilePage() {
       api.getAllUserProfiles(
         userIdFilter || undefined,
         pageSize,
-        (currentPage - 1) * pageSize
+        (currentPage - 1) * pageSize,
+        Boolean(userIdFilter)
       ),
   });
 
@@ -167,7 +168,7 @@ function UserProfilePage() {
           ) : profiles.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12">
               <p className="text-muted-foreground">
-                {total === 0 ? t("userProfile.noProfilesEnabled") : t("userProfile.noProfiles")}
+                {t("userProfile.noProfiles")}
               </p>
             </div>
           ) : (

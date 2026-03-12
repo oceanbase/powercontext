@@ -185,11 +185,12 @@ export const api = {
   getMemoryQuality: (params?: { user_id?: string; agent_id?: string; time_range?: string }) =>
     fetchWithAuth<MemoryQualityMetrics>("/memories/quality", { params }),
 
-  getAllUserProfiles: (user_id?: string, limit?: number, offset?: number) => {
+  getAllUserProfiles: (user_id?: string, limit?: number, offset?: number, fuzzy?: boolean) => {
     const params: Record<string, any> = {};
     if (user_id) params.user_id = user_id;
     if (limit !== undefined) params.limit = limit;
     if (offset !== undefined) params.offset = offset;
+    if (fuzzy !== undefined) params.fuzzy = fuzzy;
     return fetchWithAuth<
       UserProfileListResponse &
         PaginationLike & {

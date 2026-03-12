@@ -179,8 +179,8 @@
     "filterApplied": "Filter applied successfully",
     "filterCleared": "Filter applied successfully",
     "clearFilter": "Clear",
-    "noProfilesEnabled": "User profiling is not enabled",
-    "noProfiles": "No user profiles found",
+    "noProfilesEnabled": "No results found",
+    "noProfiles": "No results found",
     "columns": {
       "userId": "User ID",
       "profileContent": "Profile Content",

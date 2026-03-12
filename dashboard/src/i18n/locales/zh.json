@@ -179,8 +179,8 @@
     "filterApplied": "搜索完成",
     "filterCleared": "搜索完成",
     "clearFilter": "清除",
-    "noProfilesEnabled": "未开启用户画像",
-    "noProfiles": "未找到用户画像",
+    "noProfilesEnabled": "结果为空",
+    "noProfiles": "结果为空",
     "columns": {
       "userId": "用户 ID",
       "profileContent": "画像内容",

@@ -82,6 +82,7 @@ class UserProfileStoreBase(ABC):
     def get_profile(
         self,
         user_id: Optional[str] = None,
+        fuzzy: bool = False,
         main_topic: Optional[List[str]] = None,
         sub_topic: Optional[List[str]] = None,
         topic_value: Optional[List[str]] = None,
@@ -93,6 +94,7 @@ class UserProfileStoreBase(ABC):
 
         Args:
             user_id: Optional User identifier
+            fuzzy: Whether to use fuzzy matching on user_id
             main_topic: Optional list of main topic names to filter by (SQL-level filtering)
             sub_topic: Optional list of sub topic names to filter by (SQL-level filtering)
             topic_value: Optional list of topic values to filter by exact match
@@ -119,12 +121,13 @@ class UserProfileStoreBase(ABC):
         pass
 
     @abstractmethod
-    def count_profiles(self, user_id: Optional[str] = None) -> int:
+    def count_profiles(self, user_id: Optional[str] = None, fuzzy: bool = False) -> int:
         """
         Count user profiles with optional filter.
 
         Args:
             user_id: Optional user ID filter
+            fuzzy: Whether to use fuzzy matching on user_id
 
         Returns:
             Total count of profiles
