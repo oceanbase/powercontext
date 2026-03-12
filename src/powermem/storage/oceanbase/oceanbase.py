@@ -2071,8 +2071,8 @@ class OceanBaseVectorStore(VectorStoreBase):
             stmt = select(func.count()).select_from(table)
             
             # Apply WHERE clause
-            if where_clause is not None:
-                stmt = stmt.where(where_clause)
+            if where_clause:
+                stmt = stmt.where(*where_clause)
 
             # Execute query
             with self.obvector.engine.connect() as conn:

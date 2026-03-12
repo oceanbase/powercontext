@@ -268,9 +268,11 @@ class SQLiteVectorStore(VectorStoreBase):
         
         # Add LIMIT and OFFSET for pagination
         # Note: In SQLite, LIMIT must come after ORDER BY and before OFFSET
-        if limit:
+        if limit is not None:
             query += f" LIMIT {limit}"
-        if offset:
+        elif offset is not None:
+            query += " LIMIT -1"
+        if offset is not None:
             query += f" OFFSET {offset}"
         
         results = []

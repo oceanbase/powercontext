@@ -428,12 +428,12 @@ class PGVectorStore(VectorStoreBase):
         ]
         
         # Add OFFSET and LIMIT
+        if limit is not None:
+            query_parts.append("LIMIT %s")
+            filter_params.append(limit)
         if offset is not None:
             query_parts.append("OFFSET %s")
             filter_params.append(offset)
-        
-        query_parts.append("LIMIT %s")
-        filter_params.append(limit)
         
         query = "\n".join(part for part in query_parts if part)
 
