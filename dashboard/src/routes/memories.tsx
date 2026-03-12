@@ -258,6 +258,46 @@ function MemoriesPage() {
     );
   };
 
+  const renderContentText = (
+    value: string | undefined,
+    fallback: string,
+    maxWidthClass: string,
+  ) => {
+    const rawValue = value?.trim() ? value : undefined;
+    const maxLength = 120;
+    const displayValue = rawValue
+      ? (rawValue.length > maxLength
+        ? `${rawValue.slice(0, maxLength)}...`
+        : rawValue)
+      : fallback;
+
+    const textNode = (
+      <span
+        className={`block ${maxWidthClass} truncate text-sm leading-snug`}
+        title={rawValue || undefined}
+      >
+        {displayValue}
+      </span>
+    );
+
+    if (!rawValue) {
+      return textNode;
+    }
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{textNode}</TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="start"
+          className="max-w-[520px] break-all text-xs"
+        >
+          {rawValue}
+        </TooltipContent>
+      </Tooltip>
+    );
+  };
+
   if (error) {
     return (
       <div className="p-6">
@@ -401,10 +441,8 @@ function MemoriesPage() {
                       <TableCell className="text-xs font-mono text-muted-foreground">
                         {renderIdText(memory.agent_id, "-", "max-w-[110px]")}
                       </TableCell>
-                      <TableCell className="max-w-[300px] lg:max-w-[500px]">
-                        <p className="text-sm line-clamp-2 leading-snug">
-                          {memory.content}
-                        </p>
+                      <TableCell className="w-[300px] lg:w-[500px]">
+                        {renderContentText(memory.content, "-", "max-w-[280px] lg:max-w-[480px]")}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         <div className="flex flex-wrap gap-1">
