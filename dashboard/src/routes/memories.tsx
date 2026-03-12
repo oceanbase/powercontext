@@ -91,7 +91,7 @@ function MemoriesPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string | number) => api.deleteMemory(id),
+    mutationFn: (id: string) => api.deleteMemory(id),
     onSuccess: () => {
       toast.success(t("memories.toast.deleted"));
       queryClient.invalidateQueries({ queryKey: ["memories"] });
@@ -176,6 +176,30 @@ function MemoriesPage() {
       });
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const copyText = async (text: string) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+
+    if (!copied) {
+      throw new Error("copy_failed");
     }
   };
 
@@ -387,8 +411,13 @@ function MemoriesPage() {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const json = JSON.stringify(memory, null, 2);
-                                navigator.clipboard.writeText(json);
-                                toast.success(t("memories.actions.jsonCopied"));
+                                copyText(json)
+                                  .then(() => {
+                                    toast.success(t("memories.actions.jsonCopied"));
+                                  })
+                                  .catch(() => {
+                                    toast.error(t("memories.actions.jsonCopyFailed"));
+                                  });
                               }}
                             >
                               {t("memories.actions.copyJson")}

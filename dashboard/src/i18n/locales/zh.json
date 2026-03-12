@@ -128,7 +128,8 @@
       "viewDetails": "查看详情",
       "delete": "删除记忆",
       "copyJson": "复制原始 JSON",
-      "jsonCopied": "JSON 已复制到剪贴板"
+      "jsonCopied": "JSON 已复制到剪贴板",
+      "jsonCopyFailed": "复制失败，请重试"
     },
     "detail": {
       "title": "记忆详情",

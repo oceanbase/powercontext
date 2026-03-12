@@ -128,7 +128,8 @@
       "viewDetails": "View Details",
       "delete": "Delete Memory",
       "copyJson": "Copy Raw JSON",
-      "jsonCopied": "JSON copied to clipboard"
+      "jsonCopied": "JSON copied to clipboard",
+      "jsonCopyFailed": "Copy failed, please try again"
     },
     "detail": {
       "title": "Memory Details",
