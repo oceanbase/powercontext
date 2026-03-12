@@ -50,6 +50,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/memories")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -224,6 +225,39 @@ function MemoriesPage() {
       : undefined;
   };
 
+  const renderIdText = (
+    value: string | undefined,
+    fallback: string,
+    maxWidthClass: string,
+  ) => {
+    const displayValue = value || fallback;
+    const textNode = (
+      <span
+        className={`block ${maxWidthClass} truncate`}
+        title={value || undefined}
+      >
+        {displayValue}
+      </span>
+    );
+
+    if (!value) {
+      return textNode;
+    }
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{textNode}</TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="start"
+          className="max-w-[420px] break-all font-mono text-xs"
+        >
+          {value}
+        </TooltipContent>
+      </Tooltip>
+    );
+  };
+
   if (error) {
     return (
       <div className="p-6">
@@ -362,10 +396,10 @@ function MemoriesPage() {
                       onClick={() => setSelectedMemory(memory)}
                     >
                       <TableCell className="text-xs font-mono text-muted-foreground">
-                        {memory.user_id || "-"}
+                        {renderIdText(memory.user_id, "-", "max-w-[110px]")}
                       </TableCell>
                       <TableCell className="text-xs font-mono text-muted-foreground">
-                        {memory.agent_id || "-"}
+                        {renderIdText(memory.agent_id, "-", "max-w-[110px]")}
                       </TableCell>
                       <TableCell className="max-w-[300px] lg:max-w-[500px]">
                         <p className="text-sm line-clamp-2 leading-snug">
@@ -539,13 +573,17 @@ function MemoriesPage() {
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">{t("memories.detail.userId")}</p>
                   <p className="text-sm font-mono">
-                    {selectedMemory.user_id || t("memories.detail.none")}
+                    {renderIdText(
+                      selectedMemory.user_id,
+                      t("memories.detail.none"),
+                      "max-w-full",
+                    )}
                   </p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">{t("memories.detail.agentId")}</p>
                   <p className="text-sm font-mono">
-                    {selectedMemory.agent_id || "NULL"}
+                    {renderIdText(selectedMemory.agent_id, "NULL", "max-w-full")}
                   </p>
                 </div>
               </div>
