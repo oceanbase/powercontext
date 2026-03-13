@@ -376,6 +376,7 @@ class UserService:
     def get_all_profiles(
         self,
         user_id: Optional[str] = None,
+        fuzzy: bool = False,
         limit: int = 100,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
@@ -384,6 +385,7 @@ class UserService:
         
         Args:
             user_id: Optional user ID filter
+            fuzzy: Whether to use fuzzy matching on user ID
             limit: Maximum number of results
             offset: Number of results to skip
             
@@ -396,6 +398,7 @@ class UserService:
         try:
             profiles = self.user_memory.profile_store.get_profile(
                 user_id=user_id,
+                fuzzy=fuzzy,
                 limit=limit,
                 offset=offset,
             )
@@ -409,18 +412,19 @@ class UserService:
                 status_code=500,
             )
 
-    def count_profiles(self, user_id: Optional[str] = None) -> int:
+    def count_profiles(self, user_id: Optional[str] = None, fuzzy: bool = False) -> int:
         """
         Count user profiles with optional filtering.
         
         Args:
             user_id: Optional user ID filter
+            fuzzy: Whether to use fuzzy matching on user ID
             
         Returns:
             Total count of profiles
         """
         try:
-            count = self.user_memory.profile_store.count_profiles(user_id=user_id)
+            count = self.user_memory.profile_store.count_profiles(user_id=user_id, fuzzy=fuzzy)
             return count
             
         except Exception as e:

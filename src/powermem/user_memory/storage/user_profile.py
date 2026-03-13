@@ -274,6 +274,7 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
     def _build_filter_conditions(
             self,
             user_id: Optional[str],
+            fuzzy: bool,
             main_topic: Optional[List[str]],
             sub_topic: Optional[List[str]],
             topic_value: Optional[List[str]],
@@ -283,6 +284,7 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
 
         Args:
             user_id: User identifier filter
+            fuzzy: Whether to use fuzzy matching on user_id
             main_topic: List of main topic names to filter
             sub_topic: List of sub topic paths to filter
             topic_value: List of topic values to filter by exact match
@@ -294,7 +296,10 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
 
         # User ID filter
         if user_id is not None:
-            conditions.append(self.table.c.user_id == user_id)
+            if fuzzy:
+                conditions.append(self.table.c.user_id.like(f"%{user_id}%"))
+            else:
+                conditions.append(self.table.c.user_id == user_id)
 
         # Main topic filter
         if main_topic:
@@ -357,6 +362,7 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
     def get_profile(
             self,
             user_id: Optional[str] = None,
+            fuzzy: bool = False,
             main_topic: Optional[List[str]] = None,
             sub_topic: Optional[List[str]] = None,
             topic_value: Optional[List[str]] = None,
@@ -368,6 +374,7 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
 
         Args:
             user_id: User identifier
+            fuzzy: Whether to use fuzzy matching on user_id
             main_topic: Optional list of main topic names to filter
             sub_topic: Optional list of sub topic names to filter by
             topic_value: Optional list of topic values to filter by exact match
@@ -387,7 +394,7 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
         with self.obvector.engine.connect() as conn:
             # Build filter conditions
             conditions = self._build_filter_conditions(
-                user_id, main_topic, sub_topic, topic_value
+                user_id, fuzzy, main_topic, sub_topic, topic_value
             )
 
             # Build select statement
@@ -496,19 +503,23 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
                 logger.debug(f"Deleted profile with id: {profile_id}")
             return deleted
 
-    def count_profiles(self, user_id: Optional[str] = None) -> int:
+    def count_profiles(self, user_id: Optional[str] = None, fuzzy: bool = False) -> int:
         """
         Count user profiles with optional user_id filter.
 
         Args:
             user_id: Optional user ID filter
+            fuzzy: Whether to use fuzzy matching on user_id
 
         Returns:
             Total count of profiles
         """
         with self.obvector.engine.connect() as conn:
             if user_id:
-                stmt = self.table.select().where(self.table.c.user_id == user_id).with_only_columns(func.count())
+                if fuzzy:
+                    stmt = self.table.select().where(self.table.c.user_id.like(f"%{user_id}%")).with_only_columns(func.count())
+                else:
+                    stmt = self.table.select().where(self.table.c.user_id == user_id).with_only_columns(func.count())
             else:
                 stmt = self.table.select().with_only_columns(func.count())
             

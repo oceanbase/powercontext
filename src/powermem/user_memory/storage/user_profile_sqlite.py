@@ -449,6 +449,7 @@ class SQLiteUserProfileStore(UserProfileStoreBase):
     def get_profile(
             self,
             user_id: Optional[str] = None,
+            fuzzy: bool = False,
             main_topic: Optional[List[str]] = None,
             sub_topic: Optional[List[str]] = None,
             topic_value: Optional[List[str]] = None,
@@ -460,6 +461,7 @@ class SQLiteUserProfileStore(UserProfileStoreBase):
 
         Args:
             user_id: User identifier
+            fuzzy: Whether to use fuzzy matching on user_id
             main_topic: Optional list of main topic names to filter
             sub_topic: Optional list of sub topic names to filter by
             topic_value: Optional list of topic values to filter by exact match
@@ -488,8 +490,12 @@ class SQLiteUserProfileStore(UserProfileStoreBase):
             params = []
 
             if user_id is not None:
-                sql += " WHERE user_id = ?"
-                params.append(user_id)
+                if fuzzy:
+                    sql += " WHERE user_id LIKE ?"
+                    params.append(f"%{user_id}%")
+                else:
+                    sql += " WHERE user_id = ?"
+                    params.append(user_id)
 
             sql += f" ORDER BY {self.primary_field} DESC"
 
@@ -542,12 +548,13 @@ class SQLiteUserProfileStore(UserProfileStoreBase):
                 logger.debug(f"Deleted profile with id: {profile_id}")
             return deleted
 
-    def count_profiles(self, user_id: Optional[str] = None) -> int:
+    def count_profiles(self, user_id: Optional[str] = None, fuzzy: bool = False) -> int:
         """
         Count user profiles with optional user_id filter.
 
         Args:
             user_id: Optional user ID filter
+            fuzzy: Whether to use fuzzy matching on user_id
 
         Returns:
             Total count of profiles
@@ -555,8 +562,12 @@ class SQLiteUserProfileStore(UserProfileStoreBase):
         query = f"SELECT COUNT(*) FROM {self.table_name}"
         params = []
         if user_id:
-            query += " WHERE user_id = ?"
-            params.append(user_id)
+            if fuzzy:
+                query += " WHERE user_id LIKE ?"
+                params.append(f"%{user_id}%")
+            else:
+                query += " WHERE user_id = ?"
+                params.append(user_id)
         
         with self._lock:
             cursor = self.connection.execute(query, params)

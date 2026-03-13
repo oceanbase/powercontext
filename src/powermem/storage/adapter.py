@@ -535,6 +535,7 @@ class StorageAdapter:
                 "user_id": payload.get("user_id"),
                 "agent_id": payload.get("agent_id"),
                 "run_id": payload.get("run_id"),
+                "category": payload.get("category"),
                 "metadata": payload.get("metadata", {}),
                 "created_at": created_at,
                 "updated_at": updated_at,
@@ -567,6 +568,41 @@ class StorageAdapter:
             memories.append(memory)
         
         return memories
+
+    def count_all_memories(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Count all memories with optional filtering."""
+        db_filters: Dict[str, Any] = {}
+        if user_id:
+            db_filters["user_id"] = user_id
+        if agent_id:
+            db_filters["agent_id"] = agent_id
+        if run_id:
+            db_filters["run_id"] = run_id
+        if filters:
+            db_filters.update(filters)
+
+        try:
+            if hasattr(self.vector_store, "count"):
+                try:
+                    return int(self.vector_store.count(filters=db_filters or None))
+                except TypeError:
+                    # Backward compatibility for implementations using positional args.
+                    return int(self.vector_store.count(db_filters or None))
+
+            # Fallback for stores without explicit count(): list and count in memory.
+            results = self.vector_store.list(filters=db_filters or None, limit=None, offset=0)
+            if results and isinstance(results[0], list):
+                return len(results[0])
+            return len(results or [])
+        except Exception as e:
+            logger.error(f"Failed to count memories with filters {db_filters}: {e}", exc_info=True)
+            return 0
     
     def clear_memories(
         self,

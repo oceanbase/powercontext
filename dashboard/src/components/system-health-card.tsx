@@ -103,7 +103,7 @@ export function SystemHealthCard({ status }: SystemHealthCardProps) {
           {t("dashboard.systemHealth.title")}
         </CardTitle>
         <CardDescription>
-          Real-time system status and dependency health
+          {t("dashboard.systemHealth.description")}
         </CardDescription>
       </CardHeader>
       <CardContent>

@@ -214,6 +214,7 @@ async def delete_user_memories(
 async def get_all_user_profiles(
     request: Request,
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    fuzzy: bool = Query(False, description="Use fuzzy match for user ID"),
     limit: int = Query(20, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
     api_key: str = Depends(verify_api_key),
@@ -221,10 +222,10 @@ async def get_all_user_profiles(
 ):
     """Get all user profiles with pagination"""
     # Get total count first
-    total_count = service.count_profiles(user_id=user_id)
+    total_count = service.count_profiles(user_id=user_id, fuzzy=fuzzy)
     
     # Get profiles
-    profiles = service.get_all_profiles(user_id=user_id, limit=limit, offset=offset)
+    profiles = service.get_all_profiles(user_id=user_id, fuzzy=fuzzy, limit=limit, offset=offset)
     
     return APIResponse(
         success=True,

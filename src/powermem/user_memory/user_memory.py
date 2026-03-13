@@ -719,7 +719,14 @@ class UserMemory:
             Returns empty list if no profiles found
         """
 
-        return self.profile_store.get_profile(user_id, main_topic, sub_topic, topic_value, limit, offset)
+        return self.profile_store.get_profile(
+            user_id=user_id,
+            main_topic=main_topic,
+            sub_topic=sub_topic,
+            topic_value=topic_value,
+            limit=limit,
+            offset=offset,
+        )
 
 
     def delete_profile(

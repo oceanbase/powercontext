@@ -2071,8 +2071,8 @@ class OceanBaseVectorStore(VectorStoreBase):
             stmt = select(func.count()).select_from(table)
             
             # Apply WHERE clause
-            if where_clause is not None:
-                stmt = stmt.where(where_clause)
+            if where_clause:
+                stmt = stmt.where(*where_clause)
 
             # Execute query
             with self.obvector.engine.connect() as conn:
@@ -2230,7 +2230,6 @@ class OceanBaseVectorStore(VectorStoreBase):
 
                 from datetime import datetime
 
-                now = datetime.now()
                 for (created_at_str,) in conn.execute(stmt):
                     if not created_at_str:
                         continue
@@ -2238,6 +2237,11 @@ class OceanBaseVectorStore(VectorStoreBase):
                         # Handle potential space in 'YYYY-MM-DD HH:MM:SS'
                         dt_str = created_at_str.replace(" ", "T")
                         created_at = datetime.fromisoformat(dt_str)
+                        now = (
+                            datetime.now(created_at.tzinfo)
+                            if created_at.tzinfo
+                            else datetime.now()
+                        )
                         days_old = (now - created_at).days
                         if days_old < 1:
                             stats["age_distribution"]["< 1 day"] += 1

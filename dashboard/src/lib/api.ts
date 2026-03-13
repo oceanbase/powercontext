@@ -60,6 +60,25 @@ export interface UserProfileListResponse {
   offset: number;
 }
 
+type PaginationLike = {
+  total?: number;
+  total_count?: number;
+  total_memories?: number;
+  count?: number;
+  limit?: number;
+  offset?: number;
+};
+
+const normalizeTotal = <T extends PaginationLike>(data: T, fallback: number): number => {
+  return (
+    data.total ??
+    data.total_count ??
+    data.total_memories ??
+    data.count ??
+    fallback
+  );
+};
+
 export interface ApiResponse<T> {
   success: boolean;
   data: T;
@@ -135,7 +154,21 @@ export const api = {
     offset?: number;
     sort_by?: string;
     order?: string;
-  }) => fetchWithAuth<MemoryList>("/memories", { params }),
+  }) =>
+    fetchWithAuth<
+      MemoryList &
+        PaginationLike & {
+          items?: Memory[];
+        }
+    >("/memories", { params }).then((data) => {
+      const memories = data.memories ?? data.items ?? [];
+      return {
+        memories,
+        total: normalizeTotal(data, memories.length),
+        limit: data.limit ?? params?.limit ?? memories.length,
+        offset: data.offset ?? params?.offset ?? 0,
+      } satisfies MemoryList;
+    }),
 
   deleteMemory: (memoryId: string) =>
     fetchWithAuth<void>(`/memories/${memoryId}`, { method: "DELETE" }),
@@ -152,11 +185,25 @@ export const api = {
   getMemoryQuality: (params?: { user_id?: string; agent_id?: string; time_range?: string }) =>
     fetchWithAuth<MemoryQualityMetrics>("/memories/quality", { params }),
 
-  getAllUserProfiles: (user_id?: string, limit?: number, offset?: number) => {
+  getAllUserProfiles: (user_id?: string, limit?: number, offset?: number, fuzzy?: boolean) => {
     const params: Record<string, any> = {};
     if (user_id) params.user_id = user_id;
     if (limit !== undefined) params.limit = limit;
     if (offset !== undefined) params.offset = offset;
-    return fetchWithAuth<UserProfileListResponse>("/users/profiles", { params });
+    if (fuzzy !== undefined) params.fuzzy = fuzzy;
+    return fetchWithAuth<
+      UserProfileListResponse &
+        PaginationLike & {
+          users?: UserProfile[];
+        }
+    >("/users/profiles", { params }).then((data) => {
+      const profiles = data.profiles ?? data.users ?? [];
+      return {
+        profiles,
+        total: normalizeTotal(data, profiles.length),
+        limit: data.limit ?? limit ?? profiles.length,
+        offset: data.offset ?? offset ?? 0,
+      } satisfies UserProfileListResponse;
+    });
   },
 };

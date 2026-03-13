@@ -34,6 +34,7 @@
     },
     "systemHealth": {
       "title": "系统健康",
+      "description": "实时系统状态与依赖健康情况",
       "status": "状态",
       "version": "版本",
       "uptime": "运行时长",
@@ -127,7 +128,8 @@
       "viewDetails": "查看详情",
       "delete": "删除记忆",
       "copyJson": "复制原始 JSON",
-      "jsonCopied": "JSON 已复制到剪贴板"
+      "jsonCopied": "JSON 已复制到剪贴板",
+      "jsonCopyFailed": "复制失败，请重试"
     },
     "detail": {
       "title": "记忆详情",
@@ -177,8 +179,8 @@
     "filterApplied": "搜索完成",
     "filterCleared": "搜索完成",
     "clearFilter": "清除",
-    "noProfilesEnabled": "未开启用户画像",
-    "noProfiles": "未找到用户画像",
+    "noProfilesEnabled": "结果为空",
+    "noProfiles": "结果为空",
     "columns": {
       "userId": "用户 ID",
       "profileContent": "画像内容",

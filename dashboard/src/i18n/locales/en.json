@@ -34,6 +34,7 @@
     },
     "systemHealth": {
       "title": "System Health",
+      "description": "Real-time system status and dependency health",
       "status": "Status",
       "version": "Version",
       "uptime": "Uptime",
@@ -127,7 +128,8 @@
       "viewDetails": "View Details",
       "delete": "Delete Memory",
       "copyJson": "Copy Raw JSON",
-      "jsonCopied": "JSON copied to clipboard"
+      "jsonCopied": "JSON copied to clipboard",
+      "jsonCopyFailed": "Copy failed, please try again"
     },
     "detail": {
       "title": "Memory Details",
@@ -177,8 +179,8 @@
     "filterApplied": "Filter applied successfully",
     "filterCleared": "Filter applied successfully",
     "clearFilter": "Clear",
-    "noProfilesEnabled": "User profiling is not enabled",
-    "noProfiles": "No user profiles found",
+    "noProfilesEnabled": "No results found",
+    "noProfiles": "No results found",
     "columns": {
       "userId": "User ID",
       "profileContent": "Profile Content",

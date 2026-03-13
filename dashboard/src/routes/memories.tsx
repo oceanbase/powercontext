@@ -50,6 +50,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/memories")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -91,7 +92,7 @@ function MemoriesPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string | number) => api.deleteMemory(id),
+    mutationFn: (id: string) => api.deleteMemory(id),
     onSuccess: () => {
       toast.success(t("memories.toast.deleted"));
       queryClient.invalidateQueries({ queryKey: ["memories"] });
@@ -119,9 +120,13 @@ function MemoriesPage() {
   const handleFilter = async () => {
     setIsFiltering(true);
     try {
-      setSearchTerm(searchInput);
-      setUserIdFilterTerm(userIdInput);
-      setAgentIdFilterTerm(agentIdInput);
+    const normalizedSearch = searchInput.trim();
+    const normalizedUserId = userIdInput.trim();
+    const normalizedAgentId = agentIdInput.trim();
+
+    setSearchTerm(normalizedSearch);
+    setUserIdFilterTerm(normalizedUserId);
+    setAgentIdFilterTerm(normalizedAgentId);
       if (page !== 1) {
         await navigate({
           search: (prev: any) => ({ ...prev, page: 1 }),
@@ -129,12 +134,7 @@ function MemoriesPage() {
       }
       // Give a brief moment for the UI to update
       await new Promise(resolve => setTimeout(resolve, 300));
-      const hasFilters = searchInput.trim() || userIdInput.trim() || agentIdInput.trim();
-      if (hasFilters) {
-        toast.success(t("memories.toast.filterApplied"));
-      } else {
-        toast.success(t("memories.toast.filterCleared"));
-      }
+    toast.success(t("memories.toast.filterApplied"));
     } catch (error) {
       toast.error(t("common.error"), {
         description: t("common.tryAgain"),
@@ -177,6 +177,125 @@ function MemoriesPage() {
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  const copyText = async (text: string) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+
+    if (!copied) {
+      throw new Error("copy_failed");
+    }
+  };
+
+  const getDisplayRunId = (memory: Memory): string | undefined => {
+    if (memory.run_id) {
+      return memory.run_id;
+    }
+
+    const metadata = memory.metadata;
+    if (!metadata || typeof metadata !== "object") {
+      return undefined;
+    }
+
+    const metadataRunId =
+      (metadata as Record<string, unknown>).run_id ??
+      (typeof (metadata as Record<string, unknown>).filters === "object" &&
+      (metadata as Record<string, unknown>).filters !== null
+        ? ((metadata as Record<string, unknown>).filters as Record<string, unknown>).run_id
+        : undefined);
+
+    return typeof metadataRunId === "string" && metadataRunId.trim()
+      ? metadataRunId
+      : undefined;
+  };
+
+  const renderIdText = (
+    value: string | undefined,
+    fallback: string,
+    maxWidthClass: string,
+  ) => {
+    const displayValue = value || fallback;
+    const textNode = (
+      <span
+        className={`block ${maxWidthClass} truncate`}
+        title={value || undefined}
+      >
+        {displayValue}
+      </span>
+    );
+
+    if (!value) {
+      return textNode;
+    }
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{textNode}</TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="start"
+          className="max-w-[420px] break-all font-mono text-xs"
+        >
+          {value}
+        </TooltipContent>
+      </Tooltip>
+    );
+  };
+
+  const renderContentText = (
+    value: string | undefined,
+    fallback: string,
+    maxWidthClass: string,
+  ) => {
+    const rawValue = value?.trim() ? value : undefined;
+    const maxLength = 120;
+    const displayValue = rawValue
+      ? (rawValue.length > maxLength
+        ? `${rawValue.slice(0, maxLength)}...`
+        : rawValue)
+      : fallback;
+
+    const textNode = (
+      <span
+        className={`block ${maxWidthClass} truncate text-sm leading-snug`}
+        title={rawValue || undefined}
+      >
+        {displayValue}
+      </span>
+    );
+
+    if (!rawValue) {
+      return textNode;
+    }
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{textNode}</TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="start"
+          className="max-w-[520px] break-all text-xs"
+        >
+          {rawValue}
+        </TooltipContent>
+      </Tooltip>
+    );
   };
 
   if (error) {
@@ -317,15 +436,13 @@ function MemoriesPage() {
                       onClick={() => setSelectedMemory(memory)}
                     >
                       <TableCell className="text-xs font-mono text-muted-foreground">
-                        {memory.user_id || "-"}
+                        {renderIdText(memory.user_id, "-", "max-w-[110px]")}
                       </TableCell>
                       <TableCell className="text-xs font-mono text-muted-foreground">
-                        {memory.agent_id || "-"}
+                        {renderIdText(memory.agent_id, "-", "max-w-[110px]")}
                       </TableCell>
-                      <TableCell className="max-w-[300px] lg:max-w-[500px]">
-                        <p className="text-sm line-clamp-2 leading-snug">
-                          {memory.content}
-                        </p>
+                      <TableCell className="w-[300px] lg:w-[500px]">
+                        {renderContentText(memory.content, "-", "max-w-[280px] lg:max-w-[480px]")}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         <div className="flex flex-wrap gap-1">
@@ -387,8 +504,13 @@ function MemoriesPage() {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const json = JSON.stringify(memory, null, 2);
-                                navigator.clipboard.writeText(json);
-                                toast.success(t("memories.actions.jsonCopied"));
+                                copyText(json)
+                                  .then(() => {
+                                    toast.success(t("memories.actions.jsonCopied"));
+                                  })
+                                  .catch(() => {
+                                    toast.error(t("memories.actions.jsonCopyFailed"));
+                                  });
                               }}
                             >
                               {t("memories.actions.copyJson")}
@@ -477,7 +599,7 @@ function MemoriesPage() {
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">{t("memories.detail.category")}</p>
                   <Badge variant="secondary">
-                    {selectedMemory.category || "General"}
+                    {selectedMemory.category || "unknown"}
                   </Badge>
                 </div>
                 <div className="space-y-1">
@@ -489,15 +611,26 @@ function MemoriesPage() {
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">{t("memories.detail.userId")}</p>
                   <p className="text-sm font-mono">
-                    {selectedMemory.user_id || t("memories.detail.none")}
+                    {renderIdText(
+                      selectedMemory.user_id,
+                      t("memories.detail.none"),
+                      "max-w-full",
+                    )}
                   </p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">{t("memories.detail.agentId")}</p>
                   <p className="text-sm font-mono">
-                    {selectedMemory.agent_id || t("memories.detail.none")}
+                    {renderIdText(selectedMemory.agent_id, "NULL", "max-w-full")}
                   </p>
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">{t("memories.detail.runId")}</p>
+                <p className="text-sm font-mono">
+                  {getDisplayRunId(selectedMemory) || t("memories.detail.none")}
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -508,13 +641,6 @@ function MemoriesPage() {
                   </pre>
                 </div>
               </div>
-
-              {selectedMemory.run_id && (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">{t("memories.detail.runId")}</p>
-                  <p className="text-sm font-mono">{selectedMemory.run_id}</p>
-                </div>
-              )}
             </div>
           )}
         </SheetContent>
