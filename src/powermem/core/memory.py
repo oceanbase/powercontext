@@ -714,6 +714,15 @@ class Memory(MemoryBase):
             category = enhanced_metadata.get("category", "")
             # Remove category from metadata to avoid duplication
             enhanced_metadata = {k: v for k, v in enhanced_metadata.items() if k != "category"}
+        if memory_type:
+            category = memory_type
+        if scope:
+            if enhanced_metadata is None:
+                enhanced_metadata = {"scope": scope}
+            elif isinstance(enhanced_metadata, dict):
+                enhanced_metadata = {**enhanced_metadata, "scope": scope}
+            else:
+                enhanced_metadata = {"scope": scope}
 
         # Final validation before storage
         if not content or not content.strip():
@@ -911,7 +920,9 @@ class Memory(MemoryBase):
                         run_id=run_id,
                         metadata=metadata,
                         filters=filters,
-                        existing_embeddings=fact_embeddings
+                        existing_embeddings=fact_embeddings,
+                        scope=scope,
+                        memory_type=memory_type,
                     )
                     results.append({
                         "id": memory_id,
@@ -1045,6 +1056,8 @@ class Memory(MemoryBase):
         metadata: Optional[Dict[str, Any]] = None,
         filters: Optional[Dict[str, Any]] = None,
         existing_embeddings: Optional[Dict[str, Any]] = None,
+        scope: Optional[str] = None,
+        memory_type: Optional[str] = None,
     ) -> int:
         """Create a memory with optional embeddings."""
         # Validate content is not empty
@@ -1065,14 +1078,23 @@ class Memory(MemoryBase):
         # enhanced_metadata = self.intelligence.process_metadata(content, metadata)
         enhanced_metadata = metadata  # Use original metadata without LLM evaluation
         
-        # Generate content hash
-        content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
-        
-        # Extract category
+        # Extract category from metadata; prefer explicit memory_type param
         category = ""
         if enhanced_metadata and isinstance(enhanced_metadata, dict):
             category = enhanced_metadata.get("category", "")
             enhanced_metadata = {k: v for k, v in enhanced_metadata.items() if k != "category"}
+        if memory_type:
+            category = memory_type
+        if scope:
+            if enhanced_metadata is None:
+                enhanced_metadata = {"scope": scope}
+            elif isinstance(enhanced_metadata, dict):
+                enhanced_metadata = {**enhanced_metadata, "scope": scope}
+            else:
+                enhanced_metadata = {"scope": scope}
+        
+        # Generate content hash
+        content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
         
         # Use self.agent_id as fallback if agent_id is not provided
         agent_id = agent_id or self.agent_id

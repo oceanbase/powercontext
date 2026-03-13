@@ -366,13 +366,18 @@ class OutputFormatter:
 
         for i, (title, tag) in enumerate(self._CONFIG_SECTIONS):
             config_keys = self._CONFIG_SECTION_KEYS[i] if i < len(self._CONFIG_SECTION_KEYS) else []
+            has_any = False
+            for key in config_keys:
+                if config.get(key) is not None:
+                    has_any = True
+                    break
+            if not has_any:
+                continue  # Only show sections present in config (fixes --section showing others as "(not set)")
             header = f"[{title.upper()}]" if not tag else f"[{title.upper()} ({tag})]"
             lines.append(f"\n{header}")
-            has_any = False
             for key in config_keys:
                 section_config = config.get(key)
                 if section_config is not None:
-                    has_any = True
                     indent = "  "
                     if len(config_keys) > 1:
                         sublabel = key.upper().replace("_", " ")
@@ -382,8 +387,6 @@ class OutputFormatter:
                         format_section_value(section_config, indent)
                     else:
                         lines.append(f"{indent}{section_config}")
-            if not has_any:
-                lines.append("  (not set)")
 
         lines.append("\n" + "=" * 60)
         return "\n".join(lines)

@@ -19,18 +19,20 @@ def mock_dashscope_generation():
 
 
 def test_qwen_llm_base_url():
+    # QwenLLM sets DASHSCOPE_HTTP_BASE_URL (and dashscope.base_http_api_url), not DASHSCOPE_BASE_URL
+    default_url = "https://dashscope.aliyuncs.com/api/v1"
+
     # case1: default config: with default dashscope base url
     config = QwenConfig(model="qwen-turbo", temperature=0.7, max_tokens=100, top_p=1.0, api_key="api_key")
     llm = QwenLLM(config)
-    # Check that the base URL is set correctly
-    assert os.getenv("DASHSCOPE_BASE_URL") == "https://dashscope.aliyuncs.com/api/v1"
+    assert os.getenv("DASHSCOPE_HTTP_BASE_URL") == default_url
 
-    # case2: with env variable DASHSCOPE_BASE_URL
+    # case2: with env variable DASHSCOPE_HTTP_BASE_URL
     provider_base_url = "https://api.provider.com/v1"
-    os.environ["DASHSCOPE_BASE_URL"] = provider_base_url
+    os.environ["DASHSCOPE_HTTP_BASE_URL"] = provider_base_url
     config = QwenConfig(model="qwen-turbo", temperature=0.7, max_tokens=100, top_p=1.0, api_key="api_key")
     llm = QwenLLM(config)
-    assert os.getenv("DASHSCOPE_BASE_URL") == provider_base_url
+    assert os.getenv("DASHSCOPE_HTTP_BASE_URL") == provider_base_url
 
     # case3: with config.dashscope_base_url
     config_base_url = "https://api.config.com/v1"
@@ -38,7 +40,7 @@ def test_qwen_llm_base_url():
         model="qwen-turbo", temperature=0.7, max_tokens=100, top_p=1.0, api_key="api_key", dashscope_base_url=config_base_url
     )
     llm = QwenLLM(config)
-    assert os.getenv("DASHSCOPE_BASE_URL") == config_base_url
+    assert os.getenv("DASHSCOPE_HTTP_BASE_URL") == config_base_url
 
 
 def test_generate_response_without_tools(mock_dashscope_generation):

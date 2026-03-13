@@ -12,6 +12,7 @@ import sys
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from ..main import pass_context, CLIContext, json_option
 from ..utils.output import (
@@ -219,6 +220,34 @@ def show_cmd(ctx: CLIContext, section, show_secrets, json_output):
         sys.exit(1)
 
 
+def _is_valid_url(value: str) -> bool:
+    """Return True if value looks like a valid HTTP/HTTPS URL."""
+    if not value or not isinstance(value, str):
+        return False
+    value = value.strip()
+    try:
+        parsed = urlparse(value)
+        return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
+def _validate_base_urls_in_config(
+    inner_config: Dict[str, Any], section_label: str, errors: List[str]
+) -> None:
+    """Append errors for any base_url-like key that has an invalid URL value."""
+    for key, value in inner_config.items():
+        if "base_url" not in key.lower():
+            continue
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        if not isinstance(value, str):
+            errors.append(f"{section_label}: invalid {key} (must be a string)")
+            continue
+        if not _is_valid_url(value):
+            errors.append(f"{section_label}: invalid URL in {key}: {value!r}")
+
+
 def _validate_loaded_config(config: Dict[str, Any], strict: bool) -> Dict[str, Any]:
     errors = []
     warnings = []
@@ -241,6 +270,7 @@ def _validate_loaded_config(config: Dict[str, Any], strict: bool) -> Dict[str, A
                 (errors if strict else warnings).append(
                     f"LLM API key not configured for provider: {provider}"
                 )
+        _validate_base_urls_in_config(inner_config, "LLM", errors)
 
     embedder_config = config.get("embedder", {})
     if embedder_config:
@@ -256,6 +286,7 @@ def _validate_loaded_config(config: Dict[str, Any], strict: bool) -> Dict[str, A
                 (errors if strict else warnings).append(
                     f"Embedder API key not configured for provider: {provider}"
                 )
+        _validate_base_urls_in_config(inner_config, "Embedder", errors)
 
     vector_store_config = config.get("vector_store", {})
     if vector_store_config:
@@ -308,6 +339,49 @@ def _load_config_with_env_file(env_file: Optional[str]) -> Dict[str, Any]:
     return auto_config()
 
 
+def _run_connectivity_checks(config: Dict[str, Any]) -> List[str]:
+    """
+    Run LLM and embedder connectivity checks with the given config.
+    Returns a list of error messages (empty if all checks pass).
+    """
+    errors: List[str] = []
+    try:
+        from powermem import create_memory
+
+        memory = create_memory(config=config)
+    except Exception as e:
+        errors.append(f"Failed to create Memory with config: {e}")
+        return errors
+
+    llm_provider = (config.get("llm") or {}).get("provider", "")
+    if llm_provider and llm_provider not in ("mock", "ollama"):
+        try:
+            if hasattr(memory, "llm") and memory.llm:
+                messages = [{"role": "user", "content": "Say 'test' and nothing else."}]
+                if hasattr(memory.llm, "generate_response"):
+                    memory.llm.generate_response(messages=messages)
+                else:
+                    memory.llm.generate(messages=messages)
+            else:
+                errors.append("LLM is not configured or not available for connectivity check.")
+        except Exception as e:
+            errors.append(f"LLM connectivity failed (check BASE_URL, API_KEY, and MODEL): {e}")
+
+    embedder_provider = (config.get("embedder") or {}).get("provider", "")
+    if embedder_provider and embedder_provider not in ("mock", "ollama", "huggingface"):
+        try:
+            if hasattr(memory, "embedding") and memory.embedding:
+                emb = memory.embedding.embed("test")
+                if not emb:
+                    errors.append("Embedder returned empty result.")
+            else:
+                errors.append("Embedder is not configured or not available for connectivity check.")
+        except Exception as e:
+            errors.append(f"Embedder connectivity failed (check BASE_URL and API_KEY): {e}")
+
+    return errors
+
+
 @click.command(name="validate")
 @click.option(
     "--env-file", "-f",
@@ -315,23 +389,38 @@ def _load_config_with_env_file(env_file: Optional[str]) -> Dict[str, Any]:
     help="Path to .env file to validate"
 )
 @click.option("--strict", is_flag=True, help="Enable strict validation mode")
+@click.option(
+    "--check-connectivity",
+    is_flag=True,
+    help="Also verify LLM and embedder connectivity (API_KEY, BASE_URL, model)"
+)
 @json_option
 @pass_context
-def validate_cmd(ctx: CLIContext, env_file, strict, json_output):
+def validate_cmd(ctx: CLIContext, env_file, strict, json_output, check_connectivity):
     """
     Validate configuration file.
+    
+    Use --check-connectivity to verify that LLM and embedder API_KEY, BASE_URL,
+    and model settings are valid by making a test request.
     
     \b
     Examples:
         pmem config validate
         pmem config validate --env-file .env.production
         pmem config validate --strict
+        pmem config validate --check-connectivity
     """
     ctx.json_output = ctx.json_output or json_output
     try:
         print_info("Validating configuration...")
         config = _load_config_with_env_file(env_file or ctx.env_file)
         result = _validate_loaded_config(config, strict=strict)
+
+        if result["valid"] and check_connectivity:
+            print_info("Running connectivity checks (LLM, embedder)...")
+            connectivity_errors = _run_connectivity_checks(config)
+            result["errors"].extend(connectivity_errors)
+            result["valid"] = len(result["errors"]) == 0
 
         if ctx.json_output:
             click.echo(format_output(result, "generic", json_output=True))

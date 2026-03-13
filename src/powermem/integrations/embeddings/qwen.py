@@ -32,14 +32,19 @@ class QwenEmbedding(EmbeddingBase):
             raise ValueError(
                 "API key is required. Set DASHSCOPE_API_KEY environment variable or pass api_key in config.")
 
-        # Set base URL (if needed)
+        # Set base URL. DashScope SDK reads DASHSCOPE_HTTP_BASE_URL (see dashscope/common/env.py)
+        # and uses dashscope.base_http_api_url at request time; set both so config takes effect.
         base_url = (
             getattr(self.config, "dashscope_base_url", None)
+            or os.getenv("QWEN_EMBEDDING_BASE_URL")
+            or os.getenv("DASHSCOPE_HTTP_BASE_URL")
             or os.getenv("DASHSCOPE_BASE_URL")
             or "https://dashscope.aliyuncs.com/api/v1"
         )
         if base_url:
-            os.environ["DASHSCOPE_BASE_URL"] = base_url
+            os.environ["DASHSCOPE_HTTP_BASE_URL"] = base_url
+            import dashscope as _dashscope
+            _dashscope.base_http_api_url = base_url
 
     def embed(self, text: str, memory_action: Optional[Literal["add", "search", "update"]] = None):
         """
@@ -81,6 +86,16 @@ class QwenEmbedding(EmbeddingBase):
 
             # Add embedding type (always set, either from config or default)
             params["text_type"] = embedding_type
+
+            # Apply base URL before each request (SDK uses dashscope.base_http_api_url at call time)
+            _base = (
+                getattr(self.config, "dashscope_base_url", None)
+                or os.getenv("QWEN_EMBEDDING_BASE_URL")
+                or os.getenv("DASHSCOPE_HTTP_BASE_URL")
+                or "https://dashscope.aliyuncs.com/api/v1"
+            )
+            import dashscope as _ds
+            _ds.base_http_api_url = _base
 
             # Call the API (pass api_key per-call to avoid global dashscope.api_key pollution)
             response = TextEmbedding.call(api_key=self.api_key, **params)
