@@ -169,4 +169,3 @@ class QwenASR(LLMBase):
         ]
 
         return self.generate_response(messages, asr_options=asr_options or getattr(self.config, "asr_options", None))
-
