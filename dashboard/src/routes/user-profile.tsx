@@ -31,6 +31,7 @@ export const Route = createFileRoute("/user-profile")({
 
 function UserProfilePage() {
   const { t } = useTranslation();
+  const nullDisplay = "NULL";
   const [userIdInput, setUserIdInput] = useState("");
   const [userIdFilter, setUserIdFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -112,9 +113,9 @@ function UserProfilePage() {
   };
 
   const formatTopics = (topics: Record<string, any> | undefined) => {
-    if (!topics) return t("userProfile.detail.none");
+    if (!topics) return nullDisplay;
     const topicKeys = Object.keys(topics);
-    if (topicKeys.length === 0) return t("userProfile.detail.none");
+    if (topicKeys.length === 0) return nullDisplay;
     return topicKeys.slice(0, 3).join(", ") + (topicKeys.length > 3 ? "..." : "");
   };
 
@@ -196,7 +197,7 @@ function UserProfilePage() {
                       <TableCell className="max-w-md">
                         {renderTruncatedWithTooltip(
                           profile.profile_content,
-                          t("userProfile.detail.none"),
+                          nullDisplay,
                           "max-w-[420px]",
                         )}
                       </TableCell>
@@ -272,18 +273,20 @@ function UserProfilePage() {
               <div className="space-y-2">
                 <h4 className="text-sm font-semibold">{t("userProfile.detail.content")}</h4>
                 <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                  {selectedProfile.profile_content || t("userProfile.detail.none")}
+                  {selectedProfile.profile_content || nullDisplay}
                 </p>
               </div>
 
-              {selectedProfile.topics && Object.keys(selectedProfile.topics).length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold">{t("userProfile.detail.topics")}</h4>
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold">{t("userProfile.detail.topics")}</h4>
+                {selectedProfile.topics && Object.keys(selectedProfile.topics).length > 0 ? (
                   <pre className="text-sm text-muted-foreground bg-muted p-3 rounded-md overflow-auto">
                     {JSON.stringify(selectedProfile.topics, null, 2)}
                   </pre>
-                </div>
-              )}
+                ) : (
+                  <p className="text-sm text-muted-foreground">{nullDisplay}</p>
+                )}
+              </div>
 
               <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                 <div className="space-y-1">
