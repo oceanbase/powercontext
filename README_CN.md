@@ -5,6 +5,14 @@
 </p>
 
 <p align="center">
+
+*PowerMem 与 [OpenClaw](https://github.com/openclaw-ai/openclaw) 集成：为 AI 智能体提供智能记忆。**OpenClaw PowerMem 记忆插件**：[查看插件](https://github.com/ob-labs/openclaw-extension-powermem)*
+
+<img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem 与 OpenClaw" width="900"/>
+
+</p>
+
+<p align="center">
     <a href="https://pepy.tech/project/powermem">
         <img src="https://img.shields.io/pypi/dm/powermem" alt="PowerMem PyPI - Downloads">
     </a>
