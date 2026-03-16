@@ -216,7 +216,7 @@ async def get_memory_stats(
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
     time_range: Optional[str] = Query(
         None,
-        regex="^(7d|30d|90d|all)$",
+        pattern="^(7d|30d|90d|all)$",
         description="Time range filter: 7d, 30d, 90d, or all"
     ),
     api_key: str = Depends(verify_api_key),
@@ -255,7 +255,7 @@ async def get_memory_quality(
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
     time_range: Optional[str] = Query(
         None,
-        regex="^(7d|30d|90d|all)$",
+        pattern="^(7d|30d|90d|all)$",
         description="Time range filter: 7d, 30d, 90d, or all"
     ),
     api_key: str = Depends(verify_api_key),
