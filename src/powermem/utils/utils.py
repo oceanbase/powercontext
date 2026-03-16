@@ -374,6 +374,27 @@ def parse_timestamp(timestamp_str: str) -> Optional[datetime]:
         logger.error(f"Failed to parse timestamp: {timestamp_str}")
         return None
 
+
+def parse_created_at(value: Any) -> Optional[datetime]:
+    """
+    Parse created_at from storage (string or datetime) for stats/age calculation.
+    Handles ISO with Z, space-separated datetime, and datetime objects from DB drivers.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        # Support "Z" and "YYYY-MM-DD HH:MM:SS" formats
+        normalized = s.replace("Z", "+00:00").replace(" ", "T", 1)
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
 def extract_json(text):
     """
     Extracts JSON content from a string, removing enclosing triple backticks and optional 'json' tag if present.

@@ -380,182 +380,30 @@ class MemoryService:
             )
 
     def get_statistics(
-        self, 
-        user_id: Optional[str] = None, 
+        self,
+        user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
-        cutoff_date: Optional[datetime] = None
+        cutoff_date: Optional[datetime] = None,
     ) -> Dict[str, Any]:
-        """Get memory statistics with optional time filtering"""
-        # Get base statistics from Memory
-        stats = self.memory.get_statistics(user_id=user_id, agent_id=agent_id)
+        """Get memory statistics with optional time filtering (same logic as CLI via shared stats)."""
+        from powermem.utils.stats import _parse_datetime_for_stats, calculate_stats_from_memories
 
-        # Load memories once, then reuse the same importance calculation path
         all_memories = self.memory.get_all(
             user_id=user_id,
             agent_id=agent_id,
-            limit=10000
+            limit=10000,
         ).get("results", [])
 
-        # If cutoff_date is provided, recalculate all stats from filtered memories.
-        # Otherwise keep store-level stats and only normalize avg_importance formula.
-        if cutoff_date:
-            filtered_memories = [
+        if cutoff_date is not None:
+            filtered = [
                 m for m in all_memories
-                if self._parse_datetime(m.get("created_at")) >= cutoff_date
+                if (parsed := _parse_datetime_for_stats(m.get("created_at"))) is not None
+                and parsed >= cutoff_date
             ]
-            stats = self._calculate_stats_from_memories(filtered_memories)
-        else:
-            stats["avg_importance"] = self._calculate_avg_importance(all_memories)
+            return calculate_stats_from_memories(filtered)
 
+        stats = calculate_stats_from_memories(all_memories)
         return stats
-    
-    def _parse_datetime(self, date_str: Optional[str]) -> datetime:
-        """Parse datetime string to datetime object"""
-        if not date_str:
-            return datetime.min
-        try:
-            # Try ISO format with timezone
-            from dateutil import parser
-            return parser.parse(date_str)
-        except:
-            return datetime.min
-    
-    def _calculate_stats_from_memories(self, memories: List[Dict]) -> Dict[str, Any]:
-        """Calculate statistics from a list of memories"""
-        from collections import defaultdict
-        from datetime import datetime, timedelta, timezone
-        
-        total_memories = len(memories)
-        if total_memories == 0:
-            return {
-                "total_memories": 0,
-                "by_type": {},
-                "avg_importance": 0.0,
-                "top_accessed": [],
-                "growth_trend": {},
-                "age_distribution": {
-                    "< 1 day": 0,
-                    "1-7 days": 0,
-                    "7-30 days": 0,
-                    "> 30 days": 0,
-                },
-            }
-        
-        # Calculate statistics
-        by_type = defaultdict(int)
-        total_importance = 0.0
-        importance_count = 0
-        access_counts = []
-        growth_by_date = defaultdict(int)
-        age_distribution = {
-            "< 1 day": 0,
-            "1-7 days": 0,
-            "7-30 days": 0,
-            "> 30 days": 0,
-        }
-        
-        now = datetime.now(timezone.utc)
-        
-        for m in memories:
-            # Type distribution
-            metadata = m.get("metadata") if isinstance(m.get("metadata"), dict) else {}
-            mem_type = (
-                m.get("category")
-                or metadata.get("category")
-                or "unknown"
-            )
-            by_type[mem_type] += 1
-            
-            # Importance
-            importance = self._extract_importance(m)
-            if importance is not None and importance > 0:
-                total_importance += importance
-                importance_count += 1
-            
-            # Access count
-            raw_access_count = m.get("access_count")
-            if raw_access_count is None:
-                raw_access_count = metadata.get("access_count", 0)
-            try:
-                access_count = int(raw_access_count)
-            except (TypeError, ValueError):
-                access_count = 0
-
-            # Keep entries even when access_count is 0 to align with store-level statistics.
-            access_counts.append({
-                "id": m.get("id") or m.get("memory_id"),
-                "content": (m.get("memory") or m.get("content") or "")[:100],
-                "access_count": access_count,
-            })
-            
-            # Growth trend by date
-            created_at = m.get("created_at")
-            if created_at:
-                date_obj = self._parse_datetime(created_at)
-                date_key = date_obj.strftime("%Y-%m-%d")
-                growth_by_date[date_key] += 1
-                
-                # Age distribution
-                age = (now - date_obj).days
-                if age < 1:
-                    age_distribution["< 1 day"] += 1
-                elif age < 7:
-                    age_distribution["1-7 days"] += 1
-                elif age < 30:
-                    age_distribution["7-30 days"] += 1
-                else:
-                    age_distribution["> 30 days"] += 1
-        
-        # Sort and limit top accessed
-        access_counts.sort(key=lambda x: x["access_count"], reverse=True)
-        top_accessed = access_counts[:10]
-        
-        return {
-            "total_memories": total_memories,
-            "by_type": dict(by_type),
-            "avg_importance": round(total_importance / importance_count, 2) if importance_count > 0 else 0.0,
-            "top_accessed": top_accessed,
-            "growth_trend": dict(growth_by_date),
-            "age_distribution": age_distribution,
-        }
-
-    def _extract_importance(self, memory: Dict[str, Any]) -> Optional[float]:
-        """Extract importance from memory and return None when missing/invalid."""
-        metadata = memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}
-        intelligence = metadata.get("intelligence") if isinstance(metadata.get("intelligence"), dict) else {}
-
-        # Prefer intelligence.importance_score first when available.
-        # Fallback to other historical locations for compatibility.
-        candidates = (
-            intelligence.get("importance_score"),
-            metadata.get("importance"),
-            metadata.get("importance_score"),
-            memory.get("importance"),
-            memory.get("importance_score"),
-        )
-
-        for value in candidates:
-            if value is None or value == "":
-                continue
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                continue
-        return None
-
-    def _calculate_avg_importance(self, memories: List[Dict]) -> float:
-        """Calculate avg importance using only non-missing values."""
-        total_importance = 0.0
-        importance_count = 0
-
-        for memory in memories:
-            importance = self._extract_importance(memory)
-            if importance is None or importance <= 0:
-                continue
-            total_importance += importance
-            importance_count += 1
-
-        return round(total_importance / importance_count, 2) if importance_count > 0 else 0.0
 
     def get_users(self) -> List[str]:
         """Get a list of unique user IDs"""
@@ -841,6 +689,8 @@ class MemoryService:
                 - quality_criteria: Distribution of quality issues
         """
         try:
+            from powermem.utils.stats import _extract_importance, _parse_datetime_for_stats
+
             # Get all memories (without pagination limit for analysis)
             result = self.memory.get_all(
                 user_id=user_id,
@@ -851,11 +701,12 @@ class MemoryService:
             
             memories_list = result.get("results", [])
             
-            # Filter by cutoff_date if provided
+            # Filter by cutoff_date if provided (same parsing as stats)
             if cutoff_date:
                 memories_list = [
                     m for m in memories_list
-                    if self._parse_datetime(m.get("created_at")) >= cutoff_date
+                    if (parsed := _parse_datetime_for_stats(m.get("created_at"))) is not None
+                    and parsed >= cutoff_date
                 ]
             
             total_memories = len(memories_list)
@@ -895,7 +746,7 @@ class MemoryService:
                     low_quality_memories.add(memory_id)
                 
                 # Check for low importance using the same extraction rule as stats.
-                importance = self._extract_importance(memory)
+                importance = _extract_importance(memory)
                 if importance is not None and importance < 0.3:
                     quality_issues["low_importance"] += 1
                     low_quality_memories.add(memory_id)

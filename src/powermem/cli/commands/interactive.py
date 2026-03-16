@@ -485,6 +485,7 @@ Examples:
             stats = self.ctx.memory.get_statistics(
                 user_id=self._get_user_id(options),
                 agent_id=self._get_agent_id(options),
+                time_range="all",
             )
             
             click.echo()

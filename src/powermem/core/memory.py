@@ -11,7 +11,7 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 from powermem.utils.utils import get_current_datetime
 from copy import deepcopy
 
@@ -1684,18 +1684,53 @@ class Memory(MemoryBase):
             raise ValueError(f"Unknown optimization strategy: {strategy}")
 
     def get_statistics(
-        self, user_id: Optional[str] = None, agent_id: Optional[str] = None
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        time_range: Optional[str] = None,
+        cutoff_date: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """
         Get statistics for the memories.
 
+        When time_range or cutoff_date is set, uses the same path as the API/Dashboard:
+        get_all() + filter by date + shared calculate_stats_from_memories(). This ensures
+        CLI (pmem stats) and Dashboard show identical results.
+
         Args:
             user_id: Optional user ID to filter by
             agent_id: Optional agent ID to filter by
+            time_range: Optional "7d", "30d", "90d", or "all" to filter by creation time
+            cutoff_date: Optional datetime (UTC); if set, only memories with created_at >= this are counted
 
         Returns:
             Dict[str, Any]: Statistics including total count, type distribution, etc.
         """
+        # Same path as Dashboard: get_all + shared stats calculation
+        if time_range is not None or cutoff_date is not None:
+            from datetime import timezone
+
+            from powermem.utils.stats import _parse_datetime_for_stats, calculate_stats_from_memories
+
+            if cutoff_date is None and time_range and time_range != "all":
+                try:
+                    days = int(time_range.rstrip("d"))
+                    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+                except (ValueError, AttributeError):
+                    pass
+            all_memories = self.get_all(
+                user_id=user_id,
+                agent_id=agent_id or self.agent_id,
+                limit=10000,
+            ).get("results", [])
+            if cutoff_date is not None:
+                all_memories = [
+                    m for m in all_memories
+                    if (parsed := _parse_datetime_for_stats(m.get("created_at"))) is not None
+                    and parsed >= cutoff_date
+                ]
+            return calculate_stats_from_memories(all_memories)
+
         filters = {}
         if user_id:
             filters["user_id"] = user_id
@@ -1717,6 +1752,12 @@ class Memory(MemoryBase):
                     "avg_importance": 0.0,
                     "top_accessed": [],
                     "growth_trend": {},
+                    "age_distribution": {
+                        "< 1 day": 0,
+                        "1-7 days": 0,
+                        "7-30 days": 0,
+                        "> 30 days": 0,
+                    },
                 }
         except Exception as e:
             logger.error(f"Failed to get statistics: {e}")
