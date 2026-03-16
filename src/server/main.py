@@ -5,7 +5,7 @@ Main FastAPI application for PowerMem API Server
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from slowapi.errors import RateLimitExceeded
@@ -53,9 +53,13 @@ app.add_middleware(LoggingMiddleware)
 rate_limit_middleware(app)
 
 
-# Mount Dashboard
+# Mount Dashboard (redirect /dashboard -> /dashboard/ so index.html is served)
 dashboard_dist = os.path.abspath(os.path.join(BASE_DIR, "dashboard"))
 if os.path.exists(dashboard_dist):
+    @app.get("/dashboard", include_in_schema=False)
+    async def dashboard_redirect():
+        return RedirectResponse(url="/dashboard/", status_code=302)
+
     app.mount(
         "/dashboard", StaticFiles(directory=dashboard_dist, html=True), name="dashboard"
     )

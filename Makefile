@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check publish-pypi publish-testpypi install-build-tools upload docs bump-version server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
+.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check build-dashboard publish-pypi publish-testpypi install-build-tools upload docs bump-version server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
 
 help: ## Show help information
 	@echo "powermem Project Build Tools"
@@ -108,6 +108,19 @@ build-check: build-package ## Check the built package
 	@echo "Checking built package..."
 	python -m twine check dist/*
 	@echo "Package check passed!"
+
+build-dashboard: ## Build dashboard frontend and inject into src/server/dashboard (for local dev; then use make server-start-reload)
+	@echo "Building dashboard..."
+	@if command -v pnpm >/dev/null 2>&1; then \
+		cd dashboard && pnpm install && pnpm build; \
+	else \
+		echo "Using npm (install pnpm for faster installs: npm install -g pnpm)"; \
+		cd dashboard && npm install && npm run build; \
+	fi
+	@echo "Injecting dashboard into src/server/dashboard..."
+	@mkdir -p src/server/dashboard
+	@cp -r dashboard/dist/* src/server/dashboard/
+	@echo "✓ Dashboard built. Start server with: make server-start-reload (then open http://localhost:$(SERVER_PORT)/dashboard/)"
 
 install-build-tools: ## Install build and upload tools
 	@echo "Installing build tools..."
@@ -314,17 +327,14 @@ server-logs-last: ## Show last 50 lines of server logs
 	fi
 	@tail -n 50 server.log
 
-server-dashboard-start: ## Deploy dashboard assets and restart server
-	@echo "[1/5] Stopping service..."
-	@$(MAKE) server-stop
-	@echo "[2/5] Installing and building dashboard..."
-	@cd dashboard && pnpm install && pnpm build
-	@echo "[3/5] Syncing frontend artifacts to backend static directory..."
-	@mkdir -p src/server/dashboard
-	@cp -r dashboard/dist/* src/server/dashboard/
-	@echo "[4/5] Starting service..."
+server-dashboard-start: ## Build dashboard, then start server (stops existing server first)
+	@echo "[1/3] Stopping service (if running)..."
+	@$(MAKE) -s server-stop 2>/dev/null || true
+	@echo "[2/3] Building dashboard..."
+	@$(MAKE) build-dashboard
+	@echo "[3/3] Starting server..."
 	@$(MAKE) server-start
-	@echo "[5/5] Done."
+	@echo "✓ Dashboard at http://$(SERVER_HOST):$(SERVER_PORT)/dashboard/"
 
 # Docker commands
 DOCKER_IMAGE := oceanbase/powermem-server

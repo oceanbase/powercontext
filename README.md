@@ -119,20 +119,19 @@ pmem shell
 
 For full CLI reference and examples, see the [CLI Usage Guide](docs/guides/0012-cli_usage.md).
 
-### 🌐 HTTP API Server
+### 🌐 HTTP API Server & Dashboard
 
-PowerMem also provides a production-ready HTTP API server that exposes all core memory management capabilities through RESTful APIs. This enables any application that supports HTTP calls to integrate PowerMem's intelligent memory system, regardless of programming language.
+PowerMem provides a production-ready HTTP API server that exposes all core memory management capabilities through RESTful APIs. It also serves a **Dashboard** (at `/dashboard/`) as the web admin UI.
 
 **Relationship with SDK**: The API server uses the same PowerMem SDK under the hood and shares the same configuration (`.env` file). It provides an HTTP interface to the same memory management features available in the Python SDK, making PowerMem accessible to non-Python applications.
 
-**Starting the API Server**:
+**Starting the API Server (with Dashboard)**:
 
 ```bash
 # Method 1: Using CLI command (after pip install)
 powermem-server --host 0.0.0.0 --port 8000
 
-# Method 2: Using Docker
-# run with Docker
+# Method 2: Using Docker (API server + dashboard in one container)
 docker run -d \
   --name powermem-server \
   -p 8000:8000 \
@@ -142,11 +141,11 @@ docker run -d \
 
 # Or use Docker Compose (recommended)
 docker-compose -f docker/docker-compose.yml up -d
-
 ```
 
-Once started, the API server provides:
+Once started, the same server provides:
 - RESTful API endpoints for all memory operations
+- **Dashboard** at `http://localhost:8000/dashboard/`
 - Interactive API documentation at `http://localhost:8000/docs`
 - API Key authentication and rate limiting support
 - Same configuration as SDK (via `.env` file)

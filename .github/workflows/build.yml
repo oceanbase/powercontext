@@ -20,8 +20,37 @@ on:
           - '3.12'
 
 jobs:
+  build-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Build Dashboard
+        run: |
+          cd dashboard
+          pnpm install
+          pnpm build
+
+      - name: Upload dashboard dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist
+          path: dashboard/dist/
+
   build:
     runs-on: ubuntu-latest
+    needs: build-dashboard
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
@@ -30,6 +59,17 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Download dashboard artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dashboard-dist
+          path: dashboard-dist
+
+      - name: Inject Dashboard into package
+        run: |
+          mkdir -p src/server/dashboard
+          cp -r dashboard-dist/* src/server/dashboard/
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4

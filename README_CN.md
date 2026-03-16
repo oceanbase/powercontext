@@ -120,20 +120,19 @@ pmem shell
 
 完整 CLI 参考与示例请参阅 [CLI 使用指南](docs/guides/0012-cli_usage.md)。
 
-### 🌐 HTTP API Server
+### 🌐 HTTP API Server 与 Dashboard
 
-PowerMem 还提供了生产就绪的 HTTP API Server，通过 RESTful API 暴露所有核心记忆管理功能。这使得任何支持 HTTP 调用的应用程序都能集成 PowerMem 的智能记忆系统，无论使用何种编程语言。
+PowerMem 提供生产就绪的 HTTP API Server，通过 RESTful API 暴露所有核心记忆管理功能。同时提供 **Dashboard**（路径 `/dashboard/`）的 Web 管理界面。
 
-**与 SDK 的关系**：API Server底层使用相同的 PowerMem SDK，并共享相同的配置（`.env` 文件）。它提供了与 Python SDK 相同的记忆管理功能的 HTTP 接口，使 PowerMem 可供非 Python 应用程序使用。
+**与 SDK 的关系**：API Server 底层使用相同的 PowerMem SDK，并共享相同的配置（`.env` 文件）。它提供了与 Python SDK 相同的记忆管理功能的 HTTP 接口，使 PowerMem 可供非 Python 应用程序使用。
 
-**启动 API Server**：
+**启动 API Server（含 Dashboard）**：
 
 ```bash
 # 方法 1：使用 CLI 命令（pip 安装后）
 powermem-server --host 0.0.0.0 --port 8000
 
-# 方法 2：使用 Docker
-# 运行 Docker 容器
+# 方法 2：使用 Docker（API Server + Dashboard 同一容器）
 docker run -d \
   --name powermem-server \
   -p 8000:8000 \
@@ -143,11 +142,11 @@ docker run -d \
 
 # 或使用 Docker Compose（推荐）
 docker-compose -f docker/docker-compose.yml up -d
-
 ```
 
-启动后，API Server提供：
+启动后，同一服务提供：
 - 所有记忆操作的 RESTful API 端点
+- **Dashboard**：访问 `http://localhost:8000/dashboard/`
 - 交互式 API 文档，访问 `http://localhost:8000/docs`
 - API Key 认证和限流支持
 - 与 SDK 相同的配置（通过 `.env` 文件）

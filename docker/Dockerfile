@@ -113,5 +113,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Use entrypoint script
 ENTRYPOINT ["docker-entrypoint.sh"]
 
-# Default command
-CMD ["powermem-server"]
+# Default command: API server + PMem Dashboard on port 8000
+CMD ["powermem-server", "--host", "0.0.0.0", "--port", "8000"]
