@@ -179,27 +179,123 @@ function MemoriesPage() {
     }
   };
 
-  const copyText = async (text: string) => {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
+  const fallbackCopyText = (text: string): boolean => {
+    // First fallback: use `copy` event with explicit clipboardData payload.
+    // This is often more reliable than copying from selected textarea alone.
+    let eventCopied = false;
+    const handleCopy = (event: ClipboardEvent) => {
+      event.preventDefault();
+      if (event.clipboardData) {
+        event.clipboardData.setData("text/plain", text);
+        eventCopied = true;
+      }
+    };
+
+    document.addEventListener("copy", handleCopy);
+    try {
+      const copyTriggered = document.execCommand("copy");
+      if (copyTriggered && eventCopied) {
+        return true;
+      }
+    } finally {
+      document.removeEventListener("copy", handleCopy);
     }
 
+    // Second fallback: selected textarea + execCommand.
     const textarea = document.createElement("textarea");
     textarea.value = text;
-    textarea.setAttribute("readonly", "");
     textarea.style.position = "fixed";
-    textarea.style.top = "-9999px";
-    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    textarea.style.left = "0";
+    textarea.style.width = "1px";
+    textarea.style.height = "1px";
+    textarea.style.opacity = "0";
+    textarea.setAttribute("aria-hidden", "true");
+
+    const selection = document.getSelection();
+    const previousRange =
+      selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    const activeElement = document.activeElement as HTMLElement | null;
+
     document.body.appendChild(textarea);
     textarea.focus();
     textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
 
-    const copied = document.execCommand("copy");
-    document.body.removeChild(textarea);
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } finally {
+      document.body.removeChild(textarea);
+
+      if (activeElement?.focus) {
+        activeElement.focus();
+      }
+
+      if (selection && previousRange) {
+        selection.removeAllRanges();
+        selection.addRange(previousRange);
+      }
+    }
+
+    return copied;
+  };
+
+  const copyText = async (text: string) => {
+    let copied = false;
+    let clipboardError: unknown;
+    let permissionDenied = false;
+    let usedClipboardApi = false;
+
+    if (navigator.permissions?.query) {
+      try {
+        const permission = await navigator.permissions.query({
+          name: "clipboard-write" as PermissionName,
+        });
+        if (permission.state === "denied") {
+          permissionDenied = true;
+          clipboardError = new Error("clipboard_permission_denied");
+        }
+      } catch (err) {
+        // Ignore unsupported browser behavior from Permissions API.
+      }
+    }
+
+    if (!permissionDenied && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+        usedClipboardApi = true;
+      } catch (err) {
+        clipboardError = err;
+      }
+    }
 
     if (!copied) {
-      throw new Error("copy_failed");
+      copied = fallbackCopyText(text);
+    }
+
+    if (!copied) {
+      throw (clipboardError instanceof Error
+        ? clipboardError
+        : new Error("copy_failed"));
+    }
+
+    if (usedClipboardApi && navigator.clipboard?.readText) {
+      try {
+        const copiedText = await navigator.clipboard.readText();
+        if (copiedText !== text) {
+          throw new Error("copy_verification_failed");
+        }
+      } catch (err) {
+        // Read-back may be blocked by browser policy even when write succeeds.
+        if (
+          !(err instanceof DOMException) ||
+          (err.name !== "NotAllowedError" && err.name !== "SecurityError")
+        ) {
+          throw err;
+        }
+      }
     }
   };
 
@@ -501,15 +597,21 @@ function MemoriesPage() {
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
-                              onClick={(e) => {
+                              onSelect={(e) => {
+                                e.preventDefault();
                                 e.stopPropagation();
                                 const json = JSON.stringify(memory, null, 2);
                                 copyText(json)
                                   .then(() => {
                                     toast.success(t("memories.actions.jsonCopied"));
                                   })
-                                  .catch(() => {
+                                  .catch((err) => {
+                                    console.error("Copy JSON failed:", err);
                                     toast.error(t("memories.actions.jsonCopyFailed"));
+                                    window.prompt(
+                                      "Clipboard unavailable. Please copy manually (Ctrl/Cmd + C).",
+                                      json,
+                                    );
                                   });
                               }}
                             >
