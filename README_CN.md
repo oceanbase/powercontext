@@ -6,7 +6,9 @@
 
 <p align="center">
 
-*PowerMem 与 [OpenClaw](https://github.com/openclaw-ai/openclaw) 集成：为 AI 智能体提供智能记忆。**OpenClaw PowerMem 记忆插件**：[查看插件](https://github.com/ob-labs/openclaw-extension-powermem)*
+*PowerMem 与 [OpenClaw](https://github.com/openclaw-ai/openclaw) 集成：为 AI 智能体提供智能记忆。**OpenClaw PowerMem 记忆插件**：[查看插件](https://github.com/ob-labs/memory-powermem)*
+
+一行命令即可为 OpenClaw 接入 PowerMem 记忆：`openclaw plugins install memory-powermem`。
 
 <img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem 与 OpenClaw" width="900"/>
 
@@ -217,7 +219,7 @@ uvx powermem-mcp streamable-http 8001
 MCP Server提供记忆管理工具，包括添加、搜索、更新和删除记忆。完整的 MCP 文档和使用示例，请参阅 [MCP Server文档](docs/api/0004-mcp.md)。
 
 ## 🔗 集成与演示
-- 🔗 **openclaw 外挂记忆插件**：在 [openclaw](https://github.com/openclaw/openclaw) 中通过插件方式使用 PowerMem 长期记忆，支持智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。[查看插件](https://github.com/ob-labs/openclaw-extension-powermem)
+- 🔗 **openclaw 外挂记忆插件**：在 [openclaw](https://github.com/openclaw/openclaw) 中通过插件方式使用 PowerMem 长期记忆，支持智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。[查看插件](https://github.com/ob-labs/memory-powermem)
 - 🔗 **LangChain 集成**：基于 LangChain + PowerMem + OceanBase 构建医疗支持机器人，[查看示例](examples/langchain/README.md)
 - 🔗 **LangGraph 集成**：基于 LangGraph + PowerMem + OceanBase 构建客户服务机器人，[查看示例](examples/langgraph/README.md)
 

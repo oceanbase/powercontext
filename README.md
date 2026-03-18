@@ -6,7 +6,9 @@
 
 <p align="center">
 
-*PowerMem integrated with [OpenClaw](https://github.com/openclaw-ai/openclaw): intelligent memory for AI agents. **OpenClaw PowerMem Plugin**: [View Plugin](https://github.com/ob-labs/openclaw-extension-powermem)*
+*PowerMem integrated with [OpenClaw](https://github.com/openclaw-ai/openclaw): intelligent memory for AI agents. **OpenClaw PowerMem Plugin**: [View Plugin](https://github.com/ob-labs/memory-powermem)*
+
+One command to add PowerMem memory to OpenClaw: `openclaw plugins install memory-powermem`.
 
 <img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem with OpenClaw" width="900"/>
 
@@ -216,7 +218,7 @@ Add the following configuration to your Claude Desktop config file:
 The MCP server provides tools for memory management including adding, searching, updating, and deleting memories. For complete MCP documentation and usage examples, see the [MCP Server Documentation](docs/api/0004-mcp.md).
 
 ## 🔗 Integrations & Demos
-- 🔗 **openclaw Memory Plugin**: Use PowerMem as long-term memory in [openclaw](https://github.com/openclaw/openclaw) via extraction, Ebbinghaus forgetting curve, multi-agent isolation. [View Plugin](https://github.com/ob-labs/openclaw-extension-powermem)
+- 🔗 **openclaw Memory Plugin**: Use PowerMem as long-term memory in [openclaw](https://github.com/openclaw/openclaw) via extraction, Ebbinghaus forgetting curve, multi-agent isolation. [View Plugin](https://github.com/ob-labs/memory-powermem)
 - 🔗 **LangChain Integration**: Build medical support chatbot using LangChain + PowerMem + OceanBase, [View Example](examples/langchain/README.md)
 - 🔗 **LangGraph Integration**: Build customer service chatbot using LangGraph + PowerMem + OceanBase, [View Example](examples/langgraph/README.md)
 

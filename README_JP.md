@@ -6,7 +6,9 @@
 
 <p align="center">
 
-*PowerMem と [OpenClaw](https://github.com/openclaw-ai/openclaw) の連携：AI エージェント向けインテリジェントメモリ。**OpenClaw PowerMem メモリプラグイン**：[プラグインを見る](https://github.com/ob-labs/openclaw-extension-powermem)*
+*PowerMem と [OpenClaw](https://github.com/openclaw-ai/openclaw) の連携：AI エージェント向けインテリジェントメモリ。**OpenClaw PowerMem メモリプラグイン**：[プラグインを見る](https://github.com/ob-labs/memory-powermem)*
+
+1 コマンドで OpenClaw に PowerMem メモリを追加：`openclaw plugins install memory-powermem`。
 
 <img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem と OpenClaw" width="900"/>
 
@@ -216,7 +218,7 @@ Claude Desktop 設定ファイルに次の設定を追加します：
 MCP サーバーは、メモリの追加、検索、更新、削除を含むメモリ管理ツールを提供します。完全な MCP ドキュメントと使用例については、[MCP サーバードキュメント](docs/api/0004-mcp.md) を参照してください。
 
 ## 🔗 統合とデモ
-- 🔗 **openclaw メモリプラグイン**: [openclaw](https://github.com/openclaw/openclaw) で HTTP API により PowerMem を長期メモリとして利用。インテリジェント抽出、エビングハウス忘却曲線、マルチエージェント分離に対応。[プラグインを参照](https://github.com/ob-labs/openclaw-extension-powermem)
+- 🔗 **openclaw メモリプラグイン**: [openclaw](https://github.com/openclaw/openclaw) で HTTP API により PowerMem を長期メモリとして利用。インテリジェント抽出、エビングハウス忘却曲線、マルチエージェント分離に対応。[プラグインを参照](https://github.com/ob-labs/memory-powermem)
 - 🔗 **LangChain 統合**: LangChain + PowerMem + OceanBase を使用して医療サポートロボットを構築、[例を参照](examples/langchain/README.md)
 - 🔗 **LangGraph 統合**: LangGraph + PowerMem + OceanBase を使用してカスタマーサービスロボットを構築、[例を参照](examples/langgraph/README.md)
 
