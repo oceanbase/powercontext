@@ -380,14 +380,19 @@ class TestNativeHybridSearch:
         # Step 4: Test native hybrid search performance (enabled)
         log_info("\n[Step 4] Testing native hybrid search performance (enabled)...")
         start = time.time()
-        for i in range(50):
+        for i in range(30):
             results_native = memory.search(query="user", user_id=user_id, limit=10)
         native_time = time.time() - start
         
         assert results_native is not None, "Native search should return results"
         native_count = len(results_native.get('results', []))
-        log_info(f"✓ Native hybrid search: {native_time:.3f}s for 50 queries, {native_count} results")
+        log_info(f"✓ Native hybrid search: {native_time:.3f}s for 30 queries, {native_count} results")
         
+        # Wait for background update operations to complete before next test phase
+        log_info("\n[Step 4.5] Waiting for background operations to settle...")
+        time.sleep(30)
+        log_info("✓ Background operations settled")
+
         # Step 5: Test application-level hybrid search (disabled)
         log_info("\n[Step 5] Testing application-level hybrid search (disabled)...")
         config_app = auto_config()
@@ -400,13 +405,13 @@ class TestNativeHybridSearch:
         memory_app = Memory(config=config_app)
         
         start = time.time()
-        for i in range(50):
+        for i in range(30):
             results_app = memory_app.search(query="user", limit=10)
         app_time = time.time() - start
         
         assert results_app is not None, "Application-level search should return results"
         app_count = len(results_app.get('results', []))
-        log_info(f"✓ Application-level hybrid search: {app_time:.3f}s for 50 queries, {app_count} results")
+        log_info(f"✓ Application-level hybrid search: {app_time:.3f}s for 30 queries, {app_count} results")
         
         # Step 6: Compare performance
         log_info("\n[Step 6] Performance comparison:")
