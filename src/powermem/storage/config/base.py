@@ -45,7 +45,6 @@ class BaseVectorStoreConfig(BaseSettings):
     def __init_subclass__(cls, **kwargs) -> None:
         """Called when a class inherits from BaseVectorStoreConfig."""
         super().__init_subclass__(**kwargs)
-        cls._register_provider()
     
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs) -> None:
@@ -236,7 +235,6 @@ class BaseGraphStoreConfig(BaseVectorStoreConfig):
     def __init_subclass__(cls, **kwargs) -> None:
         """Called when a class inherits from BaseGraphStoreConfig."""
         super().__init_subclass__(**kwargs)
-        cls._register_provider()
     
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs) -> None:

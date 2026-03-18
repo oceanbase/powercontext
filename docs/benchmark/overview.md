@@ -27,9 +27,9 @@ The PowerMem Benchmark suite consists of two main components:
 # Install dependencies
 pip install -e .
 
-# Configure environment
-cp benchmark/server/.env.example benchmark/server/.env
-# Edit benchmark/server/.env with your settings
+# Configure environment (use project root .env)
+cp .env.example .env
+# Edit .env at project root with your settings
 
 # Start the server
 uvicorn benchmark.server.main:app --host 0.0.0.0 --port 8000 --reload
@@ -56,8 +56,8 @@ bash run.sh results
 
 - Python 3.10 or higher
 - pip or poetry for dependency management
-- Access to OpenAI API (or compatible API endpoint)
-- Database: OceanBase or PostgreSQL (depending on your configuration)
+- LLM and embedding API keys (OpenAI, Qwen, etc. — see root `.env.example`)
+- Database: OceanBase, PostgreSQL, or SQLite (depending on your configuration)
 
 ### Installation
 
@@ -70,43 +70,41 @@ bash run.sh results
 
    Or install specific dependencies:
    ```bash
-   pip install fastapi uvicorn python-dotenv powermem
+   pip install fastapi uvicorn powermem
    ```
 
 2. **Configure environment variables**
 
-   Copy the example environment file:
+   Copy the example environment file at project root:
    ```bash
-   cp benchmark/server/.env.example benchmark/server/.env
+   cp .env.example .env
    ```
 
-   Edit `benchmark/server/.env` and configure:
-   - `OPENAI_API_KEY`: Your OpenAI API key (required)
-   - `EMBEDDER_API_KEY`: Optional, separate API key for embeddings (defaults to `OPENAI_API_KEY`)
-   - Database configuration (OceanBase or PostgreSQL)
-   - Other settings as needed
+   Edit `.env` at project root and configure:
+   - `LLM_API_KEY` and `EMBEDDING_API_KEY` (required)
+   - `DATABASE_PROVIDER` and database connection settings (OceanBase, PostgreSQL, or SQLite)
+   - Other options as in the root `.env.example`
 
-   See `benchmark/server/.env.example` for all available configuration options.
+   See the root `.env.example` for all available configuration options.
 
 ### Configuration
 
-All configuration is done through environment variables. The server automatically loads a `.env` file from the `benchmark/server/` directory.
+All configuration is done through environment variables. The server loads the `.env` file from the project root (same as the main PowerMem app).
 
 #### Required Environment Variables
 
-- `OPENAI_API_KEY`: Your OpenAI API key
+- `LLM_API_KEY`: Your LLM API key (or set `OPENAI_API_KEY` for OpenAI)
+- `EMBEDDING_API_KEY`: Your embedding API key (or set `OPENAI_API_KEY` for OpenAI)
 
 #### Optional Environment Variables
 
-- `EMBEDDER_API_KEY`: Separate API key for embeddings (defaults to `OPENAI_API_KEY`)
-- `DB_TYPE`: Database type - `oceanbase` or `postgres` (default: `oceanbase`)
-- `TOKEN_COUNTING`: Enable token counting - `true` or `false` (default: `true`)
-- `LLM_MODEL`: LLM model name (default: `gpt-4o`)
-- `LLM_TEMPERATURE`: LLM temperature (default: `0.2`)
-- `EMBEDDER_MODEL`: Embedding model name (default: `text-embedding-3-small`)
-- `EMBEDDER_DIMS`: Embedding dimensions (default: `1536`)
+All options are the same as the main PowerMem app. See the root `.env.example` for the full list. Examples:
 
-For database-specific configuration, see `benchmark/server/.env.example`.
+- `DATABASE_PROVIDER`: `oceanbase`, `postgres`, or `sqlite` (default: `sqlite`)
+- `LLM_PROVIDER` / `LLM_MODEL` / `LLM_TEMPERATURE`: LLM settings
+- `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` / `EMBEDDING_DIMS`: Embedding settings
+
+Token counting is **always enabled** on the benchmark server (no env to disable it).
 
 ### Starting the Server
 
@@ -337,10 +335,10 @@ The benchmark evaluates performance using multiple metrics:
 
 ### Server Issues
 
-#### "OPENAI_API_KEY environment variable is required"
-- **Solution**: Create a `.env` file in `benchmark/server/` directory
-- Verify that `OPENAI_API_KEY` is set in the `.env` file
-- Check that the file is being loaded (server logs will show the path)
+#### "OPENAI_API_KEY environment variable is required" (or missing LLM/embedding keys)
+- **Solution**: Create or edit the `.env` file at **project root** (same as PowerMem)
+- Verify that `LLM_API_KEY` and `EMBEDDING_API_KEY` (or `OPENAI_API_KEY`) are set in the project root `.env`
+- Ensure you have configured the root `.env` before starting the server
 
 #### Database connection errors
 - **Solution**: 

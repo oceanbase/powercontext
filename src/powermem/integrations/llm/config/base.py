@@ -100,7 +100,6 @@ class BaseLLMConfig(BaseSettings):
     def __init_subclass__(cls, **kwargs) -> None:
         """Called when a class inherits from BaseLLMConfig."""
         super().__init_subclass__(**kwargs)
-        cls._register_provider()
 
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs) -> None:
