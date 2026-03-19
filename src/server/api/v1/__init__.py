@@ -12,9 +12,10 @@ from .system import router as system_router
 # Create main v1 router
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
-# Include sub-routers
-router.include_router(memories_router)
+# Include sub-routers: search before memories so GET /memories/search
+# is matched by the search route, not by GET /memories/{memory_id}
 router.include_router(search_router)
+router.include_router(memories_router)
 router.include_router(users_router)
 router.include_router(agents_router)
 router.include_router(system_router)
