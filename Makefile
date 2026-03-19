@@ -180,10 +180,10 @@ bump-version: ## Bump version number (usage: make bump-version VERSION=0.2.0)
 	@sed -i 's/^version = ".*"/version = "$(VERSION)"/' pyproject.toml
 	@# Update src/powermem/version.py
 	@sed -i 's/^__version__ = ".*"/__version__ = "$(VERSION)"/' src/powermem/version.py
-	@# Update src/powermem/core/telemetry.py (all occurrences)
-	@sed -i 's/"version": "0\.[0-9]\+\.[0-9]\+"/"version": "$(VERSION)"/g' src/powermem/core/telemetry.py
-	@# Update src/powermem/core/audit.py
-	@sed -i 's/"version": "0\.[0-9]\+\.[0-9]\+"/"version": "$(VERSION)"/g' src/powermem/core/audit.py
+	@# Update src/powermem/core/telemetry.py (all occurrences; match any x.y.z)
+	@sed -i 's/"version": "[0-9]\+\.[0-9]\+\.[0-9]\+"/"version": "$(VERSION)"/g' src/powermem/core/telemetry.py
+	@# Update src/powermem/core/audit.py (match any x.y.z)
+	@sed -i 's/"version": "[0-9]\+\.[0-9]\+\.[0-9]\+"/"version": "$(VERSION)"/g' src/powermem/core/audit.py
 	@echo "✓ Version updated to $(VERSION) in all files (excluding examples/)"
 	@echo ""
 	@echo "Updated files:"
