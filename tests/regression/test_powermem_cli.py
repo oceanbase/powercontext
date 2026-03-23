@@ -118,7 +118,7 @@ class CLIRunner:
     
     def pmem(self, args: str, timeout: int = 60, input_text: str = None) -> Tuple[int, str, str]:
         """Execute pmem command"""
-        cmd = f"pmem -e {self.env_file} {args}"
+        cmd = f"pmem -f {self.env_file} {args}"
         return self.run_command(cmd, timeout, input_text)
 
 

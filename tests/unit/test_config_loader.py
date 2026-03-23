@@ -1,3 +1,5 @@
+import os
+
 import powermem.config_loader as config_loader
 import powermem.settings as settings
 
@@ -186,3 +188,25 @@ def test_load_config_from_env_embedding_common_override(monkeypatch):
 
     assert config["embedder"]["provider"] == "azure_openai"
     assert config["embedder"]["config"]["api_key"] == "common-key"
+
+
+def test_load_dotenv_uses_powermem_env_file(monkeypatch, tmp_path):
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None, raising=False)
+    env_path = tmp_path / "powermem.env"
+    env_path.write_text("DASHSCOPE_API_KEY=key-from-cli-env-file\n", encoding="utf-8")
+    monkeypatch.setenv("POWERMEM_ENV_FILE", str(env_path))
+    config_loader._load_dotenv_if_available()
+    assert os.environ.get("DASHSCOPE_API_KEY") == "key-from-cli-env-file"
+
+
+def test_load_dotenv_powermem_env_file_wins_over_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    default = tmp_path / ".env"
+    default.write_text("DASHSCOPE_API_KEY=from-default\n", encoding="utf-8")
+    custom = tmp_path / "custom.env"
+    custom.write_text("DASHSCOPE_API_KEY=from-custom\n", encoding="utf-8")
+    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", str(default), raising=False)
+    monkeypatch.setenv("POWERMEM_ENV_FILE", str(custom))
+    config_loader._load_dotenv_if_available()
+    assert os.environ.get("DASHSCOPE_API_KEY") == "from-custom"

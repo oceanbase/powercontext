@@ -5,8 +5,9 @@ This module provides utilities for loading configuration from environment variab
 or other sources. It simplifies the configuration setup process.
 """
 
-from typing import Any, Dict, Optional
+import os
 import warnings
+from typing import Any, Dict, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings
@@ -19,13 +20,26 @@ from powermem.settings import _DEFAULT_ENV_FILE, settings_config
 
 
 def _load_dotenv_if_available() -> None:
-    if not _DEFAULT_ENV_FILE:
-        return
+    """
+    Load env files into os.environ before BaseSettings / Memory read configuration.
+
+    When the CLI passes ``--env-file``, it sets ``POWERMEM_ENV_FILE``; that path
+    must be loaded here. Otherwise only the auto-detected project ``.env`` is used
+    and custom paths are silently ignored.
+    """
     try:
         from dotenv import load_dotenv
     except Exception:
         return
-    load_dotenv(_DEFAULT_ENV_FILE, override=False)
+
+    cli_env = os.environ.get("POWERMEM_ENV_FILE")
+    if cli_env:
+        path = os.path.expanduser(os.path.expandvars(cli_env.strip()))
+        if path and os.path.isfile(path):
+            load_dotenv(path, override=False)
+
+    if _DEFAULT_ENV_FILE:
+        load_dotenv(_DEFAULT_ENV_FILE, override=False)
 
 
 class _BasePowermemSettings(BaseSettings):

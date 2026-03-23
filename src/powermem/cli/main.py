@@ -87,9 +87,12 @@ _COMPLETION_SUBCOMMANDS = {
 
 @click.group(invoke_without_command=True)
 @click.option(
-    "--env-file", "-e",
+    "--env-file", "-f",
     type=click.Path(exists=True),
-    help="Path to .env configuration file"
+    help=(
+        "Load settings from this .env file. Must be placed before the "
+        "subcommand; applies to memory, config, stats, manage, and shell."
+    ),
 )
 @click.option(
     "--json", "-j", "json_output",
@@ -120,6 +123,14 @@ def cli(ctx, env_file, json_output, verbose, install_completion):
         pmem memory search "preferences" --user-id user123
         pmem stats --json
         pmem config show
+    
+    \b
+    Choosing a .env file (global -f / --env-file):
+        Put the option before the subcommand so all commands use that file,
+        e.g. pmem -f .env.production memory list. For "memory search", -f
+        after the subcommand is --filters (JSON), not the env file—use
+        pmem -f path/to/.env memory search "query" or the long form
+        --env-file before "memory".
     
     \b
     Shell Completion:

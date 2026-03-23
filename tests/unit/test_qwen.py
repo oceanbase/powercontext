@@ -318,17 +318,17 @@ def test_response_format_parameter(mock_dashscope_generation):
     assert call_args["response_format"] == response_format
 
 
-def test_missing_api_key():
-    # Test without API key
+def test_missing_api_key(monkeypatch):
+    # QwenConfig reads api_key from LLM_API_KEY / QWEN_API_KEY / DASHSCOPE_API_KEY;
+    # clear all so CI or local shells do not accidentally satisfy the key.
+    for key in ("DASHSCOPE_API_KEY", "LLM_API_KEY", "QWEN_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+
     config = QwenConfig(model="qwen-turbo")
-    
-    # Clear environment variable
-    if "DASHSCOPE_API_KEY" in os.environ:
-        del os.environ["DASHSCOPE_API_KEY"]
-    
+
     with pytest.raises(ValueError) as exc_info:
         QwenLLM(config)
-    
+
     assert "API key is required" in str(exc_info.value)
 
 

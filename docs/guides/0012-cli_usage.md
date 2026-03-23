@@ -38,21 +38,33 @@ If no subcommand is given, the CLI prints "Missing command." and shows the main 
 
 ## Global Options
 
-These options can be used before any subcommand (and some are also available per-subcommand where noted).
+These options belong to the root command. **`--env-file` / `-f` and `--verbose` / `-v` must appear before the subcommand name** (standard Click group options). **`--json` / `-j` is also accepted on many subcommands** after the subcommand—see each command’s help.
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--env-file PATH` | `-e` | Path to a `.env` configuration file. Overrides the default (e.g. `./.env`). |
+| `--env-file PATH` | `-f` | Path to a `.env` configuration file. Overrides the default (e.g. `./.env`). |
 | `--json` | `-j` | Output results in JSON format. |
 | `--verbose` | `-v` | Enable verbose output (e.g. stack traces on errors). |
 | `--install-completion SHELL` | — | Install shell completion for `bash`, `zsh`, `fish`, or `powershell`. |
 | `--version` | — | Show CLI version. |
 | `--help` | `-h` | Show help. |
 
+### Global env file placement
+
+Options **`--env-file` / `-f`** at the root:
+
+- **Placement:** Always **before** the subcommand, e.g. `pmem -f ./.env.staging memory list`, not `pmem memory list -f ./.env` (the latter is invalid for the global option).
+- **Scope:** The same file is used for **`memory`**, **`config`**, **`stats`**, **`manage`**, and **`shell`** for that invocation (same behavior as setting `POWERMEM_ENV_FILE`).
+- **`config validate` and `config init`** also accept `--env-file` / `-f` **on the subcommand**:
+  - **validate:** file to validate (if omitted, falls back to the global `--env-file`, then the default discovered `.env`).
+  - **init:** target file to write (if omitted, falls back to the global `--env-file`, then the default path).
+- **`memory search`:** After `search`, **`-f` means `--filters`** (JSON filters), not the env file. To point at a `.env` for that run, use **`pmem -f path/to/.env memory search "…"`** or **`pmem --env-file path/to/.env memory search "…"`**.
+
 **Examples:**
 
 ```bash
-pmem -e .env.production memory list
+pmem -f .env.production memory list
+pmem --env-file .env.production config show
 pmem --json stats
 pmem -v memory add "User prefers dark mode" --user-id user123
 pmem --install-completion bash
@@ -74,7 +86,7 @@ pmem --install-completion bash
 
 ## Memory Commands
 
-All memory commands run under the `memory` group and use the same backend as the Python SDK (same config and storage).
+All memory commands run under the `memory` group and use the same backend as the Python SDK (same config and storage). To use a non-default `.env`, pass **global** `--env-file` / `-f` **before** `memory` (see [Global env file placement](#global-env-file-placement)).
 
 ### `pmem memory add CONTENT`
 
@@ -127,12 +139,15 @@ Search memories by semantic similarity to the given query.
 | `--filters JSON` | `-f` | Additional filters as JSON. |
 | `--json` | `-j` | Output in JSON. |
 
+**Note:** On this subcommand, **`-f` is `--filters`**, not the global env file. To use a specific `.env`, run `pmem -f /path/.env memory search "…"` (global option before `memory`).
+
 **Examples:**
 
 ```bash
 pmem memory search "user preferences" --user-id user123
 pmem memory search "dark mode" -l 5 -j
 pmem memory search "123" -t 0.3
+pmem -f .env.production memory search "preferences" --user-id user123
 ```
 
 ---
@@ -266,7 +281,7 @@ pmem memory delete-all --run-id session1 --confirm
 
 ## Configuration Commands
 
-Configuration commands use the same `.env`-based setup as the SDK. Use `--env-file` to point to a specific file.
+Configuration commands use the same `.env`-based setup as the SDK. Use **global** `--env-file` / `-f` **before** `config` for any subcommand, or the subcommand’s own `--env-file` / `-f` on **`config validate`** and **`config init`** (see [Global env file placement](#global-env-file-placement)).
 
 ### `pmem config show`
 
@@ -286,6 +301,7 @@ Display current configuration (from the chosen `.env` file). Sensitive values (e
 pmem config show
 pmem config show --section llm
 pmem config show -j
+pmem -f .env.production config show
 ```
 
 ---
@@ -556,7 +572,7 @@ Bash/Zsh scripts are written under `~/.config/powermem/` and, if you confirm, a 
 
 ## Summary
 
-- Use **`pmem`** (or **`powermem-cli`**) with **global options** (`-e`, `-j`, `-v`) and **subcommands** for memory, config, stats, manage, and shell.
+- Use **`pmem`** (or **`powermem-cli`**) with **global options** placed **before** the subcommand: **`-f` / `--env-file`** (applies to all command groups for that run), **`-j` / `--json`**, **`-v` / `--verbose`**, plus **memory**, **config**, **stats**, **manage**, and **shell** as subcommands.
 - **Memory operations**: `memory add/search/get/update/delete/list/delete-all` with filters and JSON output.
 - **Configuration**: `config show/validate/test/init` for inspecting, validating, testing, and interactively creating `.env`.
 - **Statistics**: `stats` with optional user/agent filters and `--detailed`.
