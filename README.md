@@ -32,11 +32,13 @@
 
 # PowerMem — Intelligent Memory for AI Applications
 
-**PowerMem** is long-term memory infrastructure for AI apps: **hybrid vector + full-text + graph** retrieval, **Ebbinghaus-style forgetting**, and **LLM-driven memory extraction**, with **multi-agent isolation/sharing**, **user profiles**, and **multimodal** inputs (text, image, audio). The same feature set is available via **Python SDK**, **CLI (`pmem`)**, **HTTP API Server (with Dashboard)**, and **MCP Server**, all sharing **one `.env` configuration**.
+PowerMem is a persistent memory layer for AI applications. It combines vector, full-text, and graph retrieval with LLM-driven memory extraction and time decay (Ebbinghaus-style forgetting), multi-agent isolation and collaboration, user profiles, and multimodal signals (text, image, audio).
+
+Python SDK, CLI (`pmem`), HTTP API Server (with Dashboard), and MCP Server share one `.env` configuration. See [.env.example](.env.example) and the [configuration guide](docs/guides/0003-configuration.md).
 
 > **News:** [OpenClaw](https://github.com/openclaw-ai/openclaw) can use PowerMem as long-term memory via [`memory-powermem`](https://github.com/ob-labs/memory-powermem) (`openclaw plugins install memory-powermem`).
 
-## Why PowerMem
+## Benchmark (LOCOMO)
 
 <div align="center">
 
@@ -44,51 +46,33 @@
 
 </div>
 
-On the [LOCOMO](https://github.com/snap-research/locomo) benchmark vs. stuffing full conversation context:
+Compared to stuffing full conversation context on [LOCOMO](https://github.com/snap-research/locomo):
 
-- **More accurate**: ~**48.77%** relative accuracy gain (78.70% vs. 52.9%)
-- **Lower latency**: retrieval **p95** ~**1.44s** vs. **17.12s** (~**91.83%** faster)
-- **Fewer tokens**: ~**0.9k** vs. **26k** (~**96.53%** reduction) without sacrificing the above
+| Dimension | Result |
+|-----------|--------|
+| Accuracy | 78.70% vs. 52.9% |
+| Retrieval p95 latency | 1.44s vs. 17.12s |
+| Tokens | ~0.9k vs. ~26k |
 
-## Core Features
+## Capabilities
 
-### Developer-friendly
+**Interfaces and tooling** — [Python integration](docs/examples/scenario_1_basic_usage.md); [CLI](docs/guides/0012-cli_usage.md) (`pmem`); [HTTP API / Dashboard](docs/api/0005-api_server.md); [MCP](docs/api/0004-mcp.md).
 
-- **[Lightweight integration](docs/examples/scenario_1_basic_usage.md)**: Python SDK with `.env` auto-loading; also [CLI](docs/guides/0012-cli_usage.md) (`pmem`), [MCP Server](docs/api/0004-mcp.md), and [HTTP API Server](docs/api/0005-api_server.md)
+**Memory pipeline and retrieval** — [Smart extraction and updates](docs/examples/scenario_2_intelligent_memory.md); [Ebbinghaus-style decay](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md); [Hybrid retrieval (vector / full-text / graph)](docs/examples/scenario_2_intelligent_memory.md); [Sub stores and routing](docs/examples/scenario_6_sub_stores.md).
 
-### Intelligent memory management
+**Profiles and multi-agent** — [User profile](docs/examples/scenario_9_user_memory.md); [Shared / isolated memory and scopes](docs/examples/scenario_3_multi_agent.md).
 
-- **[Smart extraction](docs/examples/scenario_2_intelligent_memory.md)**: LLM-based fact extraction, deduplication, conflict resolution, and merging
-- **[Ebbinghaus forgetting curve](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**: time- and relevance-aware decay; prioritize recent, useful memories
+**Multimodal** — [Text, image, audio](docs/examples/scenario_7_multimodal.md).
 
-### User profiles
+## Quick start
 
-- **[User profile](docs/examples/scenario_9_user_memory.md)**: profiles from history and behavior—personalization, companions, and similar use cases
-
-### Multi-agent
-
-- **[Shared / isolated memory](docs/examples/scenario_3_multi_agent.md)**: per-agent spaces, cross-agent collaboration, scope-based permissions
-
-### Multimodal
-
-- **[Text, image, audio](docs/examples/scenario_7_multimodal.md)**: media summarized to text for storage and mixed retrieval
-
-### Storage & retrieval
-
-- **[Sub stores](docs/examples/scenario_6_sub_stores.md)**: partitioning and automatic routing for very large corpora
-- **[Hybrid retrieval](docs/examples/scenario_2_intelligent_memory.md)**: vector + full-text + graph (multi-hop), with LLM-assisted graph construction
-
-## Quick Start
-
-Below: **Install** → **Python SDK** → **CLI (`pmem`)** → **HTTP API & Dashboard** → **MCP**. Options: [.env.example](.env.example) and the [configuration guide](docs/guides/0003-configuration.md).
-
-### Install
+### 1. Install
 
 ```bash
 pip install powermem
 ```
 
-### Basic usage (SDK)
+### 2. SDK example
 
 ```python
 from powermem import Memory, auto_config
@@ -99,102 +83,36 @@ memory = Memory(config=config)
 memory.add("User likes coffee", user_id="user123")
 
 results = memory.search("user preferences", user_id="user123")
-for result in results.get('results', []):
+for result in results.get("results", []):
     print(f"- {result.get('memory')}")
 ```
 
 More patterns: [Getting Started](docs/guides/0001-getting_started.md).
 
-### PowerMem CLI (1.0.0+)
+### 3. Other entry points
 
-`pmem` covers memory CRUD, config, backup/restore, and an interactive shell.
+| Mode | Typical commands | Docs |
+|------|------------------|------|
+| CLI | `pmem memory add` / `pmem memory search`; `pmem shell` | [CLI usage](docs/guides/0012-cli_usage.md) |
+| HTTP + Dashboard | `powermem-server --host 0.0.0.0 --port 8000`; image `oceanbase/powermem-server:latest`; `docker-compose -f docker/docker-compose.yml` | [API Server](docs/api/0005-api_server.md) |
+| MCP | `uvx powermem-mcp sse` (also stdio / streamable-http); requires `powermem` and `uv` | [MCP Server](docs/api/0004-mcp.md) |
 
-```bash
-pmem memory add "User prefers dark mode" --user-id user123
-pmem memory search "preferences" --user-id user123
+## Documentation and examples
 
-pmem config show
-pmem config init
-pmem stats --json
-
-pmem shell
-```
-
-Full reference: [CLI usage](docs/guides/0012-cli_usage.md).
-
-### HTTP API Server & Dashboard
-
-Uses the **same** PowerMem SDK and `.env` as your code. Exposes REST, a **`/dashboard/`** UI, and **`/docs`** (OpenAPI).
-
-```bash
-powermem-server --host 0.0.0.0 --port 8000
-```
-
-Docker & Compose:
-
-```bash
-docker run -d \
-  --name powermem-server \
-  -p 8000:8000 \
-  -v $(pwd)/.env:/app/.env:ro \
-  --env-file .env \
-  oceanbase/powermem-server:latest
-
-docker-compose -f docker/docker-compose.yml up -d
-```
-
-Details: [API Server](docs/api/0005-api_server.md).
-
-### MCP Server
-
-Same SDK and `.env`; exposes memory tools to MCP clients (e.g. Claude Desktop).
-
-```bash
-pip install powermem
-# Install uv / uvx: https://docs.astral.sh/uv/getting-started/
-
-uvx powermem-mcp sse
-uvx powermem-mcp sse 8001
-uvx powermem-mcp stdio
-uvx powermem-mcp streamable-http
-uvx powermem-mcp streamable-http 8001
-```
-
-Example Claude Desktop config (SSE):
-
-```json
-{
-  "mcpServers": {
-    "powermem": {
-      "url": "http://localhost:8000/mcp"
-    }
-  }
-}
-```
-
-Details: [MCP Server](docs/api/0004-mcp.md).
-
-## Ecosystem & integrations
-
-### Examples
-
-- **LangChain**: [medical support chatbot](examples/langchain/README.md)
-- **LangGraph**: [customer service bot](examples/langgraph/README.md)
-
-## Documentation
-
-| Topic | Link |
-|------|------|
+| Resource | Link |
+|----------|------|
 | Getting started | [Guide](docs/guides/0001-getting_started.md) |
-| CLI | [CLI usage](docs/guides/0012-cli_usage.md) |
 | Configuration | [Configuration](docs/guides/0003-configuration.md) |
+| CLI | [CLI usage](docs/guides/0012-cli_usage.md) |
 | Multi-agent | [Multi-Agent](docs/guides/0005-multi_agent.md) |
 | Integrations | [Integrations](docs/guides/0009-integrations.md) |
 | Sub stores | [Sub stores](docs/guides/0006-sub_stores.md) |
 | API | [API overview](docs/api/overview.md) |
 | Architecture | [Architecture](docs/architecture/overview.md) |
-| Examples | [Examples](docs/examples/overview.md) |
+| Scenarios | [Examples](docs/examples/overview.md) |
 | Development | [Development](docs/development/overview.md) |
+| Example: LangChain | [Medical support chatbot](examples/langchain/README.md) |
+| Example: LangGraph | [Customer service bot](examples/langgraph/README.md) |
 
 ## Release highlights
 

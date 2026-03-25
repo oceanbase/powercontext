@@ -33,11 +33,13 @@
 
 # PowerMem — 智能 AI 记忆系统
 
-**PowerMem** 是面向 AI 应用的长期记忆基础设施：混合 **向量 / 全文 / 图** 检索，结合 **艾宾浩斯遗忘曲线** 与 **LLM 记忆抽取**，支持 **多智能体隔离与协作**、**用户画像** 与 **多模态**（文本、图像、音频）。同一套能力可通过 **Python SDK**、**CLI（`pmem`）**、**HTTP API Server（含 Dashboard）** 与 **MCP Server** 接入，配置统一（`.env`）。
+PowerMem 面向 AI 应用提供持久化记忆层：融合向量、全文与图检索，支持由 LLM 驱动的记忆抽取与时间衰减（艾宾浩斯曲线）、多智能体隔离与协作、用户画像以及文本/图像/音频等多模态线索。
+
+使用 Python SDK、CLI（`pmem`）、HTTP API Server（含 Dashboard）或 MCP Server 时，共用同一套 `.env` 配置；完整选项见 [.env.example](.env.example) 与 [配置指南](docs/guides/0003-configuration.md)。
 
 > **动态：** [OpenClaw](https://github.com/openclaw-ai/openclaw) 可通过插件 [memory-powermem](https://github.com/ob-labs/memory-powermem) 使用 PowerMem 作为长期记忆（`openclaw plugins install memory-powermem`）。
 
-## 为什么选择 PowerMem
+## 基准表现（LOCOMO）
 
 <div align="center">
 
@@ -45,51 +47,33 @@
 
 </div>
 
-在 [LOCOMO](https://github.com/snap-research/locomo) 基准上相对「全量上下文」方案：
+相对「全量上下文」基线（[LOCOMO](https://github.com/snap-research/locomo)）：
 
-- **更准**：[准确率提升 48.77%]（78.70% VS 52.9%）
-- **更快**：[检索 p95 延迟显著降低]（1.44s VS 17.12s，约 91.83%）
-- **更省**：[Token 用量显著下降]（约 0.9k VS 26k，约 96.53%）
+| 维度 | 结果 |
+|------|------|
+| 准确率 | 78.70% vs. 52.9% |
+| 检索 p95 延迟 | 1.44s vs. 17.12s |
+| Token 用量 | 约 0.9k vs. 26k |
 
-## 核心特性
+## 能力概览
 
-### 开发者友好
+**接入与工程化** — [Python 快速集成](docs/examples/scenario_1_basic_usage.md)；[CLI](docs/guides/0012-cli_usage.md)（`pmem`）；[HTTP API / Dashboard](docs/api/0005-api_server.md)；[MCP](docs/api/0004-mcp.md)。
 
-- **[轻量级接入](docs/examples/scenario_1_basic_usage.md)**：Python SDK 自动从 `.env` 加载配置；另支持 [CLI](docs/guides/0012-cli_usage.md)（`pmem`）、[MCP Server](docs/api/0004-mcp.md)、[HTTP API Server](docs/api/0005-api_server.md)
+**记忆管线与检索** — [智能抽取与更新](docs/examples/scenario_2_intelligent_memory.md)；[艾宾浩斯时间衰减](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)；[混合检索（向量 / 全文 / 图）](docs/examples/scenario_2_intelligent_memory.md)；[子存储与路由](docs/examples/scenario_6_sub_stores.md)。
 
-### 智能记忆管理
+**用户、画像与多智能体** — [用户画像](docs/examples/scenario_9_user_memory.md)；[共享 / 隔离记忆与作用域](docs/examples/scenario_3_multi_agent.md)。
 
-- **[智能记忆提取](docs/examples/scenario_2_intelligent_memory.md)**：基于 LLM 抽取事实、去重、消解冲突、合并相关记忆
-- **[艾宾浩斯遗忘曲线](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**：按时间与相关性衰减，优先返回更近、更相关的记忆
-
-### 用户画像
-
-- **[用户画像](docs/examples/scenario_9_user_memory.md)**：从对话与行为构建/更新画像，服务个性化推荐、陪伴等场景
-
-### 多智能体
-
-- **[共享 / 隔离记忆](docs/examples/scenario_3_multi_agent.md)**：按智能体划分记忆空间，支持跨 Agent 协作与基于作用域的权限控制
-
-### 多模态
-
-- **[文本 / 图像 / 语音](docs/examples/scenario_7_multimodal.md)**：媒体转述后入库，支持图文声混合检索
-
-### 存储与检索
-
-- **[子存储 Sub Stores](docs/examples/scenario_6_sub_stores.md)**：分区与自动路由，适合超大规模数据
-- **[混合检索](docs/examples/scenario_2_intelligent_memory.md)**：向量 + 全文 + 图（含多跳），并可由 LLM 辅助构图
+**多模态** — [文本 / 图像 / 语音](docs/examples/scenario_7_multimodal.md)。
 
 ## 快速开始
 
-下面按顺序介绍：安装 → **Python SDK** → **CLI（`pmem`）** → **HTTP API 与 Dashboard** → **MCP**。配置见 [.env.example](.env.example) 与 [配置指南](docs/guides/0003-configuration.md)。
-
-### 安装
+### 1. 安装
 
 ```bash
 pip install powermem
 ```
 
-### 基本使用（SDK）
+### 2. SDK 示例
 
 ```python
 from powermem import Memory, auto_config
@@ -100,102 +84,36 @@ memory = Memory(config=config)
 memory.add("用户喜欢咖啡", user_id="user123")
 
 results = memory.search("用户偏好", user_id="user123")
-for result in results.get('results', []):
+for result in results.get("results", []):
     print(f"- {result.get('memory')}")
 ```
 
-更多示例见 [入门指南](docs/guides/0001-getting_started.md)。
+更多用法见 [入门指南](docs/guides/0001-getting_started.md)。
 
-### PowerMem CLI（1.0.0+）
+### 3. 其他接入方式（命令入口）
 
-`pmem` 支持记忆操作、配置、备份/恢复与交互式 shell。
+| 方式 | 常用命令 | 文档 |
+|------|----------|------|
+| CLI | `pmem memory add` / `pmem memory search`；`pmem shell` | [CLI 使用指南](docs/guides/0012-cli_usage.md) |
+| HTTP API + Dashboard | `powermem-server --host 0.0.0.0 --port 8000`；镜像 `oceanbase/powermem-server:latest`；`docker-compose -f docker/docker-compose.yml` | [API Server](docs/api/0005-api_server.md) |
+| MCP | `uvx powermem-mcp sse`（及 stdio / streamable-http）；需已安装 `powermem` 与 `uv` | [MCP Server](docs/api/0004-mcp.md) |
 
-```bash
-pmem memory add "用户偏好深色模式" --user-id user123
-pmem memory search "偏好" --user-id user123
+## 文档与延伸
 
-pmem config show
-pmem config init
-pmem stats --json
-
-pmem shell
-```
-
-详见 [CLI 使用指南](docs/guides/0012-cli_usage.md)。
-
-### HTTP API Server 与 Dashboard
-
-与 SDK **共用**同一套 `.env` 配置；对外提供 REST、`/dashboard/` 管理界面与 `/docs` OpenAPI。
-
-```bash
-powermem-server --host 0.0.0.0 --port 8000
-```
-
-Docker 与 Compose 示例：
-
-```bash
-docker run -d \
-  --name powermem-server \
-  -p 8000:8000 \
-  -v $(pwd)/.env:/app/.env:ro \
-  --env-file .env \
-  oceanbase/powermem-server:latest
-
-docker-compose -f docker/docker-compose.yml up -d
-```
-
-完整说明见 [API Server 文档](docs/api/0005-api_server.md)。
-
-### MCP Server
-
-与 SDK **共用**配置；通过 MCP 把记忆能力接到 Claude Desktop 等客户端。
-
-```bash
-pip install powermem
-# 安装 uv / uvx 见 https://docs.astral.sh/uv/getting-started/
-
-uvx powermem-mcp sse              # 推荐；默认 8000
-uvx powermem-mcp sse 8001
-uvx powermem-mcp stdio
-uvx powermem-mcp streamable-http
-uvx powermem-mcp streamable-http 8001
-```
-
-Claude Desktop 配置示例（SSE）：
-
-```json
-{
-  "mcpServers": {
-    "powermem": {
-      "url": "http://localhost:8000/mcp"
-    }
-  }
-}
-```
-
-详见 [MCP 文档](docs/api/0004-mcp.md)。
-
-## 生态与集成
-
-### 示例项目
-
-- **LangChain**：[医疗支持机器人示例](examples/langchain/README.md)
-- **LangGraph**：[客服机器人示例](examples/langgraph/README.md)
-
-## 文档索引
-
-| 主题 | 链接 |
+| 类型 | 链接 |
 |------|------|
 | 入门 | [Getting Started](docs/guides/0001-getting_started.md) |
-| CLI | [CLI 使用指南](docs/guides/0012-cli_usage.md) |
 | 配置 | [Configuration](docs/guides/0003-configuration.md) |
+| CLI | [CLI 使用指南](docs/guides/0012-cli_usage.md) |
 | 多智能体 | [Multi-Agent](docs/guides/0005-multi_agent.md) |
-| 集成 | [Integrations](docs/guides/0009-integrations.md) |
+| 集成说明 | [Integrations](docs/guides/0009-integrations.md) |
 | 子存储 | [Sub Stores](docs/guides/0006-sub_stores.md) |
 | API | [API 总览](docs/api/overview.md) |
 | 架构 | [Architecture](docs/architecture/overview.md) |
-| 示例 | [Examples](docs/examples/overview.md) |
+| 场景示例 | [Examples](docs/examples/overview.md) |
 | 开发 | [Development](docs/development/overview.md) |
+| 示例：LangChain | [医疗支持机器人](examples/langchain/README.md) |
+| 示例：LangGraph | [客服机器人](examples/langgraph/README.md) |
 
 ## 版本要点
 
