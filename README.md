@@ -5,16 +5,6 @@
 </p>
 
 <p align="center">
-
-*PowerMem integrated with [OpenClaw](https://github.com/openclaw-ai/openclaw): intelligent memory for AI agents. **OpenClaw PowerMem Plugin**: [View Plugin](https://github.com/ob-labs/memory-powermem)*
-
-One command to add PowerMem memory to OpenClaw: `openclaw plugins install memory-powermem`.
-
-<img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem with OpenClaw" width="900"/>
-
-</p>
-
-<p align="center">
     <a href="https://pepy.tech/project/powermem">
         <img src="https://img.shields.io/pypi/dm/powermem" alt="PowerMem PyPI - Downloads">
     </a>
@@ -40,7 +30,13 @@ One command to add PowerMem memory to OpenClaw: `openclaw plugins install memory
 
 [English](README.md) | [中文](README_CN.md) | [日本語](README_JP.md)
 
-## ✨ Highlights
+# PowerMem — Intelligent Memory for AI Applications
+
+**PowerMem** is long-term memory infrastructure for AI apps: **hybrid vector + full-text + graph** retrieval, **Ebbinghaus-style forgetting**, and **LLM-driven memory extraction**, with **multi-agent isolation/sharing**, **user profiles**, and **multimodal** inputs (text, image, audio). The same feature set is available via **Python SDK**, **CLI (`pmem`)**, **HTTP API Server (with Dashboard)**, and **MCP Server**, all sharing **one `.env` configuration**.
+
+> **News:** [OpenClaw](https://github.com/openclaw-ai/openclaw) can use PowerMem as long-term memory via [`memory-powermem`](https://github.com/ob-labs/memory-powermem) (`openclaw plugins install memory-powermem`).
+
+## Why PowerMem
 
 <div align="center">
 
@@ -48,100 +44,95 @@ One command to add PowerMem memory to OpenClaw: `openclaw plugins install memory
 
 </div>
 
-- 🎯 **Accurate**: **[48.77% Accuracy Improvement]** More accurate than full-context in the LOCOMO benchmark (78.70% VS 52.9%)
-- ⚡ **Agile**: **[91.83% Faster Response]** Significantly reduced p95 latency for retrieval compared to full-context (1.44s VS 17.12s)
-- 💰 **Affordable**: **[96.53% Token Reduction]** Significantly reduced costs compared to full-context without sacrificing performance (0.9k VS 26k)
+On the [LOCOMO](https://github.com/snap-research/locomo) benchmark vs. stuffing full conversation context:
 
-# 🧠 PowerMem - Intelligent Memory System
+- **More accurate**: ~**48.77%** relative accuracy gain (78.70% vs. 52.9%)
+- **Lower latency**: retrieval **p95** ~**1.44s** vs. **17.12s** (~**91.83%** faster)
+- **Fewer tokens**: ~**0.9k** vs. **26k** (~**96.53%** reduction) without sacrificing the above
 
-In AI application development, enabling large language models to persistently "remember" historical conversations, user preferences, and contextual information is a core challenge. PowerMem combines a hybrid storage architecture of vector retrieval, full-text search, and graph databases, and introduces the Ebbinghaus forgetting curve theory from cognitive science to build a powerful memory infrastructure for AI applications. The system also provides comprehensive multi-agent support capabilities, including agent memory isolation, cross-agent collaboration and sharing, fine-grained permission control, and privacy protection mechanisms, enabling multiple AI agents to achieve efficient collaboration while maintaining independent memory spaces.
+## Core Features
 
-## 🚀 Core Features
+### Developer-friendly
 
-### 👨‍💻 Developer Friendly
-- 🔌 **[Lightweight Integration](docs/examples/scenario_1_basic_usage.md)**: Provides a simple Python SDK, automatically loads configuration from `.env` files, enabling developers to quickly integrate into existing projects. Also supports [CLI](docs/guides/0012-cli_usage.md) (`pmem`), [MCP Server](docs/api/0004-mcp.md), and [HTTP API Server](docs/api/0005-api_server.md) integration methods
+- **[Lightweight integration](docs/examples/scenario_1_basic_usage.md)**: Python SDK with `.env` auto-loading; also [CLI](docs/guides/0012-cli_usage.md) (`pmem`), [MCP Server](docs/api/0004-mcp.md), and [HTTP API Server](docs/api/0005-api_server.md)
 
-### 🧠 Intelligent Memory Management
-- 🔍 **[Intelligent Memory Extraction](docs/examples/scenario_2_intelligent_memory.md)**: Automatically extracts key facts from conversations through LLM, intelligently detects duplicates, updates conflicting information, and merges related memories to ensure accuracy and consistency of the memory database
-- 📉 **[Ebbinghaus Forgetting Curve](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**: Based on the memory forgetting patterns from cognitive science, automatically calculates memory retention rates and implements time-decay weighting, prioritizing recent and relevant memories, allowing AI systems to naturally "forget" outdated information like humans
+### Intelligent memory management
 
-### 👤 User Profile Support
-- 🎭 **[User Profile](docs/examples/scenario_9_user_memory.md)**: Automatically builds and updates user profiles based on historical conversations and behavioral data, applicable to scenarios such as personalized recommendations and AI companionship, enabling AI systems to better understand and serve each user
+- **[Smart extraction](docs/examples/scenario_2_intelligent_memory.md)**: LLM-based fact extraction, deduplication, conflict resolution, and merging
+- **[Ebbinghaus forgetting curve](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**: time- and relevance-aware decay; prioritize recent, useful memories
 
-### 🤖 Multi-Agent Support
-- 🔐 **[Agent Shared/Isolated Memory](docs/examples/scenario_3_multi_agent.md)**: Provides independent memory spaces for each agent, supports cross-agent memory sharing and collaboration, and enables flexible permission management through scope control
+### User profiles
 
-### 🎨 Multimodal Support
-- 🖼️ **[Text, Image, and Audio Memory](docs/examples/scenario_7_multimodal.md)**: Automatically converts images and audio to text descriptions for storage, supports retrieval of multimodal mixed content (text + image + audio), enabling AI systems to understand richer contextual information
+- **[User profile](docs/examples/scenario_9_user_memory.md)**: profiles from history and behavior—personalization, companions, and similar use cases
 
-### 💾 Deeply Optimized Data Storage
-- 📦 **[Sub Stores Support](docs/examples/scenario_6_sub_stores.md)**: Implements data partition management through sub stores, supports automatic query routing, significantly improving query performance and resource utilization for ultra-large-scale data
-- 🔗 **[Hybrid Retrieval](docs/examples/scenario_2_intelligent_memory.md)**: Combines multi-channel recall capabilities of vector retrieval, full-text search, and graph retrieval, builds knowledge graphs through LLM and supports multi-hop graph traversal for precise retrieval of complex memory relationships
+### Multi-agent
 
-## 🚀 Quick Start
+- **[Shared / isolated memory](docs/examples/scenario_3_multi_agent.md)**: per-agent spaces, cross-agent collaboration, scope-based permissions
 
-### 📥 Installation
+### Multimodal
+
+- **[Text, image, audio](docs/examples/scenario_7_multimodal.md)**: media summarized to text for storage and mixed retrieval
+
+### Storage & retrieval
+
+- **[Sub stores](docs/examples/scenario_6_sub_stores.md)**: partitioning and automatic routing for very large corpora
+- **[Hybrid retrieval](docs/examples/scenario_2_intelligent_memory.md)**: vector + full-text + graph (multi-hop), with LLM-assisted graph construction
+
+## Quick Start
+
+Below: **Install** → **Python SDK** → **CLI (`pmem`)** → **HTTP API & Dashboard** → **MCP**. Options: [.env.example](.env.example) and the [configuration guide](docs/guides/0003-configuration.md).
+
+### Install
 
 ```bash
 pip install powermem
 ```
 
-### 💡 Basic Usage(SDK)
-
-**✨ Simplest Way**: Create memory from `.env` file automatically! [Configuration Reference](.env.example)
+### Basic usage (SDK)
 
 ```python
 from powermem import Memory, auto_config
 
-# Load configuration (auto-loads from .env)
 config = auto_config()
-# Create memory instance
 memory = Memory(config=config)
 
-# Add memory
 memory.add("User likes coffee", user_id="user123")
 
-# Search memories
 results = memory.search("user preferences", user_id="user123")
 for result in results.get('results', []):
     print(f"- {result.get('memory')}")
 ```
 
-For more detailed examples and usage patterns, see the [Getting Started Guide](docs/guides/0001-getting_started.md).
+More patterns: [Getting Started](docs/guides/0001-getting_started.md).
 
-### ⌨️ PowerMem CLI (1.0.0+)
+### PowerMem CLI (1.0.0+)
 
-PowerMem provides a command-line interface (`pmem`) for memory operations, configuration, backup/restore, and an interactive shell—without writing Python code.
+`pmem` covers memory CRUD, config, backup/restore, and an interactive shell.
 
 ```bash
-# Add and search memories
 pmem memory add "User prefers dark mode" --user-id user123
 pmem memory search "preferences" --user-id user123
 
-# Configuration and statistics
 pmem config show
-pmem config init          # Interactive .env wizard
+pmem config init
 pmem stats --json
 
-# Interactive shell
 pmem shell
 ```
 
-For full CLI reference and examples, see the [CLI Usage Guide](docs/guides/0012-cli_usage.md).
+Full reference: [CLI usage](docs/guides/0012-cli_usage.md).
 
-### 🌐 HTTP API Server & Dashboard
+### HTTP API Server & Dashboard
 
-PowerMem provides a production-ready HTTP API server that exposes all core memory management capabilities through RESTful APIs. It also serves a **Dashboard** (at `/dashboard/`) as the web admin UI.
-
-**Relationship with SDK**: The API server uses the same PowerMem SDK under the hood and shares the same configuration (`.env` file). It provides an HTTP interface to the same memory management features available in the Python SDK, making PowerMem accessible to non-Python applications.
-
-**Starting the API Server (with Dashboard)**:
+Uses the **same** PowerMem SDK and `.env` as your code. Exposes REST, a **`/dashboard/`** UI, and **`/docs`** (OpenAPI).
 
 ```bash
-# Method 1: Using CLI command (after pip install)
 powermem-server --host 0.0.0.0 --port 8000
+```
 
-# Method 2: Using Docker (API server + dashboard in one container)
+Docker & Compose:
+
+```bash
 docker run -d \
   --name powermem-server \
   -p 8000:8000 \
@@ -149,61 +140,27 @@ docker run -d \
   --env-file .env \
   oceanbase/powermem-server:latest
 
-# Or use Docker Compose (recommended)
 docker-compose -f docker/docker-compose.yml up -d
 ```
 
-Once started, the same server provides:
-- RESTful API endpoints for all memory operations
-- **Dashboard** at `http://localhost:8000/dashboard/`
-- Interactive API documentation at `http://localhost:8000/docs`
-- API Key authentication and rate limiting support
-- Same configuration as SDK (via `.env` file)
+Details: [API Server](docs/api/0005-api_server.md).
 
-For complete API documentation and usage examples, see the [API Server Documentation](docs/api/0005-api_server.md).
+### MCP Server
 
-### 🔌 MCP Server
-
-PowerMem also provides a Model Context Protocol (MCP) server that enables integration with MCP-compatible clients such as Claude Desktop. The MCP server exposes PowerMem's memory management capabilities through the MCP protocol, allowing AI assistants to access and manage memories seamlessly.
-
-**Relationship with SDK**: The MCP server uses the same PowerMem SDK and shares the same configuration (`.env` file). It provides an MCP interface to the same memory management features, making PowerMem accessible to MCP-compatible AI assistants.
-
-**Installation**:
+Same SDK and `.env`; exposes memory tools to MCP clients (e.g. Claude Desktop).
 
 ```bash
-# Install PowerMem (required)
 pip install powermem
+# Install uv / uvx: https://docs.astral.sh/uv/getting-started/
 
-# Install uvx (if not already installed)
-# On macOS/Linux:
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# On Windows:
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-**Starting the MCP Server**:
-
-```bash
-# SSE mode (recommended, default port 8000)
 uvx powermem-mcp sse
-
-# SSE mode with custom port
 uvx powermem-mcp sse 8001
-
-# Stdio mode
 uvx powermem-mcp stdio
-
-# Streamable HTTP mode (default port 8000)
 uvx powermem-mcp streamable-http
-
-# Streamable HTTP mode with custom port
 uvx powermem-mcp streamable-http 8001
 ```
 
-**Integration with Claude Desktop**:
-
-Add the following configuration to your Claude Desktop config file:
+Example Claude Desktop config (SSE):
 
 ```json
 {
@@ -215,44 +172,48 @@ Add the following configuration to your Claude Desktop config file:
 }
 ```
 
-The MCP server provides tools for memory management including adding, searching, updating, and deleting memories. For complete MCP documentation and usage examples, see the [MCP Server Documentation](docs/api/0004-mcp.md).
+Details: [MCP Server](docs/api/0004-mcp.md).
 
-## 🔗 Integrations & Demos
-- 🔗 **openclaw Memory Plugin**: Use PowerMem as long-term memory in [openclaw](https://github.com/openclaw/openclaw) via extraction, Ebbinghaus forgetting curve, multi-agent isolation. [View Plugin](https://github.com/ob-labs/memory-powermem)
-- 🔗 **LangChain Integration**: Build medical support chatbot using LangChain + PowerMem + OceanBase, [View Example](examples/langchain/README.md)
-- 🔗 **LangGraph Integration**: Build customer service chatbot using LangGraph + PowerMem + OceanBase, [View Example](examples/langgraph/README.md)
+## Ecosystem & integrations
 
-## 📚 Documentation
+### Examples
 
-- 📖 **[Getting Started](docs/guides/0001-getting_started.md)**: Installation and quick start guide
-- ⌨️ **[CLI Usage Guide](docs/guides/0012-cli_usage.md)**: PowerMem CLI (pmem) reference (1.0.0+)
-- ⚙️ **[Configuration Guide](docs/guides/0003-configuration.md)**: Complete configuration options
-- 🤖 **[Multi-Agent Guide](docs/guides/0005-multi_agent.md)**: Multi-agent scenarios and examples
-- 🔌 **[Integrations Guide](docs/guides/0009-integrations.md)**: Integrations Guide
-- 📦 **[Sub Stores Guide](docs/guides/0006-sub_stores.md)**: Sub stores usage and examples
-- 📋 **[API Documentation](docs/api/overview.md)**: Complete API reference
-- 🏗️ **[Architecture Guide](docs/architecture/overview.md)**: System architecture and design
-- 📓 **[Examples](docs/examples/overview.md)**: Interactive Jupyter notebooks and use cases
-- 👨‍💻 **[Development Documentation](docs/development/overview.md)**: Developer documentation
+- **LangChain**: [medical support chatbot](examples/langchain/README.md)
+- **LangGraph**: [customer service bot](examples/langgraph/README.md)
 
-## ⭐ Highlights Release Notes
+## Documentation
 
-| Version | Release Date | Function |
-|---------|--------------|---------|
-| 1.0.0 | 2026.03.16   | <ul><li>PowerMem CLI (pmem): memory operations, config management, backup/restore/migrate, interactive shell, and shell completion</li><li>Web Dashboard for memory management and visualization</li></ul> |
-| 0.5.0 | 2026.02.06   | <ul><li>Unified configuration governance across SDK/API Server (pydantic-settings based)</li><li>Added OceanBase native hybrid search support</li><li>Enhanced Memory query handling and added sorting support for memory list operations</li><li>Added user profile support for custom native-language output</li></ul> |
-| 0.4.0 | 2026.01.20   | <ul><li>Sparse vector support for enhanced hybrid retrieval, combining dense vector, full-text, and sparse vector search</li><li>User memory query rewriting - automatically enhances search queries based on user profiles for improved recall</li><li>Schema upgrade and data migration tools for existing tables</li></ul> |
-| 0.3.0 | 2026.01.09   | <ul><li>Production-ready HTTP API Server with RESTful endpoints for all memory operations</li><li>Docker support for easy deployment and containerization</li></ul> |
-| 0.2.0 | 2025.12.16   | <ul><li>Advanced user profile management, supporting "personalized experience" for AI applications</li><li>Expanded multimodal support, including text, image, and audio memory</li></ul> |
-| 0.1.0 | 2025.11.14   | <ul><li>Core memory management functionality, supporting persistent storage of memories</li><li>Hybrid retrieval supporting vector, full-text, and graph search</li><li>Intelligent memory extraction based on LLM fact extraction</li><li>Full lifecycle memory management supporting Ebbinghaus forgetting curve</li><li>Multi-Agent memory management support</li><li>Multiple storage backend support (OceanBase, PostgreSQL, SQLite)</li><li>Support for knowledge graph retrieval through multi-hop graph search</li></ul> |
+| Topic | Link |
+|------|------|
+| Getting started | [Guide](docs/guides/0001-getting_started.md) |
+| CLI | [CLI usage](docs/guides/0012-cli_usage.md) |
+| Configuration | [Configuration](docs/guides/0003-configuration.md) |
+| Multi-agent | [Multi-Agent](docs/guides/0005-multi_agent.md) |
+| Integrations | [Integrations](docs/guides/0009-integrations.md) |
+| Sub stores | [Sub stores](docs/guides/0006-sub_stores.md) |
+| API | [API overview](docs/api/overview.md) |
+| Architecture | [Architecture](docs/architecture/overview.md) |
+| Examples | [Examples](docs/examples/overview.md) |
+| Development | [Development](docs/development/overview.md) |
 
-## 💬 Support
+## Release highlights
 
-- 🐛 **Issue Reporting**: [GitHub Issues](https://github.com/oceanbase/powermem/issues)
-- 💭 **Discussions**: [GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
+| Version | Date | Notes |
+|---------|------|--------|
+| 1.0.0 | 2026-03-16 | CLI (`pmem`): memory ops, config, backup/restore/migrate, interactive shell, completions; Web Dashboard |
+| 0.5.0 | 2026-02-06 | Unified SDK/API config (pydantic-settings); OceanBase native hybrid search; memory query + list sorting; user-profile language customization |
+| 0.4.0 | 2026-01-20 | Sparse vectors for hybrid retrieval; profile-based query rewriting; schema upgrade & migration tools |
+| 0.3.0 | 2026-01-09 | Production HTTP API Server; Docker |
+| 0.2.0 | 2025-12-16 | Advanced profiles; multimodal (text/image/audio) |
+| 0.1.0 | 2025-11-14 | Core memory + hybrid retrieval; LLM extraction; forgetting curve; multi-agent; OceanBase/PostgreSQL/SQLite; graph search |
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/oceanbase/powermem/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
 
 ---
 
-## 📄 License
+## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Apache License 2.0 — see [LICENSE](LICENSE).

@@ -5,16 +5,6 @@
 </p>
 
 <p align="center">
-
-*PowerMem と [OpenClaw](https://github.com/openclaw-ai/openclaw) の連携：AI エージェント向けインテリジェントメモリ。**OpenClaw PowerMem メモリプラグイン**：[プラグインを見る](https://github.com/ob-labs/memory-powermem)*
-
-1 コマンドで OpenClaw に PowerMem メモリを追加：`openclaw plugins install memory-powermem`。
-
-<img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem と OpenClaw" width="900"/>
-
-</p>
-
-<p align="center">
     <a href="https://pepy.tech/project/powermem">
         <img src="https://img.shields.io/pypi/dm/powermem" alt="PowerMem PyPI - Downloads">
     </a>
@@ -40,7 +30,13 @@
 
 [English](README.md) | [中文](README_CN.md) | [日本語](README_JP.md)
 
-## ✨ ハイライト
+# PowerMem — AI アプリ向けインテリジェントメモリ
+
+**PowerMem** は AI アプリケーション向けの長期メモリ基盤です。**ベクトル・全文・グラフ**のハイブリッド検索、**エビングハウス型の忘却**、**LLM によるメモリ抽出**、**マルチエージェント分離/共有**、**ユーザープロフィール**、**マルチモーダル**（テキスト・画像・音声）をサポートします。同一機能を **Python SDK**、**CLI（`pmem`）**、**HTTP API Server（Dashboard 付き）**、**MCP Server** から利用でき、設定は **`.env` で統一**されます。
+
+> **ニュース:** [OpenClaw](https://github.com/openclaw-ai/openclaw) はプラグイン [memory-powermem](https://github.com/ob-labs/memory-powermem) により PowerMem を長期メモリとして利用できます（`openclaw plugins install memory-powermem`）。
+
+## PowerMem を選ぶ理由
 
 <div align="center">
 
@@ -48,100 +44,95 @@
 
 </div>
 
-- 🎯 **より正確**：**[精度 48.77% 向上]** LOCOMO ベンチマークで full-context より正確（78.70% VS 52.9%）
-- ⚡ **より高速**：**[91.83% 高速な応答]** full-context と比較し、検索の p95 遅延が大幅に減少（1.44s VS 17.12s）
-- 💰 **より経済的**：**[96.53% トークン削減]** full-context と比較し、性能を犠牲にすることなくコストを大幅に削減（0.9k VS 26k）
+[LOCOMO](https://github.com/snap-research/locomo) ベンチマークにおいて、会話全文をコンテキストに載せる方式と比較：
 
-# 🧠 PowerMem - インテリジェントメモリシステム
+- **より正確**：精度の相対的な改善（78.70% vs. 52.9%、約 48.77%）
+- **より高速**：検索 **p95** が約 **1.44s** vs. **17.12s**（約 91.83% 短縮）
+- **トークン削減**：約 **0.9k** vs. **26k**（約 96.53% 削減）を性能を大きく損なわずに実現
 
-AI アプリケーション開発において、大規模言語モデルが履歴会話、ユーザー設定、コンテキスト情報を永続的に「記憶」できるようにすることは、核心的な課題です。PowerMem は、ベクトル検索、全文検索、グラフデータベースのハイブリッドストレージアーキテクチャを組み合わせ、認知科学のエビングハウス忘却曲線理論を導入して、AI アプリケーション向けの強力なメモリインフラストラクチャを構築します。システムは、エージェントメモリの分離、エージェント間のコラボレーションと共有、きめ細かい権限制御、プライバシー保護メカニズムを含む、包括的なマルチエージェントサポート機能も提供し、複数の AI エージェントが独立したメモリ空間を維持しながら効率的なコラボレーションを実現できるようにします。
+## 主な機能
 
-## 🚀 核心機能
+### 開発者体験
 
-### 👨‍💻 開発者フレンドリー
-- 🔌 **[軽量級アクセス方式](docs/examples/scenario_1_basic_usage.md)**：シンプルな Python SDK プロトコルサポートを提供し、`.env` ファイルから自動的に設定を読み込み、開発者が既存プロジェクトに迅速に統合できるようにします。また、[CLI](docs/guides/0012-cli_usage.md)（`pmem`）、[MCP サーバー](docs/api/0004-mcp.md)、[HTTP API サーバー](docs/api/0005-api_server.md) の 3 つのアクセス方式をサポートしています
+- **[軽量統合](docs/examples/scenario_1_basic_usage.md)**：`.env` を読み込む Python SDK に加え、[CLI](docs/guides/0012-cli_usage.md)（`pmem`）、[MCP Server](docs/api/0004-mcp.md)、[HTTP API Server](docs/api/0005-api_server.md)
 
-### 🧠 インテリジェントメモリ管理
-- 🔍 **[メモリのインテリジェント抽出](docs/examples/scenario_2_intelligent_memory.md)**：LLM を通じて会話から重要な事実を自動的に抽出し、重複をインテリジェントに検出し、競合する情報を更新し、関連するメモリをマージして、メモリデータベースの正確性と一貫性を確保します
-- 📉 **[エビングハウス忘却曲線](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**：認知科学の記憶忘却パターンに基づき、メモリ保持率を自動的に計算し、時間減衰重み付けを実装し、最近かつ関連性の高いメモリを優先的に返し、AI システムが人間のように古い情報を自然に「忘却」できるようにします
+### メモリ管理
 
+- **[スマート抽出](docs/examples/scenario_2_intelligent_memory.md)**：LLM による事実抽出、重複排除、競合解消、マージ
+- **[エビングハウス忘却曲線](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**：時間・関連度に基づく減衰、最近・有用なメモリを優先
 
-### 👤 ユーザープロフィールサポート
-- 🎭 **[ユーザープロフィール](docs/examples/scenario_9_user_memory.md)**：ユーザーの履歴会話と行動データに基づいて、ユーザープロフィールを自動的に構築および更新し、パーソナライズされた推奨、AI コンパニオンシップなどのシナリオに適用され、AI システムが各ユーザーをよりよく理解し、サービスを提供できるようにします
+### ユーザープロフィール
 
-### 🤖 マルチエージェントサポート
-- 🔐 **[エージェント共有/分離メモリ](docs/examples/scenario_3_multi_agent.md)**：各エージェントに独立したメモリ空間を提供し、エージェント間のメモリ共有とコラボレーションをサポートし、スコープ制御を通じて柔軟な権限管理を実現します
+- **[ユーザープロフィール](docs/examples/scenario_9_user_memory.md)**：履歴と行動からプロフィールを構築・更新（パーソナライズ、コンパニオン等）
 
-### 🎨 マルチモーダルサポート
-- 🖼️ **[テキスト、画像、音声メモリ](docs/examples/scenario_7_multimodal.md)**：画像と音声を自動的にテキスト記述に変換して保存し、マルチモーダル混合コンテンツ（テキスト+画像+音声）の検索をサポートし、AI システムがより豊富なコンテキスト情報を理解できるようにします
+### マルチエージェント
 
-### 💾 深く最適化されたデータストレージ
-- 📦 **[サブストア（Sub Stores）サポート](docs/examples/scenario_6_sub_stores.md)**：サブストアによるデータのパーティション管理を実装し、自動ルーティングクエリをサポートし、超大规模データのクエリ性能とリソース利用率を大幅に向上させます
-- 🔗 **[ハイブリッド検索](docs/examples/scenario_2_intelligent_memory.md)**：ベクトル検索、全文検索、グラフ検索のマルチチャネルリコール機能を融合し、LLM を通じてナレッジグラフを構築し、複雑なメモリ関係を正確に検索するためのマルチホップグラフトラバーサルをサポートします
+- **[共有/分離メモリ](docs/examples/scenario_3_multi_agent.md)**：エージェント単位の空間、横断協業、スコープに基づく権限
 
-## 🚀 クイックスタート
+### マルチモーダル
 
-### 📥 インストール
+- **[テキスト・画像・音声](docs/examples/scenario_7_multimodal.md)**：要約テキスト化して保存し、混在コンテンツを検索
+
+### ストレージと検索
+
+- **[サブストア](docs/examples/scenario_6_sub_stores.md)**：パーティショニングと自動ルーティング（大規模向け）
+- **[ハイブリッド検索](docs/examples/scenario_2_intelligent_memory.md)**：ベクトル + 全文 + グラフ（マルチホップ）、LLM 補助のグラフ構築
+
+## クイックスタート
+
+流れ：**インストール** → **Python SDK** → **CLI** → **HTTP API と Dashboard** → **MCP**。設定は [.env.example](.env.example) と [設定ガイド](docs/guides/0003-configuration.md)。
+
+### インストール
 
 ```bash
 pip install powermem
 ```
 
-### 💡 基本的な使用方法（SDK）
-
-**✨ 最も簡単な方法**：`.env` ファイルから自動的にメモリを作成！[設定ファイル参照](.env.example)
+### 基本的な使い方（SDK）
 
 ```python
 from powermem import Memory, auto_config
 
-# .env から自動的に読み込む
 config = auto_config()
 memory = Memory(config=config)
 
-# メモリを追加
 memory.add("ユーザーはコーヒーが好き", user_id="user123")
 
-# メモリを検索
 results = memory.search("ユーザー設定", user_id="user123")
 for result in results.get('results', []):
     print(f"- {result.get('memory')}")
 ```
 
-より詳細な例と使用パターンについては、[はじめにガイド](docs/guides/0001-getting_started.md) を参照してください。
+詳細：[はじめに](docs/guides/0001-getting_started.md)。
 
-### ⌨️ PowerMem CLI（1.0.0+）
+### PowerMem CLI（1.0.0+）
 
-PowerMem はコマンドラインインターフェース（`pmem`）を提供し、Python コードを書かずにメモリ操作、設定、バックアップ/復元、対話シェルを利用できます。
+`pmem` でメモリ操作、設定、バックアップ/復元、対話シェル。
 
 ```bash
-# メモリの追加と検索
 pmem memory add "ユーザーはダークモードを好む" --user-id user123
 pmem memory search "設定" --user-id user123
 
-# 設定と統計
 pmem config show
-pmem config init          # 対話式 .env ウィザード
+pmem config init
 pmem stats --json
 
-# 対話シェル
 pmem shell
 ```
 
-完全な CLI リファレンスと例は [CLI 使用ガイド](docs/guides/0012-cli_usage.md) を参照してください。
+参照：[CLI 使用ガイド](docs/guides/0012-cli_usage.md)。
 
-### 🌐 HTTP API Server と Dashboard
+### HTTP API Server と Dashboard
 
-PowerMem は、すべてのコアメモリ管理機能を RESTful API で公開する本番環境対応の HTTP API サーバーを提供します。同時に **Dashboard**（パス `/dashboard/`）の Web 管理画面を提供します。
-
-**SDK との関係**：API サーバーは内部で同じ PowerMem SDK を使用し、同じ設定（`.env` ファイル）を共有します。Python SDK と同じメモリ管理機能への HTTP インターフェースを提供し、PowerMem を非 Python アプリケーションでも利用可能にします。
-
-**API サーバーの起動（Dashboard 含む）**：
+SDK と **同じ** `.env` と PowerMem コア。REST、`/dashboard/`、`/docs`（OpenAPI）を提供。
 
 ```bash
-# 方法 1：CLI コマンドを使用（pip インストール後）
 powermem-server --host 0.0.0.0 --port 8000
+```
 
-# 方法 2：Docker を使用（API サーバー + Dashboard 同一コンテナ）
+Docker / Compose：
+
+```bash
 docker run -d \
   --name powermem-server \
   -p 8000:8000 \
@@ -149,61 +140,27 @@ docker run -d \
   --env-file .env \
   oceanbase/powermem-server:latest
 
-# または Docker Compose を使用（推奨）
 docker-compose -f docker/docker-compose.yml up -d
 ```
 
-起動後、同一サーバーで以下を提供します：
-- すべてのメモリ操作の RESTful API エンドポイント
-- **Dashboard**：`http://localhost:8000/dashboard/` でアクセス
-- インタラクティブな API ドキュメント、`http://localhost:8000/docs` でアクセス可能
-- API Key 認証とレート制限サポート
-- SDK と同じ設定（`.env` ファイル経由）
+詳細：[API Server](docs/api/0005-api_server.md)。
 
-完全な API ドキュメントと使用例については、[API サーバードキュメント](docs/api/0005-api_server.md) を参照してください。
+### MCP Server
 
-### 🔌 MCP Server
-
-PowerMem は、Claude Desktop などの MCP 互換クライアントとの統合を可能にするモデルコンテキストプロトコル（MCP）サーバーも提供します。MCP サーバーは、MCP プロトコルを通じて PowerMem のメモリ管理機能を公開し、AI アシスタントがシームレスにメモリにアクセスして管理できるようにします。
-
-**SDK との関係**：MCP サーバーは、同じ PowerMem SDK を使用し、同じ設定（`.env` ファイル）を共有します。Python SDK で利用可能な同じメモリ管理機能への MCP インターフェースを提供し、PowerMem を MCP 互換の AI アシスタントでも利用可能にします。
-
-**インストール**：
+同じ SDK / `.env`。Claude Desktop 等の MCP クライアント向け。
 
 ```bash
-# PowerMem をインストール（必須）
 pip install powermem
+# uv / uvx: https://docs.astral.sh/uv/getting-started/
 
-# uvx をインストール（まだインストールされていない場合）
-# macOS/Linux の場合：
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Windows の場合：
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-**MCP サーバーの起動**：
-
-```bash
-# SSE モード（推奨、デフォルトポート 8000）
 uvx powermem-mcp sse
-
-# SSE モード、カスタムポート
 uvx powermem-mcp sse 8001
-
-# Stdio モード
 uvx powermem-mcp stdio
-
-# Streamable HTTP モード（デフォルトポート 8000）
 uvx powermem-mcp streamable-http
-
-# Streamable HTTP モード、カスタムポート
 uvx powermem-mcp streamable-http 8001
 ```
 
-**Claude Desktop との統合**：
-
-Claude Desktop 設定ファイルに次の設定を追加します：
+Claude Desktop（SSE）設定例：
 
 ```json
 {
@@ -215,46 +172,48 @@ Claude Desktop 設定ファイルに次の設定を追加します：
 }
 ```
 
-MCP サーバーは、メモリの追加、検索、更新、削除を含むメモリ管理ツールを提供します。完全な MCP ドキュメントと使用例については、[MCP サーバードキュメント](docs/api/0004-mcp.md) を参照してください。
+詳細：[MCP Server](docs/api/0004-mcp.md)。
 
-## 🔗 統合とデモ
-- 🔗 **openclaw メモリプラグイン**: [openclaw](https://github.com/openclaw/openclaw) で HTTP API により PowerMem を長期メモリとして利用。インテリジェント抽出、エビングハウス忘却曲線、マルチエージェント分離に対応。[プラグインを参照](https://github.com/ob-labs/memory-powermem)
-- 🔗 **LangChain 統合**: LangChain + PowerMem + OceanBase を使用して医療サポートロボットを構築、[例を参照](examples/langchain/README.md)
-- 🔗 **LangGraph 統合**: LangGraph + PowerMem + OceanBase を使用してカスタマーサービスロボットを構築、[例を参照](examples/langgraph/README.md)
+## エコシステムと統合
 
-## 📚 ドキュメント
+### サンプル
 
-- 📖 **[はじめに](docs/guides/0001-getting_started.md)**：インストールとクイックスタートガイド
-- ⌨️ **[CLI 使用ガイド](docs/guides/0012-cli_usage.md)**：PowerMem CLI（pmem）リファレンス（1.0.0+）
-- ⚙️ **[設定ガイド](docs/guides/0003-configuration.md)**：完全な設定オプション
-- 🤖 **[マルチエージェントガイド](docs/guides/0005-multi_agent.md)**：マルチエージェントのシナリオと例
-- 🔌 **[統合ガイド](docs/guides/0009-integrations.md)**：統合ガイド
-- 📦 **[サブストアガイド](docs/guides/0006-sub_stores.md)**：サブストアの使用方法と例
-- 📋 **[API ドキュメント](docs/api/overview.md)**：完全な API リファレンス
-- 🏗️ **[アーキテクチャガイド](docs/architecture/overview.md)**：システムアーキテクチャと設計
-- 📓 **[例](docs/examples/overview.md)**：インタラクティブな Jupyter ノートブックとユースケース
-- 👨‍💻 **[開発者ドキュメント](docs/development/overview.md)**：開発者ドキュメント
+- **LangChain**：[医療サポート例](examples/langchain/README.md)
+- **LangGraph**：[カスタマーサービス例](examples/langgraph/README.md)
 
-## ⭐ ハイライト リリースノート
+## ドキュメント
 
-| Version |  Release Date | Function |
-|---------|-------|---------|
-| 1.0.0 | 2026.03.16 | <ul><li>PowerMem CLI (pmem)：メモリ操作、設定管理、バックアップ/リストア/マイグレーション、対話型シェル、シェル補完</li><li>Web Dashboard：メモリ管理と可視化</li></ul> |
-| 0.5.0 | 2026.02.06 | <ul><li>SDK/API Server の設定ガバナンスを統一（pydantic-settings ベース）</li><li>OceanBase の native hybrid search を追加</li><li>Memory のクエリ処理を強化し、メモリ一覧のソートに対応</li><li>ユーザープロフィールでカスタムのネイティブ言語出力をサポート</li></ul> |
-| 0.4.0 | 2026.01.20 | <ul><li>スパースベクトルサポート、高密度ベクトル、全文検索、スパースベクトルの3つの検索方式を融合したハイブリッド検索機能の強化</li><li>ユーザーメモリクエリ書き換え機能、ユーザープロフィールに基づいてクエリを自動的に書き換え、検索の再現率を向上</li><li>既存テーブルのスキーマアップグレードとデータ移行ツール</li></ul> |
-| 0.3.0 | 2026.01.09 | <ul><li>本番環境対応の HTTP API サーバー、すべてのメモリ操作の RESTful エンドポイントを提供</li><li>Docker サポート、簡単なデプロイとコンテナ化を実現</li></ul> |
-| 0.2.0 | 2025.12.16 | <ul><li>高度なユーザープロフィール管理、AI アプリケーションの「千人千面」をサポート</li><li>テキスト、画像、音声メモリを含む拡張マルチモーダルサポート</li></ul> |
-| 0.1.0 | 2025.11.14 | <ul><li>コアメモリ管理機能、メモリの永続ストレージをサポート</li><li>ベクトル、全文、グラフ検索をサポートするハイブリッド検索</li><li>LLM ベースの事実抽出によるインテリジェントメモリ抽出</li><li>エビングハウス忘却曲線に基づく全ライフサイクルメモリ管理をサポート</li><li>Multi-Agent メモリ管理をサポート</li><li>複数のストレージバックエンドサポート（OceanBase、PostgreSQL、SQLite）</li><li>マルチホップグラフ検索による知識グラフの検索処理をサポート</li></ul> |
+| トピック | リンク |
+|---------|--------|
+| はじめに | [Guide](docs/guides/0001-getting_started.md) |
+| CLI | [CLI](docs/guides/0012-cli_usage.md) |
+| 設定 | [Configuration](docs/guides/0003-configuration.md) |
+| マルチエージェント | [Multi-Agent](docs/guides/0005-multi_agent.md) |
+| 統合 | [Integrations](docs/guides/0009-integrations.md) |
+| サブストア | [Sub stores](docs/guides/0006-sub_stores.md) |
+| API | [API overview](docs/api/overview.md) |
+| アーキテクチャ | [Architecture](docs/architecture/overview.md) |
+| 例 | [Examples](docs/examples/overview.md) |
+| 開発 | [Development](docs/development/overview.md) |
 
+## リリースハイライト
 
-## 💬 サポート
+| バージョン | 日付 | 内容 |
+|------------|------|------|
+| 1.0.0 | 2026-03-16 | CLI（`pmem`）：メモリ操作、設定、バックアップ/復元/マイグレーション、対話シェル、補完；Web Dashboard |
+| 0.5.0 | 2026-02-06 | SDK/API 設定の統一（pydantic-settings）；OceanBase native hybrid search；Memory クエリと一覧ソート；プロフィールの言語カスタマイズ |
+| 0.4.0 | 2026-01-20 | スパースベクトル混合検索；プロフィール起点のクエリ書き換え；スキーマ更新と移行ツール |
+| 0.3.0 | 2026-01-09 | 本番向け HTTP API Server；Docker |
+| 0.2.0 | 2025-12-16 | プロフィール強化；マルチモーダル（テキスト/画像/音声） |
+| 0.1.0 | 2025-11-14 | コアメモリとハイブリッド検索；LLM 抽出；忘却曲線；マルチエージェント；OceanBase/PostgreSQL/SQLite；グラフ検索 |
 
-- 🐛 **問題フィードバック**：[GitHub Issues](https://github.com/oceanbase/powermem/issues)
-- 💭 **ディスカッション交流**：[GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
+## サポート
+
+- **Issues**：[GitHub Issues](https://github.com/oceanbase/powermem/issues)
+- **ディスカッション**：[GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
 
 ---
 
-## 📄 ライセンス
+## ライセンス
 
-このプロジェクトは Apache License 2.0 の下でライセンスされています - 詳細については [LICENSE](LICENSE) ファイルを参照してください。
-
+Apache License 2.0 — 詳細は [LICENSE](LICENSE)。
