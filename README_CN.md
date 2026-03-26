@@ -1,43 +1,53 @@
-<p align="center">
-    <a href="https://github.com/oceanbase/oceanbase">
-        <img alt="OceanBase Logo" src="docs/images/oceanbase_Logo.png" width="50%" />
-    </a>
-</p>
-
-<p align="center">
-    <a href="https://pepy.tech/project/powermem">
-        <img src="https://img.shields.io/pypi/dm/powermem" alt="PowerMem PyPI - Downloads">
-    </a>
-    <a href="https://github.com/oceanbase/powermem">
-        <img src="https://img.shields.io/github/commit-activity/m/oceanbase/powermem?style=flat-square" alt="GitHub commit activity">
-    </a>
-    <a href="https://pypi.org/project/powermem" target="blank">
-        <img src="https://img.shields.io/pypi/v/powermem?color=%2334D058&label=pypi%20package" alt="Package version">
-    </a>
-    <a href="https://github.com/oceanbase/powermem/blob/master/LICENSE">
-        <img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-green.svg" />
-    </a>
-    <a href="https://img.shields.io/badge/python%20-3.10.0%2B-blue.svg">
-        <img alt="pyversions" src="https://img.shields.io/badge/python%20-3.10.0%2B-blue.svg" />
-    </a>
-    <a href="https://deepwiki.com/oceanbase/powermem">
-        <img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg" />
-    </a>
-    <a href="https://zread.ai/oceanbase/powermem" target="_blank"><img src="https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff" alt="zread"/></a>
-    <a href="https://discord.com/invite/74cF8vbNEs">
-        <img src="https://img.shields.io/badge/Discord-Join%20Discord-5865F2?logo=discord&logoColor=white" alt="Join Discord">
-    </a>
-</p>
-
-[English](README.md) | [中文](README_CN.md) | [日本語](README_JP.md)
-
 # PowerMem — 智能 AI 记忆系统
 
-PowerMem 面向 AI 应用提供持久化记忆层：融合向量、全文与图检索，支持由 LLM 驱动的记忆抽取与时间衰减（艾宾浩斯曲线）、多智能体隔离与协作、用户画像以及文本/图像/音频等多模态线索。
+**面向 AI 应用与智能体的持久化记忆层。**
 
-使用 Python SDK、CLI（`pmem`）、HTTP API Server（含 Dashboard）或 MCP Server 时，共用同一套 `.env` 配置；完整选项见 [.env.example](.env.example) 与 [配置指南](docs/guides/0003-configuration.md)。
+[![PyPI version](https://img.shields.io/pypi/v/powermem)](https://pypi.org/project/powermem/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://pypi.org/project/powermem/)
+[![License Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-oceanbase%2Fpowermem-181717?logo=github)](https://github.com/oceanbase/powermem)
+[![Discord](https://img.shields.io/badge/Discord-社区-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/74cF8vbNEs)
+
+*[English](README.md) · 中文 · [日本語](README_JP.md)*
+
+PowerMem 融合向量、全文与图检索，支持由 LLM 驱动的记忆抽取与艾宾浩斯型时间衰减，以及多智能体隔离、用户画像和文本/图像/音频等多模态线索。
+
+通过 Python SDK、CLI（`pmem`）、HTTP API Server（含 Dashboard）或 MCP Server 接入时共用同一套 `.env`；完整选项见 [.env.example](.env.example) 与 [配置指南](docs/guides/0003-configuration.md)。
 
 > **动态：** [OpenClaw](https://github.com/openclaw-ai/openclaw) 可通过插件 [memory-powermem](https://github.com/ob-labs/memory-powermem) 使用 PowerMem 作为长期记忆（`openclaw plugins install memory-powermem`）。
+
+## 快速开始
+
+### 安装
+
+```bash
+pip install powermem
+```
+
+### SDK 示例
+
+```python
+from powermem import Memory, auto_config
+
+config = auto_config()
+memory = Memory(config=config)
+
+memory.add("用户喜欢咖啡", user_id="user123")
+
+results = memory.search("用户偏好", user_id="user123")
+for result in results.get("results", []):
+    print(f"- {result.get('memory')}")
+```
+
+更多用法见 [入门指南](docs/guides/0001-getting_started.md)。
+
+### 其他接入方式（命令入口）
+
+| 方式 | 常用命令 | 文档 |
+|------|----------|------|
+| CLI | `pmem memory add` / `pmem memory search`；`pmem shell` | [CLI 使用指南](docs/guides/0012-cli_usage.md) |
+| HTTP API + Dashboard | `powermem-server --host 0.0.0.0 --port 8000`；镜像 `oceanbase/powermem-server:latest`；`docker-compose -f docker/docker-compose.yml` | [API Server](docs/api/0005-api_server.md) |
+| MCP | `uvx powermem-mcp sse`（及 stdio / streamable-http）；需已安装 `powermem` 与 `uv` | [MCP Server](docs/api/0004-mcp.md) |
 
 ## 基准表现（LOCOMO）
 
@@ -64,39 +74,6 @@ PowerMem 面向 AI 应用提供持久化记忆层：融合向量、全文与图�
 **用户、画像与多智能体** — [用户画像](docs/examples/scenario_9_user_memory.md)；[共享 / 隔离记忆与作用域](docs/examples/scenario_3_multi_agent.md)。
 
 **多模态** — [文本 / 图像 / 语音](docs/examples/scenario_7_multimodal.md)。
-
-## 快速开始
-
-### 1. 安装
-
-```bash
-pip install powermem
-```
-
-### 2. SDK 示例
-
-```python
-from powermem import Memory, auto_config
-
-config = auto_config()
-memory = Memory(config=config)
-
-memory.add("用户喜欢咖啡", user_id="user123")
-
-results = memory.search("用户偏好", user_id="user123")
-for result in results.get("results", []):
-    print(f"- {result.get('memory')}")
-```
-
-更多用法见 [入门指南](docs/guides/0001-getting_started.md)。
-
-### 3. 其他接入方式（命令入口）
-
-| 方式 | 常用命令 | 文档 |
-|------|----------|------|
-| CLI | `pmem memory add` / `pmem memory search`；`pmem shell` | [CLI 使用指南](docs/guides/0012-cli_usage.md) |
-| HTTP API + Dashboard | `powermem-server --host 0.0.0.0 --port 8000`；镜像 `oceanbase/powermem-server:latest`；`docker-compose -f docker/docker-compose.yml` | [API Server](docs/api/0005-api_server.md) |
-| MCP | `uvx powermem-mcp sse`（及 stdio / streamable-http）；需已安装 `powermem` 与 `uv` | [MCP Server](docs/api/0004-mcp.md) |
 
 ## 文档与延伸
 
@@ -128,10 +105,8 @@ for result in results.get("results", []):
 
 ## 支持
 
-- **问题反馈**：[GitHub Issues](https://github.com/oceanbase/powermem/issues)
-- **讨论**：[GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
-
----
+- [GitHub Issues](https://github.com/oceanbase/powermem/issues)
+- [GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
 
 ## 许可证
 
