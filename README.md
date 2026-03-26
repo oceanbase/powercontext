@@ -75,22 +75,25 @@ Compared to stuffing full conversation context on [LOCOMO](https://github.com/sn
 
 **Multimodal** — [Text, image, audio](docs/examples/scenario_7_multimodal.md).
 
-## Documentation and examples
+## Docs
 
-| Resource | Link |
-|----------|------|
-| Getting started | [Guide](docs/guides/0001-getting_started.md) |
-| Configuration | [Configuration](docs/guides/0003-configuration.md) |
-| CLI | [CLI usage](docs/guides/0012-cli_usage.md) |
-| Multi-agent | [Multi-Agent](docs/guides/0005-multi_agent.md) |
-| Integrations | [Integrations](docs/guides/0009-integrations.md) |
-| Sub stores | [Sub stores](docs/guides/0006-sub_stores.md) |
-| API | [API overview](docs/api/overview.md) |
-| Architecture | [Architecture](docs/architecture/overview.md) |
-| Scenarios | [Examples](docs/examples/overview.md) |
-| Development | [Development](docs/development/overview.md) |
-| Example: LangChain | [Medical support chatbot](examples/langchain/README.md) |
-| Example: LangGraph | [Customer service bot](examples/langgraph/README.md) |
+- [Getting started](docs/guides/0001-getting_started.md) — install, `.env`, and first `Memory` usage
+- [Configuration](docs/guides/0003-configuration.md) — settings model, storage backends, environment variables
+- [Architecture](docs/architecture/overview.md) — major components, storage layout, and retrieval flow
+- [API & services](docs/api/overview.md) — REST, MCP, HTTP server, and Python-facing APIs
+- [CLI](docs/guides/0012-cli_usage.md) — `pmem` commands, interactive shell, backup and migration
+- [Multi-agent](docs/guides/0005-multi_agent.md) — scopes, isolation, and cross-agent sharing
+- [Integrations](docs/guides/0009-integrations.md) — LangChain and other framework wiring
+- [Docker & deployment](docker/README.md) — images, Compose, and running the API server
+- [Development](docs/development/overview.md) — local setup, tests, and contributing
+
+More topics: [Sub stores](docs/guides/0006-sub_stores.md), [guides index](docs/guides/overview.md).
+
+## Examples
+
+- [Scenarios & notebooks](docs/examples/overview.md) — walkthroughs by use case (basic usage, multimodal, forgetting curve, and more)
+- [LangChain sample](examples/langchain/README.md) — medical support chatbot
+- [LangGraph sample](examples/langgraph/README.md) — customer service bot
 
 ## Release highlights
 

@@ -75,22 +75,25 @@ for result in results.get("results", []):
 
 **マルチモーダル** — [テキスト・画像・音声](docs/examples/scenario_7_multimodal.md)。
 
-## ドキュメントとサンプル
+## ドキュメント
 
-| 種類 | リンク |
-|------|--------|
-| はじめに | [Guide](docs/guides/0001-getting_started.md) |
-| 設定 | [Configuration](docs/guides/0003-configuration.md) |
-| CLI | [CLI](docs/guides/0012-cli_usage.md) |
-| マルチエージェント | [Multi-Agent](docs/guides/0005-multi_agent.md) |
-| 統合 | [Integrations](docs/guides/0009-integrations.md) |
-| サブストア | [Sub stores](docs/guides/0006-sub_stores.md) |
-| API | [API overview](docs/api/overview.md) |
-| アーキテクチャ | [Architecture](docs/architecture/overview.md) |
-| シナリオ例 | [Examples](docs/examples/overview.md) |
-| 開発 | [Development](docs/development/overview.md) |
-| サンプル：LangChain | [医療サポート](examples/langchain/README.md) |
-| サンプル：LangGraph | [カスタマーサービス](examples/langgraph/README.md) |
+- [はじめに](docs/guides/0001-getting_started.md) — インストール、`.env`、最初の `Memory` 利用
+- [設定](docs/guides/0003-configuration.md) — 設定モデル、ストレージバックエンド、環境変数
+- [アーキテクチャ](docs/architecture/overview.md) — 主要コンポーネント、ストレージ構成、検索の流れ
+- [API とサービス](docs/api/overview.md) — REST、MCP、HTTP サーバー、Python 向け API
+- [CLI](docs/guides/0012-cli_usage.md) — `pmem` コマンド、対話シェル、バックアップとマイグレーション
+- [マルチエージェント](docs/guides/0005-multi_agent.md) — スコープ、分離、エージェント間共有
+- [統合](docs/guides/0009-integrations.md) — LangChain などフレームワーク連携
+- [Docker とデプロイ](docker/README.md) — イメージ、Compose、API サーバーの実行
+- [開発](docs/development/overview.md) — ローカル環境、テスト、コントリビューション
+
+その他：[サブストア](docs/guides/0006-sub_stores.md)、[ガイド一覧](docs/guides/overview.md)。
+
+## サンプル
+
+- [シナリオと Notebook](docs/examples/overview.md) — ユースケース別の手順とノート（基本、マルチモーダル、忘却曲線など）
+- [LangChain サンプル](examples/langchain/README.md) — 医療サポートチャットボット
+- [LangGraph サンプル](examples/langgraph/README.md) — カスタマーサービスボット
 
 ## リリースハイライト
 

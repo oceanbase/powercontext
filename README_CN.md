@@ -75,22 +75,25 @@ for result in results.get("results", []):
 
 **多模态** — [文本 / 图像 / 语音](docs/examples/scenario_7_multimodal.md)。
 
-## 文档与延伸
+## 文档
 
-| 类型 | 链接 |
-|------|------|
-| 入门 | [Getting Started](docs/guides/0001-getting_started.md) |
-| 配置 | [Configuration](docs/guides/0003-configuration.md) |
-| CLI | [CLI 使用指南](docs/guides/0012-cli_usage.md) |
-| 多智能体 | [Multi-Agent](docs/guides/0005-multi_agent.md) |
-| 集成说明 | [Integrations](docs/guides/0009-integrations.md) |
-| 子存储 | [Sub Stores](docs/guides/0006-sub_stores.md) |
-| API | [API 总览](docs/api/overview.md) |
-| 架构 | [Architecture](docs/architecture/overview.md) |
-| 场景示例 | [Examples](docs/examples/overview.md) |
-| 开发 | [Development](docs/development/overview.md) |
-| 示例：LangChain | [医疗支持机器人](examples/langchain/README.md) |
-| 示例：LangGraph | [客服机器人](examples/langgraph/README.md) |
+- [入门指南](docs/guides/0001-getting_started.md) — 安装、`.env`、首个 `Memory` 用法
+- [配置说明](docs/guides/0003-configuration.md) — 配置模型、存储后端、环境变量
+- [架构](docs/architecture/overview.md) — 主要组件、存储布局、检索主路径
+- [API 与服务](docs/api/overview.md) — REST、MCP、HTTP 服务与 Python 接口入口
+- [CLI](docs/guides/0012-cli_usage.md) — `pmem` 命令、交互 shell、备份与迁移
+- [多智能体](docs/guides/0005-multi_agent.md) — 作用域、隔离与跨 Agent 共享
+- [集成说明](docs/guides/0009-integrations.md) — LangChain 等与框架对接
+- [Docker 与部署](docker/README.md) — 镜像、Compose、运行 API 服务
+- [开发文档](docs/development/overview.md) — 本地环境、测试、参与贡献
+
+更多：[子存储](docs/guides/0006-sub_stores.md)、[指南索引](docs/guides/overview.md)。
+
+## 示例
+
+- [场景与 Notebook](docs/examples/overview.md) — 按用例的说明与笔记本（基础、多模态、遗忘曲线等）
+- [LangChain 示例](examples/langchain/README.md) — 医疗支持机器人
+- [LangGraph 示例](examples/langgraph/README.md) — 客服机器人
 
 ## 版本要点
 
