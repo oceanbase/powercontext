@@ -14,7 +14,7 @@ PowerMem はベクトル・全文・グラフ検索に加え、LLM によるメ�
 
 Python SDK、CLI（`pmem`）、HTTP API Server（Dashboard 付き）、MCP Server は同一の `.env` を共有します。[.env.example](.env.example) と [設定ガイド](docs/guides/0003-configuration.md) を参照してください。
 
-> **ニュース:** [OpenClaw](https://github.com/openclaw-ai/openclaw) はプラグイン [memory-powermem](https://github.com/ob-labs/memory-powermem) により PowerMem を長期メモリとして利用できます（`openclaw plugins install memory-powermem`）。
+> **ニュース:** [OpenClaw](https://github.com/openclaw/openclaw) はプラグイン [memory-powermem](https://github.com/ob-labs/memory-powermem) により PowerMem を長期メモリとして利用できます（`openclaw plugins install memory-powermem`）。
 
 ## クイックスタート
 
@@ -92,8 +92,8 @@ for result in results.get("results", []):
 ## サンプル
 
 - [シナリオと Notebook](docs/examples/overview.md) — ユースケース別の手順とノート（基本、マルチモーダル、忘却曲線など）
-- [LangChain サンプル](examples/langchain/README.md) — 医療サポートチャットボット
-- [LangGraph サンプル](examples/langgraph/README.md) — カスタマーサービスボット
+- [LangChain サンプル](examples/langchain/README.md) — 医療サポートチャットボット（LangChain + PowerMem + OceanBase）
+- [LangGraph サンプル](examples/langgraph/README.md) — カスタマーサービスボット（LangGraph + PowerMem + OceanBase）
 
 ## リリースハイライト
 

@@ -14,7 +14,7 @@ PowerMem 融合向量、全文与图检索，支持由 LLM 驱动的记忆抽取
 
 通过 Python SDK、CLI（`pmem`）、HTTP API Server（含 Dashboard）或 MCP Server 接入时共用同一套 `.env`；完整选项见 [.env.example](.env.example) 与 [配置指南](docs/guides/0003-configuration.md)。
 
-> **动态：** [OpenClaw](https://github.com/openclaw-ai/openclaw) 可通过插件 [memory-powermem](https://github.com/ob-labs/memory-powermem) 使用 PowerMem 作为长期记忆（`openclaw plugins install memory-powermem`）。
+> **动态：** [OpenClaw](https://github.com/openclaw/openclaw) 可通过插件 [memory-powermem](https://github.com/ob-labs/memory-powermem) 使用 PowerMem 作为长期记忆（`openclaw plugins install memory-powermem`）。
 
 ## 快速开始
 
@@ -92,8 +92,8 @@ for result in results.get("results", []):
 ## 示例
 
 - [场景与 Notebook](docs/examples/overview.md) — 按用例的说明与笔记本（基础、多模态、遗忘曲线等）
-- [LangChain 示例](examples/langchain/README.md) — 医疗支持机器人
-- [LangGraph 示例](examples/langgraph/README.md) — 客服机器人
+- [LangChain 示例](examples/langchain/README.md) — 医疗支持机器人（LangChain + PowerMem + OceanBase）
+- [LangGraph 示例](examples/langgraph/README.md) — 客服机器人（LangGraph + PowerMem + OceanBase）
 
 ## 版本要点
 

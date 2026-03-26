@@ -14,7 +14,7 @@ PowerMem combines vector, full-text, and graph retrieval with LLM-driven memory 
 
 Use the Python SDK, CLI (`pmem`), HTTP API Server (with Dashboard), or MCP Server — all share one `.env`. See [.env.example](.env.example) and the [configuration guide](docs/guides/0003-configuration.md).
 
-> **News:** [OpenClaw](https://github.com/openclaw-ai/openclaw) can use PowerMem as long-term memory via [`memory-powermem`](https://github.com/ob-labs/memory-powermem) (`openclaw plugins install memory-powermem`).
+> **News:** [OpenClaw](https://github.com/openclaw/openclaw) can use PowerMem as long-term memory via [`memory-powermem`](https://github.com/ob-labs/memory-powermem) (`openclaw plugins install memory-powermem`).
 
 ## Quick start
 
@@ -92,8 +92,8 @@ More topics: [Sub stores](docs/guides/0006-sub_stores.md), [guides index](docs/g
 ## Examples
 
 - [Scenarios & notebooks](docs/examples/overview.md) — walkthroughs by use case (basic usage, multimodal, forgetting curve, and more)
-- [LangChain sample](examples/langchain/README.md) — medical support chatbot
-- [LangGraph sample](examples/langgraph/README.md) — customer service bot
+- [LangChain sample](examples/langchain/README.md) — medical support chatbot (LangChain + PowerMem + OceanBase)
+- [LangGraph sample](examples/langgraph/README.md) — customer service bot (LangGraph + PowerMem + OceanBase)
 
 ## Release highlights
 
