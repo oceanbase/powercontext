@@ -1,4 +1,4 @@
-# PowerMem — Intelligent Memory for AI Applications
+# PowerMem
 
 **Persistent memory for AI agents and applications.**
 

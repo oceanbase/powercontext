@@ -1,4 +1,4 @@
-# PowerMem — 智能 AI 记忆系统
+# PowerMem
 
 **面向 AI 应用与智能体的持久化记忆层。**
 
