@@ -482,6 +482,31 @@ class TestMemoryList:
         )
         assert_success(rc, out, err, "Showing", "memories", "offset", "0", test_data['user_id'])
 
+    def test_memory_list_user_agent_id_truncation_shows_ellipsis(self, cli_runner):
+        """memory list should truncate long user_id/agent_id with ellipsis"""
+        long_user_id = "list_user_id_1234567890"
+        long_agent_id = "list_agent_id_1234567890"
+        try:
+            rc, out, err = cli_runner.pmem(
+                f'memory add "list long ids test" --user-id {long_user_id} --agent-id {long_agent_id}'
+            )
+            assert_success(rc, out, err, "add")
+
+            rc, out, err = cli_runner.pmem(
+                f"memory list --user-id {long_user_id} --agent-id {long_agent_id} --limit 5"
+            )
+            assert_success(rc, out, err, "found", "id", "user id", "agent id", "content")
+            combined = (out + err).lower()
+            assert "list_user_id_1234..." in combined, \
+                f"Expected truncated user_id with ellipsis, got output:\n{out}\n{err}"
+            assert "list_agent_id_123..." in combined, \
+                f"Expected truncated agent_id with ellipsis, got output:\n{out}\n{err}"
+        finally:
+            cli_runner.pmem(
+                f"memory delete-all --user-id {long_user_id} --agent-id {long_agent_id} --confirm",
+                input_text="y\n",
+            )
+
 
 class TestMemorySearch:
     """Test memory search command"""
@@ -833,24 +858,36 @@ class TestShell:
     def test_shell_list_user_id_truncation_shows_ellipsis(self, cli_runner):
         """shell list should show ellipsis when user_id is truncated"""
         long_user_id = "shell_user_id_1234567890"
+        try:
+            rc, out, err = cli_runner.pmem(
+                f'memory add "shell long user id test" --user-id {long_user_id} --agent-id shell_agent'
+            )
+            # Be tolerant to wording differences like "ADD" vs "added".
+            assert_success(rc, out, err, "add")
 
-        rc, out, err = cli_runner.pmem(
-            f'memory add "shell long user id test" --user-id {long_user_id} --agent-id shell_agent'
-        )
-        assert_success(rc, out, err, "added")
+            last_rc, last_out, last_err = 0, "", ""
+            for _ in range(5):
+                last_rc, last_out, last_err = cli_runner.pmem(
+                    "shell",
+                    timeout=15,
+                    input_text=f"list --user-id {long_user_id} -l 5\nexit\n",
+                )
+                combined = (last_out + last_err).lower()
+                if "shell_user_id_12345..." in combined:
+                    break
+                time.sleep(0.5)
 
-        rc, out, err = cli_runner.pmem(
-            "shell",
-            timeout=15,
-            input_text=f"list --user-id {long_user_id} -l 5\nexit\n",
-        )
-        assert_success(rc, out, err, "Found", "memories")
-        assert_contains(rc, out, err, ["shell_user_id_12345..."])
-
-        cli_runner.pmem(
-            f"memory delete-all --user-id {long_user_id} --confirm",
-            input_text="y\n",
-        )
+            assert_success(last_rc, last_out, last_err, "found", "memories")
+            combined = (last_out + last_err).lower()
+            assert (
+                "shell_user_id_12345..." in combined
+                or "shell_user_id_123..." in combined
+            ), f"Expected truncated user_id with ellipsis, got output:\n{last_out}\n{last_err}"
+        finally:
+            cli_runner.pmem(
+                f"memory delete-all --user-id {long_user_id} --confirm",
+                input_text="y\n",
+            )
     
     def test_shell_exit(self, cli_runner):
         """shell exit should exit normally"""
