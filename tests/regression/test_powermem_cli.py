@@ -829,6 +829,28 @@ class TestShell:
         """shell list command should work properly"""
         rc, out, err = cli_runner.pmem("shell", timeout=15, input_text="list -l 1\nexit\n")
         assert_success(rc, out, err, "Found", "memories")
+
+    def test_shell_list_user_id_truncation_shows_ellipsis(self, cli_runner):
+        """shell list should show ellipsis when user_id is truncated"""
+        long_user_id = "shell_user_id_1234567890"
+
+        rc, out, err = cli_runner.pmem(
+            f'memory add "shell long user id test" --user-id {long_user_id} --agent-id shell_agent'
+        )
+        assert_success(rc, out, err, "added")
+
+        rc, out, err = cli_runner.pmem(
+            "shell",
+            timeout=15,
+            input_text=f"list --user-id {long_user_id} -l 5\nexit\n",
+        )
+        assert_success(rc, out, err, "Found", "memories")
+        assert_contains(rc, out, err, ["shell_user_id_12345..."])
+
+        cli_runner.pmem(
+            f"memory delete-all --user-id {long_user_id} --confirm",
+            input_text="y\n",
+        )
     
     def test_shell_exit(self, cli_runner):
         """shell exit should exit normally"""
