@@ -1,0 +1,177 @@
+name: Export Docker Image Package
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      target_type:
+        description: Source type to build from
+        required: true
+        default: branch
+        type: choice
+        options:
+          - branch
+          - tag
+          - pr
+      target_value:
+        description: Branch name, tag name, or PR number
+        required: true
+        default: main
+      image_tag:
+        description: Docker image tag to export
+        required: true
+        default: latest
+      platform:
+        description: Target platform
+        required: true
+        default: linux/amd64
+        type: choice
+        options:
+          - linux/amd64
+          - linux/arm64
+
+permissions:
+  contents: read
+
+jobs:
+  export-docker-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve checkout ref
+        id: resolve-ref
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          EVENT_NAME="${{ github.event_name }}"
+
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            CHECKOUT_REF="${{ github.event.pull_request.head.sha }}"
+            SOURCE_LABEL="pr:${{ github.event.pull_request.number }}"
+          else
+            TARGET_TYPE="${{ github.event.inputs.target_type }}"
+            TARGET_VALUE="${{ github.event.inputs.target_value }}"
+
+            case "${TARGET_TYPE}" in
+              branch)
+                CHECKOUT_REF="${TARGET_VALUE}"
+                SOURCE_LABEL="branch:${TARGET_VALUE}"
+                ;;
+              tag)
+                CHECKOUT_REF="refs/tags/${TARGET_VALUE}"
+                SOURCE_LABEL="tag:${TARGET_VALUE}"
+                ;;
+              pr)
+                CHECKOUT_REF="refs/pull/${TARGET_VALUE}/head"
+                SOURCE_LABEL="pr:${TARGET_VALUE}"
+                ;;
+              *)
+                echo "Unsupported target_type: ${TARGET_TYPE}"
+                exit 1
+                ;;
+            esac
+          fi
+
+          echo "checkout_ref=${CHECKOUT_REF}" >> "${GITHUB_OUTPUT}"
+          echo "source_label=${SOURCE_LABEL}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved checkout ref: ${CHECKOUT_REF}"
+
+      - name: Resolve build parameters
+        id: resolve-build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          EVENT_NAME="${{ github.event_name }}"
+
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            SHORT_SHA="$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)"
+            IMAGE_TAG="pr-${PR_NUMBER}-${SHORT_SHA}"
+            PLATFORM="linux/amd64"
+          else
+            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+            PLATFORM="${{ github.event.inputs.platform }}"
+          fi
+
+          echo "image_tag=${IMAGE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "platform=${PLATFORM}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved image_tag: ${IMAGE_TAG}"
+          echo "Resolved platform: ${PLATFORM}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve-ref.outputs.checkout_ref }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image and save as tar
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="oceanbase/powermem-server"
+          IMAGE_TAG="${{ steps.resolve-build.outputs.image_tag }}"
+          PLATFORM="${{ steps.resolve-build.outputs.platform }}"
+          PLATFORM_SUFFIX="${PLATFORM//\//-}"
+
+          mkdir -p docker-images
+
+          echo "Building ${IMAGE_NAME}:${IMAGE_TAG} for ${PLATFORM}"
+          docker buildx build \
+            . \
+            --file docker/Dockerfile \
+            --platform "${PLATFORM}" \
+            --tag "${IMAGE_NAME}:${IMAGE_TAG}" \
+            --load
+
+          OUTPUT_FILE="docker-images/powermem-server-${IMAGE_TAG}-${PLATFORM_SUFFIX}.tar"
+          echo "Saving Docker image to ${OUTPUT_FILE}"
+          docker save "${IMAGE_NAME}:${IMAGE_TAG}" --output "${OUTPUT_FILE}"
+
+          ls -lh docker-images
+          echo "Load command: docker load -i ${OUTPUT_FILE}"
+
+      - name: Generate load instructions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SOURCE_LABEL="${{ steps.resolve-ref.outputs.source_label }}"
+          IMAGE_TAG="${{ steps.resolve-build.outputs.image_tag }}"
+          PLATFORM="${{ steps.resolve-build.outputs.platform }}"
+          PLATFORM_SUFFIX="${PLATFORM//\//-}"
+          TAR_FILE="powermem-server-${IMAGE_TAG}-${PLATFORM_SUFFIX}.tar"
+
+          cat > docker-images/README.txt <<EOF
+          Docker image package generated by GitHub Actions.
+
+          Source:
+          - ${SOURCE_LABEL}
+
+          File:
+          - ${TAR_FILE}
+
+          How to use:
+          1) Download artifact and extract it.
+          2) Load image:
+             docker load -i ${TAR_FILE}
+          3) Verify image:
+             docker images | rg powermem-server
+          EOF
+
+      - name: Upload docker image package
+        uses: actions/upload-artifact@v4
+        with:
+          name: powermem-server-image-${{ steps.resolve-build.outputs.image_tag }}
+          path: docker-images/*
+          retention-days: 30
+          if-no-files-found: error
