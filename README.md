@@ -239,6 +239,7 @@ The MCP server provides tools for memory management including adding, searching,
 
 | Version | Release Date | Function |
 |---------|--------------|---------|
+| 1.1.0 | 2026.04.02   | <ul><li>Storage · Embedded seekdb: run embedded seekdb locally via ob_path, without deploying a separate database service</li></ul> |
 | 1.0.0 | 2026.03.16   | <ul><li>PowerMem CLI (pmem): memory operations, config management, backup/restore/migrate, interactive shell, and shell completion</li><li>Web Dashboard for memory management and visualization</li></ul> |
 | 0.5.0 | 2026.02.06   | <ul><li>Unified configuration governance across SDK/API Server (pydantic-settings based)</li><li>Added OceanBase native hybrid search support</li><li>Enhanced Memory query handling and added sorting support for memory list operations</li><li>Added user profile support for custom native-language output</li></ul> |
 | 0.4.0 | 2026.01.20   | <ul><li>Sparse vector support for enhanced hybrid retrieval, combining dense vector, full-text, and sparse vector search</li><li>User memory query rewriting - automatically enhances search queries based on user profiles for improved recall</li><li>Schema upgrade and data migration tools for existing tables</li></ul> |
