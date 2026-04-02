@@ -4,7 +4,7 @@ This scenario demonstrates how to implement and utilize the Ebbinghaus Forgettin
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - powermem installed (`pip install powermem`)
 - matplotlib and numpy for visualization (optional)
 

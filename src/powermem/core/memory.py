@@ -1225,13 +1225,27 @@ class Memory(MemoryBase):
             # Intelligent plugin lifecycle management on search
             if self._intelligence_plugin and self._intelligence_plugin.enabled:
                 updates, deletes = self._intelligence_plugin.on_search(processed_results)
+                # For embedded SeekDB the engine is single-threaded (NullPool, not
+                # thread-safe).  Background threads opening concurrent connections
+                # crash the C++ layer.  Run updates/deletes synchronously instead.
+                _is_embedded_store = (
+                    hasattr(self.storage, 'vector_store')
+                    and hasattr(self.storage.vector_store, 'connection_args')
+                    and not self.storage.vector_store.connection_args.get("host")
+                )
                 if updates:
                     for mem_id, upd in updates:
-                        _BACKGROUND_EXECUTOR.submit(self.storage.update_memory,mem_id,{**upd},user_id,agent_id)
+                        if _is_embedded_store:
+                            self.storage.update_memory(mem_id, {**upd}, user_id, agent_id)
+                        else:
+                            _BACKGROUND_EXECUTOR.submit(self.storage.update_memory, mem_id, {**upd}, user_id, agent_id)
                     logger.info(f"Submitted {len(updates)} update operations to background executor")
                 if deletes:
                     for mem_id in deletes:
-                        _BACKGROUND_EXECUTOR.submit(self.storage.delete_memory,mem_id,user_id,agent_id)
+                        if _is_embedded_store:
+                            self.storage.delete_memory(mem_id, user_id, agent_id)
+                        else:
+                            _BACKGROUND_EXECUTOR.submit(self.storage.delete_memory, mem_id, user_id, agent_id)
                     logger.info(f"Submitted {len(deletes)} delete operations to background executor")
             
             # Transform results to match benchmark expected format

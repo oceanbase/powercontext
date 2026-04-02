@@ -37,6 +37,7 @@ from pyobvector import ObVecClient, l2_distance, VECTOR, VecIndexType
 from powermem.integrations import EmbedderFactory, LLMFactory
 from powermem.storage.base import GraphStoreBase
 from powermem.utils.utils import format_entities, remove_code_blocks, generate_snowflake_id, get_current_datetime
+from powermem.utils.oceanbase_util import OceanBaseUtil
 
 try:
     from rank_bm25 import BM25Okapi
@@ -123,18 +124,23 @@ class MemoryGraph(GraphStoreBase):
         )
 
         # Initialize OceanBase client
-        host = get_config_value("host", "127.0.0.1")
-        port = get_config_value("port", "2881")
-        user = get_config_value("user", "root")
-        password = get_config_value("password", "")
+        host = get_config_value("host", "")
         db_name = get_config_value("db_name", "test")
 
-        self.client = ObVecClient(
-            uri=f"{host}:{port}",
-            user=user,
-            password=password,
-            db_name=db_name,
-        )
+        if host:
+            port = get_config_value("port", "2881")
+            user = get_config_value("user", "root")
+            password = get_config_value("password", "")
+            self.client = ObVecClient(
+                uri=f"{host}:{port}",
+                user=user,
+                password=password,
+                db_name=db_name,
+            )
+        else:
+            ob_path = get_config_value("ob_path", "./seekdb_data")
+            OceanBaseUtil.ensure_embedded_database_exists(ob_path, db_name)
+            self.client = ObVecClient(path=ob_path, db_name=db_name)
         self.engine = self.client.engine
         self.metadata = MetaData()
 
@@ -540,7 +546,7 @@ class MemoryGraph(GraphStoreBase):
 
             # Collect unique entity IDs from relationships
             entity_ids = set()
-            for rel in relationships_results.fetchall():
+            for rel in OceanBaseUtil.safe_fetchall(relationships_results):
                 entity_ids.add(rel[1])  # source_entity_id
                 entity_ids.add(rel[2])  # destination_entity_id
 
@@ -583,7 +589,7 @@ class MemoryGraph(GraphStoreBase):
             where_clause=where_clause
         )
 
-        relationships = relationships_results.fetchall()
+        relationships = OceanBaseUtil.safe_fetchall(relationships_results)
         if not relationships:
             return []
 
@@ -605,7 +611,7 @@ class MemoryGraph(GraphStoreBase):
         )
 
         # Create a mapping from entity_id to entity_name
-        entity_map = {entity[0]: entity[1] for entity in entities_results.fetchall()}
+        entity_map = {entity[0]: entity[1] for entity in OceanBaseUtil.safe_fetchall(entities_results)}
 
         # Build final results with updated_at for sorting
         final_results = []
@@ -869,12 +875,12 @@ class MemoryGraph(GraphStoreBase):
         if conn is not None:
             # Reuse existing connection (transactional)
             result = conn.execute(text(query), params)
-            rows = result.fetchall()
+            rows = OceanBaseUtil.safe_fetchall(result)
         else:
             # Create new connection (backward compatibility)
             with self.engine.connect() as new_conn:
                 result = new_conn.execute(text(query), params)
-                rows = result.fetchall()
+                rows = OceanBaseUtil.safe_fetchall(result)
 
         # Format results and filter out cycles
         formatted_results = []
@@ -1071,8 +1077,8 @@ class MemoryGraph(GraphStoreBase):
             )
 
             # Get entity IDs
-            source_rows = source_entities.fetchall() if source_entities else []
-            dest_rows = dest_entities.fetchall() if dest_entities else []
+            source_rows = OceanBaseUtil.safe_fetchall(source_entities) if source_entities else []
+            dest_rows = OceanBaseUtil.safe_fetchall(dest_entities) if dest_entities else []
 
             source_ids = [e[0] for e in source_rows]
             dest_ids = [e[0] for e in dest_rows]
@@ -1239,7 +1245,7 @@ class MemoryGraph(GraphStoreBase):
             where_clause=where_clause,
         )
 
-        rows = results.fetchall()
+        rows = OceanBaseUtil.safe_fetchall(results)
         if rows:
             if limit == 1:
                 row = rows[0]
@@ -1336,7 +1342,7 @@ class MemoryGraph(GraphStoreBase):
             where_clause=[where_clause_with_params]
         )
 
-        existing_rows = existing_relationships.fetchall()
+        existing_rows = OceanBaseUtil.safe_fetchall(existing_relationships)
         if not existing_rows:
             # Relationship doesn't exist, create new one
             current_time = get_current_datetime()
@@ -1359,17 +1365,17 @@ class MemoryGraph(GraphStoreBase):
 
         # Get the names for return value using pyobvector get method
         # First get the entities
-        source_entity = self.client.get(
+        source_entity = OceanBaseUtil.safe_fetchone(self.client.get(
             table_name=constants.TABLE_ENTITIES,
             ids=[source_id],
             output_column_name=["id", "name"]
-        ).fetchone()
+        ))
 
-        dest_entity = self.client.get(
+        dest_entity = OceanBaseUtil.safe_fetchone(self.client.get(
             table_name=constants.TABLE_ENTITIES,
             ids=[dest_id],
             output_column_name=["id", "name"]
-        ).fetchone()
+        ))
 
         return {
             "source": source_entity[1] if source_entity else None,

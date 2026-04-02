@@ -40,7 +40,7 @@ This example demonstrates how to build an AI Healthcare Support Bot using **Powe
 
 ## Prerequisites
 
-1. **Python 3.10+**
+1. **Python 3.11+**
 2. **OceanBase Database** (configured and running)
 3. **API Keys**:
    - LLM API key (OpenAI, Qwen, etc.)

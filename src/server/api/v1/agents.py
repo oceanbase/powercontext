@@ -16,9 +16,17 @@ from ...utils.converters import memory_dict_to_response
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
-def get_agent_service() -> AgentService:
-    """Dependency to get agent service"""
-    return AgentService()
+def get_agent_service(request: Request) -> AgentService:
+    """Dependency to get agent service singleton from app state"""
+    service = request.app.state.agent_service
+    if service is None:
+        from ...models.errors import ErrorCode, APIError
+        raise APIError(
+            code=ErrorCode.INTERNAL_ERROR,
+            message="Agent service unavailable: storage backend initialization failed",
+            status_code=503,
+        )
+    return service
 
 
 @router.get(

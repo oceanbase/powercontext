@@ -27,8 +27,8 @@
     <a href="https://github.com/oceanbase/powermem/blob/master/LICENSE">
         <img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-green.svg" />
     </a>
-    <a href="https://img.shields.io/badge/python%20-3.10.0%2B-blue.svg">
-        <img alt="pyversions" src="https://img.shields.io/badge/python%20-3.10.0%2B-blue.svg" />
+    <a href="https://img.shields.io/badge/python%20-3.11.0%2B-blue.svg">
+        <img alt="pyversions" src="https://img.shields.io/badge/python%20-3.11.0%2B-blue.svg" />
     </a>
     <a href="https://deepwiki.com/oceanbase/powermem">
         <img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg" />

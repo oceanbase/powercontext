@@ -153,7 +153,7 @@ setup_token_counting()
 app = FastAPI(
     title="PowerMem Benchmark REST APIs",
     description="A REST API for managing and searching memories for benchmark testing scenarios.",
-    version="1.0.0",
+    version="1.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )

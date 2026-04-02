@@ -74,6 +74,7 @@ class UserMemory:
                 "user": connection_args.get("user"),
                 "password": connection_args.get("password"),
                 "db_name": connection_args.get("db_name"),
+                "ob_path": connection_args.get("ob_path"),
             }
         
         # Use factory to create UserProfileStore based on storage_type

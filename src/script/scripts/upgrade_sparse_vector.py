@@ -69,31 +69,40 @@ def _validate_and_parse_config(config: Dict[str, Any]) -> Tuple[ObVecClient, str
     user = connection_args.get('user')
     password = connection_args.get('password')
     db_name = connection_args.get('db_name')
+    ob_path = connection_args.get('ob_path', './seekdb_data')
     collection_name = ob_config.get('collection_name', 'power_mem')
     
-    # 6. Validate required parameters
-    if not all([host, port, user, db_name]):
-        missing = []
-        if not host: missing.append('host')
-        if not port: missing.append('port')
-        if not user: missing.append('user')
-        if not db_name: missing.append('db_name')
-        raise ValueError(
-            f"Missing required OceanBase connection parameters: {', '.join(missing)}. "
-            f"Please ensure config contains 'vector_store.config.connection_args.{{host, port, user, db_name}}'."
-        )
-    
-    # 7. Create database connection
+    # 6. Validate required parameters and create connection
     try:
-        logger.info(f"Connecting to OceanBase at {host}:{port}...")
-        obvector = ObVecClient(
-            uri=f"{host}:{port}",
-            user=user,
-            password=password or "",
-            db_name=db_name
-        )
-        logger.info(f"Connected successfully to database '{db_name}'")
+        if host:
+            if not all([port, user, db_name]):
+                missing = []
+                if not port: missing.append('port')
+                if not user: missing.append('user')
+                if not db_name: missing.append('db_name')
+                raise ValueError(
+                    f"Missing required OceanBase connection parameters: {', '.join(missing)}. "
+                    f"Please ensure config contains 'vector_store.config.connection_args.{{port, user, db_name}}'."
+                )
+            logger.info(f"Connecting to OceanBase at {host}:{port}...")
+            obvector = ObVecClient(
+                uri=f"{host}:{port}",
+                user=user,
+                password=password or "",
+                db_name=db_name
+            )
+            logger.info(f"Connected successfully to database '{db_name}'")
+        else:
+            if not db_name:
+                raise ValueError(
+                    "Missing required parameter 'db_name' for embedded SeekDB connection."
+                )
+            logger.info(f"Connecting to embedded SeekDB at {ob_path}...")
+            obvector = ObVecClient(path=ob_path, db_name=db_name)
+            logger.info(f"Connected successfully to embedded SeekDB database '{db_name}'")
         return obvector, collection_name
+    except (ValueError, RuntimeError):
+        raise
     except Exception as e:
         raise RuntimeError(f"Failed to connect to OceanBase: {e}") from e
 

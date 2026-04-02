@@ -92,7 +92,7 @@ class AuditLogger:
                 "user_id": user_id,
                 "agent_id": agent_id,
                 "details": details,
-                "version": "1.0.2",
+                "version": "1.1.0",
             }
             
             # Log to file

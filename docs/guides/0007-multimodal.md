@@ -1,6 +1,6 @@
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - powermem installed (`pip install powermem`)
 - Multimodal LLM API support
 

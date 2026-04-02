@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any, List
 from sqlalchemy import and_, or_, func, literal, null, Index
 
 from ...storage.oceanbase import constants
+from ...utils.oceanbase_util import OceanBaseUtil
 from ...utils.utils import serialize_datetime, generate_snowflake_id, get_current_datetime
 
 try:
@@ -41,6 +42,7 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
             user: Optional[str] = None,
             password: Optional[str] = None,
             db_name: Optional[str] = None,
+            ob_path: Optional[str] = None,
             **kwargs,
     ):
         """
@@ -49,11 +51,12 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
         Args:
             table_name (str): Name of the table to store user profiles.
             connection_args (Optional[Dict[str, Any]]): Connection parameters for OceanBase.
-            host (Optional[str]): OceanBase server host.
+            host (Optional[str]): OceanBase server host (empty means embedded SeekDB mode).
             port (Optional[str]): OceanBase server port.
             user (Optional[str]): OceanBase username.
             password (Optional[str]): OceanBase password.
             db_name (Optional[str]): OceanBase database name.
+            ob_path (Optional[str]): Path for embedded SeekDB data directory.
         """
         self.table_name = table_name
         self.primary_field = "id"
@@ -69,6 +72,7 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
             "user": user or connection_args.get("user", constants.DEFAULT_OCEANBASE_CONNECTION["user"]),
             "password": password or connection_args.get("password", constants.DEFAULT_OCEANBASE_CONNECTION["password"]),
             "db_name": db_name or connection_args.get("db_name", constants.DEFAULT_OCEANBASE_CONNECTION["db_name"]),
+            "ob_path": ob_path or connection_args.get("ob_path", constants.DEFAULT_OCEANBASE_CONNECTION["ob_path"]),
         }
 
         self.connection_args = final_connection_args
@@ -83,18 +87,23 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
     def _create_client(self, **kwargs):
         """Create and initialize the OceanBase client."""
         host = self.connection_args.get("host")
-        port = self.connection_args.get("port")
-        user = self.connection_args.get("user")
-        password = self.connection_args.get("password")
         db_name = self.connection_args.get("db_name")
 
-        self.obvector = ObVecClient(
-            uri=f"{host}:{port}",
-            user=user,
-            password=password,
-            db_name=db_name,
-            **kwargs,
-        )
+        if host:
+            port = self.connection_args.get("port")
+            user = self.connection_args.get("user")
+            password = self.connection_args.get("password")
+            self.obvector = ObVecClient(
+                uri=f"{host}:{port}",
+                user=user,
+                password=password,
+                db_name=db_name,
+                **kwargs,
+            )
+        else:
+            ob_path = self.connection_args.get("ob_path", "./seekdb_data")
+            OceanBaseUtil.ensure_embedded_database_exists(ob_path, db_name)
+            self.obvector = ObVecClient(path=ob_path, db_name=db_name)
 
     def _create_table(self) -> None:
         """Create user profiles table if it doesn't exist."""
@@ -159,7 +168,7 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
 
             stmt = self.table.select().where(and_(*conditions)).limit(1)
             result = conn.execute(stmt)
-            existing_row = result.fetchone()
+            existing_row = OceanBaseUtil.safe_fetchone(result)
 
             # Prepare update/insert values
             values = {
@@ -226,7 +235,7 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
             stmt = stmt.limit(1)
 
             result = conn.execute(stmt)
-            row = result.fetchone()
+            row = OceanBaseUtil.safe_fetchone(result)
 
             if row:
                 return {
@@ -413,7 +422,7 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
 
             # Execute query and build results
             result = conn.execute(stmt)
-            rows = result.fetchall()
+            rows = OceanBaseUtil.safe_fetchall(result)
 
             return [
                 self._build_profile_dict(row, main_topic, sub_topic)

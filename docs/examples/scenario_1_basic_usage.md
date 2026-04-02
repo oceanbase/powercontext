@@ -4,7 +4,7 @@ This scenario guides you through the basics of powermem - storing, retrieving, a
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - powermem installed (`pip install powermem`)
 
 ## Configuration

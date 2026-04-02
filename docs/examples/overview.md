@@ -67,7 +67,7 @@ Each notebook includes:
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - powermem installed (`pip install powermem`)
 - Jupyter Notebook (for interactive notebooks)
 - LLM provider configured (for intelligent features in Scenario 2+)

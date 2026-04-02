@@ -16,9 +16,17 @@ from ...utils.converters import user_profile_to_response, memory_dict_to_respons
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-def get_user_service() -> UserService:
-    """Dependency to get user service"""
-    return UserService()
+def get_user_service(request: Request) -> UserService:
+    """Dependency to get user service singleton from app state"""
+    service = request.app.state.user_service
+    if service is None:
+        from ...models.errors import ErrorCode, APIError
+        raise APIError(
+            code=ErrorCode.INTERNAL_ERROR,
+            message="User service unavailable: storage backend initialization failed",
+            status_code=503,
+        )
+    return service
 
 
 @router.get(

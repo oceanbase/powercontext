@@ -54,7 +54,7 @@ bash run.sh results
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.11 or higher
 - pip or poetry for dependency management
 - LLM and embedding API keys (OpenAI, Qwen, etc. — see root `.env.example`)
 - Database: OceanBase, PostgreSQL, or SQLite (depending on your configuration)
@@ -398,7 +398,7 @@ The benchmark evaluates performance using multiple metrics:
 - **Solution**: 
   - Install all dependencies: `pip install -r benchmark/locomo/requirements.txt`
   - Ensure you're running from the correct directory
-  - Check Python version (requires 3.10+)
+  - Check Python version (requires 3.11+)
 
 #### Slow performance
 - **Solution**: 
