@@ -784,3 +784,42 @@ class OceanBaseUtil:
         except Exception as e:
             logger.error(f"Error parsing native hybrid search results: {e}")
             return []
+
+    @staticmethod
+    def safe_fetchall(result):
+        """Safely fetch all rows, returning empty list when SeekDB embedded returns no-row result for empty tables."""
+        if not getattr(result, 'returns_rows', True):
+            return []
+        return result.fetchall()
+
+    @staticmethod
+    def safe_fetchone(result):
+        """Safely fetch one row, returning None when SeekDB embedded returns no-row result for empty tables."""
+        if not getattr(result, 'returns_rows', True):
+            return None
+        return result.fetchone()
+
+    @staticmethod
+    def ensure_embedded_database_exists(ob_path: str, db_name: str) -> None:
+        """
+        For embedded SeekDB mode only: ensure the target database exists, creating it if necessary.
+
+        Connects to the default 'test' database first, then executes
+        CREATE DATABASE IF NOT EXISTS for the target database.
+
+        Args:
+            ob_path: Path for embedded SeekDB data directory.
+            db_name: Target database name to ensure exists.
+        """
+        if not db_name or db_name == "test":
+            return
+
+        try:
+            from pyobvector import ObVecClient
+            temp_client = ObVecClient(path=ob_path, db_name="test")
+            with temp_client.engine.connect() as conn:
+                conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{db_name}`"))
+                conn.commit()
+            logger.info(f"Ensured embedded database '{db_name}' exists")
+        except Exception as e:
+            logger.warning(f"Failed to create embedded database '{db_name}': {e}")

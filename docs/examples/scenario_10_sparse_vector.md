@@ -4,7 +4,7 @@ This example demonstrates how to use the sparse vector feature, including config
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - powermem installed (`pip install powermem`)
 - Database: **seekdb** or **OceanBase >= 4.5.0**
 

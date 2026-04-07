@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check build-dashboard publish-pypi publish-testpypi install-build-tools upload docs bump-version server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
+.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check build-dashboard build-claude-hook package-claude-plugin publish-pypi publish-testpypi install-build-tools upload docs bump-version server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
 
 help: ## Show help information
 	@echo "powermem Project Build Tools"
@@ -122,6 +122,12 @@ build-dashboard: ## Build dashboard frontend and inject into src/server/dashboar
 	@cp -r dashboard/dist/* src/server/dashboard/
 	@echo "✓ Dashboard built. Start server with: make server-start-reload (then open http://localhost:$(SERVER_PORT)/dashboard/)"
 
+build-claude-hook: ## Build Claude Code hook binaries (Go; output: apps/claude-code-plugin/hooks/bin/)
+	@bash apps/claude-code-plugin/scripts/build-hook-binaries.sh
+
+package-claude-plugin: ## Zip Claude Code plugin for sharing (apps/claude-code-plugin/dist/*.zip)
+	@bash apps/claude-code-plugin/scripts/package-plugin.sh
+
 install-build-tools: ## Install build and upload tools
 	@echo "Installing build tools..."
 	pip install --upgrade build twine
@@ -170,6 +176,10 @@ setup-env: ## Setup development environment
 	python scripts/setup.py
 
 # Version management
+# macOS BSD sed: -i requires a backup extension; use '' for in-place without backup.
+# GNU sed accepts plain -i; '' is also valid. \+ in patterns is GNU-specific; use -E and + for portability.
+SED_INPLACE := $(if $(filter Darwin,$(shell uname -s)),sed -i '',sed -i)
+
 bump-version: ## Bump version number (usage: make bump-version VERSION=0.2.0)
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Error: VERSION is required. Usage: make bump-version VERSION=0.2.0"; \
@@ -177,13 +187,13 @@ bump-version: ## Bump version number (usage: make bump-version VERSION=0.2.0)
 	fi
 	@echo "Bumping version to $(VERSION)..."
 	@# Update pyproject.toml
-	@sed -i 's/^version = ".*"/version = "$(VERSION)"/' pyproject.toml
+	@$(SED_INPLACE) 's/^version = ".*"/version = "$(VERSION)"/' pyproject.toml
 	@# Update src/powermem/version.py
-	@sed -i 's/^__version__ = ".*"/__version__ = "$(VERSION)"/' src/powermem/version.py
+	@$(SED_INPLACE) 's/^__version__ = ".*"/__version__ = "$(VERSION)"/' src/powermem/version.py
 	@# Update src/powermem/core/telemetry.py (all occurrences; match any x.y.z)
-	@sed -i 's/"version": "[0-9]\+\.[0-9]\+\.[0-9]\+"/"version": "$(VERSION)"/g' src/powermem/core/telemetry.py
+	@$(SED_INPLACE) -E 's/"version": "[0-9]+\.[0-9]+\.[0-9]+"/"version": "$(VERSION)"/g' src/powermem/core/telemetry.py
 	@# Update src/powermem/core/audit.py (match any x.y.z)
-	@sed -i 's/"version": "[0-9]\+\.[0-9]\+\.[0-9]\+"/"version": "$(VERSION)"/g' src/powermem/core/audit.py
+	@$(SED_INPLACE) -E 's/"version": "[0-9]+\.[0-9]+\.[0-9]+"/"version": "$(VERSION)"/g' src/powermem/core/audit.py
 	@echo "✓ Version updated to $(VERSION) in all files (excluding examples/)"
 	@echo ""
 	@echo "Updated files:"

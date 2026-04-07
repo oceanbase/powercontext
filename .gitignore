@@ -222,3 +222,8 @@ api_data/
 server_backup/
 *.backup
 
+# apps/vscode-extension (Node / VS Code)
+apps/vscode-extension/node_modules/
+apps/vscode-extension/out/
+apps/vscode-extension/*.vsix
+

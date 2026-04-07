@@ -1,5 +1,6 @@
 name: Build Package
 
+# Main PowerMem release (Python packages). Does not run on plugin-only tags (plugins-v*).
 on:
   push:
     branches: [main, develop]
@@ -12,10 +13,9 @@ on:
       python_version:
         description: 'Python version to build with'
         required: false
-        default: '3.10'
+        default: '3.11'
         type: choice
         options:
-          - '3.10'
           - '3.11'
           - '3.12'
 
@@ -53,7 +53,7 @@ jobs:
     needs: build-dashboard
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
       fail-fast: false
 
     steps:
@@ -140,7 +140,8 @@ jobs:
 
   build-and-release:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Only release on version tags v*; do not run for plugin-only tags (plugins-v*)
+    if: startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/plugins-')
     needs: combine-artifacts
     permissions:
       contents: write

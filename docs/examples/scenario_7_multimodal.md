@@ -4,7 +4,7 @@ This scenario demonstrates PowerMem's multimodal capability - storing and retrie
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - powermem installed (`pip install powermem`)
 - Multimodal LLM API support
 

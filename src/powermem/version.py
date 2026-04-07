@@ -2,11 +2,12 @@
 Version information management
 """
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 __version_info__ = tuple(map(int, __version__.split(".")))
 
 # Version history
 VERSION_HISTORY = {
+    "1.1.0": "2026-04-02 - Version 1.1.0 release",
     "1.0.0": "2026-03-16 - Version 1.0.0 release",
     "0.5.0": "2026-02-06 - Version 0.5.0 release",
     "0.4.0": "2026-01-20 - Version 0.4.0 release",

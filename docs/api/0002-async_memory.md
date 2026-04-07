@@ -263,6 +263,24 @@ async def batch_process():
 asyncio.run(batch_process())
 ```
 
+### Limitation: Embedded SeekDB Does Not Support Async
+
+Embedded SeekDB (local file mode with no `host` configured) uses a single-threaded C++ engine that **does not support concurrent multi-threaded access**. `AsyncMemory` internally submits synchronous operations to a `ThreadPoolExecutor`, which causes multiple threads to read and write the same embedded SeekDB instance simultaneously. This leads to C++-level crashes such as `pure virtual method called` or `Segmentation fault`.
+
+**`AsyncMemory` cannot be used with embedded SeekDB.** Use the synchronous `Memory` class instead.
+
+```python
+# ❌ Not supported with embedded SeekDB
+from powermem import AsyncMemory
+async_memory = AsyncMemory(config=embedded_seekdb_config)  # crashes
+
+# ✓ Use the synchronous interface with embedded SeekDB
+from powermem import Memory
+memory = Memory(config=embedded_seekdb_config)
+```
+
+Remote OceanBase (with `host` configured) is not affected by this limitation and fully supports `AsyncMemory`.
+
 ### When to Use AsyncMemory
 
 Use `AsyncMemory` when:
@@ -270,9 +288,11 @@ Use `AsyncMemory` when:
 - Building async web applications (FastAPI, aiohttp)
 - Implementing batch processing pipelines
 - Need non-blocking memory operations
+- Using **remote OceanBase** (with `host` configured)
 
 Use `Memory` when:
 - Simple synchronous scripts
 - Interactive notebooks
 - Simple use cases without concurrency needs
+- Using **embedded SeekDB** (local file mode, no `host`)
 

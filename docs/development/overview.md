@@ -25,7 +25,7 @@ This guide provides comprehensive instructions for developers who want to contri
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.11 or higher
 - pip (Python package manager)
 - Git
 

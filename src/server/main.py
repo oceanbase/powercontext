@@ -2,6 +2,7 @@
 Main FastAPI application for PowerMem API Server
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,12 +20,43 @@ from .middleware.error_handler import error_handler
 from .middleware.auth import verify_api_key
 
 import os
+import logging
 
 # Setup logging
 setup_logging()
 
+logger = logging.getLogger("server")
+
 # Setup templates
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize shared service singletons at startup and clean up on shutdown."""
+    from .services.memory_service import MemoryService
+    from .services.search_service import SearchService
+    from .services.user_service import UserService
+    from .services.agent_service import AgentService
+
+    logger.info("Initializing service singletons...")
+    try:
+        app.state.memory_service = MemoryService()
+        app.state.search_service = SearchService()
+        app.state.user_service = UserService()
+        app.state.agent_service = AgentService()
+        logger.info("Service singletons initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize service singletons: {e}", exc_info=True)
+        app.state.memory_service = None
+        app.state.search_service = None
+        app.state.user_service = None
+        app.state.agent_service = None
+
+    yield
+
+    logger.info("Shutting down services...")
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -34,6 +66,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    lifespan=lifespan,
 )
 
 # Setup CORS

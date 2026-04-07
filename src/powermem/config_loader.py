@@ -160,7 +160,7 @@ class DatabaseSettings(_BasePowermemSettings):
         # 4. For OceanBase, build connection_args for backward compatibility
         if db_provider == "oceanbase":
             connection_args = {}
-            for key in ["host", "port", "user", "password", "db_name"]:
+            for key in ["host", "port", "user", "password", "db_name", "ob_path"]:
                 if key in vector_store_config:
                     connection_args[key] = vector_store_config[key]
             

@@ -4,7 +4,7 @@ This guide explains how to use the Sparse Vector feature in PowerMem, including 
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - powermem installed (`pip install powermem`)
 - Database requirements: **seekdb** or **OceanBase >= 4.5.0**
 

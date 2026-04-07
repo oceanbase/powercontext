@@ -4,7 +4,7 @@ This scenario demonstrates powermem's UserMemory feature - automatic user profil
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - powermem installed (`pip install powermem`)
 - LLM provider configured (for profile extraction)
 - OceanBase configured as vector store (UserMemory requires OceanBase)

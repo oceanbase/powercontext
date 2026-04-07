@@ -31,9 +31,17 @@ logger = logging.getLogger("server")
 router = APIRouter(prefix="/memories", tags=["memories"])
 
 
-def get_memory_service() -> MemoryService:
-    """Dependency to get memory service"""
-    return MemoryService()
+def get_memory_service(request: Request) -> MemoryService:
+    """Dependency to get memory service singleton from app state"""
+    service = request.app.state.memory_service
+    if service is None:
+        from ...models.errors import ErrorCode, APIError
+        raise APIError(
+            code=ErrorCode.INTERNAL_ERROR,
+            message="Memory service unavailable: storage backend initialization failed",
+            status_code=503,
+        )
+    return service
 
 
 @router.post(

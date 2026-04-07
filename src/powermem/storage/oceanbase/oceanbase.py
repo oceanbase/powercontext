@@ -65,6 +65,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             user: Optional[str] = None,
             password: Optional[str] = None,
             db_name: Optional[str] = None,
+            ob_path: Optional[str] = None,
             hybrid_search: bool = True,
             fulltext_parser: str = constants.DEFAULT_FULLTEXT_PARSER,
             vector_weight: float = 0.5,
@@ -134,6 +135,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             "user": user or connection_args.get("user", constants.DEFAULT_OCEANBASE_CONNECTION["user"]),
             "password": password or connection_args.get("password", constants.DEFAULT_OCEANBASE_CONNECTION["password"]),
             "db_name": db_name or connection_args.get("db_name", constants.DEFAULT_OCEANBASE_CONNECTION["db_name"]),
+            "ob_path": ob_path or connection_args.get("ob_path", constants.DEFAULT_OCEANBASE_CONNECTION["ob_path"]),
         }
 
         self.connection_args = final_connection_args
@@ -189,18 +191,23 @@ class OceanBaseVectorStore(VectorStoreBase):
     def _create_client(self, **kwargs):
         """Create and initialize the OceanBase vector client."""
         host = self.connection_args.get("host")
-        port = self.connection_args.get("port")
-        user = self.connection_args.get("user")
-        password = self.connection_args.get("password")
         db_name = self.connection_args.get("db_name")
 
-        self.obvector = ObVecClient(
-            uri=f"{host}:{port}",
-            user=user,
-            password=password,
-            db_name=db_name,
-            **kwargs,
-        )
+        if host:
+            port = self.connection_args.get("port")
+            user = self.connection_args.get("user")
+            password = self.connection_args.get("password")
+            self.obvector = ObVecClient(
+                uri=f"{host}:{port}",
+                user=user,
+                password=password,
+                db_name=db_name,
+                **kwargs,
+            )
+        else:
+            ob_path = self.connection_args.get("ob_path", "./seekdb_data")
+            OceanBaseUtil.ensure_embedded_database_exists(ob_path, db_name)
+            self.obvector = ObVecClient(path=ob_path, db_name=db_name)
 
     def _configure_vector_index_settings(self):
         """Configure OceanBase vector index settings automatically."""
@@ -382,6 +389,20 @@ class OceanBaseVectorStore(VectorStoreBase):
                 "embedding_model_dims is required for OceanBase vector operations. "
                 "Please configure embedding_model_dims in your OceanBaseConfig."
             )
+
+        # Embedded SeekDB does not tolerate IVF-family indexes on small datasets:
+        # IVF requires at least nlist training vectors; fewer vectors causes a native
+        # SIGSEGV that cannot be caught by Python.  Switch to HNSW automatically.
+        is_embedded = not self.connection_args.get("host")
+        if is_embedded and self.index_type in constants.INDEX_TYPE_IVF:
+            nlist = (self.vidx_algo_params or {}).get("nlist", constants.DEFAULT_OCEANBASE_IVF_BUILD_PARAM.get("nlist", 128))
+            logger.warning(
+                "Embedded SeekDB: index_type '%s' (nlist=%d) requires at least %d vectors "
+                "and may crash on small datasets. Auto-switching to HNSW.",
+                self.index_type, nlist, nlist,
+            )
+            self.index_type = "HNSW"
+            self.vidx_algo_params = constants.DEFAULT_OCEANBASE_HNSW_BUILD_PARAM.copy()
 
         # Set up vector index parameters
         if self.vidx_metric_type not in ("l2", "inner_product", "cosine"):
@@ -599,12 +620,26 @@ class OceanBaseVectorStore(VectorStoreBase):
         # Create a new Model instance (not bound to Session)
         record = self.model_class()
 
+        # Support both SQLAlchemy Row objects and plain dicts (used when rows
+        # are materialised early to avoid embedded SeekDB cursor crashes).
+        mapping = row._mapping if hasattr(row, '_mapping') else row
+
+        # Build a normalized lookup: strip table-name prefix that embedded SeekDB
+        # may add (e.g. "memories.document" → "document") so we can always find
+        # the value regardless of whether the driver returns bare or prefixed keys.
+        normalized: Dict[str, any] = {}
+        for k in mapping.keys():
+            bare = k.split(".")[-1] if "." in str(k) else k
+            # Prefer the bare key; only store prefixed key if bare not yet seen
+            if bare not in normalized:
+                normalized[bare] = mapping[k]
+
         # Iterate through all columns in the table, map values from Row to Model instance
         for col_name in self.model_class.__table__.c.keys():
-            # Check if Row contains this column (queries may not include all columns)
-            if col_name in row._mapping.keys():
+            value = normalized.get(col_name)
+            if value is not None or col_name in normalized:
                 attr_name = 'metadata_' if col_name == 'metadata' else col_name
-                setattr(record, attr_name, row._mapping[col_name])
+                setattr(record, attr_name, value)
 
         return record
 
@@ -715,12 +750,13 @@ class OceanBaseVectorStore(VectorStoreBase):
 
         # Extract additional score/distance fields (these fields are not in Model, need to get from original row)
         if extract_score:
-            if 'score' in row._mapping.keys():
-                score_or_distance = row._mapping['score']
-            elif 'distance' in row._mapping.keys():
-                score_or_distance = row._mapping['distance']
-            elif 'anon_1' in row._mapping.keys():
-                score_or_distance = row._mapping['anon_1']
+            mapping = row._mapping if hasattr(row, '_mapping') else row
+            if 'score' in mapping.keys():
+                score_or_distance = mapping['score']
+            elif 'distance' in mapping.keys():
+                score_or_distance = mapping['distance']
+            elif 'anon_1' in mapping.keys():
+                score_or_distance = mapping['anon_1']
 
         # Build standard metadata
         metadata = {
@@ -873,7 +909,7 @@ class OceanBaseVectorStore(VectorStoreBase):
 
             # Convert results to OutputData objects
             search_results = []
-            for row in results.fetchall():
+            for row in OceanBaseUtil.safe_fetchall(results):
                 parsed = self._parse_row_to_dict(row, include_vector=False, extract_score=True)
 
                 # Convert distance to similarity score (0-1 range, higher is better)
@@ -963,12 +999,14 @@ class OceanBaseVectorStore(VectorStoreBase):
                 stmt = stmt.limit(limit)
 
             # Execute the query with parameters - use direct parameter passing
+            # Materialize rows to dicts inside the connection context to avoid
+            # "pure virtual method called" crash in embedded SeekDB (the C++
+            # cursor is invalidated once the transaction/connection closes).
             with self.obvector.engine.connect() as conn:
                 with conn.begin():
                     logger.info(f"Executing FTS query with parameters: query={query}")
-                    # Execute with parameter dictionary - the standard SQLAlchemy way
                     results = conn.execute(stmt)
-                    rows = results.fetchall()
+                    rows = [dict(r._mapping) for r in OceanBaseUtil.safe_fetchall(results)]
 
         except Exception as e:
             logger.warning(f"Full-text search failed, falling back to LIKE search: {e}")
@@ -1001,9 +1039,8 @@ class OceanBaseVectorStore(VectorStoreBase):
                 with self.obvector.engine.connect() as conn:
                     with conn.begin():
                         logger.info(f"Executing LIKE fallback query with parameters: like_query={like_query}")
-                        # Execute with parameter dictionary - the standard SQLAlchemy way
                         results = conn.execute(stmt)
-                        rows = results.fetchall()
+                        rows = [dict(r._mapping) for r in OceanBaseUtil.safe_fetchall(results)]
             except Exception as fallback_error:
                 logger.error(f"Both full-text search and LIKE fallback failed: {fallback_error}")
                 return []
@@ -1082,12 +1119,13 @@ class OceanBaseVectorStore(VectorStoreBase):
                 stmt = stmt.limit(limit)
 
             # Execute the query
+            # Materialize rows to dicts inside the connection context to avoid
+            # "pure virtual method called" crash in embedded SeekDB.
             with self.obvector.engine.connect() as conn:
                 with conn.begin():
                     logger.debug(f"Executing sparse vector search query with sparse_vector: {sparse_vector_str}")
-                    # Execute the query
                     results = conn.execute(stmt)
-                    rows = results.fetchall()
+                    rows = [dict(r._mapping) for r in OceanBaseUtil.safe_fetchall(results)]
 
             # Convert results to OutputData objects
             sparse_results = []
@@ -1229,7 +1267,8 @@ class OceanBaseVectorStore(VectorStoreBase):
 
             with self.obvector.engine.connect() as conn:
                 with conn.begin():
-                    res = conn.execute(sql, {"index": self.collection_name, "body_str": body_str}).fetchone()
+                    res_result = conn.execute(sql, {"index": self.collection_name, "body_str": body_str})
+                    res = OceanBaseUtil.safe_fetchone(res_result)
                     result_json_str = res[0] if res else None
 
             # 6. Parse and return results
@@ -1318,44 +1357,64 @@ class OceanBaseVectorStore(VectorStoreBase):
         # Determine which searches to perform
         perform_sparse = self.include_sparse and sparse_embedding is not None
 
-        # Perform searches in parallel for better performance
-        search_tasks = []
-        with ThreadPoolExecutor(max_workers=3 if perform_sparse else 2) as executor:
-            # Submit vector search
-            vector_future = executor.submit(self._vector_search, query, vectors, candidate_limit, filters)
-            search_tasks.append(('vector', vector_future))
+        is_embedded = not self.connection_args.get("host")
 
-            # Submit full-text search
-            fts_future = executor.submit(self._fulltext_search, query, candidate_limit, filters)
-            search_tasks.append(('fts', fts_future))
+        if is_embedded:
+            # SeekDB embedded engine does not support concurrent SQL across threads
+            try:
+                vector_results = self._vector_search(query, vectors, candidate_limit, filters)
+            except Exception as e:
+                logger.warning(f"vector search failed: {e}")
+                vector_results = []
 
-            # Submit sparse vector search if enabled
+            try:
+                fts_results = self._fulltext_search(query, candidate_limit, filters)
+            except Exception as e:
+                logger.warning(f"fts search failed: {e}")
+                fts_results = []
+
+            sparse_results = []
             if perform_sparse:
-                sparse_future = executor.submit(self._sparse_search, sparse_embedding, candidate_limit, filters)
-                search_tasks.append(('sparse', sparse_future))
-
-            # Wait for all searches to complete and get results
-            vector_results = None
-            fts_results = None
-            sparse_results = None
-
-            for search_type, future in search_tasks:
                 try:
-                    results = future.result()
-                    if search_type == 'vector':
-                        vector_results = results
-                    elif search_type == 'fts':
-                        fts_results = results
-                    elif search_type == 'sparse':
-                        sparse_results = results
+                    sparse_results = self._sparse_search(sparse_embedding, candidate_limit, filters)
                 except Exception as e:
-                    logger.warning(f"{search_type} search failed: {e}")
-                    if search_type == 'vector':
-                        vector_results = []
-                    elif search_type == 'fts':
-                        fts_results = []
-                    elif search_type == 'sparse':
-                        sparse_results = []
+                    logger.warning(f"sparse search failed: {e}")
+                    sparse_results = []
+        else:
+            # Remote mode: parallel searches for better performance
+            search_tasks = []
+            with ThreadPoolExecutor(max_workers=3 if perform_sparse else 2) as executor:
+                vector_future = executor.submit(self._vector_search, query, vectors, candidate_limit, filters)
+                search_tasks.append(('vector', vector_future))
+
+                fts_future = executor.submit(self._fulltext_search, query, candidate_limit, filters)
+                search_tasks.append(('fts', fts_future))
+
+                if perform_sparse:
+                    sparse_future = executor.submit(self._sparse_search, sparse_embedding, candidate_limit, filters)
+                    search_tasks.append(('sparse', sparse_future))
+
+                vector_results = None
+                fts_results = None
+                sparse_results = None
+
+                for search_type, future in search_tasks:
+                    try:
+                        results = future.result()
+                        if search_type == 'vector':
+                            vector_results = results
+                        elif search_type == 'fts':
+                            fts_results = results
+                        elif search_type == 'sparse':
+                            sparse_results = results
+                    except Exception as e:
+                        logger.warning(f"{search_type} search failed: {e}")
+                        if search_type == 'vector':
+                            vector_results = []
+                        elif search_type == 'fts':
+                            fts_results = []
+                        elif search_type == 'sparse':
+                            sparse_results = []
 
         # Ensure we have at least empty lists
         if vector_results is None:
@@ -1645,11 +1704,12 @@ class OceanBaseVectorStore(VectorStoreBase):
         # Convert to final results and sort by RRF score
         heap = []
         for doc_id, doc_data in all_docs.items():
-            # Use document ID as tiebreaker to avoid dict comparison when rrf_scores are equal
+            # Use document ID as tiebreaker; coerce None to 0 for safe comparison
+            safe_id = doc_id if doc_id is not None else 0
             if len(heap) < limit:
-                heapq.heappush(heap, (doc_data['rrf_score'], doc_id, doc_data))
+                heapq.heappush(heap, (doc_data['rrf_score'], safe_id, doc_data))
             elif doc_data['rrf_score'] > heap[0][0]:
-                heapq.heapreplace(heap, (doc_data['rrf_score'], doc_id, doc_data))
+                heapq.heapreplace(heap, (doc_data['rrf_score'], safe_id, doc_data))
 
         final_results = []
         for score, _, doc_data in sorted(heap, key=lambda x: x[0], reverse=True):
@@ -1819,62 +1879,76 @@ class OceanBaseVectorStore(VectorStoreBase):
             logger.error(f"Failed to delete vector with ID {vector_id} from collection '{self.collection_name}': {e}", exc_info=True)
             raise
 
+    def _get_records_by_id(self, vector_id, output_columns: List[str]) -> list:
+        """Fetch rows by primary key while keeping the connection open during fetchall.
+
+        pyobvector.get() returns the cursor *after* committing the transaction via
+        ``with conn.begin()``.  In embedded SeekDB the commit invalidates the cursor,
+        so calling fetchall() on it afterwards triggers a C++ ``pure virtual method
+        called`` crash.  This helper avoids that by running fetchall() inside the
+        ``with engine.connect()`` block.
+        """
+        table = Table(self.collection_name, self.obvector.metadata_obj, autoload_with=self.obvector.engine)
+        cols = [table.c[col] for col in output_columns if col in table.c]
+        stmt = select(*cols).where(table.c[self.primary_field].in_([vector_id]))
+        with self.obvector.engine.connect() as conn:
+            result = conn.execute(stmt)
+            return OceanBaseUtil.safe_fetchall(result)
+
     def update(self, vector_id: int, vector: Optional[List[float]] = None, payload: Optional[Dict] = None):
         """Update a vector and its payload."""
         try:
-            # Get existing record to preserve fields not being updated
-            # Always try to get sparse_vector_field to preserve it even when include_sparse=False
-            # This prevents accidentally clearing sparse_embedding when using a non-sparse Memory instance
-            output_columns = [self.vector_field]
+            # Fetch ALL existing columns so a partial payload never wipes fields
+            output_columns = self._get_standard_column_names(include_vector_field=True)
             has_sparse_column = OceanBaseUtil.check_column_exists(self.obvector, self.collection_name, self.sparse_vector_field)
-            if has_sparse_column:
+            if has_sparse_column and self.sparse_vector_field not in output_columns:
                 output_columns.append(self.sparse_vector_field)
 
-            existing_result = self.obvector.get(
-                table_name=self.collection_name,
-                ids=[vector_id],
-                output_column_name=output_columns
-            )
-
-            existing_rows = existing_result.fetchall()
+            existing_rows = self._get_records_by_id(vector_id, output_columns)
             if not existing_rows:
                 logger.warning(f"Vector with ID {vector_id} not found in collection '{self.collection_name}'")
                 return
 
-            # Prepare update data
-            update_data: Dict[str, Any] = {
-                self.primary_field: vector_id,
+            # Parse existing row into a dict so we can merge with the new payload
+            existing = self._parse_row_to_dict(existing_rows[0], include_vector=True, extract_score=False)
+
+            # Rebuild the existing payload dict that _build_record_for_insert expects
+            existing_payload: Dict[str, Any] = {
+                "data": existing.get("text_content", ""),
+                "metadata": existing.get("metadata", {}).get("metadata", {}),
+                "user_id": existing.get("user_id", ""),
+                "agent_id": existing.get("agent_id", ""),
+                "run_id": existing.get("run_id", ""),
+                "actor_id": existing.get("actor_id", ""),
+                "hash": existing.get("hash_val", ""),
+                "created_at": existing.get("created_at", ""),
+                "updated_at": existing.get("updated_at", ""),
+                "category": existing.get("category", ""),
             }
+            # Note: sparse_embedding is handled separately below via the column check
 
-            # Extract existing values from row
-            existing_vector = existing_rows[0][0] if existing_rows[0] else None
-            existing_sparse_embedding = existing_rows[0][1] if has_sparse_column and len(existing_rows[0]) > 1 else None
-
-            if vector is not None:
-                update_data[self.vector_field] = (
-                    vector if not self.normalize else OceanBaseUtil.normalize(vector)
-                )
-            else:
-                # Preserve the existing vector to avoid it being cleared by upsert
-                if existing_vector is not None:
-                    update_data[self.vector_field] = existing_vector
-                    logger.debug(f"Preserving existing vector for ID {vector_id}")
-
+            # Merge: new payload keys override existing ones
             if payload is not None:
-                # Use the helper method to build fields, then merge with update_data
-                temp_record = self._build_record_for_insert(vector or [], payload)
+                merged_payload = {**existing_payload, **payload}
+            else:
+                merged_payload = existing_payload
 
-                # Copy relevant fields from temp_record (excluding primary key and vector if not updating)
-                for key, value in temp_record.items():
-                    if key != self.primary_field and (vector is not None or key != self.vector_field):
-                        update_data[key] = value
+            # Build the full record from the merged payload
+            existing_vector = existing.get("vector")
+            update_vector = vector if vector is not None else existing_vector
+            temp_record = self._build_record_for_insert(update_vector if update_vector is not None else [], merged_payload)
+
+            # Prepare update data
+            update_data: Dict[str, Any] = {self.primary_field: vector_id}
+            for key, value in temp_record.items():
+                if key != self.primary_field:
+                    update_data[key] = value
 
             # Preserve existing sparse_embedding if not explicitly provided in payload
-            # This prevents intelligence_plugin updates from accidentally clearing sparse_embedding
-            # Check column existence instead of include_sparse to protect data even when sparse is disabled
             if has_sparse_column and self.sparse_vector_field not in update_data:
-                if existing_sparse_embedding is not None:
-                    update_data[self.sparse_vector_field] = existing_sparse_embedding
+                existing_sparse = existing.get("sparse_embedding")
+                if existing_sparse is not None:
+                    update_data[self.sparse_vector_field] = existing_sparse
                     logger.debug(f"Preserving existing sparse_embedding for ID {vector_id}")
 
             # Update record
@@ -1894,13 +1968,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             # Build output column name list
             output_columns = self._get_standard_column_names(include_vector_field=True)
 
-            results = self.obvector.get(
-                table_name=self.collection_name,
-                ids=[vector_id],
-                output_column_name=output_columns,
-            )
-
-            rows = results.fetchall()
+            rows = self._get_records_by_id(vector_id, output_columns)
             if not rows:
                 logger.debug(f"Vector with ID {vector_id} not found in collection '{self.collection_name}'")
                 return None
@@ -2030,7 +2098,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             # Execute query
             with self.obvector.engine.connect() as conn:
                 results = conn.execute(stmt)
-                rows = results.fetchall()
+                rows = OceanBaseUtil.safe_fetchall(results)
 
             memories = []
             for row in rows:
@@ -2342,7 +2410,7 @@ class OceanBaseVectorStore(VectorStoreBase):
                 
                 # Try to fetch results (for SELECT queries)
                 try:
-                    rows = result.fetchall()
+                    rows = OceanBaseUtil.safe_fetchall(result)
                     # Convert rows to dictionaries
                     if rows and result.keys():
                         return [dict(zip(result.keys(), row)) for row in rows]

@@ -1,0 +1,8 @@
+{
+  "name": "memory-powermem",
+  "description": "PowerMem intelligent memory for Claude Code: add, search, update, and delete memories with Ebbinghaus decay and multi-agent support.",
+  "version": "0.1.0",
+  "author": { "name": "OceanBase / PowerMem" },
+  "homepage": "https://github.com/oceanbase/powermem",
+  "repository": "https://github.com/oceanbase/powermem"
+}

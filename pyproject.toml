@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "powermem"
-version = "1.0.2"
+version = "1.1.0"
 description = "Intelligent Memory System - Persistent memory layer for LLM applications"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -16,13 +16,12 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
@@ -55,6 +54,7 @@ dependencies = [
     "dashscope>=1.14.0",
     "psutil>=5.9.0",
     "zai-sdk>=0.2.0",
+    "pyseekdb>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -106,7 +106,7 @@ powermem-cli = "powermem.cli.main:cli"
 
 [tool.black]
 line-length = 88
-target-version = ['py310']
+target-version = ['py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -129,7 +129,7 @@ line_length = 88
 known_first_party = ["powermem"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

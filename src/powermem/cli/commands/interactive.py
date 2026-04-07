@@ -460,17 +460,29 @@ Examples:
             
             click.echo(f"\nFound {len(memories)} memories:")
             click.echo("-" * 70)
-            click.echo(f"{'ID':<20} {'User ID':<12} {'Content':<35}")
+            click.echo(f"{'ID':<20} {'User ID':<22} {'Content':<35}")
             click.echo("-" * 70)
+
+            def _truncate_with_ellipsis(value: str, max_len: int) -> str:
+                """Truncate long display values with visible ellipsis."""
+                if len(value) <= max_len:
+                    return value
+                if max_len <= 3:
+                    return value[:max_len]
+                return value[: max_len - 3] + "..."
             
             for mem in memories:
-                memory_id = str(mem.get("id") or mem.get("memory_id", "N/A"))[:18]
-                user_id = str(mem.get("user_id", "N/A"))[:10]
-                content = mem.get("memory") or mem.get("content", "N/A")
-                if len(content) > 33:
-                    content = content[:30] + "..."
+                memory_id = _truncate_with_ellipsis(
+                    str(mem.get("id") or mem.get("memory_id", "N/A")),
+                    18,
+                )
+                user_id = _truncate_with_ellipsis(str(mem.get("user_id", "N/A")), 20)
+                content = _truncate_with_ellipsis(
+                    str(mem.get("memory") or mem.get("content", "N/A")),
+                    33,
+                )
                 
-                click.echo(f"{memory_id:<20} {user_id:<12} {content:<35}")
+                click.echo(f"{memory_id:<20} {user_id:<22} {content:<35}")
             
             click.echo("-" * 70)
             

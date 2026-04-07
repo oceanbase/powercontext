@@ -30,12 +30,21 @@ class OceanBaseConfig(BaseVectorStoreConfig):
 
     # Connection parameters
     host: str = Field(
-        default="127.0.0.1",
+        default="",
         validation_alias=AliasChoices(
             "host",
             "OCEANBASE_HOST",
         ),
-        description="OceanBase server host"
+        description="OceanBase server host (empty means embedded SeekDB mode)"
+    )
+
+    ob_path: str = Field(
+        default="./seekdb_data",
+        validation_alias=AliasChoices(
+            "ob_path",
+            "OCEANBASE_PATH",
+        ),
+        description="Path for embedded SeekDB data directory (used when host is empty)"
     )
     
     port: str = Field(

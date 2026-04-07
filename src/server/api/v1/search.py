@@ -17,9 +17,17 @@ from ...utils.converters import search_result_to_response
 router = APIRouter(prefix="/memories", tags=["search"])
 
 
-def get_search_service() -> SearchService:
-    """Dependency to get search service"""
-    return SearchService()
+def get_search_service(request: Request) -> SearchService:
+    """Dependency to get search service singleton from app state"""
+    service = request.app.state.search_service
+    if service is None:
+        from ...models.errors import ErrorCode, APIError
+        raise APIError(
+            code=ErrorCode.INTERNAL_ERROR,
+            message="Search service unavailable: storage backend initialization failed",
+            status_code=503,
+        )
+    return service
 
 
 @router.post(

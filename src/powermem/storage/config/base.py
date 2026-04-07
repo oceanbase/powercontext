@@ -102,13 +102,23 @@ class BaseGraphStoreConfig(BaseVectorStoreConfig):
     
     # Override connection fields with GRAPH_STORE_ fallback aliases
     host: str = Field(
-        default="127.0.0.1",
+        default="",
         validation_alias=AliasChoices(
             "host",
             "GRAPH_STORE_HOST",    # Priority 1
             "OCEANBASE_HOST",      # Priority 2 (fallback)
         ),
-        description="Database server host"
+        description="Database server host (empty means embedded SeekDB mode)"
+    )
+
+    ob_path: str = Field(
+        default="./seekdb_data",
+        validation_alias=AliasChoices(
+            "ob_path",
+            "GRAPH_STORE_PATH",
+            "OCEANBASE_PATH",
+        ),
+        description="Path for embedded SeekDB data directory (used when host is empty)"
     )
     
     port: str = Field(

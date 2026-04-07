@@ -1,6 +1,6 @@
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - powermem installed (`pip install powermem`)
 - Basic understanding of powermem (see [Getting Started Guide](./0001-getting_started.md))
 

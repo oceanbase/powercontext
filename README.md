@@ -3,7 +3,8 @@
 **Persistent memory for AI agents and applications.**
 
 [![PyPI version](https://img.shields.io/pypi/v/powermem)](https://pypi.org/project/powermem/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://pypi.org/project/powermem/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/powermem)](https://pypi.org/project/powermem/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://pypi.org/project/powermem/)
 [![License Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-oceanbase%2Fpowermem-181717?logo=github)](https://github.com/oceanbase/powermem)
 [![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/74cF8vbNEs)
@@ -12,11 +13,27 @@
 
 PowerMem combines vector, full-text, and graph retrieval with LLM-driven memory extraction and Ebbinghaus-style time decay. It supports multi-agent isolation, user profiles, and multimodal signals (text, image, audio).
 
-Use the Python SDK, CLI (`pmem`), HTTP API Server (with Dashboard), or MCP Server — all share one `.env`. See [.env.example](.env.example) and the [configuration guide](docs/guides/0003-configuration.md).
+Use the Python SDK, CLI (`pmem`), or the HTTP API Server (with **Dashboard** at `/dashboard/`). An MCP server is also available. All share one `.env`. See [.env.example](.env.example) and the [configuration guide](docs/guides/0003-configuration.md).
 
-> **News:** [OpenClaw](https://github.com/openclaw/openclaw) can use PowerMem as long-term memory via [`memory-powermem`](https://github.com/ob-labs/memory-powermem) (`openclaw plugins install memory-powermem`).
+## OpenClaw integration
+
+[OpenClaw](https://github.com/openclaw/openclaw) can use PowerMem as long-term memory via the [`memory-powermem`](https://github.com/ob-labs/memory-powermem) plugin.
+
+```bash
+openclaw plugins install memory-powermem
+```
+
+Requires the OpenClaw CLI to be installed.
+
+<div align="center">
+
+<img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem with OpenClaw" width="720"/>
+
+</div>
 
 ## Quick start
+
+**Prerequisites:** Copy [.env.example](.env.example) to `.env` and set **LLM** and **embedding** credentials (the default database is SQLite; OceanBase can use **embedded SeekDB** — see `.env.example`). Alternatively, after installing PowerMem, run `pmem config init` to create `.env` interactively. See [Getting started](docs/guides/0001-getting_started.md).
 
 ### Install
 
@@ -25,6 +42,8 @@ pip install powermem
 ```
 
 ### SDK example
+
+Run from a directory that contains your configured `.env`:
 
 ```python
 from powermem import Memory, auto_config
@@ -41,13 +60,50 @@ for result in results.get("results", []):
 
 More patterns: [Getting Started](docs/guides/0001-getting_started.md).
 
-### Other entry points
+### CLI (`pmem`, 1.0+)
+
+```bash
+pmem memory add "User prefers dark mode" --user-id user123
+pmem memory search "preferences" --user-id user123
+```
+
+Interactive REPL (run separately; exits with `exit` or Ctrl+D):
+
+```bash
+pmem shell
+```
+
+Full reference: [CLI usage](docs/guides/0012-cli_usage.md).
+
+### HTTP API Server and Dashboard
+
+Uses the same `.env` as the SDK. Dashboard is served under `/dashboard/`.
+
+```bash
+powermem-server --host 0.0.0.0 --port 8000
+```
+
+Use Docker or Compose as needed — see [API Server](docs/api/0005-api_server.md) and [Docker & deployment](docker/README.md).
+
+### Entry points
 
 | Mode | Typical commands | Docs |
 |------|------------------|------|
 | CLI | `pmem memory add` / `pmem memory search`; `pmem shell` | [CLI usage](docs/guides/0012-cli_usage.md) |
-| HTTP + Dashboard | `powermem-server --host 0.0.0.0 --port 8000`; image `oceanbase/powermem-server:latest`; `docker-compose -f docker/docker-compose.yml` | [API Server](docs/api/0005-api_server.md) |
-| MCP | `uvx powermem-mcp sse` (also stdio / streamable-http); requires `powermem` and `uv` | [MCP Server](docs/api/0004-mcp.md) |
+| HTTP + Dashboard | `powermem-server --host 0.0.0.0 --port 8000`; image `oceanbase/powermem-server:latest`; from repo root: `docker-compose -f docker/docker-compose.yml up -d` | [API Server](docs/api/0005-api_server.md) |
+
+<details>
+<summary><b>MCP Server</b> (optional)</summary>
+
+Requires [uv](https://docs.astral.sh/uv/) and a configured `.env` in the working directory (see [MCP Server](docs/api/0004-mcp.md)).
+
+```bash
+uvx powermem-mcp sse
+```
+
+Also supports stdio and streamable-http.
+
+</details>
 
 ## Benchmark (LOCOMO)
 
@@ -67,7 +123,7 @@ Compared to stuffing full conversation context on [LOCOMO](https://github.com/sn
 
 ## Capabilities
 
-**Interfaces and tooling** — [Python integration](docs/examples/scenario_1_basic_usage.md); [CLI](docs/guides/0012-cli_usage.md) (`pmem`); [HTTP API / Dashboard](docs/api/0005-api_server.md); [MCP](docs/api/0004-mcp.md).
+**Interfaces and tooling** — [Python integration](docs/examples/scenario_1_basic_usage.md); [CLI](docs/guides/0012-cli_usage.md) (`pmem`); [HTTP API / Dashboard](docs/api/0005-api_server.md); [MCP](docs/api/0004-mcp.md) (optional); [IDE apps](apps/README.md) (VS Code / Cursor, Claude Code, and more).
 
 **Memory pipeline and retrieval** — [Smart extraction and updates](docs/examples/scenario_2_intelligent_memory.md); [Ebbinghaus-style decay](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md); [Hybrid retrieval (vector / full-text / graph)](docs/examples/scenario_2_intelligent_memory.md); [Sub stores and routing](docs/examples/scenario_6_sub_stores.md).
 
@@ -94,11 +150,13 @@ More topics: [Sub stores](docs/guides/0006-sub_stores.md), [guides index](docs/g
 - [Scenarios & notebooks](docs/examples/overview.md) — walkthroughs by use case (basic usage, multimodal, forgetting curve, and more)
 - [LangChain sample](examples/langchain/README.md) — medical support chatbot (LangChain + PowerMem + OceanBase)
 - [LangGraph sample](examples/langgraph/README.md) — customer service bot (LangGraph + PowerMem + OceanBase)
+- [IDE apps](apps/README.md) — VS Code extension and Claude Code plugin (link PowerMem to Cursor, Copilot, etc.)
 
 ## Release highlights
 
 | Version | Date | Notes |
 |---------|------|--------|
+| 1.1.0 | 2026-04-02 | Embedded SeekDB for OceanBase storage without a separate database service; [IDE integrations](apps/README.md) (VS Code extension, Claude Code plugin) |
 | 1.0.0 | 2026-03-16 | CLI (`pmem`): memory ops, config, backup/restore/migrate, interactive shell, completions; Web Dashboard |
 | 0.5.0 | 2026-02-06 | Unified SDK/API config (pydantic-settings); OceanBase native hybrid search; memory query + list sorting; user-profile language customization |
 | 0.4.0 | 2026-01-20 | Sparse vectors for hybrid retrieval; profile-based query rewriting; schema upgrade & migration tools |

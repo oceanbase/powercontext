@@ -4,7 +4,7 @@ UserMemory is PowerMem's advanced user profile management module. It automatical
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - PowerMem installed (`pip install powermem`)
 - LLM and embedding services configured (for profile extraction)
 - Vector store configured (for storing memories and profiles)
