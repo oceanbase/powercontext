@@ -1,0 +1,37 @@
+{
+  "description": "Push Claude Code session transcripts (SessionEnd) and compact summaries (PostCompact) to PowerMem via HTTP. UserPromptSubmit: semantic search injects context by default; set POWERMEM_PROMPT_SEARCH=0 (or false/no/off) to disable. Uses native binaries under hooks/bin. macOS/Linux: sh launcher. Windows without sh: merge hooks/hooks.windows.example.json. POWERMEM_BASE_URL defaults to http://localhost:8000 if unset.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\""
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

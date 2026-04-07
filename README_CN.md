@@ -6,7 +6,7 @@
 
 <p align="center">
 
-*PowerMem 与 [OpenClaw](https://github.com/openclaw-ai/openclaw) 集成：为 AI 智能体提供智能记忆。**OpenClaw PowerMem 记忆插件**：[查看插件](https://github.com/ob-labs/memory-powermem)*
+*PowerMem 与 [OpenClaw](https://github.com/openclaw/openclaw) 集成：为 AI 智能体提供智能记忆。**OpenClaw PowerMem 记忆插件**：[查看插件](https://github.com/ob-labs/memory-powermem)*
 
 一行命令即可为 OpenClaw 接入 PowerMem 记忆：`openclaw plugins install memory-powermem`。
 

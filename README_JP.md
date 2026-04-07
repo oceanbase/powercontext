@@ -6,7 +6,7 @@
 
 <p align="center">
 
-*PowerMem と [OpenClaw](https://github.com/openclaw-ai/openclaw) の連携：AI エージェント向けインテリジェントメモリ。**OpenClaw PowerMem メモリプラグイン**：[プラグインを見る](https://github.com/ob-labs/memory-powermem)*
+*PowerMem と [OpenClaw](https://github.com/openclaw/openclaw) の連携：AI エージェント向けインテリジェントメモリ。**OpenClaw PowerMem メモリプラグイン**：[プラグインを見る](https://github.com/ob-labs/memory-powermem)*
 
 1 コマンドで OpenClaw に PowerMem メモリを追加：`openclaw plugins install memory-powermem`。
 

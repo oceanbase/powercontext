@@ -1,0 +1,139 @@
+{
+  "name": "powermem-vscode",
+  "displayName": "PowerMem for VS Code",
+  "description": "PowerMem intelligent memory for AI assistants: connect Cursor, Claude Code, Codex, Windsurf to PowerMem with one click.",
+  "version": "0.1.0",
+  "publisher": "OceanBase",
+  "engines": { "vscode": "^1.104.0" },
+  "categories": ["Machine Learning", "Other"],
+  "keywords": ["AI", "Memory", "PowerMem", "Cursor", "Claude", "Codex", "MCP"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "powermem-vscode.powermem",
+        "name": "powermem",
+        "fullName": "PowerMem",
+        "description": "Memory for AI (optional). In seamless mode use your linked AI instead; no need to @ mention.",
+        "isSticky": false,
+        "commands": [
+          { "name": "remember", "description": "Save this conversation to PowerMem" },
+          { "name": "save", "description": "Save current conversation to PowerMem" },
+          { "name": "search", "description": "Search PowerMem" }
+        ],
+        "disambiguation": [
+          {
+            "category": "memory",
+            "description": "The user wants to save something to long-term memory (PowerMem) or search their saved memories.",
+            "examples": [
+              "Remember this",
+              "Save to memory: we use pnpm in this project",
+              "Search user login flow"
+            ]
+          }
+        ]
+      }
+    ],
+    "commands": [
+      { "command": "powermem.statusBarClick", "title": "PowerMem: Status Bar Menu" },
+      { "command": "powermem.queryMemories", "title": "PowerMem: Query Memories" },
+      { "command": "powermem.addSelectionToMemory", "title": "PowerMem: Add Selection to Memory" },
+      { "command": "powermem.quickNote", "title": "PowerMem: Quick Note" },
+      { "command": "powermem.linkToAITools", "title": "PowerMem: Link to AI Tools" },
+      { "command": "powermem.setup", "title": "PowerMem: Setup" },
+      { "command": "powermem.dashboard", "title": "PowerMem: Dashboard" }
+    ],
+    "configuration": {
+      "title": "PowerMem",
+      "properties": {
+        "powermem.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable PowerMem extension."
+        },
+        "powermem.connectionMode": {
+          "type": "string",
+          "enum": ["http", "mcp"],
+          "default": "mcp",
+          "enumDescriptions": [
+            "HTTP mode: AI tools fetch memories via HTTP context endpoints. Use when MCP is not available or you prefer a simpler setup.",
+            "MCP mode: AI tools connect via MCP (Model Context Protocol). Recommended for Cursor, Claude Code, etc. You can use remote MCP (backend URL /mcp) or local MCP (set MCP Server Path)."
+          ],
+          "description": "Connection mode: HTTP or MCP. Determines how AI tools (Cursor, Claude Code, etc.) connect to PowerMem."
+        },
+        "powermem.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "PowerMem server address. HTTP mode: used as the API base URL. MCP mode: used as the MCP root (e.g. {backendUrl}/mcp if MCP Server Path is empty)."
+        },
+        "powermem.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for PowerMem (X-API-Key header). Leave empty if your server does not require auth."
+        },
+        "powermem.useMCP": {
+          "type": "boolean",
+          "default": true,
+          "description": "Deprecated: use \"Connection Mode\" instead. When false, same as HTTP mode; when true, same as MCP mode."
+        },
+        "powermem.mcpServerPath": {
+          "type": "string",
+          "default": "",
+          "description": "MCP mode only. Leave empty to use remote MCP at Backend URL + /mcp. Set a path/command (e.g. uvx) to use a local MCP server process instead."
+        },
+        "powermem.userId": {
+          "type": "string",
+          "default": "",
+          "description": "Custom user ID for memory scope. Leave empty to auto-generate."
+        },
+        "powermem.projectName": {
+          "type": "string",
+          "default": "",
+          "description": "Custom project name. Leave empty to use the workspace name."
+        },
+        "powermem.seamlessMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Zero-friction mode: no need to use @powermem. Memory is automatic: linked AI (Cursor/Claude/Codex) get retrieval via MCP; optional file auto-capture adds content on save. Disable to use @powermem chat commands (remember/save/search)."
+        },
+        "powermem.autoCapture.onSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, automatically add file content to memory on save (seamless write). In seamless mode, defaults to true unless set explicitly. Respects 'Include pattern' and 'Max chars'."
+        },
+        "powermem.autoCapture.include": {
+          "type": "string",
+          "default": "**/*.md,**/*.txt,**/docs/**",
+          "description": "Glob pattern for which files to auto-capture on save (comma-separated). Example: **/*.md,**/docs/**"
+        },
+        "powermem.autoCapture.maxChars": {
+          "type": "number",
+          "default": 8000,
+          "description": "Max characters per file to add to memory on auto-capture (avoids huge payloads)."
+        },
+        "powermem.chat.autoSummarizeEveryNTurns": {
+          "type": "number",
+          "default": 10,
+          "description": "In @powermem chat: auto-summarize and save to memory every N conversation turns (0 = off). Seamless write."
+        },
+        "powermem.chat.autoRetrieve": {
+          "type": "boolean",
+          "default": true,
+          "description": "In @powermem chat: always retrieve relevant memories before answering. Seamless retrieval."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.x",
+    "@types/vscode": "^1.104.0",
+    "typescript": "^5.3.0"
+  }
+}

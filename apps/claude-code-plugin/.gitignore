@@ -1,0 +1,4 @@
+dist/
+*.zip
+# Built by scripts/build-hook-binaries.sh (included in release zip; omit from git to keep repo small)
+hooks/bin/

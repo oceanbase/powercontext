@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "powermem": {
+      "transport": "http",
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}

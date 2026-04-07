@@ -1,0 +1,64 @@
+# Publish VS Code extension to Visual Studio Marketplace / Open VSX (manual trigger only).
+# Configure in repo Settings -> Secrets and variables -> Actions:
+#   - VSCE_PAT: Personal Access Token for Visual Studio Marketplace
+#     (https://dev.azure.com -> User settings -> Personal access tokens; scope must include Marketplace)
+#   - OVSX_PAT: Token for Open VSX (optional; create at https://open-vsx.org after sign-in)
+
+name: Publish VS Code Extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_vsce:
+        description: 'Publish to Visual Studio Marketplace'
+        required: false
+        default: true
+        type: boolean
+      publish_ovsx:
+        description: 'Publish to Open VSX'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  publish:
+    name: Publish to Marketplace(s)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/vscode-extension/package-lock.json
+
+      - name: Build .vsix
+        run: |
+          cd apps/vscode-extension
+          npm ci
+          npm run compile
+          npx @vscode/vsce package --no-dependencies
+          mkdir -p ../.vsix
+          cp *.vsix ../.vsix/
+
+      - name: Publish to Visual Studio Marketplace
+        if: github.event.inputs.publish_vsce == 'true'
+        env:
+          VSCE_TOKEN: ${{ secrets.VSCE_PAT }}
+        run: |
+          cd apps/vscode-extension
+          npx @vscode/vsce publish --pat $VSCE_TOKEN -i ../.vsix/*.vsix
+
+      - name: Publish to Open VSX
+        if: github.event.inputs.publish_ovsx == 'true'
+        env:
+          OVSX_TOKEN: ${{ secrets.OVSX_PAT }}
+        run: |
+          cd apps/vscode-extension
+          npx @vscode/vsce publish --pat $OVSX_TOKEN -i ../.vsix/*.vsix --registryUrl https://open-vsx.org

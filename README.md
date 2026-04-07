@@ -6,7 +6,7 @@
 
 <p align="center">
 
-*PowerMem integrated with [OpenClaw](https://github.com/openclaw-ai/openclaw): intelligent memory for AI agents. **OpenClaw PowerMem Plugin**: [View Plugin](https://github.com/ob-labs/memory-powermem)*
+*PowerMem integrated with [OpenClaw](https://github.com/openclaw/openclaw): intelligent memory for AI agents. **OpenClaw PowerMem Plugin**: [View Plugin](https://github.com/ob-labs/memory-powermem)*
 
 One command to add PowerMem memory to OpenClaw: `openclaw plugins install memory-powermem`.
 
