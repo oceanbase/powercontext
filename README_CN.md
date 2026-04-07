@@ -1,47 +1,111 @@
-<p align="center">
-    <a href="https://github.com/oceanbase/oceanbase">
-        <img alt="OceanBase Logo" src="docs/images/oceanbase_Logo.png" width="50%" />
-    </a>
-</p>
+# PowerMem
 
-<p align="center">
+**面向 AI 应用与智能体的持久化记忆层。**
 
-*PowerMem 与 [OpenClaw](https://github.com/openclaw/openclaw) 集成：为 AI 智能体提供智能记忆。**OpenClaw PowerMem 记忆插件**：[查看插件](https://github.com/ob-labs/memory-powermem)*
+[![PyPI version](https://img.shields.io/pypi/v/powermem)](https://pypi.org/project/powermem/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/powermem)](https://pypi.org/project/powermem/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://pypi.org/project/powermem/)
+[![License Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-oceanbase%2Fpowermem-181717?logo=github)](https://github.com/oceanbase/powermem)
+[![Discord](https://img.shields.io/badge/Discord-社区-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/74cF8vbNEs)
 
-一行命令即可为 OpenClaw 接入 PowerMem 记忆：`openclaw plugins install memory-powermem`。
+*[English](README.md) · 中文 · [日本語](README_JP.md)*
 
-<img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem 与 OpenClaw" width="900"/>
+PowerMem 融合向量、全文与图检索，支持由 LLM 驱动的记忆抽取与艾宾浩斯型时间衰减，以及多智能体隔离、用户画像和文本/图像/音频等多模态线索。
 
-</p>
+可通过 Python SDK、CLI（`pmem`）或 HTTP API Server（含 **Dashboard**，路径 `/dashboard/`）接入；亦可使用 MCP Server。共用同一套 `.env`；完整选项见 [.env.example](.env.example) 与 [配置指南](docs/guides/0003-configuration.md)。
 
-<p align="center">
-    <a href="https://pepy.tech/project/powermem">
-        <img src="https://img.shields.io/pypi/dm/powermem" alt="PowerMem PyPI - Downloads">
-    </a>
-    <a href="https://github.com/oceanbase/powermem">
-        <img src="https://img.shields.io/github/commit-activity/m/oceanbase/powermem?style=flat-square" alt="GitHub commit activity">
-    </a>
-    <a href="https://pypi.org/project/powermem" target="blank">
-        <img src="https://img.shields.io/pypi/v/powermem?color=%2334D058&label=pypi%20package" alt="Package version">
-    </a>
-    <a href="https://github.com/oceanbase/powermem/blob/master/LICENSE">
-        <img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-green.svg" />
-    </a>
-    <a href="https://img.shields.io/badge/python%20-3.11.0%2B-blue.svg">
-        <img alt="pyversions" src="https://img.shields.io/badge/python%20-3.11.0%2B-blue.svg" />
-    </a>
-    <a href="https://deepwiki.com/oceanbase/powermem">
-        <img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg" />
-    </a>
-    <a href="https://zread.ai/oceanbase/powermem" target="_blank"><img src="https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff" alt="zread"/></a>
-    <a href="https://discord.com/invite/74cF8vbNEs">
-        <img src="https://img.shields.io/badge/Discord-Join%20Discord-5865F2?logo=discord&logoColor=white" alt="Join Discord">
-    </a>
-</p>
+## OpenClaw 集成
 
-[English](README.md) | [中文](README_CN.md) | [日本語](README_JP.md)
+[OpenClaw](https://github.com/openclaw/openclaw) 可通过插件 [`memory-powermem`](https://github.com/ob-labs/memory-powermem) 将 PowerMem 作为长期记忆使用。
 
-## ✨ 亮点
+```bash
+openclaw plugins install memory-powermem
+```
+
+需已安装 OpenClaw CLI。
+
+<div align="center">
+
+<img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem 与 OpenClaw" width="720"/>
+
+</div>
+
+## 快速开始
+
+**前置条件：** 将 [.env.example](.env.example) 复制为 `.env`，并配置 **LLM** 与 **向量嵌入**（默认数据库为 SQLite；OceanBase 可使用 **嵌入式 SeekDB**，见 `.env.example`）。安装 PowerMem 后也可运行 `pmem config init` 交互生成 `.env`。详见 [入门指南](docs/guides/0001-getting_started.md)。
+
+### 安装
+
+```bash
+pip install powermem
+```
+
+### SDK 示例
+
+在包含已配置 `.env` 的目录下运行：
+
+```python
+from powermem import Memory, auto_config
+
+config = auto_config()
+memory = Memory(config=config)
+
+memory.add("用户喜欢咖啡", user_id="user123")
+
+results = memory.search("用户偏好", user_id="user123")
+for result in results.get("results", []):
+    print(f"- {result.get('memory')}")
+```
+
+更多用法见 [入门指南](docs/guides/0001-getting_started.md)。
+
+### CLI（`pmem`，1.0+）
+
+```bash
+pmem memory add "用户偏好深色模式" --user-id user123
+pmem memory search "偏好" --user-id user123
+```
+
+交互式 Shell（单独执行；用 `exit` 或 Ctrl+D 退出）：
+
+```bash
+pmem shell
+```
+
+完整说明：[CLI 使用指南](docs/guides/0012-cli_usage.md)。
+
+### HTTP API Server 与 Dashboard
+
+与 SDK 共用同一 `.env`。Dashboard 路径为 `/dashboard/`。
+
+```bash
+powermem-server --host 0.0.0.0 --port 8000
+```
+
+Docker 与 Compose 等部署方式见 [API Server](docs/api/0005-api_server.md) 与 [Docker 说明](docker/README.md)。
+
+### 接入方式一览
+
+| 方式 | 常用命令 | 文档 |
+|------|----------|------|
+| CLI | `pmem memory add` / `pmem memory search`；`pmem shell` | [CLI 使用指南](docs/guides/0012-cli_usage.md) |
+| HTTP API + Dashboard | `powermem-server --host 0.0.0.0 --port 8000`；镜像 `oceanbase/powermem-server:latest`；在仓库根目录：`docker-compose -f docker/docker-compose.yml up -d` | [API Server](docs/api/0005-api_server.md) |
+
+<details>
+<summary><b>MCP Server</b>（可选）</summary>
+
+需要 [uv](https://docs.astral.sh/uv/)，且当前工作目录下需有已配置的 `.env`（见 [MCP Server](docs/api/0004-mcp.md)）。
+
+```bash
+uvx powermem-mcp sse
+```
+
+另支持 stdio、streamable-http。
+
+</details>
+
+## 基准表现（LOCOMO）
 
 <div align="center">
 
@@ -49,212 +113,62 @@
 
 </div>
 
-- 🎯 **更准**：**[准确率提升 48.77%]** 在 LOCOMO 基准测试中，相比于 full-context 更准确（78.70% VS 52.9%）
-- ⚡ **更快**：**[响应速度快 91.83%]** 相比于 full-context，检索的 p95 延迟显著降低（1.44s VS 17.12s）
-- 💰 **更省**：**[Token 用量降低 96.53%]** 相比于full-context，在不牺牲性能的前提下显著降低成本（0.9k VS 26k）
+相对「全量上下文」基线（[LOCOMO](https://github.com/snap-research/locomo)）：
 
-# 🧠 PowerMem - 智能AI记忆系统
+| 维度 | 结果 |
+|------|------|
+| 准确率 | 78.70% vs. 52.9% |
+| 检索 p95 延迟 | 1.44s vs. 17.12s |
+| Token 用量 | 约 0.9k vs. 26k |
 
-在 AI 应用开发中，如何让大语言模型持久化地"记住"历史对话、用户偏好和上下文信息是一个核心挑战。PowerMem 融合向量检索、全文检索和图数据库的混合存储架构，并引入认知科学的艾宾浩斯遗忘曲线理论，为 AI 应用构建了强大的记忆基础设施。系统还提供完善的多智能体支持能力，包括智能体记忆隔离、跨智能体协作共享、细粒度权限控制和隐私保护机制，让多个 AI 智能体能够在保持独立记忆空间的同时实现高效协作。
+## 能力概览
 
-## 🚀 核心特性
+**接入与工程化** — [Python 快速集成](docs/examples/scenario_1_basic_usage.md)；[CLI](docs/guides/0012-cli_usage.md)（`pmem`）；[HTTP API / Dashboard](docs/api/0005-api_server.md)；[MCP](docs/api/0004-mcp.md)（可选）；[IDE 应用](apps/README.md)（VS Code / Cursor、Claude Code 等）。
 
-### 👨‍💻 开发者友好
-- 🔌 **[轻量级接入方式](docs/examples/scenario_1_basic_usage.md)**：提供简洁的 Python SDK 支持，自动从 `.env` 文件加载配置，让开发者快速集成到现有项目中。还支持 [CLI](docs/guides/0012-cli_usage.md)（`pmem`）、[MCP Server](docs/api/0004-mcp.md) 和 [HTTP API Server](docs/api/0005-api_server.md) 三种接入方式
+**记忆管线与检索** — [智能抽取与更新](docs/examples/scenario_2_intelligent_memory.md)；[艾宾浩斯时间衰减](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)；[混合检索（向量 / 全文 / 图）](docs/examples/scenario_2_intelligent_memory.md)；[子存储与路由](docs/examples/scenario_6_sub_stores.md)。
 
-### 🧠 智能记忆管理
-- 🔍 **[记忆的智能提取](docs/examples/scenario_2_intelligent_memory.md)**：通过 LLM 自动从对话中提取关键事实，智能检测重复、更新冲突信息并合并相关记忆，确保记忆库的准确性和一致性
-- 📉 **[艾宾浩斯遗忘曲线](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md)**：基于认知科学的记忆遗忘规律，自动计算记忆保留率并实现时间衰减加权，优先返回最近且相关的记忆，让 AI 系统像人类一样自然"遗忘"过时信息
+**用户、画像与多智能体** — [用户画像](docs/examples/scenario_9_user_memory.md)；[共享 / 隔离记忆与作用域](docs/examples/scenario_3_multi_agent.md)。
 
-### 👤 用户画像支持
-- 🎭 **[用户画像](docs/examples/scenario_9_user_memory.md)**：基于用户历史对话和行为数据，自动构建和更新用户画像，适用于个性化推荐、AI 陪伴等场景，让 AI 系统更好地理解和服务每个用户
+**多模态** — [文本 / 图像 / 语音](docs/examples/scenario_7_multimodal.md)。
 
-### 🤖 多智能体支持
-- 🔐 **[智能体共享/隔离记忆](docs/examples/scenario_3_multi_agent.md)**：为每个智能体提供独立的记忆空间，支持跨智能体记忆共享和协作，通过作用域控制实现灵活的权限管理
+## 文档
 
-### 🎨 多模态支持
-- 🖼️ **[文本、图像、语音记忆](docs/examples/scenario_7_multimodal.md)**：自动将图像和音频转换为文本描述并存储，支持多模态混合内容（文本+图像+音频）的检索，让 AI 系统理解更丰富的上下文信息
+- [入门指南](docs/guides/0001-getting_started.md) — 安装、`.env`、首个 `Memory` 用法
+- [配置指南](docs/guides/0003-configuration.md) — 配置模型、存储后端、环境变量
+- [架构说明](docs/architecture/overview.md) — 组件、存储布局与检索流程
+- [API 与服务](docs/api/overview.md) — REST、MCP、HTTP 服务与 Python 侧 API
+- [CLI 使用指南](docs/guides/0012-cli_usage.md) — `pmem`、交互 Shell、备份与迁移
+- [多智能体](docs/guides/0005-multi_agent.md) — 作用域、隔离与跨智能体共享
+- [集成说明](docs/guides/0009-integrations.md) — LangChain 等框架接入
+- [Docker 与部署](docker/README.md) — 镜像、Compose、运行 API 服务
+- [开发说明](docs/development/overview.md) — 本地开发、测试与贡献
 
-### 💾 深度优化数据存储
-- 📦 **[支持子存储（Sub Stores）](docs/examples/scenario_6_sub_stores.md)**：通过子存储实现数据
-的分区管理，支持自动路由查询，显著提升超大规模数据的查询性能和资源利用率
-- 🔗 **[混合检索](docs/examples/scenario_2_intelligent_memory.md)**：融合向量检索、全文搜索和图检索的多路召回能力，通过 LLM 构建知识图谱并支持多跳图遍历，精准检索复杂的记忆关联关系
+更多：[子存储](docs/guides/0006-sub_stores.md)、[指南索引](docs/guides/overview.md)。
 
-## 🚀 快速开始
+## 示例
 
-### 📥 安装
+- [场景与 Notebook](docs/examples/overview.md) — 按场景分步说明（基础用法、多模态、遗忘曲线等）
+- [LangChain 示例](examples/langchain/README.md) — 医疗问答（LangChain + PowerMem + OceanBase）
+- [LangGraph 示例](examples/langgraph/README.md) — 客服机器人（LangGraph + PowerMem + OceanBase）
+- [IDE 应用](apps/README.md) — VS Code 扩展与 Claude Code 插件（对接 Cursor、Copilot 等）
 
-```bash
-pip install powermem
-```
+## 版本要点
 
-### 💡 基本使用（SDK）
+| 版本 | 日期 | 说明 |
+|------|------|------|
+| 1.1.0 | 2026-04-02 | OceanBase 存储支持嵌入式 SeekDB，无需单独部署数据库服务；[IDE 集成](apps/README.md)（VS Code 扩展、Claude Code 插件） |
+| 1.0.0 | 2026-03-16 | CLI（`pmem`）：记忆操作、配置、备份/恢复/迁移、交互 Shell、补全；Web Dashboard |
+| 0.5.0 | 2026-02-06 | SDK/API 统一配置（pydantic-settings）；OceanBase 原生混合检索；记忆查询与列表排序；用户画像输出语言定制 |
+| 0.4.0 | 2026-01-20 | 稀疏向量混合检索；基于画像的查询改写；表结构升级与迁移工具 |
+| 0.3.0 | 2026-01-09 | 生产级 HTTP API Server；Docker |
+| 0.2.0 | 2025-12-16 | 高级画像；多模态（文本/图像/语音） |
+| 0.1.0 | 2025-11-14 | 核心记忆与混合检索；LLM 抽取；遗忘曲线；多智能体；OceanBase/PostgreSQL/SQLite；图检索 |
 
-**✨ 最简单的方式**：从 `.env` 文件读取配置自动创建记忆！[配置文件参考](.env.example)
+## 支持
 
-```python
-from powermem import Memory, auto_config
+- [GitHub Issues](https://github.com/oceanbase/powermem/issues)
+- [GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
 
-# 自动从 .env 加载配置并初始化
-config = auto_config()
-memory = Memory(config=config)
+## 许可证
 
-# 添加记忆
-memory.add("用户喜欢咖啡", user_id="user123")
-
-# 搜索记忆
-results = memory.search("用户偏好", user_id="user123")
-for result in results.get('results', []):
-    print(f"- {result.get('memory')}")
-```
-
-更多详细示例和使用模式，请参阅[入门指南](docs/guides/0001-getting_started.md)。
-
-### ⌨️ PowerMem CLI（1.0.0+）
-
-PowerMem 提供命令行工具 `pmem`，无需编写 Python 代码即可进行记忆操作、配置管理、备份/恢复以及交互式 shell。
-
-```bash
-# 添加与搜索记忆
-pmem memory add "用户偏好深色模式" --user-id user123
-pmem memory search "偏好" --user-id user123
-
-# 配置与统计
-pmem config show
-pmem config init          # 交互式 .env 配置向导
-pmem stats --json
-
-# 交互式 shell
-pmem shell
-```
-
-完整 CLI 参考与示例请参阅 [CLI 使用指南](docs/guides/0012-cli_usage.md)。
-
-### 🌐 HTTP API Server 与 Dashboard
-
-PowerMem 提供生产就绪的 HTTP API Server，通过 RESTful API 暴露所有核心记忆管理功能。同时提供 **Dashboard**（路径 `/dashboard/`）的 Web 管理界面。
-
-**与 SDK 的关系**：API Server 底层使用相同的 PowerMem SDK，并共享相同的配置（`.env` 文件）。它提供了与 Python SDK 相同的记忆管理功能的 HTTP 接口，使 PowerMem 可供非 Python 应用程序使用。
-
-**启动 API Server（含 Dashboard）**：
-
-```bash
-# 方法 1：使用 CLI 命令（pip 安装后）
-powermem-server --host 0.0.0.0 --port 8000
-
-# 方法 2：使用 Docker（API Server + Dashboard 同一容器）
-docker run -d \
-  --name powermem-server \
-  -p 8000:8000 \
-  -v $(pwd)/.env:/app/.env:ro \
-  --env-file .env \
-  oceanbase/powermem-server:latest
-
-# 或使用 Docker Compose（推荐）
-docker-compose -f docker/docker-compose.yml up -d
-```
-
-启动后，同一服务提供：
-- 所有记忆操作的 RESTful API 端点
-- **Dashboard**：访问 `http://localhost:8000/dashboard/`
-- 交互式 API 文档，访问 `http://localhost:8000/docs`
-- API Key 认证和限流支持
-- 与 SDK 相同的配置（通过 `.env` 文件）
-
-完整的 API 文档和使用示例，请参阅 [API Server文档](docs/api/0005-api_server.md)。
-
-### 🔌 MCP Server
-
-PowerMem 还提供了模型上下文协议（MCP Server），支持与 Claude Desktop 等 MCP 兼容客户端集成。MCP Server通过 MCP 协议暴露 PowerMem 的记忆管理功能，使 AI 助手能够无缝访问和管理记忆。
-
-**与 SDK 的关系**：MCP Server 使用相同的 PowerMem SDK 并共享相同的配置（`.env` 文件）。它提供了与 Python SDK 相同的记忆管理功能的 MCP 接口，使 PowerMem 可供 MCP 兼容的 AI 助手使用。
-
-**安装**：
-
-```bash
-# 安装 PowerMem（必需）
-pip install powermem
-
-# 安装 uvx（如果尚未安装）
-# 在 macOS/Linux 上：
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 在 Windows 上：
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-**启动 MCP Server**：
-
-```bash
-# SSE 模式（推荐，默认端口 8000）
-uvx powermem-mcp sse
-
-# SSE 模式，自定义端口
-uvx powermem-mcp sse 8001
-
-# Stdio 模式
-uvx powermem-mcp stdio
-
-# Streamable HTTP 模式（默认端口 8000）
-uvx powermem-mcp streamable-http
-
-# Streamable HTTP 模式，自定义端口
-uvx powermem-mcp streamable-http 8001
-```
-
-**与 Claude Desktop 集成**：
-
-在 Claude Desktop 配置文件中添加以下配置：
-
-```json
-{
-  "mcpServers": {
-    "powermem": {
-      "url": "http://localhost:8000/mcp"
-    }
-  }
-}
-```
-
-MCP Server提供记忆管理工具，包括添加、搜索、更新和删除记忆。完整的 MCP 文档和使用示例，请参阅 [MCP Server文档](docs/api/0004-mcp.md)。
-
-## 🔗 集成与演示
-- 🔗 **openclaw 外挂记忆插件**：在 [openclaw](https://github.com/openclaw/openclaw) 中通过插件方式使用 PowerMem 长期记忆，支持智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。[查看插件](https://github.com/ob-labs/memory-powermem)
-- 🔗 **LangChain 集成**：基于 LangChain + PowerMem + OceanBase 构建医疗支持机器人，[查看示例](examples/langchain/README.md)
-- 🔗 **LangGraph 集成**：基于 LangGraph + PowerMem + OceanBase 构建客户服务机器人，[查看示例](examples/langgraph/README.md)
-
-## 📚 文档
-
-- 📖 **[入门指南](docs/guides/0001-getting_started.md)**：安装和快速开始指南
-- ⌨️ **[CLI 使用指南](docs/guides/0012-cli_usage.md)**：PowerMem CLI（pmem）参考（1.0.0+）
-- ⚙️ **[配置指南](docs/guides/0003-configuration.md)**：完整的配置选项
-- 🤖 **[多智能体指南](docs/guides/0005-multi_agent.md)**：多智能体场景和示例
-- 🔌 **[集成指南](docs/guides/0009-integrations.md)**：集成指南
-- 📦 **[子存储指南](docs/guides/0006-sub_stores.md)**：子存储的使用方法和示例
-- 📋 **[API 文档](docs/api/overview.md)**：完整的 API 参考
-- 🏗️ **[架构指南](docs/architecture/overview.md)**：系统架构和设计
-- 📓 **[示例](docs/examples/overview.md)**：交互式 Jupyter 笔记本和使用案例
-- 👨‍💻 **[开发者文档](docs/development/overview.md)**：开发者文档
-
-## ⭐ 重点发布说明
-
-| Version | Release Date | Function |
-|---------|-------|---------|
-| 1.1.0 | 2026.04.02 | <ul><li>存储端 · 嵌入式 seekdb：通过 ob_path 在本地运行嵌入式seekdb，无需单独部署数据库服务</li></ul> |
-| 1.0.0 | 2026.03.16 | <ul><li>PowerMem CLI (pmem)：记忆操作、配置管理、备份/恢复/迁移、交互式 shell、shell 补全</li><li>Web Dashboard：记忆管理与可视化</li></ul> |
-| 0.5.0 | 2026.02.06 | <ul><li>统一 SDK/API Server 配置治理（基于 pydantic-settings）</li><li>新增 OceanBase native hybrid search 支持<li>增强 Memory 查询处理并支持记忆列表排序</li><li>新增用户画像支持自定义原生语言<li></ul> |
-| 0.4.0 | 2026.01.20 | <ul><li>稀疏向量支持，增强混合检索能力，融合密集向量、全文检索和稀疏向量三种检索方式</li><li>用户画像查询改写功能，基于用户画像自动改写查询以提升搜索召回率</li><li>表结构升级和数据迁移工具，支持现有表的平滑升级</li></ul> |
-| 0.3.0 |  2026.01.09 | <ul><li>生产就绪的 HTTP API Server，提供所有记忆操作的 RESTful 接口</li><li>Docker 支持，便于部署和容器化</li>></ul> |
-| 0.2.0 | 2025.12.16 | <ul><li>高级用户画像管理，支持 AI 应用的"千人千面"</li><li>扩展多模态支持，包括文本、图像和音频记忆</li></ul> |
-| 0.1.0 | 2025.11.14 | <ul><li>核心记忆管理功能，支持持久化存储记忆</li><li>支持向量、全文和图的混合检索</li><li>基于 LLM 的事实提取智能记忆</li><li>支持基于艾宾浩斯遗忘曲线的全生命周期记忆管理</li><li>支持 Multi-Agent 记忆管理</li><li>多存储后端支持（OceanBase、PostgreSQL、SQLite）</li><li>支持通过多跳图检索的方式处理知识图谱的检索</li></ul> |
-
-## 💬 支持
-
-- 🐛 **问题反馈**：[GitHub Issues](https://github.com/oceanbase/powermem/issues)
-- 💭 **讨论交流**：[GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
-
----
-
-## 📄 许可证
-
-本项目采用 Apache License 2.0 许可证 - 详情请参阅 [LICENSE](LICENSE) 文件。
+Apache License 2.0 — 见 [LICENSE](LICENSE)。
