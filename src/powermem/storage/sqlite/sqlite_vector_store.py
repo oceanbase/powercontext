@@ -16,6 +16,24 @@ from powermem.utils.utils import generate_snowflake_id
 
 logger = logging.getLogger(__name__)
 
+def _json_path_for_key(key: str) -> str:
+    """
+    Build a SQLite JSON1 path for `json_extract(payload, ?)` from a dotted key.
+
+    We preserve the previous semantics where dots indicate nesting, but avoid
+    SQL injection by *parameterizing the path* instead of interpolating it into SQL.
+
+    Example:
+        key="user_id"   -> $."user_id"
+        key="a.b"       -> $."a"."b"
+        key="x') OR 1=1 -- " -> $."x') OR 1=1 -- "
+    """
+    segments = key.split(".") if key is not None else [""]
+    path = "$"
+    for segment in segments:
+        path += f".{json.dumps(segment)}"
+    return path
+
 
 class SQLiteVectorStore(VectorStoreBase):
     """Simple SQLite-based vector store implementation."""
@@ -123,8 +141,8 @@ class SQLiteVectorStore(VectorStoreBase):
             conditions = []
             for key, value in filters.items():
                 # Filter by JSON field in payload
-                conditions.append(f"json_extract(payload, '$.{key}') = ?")
-                query_params.append(value)
+                conditions.append("(json_extract(payload, ?) = ?)")
+                query_params.extend([_json_path_for_key(key), value])
             
             if conditions:
                 query_sql += " WHERE " + " AND ".join(conditions)
@@ -250,8 +268,8 @@ class SQLiteVectorStore(VectorStoreBase):
             conditions = []
             for key, value in filters.items():
                 # Filter by JSON field in payload
-                conditions.append(f"json_extract(payload, '$.{key}') = ?")
-                query_params.append(value)
+                conditions.append("(json_extract(payload, ?) = ?)")
+                query_params.extend([_json_path_for_key(key), value])
             
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
@@ -312,8 +330,8 @@ class SQLiteVectorStore(VectorStoreBase):
             conditions = []
             for key, value in filters.items():
                 # Filter by JSON field in payload
-                conditions.append(f"json_extract(payload, '$.{key}') = ?")
-                query_params.append(value)
+                conditions.append("(json_extract(payload, ?) = ?)")
+                query_params.extend([_json_path_for_key(key), value])
             
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
@@ -343,8 +361,8 @@ class SQLiteVectorStore(VectorStoreBase):
         if filters:
             conditions = []
             for key, value in filters.items():
-                conditions.append(f"json_extract(payload, '$.{key}') = ?")
-                query_params.append(value)
+                conditions.append("(json_extract(payload, ?) = ?)")
+                query_params.extend([_json_path_for_key(key), value])
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
 

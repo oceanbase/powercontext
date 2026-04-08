@@ -194,3 +194,56 @@ class TestStorageIntegration:
             assert len(mem2_results) > 0
         finally:
             patcher2.stop()
+
+    def test_sqlite_filters_key_sql_injection_regression(self):
+        """
+        Regression test for CWE-89: filters key must not be interpolated into SQL.
+
+        Before the fix, a malicious key could inject SQL and bypass the intended
+        `user_id` filter, returning other users' rows.
+        """
+        store = SQLiteVectorStore(
+            database_path=":memory:",
+            collection_name=f"test_collection_sqli_{uuid.uuid4().hex[:8]}",
+        )
+
+        dangerous_key = "x') OR (?=?) -- "
+        vec = [0.1] * 10
+
+        store.insert(
+            [vec],
+            [
+                {
+                    "user_id": "alice",
+                    dangerous_key: "alice",
+                    "content": "ALICE_SECRET",
+                }
+            ],
+        )
+        store.insert(
+            [vec],
+            [
+                {
+                    "user_id": "bob",
+                    dangerous_key: "alice",
+                    "content": "BOB_SECRET",
+                }
+            ],
+        )
+
+        injected_filters = {dangerous_key: "alice", "user_id": "alice"}
+
+        results = store.search(query="", vectors=[vec], limit=10, filters=injected_filters)
+        assert len(results) == 1
+        assert results[0].payload is not None
+        assert results[0].payload.get("user_id") == "alice"
+
+        listed = store.list(filters=injected_filters)
+        assert len(listed) == 1
+        assert listed[0].payload is not None
+        assert listed[0].payload.get("user_id") == "alice"
+
+        assert store.count(filters=injected_filters) == 1
+
+        stats = store.get_statistics(filters=injected_filters)
+        assert stats["total_memories"] == 1
