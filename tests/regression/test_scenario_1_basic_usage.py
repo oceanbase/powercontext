@@ -650,9 +650,9 @@ def test_data_consistency() -> None:
 
     # Test get_all consistency
     print("\nTesting get_all consistency...")
-    memory.add("Memory 1", user_id=user_id)
-    memory.add("Memory 2", user_id=user_id)
-    memory.add("Memory 3", user_id=user_id)
+    memory.add("user1 is 18 years old", user_id=user_id)
+    memory.add("user2 is 20 years old", user_id=user_id)
+    memory.add("user3 is 22 years old", user_id=user_id)
 
     all_memories = memory.get_all(user_id=user_id)
     results_list = list(_get_results_list(all_memories))

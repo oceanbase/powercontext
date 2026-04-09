@@ -202,7 +202,7 @@ def test_step2_search_image_memories(memory) -> None:
 
 def test_step3_add_audio_memory(memory) -> None:
     _print_step("Step 3: Add Audio Memory (OpenAI multimodal)")
-    audio_url = "https://sis-sample-audio.obs.cn-north-1.myhuaweicloud.com/16k16bit.wav"  # Must be a URL
+    audio_url = "https://storage.googleapis.com/cloud-samples-data/speech/commercial_mono.wav"  # Must be a URL
     messages = [
         {
             "role": "user",

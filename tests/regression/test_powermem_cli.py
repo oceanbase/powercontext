@@ -5,13 +5,15 @@ PowerMem CLI Regression Test Suite (pytest version)
 
 Automated test script based on test report, covering:
 - Basic operations (--help, --version, config init/show/validate/test)
-- Data operations (add, update, delete, delete-all)
-- Core commands (list, search, get)
+- Data operations (pmem memory add/update/delete/delete-all)
+- Core commands (pmem memory list/search/get)
 - Other commands (stats, manage backup/restore/cleanup/migrate, shell)
 
 Usage:
     pytest tests/regression/test_powermem_cli.py -v
     pytest tests/regression/test_powermem_cli.py -v -k "test_help"  # Run specific tests
+
+Requires ``.env`` at the repository root (resolved from this file, not the process cwd).
 """
 
 import subprocess
@@ -21,6 +23,7 @@ import sys
 import time
 import tempfile
 import shutil
+import shlex
 import re
 import pytest
 from typing import Tuple, List, Optional
@@ -28,8 +31,24 @@ from typing import Tuple, List, Optional
 
 # ==================== Configuration ====================
 
-# Environment file path (same level as tests directory)
-ENV_FILE = ".env"
+# Repo root `.env` — must not depend on pytest cwd (running from `tests/regression/`
+# would otherwise resolve `.env` to `tests/regression/.env`, which does not exist).
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+ENV_FILE = os.path.join(_REPO_ROOT, ".env")
+
+
+def _pmem_shell_invocation() -> str:
+    """
+    Shell fragment to run the PowerMem CLI (equivalent to `pmem` / `powermem-cli`).
+
+    Prefer PATH-installed console scripts; fall back to ``python -m powermem.cli.main``
+    so tests pass when only the venv interpreter is available (common in CI / pytest).
+    """
+    for name in ("pmem", "powermem-cli"):
+        path = shutil.which(name)
+        if path:
+            return path
+    return f"{shlex.quote(sys.executable)} -m powermem.cli.main"
 
 
 # ==================== Fixtures ====================
@@ -89,7 +108,7 @@ def cleanup_test_data(cli_runner, test_data):
 # ==================== CLI Runner ====================
 
 class CLIRunner:
-    """CLI runner for executing commands"""
+    """CLI runner for executing commands (uses ``pmem memory …``, not legacy ``pmem add``)."""
     
     def __init__(self, env_file: str = ".env"):
         self.env_file = env_file
@@ -117,8 +136,9 @@ class CLIRunner:
             return -1, "", str(e)
     
     def pmem(self, args: str, timeout: int = 60, input_text: str = None) -> Tuple[int, str, str]:
-        """Execute pmem command"""
-        cmd = f"pmem -f {self.env_file} {args}"
+        """Execute ``pmem -f <env> <args>`` (e.g. ``memory add`` → ``pmem -f .env memory add``)."""
+        env_path = shlex.quote(os.path.abspath(self.env_file))
+        cmd = f"{_pmem_shell_invocation()} -f {env_path} {args}"
         return self.run_command(cmd, timeout, input_text)
 
 
@@ -207,7 +227,7 @@ class TestHelpAndVersion:
     
     def test_powermem_cli_help(self, cli_runner):
         """powermem-cli --help should display help information"""
-        rc, out, err = cli_runner.run_command("powermem-cli --help")
+        rc, out, err = cli_runner.run_command(f"{_pmem_shell_invocation()} --help")
         assert_contains(rc, out, err, ["PowerMem CLI", "Examples", "Options", "Commands"])
     
     def test_powermem_cli_version(self, cli_runner):
@@ -311,11 +331,12 @@ class TestMemoryAdd:
         test_data["memory_ids"].append(memory_id)
     
     def test_memory_add_with_metadata(self, cli_runner, test_data):
-        """memory add --metadata should successfully add memory with metadata, output format [SUCCESS] Memory ADD: ID=xxx"""
+        """memory add --metadata should add with metadata; output stays [SUCCESS] Memory ADD: ID=…"""
+        # --no-infer: avoid intelligent path returning no rows / non-ADD events; still validates --metadata.
         rc, out, err = cli_runner.pmem(
             f'memory add "CLI2 is my best friend" --user-id {test_data["user_id"]} '
             f'--agent-id {test_data["agent_id"]} --run-id {test_data["run_id"]} '
-            f'--metadata \'{{"category":"test"}}\''
+            f'--metadata \'{{"category":"test"}}\' --no-infer'
         )
         assert_success(rc, out, err)
         assert_contains(rc, out, err, ["[SUCCESS]", "Memory ADD", "ID="])
@@ -337,7 +358,7 @@ class TestMemoryAdd:
     
     def test_memory_add_without_ids(self, cli_runner):
         """memory add without ID parameters should succeed, output format [SUCCESS] Memory ADD: ID=xxx"""
-        rc, out, err = cli_runner.pmem('memory add "I like drinking coffee"')
+        rc, out, err = cli_runner.pmem('memory add "user100 is 100 years old"')
         assert_success(rc, out, err)
         assert_contains(rc, out, err, ["[SUCCESS]", "Memory ADD", "ID="])
     
@@ -361,12 +382,16 @@ class TestMemoryUpdate:
     
     def test_memory_update_basic(self, cli_runner, test_data):
         """memory update should successfully update memory"""
+        if not test_data["memory_ids"]:
+            pytest.skip("No memory_id; run TestMemoryAdd first (same module) or full file")
         rc, out, err = cli_runner.pmem(f'memory update {test_data["memory_ids"][0]} "I like drinking tea"')
         assert_success(rc, out, err)
         assert_contains(rc, out, err, ["[SUCCESS]", "Memory updated", "ID="])
     
     def test_memory_update_with_metadata(self, cli_runner, test_data):
         """memory update --metadata should successfully update metadata"""
+        if not test_data["memory_ids"]:
+            pytest.skip("No memory_id; run TestMemoryAdd first (same module) or full file")
         rc, out, err = cli_runner.pmem(
             f'memory update {test_data["memory_ids"][0]} "I like drinking coffee" --metadata \'{{"updated":true}}\''
         )
@@ -383,52 +408,6 @@ class TestMemoryUpdate:
         rc, out, err = cli_runner.pmem("memory update")
         assert_failure(rc, out, err)
         assert_contains(rc, out, err, ["Missing", "Error", "MEMORY_ID"])
-
-
-
-class TestMemoryDelete:
-    """Test memory delete command"""
-    
-    def test_memory_delete_basic(self, cli_runner, test_data):
-        """memory delete --yes should successfully delete memory"""
-        # First add a memory for deletion
-        rc, out, err = cli_runner.pmem(
-            f'memory add "Memory to be deleted" --user-id {test_data["user_id"]} '
-            f'--agent-id {test_data["agent_id"]} --no-infer'
-        )
-        assert_contains(rc, out, err, ["[SUCCESS]", "Memory ADD", "ID="])
-        delete_id = extract_memory_id(out)
-        assert delete_id is not None, f"Failed to extract memory_id from output\nstdout: {out}"
-        
-        rc, out, err = cli_runner.pmem(f"memory delete {delete_id} --yes")
-        assert_success(rc, out, err)
-    
-    def test_memory_delete_nonexistent(self, cli_runner):
-        """memory delete with non-existent ID should fail"""
-        rc, out, err = cli_runner.pmem("memory delete 999999999999 --yes")
-        assert_contains(rc, out, err, ["not found", "ERROR", "denied"])
-    
-    def test_memory_delete_missing_id(self, cli_runner):
-        """memory delete with missing ID should fail"""
-        rc, out, err = cli_runner.pmem("memory delete --yes")
-        assert_failure(rc, out, err, "Missing", "MEMORY_ID")
-
-
-class TestMemoryDeleteAll:
-    """Test memory delete-all command"""
-    
-    def test_memory_delete_all_nonexistent_user(self, cli_runner):
-        """memory delete-all for non-existent user should succeed (delete 0 records)"""
-        rc, out, err = cli_runner.pmem(
-            "memory delete-all --user-id nonexistent_user_xyz --confirm",
-            input_text="y\n"
-        )
-        assert_success(rc, out, err, "[SUCCESS] All matching memories deleted")
-    
-    def test_memory_delete_all_missing_confirm(self, cli_runner):
-        """memory delete-all without --confirm should fail"""
-        rc, out, err = cli_runner.pmem("memory delete-all --user-id test")
-        assert_failure(rc, out, err, "Add --confirm flag to proceed")
 
 
 # ==================== Core Commands Tests ====================
@@ -488,14 +467,16 @@ class TestMemoryList:
         long_agent_id = "list_agent_id_1234567890"
         try:
             rc, out, err = cli_runner.pmem(
-                f'memory add "list long ids test" --user-id {long_user_id} --agent-id {long_agent_id}'
+                f'memory add "user1 is 1 year old" --user-id {long_user_id} --agent-id {long_agent_id} '
+                f"--no-infer"
             )
-            assert_success(rc, out, err, "add")
+            assert_contains(rc, out, err, ["[SUCCESS]", "Memory ADD", "ID="])
 
             rc, out, err = cli_runner.pmem(
                 f"memory list --user-id {long_user_id} --agent-id {long_agent_id} --limit 5"
             )
-            assert_success(rc, out, err, "found", "id", "user id", "agent id", "content")
+            # "Showing" only appears when the list is non-empty (avoid matching "No memories found").
+            assert_success(rc, out, err, "Found", "ID", "User ID", "Agent ID", "Content", "...")
             combined = (out + err).lower()
             assert "list_user_id_1234..." in combined, \
                 f"Expected truncated user_id with ellipsis, got output:\n{out}\n{err}"
@@ -860,10 +841,9 @@ class TestShell:
         long_user_id = "shell_user_id_1234567890"
         try:
             rc, out, err = cli_runner.pmem(
-                f'memory add "shell long user id test" --user-id {long_user_id} --agent-id shell_agent'
+                f'memory add "user2 is 2 year old" --user-id {long_user_id} --agent-id shell_agent'
             )
-            # Be tolerant to wording differences like "ADD" vs "added".
-            assert_success(rc, out, err, "add")
+            assert_success(rc, out, err, "[SUCCESS]", "Memory ADD", "ID=")
 
             last_rc, last_out, last_err = 0, "", ""
             for _ in range(5):
@@ -877,7 +857,8 @@ class TestShell:
                     break
                 time.sleep(0.5)
 
-            assert_success(last_rc, last_out, last_err, "found", "memories")
+            # Interactive shell prints "Found N memories:" — not the same as "No memories found".
+            assert_success(last_rc, last_out, last_err, "memories:", "User ID")
             combined = (last_out + last_err).lower()
             assert (
                 "shell_user_id_12345..." in combined
@@ -898,6 +879,51 @@ class TestShell:
         """shell quit should exit normally"""
         rc, out, err = cli_runner.pmem("shell", timeout=10, input_text="quit\n")
         assert_contains(rc, out, err, ["Goodbye"])
+
+
+class TestMemoryDelete:
+    """Test memory delete command"""
+    
+    def test_memory_delete_basic(self, cli_runner, test_data):
+        """memory delete --yes should successfully delete memory"""
+        # First add a memory for deletion
+        rc, out, err = cli_runner.pmem(
+            f'memory add "Memory to be deleted" --user-id {test_data["user_id"]} '
+            f'--agent-id {test_data["agent_id"]} --no-infer'
+        )
+        assert_contains(rc, out, err, ["[SUCCESS]", "Memory ADD", "ID="])
+        delete_id = extract_memory_id(out)
+        assert delete_id is not None, f"Failed to extract memory_id from output\nstdout: {out}"
+        
+        rc, out, err = cli_runner.pmem(f"memory delete {delete_id} --yes")
+        assert_success(rc, out, err)
+    
+    def test_memory_delete_nonexistent(self, cli_runner):
+        """memory delete with non-existent ID should fail"""
+        rc, out, err = cli_runner.pmem("memory delete 999999999999 --yes")
+        assert_contains(rc, out, err, ["not found", "ERROR", "denied"])
+    
+    def test_memory_delete_missing_id(self, cli_runner):
+        """memory delete with missing ID should fail"""
+        rc, out, err = cli_runner.pmem("memory delete --yes")
+        assert_failure(rc, out, err, "Missing", "MEMORY_ID")
+
+
+class TestMemoryDeleteAll:
+    """Test memory delete-all command"""
+    
+    def test_memory_delete_all_nonexistent_user(self, cli_runner):
+        """memory delete-all for non-existent user should succeed (delete 0 records)"""
+        rc, out, err = cli_runner.pmem(
+            "memory delete-all --user-id nonexistent_user_xyz --confirm",
+            input_text="y\n"
+        )
+        assert_success(rc, out, err, "[SUCCESS] All matching memories deleted")
+    
+    def test_memory_delete_all_missing_confirm(self, cli_runner):
+        """memory delete-all without --confirm should fail"""
+        rc, out, err = cli_runner.pmem("memory delete-all --user-id test")
+        assert_failure(rc, out, err, "Add --confirm flag to proceed")
 
 
 # ==================== Main Entry Point ====================

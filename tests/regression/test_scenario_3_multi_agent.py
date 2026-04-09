@@ -240,18 +240,20 @@ def test_step6_memory_scopes() -> None:
         "Agent-specific memory",
         user_id="user123",
         metadata={"scope": "AGENT"},
+        infer=False,
     )
     agent.add(
         "User-specific memory",
         user_id="user123",
         metadata={"scope": "USER"},
+        infer=False,
     )
 
     print("Agent-scoped memories:")
     results = agent.search(
         query="memories",
         user_id="user123",
-        filters={"metadata.scope": "AGENT"}
+        filters={"scope": "AGENT"}
     )
     for result in results.get('results', []):
         print(f"  - {result['memory']}")
@@ -562,7 +564,7 @@ def test_agent_metadata_filtering() -> None:
     category_results = agent.search(
         query="customer",
         user_id=user_id,
-        filters={"metadata.category": "communication"}
+        filters={"category": "communication"}
     )
     category_memories = _get_results(category_results)
     print(f"   Found {len(category_memories)} memories with category='communication'")
@@ -573,7 +575,7 @@ def test_agent_metadata_filtering() -> None:
     priority_results = agent.search(
         query="customer",
         user_id=user_id,
-        filters={"metadata.priority": "high"}
+        filters={"priority": "high"}
     )
     priority_memories = _get_results(priority_results)
     print(f"   Found {len(priority_memories)} memories with priority='high'")
