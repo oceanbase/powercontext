@@ -119,7 +119,8 @@ function UserProfilePage() {
     return topicKeys.slice(0, 3).join(", ") + (topicKeys.length > 3 ? "..." : "");
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | undefined) => {
+    if (!dateString) return nullDisplay;
     try {
       return new Date(dateString).toLocaleString();
     } catch {

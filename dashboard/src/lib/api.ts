@@ -49,8 +49,8 @@ export interface UserProfile {
   user_id: string;
   profile_content?: string;
   topics?: Record<string, any>;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface UserProfileListResponse {
