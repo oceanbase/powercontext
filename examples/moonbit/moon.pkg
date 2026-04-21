@@ -1,0 +1,15 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/http",
+  "moonbitlang/async/io",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/encoding/utf8" @utf8,
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+supported_targets = "native"
+
+options(
+  "is-main": true,
+)

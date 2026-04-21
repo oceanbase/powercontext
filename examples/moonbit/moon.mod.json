@@ -1,0 +1,10 @@
+{
+  "name": "oceanbase/powermem-example-moonbit",
+  "version": "0.1.0",
+  "deps": {
+    "moonbitlang/async": "0.18.0"
+  },
+  "license": "Apache-2.0",
+  "description": "MoonBit client example for the PowerMem HTTP API",
+  "preferred-target": "native"
+}
