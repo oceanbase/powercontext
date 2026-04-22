@@ -42,8 +42,8 @@ class OpenAIEmbedding(EmbeddingBase):
             list: The embedding vector.
         """
         text = text.replace("\n", " ")
-        return (
-            self.client.embeddings.create(input=[text], model=self.config.model, dimensions=self.config.embedding_dims)
-            .data[0]
-            .embedding
-        )
+        kwargs = {"input": [text], "model": self.config.model}
+        pass_dims = getattr(self.config, "pass_dimensions", True)
+        if pass_dims:
+            kwargs["dimensions"] = self.config.embedding_dims
+        return self.client.embeddings.create(**kwargs).data[0].embedding

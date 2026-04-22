@@ -22,6 +22,15 @@ class OpenAIEmbeddingConfig(BaseEmbedderConfig):
             "OPEN_EMBEDDING_BASE_URL",
         ),
     )
+    #: When False, omit the ``dimensions`` argument on ``embeddings.create`` (required for some
+    #: OpenAI-compatible gateways that reject Matryoshka / output-dimension overrides).
+    pass_dimensions: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "pass_dimensions",
+            "EMBEDDING_OPENAI_PASS_DIMENSIONS",
+        ),
+    )
 
 
 class QwenEmbeddingConfig(BaseEmbedderConfig):

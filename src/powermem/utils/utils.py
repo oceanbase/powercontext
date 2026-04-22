@@ -526,6 +526,121 @@ def remove_code_blocks(content: str) -> str:
     return match.group(1).strip() if match else content.strip()
 
 
+def llm_json_text_with_fallback(llm: Any, *, messages: List[Dict[str, str]], **kwargs: Any) -> str:
+    """
+    Call llm.generate_response with OpenAI-style json_object mode; if the body is empty, retry
+    without response_format. Some OpenAI-compatible APIs return blank message.content when
+    json_object mode is not supported or is ignored.
+    """
+    text = llm.generate_response(
+        messages=messages,
+        response_format={"type": "json_object"},
+        **kwargs,
+    )
+    if isinstance(text, str) and text.strip():
+        return text
+    logger.debug(
+        "Empty LLM response with response_format=json_object; retrying without response_format "
+        "(common for some OpenAI-compatible endpoints)"
+    )
+    text = llm.generate_response(messages=messages, response_format=None, **kwargs)
+    return text if isinstance(text, str) else (str(text) if text is not None else "")
+
+
+def _normalize_string_fact_list(items: Any) -> List[str]:
+    if not isinstance(items, list):
+        return []
+    out: List[str] = []
+    for x in items:
+        if x is None:
+            continue
+        s = str(x).strip()
+        if s:
+            out.append(s)
+    return out
+
+
+def normalize_fact_extraction_payload(parsed: Any) -> List[str]:
+    """Normalize parsed JSON into fact strings for intelligent memory extraction."""
+    if parsed is None:
+        return []
+    if isinstance(parsed, list):
+        return _normalize_string_fact_list(parsed)
+    if isinstance(parsed, dict):
+        for key in ("facts", "fact", "items", "results"):
+            v = parsed.get(key)
+            if isinstance(v, list):
+                facts = _normalize_string_fact_list(v)
+                if facts:
+                    return facts
+            if isinstance(v, str) and v.strip():
+                return [v.strip()]
+        nested = parsed.get("data")
+        if isinstance(nested, dict):
+            return normalize_fact_extraction_payload(nested)
+    return []
+
+
+def parse_fact_extraction_json(text: str) -> List[str]:
+    """Parse LLM output for fact extraction prompts into fact strings."""
+    if not text or not str(text).strip():
+        return []
+    raw = str(text).strip()
+    candidates: List[str] = []
+    for c in (extract_json(raw), remove_code_blocks(raw), raw):
+        if c is not None and str(c).strip() and str(c).strip() not in candidates:
+            candidates.append(str(c).strip())
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        facts = normalize_fact_extraction_payload(parsed)
+        if facts:
+            return facts
+    parsed_dict = parse_json_from_text(raw, expected_type=dict)
+    if parsed_dict is not None:
+        facts = normalize_fact_extraction_payload(parsed_dict)
+        if facts:
+            return facts
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return _normalize_string_fact_list(parsed)
+    except json.JSONDecodeError:
+        pass
+    return []
+
+
+def parse_memory_actions_json(text: str) -> List[Dict[str, Any]]:
+    """
+    Parse LLM output for memory update prompts into the \"memory\" action list.
+    Expected shape: {\"memory\": [ {...}, ... ]}.
+    """
+    if not text or not str(text).strip():
+        return []
+    raw = str(text).strip()
+    candidates: List[str] = []
+    for c in (extract_json(raw), remove_code_blocks(raw), raw):
+        if c is not None and str(c).strip() and str(c).strip() not in candidates:
+            candidates.append(str(c).strip())
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            mem = parsed.get("memory")
+            if isinstance(mem, list):
+                return mem
+    parsed_dict = parse_json_from_text(raw, expected_type=dict)
+    if parsed_dict is not None:
+        mem = parsed_dict.get("memory")
+        if isinstance(mem, list):
+            return mem
+    return []
+
+
 def get_image_description(image_obj: Any, llm: Any, vision_details: Any) -> str:
     """
     - image_obj can be a URL string, or a prebuilt multimodal message (list/dict).

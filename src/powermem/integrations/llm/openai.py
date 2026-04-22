@@ -1,13 +1,33 @@
 import json
 import logging
 import os
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from openai import OpenAI
 from powermem.integrations.llm import LLMBase
 from powermem.integrations.llm.config.base import BaseLLMConfig
 from powermem.integrations.llm.config.openai import OpenAIConfig
 from powermem.utils.utils import extract_json
+
+
+def _chat_message_content_to_str(content: Any) -> str:
+    """Normalize OpenAI-style message.content (str, None, or list of text/part blocks)."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text" and block.get("text") is not None:
+                    parts.append(str(block["text"]))
+                elif block.get("text") is not None:
+                    parts.append(str(block["text"]))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts)
+    return str(content)
 
 
 class OpenAILLM(LLMBase):
@@ -62,7 +82,7 @@ class OpenAILLM(LLMBase):
         """
         if tools:
             processed_response = {
-                "content": response.choices[0].message.content,
+                "content": _chat_message_content_to_str(response.choices[0].message.content),
                 "tool_calls": [],
             }
 
@@ -97,7 +117,7 @@ class OpenAILLM(LLMBase):
 
             return processed_response
         else:
-            return response.choices[0].message.content
+            return _chat_message_content_to_str(response.choices[0].message.content)
 
     def generate_response(
         self,
