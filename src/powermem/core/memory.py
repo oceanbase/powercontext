@@ -716,11 +716,15 @@ class Memory(MemoryBase):
         # enhanced_metadata = self.intelligence.process_metadata(content, metadata)
         enhanced_metadata = metadata  # Use original metadata without LLM evaluation
 
-        # Intelligent plugin annotations
-        extra_fields = {}
+        # Intelligent plugin annotations: merge into metadata so they are persisted
+        # in the metadata JSON column (OceanBase only saves the metadata column,
+        # not arbitrary top-level payload fields).
         if self._intelligence_plugin and self._intelligence_plugin.enabled:
             extra_fields = self._intelligence_plugin.on_add(content=content, metadata=enhanced_metadata)
-        
+            if extra_fields:
+                if enhanced_metadata is None:
+                    enhanced_metadata = {}
+                enhanced_metadata = {**enhanced_metadata, **extra_fields}
 
         # Generate content hash for deduplication
         content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
@@ -763,9 +767,6 @@ class Memory(MemoryBase):
             "updated_at": get_current_datetime(),
         }
 
-        if extra_fields:
-            memory_data.update(extra_fields)
-        
         memory_id = self.storage.add_memory(memory_data)
         
         # Log audit event
@@ -1094,7 +1095,15 @@ class Memory(MemoryBase):
         # Process metadata
         # enhanced_metadata = self.intelligence.process_metadata(content, metadata)
         enhanced_metadata = metadata  # Use original metadata without LLM evaluation
-        
+
+        # Intelligent plugin annotations: merge into metadata for persistence
+        if self._intelligence_plugin and self._intelligence_plugin.enabled:
+            extra_fields = self._intelligence_plugin.on_add(content=content, metadata=enhanced_metadata)
+            if extra_fields:
+                if enhanced_metadata is None:
+                    enhanced_metadata = {}
+                enhanced_metadata = {**enhanced_metadata, **extra_fields}
+
         # Extract category from metadata; prefer explicit memory_type param
         category = ""
         if enhanced_metadata and isinstance(enhanced_metadata, dict):
@@ -1109,7 +1118,7 @@ class Memory(MemoryBase):
                 enhanced_metadata = {**enhanced_metadata, "scope": scope}
             else:
                 enhanced_metadata = {"scope": scope}
-        
+
         # Generate content hash
         content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
         

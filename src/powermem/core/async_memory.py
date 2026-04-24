@@ -539,11 +539,13 @@ class AsyncMemory(MemoryBase):
         # enhanced_metadata = await self.intelligence.process_metadata_async(content, metadata)
         enhanced_metadata = metadata  # Use original metadata without LLM evaluation
 
-        # Intelligent plugin annotations
-        extra_fields = {}
+        # Intelligent plugin annotations: merge into metadata for persistence
         if self._intelligence_plugin and self._intelligence_plugin.enabled:
             extra_fields = self._intelligence_plugin.on_add(content=content, metadata=enhanced_metadata)
-        
+            if extra_fields:
+                if enhanced_metadata is None:
+                    enhanced_metadata = {}
+                enhanced_metadata = {**enhanced_metadata, **extra_fields}
 
         # Generate content hash for deduplication
         content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
@@ -586,9 +588,6 @@ class AsyncMemory(MemoryBase):
             "updated_at": get_current_datetime(),
         }
 
-        if extra_fields:
-            memory_data.update(extra_fields)
-        
         memory_id = await self.storage.add_memory_async(memory_data)
         
         # Log audit event
