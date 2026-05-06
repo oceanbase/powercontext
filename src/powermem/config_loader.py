@@ -585,6 +585,25 @@ class GraphStoreSettings(_BasePowermemSettings):
         return graph_store_config
 
 
+class CustomPromptsSettings(_BasePowermemSettings):
+    model_config = settings_config("POWERMEM_CUSTOM_")
+
+    fact_extraction_prompt: Optional[str] = Field(default=None)
+    update_memory_prompt: Optional[str] = Field(default=None)
+    importance_evaluation_prompt: Optional[str] = Field(default=None)
+
+    def to_config(self) -> Dict[str, Any]:
+        """Return non-None custom prompt fields keyed for MemoryConfig."""
+        result: Dict[str, Any] = {}
+        if self.fact_extraction_prompt:
+            result["custom_fact_extraction_prompt"] = self.fact_extraction_prompt
+        if self.update_memory_prompt:
+            result["custom_update_memory_prompt"] = self.update_memory_prompt
+        if self.importance_evaluation_prompt:
+            result["custom_importance_evaluation_prompt"] = self.importance_evaluation_prompt
+        return result
+
+
 class PowermemSettings:
     _COMPONENTS = {
         "vector_store": ("database", DatabaseSettings),
@@ -608,6 +627,7 @@ class PowermemSettings:
             setattr(self, attr_name, component_cls())
         self.graph_store = GraphStoreSettings()
         self.sparse_embedder = SparseEmbedderSettings()
+        self.custom_prompts = CustomPromptsSettings()
 
     def to_config(self) -> Dict[str, Any]:
         config = {}
@@ -623,6 +643,10 @@ class PowermemSettings:
         sparse_embedder_config = self.sparse_embedder.to_config()
         if sparse_embedder_config:
             config["sparse_embedder"] = sparse_embedder_config
+
+        custom_prompts_config = self.custom_prompts.to_config()
+        if custom_prompts_config:
+            config.update(custom_prompts_config)
 
         # Sync embedding_model_dims from embedder to vector_store and graph_store
         embedder_config = config.get("embedder", {})

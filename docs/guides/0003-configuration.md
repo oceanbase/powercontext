@@ -1195,3 +1195,30 @@ memory = Memory(config=config)
 ```
 
 ---
+
+## Custom Prompts via Environment Variables
+
+The three core pipeline prompts can be overridden via environment variables without changing any code. This is useful for deployment environments or quick experimentation.
+
+| Environment Variable | SDK Config Key | Description |
+|---|---|---|
+| `POWERMEM_CUSTOM_FACT_EXTRACTION_PROMPT` | `custom_fact_extraction_prompt` | Overrides the default fact/memory extraction prompt |
+| `POWERMEM_CUSTOM_UPDATE_MEMORY_PROMPT` | `custom_update_memory_prompt` | Overrides the default memory update decision prompt |
+| `POWERMEM_CUSTOM_IMPORTANCE_EVALUATION_PROMPT` | `custom_importance_evaluation_prompt` | Overrides the default importance scoring prompt |
+
+**Example `.env`:**
+```bash
+POWERMEM_CUSTOM_FACT_EXTRACTION_PROMPT=You are an information extraction expert. Output JSON: {"facts": [...]}
+```
+
+**Usage:**
+```python
+from powermem import create_memory
+
+# Prompts are loaded automatically from env vars
+memory = create_memory()
+```
+
+If the env var is not set, the system falls back to the built-in default prompt. For detailed prompt examples and guidelines, see [Custom Prompts Usage Guide](0004-custom_prompts_usage.md).
+
+---

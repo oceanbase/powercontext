@@ -127,7 +127,29 @@ Result: Do not delete (Alice can love both pizza and burger)
 memory = Memory(config=config)
 ```
 
-### Method 2: Using Dictionary Configuration
+### Method 2: Using Environment Variables
+
+Set environment variables in your `.env` file or shell. These are picked up automatically by `auto_config()` / `create_memory()` without any code changes.
+
+```bash
+# .env
+POWERMEM_CUSTOM_FACT_EXTRACTION_PROMPT=You are an information extraction expert. Extract user preferences, important facts, and plans from conversations. Output JSON format: {"facts": ["fact1", "fact2"]}
+
+POWERMEM_CUSTOM_UPDATE_MEMORY_PROMPT=You are a memory manager. Compare new facts with existing memories and decide: ADD, UPDATE, DELETE, or NONE.
+
+POWERMEM_CUSTOM_IMPORTANCE_EVALUATION_PROMPT=Evaluate the importance of memory content on a scale from 0.0 to 1.0. Return JSON containing importance_score and reasoning.
+```
+
+```python
+from powermem import create_memory
+
+# Prompts are loaded automatically from env vars
+memory = create_memory()
+```
+
+> **Note:** For multi-line prompts in `.env` files, use a single line or load the value programmatically. Environment variable configuration is best suited for short, single-line prompt overrides or deployment environments where config files are not convenient.
+
+### Method 3: Using Dictionary Configuration
 
 ```python
 from powermem import Memory
