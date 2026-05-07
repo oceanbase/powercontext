@@ -203,5 +203,10 @@
       "updatedAt": "Updated At",
       "none": "None"
     }
+  },
+  "theme": {
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
   }
 }
