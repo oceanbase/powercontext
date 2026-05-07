@@ -139,9 +139,7 @@ function OverviewPage() {
         refetchStatus(),
         refetchQuality(),
       ]);
-      toast.success(t("dashboard.refresh"), {
-        description: t("common.noData"),
-      });
+      toast.success(t("dashboard.refresh"));
     } catch (error) {
       toast.error(t("common.error"), {
         description: t("common.tryAgain"),
