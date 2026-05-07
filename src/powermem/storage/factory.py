@@ -126,21 +126,16 @@ class GraphStoreFactory:
         config_cls = BaseGraphStoreConfig.get_provider_config_cls(provider_name) or BaseGraphStoreConfig
         
         # 3. Handle config parameter
-        if isinstance(config, dict):
-            # Convert dict to provider config instance
-            provider_config = config_cls(**config)
-        elif isinstance(config, BaseGraphStoreConfig):
-            # Use config instance directly
-            provider_config = config
-        else:
-            raise TypeError(f"config must be BaseGraphStoreConfig or dict, got {type(config)}")
-        
-        # 4. Export to dict for GraphStore constructor
-        config_dict = provider_config.model_dump(exclude_none=True)
-        
-        # 5. Create GraphStore instance
         graph_store_class = load_class(class_path)
-        return graph_store_class(config_dict)
+        if isinstance(config, BaseGraphStoreConfig):
+            return graph_store_class(config.model_dump(exclude_none=True))
+        elif isinstance(config, dict):
+            provider_config = config_cls(**config)
+            return graph_store_class(provider_config.model_dump(exclude_none=True))
+        else:
+            # Full config object (e.g. MemoryConfig) — pass directly; graph store
+            # implementations like MemoryGraph need llm/embedder/vector_store context.
+            return graph_store_class(config)
 
     @classmethod
     def register_provider(cls, name: str, class_path: str, config_class=None):
