@@ -17,6 +17,11 @@ def _is_embedded_storage() -> bool:
     - OceanBase/SeekDB in embedded mode (OCEANBASE_HOST is empty)
     """
     try:
+        # Ensure `.env` is loaded before constructing settings classes that do not
+        # read env files themselves (e.g. OceanBaseConfig uses env_file=None).
+        from powermem.config_loader import _load_dotenv_if_available
+        _load_dotenv_if_available()
+
         from powermem.config_loader import DatabaseSettings
         db_settings = DatabaseSettings()
         provider = db_settings.provider.lower()
@@ -71,9 +76,6 @@ def server(host, port, workers, reload, log_level):
             file=sys.stderr,
         )
         config.workers = 1
-
-    # Debug: Print current log format (can be removed later)
-    print(f"[DEBUG] Current log_format: {config.log_format}", file=sys.stderr)
 
     # Setup logging BEFORE starting uvicorn to ensure all logs have timestamps
     setup_logging()

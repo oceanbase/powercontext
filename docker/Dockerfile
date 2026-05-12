@@ -1,7 +1,7 @@
 # Multi-stage build for PowerMem Server
 FROM node:20-slim as frontend-builder
 WORKDIR /dashboard-build
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 COPY dashboard/package.json dashboard/pnpm-lock.yaml ./
 RUN pnpm install
 COPY dashboard/ ./
