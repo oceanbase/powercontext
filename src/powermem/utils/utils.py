@@ -996,3 +996,14 @@ def generate_snowflake_id() -> int:
         64-bit integer ID
     """
     return get_snowflake_generator().generate()
+
+
+def strip_think_tags(text: str) -> str:
+    """Strip <think>...</think> blocks from reasoning model output (DeepSeek, QwQ).
+
+    Only applies the regex when an opening tag is actually present,
+    so normal content is left untouched.
+    """
+    if "<think>" not in text.lower():
+        return text.strip()
+    return re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()

@@ -22,6 +22,10 @@ from .user_memory import UserMemory
 # Import configuration loader
 from .config_loader import load_config_from_env, create_config, validate_config, auto_config
 
+# Import intelligence modules
+from .intelligence.skill_manager import SkillManager
+from .configs import SkillStoreConfig
+
 
 def create_memory(
     config: Any = None,
@@ -289,7 +293,7 @@ Memory.from_config = classmethod(_deprecated_memory_from_config)
 
 __all__ = [
     "Memory",
-    "AsyncMemory", 
+    "AsyncMemory",
     "MemoryBase",
     "UserMemory",
     "load_config_from_env",
@@ -298,4 +302,6 @@ __all__ = [
     "create_memory",
     "from_config",
     "auto_config",
+    "SkillManager",
+    "SkillStoreConfig",
 ]
