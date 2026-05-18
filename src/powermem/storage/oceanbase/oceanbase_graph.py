@@ -131,11 +131,15 @@ class MemoryGraph(GraphStoreBase):
             port = get_config_value("port", "2881")
             user = get_config_value("user", "root")
             password = get_config_value("password", "")
+            pool_recycle = get_config_value("pool_recycle", 3600)
+            pool_pre_ping = get_config_value("pool_pre_ping", True)
             self.client = ObVecClient(
                 uri=f"{host}:{port}",
                 user=user,
                 password=password,
                 db_name=db_name,
+                pool_pre_ping=pool_pre_ping,
+                pool_recycle=pool_recycle,
             )
         else:
             ob_path = get_config_value("ob_path", "./seekdb_data")

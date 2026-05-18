@@ -199,6 +199,27 @@ class BaseGraphStoreConfig(BaseVectorStoreConfig):
         description="Dimension of embedding vectors"
     )
     
+    # Connection pool parameters
+    pool_recycle: int = Field(
+        default=3600,
+        validation_alias=AliasChoices(
+            "pool_recycle",
+            "GRAPH_STORE_POOL_RECYCLE",
+            "OCEANBASE_POOL_RECYCLE",
+        ),
+        description="SQLAlchemy pool_recycle in seconds (prevents stale connections)"
+    )
+
+    pool_pre_ping: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "pool_pre_ping",
+            "GRAPH_STORE_POOL_PRE_PING",
+            "OCEANBASE_POOL_PRE_PING",
+        ),
+        description="SQLAlchemy pool_pre_ping (tests connections before use)"
+    )
+
     # Graph-specific fields
     max_hops: int = Field(
         default=3,
