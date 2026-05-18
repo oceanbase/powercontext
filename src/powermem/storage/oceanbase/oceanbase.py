@@ -73,6 +73,8 @@ class OceanBaseVectorStore(VectorStoreBase):
             sparse_weight: float = 0.25,
             reranker: Optional[Any] = None,
             enable_native_hybrid: bool = False,
+            pool_recycle: int = 3600,
+            pool_pre_ping: bool = True,
             **kwargs,
     ):
         """
@@ -104,6 +106,8 @@ class OceanBaseVectorStore(VectorStoreBase):
             sparse_weight (Optional[float]): Weight for sparse vector search in hybrid search.
             reranker (Optional[Any]): Reranker model for fine ranking.
             enable_native_hybrid (bool): Whether to enable OceanBase native hybrid search (DBMS_HYBRID_SEARCH.SEARCH).
+            pool_recycle (int): SQLAlchemy pool_recycle in seconds (default: 3600).
+            pool_pre_ping (bool): SQLAlchemy pool_pre_ping (default: True).
         """
         self.normalize = normalize
         self.include_sparse = include_sparse
@@ -136,6 +140,8 @@ class OceanBaseVectorStore(VectorStoreBase):
             "password": password or connection_args.get("password", constants.DEFAULT_OCEANBASE_CONNECTION["password"]),
             "db_name": db_name or connection_args.get("db_name", constants.DEFAULT_OCEANBASE_CONNECTION["db_name"]),
             "ob_path": ob_path or connection_args.get("ob_path", constants.DEFAULT_OCEANBASE_CONNECTION["ob_path"]),
+            "pool_recycle": pool_recycle,
+            "pool_pre_ping": pool_pre_ping,
         }
 
         self.connection_args = final_connection_args
@@ -197,11 +203,15 @@ class OceanBaseVectorStore(VectorStoreBase):
             port = self.connection_args.get("port")
             user = self.connection_args.get("user")
             password = self.connection_args.get("password")
+            pool_recycle = self.connection_args.get("pool_recycle", 3600)
+            pool_pre_ping = self.connection_args.get("pool_pre_ping", True)
             self.obvector = ObVecClient(
                 uri=f"{host}:{port}",
                 user=user,
                 password=password,
                 db_name=db_name,
+                pool_pre_ping=pool_pre_ping,
+                pool_recycle=pool_recycle,
                 **kwargs,
             )
         else:
@@ -328,6 +338,19 @@ class OceanBaseVectorStore(VectorStoreBase):
         if self.enable_native_hybrid:
             table_kwargs['mysql_organization'] = 'heap'
             logger.info(f"Creating heap table '{self.collection_name}' for native hybrid search support")
+
+        # Set LOB inrow threshold so VECTOR column data is stored in-row.
+        # IVF_FLAT index cannot be created on outrow LOB columns.
+        if self.embedding_model_dims is not None:
+            lob_threshold = max(16384, self.embedding_model_dims * 4 + 1024)
+            try:
+                with self.obvector.engine.connect() as conn:
+                    conn.execute(text(f"SET SESSION ob_default_lob_inrow_threshold = {lob_threshold}"))
+                    conn.commit()
+                logger.debug(f"Set ob_default_lob_inrow_threshold = {lob_threshold} for table creation")
+            except Exception as e:
+                logger.warning(f"Could not set ob_default_lob_inrow_threshold={lob_threshold}: {e}. "
+                               "Continuing without LOB inrow threshold (may affect vector index creation on some engines).")
 
         self.obvector.create_table_with_index_params(
             table_name=self.collection_name,

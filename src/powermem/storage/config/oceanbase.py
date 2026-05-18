@@ -98,6 +98,25 @@ class OceanBaseConfig(BaseVectorStoreConfig):
         description="OceanBase connection args"
     )
 
+    # Connection pool parameters
+    pool_recycle: int = Field(
+        default=3600,
+        validation_alias=AliasChoices(
+            "pool_recycle",
+            "OCEANBASE_POOL_RECYCLE",
+        ),
+        description="SQLAlchemy pool_recycle in seconds (prevents stale connections)"
+    )
+
+    pool_pre_ping: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "pool_pre_ping",
+            "OCEANBASE_POOL_PRE_PING",
+        ),
+        description="SQLAlchemy pool_pre_ping (tests connections before use)"
+    )
+
     # Vector index parameters
     index_type: str = Field(
         default="HNSW",

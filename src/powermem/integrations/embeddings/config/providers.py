@@ -124,6 +124,7 @@ class AzureOpenAIEmbeddingConfig(BaseEmbedderConfig):
     api_key: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices(
+            "api_key",
             "AZURE_OPENAI_API_KEY",
             "AZURE_API_KEY",
             "EMBEDDING_API_KEY",
@@ -131,15 +132,19 @@ class AzureOpenAIEmbeddingConfig(BaseEmbedderConfig):
     )
     azure_deployment: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("AZURE_DEPLOYMENT"),
+        validation_alias=AliasChoices("azure_deployment", "AZURE_DEPLOYMENT"),
     )
     azure_endpoint: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("AZURE_ENDPOINT", "AZURE_OPENAI_ENDPOINT"),
+        validation_alias=AliasChoices(
+            "azure_endpoint",
+            "AZURE_ENDPOINT",
+            "AZURE_OPENAI_ENDPOINT",
+        ),
     )
     api_version: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("AZURE_API_VERSION"),
+        validation_alias=AliasChoices("api_version", "AZURE_API_VERSION"),
     )
     default_headers: Optional[Dict[str, str]] = Field(default=None)
     http_client_proxies: Optional[Union[Dict[str, Any], str]] = Field(default=None)
@@ -211,6 +216,30 @@ class LangchainEmbeddingConfig(BaseEmbedderConfig):
     model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
 
     model: Optional[Any] = Field(default=None)
+
+
+class OBMassEmbeddingConfig(BaseEmbedderConfig):
+    _provider_name = "ob_mass"
+    _class_path = "powermem.integrations.embeddings.ob_mass.OBMassEmbedding"
+
+    model_config = settings_config("EMBEDDING_", extra="forbid", env_file=None)
+
+    model: Optional[str] = Field(default=None)
+    openai_base_url: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "openai_base_url",
+            "OB_MASS_BASE_URL",
+        ),
+    )
+    project_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "project_id",
+            "OB_MASS_PROJECT_ID",
+        ),
+    )
+    request_id: Optional[str] = Field(default=None)
 
 
 class MockEmbeddingConfig(BaseEmbedderConfig):

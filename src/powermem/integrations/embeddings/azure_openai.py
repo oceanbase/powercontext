@@ -51,4 +51,7 @@ class AzureOpenAIEmbedding(EmbeddingBase):
             list: The embedding vector.
         """
         text = text.replace("\n", " ")
-        return self.client.embeddings.create(input=[text], model=self.config.model).data[0].embedding
+        kwargs: dict = {"input": [text], "model": self.config.model}
+        if self.config.embedding_dims:
+            kwargs["dimensions"] = self.config.embedding_dims
+        return self.client.embeddings.create(**kwargs).data[0].embedding

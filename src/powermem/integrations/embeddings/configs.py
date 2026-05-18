@@ -46,6 +46,7 @@ class EmbedderConfig(BaseSettings):
             "qwen",
             "siliconflow",
             "zai",
+            "ob_mass",
         ]
         if provider in initialized_providers or BaseEmbedderConfig.has_provider(provider) or provider == "mock":
             config_cls = (

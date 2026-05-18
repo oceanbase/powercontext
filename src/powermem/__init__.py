@@ -8,7 +8,10 @@ import importlib.metadata
 import warnings
 from typing import Any
 
-__version__ = importlib.metadata.version("powermem")
+try:
+    __version__ = importlib.metadata.version("powermem")
+except importlib.metadata.PackageNotFoundError:
+    __version__ = "0.0.0-dev"
 
 # Import core classes
 from .core.memory import Memory, _auto_convert_config
