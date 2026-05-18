@@ -29,6 +29,7 @@ from .telemetry import TelemetryManager
 from .audit import AuditLogger
 from ..intelligence.memory_optimizer import MemoryOptimizer
 from ..intelligence.plugin import IntelligentMemoryPlugin, EbbinghausIntelligencePlugin
+from ..intelligence.skill_manager import SkillManager
 from ..utils.utils import (
     convert_config_object_to_dict,
     parse_vision_messages,
@@ -351,6 +352,13 @@ class Memory(MemoryBase):
 
         # Initialize sub stores
         self._init_sub_stores()
+
+        # Skill store (independent table)
+        self.skill_store = None
+        self._init_skill_store()
+
+        self.skill_manager = SkillManager(self.llm)
+        self.content_reviewer = None  # content review disabled without reviewer
 
         logger.info(f"Memory initialized with storage: {self.storage_type}, LLM: {self.llm_provider}, agent: {self.agent_id or 'default'}")
         self.telemetry.capture_event("memory.init", {"storage_type": self.storage_type, "llm_provider": self.llm_provider, "agent_id": self.agent_id})
@@ -2176,3 +2184,167 @@ class Memory(MemoryBase):
                 failed += 1
         
         return {"success": success, "failed": failed}
+
+    # ============================================================
+    # Skill subsystem
+    # ============================================================
+
+    def _init_skill_store(self):
+        """Initialize skill store based on config (OceanBase only)."""
+        if self.storage_type.lower() != "oceanbase":
+            return
+
+        skill_cfg = self.config.get("skill_store") or {}
+        if isinstance(skill_cfg, dict):
+            enabled = skill_cfg.get("enabled", False)
+        else:
+            enabled = getattr(skill_cfg, "enabled", False)
+
+        if enabled:
+            try:
+                from ..storage.skill_store.oceanbase import OceanBaseSkillStore
+                main_collection = self.config.get("vector_store", {}).get("config", {}).get("collection_name", "memories")
+                table_name = (skill_cfg.get("collection_name") if isinstance(skill_cfg, dict) else getattr(skill_cfg, "collection_name", None)) or f"{main_collection}_skills"
+                embedding_dims = int(self.config.get("vector_store", {}).get("config", {}).get("embedding_model_dims", 1536))
+                # index_type: store-specific > vector_store.config > default "hnsw"
+                vs_index_type = self.config.get("vector_store", {}).get("config", {}).get("index_type", "hnsw").lower()
+                raw_index_type = skill_cfg.get("index_type") if isinstance(skill_cfg, dict) else getattr(skill_cfg, "index_type", None)
+                index_type = (raw_index_type.lower() if raw_index_type else None) or vs_index_type
+                fulltext_parser = self.config.get("vector_store", {}).get("config", {}).get("fulltext_parser", "ngram")
+                self.skill_store = OceanBaseSkillStore(
+                    engine=self.storage.vector_store.obvector.engine if hasattr(self.storage.vector_store, 'obvector') else None,
+                    table_name=table_name,
+                    embedding_dims=embedding_dims,
+                    fulltext_parser=fulltext_parser,
+                    index_type=index_type,
+                )
+                logger.info("SkillStore initialized: %s", table_name)
+            except Exception as e:
+                logger.warning("Failed to initialize SkillStore: %s", e)
+
+    def distill_skills(
+        self,
+        messages: List[Dict[str, str]],
+        today: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Extract reusable procedural skills from a conversation.
+
+        Returns:
+            List of ``{"title": str, "description": str, "tags": list,
+                        "procedure": {"prerequisites": list, "steps": list, "pitfalls": list}}``.
+        """
+        if today is None:
+            today = datetime.now().strftime("%Y-%m-%d")
+        return self.skill_manager.distill(messages, today)
+
+    def merge_skills(self, existing: str, new: str) -> Dict[str, Any]:
+        """Judge whether two skills should be merged or kept separate.
+
+        Returns:
+            ``{"action": "merge", "title": str, "description": str, "procedure": dict}``
+            or ``{"action": "skip"}``.
+        """
+        return self.skill_manager.merge(existing, new)
+
+    def add_skill(
+        self, title: str, description: str,
+        tags: Optional[List[str]] = None,
+        procedure: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        skip_review: bool = False,
+        title_embedding: Optional[List[float]] = None,
+        description_embedding: Optional[List[float]] = None,
+    ) -> Dict[str, Any]:
+        """Store a skill with dedup + optional content review.
+
+        Returns: {"id", "title", "action": "created"|"merged"|"blocked"}
+        """
+        if not self.skill_store:
+            raise RuntimeError("SkillStore not enabled. Set skill_store.enabled=True in config.")
+
+        if not skip_review:
+            safe, reason = self.review_content(title, description, tags)
+            if not safe:
+                return {"title": title, "action": "blocked", "reason": reason}
+
+        title_emb = title_embedding if title_embedding is not None else self._embed(title)
+        desc_emb = description_embedding if description_embedding is not None else self._embed(description)
+
+        similar = self.skill_store.search(
+            query_embedding=title_emb, query_text=title,
+            limit=1, user_id=user_id, agent_id=agent_id,
+        )
+        threshold = (self.config.get("skill_store") or {}).get("similarity_threshold", 0.75) if isinstance(self.config.get("skill_store"), dict) else 0.75
+
+        if similar and similar[0].get("score", 0) > threshold:
+            existing = similar[0]
+            import json as _json
+            existing_text = f"{existing['title']}\n{existing['description']}\nprocedure: {_json.dumps(existing.get('procedure_data', {}), ensure_ascii=False)}"
+            new_text = f"{title}\n{description}\nprocedure: {_json.dumps(procedure or {}, ensure_ascii=False)}"
+            merge_result = self.skill_manager.merge(existing_text, new_text)
+
+            if merge_result.get("action") == "merge":
+                merged_title = merge_result.get("title") or title
+                merged_desc = merge_result.get("description") or description
+                merged_proc = merge_result.get("procedure") or procedure
+                merged_tags = list(set((tags or []) + (existing.get("tags") or [])))
+                merged_title_emb = self._embed(merged_title)
+                merged_desc_emb = self._embed(merged_desc)
+                self.skill_store.update(
+                    existing["id"], merged_title, merged_desc,
+                    tags=merged_tags, procedure_data=merged_proc,
+                    title_embedding=merged_title_emb, description_embedding=merged_desc_emb,
+                )
+                return {"id": existing["id"], "title": merged_title, "action": "merged"}
+
+        result = self.skill_store.add(
+            title=title, description=description, tags=tags, procedure_data=procedure,
+            title_embedding=title_emb, description_embedding=desc_emb,
+            user_id=user_id, agent_id=agent_id,
+        )
+        return {"id": result["id"], "title": title, "action": "created"}
+
+    def search_skills(
+        self, query: str, limit: int = 10,
+        user_id: Optional[str] = None, agent_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search skills by embedding + fulltext."""
+        if not self.skill_store:
+            return []
+        query_emb = self._embed(query)
+        return self.skill_store.search(
+            query_embedding=query_emb, query_text=query,
+            limit=limit, user_id=user_id, agent_id=agent_id,
+        )
+
+    def get_skill(self, skill_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single skill by ID."""
+        if not self.skill_store:
+            return None
+        return self.skill_store.get(skill_id)
+
+    def update_skill_status(self, skill_id: int, status: str) -> Optional[bool]:
+        """Update the status of a skill.
+
+        Returns None if the skill store is disabled, True if the row was
+        updated, False if no row matched.
+        """
+        if not self.skill_store:
+            return None
+        return self.skill_store.update_status(skill_id, status)
+
+    def review_content(
+        self,
+        title: str,
+        description: str,
+        tags: Optional[List[str]] = None,
+    ) -> tuple:
+        """Run content safety review if a reviewer is configured.
+
+        Returns:
+            ``(safe: bool, reason: Optional[str])``. Always ``(True, None)`` if no reviewer.
+        """
+        if self.content_reviewer is None:
+            return True, None
+        return self.content_reviewer.review(title, description, tags)

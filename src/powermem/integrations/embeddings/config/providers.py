@@ -59,6 +59,10 @@ class QwenEmbeddingConfig(BaseEmbedderConfig):
     memory_add_embedding_type: Optional[str] = Field(default=None)
     memory_update_embedding_type: Optional[str] = Field(default=None)
     memory_search_embedding_type: Optional[str] = Field(default=None)
+    multimodal: Optional[bool] = Field(
+        default=None,
+        description="Explicitly set whether the model is multimodal. None=auto-detect from model name.",
+    )
 
 
 class SiliconFlowEmbeddingConfig(BaseEmbedderConfig):

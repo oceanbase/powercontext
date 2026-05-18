@@ -195,6 +195,14 @@ class QueryRewriteConfig(BaseModel):
     )
 
 
+class SkillStoreConfig(BaseModel):
+    """Configuration for skill sub-store."""
+    enabled: bool = Field(default=False, description="Enable skill storage")
+    collection_name: Optional[str] = Field(default=None, description="Table name; auto-generated if None")
+    similarity_threshold: float = Field(default=0.75, description="Dedup similarity threshold")
+    index_type: Optional[str] = Field(default=None, description="Vector index type (hnsw, ivf, etc.). Falls back to vector_store.config.index_type if not set")
+
+
 class MemoryConfig(BaseModel):
     """Main memory configuration class."""
 
@@ -264,6 +272,10 @@ class MemoryConfig(BaseModel):
     )
     query_rewrite: Optional[QueryRewriteConfig] = Field(
         description="Configuration for query rewrite module",
+        default=None,
+    )
+    skill_store: Optional[SkillStoreConfig] = Field(
+        description="Configuration for skill storage (None means disabled)",
         default=None,
     )
 
