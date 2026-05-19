@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
 
@@ -29,3 +29,17 @@ class EmbeddingBase(ABC):
             list: The embedding vector.
         """
         pass
+
+    def embed_batch(self, texts: List[str], memory_action: Optional[Literal["add", "search", "update"]] = None) -> List[List[float]]:
+        """Get embeddings for multiple texts in a single batch.
+
+        Default implementation calls embed() sequentially. Subclasses may
+        override to use a true batch API for better performance.
+
+        Args:
+            texts: List of texts to embed.
+            memory_action: The type of embedding action. Defaults to None.
+        Returns:
+            List of embedding vectors, one per input text.
+        """
+        return [self.embed(text, memory_action) for text in texts]

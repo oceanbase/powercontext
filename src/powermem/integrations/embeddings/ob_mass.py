@@ -1,6 +1,6 @@
 import os
 import uuid
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 import httpx
 
@@ -110,4 +110,56 @@ class OBMassEmbedding(EmbeddingBase):
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(
                 f"ob_mass embedding response has unexpected format: {exc}"
+            ) from exc
+
+    def embed_batch(
+        self,
+        texts: List[str],
+        memory_action: Optional[Literal["add", "search", "update"]] = None,
+    ) -> List[List[float]]:
+        """Batch embed multiple texts in a single OBAI request.
+
+        The OBAI ``/embeddings`` endpoint accepts multiple items in
+        ``input.contents``, so one HTTP call is enough for the whole batch.
+        """
+        cleaned = [t.replace("\n", " ") for t in texts]
+
+        request_id = self.request_id or str(uuid.uuid4())
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "X-Request-ID": request_id,
+        }
+        if self.project_id:
+            headers["X-OB-Project-ID"] = str(self.project_id)
+
+        payload = {
+            "model": self.config.model,
+            "input": {"contents": [{"text": t} for t in cleaned]},
+            "dimensions": self.config.embedding_dims,
+        }
+
+        url = f"{self.base_url}/embeddings"
+        response = self._client.post(url, json=payload, headers=headers)
+
+        if response.status_code != 200:
+            try:
+                error_body = response.json()
+                error_msg = error_body.get("error", {}).get("message", response.text)
+            except Exception:
+                error_msg = response.text
+            raise RuntimeError(
+                f"ob_mass batch embedding request failed: "
+                f"status={response.status_code}, message={error_msg}"
+            )
+
+        data = response.json()
+
+        try:
+            items = sorted(data["data"], key=lambda x: x.get("index", 0))
+            return [item["embedding"] for item in items]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError(
+                f"ob_mass batch embedding response has unexpected format: {exc}"
             ) from exc
