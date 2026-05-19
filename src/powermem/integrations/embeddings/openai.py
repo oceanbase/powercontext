@@ -1,6 +1,6 @@
 import os
 import warnings
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from openai import OpenAI
 
@@ -47,3 +47,18 @@ class OpenAIEmbedding(EmbeddingBase):
         if pass_dims:
             kwargs["dimensions"] = self.config.embedding_dims
         return self.client.embeddings.create(**kwargs).data[0].embedding
+
+    def embed_batch(self, texts: List[str], memory_action: Optional[Literal["add", "search", "update"]] = None) -> List[List[float]]:
+        """Get embeddings for multiple texts in a single batch using OpenAI.
+
+        Uses one API call for all texts, which is significantly faster than
+        calling embed() sequentially.
+        """
+        cleaned = [t.replace("\n", " ") for t in texts]
+        kwargs = {"input": cleaned, "model": self.config.model}
+        pass_dims = getattr(self.config, "pass_dimensions", True)
+        if pass_dims:
+            kwargs["dimensions"] = self.config.embedding_dims
+        response = self.client.embeddings.create(**kwargs)
+        sorted_data = sorted(response.data, key=lambda x: x.index)
+        return [item.embedding for item in sorted_data]

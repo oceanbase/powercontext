@@ -73,6 +73,7 @@ class OceanBaseVectorStore(VectorStoreBase):
             sparse_weight: float = 0.25,
             reranker: Optional[Any] = None,
             enable_native_hybrid: bool = False,
+            create_vector_index: bool = True,
             pool_recycle: int = 3600,
             pool_pre_ping: bool = True,
             **kwargs,
@@ -112,6 +113,7 @@ class OceanBaseVectorStore(VectorStoreBase):
         self.normalize = normalize
         self.include_sparse = include_sparse
         self.auto_configure_vector_index = auto_configure_vector_index
+        self.create_vector_index = create_vector_index
         self.hybrid_search = hybrid_search
         self.fulltext_parser = fulltext_parser
         self.vector_weight = vector_weight
@@ -291,17 +293,19 @@ class OceanBaseVectorStore(VectorStoreBase):
             Column(self.fulltext_field, LONGTEXT)
         ]
 
-        # Create vector index parameters
-        vidx_params = self.obvector.prepare_index_params()
+        # Create vector index parameters (optional)
+        vidx_params = None
+        if self.create_vector_index:
+            vidx_params = self.obvector.prepare_index_params()
 
-        # Add dense vector index
-        vidx_params.add_index(
-            field_name=self.vector_field,
-            index_type=constants.OCEANBASE_SUPPORTED_VECTOR_INDEX_TYPES[self.index_type],
-            index_name=self.vidx_name,
-            metric_type=self.vidx_metric_type,
-            params=self.vidx_algo_params,
-        )
+            # Add dense vector index
+            vidx_params.add_index(
+                field_name=self.vector_field,
+                index_type=constants.OCEANBASE_SUPPORTED_VECTOR_INDEX_TYPES[self.index_type],
+                index_name=self.vidx_name,
+                metric_type=self.vidx_metric_type,
+                params=self.vidx_algo_params,
+            )
 
         fts_index_param = None
         if self.hybrid_search:
@@ -318,14 +322,15 @@ class OceanBaseVectorStore(VectorStoreBase):
             if OceanBaseUtil.check_sparse_vector_version_support(self.obvector):
                 cols.append(Column(self.sparse_vector_field, SPARSE_VECTOR))
                 logger.info(f"Including sparse_embedding column in new table '{self.collection_name}'")
-                vidx_params.add_index(
-                    field_name=self.sparse_vector_field,
-                    index_type="daat",
-                    index_name="sparse_embedding_idx",
-                    metric_type="inner_product",
-                    sparse_index_type="sindi",  # use sindi index type
-                )
-                logger.debug(f"Added sparse vector index configuration for table '{self.collection_name}'")
+                if vidx_params is not None:
+                    vidx_params.add_index(
+                        field_name=self.sparse_vector_field,
+                        index_type="daat",
+                        index_name="sparse_embedding_idx",
+                        metric_type="inner_product",
+                        sparse_index_type="sindi",  # use sindi index type
+                    )
+                    logger.debug(f"Added sparse vector index configuration for table '{self.collection_name}'")
             else:
                 logger.warning(
                     "Database does not support SPARSE_VECTOR type. "
