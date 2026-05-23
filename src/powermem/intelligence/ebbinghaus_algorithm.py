@@ -39,6 +39,9 @@ class EbbinghausAlgorithm:
         
         # Time intervals (in hours)
         self.review_intervals = config.get("review_intervals", [1, 6, 24, 72, 168])
+        # Review schedule: higher importance -> shorter intervals (shared by persist + query)
+        self.review_adjustment_factor = config.get("review_adjustment_factor", 0.3)
+        self.review_interval_min_hours = config.get("review_interval_min_hours", 0.5)
         
         logger.info("EbbinghausAlgorithm initialized")
     
@@ -287,38 +290,31 @@ class EbbinghausAlgorithm:
             logger.error(f"Failed to check archiving: {e}")
             return False
     
-    def get_review_schedule(self, memory: Dict[str, Any]) -> list:
+    def get_review_schedule(
+        self, memory: Dict[str, Any], *, prefer_stored: bool = True
+    ) -> list:
         """
-        Get review schedule for a memory based on Ebbinghaus curve.
-        
+        Get review schedule for a memory.
+
+        When ``prefer_stored`` is True (default), returns persisted
+        ``metadata.intelligence.review_schedule`` if present so query results
+        match the database. Otherwise recomputes using the same formula as
+        ``_generate_review_schedule()`` (via ``_build_review_schedule``).
+
         Args:
-            memory: Memory data
-            
+            memory: Memory data (top-level or metadata fields)
+            prefer_stored: If True, use persisted ISO timestamps when available
+
         Returns:
             List of review times
         """
         try:
-            created_at = memory.get("created_at", get_current_datetime())
-            # Parse string to datetime if needed
-            if isinstance(created_at, str):
-                created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-            importance = memory.get("importance_score", 0.5)
-            
-            # Adjust intervals based on importance
-            adjusted_intervals = []
-            for interval in self.review_intervals:
-                # Higher importance = shorter intervals
-                adjusted_interval = interval * (1 - importance * 0.5)
-                adjusted_intervals.append(adjusted_interval)
-            
-            # Calculate review times
-            review_times = []
-            for interval in adjusted_intervals:
-                review_time = created_at + timedelta(hours=interval)
-                review_times.append(review_time)
-            
-            return review_times
-            
+            if prefer_stored:
+                stored = self._parse_stored_review_schedule(memory)
+                if stored:
+                    return stored
+            importance, created_at = self._resolve_review_schedule_inputs(memory)
+            return self._build_review_schedule(importance, created_at)
         except Exception as e:
             logger.error(f"Failed to get review schedule: {e}")
             return []
@@ -332,24 +328,76 @@ class EbbinghausAlgorithm:
         }
         return decay_rates.get(memory_type, self.decay_rate)
     
-    def _generate_review_schedule(self, importance_score: float, created_at: datetime) -> List[datetime]:
+    def _parse_datetime(self, value: Any) -> datetime:
+        """Parse datetime from object or ISO string."""
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str) and value:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return get_current_datetime()
+
+    def _parse_stored_review_schedule(
+        self, memory: Dict[str, Any]
+    ) -> Optional[List[datetime]]:
+        """Parse persisted review_schedule ISO strings from memory metadata."""
+        meta = memory.get("metadata") or {}
+        intelligence = meta.get("intelligence") or memory.get("intelligence") or {}
+        raw = intelligence.get("review_schedule")
+        if not raw or not isinstance(raw, list):
+            return None
+        times: List[datetime] = []
+        for item in raw:
+            if not item:
+                continue
+            times.append(self._parse_datetime(item))
+        return times if times else None
+
+    def _resolve_review_schedule_inputs(
+        self, memory: Dict[str, Any]
+    ) -> tuple[float, datetime]:
+        """Resolve importance and created_at from a memory dict (incl. metadata)."""
+        meta = memory.get("metadata") or {}
+        intelligence = meta.get("intelligence") or memory.get("intelligence") or {}
+
+        importance = memory.get("importance_score")
+        if importance is None:
+            importance = meta.get("importance_score")
+        if importance is None:
+            importance = intelligence.get("importance_score", 0.5)
+
+        created_at = memory.get("created_at")
+        if created_at is None:
+            created_at = meta.get("created_at")
+        if created_at is None:
+            created_at = intelligence.get("created_at", get_current_datetime())
+
+        return float(importance), self._parse_datetime(created_at)
+
+    def _adjust_review_intervals(self, importance_score: float) -> List[float]:
+        """Scale base review intervals by importance (higher -> shorter)."""
+        factor = self.review_adjustment_factor
+        floor = self.review_interval_min_hours
+        adjusted = []
+        for interval in self.review_intervals:
+            hours = interval * (1 - importance_score * factor)
+            adjusted.append(max(hours, floor))
+        return adjusted
+
+    def _build_review_schedule(
+        self, importance_score: float, created_at: datetime
+    ) -> List[datetime]:
+        """Build review datetimes from importance and anchor time."""
+        intervals = self._adjust_review_intervals(importance_score)
+        return [
+            created_at + timedelta(hours=hours) for hours in intervals
+        ]
+
+    def _generate_review_schedule(
+        self, importance_score: float, created_at: datetime
+    ) -> List[datetime]:
         """Generate review schedule based on importance and Ebbinghaus curve."""
         try:
-            # Adjust intervals based on importance
-            adjusted_intervals = []
-            for interval in self.review_intervals:
-                # Higher importance = shorter intervals (more frequent reviews)
-                adjusted_interval = interval * (1 - importance_score * 0.3)
-                adjusted_intervals.append(max(adjusted_interval, 0.5))  # Minimum 0.5 hours
-            
-            # Calculate review times
-            review_times = []
-            for interval in adjusted_intervals:
-                review_time = created_at + timedelta(hours=interval)
-                review_times.append(review_time)
-            
-            return review_times
-            
+            return self._build_review_schedule(importance_score, created_at)
         except Exception as e:
             logger.error(f"Failed to generate review schedule: {e}")
             return []
