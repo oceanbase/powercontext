@@ -2,6 +2,26 @@
 CLI command for starting the PowerMem API server
 """
 
+import sys as _sys
+
+
+def _require_server_deps() -> None:
+    missing = []
+    for pkg in ("click", "fastapi", "uvicorn"):
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        _sys.stderr.write(
+            f"Missing dependencies: {', '.join(missing)}.\n"
+            "Run: pip install 'powermem[server]'\n"
+        )
+        _sys.exit(1)
+
+
+_require_server_deps()
+
 import click
 import uvicorn
 from ..config import config

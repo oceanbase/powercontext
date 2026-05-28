@@ -153,7 +153,23 @@ pip install powermem langchain langchain-openai
 ### 安装
 
 ```bash
+# 仅核心（SDK + 存储后端）
 pip install powermem
+
+# 带 CLI（pmem / powermem-cli）
+pip install "powermem[cli]"
+
+# 带 HTTP API Server（powermem-server）
+pip install "powermem[server]"
+
+# 带 MCP Server（powermem-mcp）
+pip install "powermem[mcp]"
+
+# 带 SeekDB 存储后端
+pip install "powermem[seekdb]"
+
+# 一次安装全部
+pip install "powermem[cli,server,mcp]"
 ```
 
 ### SDK 用法

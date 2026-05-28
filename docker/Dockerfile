@@ -54,7 +54,7 @@ RUN pip config set global.timeout 300 && \
         fi; \
     fi && \
     pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir .
+    pip install --no-cache-dir '.[server,seekdb]'
 
 # Final stage
 FROM python:3.11-slim

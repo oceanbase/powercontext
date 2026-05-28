@@ -4,6 +4,22 @@ PowerMem CLI - Main command group
 This module defines the main CLI entry point and global options.
 """
 
+import sys as _sys
+
+
+def _require_cli_deps() -> None:
+    try:
+        import click  # noqa: F401
+    except ImportError:
+        _sys.stderr.write(
+            "Missing dependency: click.\n"
+            "Run: pip install 'powermem[cli]'\n"
+        )
+        _sys.exit(1)
+
+
+_require_cli_deps()
+
 import click
 import sys
 import os
