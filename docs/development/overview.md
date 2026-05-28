@@ -1280,7 +1280,7 @@ memory = Memory(config=config)
 
 - **Discord**: Join our [Discord community](https://discord.com/invite/74cF8vbNEs)
 - **GitHub Discussions**: Ask questions in [GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
-- **Documentation**: Browse the [documentation](https://powermem.readthedocs.io)
+- **Documentation**: Browse the [documentation](https://www.powermem.ai/docs)
 
 ---
 

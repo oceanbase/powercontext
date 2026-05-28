@@ -31,9 +31,13 @@ on:
 jobs:
   test1:
     runs-on: ubuntu-latest
-    # Only auto-run for internal PRs (same repo) or push/workflow_dispatch/schedule
-    # External PRs (from forks) require manual trigger via workflow_dispatch
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository)
+    # Skip on forks: schedule/push only run in the upstream repo (secrets are unavailable in forks).
+    # External PRs (from forks) require manual trigger via workflow_dispatch.
+    if: |
+      (github.event_name == 'push' && github.repository == 'oceanbase/powermem') ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.repository == 'oceanbase/powermem') ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       matrix:
         python-version: ["3.11"]
@@ -169,9 +173,13 @@ jobs:
           echo "✓ 清理完成"
   test2:
     runs-on: ubuntu-latest
-    # Only auto-run for internal PRs (same repo) or push/workflow_dispatch/schedule
-    # External PRs (from forks) require manual trigger via workflow_dispatch
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository)
+    # Skip on forks: schedule/push only run in the upstream repo (secrets are unavailable in forks).
+    # External PRs (from forks) require manual trigger via workflow_dispatch.
+    if: |
+      (github.event_name == 'push' && github.repository == 'oceanbase/powermem') ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.repository == 'oceanbase/powermem') ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       matrix:
         python-version: ["3.11"]

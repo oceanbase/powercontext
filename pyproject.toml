@@ -84,10 +84,10 @@ extras = [
 
 
 [project.urls]
-Homepage = "https://github.com/powermem/powermem"
-Documentation = "https://powermem.readthedocs.io"
-Repository = "https://github.com/powermem/powermem.git"
-Issues = "https://github.com/powermem/powermem/issues"
+Homepage = "https://github.com/oceanbase/powermem"
+Documentation = "https://www.powermem.ai/docs"
+Repository = "https://github.com/oceanbase/powermem.git"
+Issues = "https://github.com/oceanbase/powermem/issues"
 
 [tool.setuptools]
 include-package-data = true
