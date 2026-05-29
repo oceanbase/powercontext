@@ -76,6 +76,15 @@ class IntelligentMemoryManager:
         except Exception as e:
             logger.error(f"Failed to initialize LLM for importance evaluation: {e}")
             logger.warning("Falling back to rule-based evaluation only")
+
+    def _classify_memory_type(self, importance_score: float) -> str:
+        """Map importance score to memory tier using EbbinghausAlgorithm thresholds."""
+        algo = self.ebbinghaus_algorithm
+        if importance_score >= algo.long_term_threshold:
+            return "long_term"
+        if importance_score >= algo.short_term_threshold:
+            return "short_term"
+        return "working"
     
     def process_metadata(
         self,
@@ -104,13 +113,8 @@ class IntelligentMemoryManager:
                 content, metadata, context
             )
             
-            # Determine memory type based on importance
-            if importance_score >= 0.8:
-                memory_type = "long_term"
-            elif importance_score >= 0.5:
-                memory_type = "short_term"
-            else:
-                memory_type = "working"
+            # Determine memory type using the same thresholds as EbbinghausIntelligencePlugin
+            memory_type = self._classify_memory_type(importance_score)
             
             # Process with Ebbinghaus algorithm to get intelligence metadata
             intelligence_metadata = self.ebbinghaus_algorithm.process_memory_metadata(
