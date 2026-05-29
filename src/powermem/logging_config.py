@@ -4,8 +4,11 @@ Configure the ``powermem`` logger tree from ``LOGGING_*`` environment variables.
 - ``LOGGING_FILE`` (default ``./logs/powermem.log``): file for SDK/storage logs
 - ``LOGGING_LEVEL`` / ``LOGGING_FORMAT``: level and text format for file output
 - ``LOGGING_MAX_SIZE`` / ``LOGGING_BACKUP_COUNT``: rotating file handler
-- ``LOGGING_COMPRESS_BACKUPS``: gzip rotated backup files when true
+- ``LOGGING_COMPRESS_BACKUPS``: gzip rotated backup files as ``<file>.N.gz``
 - ``LOGGING_CONSOLE_*``: optional stderr console output for the SDK tree
+
+Note: HTTP server access logs use ``server`` config (e.g. ``server.log``); this module
+only configures the ``powermem.*`` SDK logger tree (default ``./logs/powermem.log``).
 """
 
 from __future__ import annotations
@@ -17,6 +20,8 @@ import shutil
 import sys
 from logging.handlers import RotatingFileHandler
 from typing import Optional
+
+from powermem.log_context import TraceContextFilter
 
 _powermem_logging_configured = False
 
@@ -39,24 +44,63 @@ def parse_log_max_bytes(size_str: Optional[str], default: int = 100 * 1024 * 102
 
 
 class CompressingRotatingFileHandler(RotatingFileHandler):
-    """RotatingFileHandler that optionally gzip-compresses rolled backup files."""
+    """
+    RotatingFileHandler that keeps backups as ``<base>.1.gz``, ``<base>.2.gz``, ...
+
+    When ``compress_backups`` is false, defers to the standard uncompressed rotation.
+    """
 
     def __init__(self, *args, compress_backups: bool = False, **kwargs):
         self.compress_backups = compress_backups
         super().__init__(*args, **kwargs)
 
+    def _backup_gz_path(self, index: int) -> str:
+        return f"{self.baseFilename}.{index}.gz"
+
+    @staticmethod
+    def _gzip_plain_file(plain_path: str, gz_path: str) -> None:
+        with open(plain_path, "rb") as source, gzip.open(gz_path, "wb") as dest:
+            shutil.copyfileobj(source, dest)
+        os.remove(plain_path)
+
+    def _migrate_legacy_plain_backup(self, index: int) -> None:
+        """Upgrade ``<base>.N`` files left by older handlers to ``<base>.N.gz``."""
+        plain = f"{self.baseFilename}.{index}"
+        gz_path = self._backup_gz_path(index)
+        if os.path.exists(plain) and not os.path.exists(gz_path):
+            self._gzip_plain_file(plain, gz_path)
+
     def doRollover(self) -> None:
-        super().doRollover()
-        if not self.compress_backups or self.backupCount <= 0:
-            return
-        for index in range(1, self.backupCount + 1):
-            rotated = f"{self.baseFilename}.{index}"
-            if not os.path.exists(rotated) or rotated.endswith(".gz"):
-                continue
-            gz_path = f"{rotated}.gz"
-            with open(rotated, "rb") as source, gzip.open(gz_path, "wb") as dest:
-                shutil.copyfileobj(source, dest)
-            os.remove(rotated)
+        if not self.compress_backups:
+            return super().doRollover()
+
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+
+        if self.backupCount > 0:
+            oldest = self._backup_gz_path(self.backupCount)
+            if os.path.exists(oldest):
+                os.remove(oldest)
+
+            for index in range(self.backupCount - 1, 0, -1):
+                self._migrate_legacy_plain_backup(index)
+                src = self._backup_gz_path(index)
+                dst = self._backup_gz_path(index + 1)
+                if os.path.exists(src):
+                    if os.path.exists(dst):
+                        os.remove(dst)
+                    os.rename(src, dst)
+
+            if os.path.exists(self.baseFilename):
+                dst = self._backup_gz_path(1)
+                if os.path.exists(dst):
+                    os.remove(dst)
+                staging = f"{self.baseFilename}.1"
+                os.rename(self.baseFilename, staging)
+                self._gzip_plain_file(staging, dst)
+
+        self.stream = self._open()
 
 
 def setup_powermem_logging(*, force: bool = False) -> bool:
@@ -105,6 +149,7 @@ def setup_powermem_logging(*, force: bool = False) -> bool:
         file_handler = RotatingFileHandler(log_file_path, **handler_kwargs)
     file_handler.setLevel(log_level)
     file_handler.setFormatter(file_formatter)
+    file_handler.addFilter(TraceContextFilter())
 
     powermem_logger = logging.getLogger("powermem")
     powermem_logger.setLevel(log_level)
@@ -123,6 +168,7 @@ def setup_powermem_logging(*, force: bool = False) -> bool:
         )
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setLevel(console_level)
+        console_handler.addFilter(TraceContextFilter())
         console_handler.setFormatter(
             logging.Formatter(settings.console_format or "%(levelname)s - %(message)s")
         )
