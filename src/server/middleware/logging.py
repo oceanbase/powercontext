@@ -129,6 +129,13 @@ def setup_logging():
     # Prevent duplicate logs
     logger.propagate = False
 
+    try:
+        from powermem.logging_config import setup_powermem_logging
+
+        setup_powermem_logging()
+    except Exception as e:
+        print(f"Warning: Failed to setup powermem SDK logging: {e}", file=sys.stderr)
+
 
 class JsonFormatter(logging.Formatter):
     """JSON formatter for structured logging"""
