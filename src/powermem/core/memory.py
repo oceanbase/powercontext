@@ -157,6 +157,10 @@ class Memory(MemoryBase):
             })
             ```
         """
+        from powermem.logging_config import setup_powermem_logging
+
+        setup_powermem_logging()
+
         # Handle MemoryConfig object or dict
 
         if isinstance(config, MemoryConfig):

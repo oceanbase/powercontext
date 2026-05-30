@@ -4,6 +4,7 @@ Logging middleware for PowerMem API
 
 import logging
 import os
+import re
 import sys
 import json
 import time
@@ -129,6 +130,13 @@ def setup_logging():
     # Prevent duplicate logs
     logger.propagate = False
 
+    try:
+        from powermem.logging_config import setup_powermem_logging
+
+        setup_powermem_logging()
+    except Exception as e:
+        print(f"Warning: Failed to setup powermem SDK logging: {e}", file=sys.stderr)
+
 
 class JsonFormatter(logging.Formatter):
     """JSON formatter for structured logging"""
@@ -169,17 +177,46 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(log_data, ensure_ascii=False)
 
 
+_USER_PATH_RE = re.compile(r"/users/([^/]+)")
+_AGENT_PATH_RE = re.compile(r"/agents/([^/]+)")
+
+
 class LoggingMiddleware(BaseHTTPMiddleware):
     """Middleware for request/response logging"""
-    
+
+    @staticmethod
+    def _extract_trace_ids(request: Request) -> tuple:
+        user_id = request.query_params.get("user_id", "")
+        if not user_id:
+            m = _USER_PATH_RE.search(request.url.path)
+            if m:
+                user_id = m.group(1)
+
+        agent_id = request.query_params.get("agent_id", "")
+        if not agent_id:
+            m = _AGENT_PATH_RE.search(request.url.path)
+            if m:
+                agent_id = m.group(1)
+
+        return user_id or "", agent_id or ""
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Generate request ID
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id
-        
+
+        # Propagate trace context to SDK logger tree
+        from powermem.log_context import set_log_context, reset_log_context
+        user_id, agent_id = self._extract_trace_ids(request)
+        tokens = set_log_context(
+            request_id=request_id,
+            user_id=user_id,
+            agent_id=agent_id,
+        )
+
         # Start time
         start_time = time.time()
-        
+
         # Log request
         logger.info(
             f"{request.method} {request.url.path}",
@@ -190,14 +227,14 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 "client": request.client.host if request.client else None,
             }
         )
-        
+
         try:
             # Process request
             response = await call_next(request)
-            
+
             # Calculate duration
             duration = time.time() - start_time
-            
+
             # Record metrics
             metrics_collector = get_metrics_collector()
             # Normalize path to endpoint
@@ -208,7 +245,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 status_code=response.status_code,
                 duration=duration
             )
-            
+
             # Log response
             logger.info(
                 f"{request.method} {request.url.path} - {response.status_code}",
@@ -218,24 +255,24 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     "duration_ms": duration * 1000,
                 }
             )
-            
+
             # Add request ID to response header
             response.headers["X-Request-ID"] = request_id
-            
+
             return response
-            
+
         except Exception as e:
             duration = time.time() - start_time
-            
+
             # Determine status code and whether this is an expected error
             status_code = 500
             is_expected_error = False
-            
+
             if isinstance(e, APIError):
                 status_code = e.status_code
                 # Client errors (4xx) are expected, server errors (5xx) are unexpected
                 is_expected_error = status_code < 500
-            
+
             # Record metrics for error
             metrics_collector = get_metrics_collector()
             endpoint = metrics_collector.normalize_endpoint(request.url.path)
@@ -245,7 +282,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 status_code=status_code,
                 duration=duration
             )
-            
+
             # For expected errors (4xx), log without stack trace
             # For unexpected errors (5xx), log with full stack trace
             if is_expected_error:
@@ -270,6 +307,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     exc_info=True,
                 )
             raise
+        finally:
+            reset_log_context(tokens)
 
 
 def log_request(request: Request, message: str, **kwargs):

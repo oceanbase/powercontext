@@ -107,7 +107,7 @@ class LoggingSettings(_BasePowermemSettings):
 
     level: str = Field(default="DEBUG")
     format: str = Field(
-        default="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        default="%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] [%(user_id)s] [%(agent_id)s] - %(message)s"
     )
     file: str = Field(default="./logs/powermem.log")
     max_size: str = Field(default="100MB")
