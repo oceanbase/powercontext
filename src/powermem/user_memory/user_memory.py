@@ -14,7 +14,10 @@ from ..prompts.user_profile_prompts import (
     get_user_profile_extraction_prompt,
     get_user_profile_topics_extraction_prompt,
 )
-from ..utils.utils import remove_code_blocks, parse_json_from_text, parse_conversation_text
+from ..utils.utils import (
+    remove_code_blocks, parse_json_from_text,
+    parse_conversation_text, llm_json_text_with_fallback,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -340,11 +343,8 @@ class UserMemory:
         Returns:
             LLM response text
         """
-        response = self.memory.llm.generate_response(
-            messages=[
-                {"role": "user", "content": user_prompt},
-            ],
-        )
+        messages = [{"role": "user", "content": user_prompt}]
+        response = llm_json_text_with_fallback(self.memory.llm, messages=messages)
         return remove_code_blocks(response).strip()
 
     def _extract_profile(
@@ -387,14 +387,30 @@ class UserMemory:
 
         # Call LLM to extract profile
         try:
-            profile_content = self._call_llm_for_extraction(user_prompt)
+            raw = self._call_llm_for_extraction(user_prompt)
 
-            # Return empty string if response is empty or indicates no profile
-            if not profile_content or profile_content.lower() in ["","\"\"", "none", "no profile information", "no relevant information"]:
+            # Layer 1: structured JSON — primary path
+            parsed = parse_json_from_text(raw, expected_type=dict)
+            if parsed is not None:
+                if not parsed.get("changed", False):
+                    return ""
+                profile = parsed.get("profile", "").strip()
+                return profile if profile else ""
+
+            # Layer 2: exact-match no-op strings
+            if not raw or raw.lower() in {
+                "", '""', "none", "no profile information", "no relevant information"
+            }:
                 return ""
-            
-            return profile_content
-            
+
+            # Layer 3: non-JSON, non-exact-match — plain text fallback
+            # Handles models that don't follow structured output instructions
+            logger.info(
+                "Non-JSON profile response treated as plain text; "
+                "model may not support structured output"
+            )
+            return raw
+
         except Exception as e:
             logger.error(f"Error extracting profile: {e}")
             raise

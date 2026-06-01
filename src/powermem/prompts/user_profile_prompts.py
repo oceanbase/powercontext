@@ -111,11 +111,20 @@ The following topics are for guidance only. Please selectively extract informati
    - Updating existing information if the conversation provides more recent or different details
    - Keeping unchanged information that is still valid
 5. Combine all information into a coherent, updated profile description
-6. If no relevant profile information is found in the conversation, return the current profile as-is
-7. Write the profile in natural language, not as structured data
-8. Focus on current state and characteristics of the user
-9. If no user profile information can be extracted from the conversation at all, return an empty string ""
-10. The final extracted profile description must not exceed 1,000 characters. If it does, compress the content concisely without losing essential factual information.
+6. Write the profile in natural language, not as structured data
+7. Focus on current state and characteristics of the user
+8. If no user profile information can be extracted, or the conversation contains no new
+   information beyond the current profile, return {{"changed": false}} — no explanation,
+   no commentary, nothing else
+9. The final profile must not exceed 1,000 characters. If it does, compress concisely
+   without losing essential facts.
+
+[Output Format]:
+Return ONLY a JSON object — no markdown fences, no surrounding text:
+  {{"changed": true, "profile": "<updated profile text>"}}
+  {{"changed": false}}
+The keys "changed" and "profile" must always be in English, regardless of the profile
+content language.
 """
 
 
@@ -159,7 +168,9 @@ You MUST extract and write the profile content in {target_language}, regardless 
     user_prompt = f"""{USER_PROFILE_EXTRACTION_PROMPT}{current_profile_section}{language_instruction}
 
 [Target]:
-Extract and return the user profile information as a text description:
+Return ONLY a JSON object with no surrounding text:
+  {{"changed": true, "profile": "<updated profile text>"}}
+  {{"changed": false}}
 
 [Conversation]:
 {conversation}"""
