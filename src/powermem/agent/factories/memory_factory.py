@@ -63,7 +63,7 @@ class MemoryFactory:
             logger.info(f"Created {manager_type} memory manager successfully")
             return manager
         except Exception as e:
-            logger.error(f"Failed to create {manager_type} memory manager: {e}")
+            logger.error(f"Failed to create {manager_type} memory manager: {e}", exc_info=True)
             raise
     
     @classmethod
@@ -96,7 +96,7 @@ class MemoryFactory:
             logger.info(f"Created {manager_type} memory manager successfully")
             return manager
         except Exception as e:
-            logger.error(f"Failed to create {manager_type} memory manager: {e}")
+            logger.error(f"Failed to create {manager_type} memory manager: {e}", exc_info=True)
             raise
     
     @classmethod

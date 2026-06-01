@@ -34,9 +34,12 @@ def _require_mcp_deps() -> None:
 _require_mcp_deps()
 
 import json
+import logging
 import sys
 from datetime import datetime, date
 from typing import Any, Dict, List, Optional, Union
+
+logger = logging.getLogger(__name__)
 
 from fastmcp import FastMCP
 

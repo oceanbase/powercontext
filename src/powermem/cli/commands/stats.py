@@ -5,6 +5,7 @@ This module provides CLI commands for viewing statistics:
 - stats: Display memory statistics
 """
 
+import logging
 import click
 import sys
 from typing import Optional
@@ -17,6 +18,8 @@ from ..utils.output import (
     print_warning,
     print_info,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @click.command(name="stats")
@@ -90,6 +93,5 @@ def stats_cmd(ctx: CLIContext, user_id, agent_id, time_range, detailed, json_out
     except Exception as e:
         print_error(f"Failed to get statistics: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)

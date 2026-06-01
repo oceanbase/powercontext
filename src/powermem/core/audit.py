@@ -6,9 +6,11 @@ This module handles audit logging for compliance and security.
 
 import logging
 import json
+from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, Optional
 from datetime import datetime
 from powermem.utils.utils import get_current_datetime
+from powermem.logging_config import CompressingRotatingFileHandler, parse_log_max_bytes
 import os
 
 logger = logging.getLogger(__name__)
@@ -44,12 +46,24 @@ class AuditLogger:
         self.audit_logger = logging.getLogger("audit")
         self.audit_logger.setLevel(getattr(logging, self.log_level.upper()))
         
-        # Create file handler if not exists
+        # Create rotating file handler if not exists
         if not self.audit_logger.handlers:
             log_dir = os.path.dirname(self.log_file)
             if log_dir:
                 os.makedirs(log_dir, exist_ok=True)
-            handler = logging.FileHandler(self.log_file)
+            compress = self._get_config_value(["compress_logs"], True)
+            rotation_size = self._get_config_value(["log_rotation_size"], "100MB")
+            max_bytes = parse_log_max_bytes(rotation_size)
+            backup_count = self._get_config_value(["backup_count"], 5)
+            if compress:
+                handler = CompressingRotatingFileHandler(
+                    self.log_file, compress_backups=True,
+                    maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8",
+                )
+            else:
+                handler = RotatingFileHandler(
+                    self.log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8",
+                )
             formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )
@@ -103,7 +117,7 @@ class AuditLogger:
                 logger.debug(f"Audit event: {event_type} - {details}")
             
         except Exception as e:
-            logger.error(f"Failed to log audit event: {e}")
+            logger.error(f"Failed to log audit event: {e}", exc_info=True)
     
     async def log_event_async(
         self,
@@ -273,6 +287,6 @@ class AuditLogger:
                             continue
             
         except Exception as e:
-            logger.error(f"Failed to retrieve audit logs: {e}")
+            logger.error(f"Failed to retrieve audit logs: {e}", exc_info=True)
         
         return logs

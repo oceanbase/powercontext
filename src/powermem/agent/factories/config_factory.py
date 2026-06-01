@@ -270,7 +270,7 @@ class ConfigFactory:
         except Exception as e:
             validation_results["errors"].append(f"Validation error: {str(e)}")
             validation_results["valid"] = False
-            logger.error(f"Memory config validation failed: {e}")
+            logger.error(f"Memory config validation failed: {e}", exc_info=True)
         
         return validation_results
     

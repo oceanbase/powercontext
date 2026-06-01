@@ -63,7 +63,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             logger.info("Privacy protector initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize privacy protector: {e}")
+            logger.error(f"Failed to initialize privacy protector: {e}", exc_info=True)
             raise
     
     def _initialize_privacy_settings(self) -> None:
@@ -118,7 +118,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to set privacy level: {e}")
+            logger.error(f"Failed to set privacy level: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -142,7 +142,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             return self.memory_privacy_levels.get(memory_id, self.default_privacy_level)
             
         except Exception as e:
-            logger.error(f"Failed to get privacy level: {e}")
+            logger.error(f"Failed to get privacy level: {e}", exc_info=True)
             return self.default_privacy_level
     
     def encrypt_memory(
@@ -189,7 +189,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to encrypt memory: {e}")
+            logger.error(f"Failed to encrypt memory: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -240,7 +240,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to decrypt memory: {e}")
+            logger.error(f"Failed to decrypt memory: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -290,7 +290,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to anonymize memory: {e}")
+            logger.error(f"Failed to anonymize memory: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -353,7 +353,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to log access: {e}")
+            logger.error(f"Failed to log access: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -397,7 +397,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             return logs
             
         except Exception as e:
-            logger.error(f"Failed to get access logs: {e}")
+            logger.error(f"Failed to get access logs: {e}", exc_info=True)
             return []
     
     def apply_retention_policy(
@@ -441,7 +441,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to apply retention policy: {e}")
+            logger.error(f"Failed to apply retention policy: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -505,7 +505,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to check GDPR compliance: {e}")
+            logger.error(f"Failed to check GDPR compliance: {e}", exc_info=True)
             return {
                 'compliant': False,
                 'error': str(e),
@@ -581,7 +581,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to export user data: {e}")
+            logger.error(f"Failed to export user data: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -662,7 +662,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to delete user data: {e}")
+            logger.error(f"Failed to delete user data: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -696,7 +696,7 @@ class PrivacyProtector(AgentPrivacyManagerBase):
             return stats
             
         except Exception as e:
-            logger.error(f"Failed to get privacy statistics: {e}")
+            logger.error(f"Failed to get privacy statistics: {e}", exc_info=True)
             return {}
     
     def _apply_maximum_privacy(self, memory_id: str) -> None:

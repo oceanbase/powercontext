@@ -3,6 +3,8 @@ import logging
 import os
 from typing import Dict, List, Optional, Union
 
+logger = logging.getLogger(__name__)
+
 try:
     from dashscope import Generation
     from dashscope.api_entities.dashscope_response import DashScopeAPIResponse
@@ -196,10 +198,10 @@ class QwenLLM(LLMBase):
                     response_callback(self, response, generation_params)
                 except Exception as e:
                     # Log error but don't propagate
-                    logging.error(f"Error due to callback: {e}")
+                    logger.error(f"Error due to callback: {e}")
                     pass
 
             return parsed_response
         except Exception as e:
-            logging.error(f"Qwen API call failed: {e}")
+            logger.error(f"Qwen API call failed: {e}")
             raise

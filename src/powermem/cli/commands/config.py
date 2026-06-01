@@ -7,6 +7,7 @@ This module provides CLI commands for configuration management:
 - test: Test configuration connectivity
 """
 
+import logging
 import click
 import sys
 import os
@@ -22,6 +23,8 @@ from ..utils.output import (
     print_warning,
     print_info,
 )
+
+logger = logging.getLogger(__name__)
 from ..utils.envfile import read_env_file, update_env_file
 
 
@@ -215,8 +218,7 @@ def show_cmd(ctx: CLIContext, section, show_secrets, json_output):
     except Exception as e:
         print_error(f"Failed to show configuration: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 
@@ -446,8 +448,7 @@ def validate_cmd(ctx: CLIContext, env_file, strict, json_output, check_connectiv
     except Exception as e:
         print_error(f"Validation failed: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 

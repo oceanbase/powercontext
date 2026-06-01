@@ -8,6 +8,7 @@ This module provides CLI commands for system management:
 - migrate: Migrate data between stores
 """
 
+import logging
 import click
 import json
 import sys
@@ -24,6 +25,8 @@ from ..utils.output import (
     print_warning,
     print_info,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @click.group(name="manage")
@@ -115,8 +118,7 @@ def backup_cmd(ctx: CLIContext, output, user_id, agent_id, run_id, limit, includ
     except Exception as e:
         print_error(f"Backup failed: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 
@@ -276,8 +278,7 @@ def restore_cmd(ctx: CLIContext, input_file, user_id, agent_id, dry_run, skip_du
     except Exception as e:
         print_error(f"Restore failed: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 
@@ -452,8 +453,7 @@ def cleanup_cmd(ctx: CLIContext, threshold, archive_threshold, user_id, agent_id
     except Exception as e:
         print_error(f"Cleanup failed: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 
@@ -570,8 +570,7 @@ def migrate_cmd(ctx: CLIContext, target_store, source_store, delete_source, dry_
     except Exception as e:
         print_error(f"Migration failed: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 

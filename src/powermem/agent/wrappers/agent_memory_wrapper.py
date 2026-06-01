@@ -51,7 +51,7 @@ class AgentMemoryWrapper:
             logger.info(f"Agent memory wrapper initialized with {self.config.agent_memory.mode} mode")
             
         except Exception as e:
-            logger.error(f"Failed to initialize agent memory wrapper: {e}")
+            logger.error(f"Failed to initialize agent memory wrapper: {e}", exc_info=True)
             self.agent_memory_manager = None
             self.initialized = False
     
@@ -98,7 +98,7 @@ class AgentMemoryWrapper:
                 metadata=metadata
             )
         except Exception as e:
-            logger.error(f"Failed to add memory: {e}")
+            logger.error(f"Failed to add memory: {e}", exc_info=True)
             return {"error": str(e)}
     
     def get_memories(
@@ -128,7 +128,7 @@ class AgentMemoryWrapper:
                 filters=filters
             )
         except Exception as e:
-            logger.error(f"Failed to get memories: {e}")
+            logger.error(f"Failed to get memories: {e}", exc_info=True)
             return []
     
     def update_memory(
@@ -158,7 +158,7 @@ class AgentMemoryWrapper:
                 updates=updates
             )
         except Exception as e:
-            logger.error(f"Failed to update memory: {e}")
+            logger.error(f"Failed to update memory: {e}", exc_info=True)
             return {"error": str(e)}
     
     def delete_memory(
@@ -185,7 +185,7 @@ class AgentMemoryWrapper:
                 agent_id=agent_id
             )
         except Exception as e:
-            logger.error(f"Failed to delete memory: {e}")
+            logger.error(f"Failed to delete memory: {e}", exc_info=True)
             return {"error": str(e)}
     
     def share_memory(
@@ -218,7 +218,7 @@ class AgentMemoryWrapper:
                 permissions=permissions
             )
         except Exception as e:
-            logger.error(f"Failed to share memory: {e}")
+            logger.error(f"Failed to share memory: {e}", exc_info=True)
             return {"error": str(e)}
     
     def get_context_info(self, agent_id: str) -> Dict[str, Any]:
@@ -237,7 +237,7 @@ class AgentMemoryWrapper:
         try:
             return self.agent_memory_manager.get_context_info(agent_id=agent_id)
         except Exception as e:
-            logger.error(f"Failed to get context info: {e}")
+            logger.error(f"Failed to get context info: {e}", exc_info=True)
             return {"error": str(e)}
     
     def update_memory_decay(self) -> Dict[str, Any]:
@@ -253,7 +253,7 @@ class AgentMemoryWrapper:
         try:
             return self.agent_memory_manager.update_memory_decay()
         except Exception as e:
-            logger.error(f"Failed to update memory decay: {e}")
+            logger.error(f"Failed to update memory decay: {e}", exc_info=True)
             return {"error": str(e)}
     
     def cleanup_forgotten_memories(self) -> Dict[str, Any]:
@@ -269,7 +269,7 @@ class AgentMemoryWrapper:
         try:
             return self.agent_memory_manager.cleanup_forgotten_memories()
         except Exception as e:
-            logger.error(f"Failed to cleanup forgotten memories: {e}")
+            logger.error(f"Failed to cleanup forgotten memories: {e}", exc_info=True)
             return {"error": str(e)}
     
     def get_memory_statistics(self) -> Dict[str, Any]:
@@ -285,7 +285,7 @@ class AgentMemoryWrapper:
         try:
             return self.agent_memory_manager.get_memory_statistics()
         except Exception as e:
-            logger.error(f"Failed to get memory statistics: {e}")
+            logger.error(f"Failed to get memory statistics: {e}", exc_info=True)
             return {"error": str(e)}
     
     def check_permission(
@@ -315,7 +315,7 @@ class AgentMemoryWrapper:
                 permission=permission
             )
         except Exception as e:
-            logger.error(f"Failed to check permission: {e}")
+            logger.error(f"Failed to check permission: {e}", exc_info=True)
             return False
     
     def get_manager_info(self) -> Dict[str, Any]:
@@ -369,7 +369,7 @@ class AgentMemoryWrapper:
             }
             
         except Exception as e:
-            logger.error(f"Failed to switch mode: {e}")
+            logger.error(f"Failed to switch mode: {e}", exc_info=True)
             return {"error": str(e)}
     
     def get_available_modes(self) -> List[str]:

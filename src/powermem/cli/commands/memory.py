@@ -11,6 +11,7 @@ This module provides CLI commands for memory operations:
 - delete-all: Delete all memories
 """
 
+import logging
 import click
 import json
 import sys
@@ -24,6 +25,8 @@ from ..utils.output import (
     print_warning,
     print_info,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @click.group(name="memory")
@@ -106,8 +109,7 @@ def add_cmd(ctx: CLIContext, content, user_id, agent_id, run_id, metadata,
     except Exception as e:
         print_error(f"Failed to add memory: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 
@@ -169,8 +171,7 @@ def search_cmd(ctx: CLIContext, query, user_id, agent_id, run_id, limit,
     except Exception as e:
         print_error(f"Search failed: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 
@@ -215,8 +216,7 @@ def get_cmd(ctx: CLIContext, memory_id, user_id, agent_id, json_output):
     except Exception as e:
         print_error(f"Failed to get memory: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 
@@ -274,8 +274,7 @@ def update_cmd(ctx: CLIContext, memory_id, content, user_id, agent_id, metadata,
     except Exception as e:
         print_error(f"Failed to update memory: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 
@@ -317,8 +316,7 @@ def delete_cmd(ctx: CLIContext, memory_id, user_id, agent_id, yes):
     except Exception as e:
         print_error(f"Failed to delete memory: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 
@@ -399,8 +397,7 @@ def list_cmd(ctx: CLIContext, user_id, agent_id, run_id, limit, offset,
     except Exception as e:
         print_error(f"Failed to list memories: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 
@@ -457,8 +454,7 @@ def delete_all_cmd(ctx: CLIContext, user_id, agent_id, run_id, confirm):
     except Exception as e:
         print_error(f"Failed to delete memories: {e}")
         if ctx.verbose:
-            import traceback
-            traceback.print_exc()
+            logger.exception("CLI command failed")
         sys.exit(1)
 
 

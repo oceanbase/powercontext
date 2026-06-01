@@ -66,7 +66,7 @@ class PermissionController(AgentPermissionManagerBase):
             logger.info("Permission controller initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize permission controller: {e}")
+            logger.error(f"Failed to initialize permission controller: {e}", exc_info=True)
             raise
     
     def _initialize_default_permissions(self) -> None:
@@ -133,7 +133,7 @@ class PermissionController(AgentPermissionManagerBase):
             return False
             
         except Exception as e:
-            logger.error(f"Error checking permission: {e}")
+            logger.error(f"Error checking permission: {e}", exc_info=True)
             return False
     
     def grant_permission(
@@ -183,7 +183,7 @@ class PermissionController(AgentPermissionManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Error granting permission: {e}")
+            logger.error(f"Error granting permission: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -256,7 +256,7 @@ class PermissionController(AgentPermissionManagerBase):
                 }
             
         except Exception as e:
-            logger.error(f"Error revoking permission: {e}")
+            logger.error(f"Error revoking permission: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -320,7 +320,7 @@ class PermissionController(AgentPermissionManagerBase):
                 }
             
         except Exception as e:
-            logger.error(f"Error getting permissions: {e}")
+            logger.error(f"Error getting permissions: {e}", exc_info=True)
             return {
                 'memory_id': memory_id,
                 'error': str(e),
@@ -371,7 +371,7 @@ class PermissionController(AgentPermissionManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Error setting default permissions: {e}")
+            logger.error(f"Error setting default permissions: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -436,7 +436,7 @@ class PermissionController(AgentPermissionManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Error inheriting permissions: {e}")
+            logger.error(f"Error inheriting permissions: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -480,7 +480,7 @@ class PermissionController(AgentPermissionManagerBase):
             return history
             
         except Exception as e:
-            logger.error(f"Error getting permission history: {e}")
+            logger.error(f"Error getting permission history: {e}", exc_info=True)
             return []
     
     def validate_permission_chain(
@@ -538,7 +538,7 @@ class PermissionController(AgentPermissionManagerBase):
             return validation_result
             
         except Exception as e:
-            logger.error(f"Error validating permission chain: {e}")
+            logger.error(f"Error validating permission chain: {e}", exc_info=True)
             return {
                 'valid': False,
                 'error': str(e),

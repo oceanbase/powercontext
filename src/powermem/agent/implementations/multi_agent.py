@@ -143,7 +143,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             logger.info("Multi-agent memory manager initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize multi-agent memory manager: {e}")
+            logger.error(f"Failed to initialize multi-agent memory manager: {e}", exc_info=True)
             raise
     
     def _initialize_agent_groups(self) -> None:
@@ -307,7 +307,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to process memory for agent {agent_id}: {e}")
+            logger.error(f"Failed to process memory for agent {agent_id}: {e}", exc_info=True)
             raise
     
     def _persist_memory_to_storage(self, memory_data: Dict[str, Any]) -> int:
@@ -364,7 +364,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
                 raise ValueError("Failed to persist memory to database")
             
         except Exception as e:
-            logger.error(f"Failed to persist memory to storage: {e}")
+            logger.error(f"Failed to persist memory to storage: {e}", exc_info=True)
             # Re-raise exception to allow caller to handle it
             raise
     
@@ -711,7 +711,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to update memory {memory_id}: {e}")
+            logger.error(f"Failed to update memory {memory_id}: {e}", exc_info=True)
             raise
     
     def delete_memory(
@@ -767,7 +767,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to delete memory {memory_id}: {e}")
+            logger.error(f"Failed to delete memory {memory_id}: {e}", exc_info=True)
             raise
     
     def share_memory(
@@ -850,7 +850,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to share memory {memory_id}: {e}")
+            logger.error(f"Failed to share memory {memory_id}: {e}", exc_info=True)
             raise
     
     def get_context_info(self, agent_id: str) -> Dict[str, Any]:
@@ -890,7 +890,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             return context_info
             
         except Exception as e:
-            logger.error(f"Failed to get context info for agent {agent_id}: {e}")
+            logger.error(f"Failed to get context info for agent {agent_id}: {e}", exc_info=True)
             raise
     
     def update_memory_decay(self) -> Dict[str, Any]:
@@ -961,7 +961,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             return decay_results
             
         except Exception as e:
-            logger.error(f"Failed to update memory decay: {e}")
+            logger.error(f"Failed to update memory decay: {e}", exc_info=True)
             raise
     
     def cleanup_forgotten_memories(self) -> Dict[str, Any]:
@@ -1004,7 +1004,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             return cleanup_results
             
         except Exception as e:
-            logger.error(f"Failed to cleanup forgotten memories: {e}")
+            logger.error(f"Failed to cleanup forgotten memories: {e}", exc_info=True)
             raise
     
     def get_memory_statistics(self) -> Dict[str, Any]:
@@ -1058,7 +1058,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             return stats
             
         except Exception as e:
-            logger.error(f"Failed to get memory statistics: {e}")
+            logger.error(f"Failed to get memory statistics: {e}", exc_info=True)
             raise
     
     def check_permission(
@@ -1152,7 +1152,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to create group '{group_name}': {e}")
+            logger.error(f"Failed to create group '{group_name}': {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),

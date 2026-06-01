@@ -63,7 +63,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             logger.info("Collaboration coordinator initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize collaboration coordinator: {e}")
+            logger.error(f"Failed to initialize collaboration coordinator: {e}", exc_info=True)
             raise
     
     def _initialize_collaboration_settings(self) -> None:
@@ -142,7 +142,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to initiate collaboration: {e}")
+            logger.error(f"Failed to initiate collaboration: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -200,7 +200,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to join collaboration: {e}")
+            logger.error(f"Failed to join collaboration: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -259,7 +259,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to leave collaboration: {e}")
+            logger.error(f"Failed to leave collaboration: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -288,7 +288,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             return CollaborationStatus(status_str)
             
         except Exception as e:
-            logger.error(f"Failed to get collaboration status: {e}")
+            logger.error(f"Failed to get collaboration status: {e}", exc_info=True)
             return CollaborationStatus.FAILED
     
     def update_collaboration_status(
@@ -335,7 +335,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to update collaboration status: {e}")
+            logger.error(f"Failed to update collaboration status: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -362,7 +362,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             return self.collaboration_participants[collaboration_id].copy()
             
         except Exception as e:
-            logger.error(f"Failed to get collaboration participants: {e}")
+            logger.error(f"Failed to get collaboration participants: {e}", exc_info=True)
             return []
     
     def share_memory_in_collaboration(
@@ -411,7 +411,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to share memory in collaboration: {e}")
+            logger.error(f"Failed to share memory in collaboration: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -456,7 +456,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             return memories
             
         except Exception as e:
-            logger.error(f"Failed to get collaboration memories: {e}")
+            logger.error(f"Failed to get collaboration memories: {e}", exc_info=True)
             return []
     
     def resolve_collaboration_conflict(
@@ -516,7 +516,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Failed to resolve collaboration conflict: {e}")
+            logger.error(f"Failed to resolve collaboration conflict: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -599,7 +599,7 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             return history
             
         except Exception as e:
-            logger.error(f"Failed to get collaboration history: {e}")
+            logger.error(f"Failed to get collaboration history: {e}", exc_info=True)
             return []
     
     def get_agent_collaborations(
@@ -641,5 +641,5 @@ class CollaborationCoordinator(AgentCollaborationManagerBase):
             return agent_collaborations
             
         except Exception as e:
-            logger.error(f"Failed to get agent collaborations: {e}")
+            logger.error(f"Failed to get agent collaborations: {e}", exc_info=True)
             return []

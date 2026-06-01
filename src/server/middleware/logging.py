@@ -18,6 +18,30 @@ from ..config import config
 from ..utils.metrics import get_metrics_collector
 from ..models.errors import APIError
 
+try:
+    from powermem.logging_config import parse_log_max_bytes as _parse_max_bytes
+except ImportError:
+    def _parse_max_bytes(s, default=100 * 1024 * 1024):
+        if not s:
+            return default
+        text = str(s).strip().upper()
+        try:
+            if text.endswith("GB"):
+                return int(float(text[:-2].strip()) * 1024 * 1024 * 1024)
+            if text.endswith("MB"):
+                return int(float(text[:-2].strip()) * 1024 * 1024)
+            if text.endswith("KB"):
+                return int(float(text[:-2].strip()) * 1024)
+            return int(text)
+        except ValueError:
+            return default
+
+
+def _get_server_rotation_params():
+    max_bytes = _parse_max_bytes(os.environ.get("POWERMEM_SERVER_LOG_MAX_SIZE"), default=100 * 1024 * 1024)
+    backup_count = int(os.environ.get("POWERMEM_SERVER_LOG_BACKUP_COUNT", "5"))
+    return max_bytes, backup_count
+
 # Setup logger
 logger = logging.getLogger("server")
 
@@ -55,11 +79,12 @@ def setup_logging():
             
             # Use RotatingFileHandler with append mode to preserve history
             # Max file size: 10MB, keep 5 backup files
+            _max_bytes, _backup_count = _get_server_rotation_params()
             file_handler = RotatingFileHandler(
                 log_file_path,
-                mode='a',  # Append mode to preserve history
-                maxBytes=10 * 1024 * 1024,  # 10MB
-                backupCount=5,
+                mode='a',
+                maxBytes=_max_bytes,
+                backupCount=_backup_count,
                 encoding='utf-8'
             )
             file_handler.setLevel(log_level)
@@ -94,22 +119,9 @@ def setup_logging():
             uvicorn_console_handler.setFormatter(text_formatter)
         uvicorn_logger.addHandler(uvicorn_console_handler)
         
-        # Add file handler if configured
+        # Share the server file handler to avoid rotation race conditions
         if file_handler:
-            # Create a new file handler for each logger (they share the same file)
-            uvicorn_file_handler = RotatingFileHandler(
-                os.path.abspath(config.log_file),
-                mode='a',
-                maxBytes=10 * 1024 * 1024,
-                backupCount=5,
-                encoding='utf-8'
-            )
-            uvicorn_file_handler.setLevel(log_level)
-            if config.log_format == "json":
-                uvicorn_file_handler.setFormatter(JsonFormatter())
-            else:
-                uvicorn_file_handler.setFormatter(text_formatter)
-            uvicorn_logger.addHandler(uvicorn_file_handler)
+            uvicorn_logger.addHandler(file_handler)
         
         uvicorn_logger.propagate = False
     
@@ -129,6 +141,20 @@ def setup_logging():
     
     # Prevent duplicate logs
     logger.propagate = False
+
+    # Attach trace context filter so request_id/user_id/agent_id appear in server logs
+    try:
+        from powermem.log_context import TraceContextFilter
+        _trace_filter = TraceContextFilter()
+        for h in logger.handlers:
+            h.addFilter(_trace_filter)
+        for uvicorn_logger in uvicorn_loggers:
+            for h in uvicorn_logger.handlers:
+                h.addFilter(_trace_filter)
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"Warning: Failed to attach TraceContextFilter: {e}", file=sys.stderr)
 
     try:
         from powermem.logging_config import setup_powermem_logging

@@ -129,7 +129,7 @@ class ScopeController(AgentScopeManagerBase):
             logger.info("Scope controller initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize scope controller: {e}")
+            logger.error(f"Failed to initialize scope controller: {e}", exc_info=True)
             raise
     
     def _initialize_scope_configs(self) -> None:
@@ -257,7 +257,7 @@ class ScopeController(AgentScopeManagerBase):
                     return MemoryScope.PRIVATE
                 
         except Exception as e:
-            logger.error(f"Error determining scope: {e}")
+            logger.error(f"Error determining scope: {e}", exc_info=True)
             
             # Ensure we return a MemoryScope enum
             default_scope = self.multi_agent_config.default_scope
@@ -320,7 +320,7 @@ class ScopeController(AgentScopeManagerBase):
             return accessible_memories
             
         except Exception as e:
-            logger.error(f"Error getting accessible memories for agent {agent_id}: {e}")
+            logger.error(f"Error getting accessible memories for agent {agent_id}: {e}", exc_info=True)
             return []
     
     def check_scope_access(
@@ -347,7 +347,7 @@ class ScopeController(AgentScopeManagerBase):
             return self._check_agent_scope_access(agent_id, memory_id, memory_scope)
             
         except Exception as e:
-            logger.error(f"Error checking scope access for agent {agent_id} and memory {memory_id}: {e}")
+            logger.error(f"Error checking scope access for agent {agent_id} and memory {memory_id}: {e}", exc_info=True)
             return False
     
     def update_memory_scope(
@@ -391,7 +391,7 @@ class ScopeController(AgentScopeManagerBase):
             }
             
         except Exception as e:
-            logger.error(f"Error updating memory scope: {e}")
+            logger.error(f"Error updating memory scope: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -445,7 +445,7 @@ class ScopeController(AgentScopeManagerBase):
             return list(set(members))  # Remove duplicates
             
         except Exception as e:
-            logger.error(f"Error getting scope members for {scope.value}: {e}")
+            logger.error(f"Error getting scope members for {scope.value}: {e}", exc_info=True)
             return []
     
     def add_scope_member(
@@ -487,7 +487,7 @@ class ScopeController(AgentScopeManagerBase):
             return {'success': False, 'error': 'Could not add agent to scope'}
             
         except Exception as e:
-            logger.error(f"Error adding agent {agent_id} to scope {scope.value}: {e}")
+            logger.error(f"Error adding agent {agent_id} to scope {scope.value}: {e}", exc_info=True)
             return {'success': False, 'error': str(e)}
     
     def remove_scope_member(
@@ -520,7 +520,7 @@ class ScopeController(AgentScopeManagerBase):
             return {'success': False, 'error': 'Could not remove agent from scope'}
             
         except Exception as e:
-            logger.error(f"Error removing agent {agent_id} from scope {scope.value}: {e}")
+            logger.error(f"Error removing agent {agent_id} from scope {scope.value}: {e}", exc_info=True)
             return {'success': False, 'error': str(e)}
     
     def get_scope_statistics(self) -> Dict[str, Any]:
@@ -557,7 +557,7 @@ class ScopeController(AgentScopeManagerBase):
             return stats
             
         except Exception as e:
-            logger.error(f"Error getting scope statistics: {e}")
+            logger.error(f"Error getting scope statistics: {e}", exc_info=True)
             return {}
     
     def _build_scope_analysis_prompt(
@@ -633,7 +633,7 @@ class ScopeController(AgentScopeManagerBase):
             return False
             
         except Exception as e:
-            logger.error(f"Error checking agent scope access: {e}")
+            logger.error(f"Error checking agent scope access: {e}", exc_info=True)
             return False
     
     def _find_memory_scope(self, memory_id: str) -> Optional[MemoryScope]:

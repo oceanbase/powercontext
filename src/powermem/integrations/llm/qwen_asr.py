@@ -2,6 +2,8 @@ import logging
 import os
 from typing import Dict, List, Optional, Union
 
+logger = logging.getLogger(__name__)
+
 try:
     import dashscope
     from dashscope.api_entities.dashscope_response import DashScopeAPIResponse
@@ -85,7 +87,7 @@ class QwenASR(LLMBase):
                     return " ".join(texts)
             return ""
         except Exception as e:
-            logging.error(f"Error parsing ASR response: {e}")
+            logger.error(f"Error parsing ASR response: {e}")
             raise
 
     def generate_response(
@@ -137,7 +139,7 @@ class QwenASR(LLMBase):
             response = dashscope.MultiModalConversation.call(**asr_params)
             return self._parse_response(response)
         except Exception as e:
-            logging.error(f"Qwen ASR API call failed: {e}")
+            logger.error(f"Qwen ASR API call failed: {e}")
             raise
 
     def transcribe(

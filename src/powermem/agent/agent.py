@@ -153,7 +153,7 @@ class AgentMemory:
             logger.info(f"AgentMemory initialized in {self.mode} mode")
             
         except Exception as e:
-            logger.error(f"Failed to initialize AgentMemory: {e}")
+            logger.error(f"Failed to initialize AgentMemory: {e}", exc_info=True)
             raise
     
     def _initialize_multi_agent(self) -> None:
@@ -416,7 +416,7 @@ class AgentMemory:
                 raise RuntimeError("No agent manager available for fallback")
                 
         except Exception as e:
-            logger.error(f"Failed to add memory: {e}")
+            logger.error(f"Failed to add memory: {e}", exc_info=True)
             raise
     
     def search(
@@ -472,7 +472,7 @@ class AgentMemory:
                     raise RuntimeError("Search not supported by current manager")
                 
         except Exception as e:
-            logger.error(f"Failed to search memories: {e}")
+            logger.error(f"Failed to search memories: {e}", exc_info=True)
             raise
     
     def get_all(
@@ -520,7 +520,7 @@ class AgentMemory:
                     raise RuntimeError("Get all not supported by current manager")
                 
         except Exception as e:
-            logger.error(f"Failed to get all memories: {e}")
+            logger.error(f"Failed to get all memories: {e}", exc_info=True)
             raise
     
     def update(
@@ -571,7 +571,7 @@ class AgentMemory:
                     raise RuntimeError("Update not supported by current manager")
                 
         except Exception as e:
-            logger.error(f"Failed to update memory {memory_id}: {e}")
+            logger.error(f"Failed to update memory {memory_id}: {e}", exc_info=True)
             raise
     
     def delete(
@@ -614,7 +614,7 @@ class AgentMemory:
                     raise RuntimeError("Delete not supported by current manager")
                 
         except Exception as e:
-            logger.error(f"Failed to delete memory {memory_id}: {e}")
+            logger.error(f"Failed to delete memory {memory_id}: {e}", exc_info=True)
             raise
     
     def delete_all(
@@ -672,7 +672,7 @@ class AgentMemory:
             return all_ok
         
         except Exception as e:
-            logger.error(f"Failed to delete all memories: {e}")
+            logger.error(f"Failed to delete all memories: {e}", exc_info=True)
             raise
     
     def reset(self) -> None:
@@ -702,7 +702,7 @@ class AgentMemory:
                 else:
                     raise RuntimeError("Reset not supported by current manager - no memory instance or reset method available")
         except Exception as e:
-            logger.error(f"Failed to reset memory store: {e}")
+            logger.error(f"Failed to reset memory store: {e}", exc_info=True)
             raise
 
     # Agent-specific methods (for multi-agent mode)
@@ -793,7 +793,7 @@ class AgentMemory:
                 }
                 
         except Exception as e:
-            logger.error(f"Failed to get statistics: {e}")
+            logger.error(f"Failed to get statistics: {e}", exc_info=True)
             raise
     
     def get_mode(self) -> str:

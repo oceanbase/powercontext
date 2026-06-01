@@ -78,7 +78,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             logger.info(f"Hybrid memory manager initialized with primary mode: {self.current_mode}")
             
         except Exception as e:
-            logger.error(f"Failed to initialize hybrid memory manager: {e}")
+            logger.error(f"Failed to initialize hybrid memory manager: {e}", exc_info=True)
             raise
     
     def _initialize_mode_managers(self) -> None:
@@ -217,7 +217,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             return result
             
         except Exception as e:
-            logger.error(f"Failed to process memory for {agent_id}: {e}")
+            logger.error(f"Failed to process memory for {agent_id}: {e}", exc_info=True)
             raise
     
     def _analyze_context_for_mode(
@@ -288,7 +288,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
                 return self.hybrid_config.primary_mode
                 
         except Exception as e:
-            logger.error(f"Failed to analyze context for mode: {e}")
+            logger.error(f"Failed to analyze context for mode: {e}", exc_info=True)
             return self.hybrid_config.primary_mode
     
     def _switch_mode(self, new_mode: str, reason: str) -> None:
@@ -324,7 +324,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             logger.info(f"Switched from {old_mode} to {new_mode} mode (reason: {reason})")
             
         except Exception as e:
-            logger.error(f"Failed to switch mode to {new_mode}: {e}")
+            logger.error(f"Failed to switch mode to {new_mode}: {e}", exc_info=True)
     
     def _is_in_cooldown(self, mode: str) -> bool:
         """Check if a mode is in cooldown."""
@@ -391,7 +391,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             return unique_memories
             
         except Exception as e:
-            logger.error(f"Failed to get memories for {agent_id}: {e}")
+            logger.error(f"Failed to get memories for {agent_id}: {e}", exc_info=True)
             raise
     
     def update_memory(
@@ -434,7 +434,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             return result
             
         except Exception as e:
-            logger.error(f"Failed to update memory {memory_id}: {e}")
+            logger.error(f"Failed to update memory {memory_id}: {e}", exc_info=True)
             raise
     
     def delete_memory(
@@ -479,7 +479,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             return result
             
         except Exception as e:
-            logger.error(f"Failed to delete memory {memory_id}: {e}")
+            logger.error(f"Failed to delete memory {memory_id}: {e}", exc_info=True)
             raise
     
     def share_memory(
@@ -519,7 +519,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             return result
             
         except Exception as e:
-            logger.error(f"Failed to share memory {memory_id}: {e}")
+            logger.error(f"Failed to share memory {memory_id}: {e}", exc_info=True)
             raise
     
     def get_context_info(self, agent_id: str) -> Dict[str, Any]:
@@ -557,7 +557,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             return combined_context
             
         except Exception as e:
-            logger.error(f"Failed to get context info for {agent_id}: {e}")
+            logger.error(f"Failed to get context info for {agent_id}: {e}", exc_info=True)
             raise
     
     def update_memory_decay(self) -> Dict[str, Any]:
@@ -585,7 +585,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             return combined_decay
             
         except Exception as e:
-            logger.error(f"Failed to update memory decay: {e}")
+            logger.error(f"Failed to update memory decay: {e}", exc_info=True)
             raise
     
     def cleanup_forgotten_memories(self) -> Dict[str, Any]:
@@ -623,7 +623,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             return combined_cleanup
             
         except Exception as e:
-            logger.error(f"Failed to cleanup forgotten memories: {e}")
+            logger.error(f"Failed to cleanup forgotten memories: {e}", exc_info=True)
             raise
     
     def get_memory_statistics(self) -> Dict[str, Any]:
@@ -658,7 +658,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             return combined_stats
             
         except Exception as e:
-            logger.error(f"Failed to get memory statistics: {e}")
+            logger.error(f"Failed to get memory statistics: {e}", exc_info=True)
             raise
     
     def check_permission(

@@ -44,7 +44,7 @@ class CompatibilityWrapper:
             logger.info("Compatibility wrapper initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize compatibility wrapper: {e}")
+            logger.error(f"Failed to initialize compatibility wrapper: {e}", exc_info=True)
             self.initialized = False
     
     def is_enabled(self) -> bool:
@@ -465,7 +465,7 @@ class CompatibilityWrapper:
                         failed_count += 1
                         
                 except Exception as e:
-                    logger.error(f"Failed to migrate legacy memory: {e}")
+                    logger.error(f"Failed to migrate legacy memory: {e}", exc_info=True)
                     failed_count += 1
             
             return {
@@ -476,7 +476,7 @@ class CompatibilityWrapper:
             }
             
         except Exception as e:
-            logger.error(f"Failed to migrate from legacy: {e}")
+            logger.error(f"Failed to migrate from legacy: {e}", exc_info=True)
             return {"error": str(e)}
     
     def get_compatibility_info(self) -> Dict[str, Any]:

@@ -64,7 +64,7 @@ class AgentFactory:
             logger.info(f"Created {manager_type} context manager successfully")
             return manager
         except Exception as e:
-            logger.error(f"Failed to create {manager_type} context manager: {e}")
+            logger.error(f"Failed to create {manager_type} context manager: {e}", exc_info=True)
             raise
     
     @classmethod
@@ -97,7 +97,7 @@ class AgentFactory:
             logger.info(f"Created {manager_type} scope manager successfully")
             return manager
         except Exception as e:
-            logger.error(f"Failed to create {manager_type} scope manager: {e}")
+            logger.error(f"Failed to create {manager_type} scope manager: {e}", exc_info=True)
             raise
     
     @classmethod
@@ -130,7 +130,7 @@ class AgentFactory:
             logger.info(f"Created {manager_type} permission manager successfully")
             return manager
         except Exception as e:
-            logger.error(f"Failed to create {manager_type} permission manager: {e}")
+            logger.error(f"Failed to create {manager_type} permission manager: {e}", exc_info=True)
             raise
     
     @classmethod
@@ -163,7 +163,7 @@ class AgentFactory:
             logger.info(f"Created {manager_type} collaboration manager successfully")
             return manager
         except Exception as e:
-            logger.error(f"Failed to create {manager_type} collaboration manager: {e}")
+            logger.error(f"Failed to create {manager_type} collaboration manager: {e}", exc_info=True)
             raise
     
     @classmethod
@@ -196,7 +196,7 @@ class AgentFactory:
             logger.info(f"Created {manager_type} privacy manager successfully")
             return manager
         except Exception as e:
-            logger.error(f"Failed to create {manager_type} privacy manager: {e}")
+            logger.error(f"Failed to create {manager_type} privacy manager: {e}", exc_info=True)
             raise
     
     @classmethod

@@ -97,9 +97,7 @@ class AuditSettings(_BasePowermemSettings):
     log_rotation_size: Optional[str] = Field(default=None)
 
     def to_config(self) -> Dict[str, Any]:
-        return self.model_dump(
-            include={"enabled", "log_file", "log_level", "retention_days"}
-        )
+        return self.model_dump()
 
 
 class LoggingSettings(_BasePowermemSettings):
@@ -118,7 +116,7 @@ class LoggingSettings(_BasePowermemSettings):
     console_format: str = Field(default="%(levelname)s - %(message)s")
 
     def to_config(self) -> Dict[str, Any]:
-        return self.model_dump(include={"level", "format", "file"})
+        return self.model_dump()
 
 
 class DatabaseSettings(_BasePowermemSettings):

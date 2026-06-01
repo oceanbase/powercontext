@@ -3,6 +3,8 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Union
 
+logger = logging.getLogger(__name__)
+
 from openai import OpenAI
 from powermem.integrations.llm import LLMBase
 from powermem.integrations.llm.config.base import BaseLLMConfig
@@ -93,7 +95,7 @@ class OpenAILLM(LLMBase):
 
                     # Check if arguments are empty or whitespace only
                     if not arguments_str or arguments_str.strip() == "":
-                        logging.warning(
+                        logger.warning(
                             f"Tool call '{tool_call.function.name}' has empty arguments. Skipping this tool call."
                         )
                         continue
@@ -102,7 +104,7 @@ class OpenAILLM(LLMBase):
                     try:
                         arguments = json.loads(arguments_str)
                     except json.JSONDecodeError as e:
-                        logging.error(
+                        logger.error(
                             f"Failed to parse tool call arguments for '{tool_call.function.name}': "
                             f"{arguments_str[:100]}... Error: {e}"
                         )
@@ -185,6 +187,6 @@ class OpenAILLM(LLMBase):
                 response_callback(self, response, params)
             except Exception as e:
                 # Log error but don't propagate
-                logging.error(f"Error due to callback: {e}")
+                logger.error(f"Error due to callback: {e}")
                 pass
         return parsed_response

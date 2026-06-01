@@ -14,6 +14,7 @@ only configures the ``powermem.*`` SDK logger tree (default ``./logs/powermem.lo
 from __future__ import annotations
 
 import gzip
+import json
 import logging
 import os
 import shutil
@@ -103,6 +104,25 @@ class CompressingRotatingFileHandler(RotatingFileHandler):
         self.stream = self._open()
 
 
+class JsonLogFormatter(logging.Formatter):
+    """JSON formatter for SDK logs, compatible with log aggregation systems."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        for attr in ("request_id", "user_id", "agent_id"):
+            val = getattr(record, attr, None)
+            if val:
+                entry[attr] = val
+        if record.exc_info and record.exc_info[0] is not None:
+            entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(entry, ensure_ascii=False)
+
+
 def setup_powermem_logging(*, force: bool = False) -> bool:
     """
     Wire ``LOGGING_*`` settings to the ``powermem`` logger namespace.
@@ -126,9 +146,13 @@ def setup_powermem_logging(*, force: bool = False) -> bool:
         return False
 
     log_level = getattr(logging, (settings.level or "INFO").upper(), logging.INFO)
-    file_formatter = logging.Formatter(
-        settings.format or "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    fmt_value = (settings.format or "").strip().lower()
+    if fmt_value == "json":
+        file_formatter = JsonLogFormatter()
+    else:
+        file_formatter = logging.Formatter(
+            settings.format or "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
 
     log_file_path = os.path.abspath(settings.file)
     log_dir = os.path.dirname(log_file_path)
