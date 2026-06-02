@@ -51,12 +51,12 @@ class OceanBaseUserProfileStore(UserProfileStoreBase):
         Args:
             table_name (str): Name of the table to store user profiles.
             connection_args (Optional[Dict[str, Any]]): Connection parameters for OceanBase.
-            host (Optional[str]): OceanBase server host (empty means embedded SeekDB mode).
+            host (Optional[str]): OceanBase server host (empty means embedded seekdb mode).
             port (Optional[str]): OceanBase server port.
             user (Optional[str]): OceanBase username.
             password (Optional[str]): OceanBase password.
             db_name (Optional[str]): OceanBase database name.
-            ob_path (Optional[str]): Path for embedded SeekDB data directory.
+            ob_path (Optional[str]): Path for embedded seekdb data directory.
         """
         self.table_name = table_name
         self.primary_field = "id"

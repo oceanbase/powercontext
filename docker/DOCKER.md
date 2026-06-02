@@ -31,13 +31,13 @@ docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .
 # This allows both SDK and Server to use the same configuration
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   -v $(pwd)/.env:/app/.env:ro \
   --env-file .env \
   oceanbase/powermem-server:latest
 ```
 
-The server will be available at `http://localhost:8000`.
+The server will be available at `http://localhost:8848`.
 
 **Note**: If you have a `.env` file that's shared between the SDK and Server, use the first command with volume mount (`-v`) to ensure both components read from the same configuration file. See [Shared .env File](#shared-env-file-for-sdk-and-server) for more details.
 
@@ -123,7 +123,7 @@ Currently, the Dockerfile uses a multi-stage build to optimize image size. The b
 ```bash
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   oceanbase/powermem-server:latest
 ```
 
@@ -132,9 +132,9 @@ docker run -d \
 ```bash
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   -e POWERMEM_SERVER_HOST=0.0.0.0 \
-  -e POWERMEM_SERVER_PORT=8000 \
+  -e POWERMEM_SERVER_PORT=8848 \
   -e POWERMEM_SERVER_WORKERS=4 \
   -e POWERMEM_SERVER_API_KEYS=key1,key2,key3 \
   -e POWERMEM_SERVER_AUTH_ENABLED=true \
@@ -148,7 +148,7 @@ Create a `.env` file:
 
 ```env
 POWERMEM_SERVER_HOST=0.0.0.0
-POWERMEM_SERVER_PORT=8000
+POWERMEM_SERVER_PORT=8848
 POWERMEM_SERVER_WORKERS=4
 POWERMEM_SERVER_API_KEYS=your-api-key-1,your-api-key-2
 POWERMEM_SERVER_AUTH_ENABLED=true
@@ -162,7 +162,7 @@ Run with the environment file:
 ```bash
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   --env-file .env \
   oceanbase/powermem-server:latest
 ```
@@ -174,7 +174,7 @@ When both the SDK and Server need to use the same `.env` file, you can mount it 
 ```bash
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   -v $(pwd)/.env:/app/.env:ro \
   --env-file .env \
   oceanbase/powermem-server:latest
@@ -194,7 +194,7 @@ If you need to mount volumes for logs or configuration:
 ```bash
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   -v ./logs:/app/logs \
   -v ./config:/app/config \
   --env-file .env \
@@ -219,7 +219,7 @@ Mount the `.env` file as a read-only volume so the Server can read it directly:
 ```bash
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   -v $(pwd)/.env:/app/.env:ro \
   --env-file .env \
   oceanbase/powermem-server:latest
@@ -237,7 +237,7 @@ If you prefer not to mount the file, you can use `--env-file` to load environmen
 ```bash
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   --env-file .env \
   oceanbase/powermem-server:latest
 ```
@@ -254,7 +254,7 @@ The `.env` file contains configuration for both the PowerMem SDK and Server. The
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POWERMEM_SERVER_HOST` | `0.0.0.0` | Host to bind the server to |
-| `POWERMEM_SERVER_PORT` | `8000` | Port to bind the server to |
+| `POWERMEM_SERVER_PORT` | `8848` | Port to bind the server to |
 | `POWERMEM_SERVER_WORKERS` | `4` | Number of worker processes |
 | `POWERMEM_SERVER_RELOAD` | `false` | Enable auto-reload (development only) |
 
@@ -321,10 +321,10 @@ services:
       dockerfile: docker/Dockerfile
     container_name: powermem-server
     ports:
-      - "8000:8000"
+      - "8848:8848"
     environment:
       - POWERMEM_SERVER_HOST=0.0.0.0
-      - POWERMEM_SERVER_PORT=8000
+      - POWERMEM_SERVER_PORT=8848
       - POWERMEM_SERVER_WORKERS=4
       - POWERMEM_SERVER_API_KEYS=${POWERMEM_SERVER_API_KEYS:-}
       - POWERMEM_SERVER_AUTH_ENABLED=${POWERMEM_SERVER_AUTH_ENABLED:-true}
@@ -337,7 +337,7 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/system/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8848/api/v1/system/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -377,7 +377,7 @@ docker run -d \
   --name powermem-server \
   --memory="2g" \
   --cpus="2" \
-  -p 8000:8000 \
+  -p 8848:8848 \
   oceanbase/powermem-server:latest
 ```
 
@@ -402,7 +402,7 @@ services:
     container_name: powermem-server
     restart: always
     ports:
-      - "8000:8000"
+      - "8848:8848"
     environment:
       - POWERMEM_SERVER_WORKERS=8
       - POWERMEM_SERVER_LOG_LEVEL=INFO
@@ -417,7 +417,7 @@ services:
           cpus: '2'
           memory: 2G
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/system/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8848/api/v1/system/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -436,7 +436,7 @@ For production, it's recommended to use a reverse proxy (nginx, traefik, etc.):
 ```nginx
 # nginx.conf example
 upstream powermem {
-    server powermem-server:8000;
+    server powermem-server:8848;
 }
 
 server {
@@ -485,7 +485,7 @@ docker exec powermem-server python -c "import psycopg; psycopg.connect('${POWERM
 
 1. **Check if server is running**:
 ```bash
-docker exec powermem-server curl -f http://localhost:8000/api/v1/system/health
+docker exec powermem-server curl -f http://localhost:8848/api/v1/system/health
 ```
 
 2. **Check server logs**:
@@ -495,13 +495,13 @@ docker logs powermem-server --tail 50
 
 ### Port Already in Use
 
-If port 8000 is already in use, change the port:
+If port 8848 is already in use, change the port:
 
 ```bash
 docker run -d \
   --name powermem-server \
-  -p 8001:8000 \
-  -e POWERMEM_SERVER_PORT=8000 \
+  -p 8001:8848 \
+  -e POWERMEM_SERVER_PORT=8848 \
   oceanbase/powermem-server:latest
 ```
 
@@ -541,7 +541,7 @@ chmod 644 .env
 ```bash
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   --env-file .env \
   oceanbase/powermem-server:latest
 ```

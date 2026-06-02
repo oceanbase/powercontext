@@ -1263,7 +1263,7 @@ class Memory(MemoryBase):
             # Intelligent plugin lifecycle management on search
             if self._intelligence_plugin and self._intelligence_plugin.enabled:
                 updates, deletes = self._intelligence_plugin.on_search(processed_results)
-                # For embedded SeekDB the engine is single-threaded (NullPool, not
+                # For embedded seekdb the engine is single-threaded (NullPool, not
                 # thread-safe).  Background threads opening concurrent connections
                 # crash the C++ layer.  Run updates/deletes synchronously instead.
                 _is_embedded_store = (

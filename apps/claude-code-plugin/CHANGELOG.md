@@ -10,7 +10,7 @@ Initial release of the PowerMem plugin for Claude Code.
 
 **Connection modes**
 
-- **HTTP mode (default):** Root `.mcp.json` ships with empty `mcpServers`; no PowerMem MCP tools in chat. Hooks always call the PowerMem REST API (`POWERMEM_BASE_URL`, default `http://localhost:8000`).
+- **HTTP mode (default):** Root `.mcp.json` ships with empty `mcpServers`; no PowerMem MCP tools in chat. Hooks always call the PowerMem REST API (`POWERMEM_BASE_URL`, default `http://localhost:8848`).
 - **MCP mode (optional):** `scripts/apply-connection-mode.sh mcp` copies `config/mcp-mode.mcp.json` to `.mcp.json` so Claude can use PowerMem MCP (`search_memories`, `add_memory`, etc.) over HTTP `/mcp` or stdio.
 
 **Skills**

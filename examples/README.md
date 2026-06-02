@@ -107,9 +107,9 @@ This directory contains various examples demonstrating how to use powermem with 
    
    # Go Client Example (requires Go 1.21+ and running PowerMem server)
    cd examples/go
-   go run .  # Uses default http://localhost:8000
+   go run .  # Uses default http://localhost:8848
    # Or with custom config:
-   POWERMEM_BASE_URL=http://localhost:8000 POWERMEM_API_KEY=your-key go run .
+   POWERMEM_BASE_URL=http://localhost:8848 POWERMEM_API_KEY=your-key go run .
    ```
 
 ## Database Backends

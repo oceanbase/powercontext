@@ -1173,7 +1173,7 @@ def test_step5_fastapi_integration() -> None:
                     print("\n✓ FastAPI integration test completed successfully!")
                     print("\n  To run the actual server:")
                     print("    uvicorn <module>:app --reload")
-                    print("    Then access API docs at: http://localhost:8000/docs")
+                    print("    Then access API docs at: http://localhost:8848/docs")
                 
             except Exception as e:
                 print(f"  ⚠ Integration test error: {str(e)[:100]}")
@@ -1185,18 +1185,18 @@ def test_step5_fastapi_integration() -> None:
             print("# To run the FastAPI server:")
             print("# 1. Save this app to a file (e.g., main.py)")
             print("# 2. Run: uvicorn main:app --reload")
-            print("# 3. Access API docs at: http://localhost:8000/docs")
+            print("# 3. Access API docs at: http://localhost:8848/docs")
             print("# 4. Test endpoints using the interactive API documentation")
 
             
-            # Stop any running server on port 8000 (if any)
+            # Stop any running server on port 8848 (if any)
             _print_step("Step 5 Cleanup: Stopping any running servers")
             try:
                 import subprocess
                 import os
                 import signal
                 
-                def stop_server_on_port(port: int = 8000):
+                def stop_server_on_port(port: int = 8848):
                     """Stop any process listening on the specified port"""
                     try:
                         # Try to find processes using the port
@@ -1265,22 +1265,22 @@ def test_step5_fastapi_integration() -> None:
                         print(f"  ⚠ Error checking port {port}: {str(e)[:100]}")
                         return False
                 
-                # Stop server on port 8000
-                if stop_server_on_port(8000):
-                    print("✓ Server processes on port 8000 have been stopped")
+                # Stop server on port 8848
+                if stop_server_on_port(8848):
+                    print("✓ Server processes on port 8848 have been stopped")
                 else:
                     # Verify port is free
                     try:
                         result = subprocess.run(
-                            ['lsof', '-ti', ':8000'],
+                            ['lsof', '-ti', ':8848'],
                             capture_output=True,
                             text=True,
                             timeout=2
                         )
                         if result.returncode != 0 or not result.stdout.strip():
-                            print("✓ Port 8000 is free (no server running)")
+                            print("✓ Port 8848 is free (no server running)")
                         else:
-                            print("  ⚠ Port 8000 may still be in use")
+                            print("  ⚠ Port 8848 may still be in use")
                     except (FileNotFoundError, subprocess.TimeoutExpired):
                         print("  ⚠ Could not verify port status (lsof not available)")
                 

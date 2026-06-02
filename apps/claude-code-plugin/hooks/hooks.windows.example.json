@@ -1,5 +1,5 @@
 {
-  "description": "Windows: use this hook command shape if `sh` is not available. Merge into ~/.claude/settings.json or project .claude/settings.json under the same hook events. POWERMEM_BASE_URL defaults to http://localhost:8000 if unset.",
+  "description": "Windows: use this hook command shape if `sh` is not available. Merge into ~/.claude/settings.json or project .claude/settings.json under the same hook events. POWERMEM_BASE_URL defaults to http://localhost:8848 if unset.",
   "hooks": {
     "UserPromptSubmit": [
       {

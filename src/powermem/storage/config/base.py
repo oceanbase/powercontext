@@ -108,7 +108,7 @@ class BaseGraphStoreConfig(BaseVectorStoreConfig):
             "GRAPH_STORE_HOST",    # Priority 1
             "OCEANBASE_HOST",      # Priority 2 (fallback)
         ),
-        description="Database server host (empty means embedded SeekDB mode)"
+        description="Database server host (empty means embedded seekdb mode)"
     )
 
     ob_path: str = Field(
@@ -118,7 +118,7 @@ class BaseGraphStoreConfig(BaseVectorStoreConfig):
             "GRAPH_STORE_PATH",
             "OCEANBASE_PATH",
         ),
-        description="Path for embedded SeekDB data directory (used when host is empty)"
+        description="Path for embedded seekdb data directory (used when host is empty)"
     )
     
     port: str = Field(

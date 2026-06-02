@@ -64,7 +64,7 @@
         },
         "powermem.backendUrl": {
           "type": "string",
-          "default": "http://localhost:8000",
+          "default": "http://localhost:8848",
           "description": "PowerMem server address. HTTP mode: used as the API base URL. MCP mode: used as the MCP root (e.g. {backendUrl}/mcp if MCP Server Path is empty)."
         },
         "powermem.apiKey": {
@@ -109,7 +109,7 @@
         },
         "powermem.autoCapture.maxChars": {
           "type": "number",
-          "default": 8000,
+          "default": 8848,
           "description": "Max characters per file to add to memory on auto-capture (avoids huge payloads)."
         },
         "powermem.chat.autoSummarizeEveryNTurns": {

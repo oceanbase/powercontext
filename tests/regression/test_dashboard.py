@@ -198,8 +198,8 @@ from playwright.sync_api import Browser, BrowserContext, Page, expect
 # ==================== Configuration ====================
 
 ENV_FILE = os.path.join(_REPO_ROOT, ".env")
-DASHBOARD_URL = "http://localhost:8000/dashboard/"
-API_BASE_URL = "http://localhost:8000/api/v1"
+DASHBOARD_URL = "http://localhost:8848/dashboard/"
+API_BASE_URL = "http://localhost:8848/api/v1"
 SERVER_STARTUP_TIMEOUT = 30  # seconds
 PAGE_LOAD_TIMEOUT = 10000  # milliseconds
 
@@ -391,7 +391,7 @@ def _dashboard_e2e_preflight(
         strict_net = _env_truthy("CI")
     net_ms = int(os.environ.get("POWERMEM_DASHBOARD_PREFLIGHT_NETWORKIDLE_MS", "30000"))
 
-    _wait_for_port("127.0.0.1", 8000, total_s=60, label="local TCP")
+    _wait_for_port("127.0.0.1", 8848, total_s=60, label="local TCP")
 
     try:
         st, body = _http_check("GET", health_url, timeout=15)
@@ -489,18 +489,18 @@ def server_process():
     # Check if server is already running
     import socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    result = sock.connect_ex(('localhost', 8000))
+    result = sock.connect_ex(('localhost', 8848))
     sock.close()
     
     if result == 0:
-        print("\n[INFO] Server already running on port 8000")
+        print("\n[INFO] Server already running on port 8848")
         yield None
         return
     
     # Start server
     print("\n[SETUP] Starting PowerMem API server...")
     process = subprocess.Popen(
-        [sys.executable, "-m", "src.server.cli.server", "--host", "0.0.0.0", "--port", "8000"],
+        [sys.executable, "-m", "src.server.cli.server", "--host", "0.0.0.0", "--port", "8848"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -511,7 +511,7 @@ def server_process():
     start_time = time.time()
     while time.time() - start_time < SERVER_STARTUP_TIMEOUT:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        result = sock.connect_ex(('localhost', 8000))
+        result = sock.connect_ex(('localhost', 8848))
         sock.close()
         if result == 0:
             print("[SETUP] Server started successfully")

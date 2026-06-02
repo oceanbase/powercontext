@@ -68,27 +68,51 @@ openclaw plugins install memory-powermem
 
 ### Claude Code
 
+5 ステップで Claude Code を PowerMem に接続します。デフォルトは **HTTP モード** — メモリはフック経由で静かに動作し、会話中にツールは現れません。明示的なツールが必要な場合は最後のステップで MCP モードに切り替えます。
+
+**ステップ 1 — PowerMem バックエンドを起動。** [.env.example](.env.example) を `.env` にコピーし、LLM API キーを設定してから HTTP サーバーを起動します。フックのデフォルト接続先は `http://localhost:8848` です。
+
 ```bash
-# 本リポジトリから直接ロード（開発/デバッグ向け）
+powermem-server --host 0.0.0.0 --port 8848
+```
+
+**ステップ 2 — プラグインを取得し、フックのバイナリをビルド。** フックはネイティブバイナリとして配布されるため、Claude Code を動かすマシンに **Python は不要** です。Go 1.22+ で一度ビルドします（`make package-claude-plugin` でも zip 化の前に自動ビルドされます）。
+
+```bash
+git clone https://github.com/oceanbase/powermem
+cd powermem
+make build-claude-hook        # 生成物: apps/claude-code-plugin/hooks/bin/
+```
+
+**ステップ 3 — プラグインを Claude Code に読み込む。**
+
+```bash
 claude --plugin-dir /path/to/powermem/apps/claude-code-plugin
-
-# あるいは zip にパッケージして配布し、解凍後のディレクトリを --plugin-dir に指定
-make package-claude-plugin   # 生成物: apps/claude-code-plugin/dist/<version>.zip
 ```
 
-デフォルトは **HTTP モード**、即利用可能:
-
-- `UserPromptSubmit` → `POST /api/v1/memories/search`、上位結果が `additionalContext` として現在の会話に注入されます。
-- `SessionEnd` / `PostCompact` → `POST /api/v1/memories`、会話全体または圧縮サマリをメモリへ書き戻します。
-- 端末側に **Python は不要** — フックは事前ビルド済みのネイティブバイナリ（macOS / Linux / Windows）として配布されます。
-
-Claude が会話中に `search_memories` / `add_memory` ツールを明示的に呼び出す **MCP モード** に切り替えることもできます:
+**ステップ 4 — (任意) チームサーバーを指定し、ID を設定。** ローカルサーバーならデフォルトのままで構いません。リモートの場合は上書きします:
 
 ```bash
-bash scripts/apply-connection-mode.sh mcp
+export POWERMEM_BASE_URL=https://powermem.example.com   # デフォルト: http://localhost:8848
+export POWERMEM_API_KEY=...                             # サーバーが認証を要求する場合のみ
+export POWERMEM_USER_ID=alice                           # デフォルト: OS のログイン名
 ```
 
-詳細は [`apps/claude-code-plugin/README.md`](apps/claude-code-plugin/README.md) を参照してください。
+**ステップ 5 — 利用開始。** デフォルトの HTTP モードでは追加の操作は不要です:
+
+- `UserPromptSubmit` → `POST /api/v1/memories/search`、上位結果が `additionalContext` として現在の会話に注入されます（`POWERMEM_PROMPT_SEARCH=0` でターンごとに無効化可能）。
+- `SessionEnd` / `PostCompact` → `POST /api/v1/memories`、会話全体または圧縮サマリをメモリへ書き戻します。
+
+**確認:** セッションを終了（または `/compact` を実行）した後、サーバーログに `POST /api/v1/memories` が出ているか確認します。Claude Code で `/hooks` と入力すると、これらのフックが登録されているか確認できます。
+
+**任意 — MCP モード** では、会話中の `search_memories` / `add_memory` ツールと `/memory-powermem:remember` ・ `recall` スキルが追加されます:
+
+```bash
+cd apps/claude-code-plugin
+bash scripts/apply-connection-mode.sh mcp   # その後 Claude Code を再起動
+```
+
+詳細は [Claude Code 連携ガイド](docs/integrations/claude_code.md) · [`apps/claude-code-plugin/README.md`](apps/claude-code-plugin/README.md) を参照してください。
 
 ### Cursor / VS Code / Codex / Windsurf / GitHub Copilot
 
@@ -107,7 +131,7 @@ bash scripts/apply-connection-mode.sh mcp
 ### 任意の MCP クライアント（Claude Desktop、Cline ……）
 
 ```bash
-uvx powermem-mcp sse                  # SSE、デフォルト :8000（推奨）
+uvx powermem-mcp sse                  # SSE、デフォルト :8848（推奨）
 uvx powermem-mcp stdio                # stdio
 uvx powermem-mcp streamable-http      # streamable HTTP
 ```
@@ -117,7 +141,7 @@ Claude Desktop / 多くの MCP クライアント向けの設定:
 ```json
 {
   "mcpServers": {
-    "powermem": { "url": "http://localhost:8000/mcp" }
+    "powermem": { "url": "http://localhost:8848/mcp" }
   }
 }
 ```
@@ -148,7 +172,7 @@ pip install powermem langchain langchain-openai
 
 ## クイックスタート（Python SDK）
 
-**前提:** [.env.example](.env.example) を `.env` にコピーし、**LLM** と **埋め込み（embedding）** を設定してください。デフォルト DB は SQLite。OceanBase バックエンドでは **埋め込み SeekDB** を使えるため、別途データベースを立ち上げる必要はありません。インストール後は `pmem config init` で対話的に同じ設定を生成できます。詳しくは [はじめに](docs/guides/0001-getting_started.md) を参照してください。
+**前提:** [.env.example](.env.example) を `.env` にコピーし、**LLM** の API キーだけを設定してください。デフォルトのストレージは **OceanBase** プロバイダで host 未設定の状態 — つまり **埋め込み seekdb**（同じエンジン・SQL、別プロセスのデータベース不要、データは `./seekdb_data` に保存）を自動起動します。リモートの OceanBase クラスタに接続したい場合は `OCEANBASE_HOST` を設定するだけで、`sqlite` や `postgres` も選択可能です。デフォルトの埋め込みモデルはローカル実行の `all-MiniLM-L6-v2`（384 次元）で、API キー不要・初回利用時に自動ダウンロードされます。プロバイダ切り替えや高度な設定が必要な場合は [.env.example.full](.env.example.full) をコピーしてください。コンポーネントごとに全ての設定項目がまとめられています。インストール後は `pmem config init` で対話的に同じ設定を生成できます。詳しくは [はじめに](docs/guides/0001-getting_started.md) を参照してください。
 
 ### インストール
 
@@ -204,7 +228,7 @@ pmem shell                           # 対話 REPL
 SDK と同じ `.env` を使用。Dashboard は `/dashboard/` 以下に提供されます。
 
 ```bash
-powermem-server --host 0.0.0.0 --port 8000
+powermem-server --host 0.0.0.0 --port 8848
 ```
 
 Docker / Compose は [API Server](docs/api/0005-api_server.md) と [Docker README](docker/README.md) を参照。公式イメージ: `oceanbase/powermem-server:latest`。
@@ -226,7 +250,7 @@ Docker / Compose は [API Server](docs/api/0005-api_server.md) と [Docker READM
 | LLM | Anthropic、OpenAI、Azure OpenAI、Gemini、Qwen（+ ASR）、DeepSeek、Ollama、vLLM、SiliconFlow、Z.AI、LangChain ラッパー |
 | Embedding | OpenAI、Azure OpenAI、Qwen（+ VL マルチモーダル、スパース）、Gemini、Vertex AI、AWS Bedrock、Ollama、LM Studio、HuggingFace、Together、SiliconFlow、Z.AI、OceanBase MASS、LangChain ラッパー |
 | Rerank | Jina、Qwen、Z.AI、汎用 |
-| Storage | OceanBase（+ グラフ）、埋め込み SeekDB、PostgreSQL/pgvector、SQLite |
+| Storage | OceanBase（+ グラフ）、埋め込み seekdb、PostgreSQL/pgvector、SQLite |
 
 ---
 
@@ -239,6 +263,7 @@ Docker / Compose は [API Server](docs/api/0005-api_server.md) と [Docker READM
 - [CLI](docs/guides/0012-cli_usage.md) — `pmem` コマンド、対話シェル、バックアップとマイグレーション
 - [マルチエージェント](docs/guides/0005-multi_agent.md) — スコープ、分離、エージェント間共有
 - [連携](docs/guides/0009-integrations.md) — LangChain などフレームワーク連携
+- [エコシステム連携](docs/integrations/overview.md) — AI クライアントと IDE（[Claude Code](docs/integrations/claude_code.md) など）
 - [Docker とデプロイ](docker/README.md) — イメージ、Compose、API サーバーの実行
 - [開発](docs/development/overview.md) — ローカル環境、テスト、コントリビューション
 
@@ -254,7 +279,7 @@ Docker / Compose は [API Server](docs/api/0005-api_server.md) と [Docker READM
 | バージョン | 日付 | 内容 |
 |------------|------|------|
 | 1.2.0 | 2026-04 | 経験 + スキル 二層蒸留と `distill_all()`（自己進化型メモリ、AppWorld +15 pts）；OB MASS Embedding；Qwen VL マルチモーダル Embedding；OceanBase Zero Mode 互換；LOCOMO 精度を 87.79% に引き上げ |
-| 1.1.0 | 2026-04-02 | OceanBase 向けに埋め込み SeekDB（別途 DB サービス不要）；[IDE 連携](apps/README.md)（VS Code 拡張、Claude Code プラグイン） |
+| 1.1.0 | 2026-04-02 | OceanBase 向けに埋め込み seekdb（別途 DB サービス不要）；[IDE 連携](apps/README.md)（VS Code 拡張、Claude Code プラグイン） |
 | 1.0.0 | 2026-03-16 | CLI（`pmem`）：メモリ操作、設定、バックアップ/復元/マイグレーション、対話シェル、補完；Web Dashboard |
 | 0.5.0 | 2026-02-06 | SDK/API 設定の統一（pydantic-settings）；OceanBase native hybrid search；メモリクエリと一覧ソート；プロフィールの言語カスタマイズ |
 | 0.4.0 | 2026-01-20 | スパースベクトル混合検索；プロフィール起点のクエリ書き換え；スキーマ更新と移行ツール |

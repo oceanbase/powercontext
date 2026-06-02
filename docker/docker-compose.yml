@@ -13,10 +13,10 @@ services:
     image: oceanbase/powermem-server:latest
     container_name: powermem-server
     ports:
-      - "${POWERMEM_SERVER_PORT:-8000}:8000"
+      - "${POWERMEM_SERVER_PORT:-8848}:8848"
     environment:
       - POWERMEM_SERVER_HOST=${POWERMEM_SERVER_HOST:-0.0.0.0}
-      - POWERMEM_SERVER_PORT=${POWERMEM_SERVER_PORT:-8000}
+      - POWERMEM_SERVER_PORT=${POWERMEM_SERVER_PORT:-8848}
       - POWERMEM_SERVER_WORKERS=${POWERMEM_SERVER_WORKERS:-4}
       - POWERMEM_SERVER_API_KEYS=${POWERMEM_SERVER_API_KEYS:-}
       - POWERMEM_SERVER_AUTH_ENABLED=${POWERMEM_SERVER_AUTH_ENABLED:-false}
@@ -42,7 +42,7 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/system/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8848/api/v1/system/health"]
       interval: 30s
       timeout: 10s
       retries: 3

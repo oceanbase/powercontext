@@ -1,6 +1,6 @@
 /**
  * PowerMem HTTP API client for extension commands (search, add memory).
- * Base URL e.g. http://localhost:8000; endpoints: /api/v1/memories/search, /api/v1/memories
+ * Base URL e.g. http://localhost:8848; endpoints: /api/v1/memories/search, /api/v1/memories
  */
 
 import type {

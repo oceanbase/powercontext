@@ -78,7 +78,7 @@ def user_memory(config):
 @pytest.fixture(scope="module")
 def api_client():
     """Provide API client for HTTP tests."""
-    base_url = os.getenv("POWERMEM_API_URL", "http://localhost:8000")
+    base_url = os.getenv("POWERMEM_API_URL", "http://localhost:8848")
     api_key = os.getenv("POWERMEM_API_KEY", "key1")
     return APIClient(base_url=base_url, api_key=api_key)
 
@@ -86,7 +86,7 @@ def api_client():
 class APIClient:
     """Simple API client for testing HTTP endpoints."""
     
-    def __init__(self, base_url: str = "http://localhost:8000", api_key: str = "key1"):
+    def __init__(self, base_url: str = "http://localhost:8848", api_key: str = "key1"):
         self.base_url = base_url.rstrip('/')
         self.api_base = f"{self.base_url}/api/v1"
         self.api_key = api_key

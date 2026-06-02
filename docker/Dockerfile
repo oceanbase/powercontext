@@ -98,20 +98,20 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 USER powermem
 
 # Expose default port
-EXPOSE 8000
+EXPOSE 8848
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     POWERMEM_SERVER_HOST=0.0.0.0 \
-    POWERMEM_SERVER_PORT=8000
+    POWERMEM_SERVER_PORT=8848
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/system/health || exit 1
+    CMD curl -f http://localhost:8848/api/v1/system/health || exit 1
 
 # Use entrypoint script
 ENTRYPOINT ["docker-entrypoint.sh"]
 
-# Default command: API server + PMem Dashboard on port 8000
-CMD ["powermem-server", "--host", "0.0.0.0", "--port", "8000"]
+# Default command: API server + PMem Dashboard on port 8848
+CMD ["powermem-server", "--host", "0.0.0.0", "--port", "8848"]

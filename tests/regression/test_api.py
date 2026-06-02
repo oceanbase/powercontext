@@ -22,7 +22,7 @@ from datetime import datetime
 class APITester:
     """API Test Class"""
     
-    def __init__(self, base_url: str = "http://localhost:8000", api_key: str = "key1"):
+    def __init__(self, base_url: str = "http://localhost:8848", api_key: str = "key1"):
         """
         Initialize tester
         
@@ -2295,8 +2295,8 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='powermem API Server Basic Functionality Test')
-    parser.add_argument('--url', type=str, default='http://localhost:8000',
-                       help='API server base URL (default: http://localhost:8000)')
+    parser.add_argument('--url', type=str, default='http://localhost:8848',
+                       help='API server base URL (default: http://localhost:8848)')
     parser.add_argument('--api-key', type=str, default='key1',
                        help='API key (default: key1)')
     parser.add_argument('--output', type=str, default='results.json',

@@ -591,3 +591,26 @@ else:
 ```
 
 > **Warning:** `delete_all()` permanently removes all memories for the specified user. This action cannot be undone. Use with extreme caution in production environments. Always implement proper authorization checks and user confirmation before allowing this operation.
+
+## Ecosystem Integrations
+
+Beyond the Python SDK, PowerMem ships first-party integrations that give existing
+AI clients and IDEs persistent memory — all pointing at the same backend (the
+HTTP API server or the local `pmem` CLI), with no per-client schema rewrites.
+
+- **[Claude Code](../integrations/claude_code.md)** — Connect Claude Code to
+  PowerMem via the `memory-powermem` plugin. The default **HTTP mode** captures
+  every session silently through hooks (`SessionEnd` / `PostCompact` write the
+  transcript, `UserPromptSubmit` injects relevant memories per turn); an optional
+  **MCP mode** adds in-chat `search_memories` / `add_memory` tools. No Python is
+  required on the Claude Code machine.
+
+See **[Ecosystem Integrations](../integrations/overview.md)** for the full list,
+and the **[Integrations Guide](./0009-integrations.md)** for framework wiring
+(LangChain, LangGraph, FastAPI, custom providers).
+
+## Next Steps
+
+- [Configuration Guide](./0003-configuration.md) — providers, storage backends, environment variables
+- [CLI Usage Guide](./0012-cli_usage.md) — the `pmem` command and interactive shell
+- [Ecosystem Integrations](../integrations/overview.md) — Claude Code and other AI clients

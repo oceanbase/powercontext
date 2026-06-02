@@ -10,7 +10,7 @@ import { searchMemories, addMemory } from './api/client';
 import type { SearchResultItem } from './api/types';
 import { registerChatParticipant } from './chat/participant';
 
-let backendUrl = 'http://localhost:8000';
+let backendUrl = 'http://localhost:8848';
 let apiKey: string | undefined;
 let statusBar: vscode.StatusBarItem;
 let useMCP = true;
@@ -182,7 +182,7 @@ async function showSetup(): Promise<void> {
   if (!choice) return;
   switch (choice.action) {
     case 'url': {
-      const url = await vscode.window.showInputBox({ prompt: 'PowerMem backend URL', value: backendUrl, placeHolder: 'http://localhost:8000' });
+      const url = await vscode.window.showInputBox({ prompt: 'PowerMem backend URL', value: backendUrl, placeHolder: 'http://localhost:8848' });
       if (url) {
         await config.update('backendUrl', url, vscode.ConfigurationTarget.Global);
         backendUrl = url;
@@ -234,7 +234,7 @@ async function showSetup(): Promise<void> {
 export function activate(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration('powermem');
   isEnabled = config.get<boolean>('enabled') ?? true;
-  backendUrl = config.get<string>('backendUrl') || 'http://localhost:8000';
+  backendUrl = config.get<string>('backendUrl') || 'http://localhost:8848';
   apiKey = config.get<string>('apiKey') || undefined;
   useMCP = getUseMCPFromConfig(config);
   mcpServerPath = config.get<string>('mcpServerPath') || '';
@@ -348,7 +348,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration('powermem')) return;
       const c = vscode.workspace.getConfiguration('powermem');
-      backendUrl = c.get<string>('backendUrl') || 'http://localhost:8000';
+      backendUrl = c.get<string>('backendUrl') || 'http://localhost:8848';
       apiKey = c.get<string>('apiKey') || undefined;
       useMCP = getUseMCPFromConfig(c);
       mcpServerPath = c.get<string>('mcpServerPath') || '';

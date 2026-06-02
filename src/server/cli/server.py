@@ -34,7 +34,7 @@ def _is_embedded_storage() -> bool:
 
     Returns True for:
     - SQLite (always embedded, file-based)
-    - OceanBase/SeekDB in embedded mode (OCEANBASE_HOST is empty)
+    - OceanBase/seekdb in embedded mode (OCEANBASE_HOST is empty)
     """
     try:
         # Ensure `.env` is loaded before constructing settings classes that do not
@@ -71,7 +71,7 @@ def server(host, port, workers, reload, log_level):
     Start the PowerMem API server.
     
     Example:
-        powermem-server --host 0.0.0.0 --port 8000 --reload
+        powermem-server --host 0.0.0.0 --port 8848 --reload
     """
     import sys
 
@@ -87,11 +87,11 @@ def server(host, port, workers, reload, log_level):
     if log_level:
         config.log_level = log_level
 
-    # Embedded databases (SQLite / embedded SeekDB) only support a single process.
+    # Embedded databases (SQLite / embedded seekdb) only support a single process.
     # Force workers=1 automatically so users don't have to set it manually.
     if not config.reload and config.workers != 1 and _is_embedded_storage():
         print(
-            f"[server] Embedded storage detected (SQLite or SeekDB without host). "
+            f"[server] Embedded storage detected (SQLite or seekdb without host). "
             f"Forcing workers=1 (was {config.workers}).",
             file=sys.stderr,
         )

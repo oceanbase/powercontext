@@ -41,7 +41,7 @@ main() {
     # Log configuration (without sensitive data)
     log "Server Configuration:"
     log "  Host: ${POWERMEM_SERVER_HOST:-0.0.0.0}"
-    log "  Port: ${POWERMEM_SERVER_PORT:-8000}"
+    log "  Port: ${POWERMEM_SERVER_PORT:-8848}"
     log "  Workers: ${POWERMEM_SERVER_WORKERS:-4}"
     log "  Log Level: ${POWERMEM_SERVER_LOG_LEVEL:-INFO}"
     log "  Auth Enabled: ${POWERMEM_SERVER_AUTH_ENABLED:-true}"

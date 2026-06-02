@@ -13,15 +13,15 @@ Give Cursor, Claude Code, Codex, Windsurf, and Copilot access to [PowerMem](http
 ## Requirements
 
 - A running **PowerMem** backend:
-  - **HTTP API + MCP**: `powermem-server --host 0.0.0.0 --port 8000` (default), or
-  - **MCP only**: e.g. `uvx powermem-mcp sse` (port 8000) or `uvx powermem-mcp stdio`.
+  - **HTTP API + MCP**: `powermem-server --host 0.0.0.0 --port 8848` (default), or
+  - **MCP only**: e.g. `uvx powermem-mcp sse` (port 8848) or `uvx powermem-mcp stdio`.
 - PowerMem is configured (e.g. `.env` next to the server or in project root).
 
 ## Quick Start
 
 1. Install this extension in VS Code or Cursor.
 2. Start your PowerMem backend (see above).
-3. Click the **PowerMem** status bar item; if disconnected, run **Setup** and set **Backend URL** (e.g. `http://localhost:8000`).
+3. Click the **PowerMem** status bar item; if disconnected, run **Setup** and set **Backend URL** (e.g. `http://localhost:8848`).
 4. Once connected, choose **Link to AI tools** to write configs for Cursor, Claude, Codex, Windsurf, and Copilot.
 5. Use **Query memories** or **Add selection to memory** from the command palette or status bar menu.
 
@@ -30,7 +30,7 @@ Give Cursor, Claude Code, Codex, Windsurf, and Copilot access to [PowerMem](http
 | Setting | Description | Default |
 |--------|-------------|---------|
 | `powermem.enabled` | Enable the extension | `true` |
-| `powermem.backendUrl` | PowerMem backend URL | `http://localhost:8000` |
+| `powermem.backendUrl` | PowerMem backend URL | `http://localhost:8848` |
 | `powermem.apiKey` | API key (X-API-Key) if required | (empty) |
 | `powermem.useMCP` | Write MCP config for AI tools; if false, write HTTP where supported | `true` |
 | `powermem.mcpServerPath` | Optional path/command for local MCP (e.g. `uvx`); empty = use backendUrl/mcp | (empty) |

@@ -35,7 +35,7 @@ class OceanBaseConfig(BaseVectorStoreConfig):
             "host",
             "OCEANBASE_HOST",
         ),
-        description="OceanBase server host (empty means embedded SeekDB mode)"
+        description="OceanBase server host (empty means embedded seekdb mode)"
     )
 
     ob_path: str = Field(
@@ -44,7 +44,7 @@ class OceanBaseConfig(BaseVectorStoreConfig):
             "ob_path",
             "OCEANBASE_PATH",
         ),
-        description="Path for embedded SeekDB data directory (used when host is empty)"
+        description="Path for embedded seekdb data directory (used when host is empty)"
     )
     
     port: str = Field(

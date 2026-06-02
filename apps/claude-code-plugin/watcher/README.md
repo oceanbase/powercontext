@@ -2,7 +2,7 @@
 
 The poller lives in the same **native binary** as the Claude hooks (no Python).
 
-From the plugin root. `POWERMEM_BASE_URL` defaults to `http://localhost:8000` if unset (optional `POWERMEM_API_KEY`):
+From the plugin root. `POWERMEM_BASE_URL` defaults to `http://localhost:8848` if unset (optional `POWERMEM_API_KEY`):
 
 ```bash
 sh hooks/run-hook.sh poll

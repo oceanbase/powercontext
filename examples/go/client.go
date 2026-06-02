@@ -19,7 +19,7 @@ import (
 // Client is a PowerMem API client.
 type Client struct {
 	// BaseURL is the base URL of the PowerMem API server.
-	// Example: "http://localhost:8000"
+	// Example: "http://localhost:8848"
 	BaseURL string
 
 	// APIKey is the API key for authentication.

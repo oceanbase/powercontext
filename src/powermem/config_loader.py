@@ -17,6 +17,7 @@ from powermem.integrations.embeddings.config.providers import CustomEmbeddingCon
 from powermem.integrations.embeddings.config.sparse_base import BaseSparseEmbedderConfig
 from powermem.integrations.llm.config.base import BaseLLMConfig
 from powermem.settings import _DEFAULT_ENV_FILE, settings_config
+from powermem.utils.utils import detect_system_timezone
 
 
 def _load_dotenv_if_available() -> None:
@@ -123,65 +124,66 @@ class DatabaseSettings(_BasePowermemSettings):
     model_config = settings_config()
 
     provider: str = Field(
-        default="sqlite",
+        default="oceanbase",
         validation_alias=AliasChoices("DATABASE_PROVIDER"),
     )
 
     def to_config(self) -> Dict[str, Any]:
         """
         Convert settings to VectorStore configuration dictionary.
-        
+
         Provider-specific fields are automatically loaded from environment
         variables by the provider config class.
         """
         from powermem.storage.config.base import BaseVectorStoreConfig
-        
+
         db_provider = self.provider.lower()
-        
+
         # Handle postgres alias
         if db_provider == "postgres":
             db_provider = "pgvector"
-        
+
         # 1. Get provider config class from registry
         config_cls = (
             BaseVectorStoreConfig.get_provider_config_cls(db_provider)
             or BaseVectorStoreConfig
         )
-        
+
         # 2. Create provider settings from environment variables
         # All provider-specific fields are loaded here automatically
         provider_settings = config_cls()
-        
+
         # 3. Export to dict
         vector_store_config = provider_settings.model_dump(exclude_none=True)
-        
+
         # 4. For OceanBase, build connection_args for backward compatibility
         if db_provider == "oceanbase":
             connection_args = {}
             for key in ["host", "port", "user", "password", "db_name", "ob_path"]:
                 if key in vector_store_config:
                     connection_args[key] = vector_store_config[key]
-            
+
             # Only add connection_args if we have connection parameters
             if connection_args:
                 vector_store_config["connection_args"] = connection_args
-        
+
         return {"provider": db_provider, "config": vector_store_config}
 
 
 class LLMSettings(_BasePowermemSettings):
     """
     Unified LLM configuration settings.
-    
+
     This class provides a common interface for configuring LLM providers.
     It only contains fields that are common across all providers.
     Provider-specific fields (e.g., dashscope_base_url for Qwen) should be
     set via environment variables and will be loaded by the respective provider config classes.
-    
+
     Design rationale: This follows the same pattern as EmbeddingSettings,
     keeping the unified settings simple and delegating provider-specific
     configuration to the provider config classes.
     """
+
     model_config = settings_config("LLM_")
 
     provider: str = Field(default="qwen")
@@ -202,13 +204,13 @@ class LLMSettings(_BasePowermemSettings):
     def to_config(self) -> Dict[str, Any]:
         """
         Convert settings to LLM configuration dictionary.
-        
+
         This method:
         1. Gets the appropriate provider config class
         2. Creates an instance (loading provider-specific fields from environment)
         3. Overrides with explicitly set common fields from this settings object
         4. Returns the final configuration
-        
+
         Provider-specific fields (e.g., dashscope_base_url, enable_search) are
         automatically loaded from environment variables by the provider config class.
         """
@@ -253,7 +255,10 @@ class LLMSettings(_BasePowermemSettings):
 class EmbeddingSettings(_BasePowermemSettings):
     model_config = settings_config("EMBEDDING_")
 
-    provider: str = Field(default="qwen")
+    # Default follows .env.example.full (EMBEDDING_PROVIDER=default): the
+    # built-in local all-MiniLM-L6-v2 embedder (384 dims, no API key), so
+    # PowerMem starts zero-config. Set EMBEDDING_PROVIDER to use a cloud one.
+    provider: str = Field(default="default")
     api_key: Optional[str] = Field(default=None)
     model: Optional[str] = Field(default=None)
     embedding_dims: Optional[int] = Field(
@@ -337,7 +342,9 @@ class AgentMemorySettings(_BasePowermemSettings):
 class TimezoneSettings(_BasePowermemSettings):
     model_config = settings_config()
 
-    timezone: str = Field(default="UTC")
+    # When TIMEZONE is unset, auto-detect the host machine's zone (falling back
+    # to UTC). An explicit TIMEZONE env var always overrides this default.
+    timezone: str = Field(default_factory=detect_system_timezone)
 
     def to_config(self) -> Dict[str, Any]:
         return self.model_dump()
@@ -356,30 +363,30 @@ class RerankerSettings(_BasePowermemSettings):
     def to_config(self) -> Dict[str, Any]:
         """
         Convert settings to Rerank configuration dictionary.
-        
+
         This method:
         1. Gets the appropriate provider config class
         2. Creates an instance (loading provider-specific fields from environment)
         3. Overrides with explicitly set fields from this settings object
         4. Returns the final configuration
-        
+
         Provider-specific fields (e.g., api_base_url) are automatically loaded
         from environment variables by the provider config class.
         """
         from powermem.integrations.rerank.config.base import BaseRerankConfig
-        
+
         rerank_provider = self.provider.lower()
-        
+
         # 1. Get provider config class from registry
         config_cls = (
             BaseRerankConfig.get_provider_config_cls(rerank_provider)
             or BaseRerankConfig  # fallback to base config
         )
-        
+
         # 2. Create provider settings from environment variables
         # Provider-specific fields are automatically loaded here
         provider_settings = config_cls()
-        
+
         # 3. Collect fields to override
         overrides = {}
         for field in ("enabled", "model", "api_key", "api_base_url", "top_n"):
@@ -387,11 +394,11 @@ class RerankerSettings(_BasePowermemSettings):
                 value = getattr(self, field)
                 if value is not None:
                     overrides[field] = value
-        
+
         # 4. Update configuration with overrides
         if overrides:
             provider_settings = provider_settings.model_copy(update=overrides)
-        
+
         # 5. Export using to_component_dict() to match RerankConfig structure
         return provider_settings.to_component_dict()
 
@@ -534,36 +541,36 @@ class GraphStoreSettings(_BasePowermemSettings):
     ) -> Optional[Dict[str, Any]]:
         """
         Convert settings to GraphStore configuration dictionary.
-        
+
         Provider-specific fields are automatically loaded from environment
         variables by the provider config class (with fallback to VectorStore env vars).
         """
         if not self.enabled:
             return None
-        
+
         from powermem.storage.config.base import BaseGraphStoreConfig
-        
+
         graph_provider = self.provider.lower()
-        
+
         # 1. Get provider config class from registry
         config_cls = (
             BaseGraphStoreConfig.get_provider_config_cls(graph_provider)
             or BaseGraphStoreConfig
         )
-        
+
         # 2. Create provider settings from environment variables
         provider_settings = config_cls()
-        
+
         # 3. Export to dict
         graph_config = provider_settings.model_dump(exclude_none=True)
-        
+
         # 4. Build final config
         graph_store_config = {
             "enabled": True,
             "provider": graph_provider,
             "config": graph_config,
         }
-        
+
         # 5. Add custom prompts if configured
         if self.custom_prompt:
             graph_store_config["custom_prompt"] = self.custom_prompt
@@ -598,7 +605,9 @@ class CustomPromptsSettings(_BasePowermemSettings):
         if self.update_memory_prompt:
             result["custom_update_memory_prompt"] = self.update_memory_prompt
         if self.importance_evaluation_prompt:
-            result["custom_importance_evaluation_prompt"] = self.importance_evaluation_prompt
+            result["custom_importance_evaluation_prompt"] = (
+                self.importance_evaluation_prompt
+            )
         return result
 
 
@@ -649,14 +658,14 @@ class PowermemSettings:
         # Sync embedding_model_dims from embedder to vector_store and graph_store
         embedder_config = config.get("embedder", {})
         embedder_dims = embedder_config.get("config", {}).get("embedding_dims")
-        
+
         if embedder_dims is not None:
             # Sync to vector_store if not set
             vector_store_config = config.get("vector_store", {})
             vector_store_inner_config = vector_store_config.get("config", {})
             if vector_store_inner_config.get("embedding_model_dims") is None:
                 vector_store_inner_config["embedding_model_dims"] = embedder_dims
-            
+
             # Sync to graph_store if not set
             if graph_store_config:
                 graph_store_inner_config = graph_store_config.get("config", {})
@@ -674,24 +683,24 @@ def load_config_from_env() -> Dict[str, Any]:
 
     This function reads configuration from environment variables and builds a config dictionary.
     You can use this when you have .env file set up to avoid manually building config dict.
-    
+
     It automatically detects the database provider (sqlite, oceanbase, postgres) and builds
     the appropriate configuration.
-    
+
     Returns:
         Configuration dictionary built from environment variables
-        
+
     Example:
         ```python
         from dotenv import load_dotenv
         from powermem.config_loader import load_config_from_env
-        
+
         # Load .env file
         load_dotenv()
-        
+
         # Get config
         config = load_config_from_env()
-        
+
         # Use config
         from powermem import Memory
         memory = Memory(config=config)
@@ -704,7 +713,7 @@ def load_config_from_env() -> Dict[str, Any]:
 class CreateConfigOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    database_provider: str = "sqlite"
+    database_provider: str = "oceanbase"
     llm_provider: str = "qwen"
     embedding_provider: str = "qwen"
     database_config: Dict[str, Any] = Field(default_factory=dict)
@@ -724,7 +733,7 @@ class CreateConfigOptions(BaseModel):
 
 
 def create_config(
-    database_provider: str = "sqlite",
+    database_provider: str = "oceanbase",
     llm_provider: str = "qwen",
     embedding_provider: str = "qwen",
     database_config: Optional[Dict[str, Any]] = None,
@@ -747,7 +756,7 @@ def create_config(
     need a minimal manual config.
 
     Args:
-        database_provider: Database provider ('sqlite', 'oceanbase', 'postgres')
+        database_provider: Database provider ('oceanbase', 'sqlite', 'postgres')
         llm_provider: LLM provider ('qwen', 'openai', etc.)
         embedding_provider: Embedding provider ('qwen', 'openai', etc.)
         database_config: Vector store configuration dictionary
@@ -762,22 +771,22 @@ def create_config(
         embedding_model: Embedding model name
         embedding_dims: Embedding vector dimensions
         embedding_extra: Provider-specific embedding configuration fields
-    
+
     Returns:
         Configuration dictionary
-        
+
     Example:
         ```python
         from powermem.config_loader import create_config
         from powermem import Memory
-        
+
         config = create_config(
-            database_provider='sqlite',
+            database_provider='oceanbase',
             llm_provider='qwen',
             llm_api_key='your_key',
             llm_model='qwen-plus'
         )
-        
+
         memory = Memory(config=config)
         ```
     """
@@ -830,11 +839,13 @@ def create_config(
             },
         },
     }
-    
+
     # Sync embedding_model_dims from embedder to vector_store if not set
     if config["vector_store"]["config"].get("embedding_model_dims") is None:
-        config["vector_store"]["config"]["embedding_model_dims"] = options.embedding_dims
-    
+        config["vector_store"]["config"][
+            "embedding_model_dims"
+        ] = options.embedding_dims
+
     return config
 
 
@@ -846,38 +857,38 @@ def validate_config(config: Dict[str, Any]) -> bool:
 
     Args:
         config: Configuration dictionary to validate
-        
+
     Returns:
         True if valid, False otherwise
-        
+
     Example:
         ```python
         from powermem.config_loader import load_config_from_env, validate_config
-        
+
         config = load_config_from_env()
         if validate_config(config):
             print("Configuration is valid!")
         ```
     """
-    required_sections = ['vector_store', 'llm', 'embedder']
-    
+    required_sections = ["vector_store", "llm", "embedder"]
+
     for section in required_sections:
         if section not in config:
             return False
-        
-        if 'provider' not in config[section]:
+
+        if "provider" not in config[section]:
             return False
-        
-        if 'config' not in config[section]:
+
+        if "config" not in config[section]:
             return False
-    
+
     return True
 
 
 def auto_config() -> Dict[str, Any]:
     """
     Automatically load configuration from environment variables.
-    
+
     This is the simplest way to get configuration.
     It automatically loads .env file and returns the config.
 
@@ -885,14 +896,14 @@ def auto_config() -> Dict[str, Any]:
 
     Returns:
         Configuration dictionary from environment variables
-        
+
     Example:
         ```python
         from powermem import Memory
-        
+
         # Simplest way - just load from .env
         memory = Memory(config=auto_config())
-        
+
         # Or even simpler with create_memory()
         from powermem import create_memory
         memory = create_memory()  # Auto loads from .env

@@ -217,6 +217,7 @@ api_server.log
 # Server data directories (if any)
 server_data/
 api_data/
+seekdb_data/
 
 # Server backups
 server_backup/

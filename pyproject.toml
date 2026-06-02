@@ -49,6 +49,7 @@ dependencies = [
     "dashscope>=1.14.0",
     "psutil>=5.9.0",
     "zai-sdk>=0.2.0",
+    "pyseekdb>=1.3.0",
 ]
 
 [project.optional-dependencies]
@@ -66,9 +67,9 @@ mcp = [
     "fastmcp>=1.0",
     "uvicorn>=0.27.1",
 ]
-seekdb = [
-    "pyseekdb>=0.1.0",
-]
+# pyseekdb is now a core dependency (it backs the zero-config default embedder),
+# so this extra is kept only for backward compatibility with `powermem[seekdb]`.
+seekdb = []
 extras = [
     "sentence-transformers>=5.0.0",
 ]

@@ -43,7 +43,7 @@ From the project root directory:
 ```bash
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   -v $(pwd)/.env:/app/.env:ro \
   --env-file .env \
   oceanbase/powermem-server:latest
@@ -52,8 +52,8 @@ docker run -d \
 ## Services
 
 ### PowerMem Server
-- Port: 8000
-- Health check: `http://localhost:8000/api/v1/system/health`
+- Port: 8848
+- Health check: `http://localhost:8848/api/v1/system/health`
 - Database: Connected to seekdb without password
 
 ### seekdb Database
@@ -89,7 +89,7 @@ The `docker-compose.yml` file includes default configuration values:
 
 **PowerMem Server:**
 - Host: `0.0.0.0`
-- Port: `8000`
+- Port: `8848`
 - Workers: `4`
 - Authentication: Disabled
 - CORS: Enabled for all origins

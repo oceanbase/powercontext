@@ -18,14 +18,14 @@ The PowerMem HTTP API Server is built with FastAPI and provides:
 ```bash
 # Method 1: Install from powermem package, use CLI command
 pip install powermem
-powermem-server --host 0.0.0.0 --port 8000
+powermem-server --host 0.0.0.0 --port 8848
 
 # Method 2: Using Docker
 # Build and run with Docker
 docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .
 docker run -d \
   --name powermem-server \
-  -p 8000:8000 \
+  -p 8848:8848 \
   -v $(pwd)/.env:/app/.env:ro \
   --env-file .env \
   oceanbase/powermem-server:latest
@@ -89,7 +89,7 @@ The PowerMem SDK configuration is the same as the previous v0.2.0 version, with 
 POWERMEM_SERVER_HOST=0.0.0.0
 
 # Server port number
-POWERMEM_SERVER_PORT=8000
+POWERMEM_SERVER_PORT=8848
 
 # Number of worker processes (only used when reload=false)
 POWERMEM_SERVER_WORKERS=4
@@ -156,12 +156,12 @@ You can use the following tools to interact with the API:
 
 + **curl**: Command-line tool
 + **Postman**: GUI tool
-+ **Swagger UI**: Access via browser at `http://0.0.0.0:8000/docs`
++ **Swagger UI**: Access via browser at `http://0.0.0.0:8848/docs`
 
 ### Base URL
 ```plain
-Base URL: http://0.0.0.0:8000
-API Base: http://0.0.0.0:8000/api/v1
+Base URL: http://0.0.0.0:8848
+API Base: http://0.0.0.0:8848/api/v1
 ```
 
 ---
@@ -197,7 +197,7 @@ X-API-Key: test-api-key-123
 **Request Example**:
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/system/health"
+curl -X GET "http://localhost:8848/api/v1/system/health"
 ```
 
 **Response Example**:
@@ -232,9 +232,9 @@ curl -X GET "http://localhost:8000/api/v1/system/health"
 **Request Example**:
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/system/status" -i
+curl -X GET "http://localhost:8848/api/v1/system/status" -i
 
-curl -X GET "http://localhost:8000/api/v1/system/status" \
+curl -X GET "http://localhost:8848/api/v1/system/status" \
   -H "X-API-Key: test-api-key-123" -i
 ```
 
@@ -274,7 +274,7 @@ curl -X GET "http://localhost:8000/api/v1/system/status" \
 **Request Example**:
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/system/metrics" \
+curl -X GET "http://localhost:8848/api/v1/system/metrics" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -318,15 +318,15 @@ powermem_api_request_duration_seconds_count{method="GET",endpoint="/api/v1/syste
 
 ```bash
 # Delete all memories (system level)
-curl -X DELETE "http://localhost:8000/api/v1/system/delete-all-memories" \
+curl -X DELETE "http://localhost:8848/api/v1/system/delete-all-memories" \
   -H "X-API-Key: test-api-key-123"
 
 # Delete all memories for a specific agent
-curl -X DELETE "http://localhost:8000/api/v1/system/delete-all-memories?agent_id=agent-456" \
+curl -X DELETE "http://localhost:8848/api/v1/system/delete-all-memories?agent_id=agent-456" \
   -H "X-API-Key: test-api-key-123"
 
 # Delete all memories for a specific user
-curl -X DELETE "http://localhost:8000/api/v1/system/delete-all-memories?user_id=user-123" \
+curl -X DELETE "http://localhost:8848/api/v1/system/delete-all-memories?user_id=user-123" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -357,7 +357,7 @@ curl -X DELETE "http://localhost:8000/api/v1/system/delete-all-memories?user_id=
 **Request Example**:
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/memories" \
+curl -X POST "http://localhost:8848/api/v1/memories" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -432,7 +432,7 @@ curl -X POST "http://localhost:8000/api/v1/memories" \
 **Request Example**:
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/memories/batch" \
+curl -X POST "http://localhost:8848/api/v1/memories/batch" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -530,27 +530,27 @@ curl -X POST "http://localhost:8000/api/v1/memories/batch" \
 
 ```bash
 # Basic query
-curl -X GET "http://localhost:8000/api/v1/memories?limit=10&offset=0" \
+curl -X GET "http://localhost:8848/api/v1/memories?limit=10&offset=0" \
   -H "X-API-Key: test-api-key-123"
 
 # Filter by user
-curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&limit=20&offset=0" \
+curl -X GET "http://localhost:8848/api/v1/memories?user_id=user-123&limit=20&offset=0" \
   -H "X-API-Key: test-api-key-123"
 
 # Filter by agent
-curl -X GET "http://localhost:8000/api/v1/memories?agent_id=agent-456&limit=50&offset=0" \
+curl -X GET "http://localhost:8848/api/v1/memories?agent_id=agent-456&limit=50&offset=0" \
   -H "X-API-Key: test-api-key-123"
 
 # Sort by updated_at (descending - most recent first)
-curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&limit=10&sort_by=updated_at&order=desc" \
+curl -X GET "http://localhost:8848/api/v1/memories?user_id=user-123&limit=10&sort_by=updated_at&order=desc" \
   -H "X-API-Key: test-api-key-123"
 
 # Sort by created_at (ascending - oldest first)
-curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&limit=10&sort_by=created_at&order=asc" \
+curl -X GET "http://localhost:8848/api/v1/memories?user_id=user-123&limit=10&sort_by=created_at&order=asc" \
   -H "X-API-Key: test-api-key-123"
 
 # Combined: filter, pagination, and sorting
-curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&agent_id=agent-456&limit=20&offset=0&sort_by=updated_at&order=desc" \
+curl -X GET "http://localhost:8848/api/v1/memories?user_id=user-123&agent_id=agent-456&limit=20&offset=0&sort_by=updated_at&order=desc" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -625,11 +625,11 @@ curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&agent_id=age
 
 ```bash
 # First, list all memories to see available IDs
-curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&agent_id=agent-456" \
+curl -X GET "http://localhost:8848/api/v1/memories?user_id=user-123&agent_id=agent-456" \
   -H "X-API-Key: test-api-key-123"
 
 # Then query by specific ID
-curl -X GET "http://localhost:8000/api/v1/memories/1?user_id=user-123&agent_id=agent-456" \
+curl -X GET "http://localhost:8848/api/v1/memories/1?user_id=user-123&agent_id=agent-456" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -696,11 +696,11 @@ curl -X GET "http://localhost:8000/api/v1/memories/1?user_id=user-123&agent_id=a
 
 ```bash
 # First, list all memories to see available IDs
-curl -X GET "http://localhost:8000/api/v1/memories?user_id=user-123&agent_id=agent-456" \
+curl -X GET "http://localhost:8848/api/v1/memories?user_id=user-123&agent_id=agent-456" \
   -H "X-API-Key: test-api-key-123"
 
 # Update content
-curl -X PUT "http://localhost:8000/api/v1/memories/658958031962243072" \
+curl -X PUT "http://localhost:8848/api/v1/memories/658958031962243072" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -710,7 +710,7 @@ curl -X PUT "http://localhost:8000/api/v1/memories/658958031962243072" \
   }'
 
 # Update metadata
-curl -X PUT "http://localhost:8000/api/v1/memories/658958031962243072" \
+curl -X PUT "http://localhost:8848/api/v1/memories/658958031962243072" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -724,7 +724,7 @@ curl -X PUT "http://localhost:8000/api/v1/memories/658958031962243072" \
   }'
 
 # Update both content and metadata
-curl -X PUT "http://localhost:8000/api/v1/memories/658958031962243072" \
+curl -X PUT "http://localhost:8848/api/v1/memories/658958031962243072" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -813,7 +813,7 @@ curl -X PUT "http://localhost:8000/api/v1/memories/658958031962243072" \
 **Request Example**:
 
 ```bash
-curl -X PUT "http://localhost:8000/api/v1/memories/batch" \
+curl -X PUT "http://localhost:8848/api/v1/memories/batch" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -957,7 +957,7 @@ curl -X PUT "http://localhost:8000/api/v1/memories/batch" \
 **Request Example**:
 
 ```bash
-curl -X DELETE "http://localhost:8000/api/v1/memories/658958021480677376?user_id=user-123&agent_id=agent-456" \
+curl -X DELETE "http://localhost:8848/api/v1/memories/658958021480677376?user_id=user-123&agent_id=agent-456" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -994,7 +994,7 @@ curl -X DELETE "http://localhost:8000/api/v1/memories/658958021480677376?user_id
 **Request Example**:
 
 ```bash
-curl -X DELETE "http://localhost:8000/api/v1/memories/batch" \
+curl -X DELETE "http://localhost:8848/api/v1/memories/batch" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1049,7 +1049,7 @@ curl -X DELETE "http://localhost:8000/api/v1/memories/batch" \
 
 ```bash
 # First, create some data
-curl -X POST "http://localhost:8000/api/v1/memories"   -H "X-API-Key: test-api-key-123"   -H "Content-Type: application/json"   -d '{
+curl -X POST "http://localhost:8848/api/v1/memories"   -H "X-API-Key: test-api-key-123"   -H "Content-Type: application/json"   -d '{
     "content": "User likes coffee and goes to Starbucks every morning",
     "user_id": "user-123",
     "agent_id": "agent-456",
@@ -1068,7 +1068,7 @@ curl -X POST "http://localhost:8000/api/v1/memories"   -H "X-API-Key: test-api-k
   }'
 
 # Search
-curl -X POST "http://localhost:8000/api/v1/memories/search" \
+curl -X POST "http://localhost:8848/api/v1/memories/search" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1139,7 +1139,7 @@ curl -X POST "http://localhost:8000/api/v1/memories/search" \
 **Request Example**:
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/memories/search" \
+curl -X POST "http://localhost:8848/api/v1/memories/search" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1226,7 +1226,7 @@ curl -X POST "http://localhost:8000/api/v1/memories/search" \
 
 ```bash
 # Add messages and extract profile (default: only extract from user messages)
-curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
+curl -X POST "http://localhost:8848/api/v1/users/user-123/profile" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1243,7 +1243,7 @@ curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
   }'
 
 # Extract structured topics
-curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
+curl -X POST "http://localhost:8848/api/v1/users/user-123/profile" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1256,7 +1256,7 @@ curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
   }'
 
 # Include all messages (disable role filtering)
-curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
+curl -X POST "http://localhost:8848/api/v1/users/user-123/profile" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1335,7 +1335,7 @@ curl -X POST "http://localhost:8000/api/v1/users/user-123/profile" \
 **Request Example**:
 
 ```bash
-curl -X PUT "http://localhost:8000/api/v1/users/user-123/memories/658954684471443456" \
+curl -X PUT "http://localhost:8848/api/v1/users/user-123/memories/658954684471443456" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1390,7 +1390,7 @@ curl -X PUT "http://localhost:8000/api/v1/users/user-123/memories/65895468447144
 **Request Example**:
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/users/user-123/profile" \
+curl -X GET "http://localhost:8848/api/v1/users/user-123/profile" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -1441,7 +1441,7 @@ curl -X GET "http://localhost:8000/api/v1/users/user-123/profile" \
 **Request Example**:
 
 ```bash
-curl -X DELETE "http://localhost:8000/api/v1/users/user-123/profile" \
+curl -X DELETE "http://localhost:8848/api/v1/users/user-123/profile" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -1479,7 +1479,7 @@ curl -X DELETE "http://localhost:8000/api/v1/users/user-123/profile" \
 **Request Example**:
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/users/user-123/memories?limit=20&offset=0" \
+curl -X GET "http://localhost:8848/api/v1/users/user-123/memories?limit=20&offset=0" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -1566,7 +1566,7 @@ curl -X GET "http://localhost:8000/api/v1/users/user-123/memories?limit=20&offse
 **Request Example**:
 
 ```bash
-curl -X DELETE "http://localhost:8000/api/v1/users/user-123/memories" \
+curl -X DELETE "http://localhost:8848/api/v1/users/user-123/memories" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -1607,7 +1607,7 @@ curl -X DELETE "http://localhost:8000/api/v1/users/user-123/memories" \
 **Request Example**:
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/agents/agent-456/memories"   -H "X-API-Key: test-api-key-123"   -H "Content-Type: application/json"   -d '{
+curl -X POST "http://localhost:8848/api/v1/agents/agent-456/memories"   -H "X-API-Key: test-api-key-123"   -H "Content-Type: application/json"   -d '{
     "content": "Agent learned new conversation techniques",
     "user_id": "user-123",
     "run_id": "run-789"
@@ -1715,7 +1715,7 @@ curl -X POST "http://localhost:8000/api/v1/agents/agent-456/memories"   -H "X-AP
 **Request Example**:
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/agents/agent-456/memories?limit=20&offset=0" \
+curl -X GET "http://localhost:8848/api/v1/agents/agent-456/memories?limit=20&offset=0" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -1764,7 +1764,7 @@ curl -X GET "http://localhost:8000/api/v1/agents/agent-456/memories?limit=20&off
 
 ```bash
 # Share all memories
-curl -X POST "http://localhost:8000/api/v1/agents/agent-456/memories/share" \
+curl -X POST "http://localhost:8848/api/v1/agents/agent-456/memories/share" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1772,7 +1772,7 @@ curl -X POST "http://localhost:8000/api/v1/agents/agent-456/memories/share" \
   }'
 
 # Share specific memories
-curl -X POST "http://localhost:8000/api/v1/agents/agent-456/memories/share" \
+curl -X POST "http://localhost:8848/api/v1/agents/agent-456/memories/share" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1816,7 +1816,7 @@ curl -X POST "http://localhost:8000/api/v1/agents/agent-456/memories/share" \
 **Request Example**:
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/agents/agent-789/memories/share?limit=20&offset=0" \
+curl -X GET "http://localhost:8848/api/v1/agents/agent-789/memories/share?limit=20&offset=0" \
   -H "X-API-Key: test-api-key-123"
 ```
 
@@ -1873,7 +1873,7 @@ curl -X GET "http://localhost:8000/api/v1/agents/agent-789/memories/share?limit=
 
 ```bash
 # No API Key
-curl -X GET "http://localhost:8000/api/v1/memories"
+curl -X GET "http://localhost:8848/api/v1/memories"
 
 # Response
 {
@@ -1901,7 +1901,7 @@ curl -X GET "http://localhost:8000/api/v1/memories"
 ```bash
 # Send 200 requests quickly
 for i in {1..200}; do
-  curl -X GET "http://localhost:8000/api/v1/memories" \
+  curl -X GET "http://localhost:8848/api/v1/memories" \
     -H "X-API-Key: test-api-key-123" &
 done
 
@@ -1932,7 +1932,7 @@ done
 
 ```bash
 # Missing required field
-curl -X POST "http://localhost:8000/api/v1/memories" \
+curl -X POST "http://localhost:8848/api/v1/memories" \
   -H "X-API-Key: test-api-key-123" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1980,11 +1980,11 @@ Use tools to measure endpoint response times:
 
 ```bash
 # Using curl to measure response time
-time curl -X GET "http://localhost:8000/api/v1/memories" \
+time curl -X GET "http://localhost:8848/api/v1/memories" \
   -H "X-API-Key: test-api-key-123"
 
 # Using httpie
-http --timeout=5 GET "http://localhost:8000/api/v1/memories" \
+http --timeout=5 GET "http://localhost:8848/api/v1/memories" \
   X-API-Key:test-api-key-123
 ```
 
@@ -1997,11 +1997,11 @@ Use tools for concurrent load testing:
 ```bash
 # Using Apache Bench
 ab -n 1000 -c 10 -H "X-API-Key: test-api-key-123" \
-  http://localhost:8000/api/v1/memories
+  http://localhost:8848/api/v1/memories
 
 # Using wrk
 wrk -t4 -c100 -d30s -H "X-API-Key: test-api-key-123" \
-  http://localhost:8000/api/v1/memories
+  http://localhost:8848/api/v1/memories
 ```
 
 ---

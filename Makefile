@@ -216,7 +216,7 @@ ENV_SERVER_WORKERS := $(shell grep -E '^POWERMEM_SERVER_WORKERS=' .env 2>/dev/nu
 
 # Use values from .env if they exist and are non-empty, otherwise use defaults
 SERVER_HOST := $(or $(ENV_SERVER_HOST),0.0.0.0)
-SERVER_PORT := $(or $(ENV_SERVER_PORT),8000)
+SERVER_PORT := $(or $(ENV_SERVER_PORT),8848)
 SERVER_WORKERS := $(or $(ENV_SERVER_WORKERS),4)
 
 server-start: ## Start the PowerMem API server
@@ -401,21 +401,21 @@ docker-run: ## Run Docker container
 	fi
 	docker run -d \
 		--name powermem-server \
-		-p 8000:8000 \
+		-p 8848:8848 \
 		-v $$(pwd)/.env:/app/.env:ro \
 		--env-file .env \
 		$(DOCKER_IMAGE):$(DOCKER_TAG) || \
 		(echo "Container may already exist. Use 'make docker-stop' first or 'make docker-restart'"; exit 1)
 	@echo "✓ Container started"
-	@echo "Server running at http://localhost:8000"
-	@echo "API docs at http://localhost:8000/docs"
+	@echo "Server running at http://localhost:8848"
+	@echo "API docs at http://localhost:8848/docs"
 
 docker-up: ## Start services using docker-compose
 	@echo "Starting services with docker-compose..."
 	docker-compose -f $(DOCKER_COMPOSE_FILE) up -d
 	@echo "✓ Services started"
-	@echo "Server running at http://localhost:8000"
-	@echo "API docs at http://localhost:8000/docs"
+	@echo "Server running at http://localhost:8848"
+	@echo "API docs at http://localhost:8848/docs"
 
 docker-down: ## Stop services using docker-compose
 	@echo "Stopping services with docker-compose..."

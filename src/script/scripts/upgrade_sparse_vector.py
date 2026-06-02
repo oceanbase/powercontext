@@ -95,11 +95,11 @@ def _validate_and_parse_config(config: Dict[str, Any]) -> Tuple[ObVecClient, str
         else:
             if not db_name:
                 raise ValueError(
-                    "Missing required parameter 'db_name' for embedded SeekDB connection."
+                    "Missing required parameter 'db_name' for embedded seekdb connection."
                 )
-            logger.info(f"Connecting to embedded SeekDB at {ob_path}...")
+            logger.info(f"Connecting to embedded seekdb at {ob_path}...")
             obvector = ObVecClient(path=ob_path, db_name=db_name)
-            logger.info(f"Connected successfully to embedded SeekDB database '{db_name}'")
+            logger.info(f"Connected successfully to embedded seekdb database '{db_name}'")
         return obvector, collection_name
     except (ValueError, RuntimeError):
         raise

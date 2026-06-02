@@ -18,7 +18,7 @@ import (
 )
 
 // Default REST base when POWERMEM_BASE_URL is unset (matches .mcp.json local server).
-const defaultPowerMemBaseURL = "http://localhost:8000"
+const defaultPowerMemBaseURL = "http://localhost:8848"
 
 func main() {
 	if len(os.Args) >= 2 {

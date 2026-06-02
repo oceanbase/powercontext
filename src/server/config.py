@@ -3,6 +3,7 @@ Configuration management for PowerMem API Server.
 """
 
 from __future__ import annotations
+
 from typing import List, Optional
 
 from pydantic import Field, field_validator
@@ -41,12 +42,15 @@ class ServerSettings(BaseSettings):
 
     # Server settings
     host: str = Field(default="0.0.0.0")
-    port: int = Field(default=8000)
+    port: int = Field(default=8848)
     workers: int = Field(default=4)
     reload: bool = Field(default=False)
 
     # Authentication settings
-    auth_enabled: bool = Field(default=True)
+    # Default follows .env.example.full (AUTH_ENABLED=false): off for local /
+    # test so PowerMem runs zero-config. Enable it (and set API_KEYS) whenever
+    # the server is reachable from a network.
+    auth_enabled: bool = Field(default=False)
     api_keys: str = Field(default="")
 
     # Rate limiting settings
@@ -55,6 +59,8 @@ class ServerSettings(BaseSettings):
 
     # Logging settings
     log_level: str = Field(default="INFO")
+    # Default follows .env.example.full (LOG_FORMAT=json): machine-parseable,
+    # works with log shippers. Set to "text" for human-readable terminal logs.
     log_format: str = Field(default="json")
     log_file: Optional[str] = Field(default="server.log")
 

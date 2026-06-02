@@ -4,26 +4,28 @@ Utility functions and classes
 This module provides utility functions and helper classes.
 """
 
-import os
 import hashlib
 import json
 import logging
+import os
 import re
-import time
 import threading
+import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # Try to import zoneinfo (Python 3.9+)
 try:
     from zoneinfo import ZoneInfo
+
     _HAS_ZONEINFO = True
 except ImportError:
     _HAS_ZONEINFO = False
     try:
         import pytz
+
         _HAS_PYTZ = True
     except ImportError:
         _HAS_PYTZ = False
@@ -34,18 +36,84 @@ _timezone_str: Optional[str] = None  # Store timezone string from config
 _timezone_lock = threading.Lock()
 
 
+def _is_valid_timezone(name: str) -> bool:
+    """Return True if ``name`` is a recognized IANA timezone."""
+    if not name:
+        return False
+    try:
+        if _HAS_ZONEINFO:
+            ZoneInfo(name)
+            return True
+        if globals().get("_HAS_PYTZ"):
+            pytz.timezone(name)
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def detect_system_timezone() -> str:
+    """Best-effort IANA timezone name of the host machine.
+
+    Resolution order: ``tzlocal`` (if installed) -> ``/etc/timezone`` ->
+    ``/etc/localtime`` symlink -> ``TZ`` env var. Returns ``"UTC"`` when the
+    host zone cannot be determined or is not a recognized IANA name. This is
+    only used as a fallback: an explicit ``TIMEZONE`` always takes precedence.
+    """
+    candidates: List[str] = []
+
+    # 1. tzlocal — most robust, cross-platform (optional dependency)
+    try:
+        from tzlocal import get_localzone_name
+
+        name = get_localzone_name()
+        if name:
+            candidates.append(name)
+    except Exception:
+        pass
+
+    # 2. /etc/timezone — Debian/Ubuntu and most Linux distros
+    try:
+        with open("/etc/timezone", "r", encoding="utf-8") as fh:
+            candidates.append(fh.read().strip())
+    except OSError:
+        pass
+
+    # 3. /etc/localtime symlink -> .../zoneinfo/<Area>/<City>
+    try:
+        link = os.readlink("/etc/localtime")
+        marker = "zoneinfo/"
+        if marker in link:
+            candidates.append(link.split(marker, 1)[1])
+    except OSError:
+        pass
+
+    # 4. TZ environment variable (only accepted if a real zone name)
+    tz_env = os.environ.get("TZ")
+    if tz_env:
+        candidates.append(tz_env.strip())
+
+    for candidate in candidates:
+        if _is_valid_timezone(candidate):
+            logger.debug(f"Detected system timezone: {candidate}")
+            return candidate
+
+    logger.debug("Could not detect system timezone; falling back to UTC")
+    return "UTC"
+
+
 def set_timezone(timezone_str: Any) -> None:
     """
     Set the timezone from configuration.
-    
+
     This function should be called during Memory initialization if timezone
     is specified in the config. It takes precedence over environment variables.
-    
+
     Args:
         timezone_str: Timezone string (e.g., 'Asia/Shanghai', 'UTC')
     """
     global _timezone_cache, _timezone_str
-    
+
     with _timezone_lock:
         tz = timezone_str
         if isinstance(tz, dict):
@@ -63,11 +131,11 @@ def set_timezone(timezone_str: Any) -> None:
 def get_timezone() -> Any:
     """
     Get the configured timezone from config or environment variable.
-    
+
     This function first checks if timezone was set via set_timezone() (from config),
     then falls back to TIMEZONE environment variable. The timezone is cached after first
     access for performance.
-    
+
     Configuration:
         Timezone can be configured in two ways:
         1. Via config dict/JSON: Set 'timezone' in your config, which will be
@@ -77,37 +145,38 @@ def get_timezone() -> Any:
            - TIMEZONE=America/New_York (for US Eastern Time)
            - TIMEZONE=Europe/London (for UK Time)
            - TIMEZONE=UTC (default, if not specified)
-        
+
         Common timezone names:
         - Asia/Shanghai, Asia/Tokyo, Asia/Hong_Kong
         - America/New_York, America/Los_Angeles, America/Chicago
         - Europe/London, Europe/Paris, Europe/Berlin
         - UTC (Coordinated Universal Time)
-    
+
     Returns:
-        Timezone object (ZoneInfo or pytz timezone) for the configured timezone, 
+        Timezone object (ZoneInfo or pytz timezone) for the configured timezone,
         or UTC if not configured or invalid timezone specified
-        
+
     Note:
         The timezone is cached globally. To reset the cache (e.g., after changing
         the timezone), call reset_timezone_cache().
     """
-    global _timezone_cache, _timezone_str
-    
+    global _timezone_cache
+
     if _timezone_cache is not None:
         return _timezone_cache
-    
+
     with _timezone_lock:
         if _timezone_cache is not None:
             return _timezone_cache
-        
-        # Priority: config > environment variable > default
+
+        # Priority: config > TIMEZONE env var > detected host zone > UTC
         if _timezone_str is not None:
             timezone_str = _timezone_str
         else:
-            # Fallback to environment variable (for backward compatibility)
-            timezone_str = os.getenv('TIMEZONE', 'UTC')
-        
+            # No config: fall back to the TIMEZONE env var, then auto-detect
+            # the host timezone (detect_system_timezone returns UTC on failure).
+            timezone_str = os.getenv("TIMEZONE") or detect_system_timezone()
+
         try:
             if _HAS_ZONEINFO:
                 _timezone_cache = ZoneInfo(timezone_str)
@@ -117,44 +186,46 @@ def get_timezone() -> Any:
                 logger.warning("No timezone library available, using UTC")
                 _timezone_cache = timezone.utc
         except Exception as e:
-            logger.warning(f"Invalid timezone '{timezone_str}', falling back to UTC: {e}")
+            logger.warning(
+                f"Invalid timezone '{timezone_str}', falling back to UTC: {e}"
+            )
             try:
                 if _HAS_ZONEINFO:
-                    _timezone_cache = ZoneInfo('UTC')
+                    _timezone_cache = ZoneInfo("UTC")
                 elif _HAS_PYTZ:
                     _timezone_cache = pytz.UTC
                 else:
                     _timezone_cache = timezone.utc
             except Exception:
                 _timezone_cache = timezone.utc
-        
+
         return _timezone_cache
 
 
 def get_current_datetime() -> datetime:
     """
     Get current datetime in the configured timezone.
-    
+
     This function is used throughout powermem to get the current time in the
     configured timezone. It replaces datetime.utcnow() to support timezone
     configuration via the TIMEZONE environment variable.
-    
+
     This function respects the TIMEZONE environment variable set in .env file.
     If TIMEZONE is not set, it defaults to UTC.
-    
+
     Returns:
         datetime object in the configured timezone (timezone-aware)
-        
+
     Example:
         # In .env file:
         # TIMEZONE=Asia/Shanghai
-        
+
         from powermem.utils.utils import get_current_datetime
         now = get_current_datetime()  # Returns datetime in Asia/Shanghai timezone
-        
+
         # The returned datetime is timezone-aware:
         # datetime.datetime(2025, 1, 15, 14, 30, 0, tzinfo=zoneinfo.ZoneInfo(key='Asia/Shanghai'))
-        
+
     Note:
         All timestamps in powermem (created_at, updated_at, etc.) are generated
         using this function to ensure consistency with the configured timezone.
@@ -177,11 +248,11 @@ def reset_timezone_cache():
 def generate_memory_id(content: str, user_id: Optional[str] = None) -> str:
     """
     Generate a unique memory ID based on content and user.
-    
+
     Args:
         content: Memory content
         user_id: User ID
-        
+
     Returns:
         Unique memory ID
     """
@@ -192,159 +263,186 @@ def generate_memory_id(content: str, user_id: Optional[str] = None) -> str:
 def validate_memory_data(data: Dict[str, Any]) -> bool:
     """
     Validate memory data structure.
-    
+
     Args:
         data: Memory data to validate
-        
+
     Returns:
         True if valid, False otherwise
     """
     required_fields = ["content"]
-    
+
     for field in required_fields:
         if field not in data:
             logger.error(f"Missing required field: {field}")
             return False
-    
+
     if not isinstance(data["content"], str) or not data["content"].strip():
         logger.error("Content must be a non-empty string")
         return False
-    
+
     return True
 
 
 def sanitize_content(content: str) -> str:
     """
     Sanitize memory content.
-    
+
     Args:
         content: Content to sanitize
-        
+
     Returns:
         Sanitized content
     """
     # Remove excessive whitespace
     content = " ".join(content.split())
-    
+
     # Remove control characters
     content = "".join(char for char in content if ord(char) >= 32 or char in "\n\t")
-    
+
     return content.strip()
 
 
 def format_memory_for_display(memory: Dict[str, Any]) -> str:
     """
     Format memory for display.
-    
+
     Args:
         memory: Memory data
-        
+
     Returns:
         Formatted memory string
     """
     content = memory.get("content", "")
     created_at = memory.get("created_at", "")
     metadata = memory.get("metadata", {})
-    
+
     formatted = f"Content: {content}\n"
     if created_at:
         formatted += f"Created: {created_at}\n"
     if metadata:
         formatted += f"Metadata: {json.dumps(metadata, indent=2, ensure_ascii=False)}\n"
-    
+
     return formatted
 
 
 def merge_memories(memories: List[Dict[str, Any]]) -> str:
     """
     Merge multiple memories into a single string.
-    
+
     Args:
         memories: List of memory data
-        
+
     Returns:
         Merged memory content
     """
     if not memories:
         return ""
-    
+
     merged_content = []
     for memory in memories:
         content = memory.get("content", "")
         if content:
             merged_content.append(content)
-    
+
     return "\n\n".join(merged_content)
 
 
 def calculate_similarity(text1: str, text2: str) -> float:
     """
     Calculate similarity between two texts.
-    
+
     Args:
         text1: First text
         text2: Second text
-        
+
     Returns:
         Similarity score between 0 and 1
     """
     # Simple word-based similarity
     words1 = set(text1.lower().split())
     words2 = set(text2.lower().split())
-    
+
     if not words1 and not words2:
         return 1.0
-    
+
     if not words1 or not words2:
         return 0.0
-    
+
     intersection = words1.intersection(words2)
     union = words1.union(words2)
-    
+
     return len(intersection) / len(union)
 
 
 def extract_keywords(text: str, max_keywords: int = 10) -> List[str]:
     """
     Extract keywords from text.
-    
+
     Args:
         text: Text to extract keywords from
         max_keywords: Maximum number of keywords
-        
+
     Returns:
         List of keywords
     """
     # Simple keyword extraction
     words = text.lower().split()
-    
+
     # Remove common stop words
     stop_words = {
-        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-        "of", "with", "by", "is", "are", "was", "were", "be", "been", "have",
-        "has", "had", "do", "does", "did", "will", "would", "could", "should"
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
     }
-    
+
     keywords = [word for word in words if word not in stop_words and len(word) > 2]
-    
+
     # Count frequency
     word_count = {}
     for word in keywords:
         word_count[word] = word_count.get(word, 0) + 1
-    
+
     # Sort by frequency
     sorted_keywords = sorted(word_count.items(), key=lambda x: x[1], reverse=True)
-    
+
     return [word for word, count in sorted_keywords[:max_keywords]]
 
 
 def format_timestamp(timestamp: datetime) -> str:
     """
     Format timestamp for display.
-    
+
     Args:
         timestamp: Timestamp to format
-        
+
     Returns:
         Formatted timestamp string with timezone information
     """
@@ -352,7 +450,7 @@ def format_timestamp(timestamp: datetime) -> str:
     if timestamp.tzinfo is None:
         tz = get_timezone()
         timestamp = timestamp.replace(tzinfo=tz)
-    
+
     # Format with timezone name
     timezone_name = timestamp.tzinfo.tzname(timestamp) if timestamp.tzinfo else "UTC"
     return timestamp.strftime(f"%Y-%m-%d %H:%M:%S {timezone_name}")
@@ -361,10 +459,10 @@ def format_timestamp(timestamp: datetime) -> str:
 def parse_timestamp(timestamp_str: str) -> Optional[datetime]:
     """
     Parse timestamp string.
-    
+
     Args:
         timestamp_str: Timestamp string to parse
-        
+
     Returns:
         Parsed datetime object or None if invalid
     """
@@ -412,19 +510,19 @@ def extract_json(text):
 def parse_json_from_text(text: str, expected_type: type = dict) -> Optional[Any]:
     """
     Parse JSON from text, with fallback to extract JSON if wrapped in text.
-    
+
     This function first tries to parse the text directly as JSON. If that fails,
     it attempts to extract JSON objects from the text using regex pattern matching.
-    
+
     Args:
         text: Text that may contain JSON
         expected_type: Expected type of the parsed JSON (default: dict).
                       If the parsed JSON is not of this type, returns None.
-    
+
     Returns:
         Parsed JSON object of the expected type, or None if parsing fails or
         the parsed object is not of the expected type.
-    
+
     Examples:
         >>> parse_json_from_text('{"key": "value"}')
         {'key': 'value'}
@@ -438,14 +536,20 @@ def parse_json_from_text(text: str, expected_type: type = dict) -> Optional[Any]
         parsed = json.loads(text)
         if isinstance(parsed, expected_type):
             return parsed
-        logger.warning(f"Parsed JSON is not of expected type {expected_type}, got: {type(parsed)}")
+        logger.warning(
+            f"Parsed JSON is not of expected type {expected_type}, got: {type(parsed)}"
+        )
         return None
     except json.JSONDecodeError:
         pass
-    
+
     # Try to extract JSON from text if it's wrapped
     # Match JSON objects: { ... } or arrays: [ ... ]
-    pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}' if expected_type == dict else r'\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\]'
+    pattern = (
+        r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}"
+        if expected_type == dict
+        else r"\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\]"
+    )
     json_match = re.search(pattern, text, re.DOTALL)
     if json_match:
         try:
@@ -455,27 +559,29 @@ def parse_json_from_text(text: str, expected_type: type = dict) -> Optional[Any]
                 return parsed
         except json.JSONDecodeError:
             pass
-    
-    logger.error(f"Failed to parse JSON from text, expected type: {expected_type}, text: {text}")
+
+    logger.error(
+        f"Failed to parse JSON from text, expected type: {expected_type}, text: {text}"
+    )
     return None
 
 
 def parse_conversation_text(messages: Any) -> str:
     """
     Parse conversation messages into text format.
-    
+
     This function handles multiple input formats:
     - String: Returns as-is
     - Dict: Extracts 'content' field
     - List of dicts: Formats as "role: content\n" for each message (skips system messages)
     - Other types: Converts to string
-    
+
     Args:
         messages: Conversation messages (str, dict, or list[dict])
-    
+
     Returns:
         Conversation text string
-    
+
     Examples:
         >>> parse_conversation_text("Hello")
         'Hello'
@@ -491,9 +597,9 @@ def parse_conversation_text(messages: Any) -> str:
     elif isinstance(messages, list):
         conversation_text = ""
         for msg in messages:
-            if isinstance(msg, dict) and 'role' in msg and 'content' in msg:
-                role = msg['role']
-                content = msg.get('content', '')
+            if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                role = msg["role"]
+                content = msg.get("content", "")
                 if role != "system":  # Skip system messages
                     conversation_text += f"{role}: {content}\n"
         return conversation_text
@@ -507,10 +613,13 @@ def format_entities(entities):
 
     formatted_lines = []
     for entity in entities:
-        simplified = f"{entity['source']} -- {entity['relationship']} -- {entity['destination']}"
+        simplified = (
+            f"{entity['source']} -- {entity['relationship']} -- {entity['destination']}"
+        )
         formatted_lines.append(simplified)
 
     return "\n".join(formatted_lines)
+
 
 def remove_code_blocks(content: str) -> str:
     """
@@ -526,7 +635,9 @@ def remove_code_blocks(content: str) -> str:
     return match.group(1).strip() if match else content.strip()
 
 
-def llm_json_text_with_fallback(llm: Any, *, messages: List[Dict[str, str]], **kwargs: Any) -> str:
+def llm_json_text_with_fallback(
+    llm: Any, *, messages: List[Dict[str, str]], **kwargs: Any
+) -> str:
     """
     Call llm.generate_response with OpenAI-style json_object mode; if the body is empty, retry
     without response_format. Some OpenAI-compatible APIs return blank message.content when
@@ -661,7 +772,10 @@ def get_image_description(image_obj: Any, llm: Any, vision_details: Any) -> str:
                         "type": "text",
                         "text": "A user is providing an image. Provide a high level description of the image and do not include any additional text.",
                     },
-                    {"type": "image_url", "image_url": {"url": image_obj, "detail": detail}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_obj, "detail": detail},
+                    },
                 ],
             },
         ]
@@ -671,29 +785,31 @@ def get_image_description(image_obj: Any, llm: Any, vision_details: Any) -> str:
     return llm.generate_response(messages=messages)
 
 
-def _process_content_item(item: Dict[str, Any], role: str, llm: Any, vision_details: Any, audio_llm: Any) -> Optional[str]:
+def _process_content_item(
+    item: Dict[str, Any], role: str, llm: Any, vision_details: Any, audio_llm: Any
+) -> Optional[str]:
     """
     Process a single content item and return processed text content.
-    
+
     Args:
         item: Content item dict
         role: Message role
         llm: LLM instance for image description
         vision_details: Vision details setting
         audio_llm: Audio LLM instance for transcription
-        
+
     Returns:
         Processed text content or None if item should be skipped
     """
     if not isinstance(item, dict):
         return None
-    
+
     item_type = item.get("type")
-    
+
     if item_type == "text":
         text_content = item.get("text", "")
         return text_content if text_content else None
-    
+
     elif item_type == "image_url":
         image_url = item.get("image_url", {}).get("url")
         if image_url:
@@ -703,11 +819,13 @@ def _process_content_item(item: Dict[str, Any], role: str, llm: Any, vision_deta
             except Exception as e:
                 raise Exception(f"Error while processing image {image_url}: {e}")
         return None
-    
+
     elif item_type == "audio":
         if audio_llm is not None:
             audio_content = item.get("content", {})
-            audio_url = audio_content.get("audio") if isinstance(audio_content, dict) else None
+            audio_url = (
+                audio_content.get("audio") if isinstance(audio_content, dict) else None
+            )
             if audio_url:
                 try:
                     transcribed_text = audio_llm.transcribe(audio_url=audio_url)
@@ -718,13 +836,18 @@ def _process_content_item(item: Dict[str, Any], role: str, llm: Any, vision_deta
         else:
             logger.warning(f"Audio item found but audio_llm is not configured: {item}")
         return None
-    
+
     else:
         logger.warning(f"Unknown content type: {item_type}")
         return None
 
 
-def parse_vision_messages(messages: List[Dict[str, Any]], llm: Any = None, vision_details: Any = "auto", audio_llm: Any = None) -> List[Dict[str, Any]]:
+def parse_vision_messages(
+    messages: List[Dict[str, Any]],
+    llm: Any = None,
+    vision_details: Any = "auto",
+    audio_llm: Any = None,
+) -> List[Dict[str, Any]]:
     """
 
     Assumes input is already a list of message dicts with 'role' and 'content' fields.
@@ -751,7 +874,7 @@ def parse_vision_messages(messages: List[Dict[str, Any]], llm: Any = None, visio
 
         content = msg["content"]
         role = msg["role"]
-        
+
         # Normalize content to list format for unified processing
         items_to_process = []
         if isinstance(content, list):
@@ -768,10 +891,12 @@ def parse_vision_messages(messages: List[Dict[str, Any]], llm: Any = None, visio
             # Regular text or other content, passthrough
             returned_messages.append(msg)
             continue
-        
+
         # Process each item
         for item in items_to_process:
-            processed_content = _process_content_item(item, role, llm, vision_details, audio_llm)
+            processed_content = _process_content_item(
+                item, role, llm, vision_details, audio_llm
+            )
             if processed_content:
                 returned_messages.append({"role": role, "content": processed_content})
 
@@ -781,19 +906,20 @@ def parse_vision_messages(messages: List[Dict[str, Any]], llm: Any = None, visio
 def load_config_from_env() -> Dict[str, Any]:
     """
     Load configuration from environment variables.
-    
+
     .. deprecated:: 0.1.0
        This function is now in :mod:`mem.config_loader`.
        Please use ``from powermem import load_config_from_env`` instead.
-    
+
     This is kept for backward compatibility.
     For the actual implementation, see :mod:`mem.config_loader`.
-    
+
     Returns:
         Configuration dictionary built from environment variables
     """
     # Import here to avoid circular import
     from ..config_loader import load_config_from_env as _load_config_from_env
+
     return _load_config_from_env()
 
 
@@ -801,10 +927,10 @@ def serialize_datetime(value: Any) -> Any:
     """
     Convert datetime objects to ISO format strings for JSON serialization.
     Recursively handles dictionaries and lists.
-    
+
     Args:
         value: Value to serialize (can be datetime, dict, list, or primitive)
-    
+
     Returns:
         Serialized value with datetime objects converted to ISO format strings
     """
@@ -831,7 +957,7 @@ def convert_config_object_to_dict(obj: Any) -> Any:
         return None
 
     # Handle ConfigObject
-    if hasattr(obj, 'to_dict'):
+    if hasattr(obj, "to_dict"):
         obj = obj.to_dict()
 
     # Handle dict
@@ -849,84 +975,86 @@ def convert_config_object_to_dict(obj: Any) -> Any:
 class SnowflakeIDGenerator:
     """
     Snowflake ID generator for distributed systems.
-    
+
     Generates unique 64-bit IDs using the Snowflake algorithm:
     - 41 bits for timestamp (milliseconds since epoch)
     - 10 bits for machine ID (5 bits datacenter + 5 bits worker)
     - 12 bits for sequence number
-    
+
     Thread-safe implementation.
     """
-    
+
     # Snowflake parameters
     EPOCH = 1609459200000  # 2021-01-01 00:00:00 UTC in milliseconds
     TIMESTAMP_BITS = 41
     DATACENTER_BITS = 5
     WORKER_BITS = 5
     SEQUENCE_BITS = 12
-    
+
     MAX_DATACENTER_ID = (1 << DATACENTER_BITS) - 1  # 31
     MAX_WORKER_ID = (1 << WORKER_BITS) - 1  # 31
     MAX_SEQUENCE = (1 << SEQUENCE_BITS) - 1  # 4095
-    
+
     # Bit shifts
     TIMESTAMP_SHIFT = SEQUENCE_BITS + WORKER_BITS + DATACENTER_BITS
     DATACENTER_SHIFT = SEQUENCE_BITS + WORKER_BITS
     WORKER_SHIFT = SEQUENCE_BITS
-    
+
     def __init__(self, datacenter_id: int = 0, worker_id: int = 0):
         """
         Initialize Snowflake ID generator.
-        
+
         Args:
             datacenter_id: Datacenter ID (0-31)
             worker_id: Worker ID (0-31)
-            
+
         Raises:
             ValueError: If datacenter_id or worker_id is out of range
         """
         if datacenter_id < 0 or datacenter_id > self.MAX_DATACENTER_ID:
-            raise ValueError(f"Datacenter ID must be between 0 and {self.MAX_DATACENTER_ID}")
+            raise ValueError(
+                f"Datacenter ID must be between 0 and {self.MAX_DATACENTER_ID}"
+            )
         if worker_id < 0 or worker_id > self.MAX_WORKER_ID:
             raise ValueError(f"Worker ID must be between 0 and {self.MAX_WORKER_ID}")
-        
+
         self.datacenter_id = datacenter_id
         self.worker_id = worker_id
         self.sequence = 0
         self.last_timestamp = -1
         self._lock = threading.Lock()
-    
+
     def _current_timestamp(self) -> int:
         """Get current timestamp in milliseconds."""
         return int(time.time() * 1000)
-    
+
     def _wait_next_millis(self, last_timestamp: int) -> int:
         """Wait until next millisecond."""
         timestamp = self._current_timestamp()
         while timestamp <= last_timestamp:
             timestamp = self._current_timestamp()
         return timestamp
-    
+
     def generate(self) -> int:
         """
         Generate a new Snowflake ID.
-        
+
         Returns:
             64-bit integer ID
-            
+
         Raises:
             RuntimeError: If clock moves backwards or sequence overflows
         """
         with self._lock:
             timestamp = self._current_timestamp()
-            
+
             # Handle clock backwards
             if timestamp < self.last_timestamp:
                 raise RuntimeError(
                     f"Clock moved backwards. Refusing to generate ID for "
                     f"{self.last_timestamp - timestamp} milliseconds"
                 )
-            
+
             # Same millisecond, increment sequence
             if timestamp == self.last_timestamp:
                 self.sequence = (self.sequence + 1) & self.MAX_SEQUENCE
@@ -936,24 +1064,24 @@ class SnowflakeIDGenerator:
             else:
                 # New millisecond, reset sequence
                 self.sequence = 0
-            
+
             self.last_timestamp = timestamp
-            
+
             # Generate ID
             return (
-                ((timestamp - self.EPOCH) << self.TIMESTAMP_SHIFT) |
-                (self.datacenter_id << self.DATACENTER_SHIFT) |
-                (self.worker_id << self.WORKER_SHIFT) |
-                self.sequence
+                ((timestamp - self.EPOCH) << self.TIMESTAMP_SHIFT)
+                | (self.datacenter_id << self.DATACENTER_SHIFT)
+                | (self.worker_id << self.WORKER_SHIFT)
+                | self.sequence
             )
-    
+
     def generate_batch(self, count: int) -> List[int]:
         """
         Generate a batch of Snowflake IDs.
-        
+
         Args:
             count: Number of IDs to generate
-            
+
         Returns:
             List of 64-bit integer IDs
         """
@@ -970,7 +1098,7 @@ _snowflake_lock = threading.Lock()
 def get_snowflake_generator() -> SnowflakeIDGenerator:
     """
     Get or create the global Snowflake ID generator instance.
-    
+
     Returns:
         Snowflake ID generator instance
     """
@@ -982,8 +1110,7 @@ def get_snowflake_generator() -> SnowflakeIDGenerator:
                 datacenter_id = int(os.getenv("SNOWFLAKE_DATACENTER_ID", "0"))
                 worker_id = int(os.getenv("SNOWFLAKE_WORKER_ID", "0"))
                 _snowflake_generator = SnowflakeIDGenerator(
-                    datacenter_id=datacenter_id,
-                    worker_id=worker_id
+                    datacenter_id=datacenter_id, worker_id=worker_id
                 )
     return _snowflake_generator
 
@@ -991,7 +1118,7 @@ def get_snowflake_generator() -> SnowflakeIDGenerator:
 def generate_snowflake_id() -> int:
     """
     Generate a new Snowflake ID using the global generator.
-    
+
     Returns:
         64-bit integer ID
     """

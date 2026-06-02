@@ -830,12 +830,12 @@ def _wizard_database(existing: Dict[str, str]) -> Dict[str, str]:
 
     if provider == "oceanbase":
         updates["OCEANBASE_HOST"] = click.prompt(
-            "OceanBase host (empty for embedded SeekDB)",
+            "OceanBase host (empty for embedded seekdb)",
             default=existing.get("OCEANBASE_HOST") or "",
             show_default=True,
         )
         updates["OCEANBASE_PATH"] = click.prompt(
-            "OceanBase embedded SeekDB path (used when host is empty)",
+            "OceanBase embedded seekdb path (used when host is empty)",
             default=existing.get("OCEANBASE_PATH") or "./seekdb_data",
             show_default=True,
         )
@@ -924,12 +924,12 @@ def _wizard_database_quickstart(existing: Dict[str, str]) -> Dict[str, str]:
 
     if provider == "oceanbase":
         updates["OCEANBASE_HOST"] = click.prompt(
-            "OceanBase host (empty for embedded SeekDB)",
+            "OceanBase host (empty for embedded seekdb)",
             default=existing.get("OCEANBASE_HOST") or "",
             show_default=True,
         )
         updates["OCEANBASE_PATH"] = click.prompt(
-            "OceanBase embedded SeekDB path (used when host is empty)",
+            "OceanBase embedded seekdb path (used when host is empty)",
             default=existing.get("OCEANBASE_PATH") or "./seekdb_data",
             show_default=True,
         )

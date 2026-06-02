@@ -418,14 +418,14 @@ class OceanBaseVectorStore(VectorStoreBase):
                 "Please configure embedding_model_dims in your OceanBaseConfig."
             )
 
-        # Embedded SeekDB does not tolerate IVF-family indexes on small datasets:
+        # Embedded seekdb does not tolerate IVF-family indexes on small datasets:
         # IVF requires at least nlist training vectors; fewer vectors causes a native
         # SIGSEGV that cannot be caught by Python.  Switch to HNSW automatically.
         is_embedded = not self.connection_args.get("host")
         if is_embedded and self.index_type in constants.INDEX_TYPE_IVF:
             nlist = (self.vidx_algo_params or {}).get("nlist", constants.DEFAULT_OCEANBASE_IVF_BUILD_PARAM.get("nlist", 128))
             logger.warning(
-                "Embedded SeekDB: index_type '%s' (nlist=%d) requires at least %d vectors "
+                "Embedded seekdb: index_type '%s' (nlist=%d) requires at least %d vectors "
                 "and may crash on small datasets. Auto-switching to HNSW.",
                 self.index_type, nlist, nlist,
             )
@@ -649,10 +649,10 @@ class OceanBaseVectorStore(VectorStoreBase):
         record = self.model_class()
 
         # Support both SQLAlchemy Row objects and plain dicts (used when rows
-        # are materialised early to avoid embedded SeekDB cursor crashes).
+        # are materialised early to avoid embedded seekdb cursor crashes).
         mapping = row._mapping if hasattr(row, '_mapping') else row
 
-        # Build a normalized lookup: strip table-name prefix that embedded SeekDB
+        # Build a normalized lookup: strip table-name prefix that embedded seekdb
         # may add (e.g. "memories.document" → "document") so we can always find
         # the value regardless of whether the driver returns bare or prefixed keys.
         normalized: Dict[str, any] = {}
@@ -1028,7 +1028,7 @@ class OceanBaseVectorStore(VectorStoreBase):
 
             # Execute the query with parameters - use direct parameter passing
             # Materialize rows to dicts inside the connection context to avoid
-            # "pure virtual method called" crash in embedded SeekDB (the C++
+            # "pure virtual method called" crash in embedded seekdb (the C++
             # cursor is invalidated once the transaction/connection closes).
             with self.obvector.engine.connect() as conn:
                 with conn.begin():
@@ -1148,7 +1148,7 @@ class OceanBaseVectorStore(VectorStoreBase):
 
             # Execute the query
             # Materialize rows to dicts inside the connection context to avoid
-            # "pure virtual method called" crash in embedded SeekDB.
+            # "pure virtual method called" crash in embedded seekdb.
             with self.obvector.engine.connect() as conn:
                 with conn.begin():
                     logger.debug(f"Executing sparse vector search query with sparse_vector: {sparse_vector_str}")
@@ -1388,7 +1388,7 @@ class OceanBaseVectorStore(VectorStoreBase):
         is_embedded = not self.connection_args.get("host")
 
         if is_embedded:
-            # SeekDB embedded engine does not support concurrent SQL across threads
+            # seekdb embedded engine does not support concurrent SQL across threads
             try:
                 vector_results = self._vector_search(query, vectors, candidate_limit, filters)
             except Exception as e:
@@ -1911,7 +1911,7 @@ class OceanBaseVectorStore(VectorStoreBase):
         """Fetch rows by primary key while keeping the connection open during fetchall.
 
         pyobvector.get() returns the cursor *after* committing the transaction via
-        ``with conn.begin()``.  In embedded SeekDB the commit invalidates the cursor,
+        ``with conn.begin()``.  In embedded seekdb the commit invalidates the cursor,
         so calling fetchall() on it afterwards triggers a C++ ``pure virtual method
         called`` crash.  This helper avoids that by running fetchall() inside the
         ``with engine.connect()`` block.

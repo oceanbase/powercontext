@@ -20,7 +20,7 @@ A simple, lightweight Go client example demonstrating how to integrate PowerMem'
 
 ```bash
 pip install powermem
-powermem-server --host 0.0.0.0 --port 8000
+powermem-server --host 0.0.0.0 --port 8848
 ```
 
 #### Configure API Keys (Required)
@@ -55,12 +55,12 @@ POWERMEM_SERVER_API_KEYS=your-api-key-123,another-key-456
 ```bash
 cd examples/go
 
-# Run with default settings (localhost:8000, no auth)
+# Run with default settings (localhost:8848, no auth)
 go run .
 
 # Or with custom configuration
 # Base URL of the PowerMem API server
-export POWERMEM_BASE_URL=http://localhost:8000
+export POWERMEM_BASE_URL=http://localhost:8848
 # API key for authentication (if server auth enabled)
 export POWERMEM_API_KEY=your-api-key-123 
 go run .
@@ -73,7 +73,7 @@ go run .
 Check the health status of the PowerMem API server. This is a public endpoint that does not require authentication.
 
 ```go
-client := NewClient("http://localhost:8000", "your-api-key")
+client := NewClient("http://localhost:8848", "your-api-key")
 health, err := client.Health()
 fmt.Printf("Status: %s\n", health.Status)
 ```

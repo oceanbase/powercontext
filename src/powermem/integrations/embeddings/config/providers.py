@@ -253,5 +253,24 @@ class MockEmbeddingConfig(BaseEmbedderConfig):
     model_config = settings_config("EMBEDDING_", extra="allow", env_file=None)
 
 
+class PyseekdbDefaultEmbeddingConfig(BaseEmbedderConfig):
+    """Built-in default embedder (all-MiniLM-L6-v2, 384 dims).
+
+    Requires no API key; runs locally via pyseekdb's ONNX-backed
+    ``DefaultEmbeddingFunction``. Selected automatically when no embedder is
+    configured, so PowerMem can start with zero configuration.
+    """
+
+    _provider_name = "default"
+    _class_path = (
+        "powermem.integrations.embeddings.pyseekdb_default.PyseekdbDefaultEmbedding"
+    )
+
+    model_config = settings_config("EMBEDDING_", extra="allow", env_file=None)
+
+    model: Optional[str] = Field(default="all-MiniLM-L6-v2")
+    embedding_dims: Optional[int] = Field(default=384)
+
+
 class CustomEmbeddingConfig(BaseEmbedderConfig):
     model_config = settings_config("EMBEDDING_", extra="allow", env_file=None)

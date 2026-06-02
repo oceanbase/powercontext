@@ -14,7 +14,7 @@
 //
 // Environment variables:
 //
-//	POWERMEM_BASE_URL - Base URL of the PowerMem API server (default: http://localhost:8000)
+//	POWERMEM_BASE_URL - Base URL of the PowerMem API server (default: http://localhost:8848)
 //	POWERMEM_API_KEY  - API key for authentication (optional if auth is disabled)
 package main
 
@@ -47,7 +47,7 @@ func main() {
 func initClient() *Client {
 	baseURL := os.Getenv("POWERMEM_BASE_URL")
 	if baseURL == "" {
-		baseURL = "http://localhost:8000"
+		baseURL = "http://localhost:8848"
 	}
 
 	apiKey := os.Getenv("POWERMEM_API_KEY")
