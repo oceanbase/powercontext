@@ -1,15 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { buildMcpEntry, type McpServerEntry } from './mcp-entry';
 
 export interface ClaudeConfig {
   mcpServers?: {
-    powermem?: {
-      command?: string;
-      args?: string[];
-      env?: Record<string, string>;
-      url?: string;
-    };
+    powermem?: McpServerEntry;
   };
 }
 
@@ -19,24 +15,9 @@ export function generateClaudeConfig(
   useMCP = true,
   mcpServerPath?: string
 ): ClaudeConfig {
-  const base = backendUrl.replace(/\/+$/, '');
-  if (useMCP) {
-    if (mcpServerPath) {
-      return {
-        mcpServers: {
-          powermem: {
-            command: 'uvx',
-            args: ['powermem-mcp', 'stdio'],
-            env: apiKey ? { POWERMEM_API_KEY: apiKey } : undefined,
-          },
-        },
-      };
-    }
-    return {
-      mcpServers: {
-        powermem: { url: `${base}/mcp` },
-      },
-    };
+  const entry = buildMcpEntry(backendUrl, apiKey, useMCP, mcpServerPath);
+  if (entry) {
+    return { mcpServers: { powermem: entry } };
   }
   // HTTP mode: do not write MCP config so the client does not call /mcp
   return { mcpServers: {} };

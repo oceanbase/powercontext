@@ -1,16 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { buildMcpEntry, normalizeBackendUrl, type McpServerEntry } from './mcp-entry';
 
 export interface CodexConfig {
   contextProviders?: Record<string, unknown>;
   mcpServers?: {
-    powermem?: {
-      url?: string;
-      command?: string;
-      args?: string[];
-      env?: Record<string, string>;
-    };
+    powermem?: McpServerEntry;
   };
 }
 
@@ -20,17 +16,11 @@ export function generateCodexConfig(
   useMCP = true,
   mcpServerPath?: string
 ): CodexConfig {
-  const base = backendUrl.replace(/\/+$/, '');
-  if (useMCP) {
-    const config: CodexConfig = {
-      mcpServers: {
-        powermem: mcpServerPath
-          ? { command: 'uvx', args: ['powermem-mcp', 'stdio'], env: apiKey ? { POWERMEM_API_KEY: apiKey } : undefined }
-          : { url: `${base}/mcp` },
-      },
-    };
-    return config;
+  const entry = buildMcpEntry(backendUrl, apiKey, useMCP, mcpServerPath);
+  if (entry) {
+    return { mcpServers: { powermem: entry } };
   }
+  const base = normalizeBackendUrl(backendUrl);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) headers['X-API-Key'] = apiKey;
   return {

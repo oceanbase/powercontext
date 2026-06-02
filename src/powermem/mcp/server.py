@@ -554,23 +554,23 @@ def main() -> None:
     Start the PowerMem MCP server.
 
     Transport is selected via the first CLI argument (default: ``streamable-http``).
-    Port is the second argument (default: ``8000``).
+    Port is the second argument (default: ``8848``, same as ``powermem-server``).
 
     Usage::
 
-        powermem-mcp                          # streamable-http, port 8000
-        powermem-mcp sse                      # SSE, port 8000
-        powermem-mcp sse 8001                 # SSE, port 8001
+        powermem-mcp                          # streamable-http, port 8848
+        powermem-mcp sse                      # SSE, port 8848
+        powermem-mcp sse 9000                 # SSE, custom port
         powermem-mcp stdio                    # stdio / JSON-RPC
-        powermem-mcp streamable-http 8001
+        powermem-mcp streamable-http 9000
     """
     transport = sys.argv[1] if len(sys.argv) > 1 else "streamable-http"
-    port = 8000
+    port = 8848
     if len(sys.argv) > 2:
         try:
             port = int(sys.argv[2])
         except ValueError:
-            print(f"Invalid port '{sys.argv[2]}', using 8000", file=sys.stderr)
+            print(f"Invalid port '{sys.argv[2]}', using 8848", file=sys.stderr)
 
     path = "/mcp"
 

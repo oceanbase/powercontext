@@ -43,7 +43,7 @@ jobs:
           cd apps/vscode-extension
           npm ci
           npm run compile
-          npx @vscode/vsce package --no-dependencies
+          npx @vscode/vsce package --no-dependencies --no-rewrite-relative-links
           mkdir -p ../.vsix
           cp *.vsix ../.vsix/
 

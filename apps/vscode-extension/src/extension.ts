@@ -19,7 +19,8 @@ let isEnabled = true;
 let userId = '';
 let autoCaptureOnSave = false;
 let autoCaptureInclude = '**/*.md,**/*.txt,**/docs/**';
-let autoCaptureMaxChars = 8000;
+const AUTO_CAPTURE_MAX_CHARS_DEFAULT = 8848;
+let autoCaptureMaxChars = AUTO_CAPTURE_MAX_CHARS_DEFAULT;
 let chatAutoSummarizeTurns = 10;
 let chatAutoRetrieve = true;
 let seamlessMode = true;
@@ -119,7 +120,13 @@ async function showMenu(): Promise<void> {
     { label: '$(add) Add selection to memory', action: 'add' },
     { label: '$(pencil) Quick note', action: 'note' },
     { label: '$(dashboard) Dashboard', action: 'dashboard' },
-    { label: useMCP ? '$(server-process) Switch to HTTP' : '$(link) Switch to MCP', action: 'toggleMcp' },
+    {
+      label: useMCP ? '$(server-process) Switch to HTTP' : '$(link) Switch to MCP',
+      description: useMCP
+        ? 'Removes Cursor MCP entry — Cursor will no longer use PowerMem via MCP'
+        : 'Restore MCP config for Cursor and linked tools',
+      action: 'toggleMcp',
+    },
     { label: '$(gear) Setup', action: 'setup' },
     { label: '$(refresh) Reconnect', action: 'reconnect' },
     { label: '$(circle-slash) Disable', action: 'disable' },
@@ -143,6 +150,16 @@ async function showMenu(): Promise<void> {
       vscode.commands.executeCommand('powermem.dashboard');
       break;
     case 'toggleMcp':
+      if (useMCP) {
+        const confirm = await vscode.window.showWarningMessage(
+          'HTTP mode removes the PowerMem entry from ~/.cursor/mcp.json. Cursor will disconnect from PowerMem MCP (other tools may use HTTP context instead). Continue?',
+          { modal: true },
+          'Switch to HTTP'
+        );
+        if (confirm !== 'Switch to HTTP') {
+          break;
+        }
+      }
       useMCP = !useMCP;
       await vscode.workspace.getConfiguration('powermem').update('connectionMode', useMCP ? 'mcp' : 'http', vscode.ConfigurationTarget.Global);
       await autoLinkAll();
@@ -244,7 +261,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const explicitOnSave = explicitAutoCapture?.workspaceValue ?? explicitAutoCapture?.globalValue;
   autoCaptureOnSave = explicitOnSave !== undefined ? explicitOnSave : seamlessMode;
   autoCaptureInclude = config.get<string>('autoCapture.include') ?? '**/*.md,**/*.txt,**/docs/**';
-  autoCaptureMaxChars = Math.max(500, config.get<number>('autoCapture.maxChars') ?? 8000);
+  autoCaptureMaxChars = Math.max(500, config.get<number>('autoCapture.maxChars') ?? AUTO_CAPTURE_MAX_CHARS_DEFAULT);
   chatAutoSummarizeTurns = Math.max(0, config.get<number>('chat.autoSummarizeEveryNTurns') ?? 10);
   chatAutoRetrieve = config.get<boolean>('chat.autoRetrieve') ?? true;
   userId = getUserId(context, config);
@@ -358,7 +375,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const explicitOnSave = explicitAutoCapture?.workspaceValue ?? explicitAutoCapture?.globalValue;
       autoCaptureOnSave = explicitOnSave !== undefined ? explicitOnSave : seamlessMode;
       autoCaptureInclude = c.get<string>('autoCapture.include') ?? '**/*.md,**/*.txt,**/docs/**';
-      autoCaptureMaxChars = Math.max(500, c.get<number>('autoCapture.maxChars') ?? 8000);
+      autoCaptureMaxChars = Math.max(500, c.get<number>('autoCapture.maxChars') ?? AUTO_CAPTURE_MAX_CHARS_DEFAULT);
       chatAutoSummarizeTurns = Math.max(0, c.get<number>('chat.autoSummarizeEveryNTurns') ?? 10);
       chatAutoRetrieve = c.get<boolean>('chat.autoRetrieve') ?? true;
       // Re-link AI tools when connection/backend config changes so user does not need to click "Link to AI tools"

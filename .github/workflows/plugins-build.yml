@@ -54,7 +54,7 @@ jobs:
         run: npm install -g @vscode/vsce
 
       - name: Package .vsix
-        run: vsce package --no-dependencies
+        run: vsce package --no-dependencies --no-rewrite-relative-links
         id: vsce
 
       - name: Upload VS Code extension (.vsix)

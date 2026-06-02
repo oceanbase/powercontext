@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { buildMcpEntry, normalizeBackendUrl } from './mcp-entry';
 
 export interface CopilotConfig {
   name: string;
@@ -17,20 +18,18 @@ export function generateCopilotConfig(
   useMCP = true,
   mcpServerPath?: string
 ): CopilotConfig {
-  const base = backendUrl.replace(/\/+$/, '');
-  if (useMCP) {
-    const config: CopilotConfig = {
-      name: 'PowerMem',
-      type: 'mcp',
-      mcpServer: { command: 'uvx', args: ['powermem-mcp', 'stdio'] },
-    };
-    if (mcpServerPath) {
-      config.mcpServer = { command: 'uvx', args: ['powermem-mcp', 'stdio'], env: apiKey ? { POWERMEM_API_KEY: apiKey } : undefined };
-    } else {
-      (config as CopilotConfig & { url: string }).url = `${base}/mcp`;
+  const entry = buildMcpEntry(backendUrl, apiKey, useMCP, mcpServerPath);
+  if (entry) {
+    if (entry.command && entry.args) {
+      return {
+        name: 'PowerMem',
+        type: 'mcp',
+        mcpServer: { command: entry.command, args: entry.args, env: entry.env },
+      };
     }
-    return config;
+    return { name: 'PowerMem', type: 'mcp', url: entry.url! };
   }
+  const base = normalizeBackendUrl(backendUrl);
   const c: CopilotConfig = {
     name: 'PowerMem',
     type: 'context_provider',

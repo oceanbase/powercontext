@@ -95,6 +95,22 @@ for the user's confirmation before writing. Never silently patch `.env`.**
       port), run from the directory holding the .env. Idempotent: if `claude mcp get
       powermem` already exists, remove it first, then add:
         claude mcp remove powermem 2>/dev/null; claude mcp add powermem -- uvx powermem-mcp stdio
+    - If registration succeeds but Claude reports the MCP server as failed, debug the
+      MCP process before retrying setup:
+        claude mcp list
+        claude mcp get powermem
+        command -v uvx
+        uvx powermem-mcp --help
+      Then run the MCP server directly from the same directory that contains `.env`
+      and capture stderr separately:
+        uvx powermem-mcp stdio >/tmp/powermem-mcp.stdout 2>/tmp/powermem-mcp.stderr &
+        MCP_PID=$!; sleep 10; kill "$MCP_PID" 2>/dev/null || true; wait "$MCP_PID" 2>/dev/null || true
+        sed -n '1,120p' /tmp/powermem-mcp.stderr
+        sed -n '1,40p' /tmp/powermem-mcp.stdout
+      Expected: stderr may contain normal startup diagnostics; stdout must be empty
+      until a JSON-RPC request arrives. If stdout contains banners, warnings, stack
+      traces, or any non-JSON text, Claude cannot parse the MCP stream. Fix that
+      output pollution before claiming the MCP path works.
 
 4. VERIFY with a real round-trip — do not claim success without data. Run the exact
    commands below and substitute nothing except the noted placeholder. Do NOT mark
@@ -143,8 +159,38 @@ for the user's confirmation before writing. Never silently patch `.env`.**
       Seeing both proves PowerMem loads automatically in every `claude`/`claude -p`.
 
    PIP/MCP path: confirm `claude mcp list` shows powermem as "connected" (not
-   "failed"). If it shows failed, run `claude mcp get powermem` and verify the
-   configured command resolves on PATH.
+   "failed"). If it shows failed, run the MCP diagnostics below and do not report
+   success until the direct MCP process starts cleanly and Claude shows it connected.
+
+   a. Inspect Claude's registered MCP config and status:
+        claude mcp list
+        claude mcp get powermem
+      Verify the command is exactly `uvx powermem-mcp stdio` unless you intentionally
+      chose a different binary. Also verify `command -v uvx` succeeds in the same
+      shell where `claude` runs.
+
+   b. Run the MCP server directly and inspect both streams:
+        uvx powermem-mcp stdio >/tmp/powermem-mcp.stdout 2>/tmp/powermem-mcp.stderr &
+        MCP_PID=$!; sleep 10; kill "$MCP_PID" 2>/dev/null || true; wait "$MCP_PID" 2>/dev/null || true
+        sed -n '1,120p' /tmp/powermem-mcp.stderr
+        sed -n '1,40p' /tmp/powermem-mcp.stdout
+      Interpret the output:
+        - stderr has import errors: install/repair the package or virtual environment.
+        - stderr has missing LLM/API key/config errors: fix `.env` after asking the
+          user for approval; never silently patch `.env`.
+        - stderr has model download or network timeouts: pre-download the model or
+          switch to a configured remote embedder.
+        - stdout has non-JSON text before any request: remove noisy prints/logging
+          from stdout; MCP stdio stdout is protocol-only.
+        - both files are empty after timeout: the process likely started and waited
+          for JSON-RPC input; continue with Claude-side connection checks.
+
+   c. If direct startup is clean but Claude still says failed, refresh the registration:
+        claude mcp remove powermem
+        claude mcp add powermem -- uvx powermem-mcp stdio
+        claude mcp list
+      If it still fails, start Claude with debug logging if available in the installed
+      Claude Code version, then look for the first MCP spawn or JSON-RPC parse error.
 
 5. SUMMARIZE: path taken, where .env lives, where the staged marketplace lives
    (~/.claude/marketplaces/powermem — independent of this repo), the server URL,
@@ -233,6 +279,29 @@ If the model is not cached, download it manually:
 ```bash
 python -c "from modelscope import snapshot_download; snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')"
 ```
+
+#### [E007] Claude MCP Server Shows Failed
+**Problem**: `claude mcp list` shows `powermem` as failed or disconnected.
+**Fix**: Inspect Claude's registered command, then run the MCP server directly and
+check stdout/stderr separately:
+```bash
+claude mcp list
+claude mcp get powermem
+command -v uvx
+uvx powermem-mcp --help
+
+uvx powermem-mcp stdio >/tmp/powermem-mcp.stdout 2>/tmp/powermem-mcp.stderr &
+MCP_PID=$!; sleep 10; kill "$MCP_PID" 2>/dev/null || true; wait "$MCP_PID" 2>/dev/null || true
+sed -n '1,120p' /tmp/powermem-mcp.stderr
+sed -n '1,40p' /tmp/powermem-mcp.stdout
+```
+Diagnosis:
+- Import errors in stderr mean the package or virtual environment is broken.
+- Missing key/config errors mean `.env` must be corrected after user approval.
+- Network/model timeout errors mean the embedder or model cache needs attention.
+- Any banner, warning, stack trace, or non-JSON text in stdout breaks MCP stdio.
+- Empty stdout/stderr after 10 seconds usually means the process started and is
+  waiting for JSON-RPC input; re-check Claude-side registration next.
 
 ## PRE-CHECK & PREREQUISITES
 

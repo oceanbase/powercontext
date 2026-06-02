@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { normalizeBackendUrl } from './mcp-entry';
 
 export interface WindsurfConfig {
   contextProvider?: string;
@@ -15,7 +16,7 @@ export function generateWindsurfConfig(
   useMCP = true,
   mcpServerPath?: string
 ): WindsurfConfig {
-  const base = backendUrl.replace(/\/+$/, '');
+  const base = normalizeBackendUrl(backendUrl);
   if (useMCP) {
     if (mcpServerPath) {
       return { contextProvider: 'powermem-mcp', mcp: { configPath: mcpServerPath } };

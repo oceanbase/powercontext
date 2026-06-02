@@ -1,16 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { buildMcpEntry, type McpServerEntry } from './mcp-entry';
 
 /** Cursor: ~/.cursor/mcp.json (global) or project .cursor/mcp.json. We write global. */
 export interface CursorMcpConfig {
   mcpServers?: {
-    powermem?: {
-      url?: string;
-      command?: string;
-      args?: string[];
-      env?: Record<string, string>;
-    };
+    powermem?: McpServerEntry;
   };
 }
 
@@ -20,24 +16,9 @@ export function generateCursorConfig(
   useMCP = true,
   mcpServerPath?: string
 ): CursorMcpConfig {
-  const base = backendUrl.replace(/\/+$/, '');
-  if (useMCP) {
-    if (mcpServerPath) {
-      return {
-        mcpServers: {
-          powermem: {
-            command: 'uvx',
-            args: ['powermem-mcp', 'stdio'],
-            env: apiKey ? { POWERMEM_API_KEY: apiKey } : undefined,
-          },
-        },
-      };
-    }
-    return {
-      mcpServers: {
-        powermem: { url: `${base}/mcp` },
-      },
-    };
+  const entry = buildMcpEntry(backendUrl, apiKey, useMCP, mcpServerPath);
+  if (entry) {
+    return { mcpServers: { powermem: entry } };
   }
   // HTTP mode: do not add MCP config; caller will remove existing powermem entry
   return { mcpServers: {} };

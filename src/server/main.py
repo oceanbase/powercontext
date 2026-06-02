@@ -31,8 +31,22 @@ logger = logging.getLogger("server")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+def _load_mcp_asgi_app():
+    """Return streamable HTTP MCP ASGI app when powermem[mcp] is installed."""
+    try:
+        from powermem.mcp.server import mcp
+
+        return mcp.http_app(path="/mcp", transport="streamable-http")
+    except ImportError as exc:
+        logger.warning("MCP extras not installed; /mcp endpoint disabled: %s", exc)
+        return None
+
+
+mcp_asgi_app = _load_mcp_asgi_app()
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def _service_lifespan(app: FastAPI):
     """Initialize shared service singletons at startup and clean up on shutdown."""
     from .services.memory_service import MemoryService
     from .services.search_service import SearchService
@@ -56,6 +70,18 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down services...")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run MCP session manager (when available) together with API service init."""
+    if mcp_asgi_app is not None:
+        async with mcp_asgi_app.router.lifespan_context(app):
+            async with _service_lifespan(app):
+                yield
+    else:
+        async with _service_lifespan(app):
+            yield
 
 
 # Create FastAPI app
@@ -100,6 +126,11 @@ if os.path.exists(dashboard_dist):
 # Include API routers
 app.include_router(v1_router)
 
+# Streamable HTTP MCP on the same port as the REST API (requires powermem[mcp])
+if mcp_asgi_app is not None:
+    app.mount("", mcp_asgi_app)
+    logger.info("Mounted PowerMem MCP at /mcp")
+
 # Add exception handlers
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_exception_handler(StarletteHTTPException, error_handler)
@@ -121,6 +152,7 @@ async def root():
         "docs": "/docs",
         "dashboard": "/dashboard/",
         "health": "/api/v1/system/health",
+        "mcp": "/mcp" if mcp_asgi_app is not None else None,
     }
 
 

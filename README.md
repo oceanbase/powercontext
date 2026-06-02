@@ -39,16 +39,40 @@ Reproduce: [`benchmark/`](benchmark/). Under the hood: **two-layer Experience + 
 
 ## Integrations — pick your client, copy one line
 
-PowerMem ships first-party plugins for the most common AI clients. All of them point at the same backend (HTTP server or local `pmem` CLI) — no per-client schema rewrites.
+PowerMem ships first-party plugins and setup guides for the most common AI clients. All of them point at the same backend (HTTP server, MCP server, or local `pmem` CLI) — no per-client schema rewrites. All agents share the same memory server.
 
-| Client / framework | One-line install | Mode |
-|--------------------|------------------|------|
-| OpenClaw (ClawdBot) | `openclaw plugins install memory-powermem` | CLI (default), HTTP optional |
-| Claude Code | `git clone https://github.com/oceanbase/powermem`, then tell Claude Code: *"Read and follow `apps/claude-code-plugin/SETUP.md`"* ([details](#claude-code)) | HTTP (default), MCP optional |
-| Cursor / VS Code / Codex / Windsurf / GitHub Copilot | Install the [PowerMem VS Code extension](apps/vscode-extension/) and run **PowerMem: Link to AI tools** | MCP or HTTP, per client |
-| Claude Desktop / Cline / any MCP client | `uvx powermem-mcp sse` | MCP (SSE / stdio / streamable-http) |
-| LangChain / LangGraph | `pip install powermem`, see [examples](#examples) | Python SDK |
-| Go / Java / TypeScript apps | See [SDKs](#sdks) below | HTTP REST |
+### AI agents & IDEs
+
+<table>
+<tr>
+<td align="center" width="120"><a href="#claude-code"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /></a><br /><a href="#claude-code"><sub><b>Claude Code</b></sub></a></td>
+<td align="center" width="120"><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/cursor_dark.svg"><img src="https://svgl.app/library/cursor_light.svg" alt="Cursor" width="48" height="48" /></picture></a><br /><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><sub><b>Cursor</b></sub></a></td>
+<td align="center" width="120"><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><img src="https://svgl.app/library/vscode.svg" alt="VS Code" width="48" height="48" /></a><br /><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><sub><b>VS Code</b></sub></a></td>
+<td align="center" width="120"><a href="#any-mcp-client"><img src="https://github.com/openai.png?size=120" alt="Codex" width="48" height="48" /></a><br /><a href="#any-mcp-client"><sub><b>Codex</b></sub></a></td>
+<td align="center" width="120"><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/windsurf-dark.svg"><img src="https://svgl.app/library/windsurf-light.svg" alt="Windsurf" width="48" height="48" /></picture></a><br /><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><sub><b>Windsurf</b></sub></a></td>
+<td align="center" width="120"><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><img src="https://github.githubassets.com/images/modules/site/copilot/copilot.png" alt="GitHub Copilot" width="48" height="48" /></a><br /><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><sub><b>GitHub Copilot</b></sub></a></td>
+</tr>
+<tr>
+<td align="center" width="120"><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><img src="https://github.com/QoderAI.png?size=120" alt="Qoder" width="48" height="48" /></a><br /><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><sub><b>Qoder</b></sub></a></td>
+<td align="center" width="120"><a href="#any-mcp-client"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/opencode-dark.svg"><img src="https://svgl.app/library/opencode.svg" alt="OpenCode" width="48" height="48" /></picture></a><br /><a href="#any-mcp-client"><sub><b>OpenCode</b></sub></a></td>
+<td align="center" width="120"><a href="#openclaw-clawdbot"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /></a><br /><a href="#openclaw-clawdbot"><sub><b>OpenClaw</b></sub></a></td>
+<td align="center" width="120"><a href="#any-mcp-client"><img src="https://github.com/anthropics.png?size=120" alt="Claude Desktop" width="48" height="48" /></a><br /><a href="#any-mcp-client"><sub><b>Claude Desktop</b></sub></a></td>
+<td align="center" width="120"><a href="#any-mcp-client"><img src="https://github.com/cline.png?size=120" alt="Cline" width="48" height="48" /></a><br /><a href="#any-mcp-client"><sub><b>Cline</b></sub></a></td>
+<td></td>
+</tr>
+</table>
+
+### SDKs & apps
+
+| App / framework | Details |
+|-----------------|---------|
+| Python SDK | `pip install powermem`, see [Quick start](#quick-start-python-sdk) |
+| LangChain / LangGraph | `pip install powermem`, see [LangChain guide](docs/integrations/langchain.md) |
+| Go apps | [SDKs](#sdks) |
+| Java apps | [SDKs](#sdks) |
+| TypeScript apps | [SDKs](#sdks) |
+| Any MCP client | `uvx powermem-mcp sse` (default :8848), see [MCP client guide](docs/integrations/mcp_client.md) |
+| HTTP REST apps | `powermem-server --host 0.0.0.0 --port 8848`, see [API server](docs/api/0005-api_server.md) |
 
 ### OpenClaw (ClawdBot)
 
@@ -59,6 +83,8 @@ openclaw plugins install memory-powermem
 ```
 
 Defaults to **CLI mode** — the plugin invokes a bundled `pmem` against SQLite under `~/.openclaw/`, using the model OpenClaw already injects. No separate server, no extra `.env`. Switch to **HTTP mode** when a team-shared PowerMem API is preferred (see the plugin's README for `requestConfig.memory_db`).
+
+Full guide: [OpenClaw integration](docs/integrations/openclaw.md).
 
 <div align="center">
 
@@ -89,39 +115,58 @@ Claude Code reads [`apps/claude-code-plugin/SETUP.md`](apps/claude-code-plugin/S
 
 Prefer to wire it by hand? See the full walkthrough — environment variables, MCP mode, the `remember` / `recall` skills, Windows hooks, troubleshooting, and uninstall — in **[docs/integrations/claude_code.md](docs/integrations/claude_code.md)**.
 
-### Cursor, VS Code, Codex, Windsurf, GitHub Copilot
+### Cursor, VS Code, Windsurf, GitHub Copilot, Qoder
 
-Install the **PowerMem VS Code extension** once (works in VS Code and Cursor). The **PowerMem: Link to AI tools** command auto-writes the right MCP or HTTP config for every supported client:
+#### Recommended setup — let your IDE agent set it up
 
-| Client | Config path written |
-|--------|---------------------|
-| Cursor | `~/.cursor/mcp.json` (merged) |
-| Claude (Desktop / Code) | `~/.claude/providers/powermem.json` |
-| Codex | `~/.codex/context.json` (merged) |
-| Windsurf | `~/.windsurf/context/powermem.json` |
-| GitHub Copilot | `~/.github/copilot/powermem.json` |
-
-The same extension also provides **Query memories**, **Add selection to memory**, **Quick note**, and a status-bar **Dashboard**. See [`apps/vscode-extension/README.md`](apps/vscode-extension/README.md).
-
-### Any MCP client (Claude Desktop, Cline, …)
+First download the code and enter the directory:
 
 ```bash
-uvx powermem-mcp sse                  # SSE on :8848 (recommended)
-uvx powermem-mcp stdio                # stdio
-uvx powermem-mcp streamable-http      # streamable HTTP
+git clone https://github.com/oceanbase/powermem
+cd powermem
 ```
 
-Client config (Claude Desktop and most MCP clients):
+Then open the AI agent window in your IDE and paste this one line:
 
-```json
-{
-  "mcpServers": {
-    "powermem": { "url": "http://localhost:8848/mcp" }
-  }
-}
+```text
+Read and follow apps/vscode-extension/SETUP.md to setup PowerMem
 ```
 
-Exposed tools: `add_memory`, `search_memories`, `get_memory_by_id`, `update_memory`, `delete_memory`, `delete_all_memories`, `list_memories`. Full reference: [MCP Server](docs/api/0004-mcp.md).
+The agent follows [`apps/vscode-extension/SETUP.md`](apps/vscode-extension/SETUP.md): it prefers a reusable `powermem-server` HTTP API backend, falls back to MCP-only only when HTTP is unavailable, and configures the current IDE/client instead of unrelated tools.
+
+#### Manual setup
+
+Prefer to wire it by hand? Use the per-IDE guide:
+
+| Client | Details |
+|--------|---------|
+| VS Code | [`docs/integrations/vs_code.md`](docs/integrations/vs_code.md) |
+| Cursor | [`docs/integrations/cursor.md`](docs/integrations/cursor.md) |
+| Windsurf | [`docs/integrations/windsurf.md`](docs/integrations/windsurf.md) |
+| GitHub Copilot | [`docs/integrations/github_copilot.md`](docs/integrations/github_copilot.md) |
+| Qoder | [`docs/integrations/qoder.md`](docs/integrations/qoder.md) |
+
+The same extension also provides **Query memories**, **Add selection to memory**, **Quick note**, and a status-bar **Dashboard**. See [`apps/vscode-extension/README.md`](apps/vscode-extension/README.md) and the full [VS Code guide](docs/integrations/vs_code.md).
+
+### Any MCP client 
+
+For Claude Desktop, Codex, Cline, OpenCode, Roo Code, Goose, or any other MCP-compatible client. please use MCP Client mode. 
+First download the code and enter the directory:
+
+```bash
+git clone https://github.com/oceanbase/powermem
+cd powermem
+```
+
+Then open the AI agent window in your MCP client or IDE and paste this one line:
+
+```text
+Read and follow apps/mcp-client/SETUP.md to setup PowerMem
+```
+
+The agent follows [`apps/mcp-client/SETUP.md`](apps/mcp-client/SETUP.md): it uses `powermem-mcp` directly, prefers SSE on port `8848`, falls back to streamable HTTP or stdio only when needed, and configures only the target MCP client.
+
+Prefer to wire it by hand? Use the [Generic MCP client guide](docs/integrations/mcp_client.md). To remove the integration later, follow [`apps/mcp-client/UNINSTALL.md`](apps/mcp-client/UNINSTALL.md). Exposed tools: `add_memory`, `search_memories`, `get_memory_by_id`, `update_memory`, `delete_memory`, `delete_all_memories`, `list_memories`. Full reference: [MCP Server](docs/api/0004-mcp.md). Client-specific notes: [Cline](docs/integrations/cline.md), [Codex](docs/integrations/codex.md), and [OpenCode](docs/integrations/opencode.md).
 
 ### LangChain & LangGraph
 
@@ -133,6 +178,8 @@ End-to-end runnable demos:
 
 - [LangChain healthcare bot](examples/langchain/README.md)
 - [LangGraph customer service bot](examples/langgraph/README.md)
+
+Full framework guide: [LangChain and LangGraph integration](docs/integrations/langchain.md).
 
 ### SDKs
 
@@ -147,7 +194,7 @@ End-to-end runnable demos:
 
 ## Quick start (Python SDK)
 
-**Prerequisites:** Copy [.env.example](.env.example) to `.env` and set your **LLM** API key — that is the only required credential. The default storage is the **OceanBase** provider with no host configured, which boots **embedded seekdb** on disk (same engine, no separate server, data under `./seekdb_data`); set `OCEANBASE_HOST` to point at a remote OceanBase cluster instead, or switch to `sqlite` / `postgres`. The default embedder is a local `all-MiniLM-L6-v2` model (384 dims) that needs no API key and auto-downloads on first use. Need to tune providers or unlock advanced features? Copy [.env.example.full](.env.example.full) instead — it documents every available knob, grouped by component. After install, `pmem config init` walks you through the same setup interactively. See [Getting started](docs/guides/0001-getting_started.md).
+**Prerequisites:** Copy [.env.example](.env.example) to `.env` and set your **LLM** API key — that is the only required credential. The default storage is the **OceanBase** provider with no host configured, which boots **embedded seekdb** on disk (same engine, no separate server, data under `./seekdb_data`); set `OCEANBASE_HOST` to point at a remote OceanBase cluster instead, or switch to `sqlite` / `postgres`. The default embedded LLM is a local `all-MiniLM-L6-v2` model (384 dims) that needs no API key and auto-downloads on first use. Need to tune providers or unlock advanced features? Copy [.env.example.full](.env.example.full) instead — it documents every available knob, grouped by component. After install, `pmem config init` walks you through the same setup interactively. See [Getting started](docs/guides/0001-getting_started.md).
 
 ### Install
 
