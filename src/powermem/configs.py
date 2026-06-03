@@ -38,7 +38,18 @@ class IntelligentMemoryConfig(BaseModel):
     )
     decay_rate: float = Field(
         default=0.1,
-        description="Rate at which memories decay over time"
+        description="Base memory decay strength; larger values decay slower"
+    )
+    decay_rate_multipliers: Dict[str, float] = Field(
+        default_factory=lambda: {
+            "working": 0.5,
+            "short_term": 1.5,
+            "long_term": 2.0,
+        },
+        description=(
+            "Per memory_type multiplier on base decay_rate. Larger multipliers "
+            "decay slower and should satisfy working < short_term < long_term."
+        ),
     )
     reinforcement_factor: float = Field(
         default=0.3,

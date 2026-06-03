@@ -291,6 +291,13 @@ class IntelligentMemorySettings(_BasePowermemSettings):
     enabled: bool = Field(default=True)
     initial_retention: float = Field(default=1.0)
     decay_rate: float = Field(default=0.1)
+    decay_rate_multipliers: Dict[str, float] = Field(
+        default_factory=lambda: {
+            "working": 0.5,
+            "short_term": 1.5,
+            "long_term": 2.0,
+        }
+    )
     reinforcement_factor: float = Field(default=0.3)
     working_threshold: float = Field(default=0.3)
     short_term_threshold: float = Field(default=0.6)
