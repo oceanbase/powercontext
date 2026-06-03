@@ -295,6 +295,8 @@ class IntelligentMemorySettings(_BasePowermemSettings):
     working_threshold: float = Field(default=0.3)
     short_term_threshold: float = Field(default=0.6)
     long_term_threshold: float = Field(default=0.8)
+    review_adjustment_factor: float = Field(default=0.3)
+    review_interval_min_hours: float = Field(default=0.5)
     fallback_to_simple_add: bool = Field(default=False)
 
     def to_config(self) -> Dict[str, Any]:

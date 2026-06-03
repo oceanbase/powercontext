@@ -56,6 +56,14 @@ class IntelligentMemoryConfig(BaseModel):
         default=0.8,
         description="Threshold for long-term memory classification"
     )
+    review_adjustment_factor: float = Field(
+        default=0.3,
+        description="How strongly importance shortens review intervals (0-1 scale)",
+    )
+    review_interval_min_hours: float = Field(
+        default=0.5,
+        description="Minimum hours between scheduled reviews",
+    )
     fallback_to_simple_add: bool = Field(
         default=False,
         description="Whether to fallback to simple add mode when intelligent processing fails (no facts extracted or no actions returned)"
