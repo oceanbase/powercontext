@@ -178,9 +178,11 @@ class IntelligentMemoryManager:
                     result, query
                 )
                 
-                # Apply decay based on age
+                # Apply decay based on age and memory type
+                decay_rate = self.ebbinghaus_algorithm._resolve_decay_rate(result)
                 decay_factor = self.ebbinghaus_algorithm.calculate_decay(
-                    result.get("created_at", get_current_datetime())
+                    result.get("created_at", get_current_datetime()),
+                    decay_rate=decay_rate,
                 )
                 
                 # Update result with processed information

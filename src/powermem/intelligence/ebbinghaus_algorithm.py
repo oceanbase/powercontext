@@ -17,6 +17,11 @@ class EbbinghausAlgorithm:
     """
     Implements Ebbinghaus forgetting curve algorithm for memory management.
     """
+    DEFAULT_DECAY_RATE_MULTIPLIERS = {
+        "working": 0.5,
+        "short_term": 1.5,
+        "long_term": 2.0,
+    }
     
     def __init__(self, config: Dict[str, Any]):
         """
@@ -30,6 +35,9 @@ class EbbinghausAlgorithm:
         # Ebbinghaus curve parameters
         self.initial_retention = config.get("initial_retention", 1.0)
         self.decay_rate = config.get("decay_rate", 0.1)
+        self.decay_rate_multipliers = self._load_decay_rate_multipliers(
+            config.get("decay_rate_multipliers")
+        )
         self.reinforcement_factor = config.get("reinforcement_factor", 0.3)
         
         # Memory type thresholds
@@ -118,12 +126,17 @@ class EbbinghausAlgorithm:
                 }
             }
     
-    def calculate_decay(self, created_at) -> float:
+    def calculate_decay(
+        self,
+        created_at,
+        decay_rate: Optional[float] = None,
+    ) -> float:
         """
         Calculate decay factor based on time elapsed.
         
         Args:
             created_at: When the memory was created (datetime object or ISO string)
+            decay_rate: Per-memory strength parameter. Larger values decay slower.
             
         Returns:
             Decay factor between 0 and 1
@@ -143,9 +156,14 @@ class EbbinghausAlgorithm:
             time_elapsed = get_current_datetime() - created_at
             hours_elapsed = time_elapsed.total_seconds() / 3600
             
+            rate = self.decay_rate if decay_rate is None else decay_rate
+            if rate <= 0:
+                logger.warning("Invalid decay_rate %s, falling back to default", rate)
+                rate = self.decay_rate
+            
             # Ebbinghaus forgetting curve: R = e^(-t/S)
-            # where R is retention, t is time, S is strength
-            decay_factor = math.exp(-hours_elapsed / (24 * self.decay_rate))
+            # where R is retention, t is time, S is strength.
+            decay_factor = math.exp(-hours_elapsed / (24 * rate))
             
             return max(decay_factor, 0.0)
             
@@ -236,7 +254,10 @@ class EbbinghausAlgorithm:
             # Check decay factor
             created_at = memory.get("created_at")
             if created_at:
-                decay_factor = self.calculate_decay(created_at)
+                decay_factor = self.calculate_decay(
+                    created_at,
+                    decay_rate=self._resolve_decay_rate(memory),
+                )
                 if decay_factor < self.working_threshold:
                     return True
             
@@ -319,14 +340,70 @@ class EbbinghausAlgorithm:
             logger.error(f"Failed to get review schedule: {e}")
             return []
     
+    def _load_decay_rate_multipliers(
+        self, raw: Optional[Dict[str, Any]]
+    ) -> Dict[str, float]:
+        """Load per-memory-type decay multipliers with safe defaults."""
+        multipliers = self.DEFAULT_DECAY_RATE_MULTIPLIERS.copy()
+        if raw:
+            for memory_type, value in raw.items():
+                try:
+                    multiplier = float(value)
+                except (TypeError, ValueError):
+                    logger.warning("Invalid decay multiplier for %s: %s", memory_type, value)
+                    continue
+                if multiplier > 0:
+                    multipliers[memory_type] = multiplier
+        self._validate_decay_rate_multipliers(multipliers)
+        return multipliers
+
+    def _validate_decay_rate_multipliers(
+        self, multipliers: Dict[str, float]
+    ) -> None:
+        """Warn when default tier ordering would not make higher tiers last longer."""
+        working = multipliers.get("working", self.decay_rate)
+        short_term = multipliers.get("short_term", self.decay_rate)
+        long_term = multipliers.get("long_term", self.decay_rate)
+        if not working < short_term < long_term:
+            logger.warning(
+                "decay_rate_multipliers should satisfy "
+                "working < short_term < long_term"
+            )
+    
     def _get_decay_rate_for_type(self, memory_type: str) -> float:
-        """Get decay rate based on memory type."""
-        decay_rates = {
-            "working": self.decay_rate * 2.0,  # Faster decay for working memory
-            "short_term": self.decay_rate * 1.5,  # Medium decay for short-term
-            "long_term": self.decay_rate,  # Standard decay for long-term
-        }
-        return decay_rates.get(memory_type, self.decay_rate)
+        """Get decay strength S based on memory type; larger S decays slower."""
+        multiplier = self.decay_rate_multipliers.get(memory_type)
+        if multiplier is None:
+            return self.decay_rate
+        return self.decay_rate * multiplier
+
+    def _resolve_decay_rate(self, memory: Dict[str, Any]) -> float:
+        """Resolve the effective decay strength for a memory dict."""
+        meta = memory.get("metadata") or {}
+        intelligence = meta.get("intelligence") or memory.get("intelligence") or {}
+
+        memory_type = (
+            memory.get("memory_type")
+            or meta.get("memory_type")
+            or intelligence.get("memory_type")
+        )
+        if memory_type:
+            return self._get_decay_rate_for_type(memory_type)
+
+        stored = (
+            memory.get("decay_rate")
+            or meta.get("decay_rate")
+            or intelligence.get("decay_rate")
+        )
+        if stored is not None:
+            try:
+                rate = float(stored)
+            except (TypeError, ValueError):
+                logger.warning("Invalid stored decay_rate: %s", stored)
+            else:
+                if rate > 0:
+                    return rate
+        return self.decay_rate
     
     def _parse_datetime(self, value: Any) -> datetime:
         """Parse datetime from object or ISO string."""
