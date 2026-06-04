@@ -26,7 +26,7 @@ For Codex, OpenCode, and other generic MCP clients, use [`../mcp-client/SETUP.md
   2. Otherwise start the HTTP API server:
      `powermem-server --host 0.0.0.0 --port 8848`
   3. Fall back to MCP-only only when the HTTP API cannot be made healthy:
-     `uvx powermem-mcp streamable-http 8848`, `uvx powermem-mcp sse 8848`, or `uvx powermem-mcp stdio`
+     `powermem-mcp streamable-http 8848`, `powermem-mcp sse 8848`, or `powermem-mcp stdio`
 
 ## Recommended Setup
 

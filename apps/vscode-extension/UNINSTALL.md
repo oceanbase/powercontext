@@ -329,8 +329,8 @@ or local stdio fallback:
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"]
+      "command": "powermem-mcp",
+      "args": ["stdio"]
     }
   }
 }
@@ -368,8 +368,8 @@ Local stdio fallback:
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"],
+      "command": "powermem-mcp",
+      "args": ["stdio"],
       "env": {
         "POWERMEM_ENV_FILE": "/path/to/repo/.env"
       }

@@ -162,10 +162,10 @@ class PyseekdbDefaultEmbedding(EmbeddingBase):
 
         try:
             from pyseekdb.client.embedding_function import DefaultEmbeddingFunction
-        except ImportError as exc:  # pragma: no cover - pyseekdb is a hard dep
+        except ImportError as exc:
             raise ImportError(
                 "pyseekdb is required for the built-in default embedder. "
-                "Install it with `pip install pyseekdb`."
+                'Install it with: pip install "powermem[seekdb]"'
             ) from exc
 
         # Pre-load the model with cache-first fallback.  This ensures the

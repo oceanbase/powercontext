@@ -44,8 +44,8 @@ In MCP mode, the extension writes:
   "name": "PowerMem",
   "type": "mcp",
   "mcpServer": {
-    "command": "uvx",
-    "args": ["powermem-mcp", "stdio"]
+    "command": "powermem-mcp",
+    "args": ["stdio"]
   },
   "url": "http://localhost:8848/mcp"
 }
@@ -73,7 +73,7 @@ If your PowerMem server requires auth, the extension adds an `X-API-Key` authent
 ## Troubleshooting
 
 - If Copilot does not see PowerMem, confirm `~/.github/copilot/powermem.json` exists.
-- If MCP fails, verify `uvx powermem-mcp stdio` works or use remote MCP at `http://localhost:8848/mcp`.
+- If MCP fails, verify `powermem-mcp stdio` works or use remote MCP at `http://localhost:8848/mcp`.
 - If HTTP mode fails with auth errors, rerun **PowerMem: Setup** and set the API key.
 
 ## Uninstall

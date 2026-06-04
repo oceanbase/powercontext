@@ -37,6 +37,10 @@ For **OpenClaw**, use the separate [`memory-powermem`](https://github.com/ob-lab
 
 Each setup guide is **idempotent**: re-running it reuses an existing healthy backend and updates the target client config instead of duplicating entries.
 
+For manual installs, `powermem[server]` provides the HTTP API server and `powermem[mcp]`
+provides the MCP entry point. Add `seekdb` (for example `powermem[server,seekdb]` or
+`powermem[mcp,seekdb]`) when you want the default embedded seekdb storage/embedder.
+
 ## Backend strategy
 
 All setup flows share the same backend priority:
@@ -46,7 +50,7 @@ All setup flows share the same backend priority:
 2. **Start** the HTTP API server when needed:
    `powermem-server --host 0.0.0.0 --port 8848`
 3. **Fall back** to MCP-only only when HTTP is unavailable:
-   `uvx powermem-mcp sse 8848` (or streamable HTTP / stdio when the target client requires it)
+   `powermem-mcp sse 8848` (or streamable HTTP / stdio when the target client requires it)
 
 The `mcp-client/` path uses `powermem-mcp` directly and prefers SSE on port `8848`. The `vscode-extension/` path prefers the HTTP API and links the current IDE/client first. The `claude-code-plugin/` path defaults to HTTP hooks and optionally enables in-chat MCP tools.
 

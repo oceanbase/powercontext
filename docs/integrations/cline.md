@@ -7,8 +7,8 @@ Connect [Cline](https://github.com/cline/cline) to PowerMem through MCP.
 - Cline installed in VS Code or a compatible editor.
 - PowerMem configured with your LLM provider, API key, and model.
 - A PowerMem MCP endpoint:
-  - Local stdio: `uvx powermem-mcp stdio`
-  - Remote MCP: `uvx powermem-mcp streamable-http 8848` or `uvx powermem-mcp sse 8848`
+  - Local stdio: `powermem-mcp stdio`
+  - Remote MCP: `powermem-mcp streamable-http 8848` or `powermem-mcp sse 8848`
 
 ## Recommended setup
 
@@ -30,8 +30,8 @@ For local stdio MCP:
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"]
+      "command": "powermem-mcp",
+      "args": ["stdio"]
     }
   }
 }
@@ -60,7 +60,7 @@ If your PowerMem server requires auth, pass `POWERMEM_API_KEY` in the stdio envi
 
 ## Troubleshooting
 
-- If stdio MCP fails, run `uvx powermem-mcp stdio` in a terminal.
+- If stdio MCP fails, run `powermem-mcp stdio` in a terminal.
 - If remote MCP fails, confirm `http://localhost:8848/mcp` is reachable from Cline.
 - If tools time out, check PowerMem logs and your LLM/embedding configuration.
 

@@ -24,8 +24,12 @@ The agent follows [`apps/vscode-extension/SETUP.md`](https://github.com/oceanbas
 - Cursor with MCP support enabled.
 - A running PowerMem backend:
   - `powermem-server --host 0.0.0.0 --port 8848`
-  - or `uvx powermem-mcp sse` (default port 8848; same as `uvx powermem-mcp sse 8848`)
+  - or `powermem-mcp sse` (default port 8848; same as `powermem-mcp sse 8848`)
 - PowerMem configured with your LLM provider, API key, and model.
+
+Install `powermem[server]` for the HTTP API server. Install `powermem[mcp]` for the
+local MCP command, and add `seekdb` when using the default embedded seekdb
+storage/embedder.
 
 ## Manual setup
 
@@ -61,8 +65,8 @@ If you prefer stdio MCP, set **MCP server path** in **PowerMem: Setup** and reru
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"]
+      "command": "powermem-mcp",
+      "args": ["stdio"]
     }
   }
 }
@@ -79,7 +83,7 @@ If you prefer stdio MCP, set **MCP server path** in **PowerMem: Setup** and reru
 
 - If Cursor cannot connect, confirm `http://localhost:8848/api/v1/system/health` is healthy.
 - If `~/.cursor/mcp.json` already exists, the extension merges `mcpServers.powermem` and keeps other servers.
-- If stdio mode fails, confirm `uvx powermem-mcp stdio` runs in a terminal.
+- If stdio mode fails, confirm `powermem-mcp stdio` runs in a terminal.
 
 ## Uninstall
 

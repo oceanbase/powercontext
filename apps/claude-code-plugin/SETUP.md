@@ -52,7 +52,7 @@ for the user's confirmation before writing. Never silently patch `.env`.**
    Never echo my key back in full.
 
 3a. SOURCE path (global install):
-    - pip install -e .   (no-op if already installed editable from this checkout)
+    - pip install -e '.[server,seekdb]'   (no-op if already installed editable from this checkout with these extras)
     - Build the hook binaries FIRST — they get copied into Claude's plugin cache at
       install time, so they must exist on disk before step "install":
         if Go 1.22+ is present:  make build-claude-hook
@@ -89,21 +89,22 @@ for the user's confirmation before writing. Never silently patch `.env`.**
       now; every `claude` and `claude -p` loads it automatically.
 
 3b. PIP path:
-    - Ensure uvx is available (offer to install uv if missing), then:
-      pip install powermem
+    - Install the MCP extra in the environment that Claude will use, then:
+      pip install "powermem[mcp,seekdb]"
+      powermem-mcp --help
     - Register the MCP server globally so it persists across sessions (stdio = no
       port), run from the directory holding the .env. Idempotent: if `claude mcp get
       powermem` already exists, remove it first, then add:
-        claude mcp remove powermem 2>/dev/null; claude mcp add powermem -- uvx powermem-mcp stdio
+        claude mcp remove powermem 2>/dev/null; claude mcp add powermem -- powermem-mcp stdio
     - If registration succeeds but Claude reports the MCP server as failed, debug the
       MCP process before retrying setup:
         claude mcp list
         claude mcp get powermem
-        command -v uvx
-        uvx powermem-mcp --help
+        command -v powermem-mcp
+        powermem-mcp --help
       Then run the MCP server directly from the same directory that contains `.env`
       and capture stderr separately:
-        uvx powermem-mcp stdio >/tmp/powermem-mcp.stdout 2>/tmp/powermem-mcp.stderr &
+        powermem-mcp stdio >/tmp/powermem-mcp.stdout 2>/tmp/powermem-mcp.stderr &
         MCP_PID=$!; sleep 10; kill "$MCP_PID" 2>/dev/null || true; wait "$MCP_PID" 2>/dev/null || true
         sed -n '1,120p' /tmp/powermem-mcp.stderr
         sed -n '1,40p' /tmp/powermem-mcp.stdout
@@ -165,12 +166,12 @@ for the user's confirmation before writing. Never silently patch `.env`.**
    a. Inspect Claude's registered MCP config and status:
         claude mcp list
         claude mcp get powermem
-      Verify the command is exactly `uvx powermem-mcp stdio` unless you intentionally
-      chose a different binary. Also verify `command -v uvx` succeeds in the same
+      Verify the command is exactly `powermem-mcp stdio` unless you intentionally
+      chose a different binary. Also verify `command -v powermem-mcp` succeeds in the same
       shell where `claude` runs.
 
    b. Run the MCP server directly and inspect both streams:
-        uvx powermem-mcp stdio >/tmp/powermem-mcp.stdout 2>/tmp/powermem-mcp.stderr &
+        powermem-mcp stdio >/tmp/powermem-mcp.stdout 2>/tmp/powermem-mcp.stderr &
         MCP_PID=$!; sleep 10; kill "$MCP_PID" 2>/dev/null || true; wait "$MCP_PID" 2>/dev/null || true
         sed -n '1,120p' /tmp/powermem-mcp.stderr
         sed -n '1,40p' /tmp/powermem-mcp.stdout
@@ -187,7 +188,7 @@ for the user's confirmation before writing. Never silently patch `.env`.**
 
    c. If direct startup is clean but Claude still says failed, refresh the registration:
         claude mcp remove powermem
-        claude mcp add powermem -- uvx powermem-mcp stdio
+        claude mcp add powermem -- powermem-mcp stdio
         claude mcp list
       If it still fails, start Claude with debug logging if available in the installed
       Claude Code version, then look for the first MCP spawn or JSON-RPC parse error.
@@ -236,16 +237,14 @@ and their resolutions discovered during actual setup attempts:
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install -e .
+pip install -e '.[server,seekdb]'
 ```
 
 #### [E002] Missing Server Dependencies
 **Problem**: Server startup fails with missing packages
 **Fix**: Install missing dependencies
 ```bash
-pip install 'powermem[server]'
-pip install 'pyobvector[pyseekdb]'
-pip install loguru
+pip install 'powermem[server,seekdb]'
 ```
 
 #### [E003] SeekDB File Locking
@@ -287,10 +286,10 @@ check stdout/stderr separately:
 ```bash
 claude mcp list
 claude mcp get powermem
-command -v uvx
-uvx powermem-mcp --help
+command -v powermem-mcp
+powermem-mcp --help
 
-uvx powermem-mcp stdio >/tmp/powermem-mcp.stdout 2>/tmp/powermem-mcp.stderr &
+powermem-mcp stdio >/tmp/powermem-mcp.stdout 2>/tmp/powermem-mcp.stderr &
 MCP_PID=$!; sleep 10; kill "$MCP_PID" 2>/dev/null || true; wait "$MCP_PID" 2>/dev/null || true
 sed -n '1,120p' /tmp/powermem-mcp.stderr
 sed -n '1,40p' /tmp/powermem-mcp.stdout
@@ -320,10 +319,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install everything with extras
-pip install -e .
-pip install 'powermem[server]'
-pip install 'pyobvector[pyseekdb]'
-pip install loguru
+pip install -e '.[server,seekdb]'
 
 # Build and stage Claude hooks
 make build-claude-hook
@@ -344,10 +340,9 @@ powermem-server --host 0.0.0.0 --port 8848 &
 # Clean virtual environment approach
 python3 -m venv venv
 source venv/bin/activate
-pip install powermem
-pip install 'powermem[server]'
+pip install 'powermem[mcp,seekdb]'
 claude mcp remove powermem 2>/dev/null
-claude mcp add powermem -- uvx powermem-mcp stdio
+claude mcp add powermem -- powermem-mcp stdio
 ```
 
 ### Method C: Troubleshooting Installation

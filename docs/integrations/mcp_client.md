@@ -4,7 +4,9 @@ Use this guide for Claude Desktop, Cline, Codex, OpenCode, Roo Code, Goose, or a
 
 ## Prerequisites
 
-- PowerMem installed with MCP support, or `uvx` available.
+- PowerMem installed with MCP support. Use `powermem[mcp,seekdb]` for zero-config
+  local seekdb, or `powermem[mcp]` when your `.env` points at non-seekdb
+  storage/embedder providers.
 - PowerMem configured with your LLM provider, API key, and model.
 
 ## Start an MCP server
@@ -16,7 +18,7 @@ Choose one transport.
 Use stdio when the client can launch a local command:
 
 ```bash
-uvx powermem-mcp stdio
+powermem-mcp stdio
 ```
 
 Client config shape:
@@ -25,8 +27,8 @@ Client config shape:
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"]
+      "command": "powermem-mcp",
+      "args": ["stdio"]
     }
   }
 }
@@ -37,7 +39,7 @@ Client config shape:
 Use streamable HTTP for remote or long-running MCP:
 
 ```bash
-uvx powermem-mcp streamable-http 8848
+powermem-mcp streamable-http 8848
 ```
 
 Client config shape:
@@ -57,7 +59,7 @@ Client config shape:
 Use SSE when the client specifically expects SSE:
 
 ```bash
-uvx powermem-mcp sse 8848
+powermem-mcp sse 8848
 ```
 
 Use the same URL shape:
@@ -98,7 +100,8 @@ It also exposes user-profile tools when supported by the client.
 
 ## Troubleshooting
 
-- If stdio fails, confirm `uvx` is on `PATH` and `uvx powermem-mcp stdio` starts.
+- If stdio fails, confirm `powermem-mcp stdio` starts from the same environment
+  where you installed PowerMem.
 - If remote MCP fails, confirm the URL and port match the transport you started.
 - If auth is enabled, pass `POWERMEM_API_KEY` through env for stdio or configure headers for remote MCP.
 - If memory operations fail, check `.env`, LLM provider, embedding provider, and server logs.

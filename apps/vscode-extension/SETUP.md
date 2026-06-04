@@ -328,7 +328,7 @@ Merge into the IDE user `settings.json` (create `{}` if missing). Use Python or 
 | Probe result | `powermem.mcpServerPath` | `powermem.connectionMode` |
 |--------------|--------------------------|---------------------------|
 | HTTP 200/202 or valid MCP body | `""` (empty — use remote `{backendUrl}/mcp`) | `mcp` |
-| 404 or other failure | `"stdio"` (any non-empty value — extension launches `uvx powermem-mcp stdio`) | `mcp` |
+| 404 or other failure | `"stdio"` (any non-empty value — extension launches `powermem-mcp stdio`) | `mcp` |
 
 Always set at minimum:
 
@@ -626,15 +626,16 @@ setup:
 
 Tell the user which path you will take. For **SOURCE**, Step 2.3 installs
 `powermem-server` from this checkout when it is missing. For **PIP**, install
-`powermem[server]` instead.
+`powermem[server]` for the HTTP server only, or add `seekdb` when using the default
+embedded seekdb storage.
 
 ### Step 2.2 — Configure `.env` (interactive)
 
 PowerMem reads configuration from `.env` in the working directory where you start
 `powermem-server` or MCP. At minimum you need LLM provider, API key, and model — the
 same three variables documented in [`.env.example`](../../.env.example) at the repo
-root. Everything else in that file has safe defaults (embedded seekdb storage, local
-embedder).
+root. Everything else in that file has safe defaults, but the embedded seekdb storage
+path requires installing the `seekdb` extra.
 
 **Agents and humans must interactively collect values.** Ask the user to supply each
 setting in the chat (or via the IDE’s question UI). Do not silently reuse values from
@@ -716,7 +717,7 @@ powermem-server --help
 
   ```bash
   cd /path/to/powermem
-  pip install -e ".[server,mcp,cli]"
+  pip install -e ".[server,mcp,cli,seekdb]"
   ```
 
   Re-run `command -v powermem-server` to confirm the entry point is on `PATH`.
@@ -724,7 +725,7 @@ powermem-server --help
 - **PIP path:** install the server extra if missing:
 
   ```bash
-  pip install "powermem[server,mcp,cli]"
+  pip install "powermem[server,mcp,cli,seekdb]"
   ```
 
 If `pip install` fails with `externally-managed-environment`, create and use a virtual
@@ -733,8 +734,8 @@ environment in the repo root:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e ".[server,mcp,cli]"   # SOURCE path
-# or: pip install "powermem[server,mcp,cli]"   # PIP path
+pip install -e ".[server,mcp,cli,seekdb]"   # SOURCE path
+# or: pip install "powermem[server,mcp,cli,seekdb]"   # PIP path
 ```
 
 Backend startup priority for Section 3:
@@ -744,8 +745,8 @@ Backend startup priority for Section 3:
 2. If none exists, start from the directory containing `.env`:
    `powermem-server --host 0.0.0.0 --port 8848`
 3. If the HTTP API cannot be started, fall back to MCP-only:
-   `uvx powermem-mcp streamable-http 8848`
-4. Use `uvx powermem-mcp stdio` or `sse` only when the target client requires it.
+   `powermem-mcp streamable-http 8848`
+4. Use `powermem-mcp stdio` or `sse` only when the target client requires it.
 
 ## 3. Configure the backend
 
@@ -805,7 +806,7 @@ MCP-only server on the same port. MCP-only mode is for AI tools only; the extens
 UI still needs the HTTP API endpoints.
 
 ```bash
-uvx powermem-mcp streamable-http 8848
+powermem-mcp streamable-http 8848
 ```
 
 Then configure the MCP client with:
@@ -820,7 +821,7 @@ Then configure the MCP client with:
 }
 ```
 
-If `uvx powermem-mcp streamable-http 8848` fails, inspect its stderr before changing
+If `powermem-mcp streamable-http 8848` fails, inspect its stderr before changing
 client config. Common causes are missing package dependencies, missing `.env` values,
 or port 8848 already being in use by a `powermem-server` process that does not expose
 `/mcp`. Stop or replace that process before starting MCP-only mode on 8848.
@@ -829,13 +830,13 @@ Use local stdio only when the target client must launch MCP as a local command o
 cannot connect to remote streamable HTTP:
 
 ```bash
-uvx powermem-mcp stdio
+powermem-mcp stdio
 ```
 
 Use SSE only when the client explicitly requires SSE:
 
 ```bash
-uvx powermem-mcp sse 8848
+powermem-mcp sse 8848
 ```
 
 MCP-only is enough for MCP-native AI tools, but it does not provide the extension's HTTP endpoints such as `/api/v1/system/health` or `/api/v1/memories/search`.
@@ -851,7 +852,7 @@ MCP-only is enough for MCP-native AI tools, but it does not provide the extensio
 3. Set **Backend URL** to the healthy HTTP API server, usually `http://localhost:8848`.
 4. Set **API key** only if your server requires `X-API-Key`.
 5. Leave **MCP server path** empty only if the probe above confirms `{backendUrl}/mcp` works. If `{backendUrl}/mcp` returns 404, do not use **PowerMem: Link to AI Tools** to claim MCP is working. Keep the setup on port `8848` by either replacing the API server with a build that exposes `/mcp`, or by stopping the API server and running MCP-only mode on `8848`.
-6. Set **MCP server path** only for local stdio MCP, for example `uvx powermem-mcp stdio`.
+6. Set **MCP server path** only for local stdio MCP, for example `powermem-mcp stdio`.
 7. Run **Test connection**. If it fails and HTTP cannot be fixed, document that the setup is MCP-only and skip extension UI verification that depends on HTTP.
 
 The extension stores these settings under VS Code settings:
@@ -902,7 +903,7 @@ If the HTTP API server returns 404 for `/mcp`, do not switch to another port. Us
 MCP-only streamable HTTP on `8848`:
 
 ```bash
-uvx powermem-mcp streamable-http 8848
+powermem-mcp streamable-http 8848
 ```
 
 ```json
@@ -921,8 +922,8 @@ Use local stdio only when Cursor cannot connect to a remote MCP URL:
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"]
+      "command": "powermem-mcp",
+      "args": ["stdio"]
     }
   }
 }
@@ -978,8 +979,8 @@ Use local stdio only when Qoder cannot connect to remote streamable HTTP:
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"]
+      "command": "powermem-mcp",
+      "args": ["stdio"]
     }
   }
 }
@@ -988,7 +989,7 @@ Use local stdio only when Qoder cannot connect to remote streamable HTTP:
 For Qoder CLI:
 
 ```bash
-qodercli mcp add -s user powermem -- uvx powermem-mcp stdio
+qodercli mcp add -s user powermem -- powermem-mcp stdio
 ```
 
 Then reload MCP in Qoder if it is already running:
@@ -1090,7 +1091,7 @@ The extension calls `GET {powermem.backendUrl}/api/v1/system/health` on startup 
 - Confirm `powermem.backendUrl` in user settings matches the server URL (default `http://localhost:8848`).
 - If the server requires auth, set `powermem.apiKey`.
 - After fixing the backend, use **PowerMem → Reconnect** or restart the IDE once.
-- MCP-only (`uvx powermem-mcp streamable-http 8848` without HTTP API) does **not** satisfy the extension health check.
+- MCP-only (`powermem-mcp streamable-http 8848` without HTTP API) does **not** satisfy the extension health check.
 - Common setup mistake: install/restart the extension (Section 0.3) before `.env` and a healthy backend (Section 0.2) — always complete backend + `.env` first.
 
 ### AI tool does not see PowerMem
@@ -1111,9 +1112,9 @@ The extension calls `GET {powermem.backendUrl}/api/v1/system/health` on startup 
   followed by `Not Found` and an SSE fallback 404, the configured URL is wrong for
   the running process. Keep the port as `8848`; replace the running API server with
   one that exposes `/mcp`, or stop it and run
-  `uvx powermem-mcp streamable-http 8848` for MCP-only mode, then reload/restart the
+  `powermem-mcp streamable-http 8848` for MCP-only mode, then reload/restart the
   IDE.
-- If using stdio MCP, confirm `uvx powermem-mcp stdio` works on your `PATH`.
+- If using stdio MCP, confirm `powermem-mcp stdio` works on your `PATH`.
 - Check server logs for request errors and fix missing `.env` values.
 
 ## 7. Uninstall

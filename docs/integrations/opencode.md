@@ -29,8 +29,12 @@ The agent follows [`apps/mcp-client/SETUP.md`](https://github.com/oceanbase/powe
 - OpenCode installed.
 - A PowerMem backend:
   - Preferred for PowerMem UI/API features: `powermem-server --host 0.0.0.0 --port 8848`
-  - Preferred for OpenCode MCP tools: `uvx powermem-mcp stdio` or `uvx powermem-mcp streamable-http 8848`
+  - Preferred for OpenCode MCP tools: `powermem-mcp stdio` or `powermem-mcp streamable-http 8848`
 - PowerMem configured with your LLM provider, API key, and model.
+
+Install `powermem[server]` for the HTTP API server. Install `powermem[mcp]` for the
+local MCP command, and add `seekdb` when using the default embedded seekdb
+storage/embedder.
 
 ## Manual setup
 
@@ -58,7 +62,7 @@ For local use, add PowerMem under the `mcp` object:
   "mcp": {
     "powermem": {
       "type": "local",
-      "command": ["uvx", "powermem-mcp", "stdio"],
+      "command": ["powermem-mcp", "stdio"],
       "enabled": true
     }
   }
@@ -73,7 +77,7 @@ If your PowerMem server requires auth, pass environment variables:
   "mcp": {
     "powermem": {
       "type": "local",
-      "command": ["uvx", "powermem-mcp", "stdio"],
+      "command": ["powermem-mcp", "stdio"],
       "enabled": true,
       "environment": {
         "POWERMEM_API_KEY": "<your-api-key>"
@@ -88,7 +92,7 @@ If your PowerMem server requires auth, pass environment variables:
 Start a streamable HTTP MCP endpoint:
 
 ```bash
-uvx powermem-mcp streamable-http 8848
+powermem-mcp streamable-http 8848
 ```
 
 Then configure OpenCode:
@@ -118,8 +122,8 @@ If you expose PowerMem MCP behind a remote URL, replace `http://localhost:8848/m
 
 ## Troubleshooting
 
-- If local MCP fails, run `uvx powermem-mcp stdio` in a terminal and fix missing dependencies or `.env` values.
-- If remote MCP fails, verify `uvx powermem-mcp streamable-http 8848` is running and that `http://localhost:8848/mcp` is reachable from OpenCode.
+- If local MCP fails, run `powermem-mcp stdio` in a terminal and fix missing dependencies or `.env` values.
+- If remote MCP fails, verify `powermem-mcp streamable-http 8848` is running and that `http://localhost:8848/mcp` is reachable from OpenCode.
 - If tools time out, check PowerMem server logs and consider increasing the OpenCode MCP timeout.
 - If auth fails, set `POWERMEM_API_KEY` for local MCP or configure remote MCP headers.
 

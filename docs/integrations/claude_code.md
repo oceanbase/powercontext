@@ -75,10 +75,10 @@ Every available setting is documented under [Configuration](#configuration); `pm
 
 ### Step 3 — Install PowerMem and build the hook binaries
 
-`pip install -e .` provides the `powermem-server` and `pmem` commands; `make build-claude-hook` compiles the native Go hook binaries (requires **Go 1.22+**):
+`pip install -e '.[server,seekdb]'` provides the `powermem-server` and `pmem` commands plus the zero-config local seekdb path; `make build-claude-hook` compiles the native Go hook binaries (requires **Go 1.22+**):
 
 ```bash
-pip install -e .
+pip install -e '.[server,seekdb]'
 make build-claude-hook        # outputs apps/claude-code-plugin/hooks/bin/
 ```
 
@@ -215,14 +215,14 @@ After `apply-connection-mode.sh mcp`, edit `.mcp.json` or `config/mcp-mode.mcp.j
   "mcpServers": {
     "powermem": {
       "transport": "stdio",
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"]
+      "command": "powermem-mcp",
+      "args": ["stdio"]
     }
   }
 }
 ```
 
-Ensure PowerMem is installed (`pip install powermem`) and a `.env` is available when using stdio.
+Ensure PowerMem is installed (`pip install "powermem[mcp,seekdb]"`) and a `.env` is available when using stdio.
 
 ### HTTP mode: REST only (standard)
 

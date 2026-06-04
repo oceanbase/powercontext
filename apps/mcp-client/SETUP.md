@@ -168,8 +168,8 @@ For local stdio:
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"],
+      "command": "powermem-mcp",
+      "args": ["stdio"],
       "env": {
         "POWERMEM_ENV_FILE": "/absolute/path/to/powermem/.env"
       }
@@ -232,7 +232,7 @@ if target == "opencode":
     else:
         mcp["powermem"] = {
             "type": "local",
-            "command": ["uvx", "powermem-mcp", "stdio"],
+            "command": ["powermem-mcp", "stdio"],
             "enabled": True,
         }
         if repo_root:
@@ -243,8 +243,8 @@ else:
         servers["powermem"] = {"url": mcp_url}
     else:
         entry = {
-            "command": "uvx",
-            "args": ["powermem-mcp", "stdio"],
+            "command": "powermem-mcp",
+            "args": ["stdio"],
         }
         if repo_root:
             entry["env"] = {"POWERMEM_ENV_FILE": f"{repo_root}/.env"}
@@ -309,7 +309,7 @@ Report only:
 Prefer SSE on port `8848`:
 
 ```bash
-uvx powermem-mcp sse 8848
+powermem-mcp sse 8848
 ```
 
 Use the standard URL shape in the MCP client:
@@ -327,13 +327,13 @@ Use the standard URL shape in the MCP client:
 Use stdio when the client launches local commands:
 
 ```bash
-uvx powermem-mcp stdio
+powermem-mcp stdio
 ```
 
 Use streamable HTTP when the client expects that transport instead of SSE:
 
 ```bash
-uvx powermem-mcp streamable-http 8848
+powermem-mcp streamable-http 8848
 ```
 
 ## 3. Configure Client
@@ -360,8 +360,8 @@ Local stdio fallback:
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"],
+      "command": "powermem-mcp",
+      "args": ["stdio"],
       "env": {
         "POWERMEM_ENV_FILE": "/absolute/path/to/powermem/.env"
       }
@@ -395,7 +395,7 @@ Local stdio:
   "mcp": {
     "powermem": {
       "type": "local",
-      "command": ["uvx", "powermem-mcp", "stdio"],
+      "command": ["powermem-mcp", "stdio"],
       "enabled": true,
       "environment": {
         "POWERMEM_ENV_FILE": "/absolute/path/to/powermem/.env"
@@ -425,8 +425,8 @@ Stdio:
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"]
+      "command": "powermem-mcp",
+      "args": ["stdio"]
     }
   }
 }
@@ -438,9 +438,9 @@ Reload the MCP client, confirm the `powermem` server connects, and verify the me
 
 ## 5. Troubleshooting
 
-- If SSE fails, run `uvx powermem-mcp sse 8848` in a terminal and inspect stderr.
-- If streamable HTTP fails, run `uvx powermem-mcp streamable-http 8848` and confirm the client URL matches the port.
-- If stdio fails, run `uvx powermem-mcp stdio` in a terminal and inspect stderr.
+- If SSE fails, run `powermem-mcp sse 8848` in a terminal and inspect stderr.
+- If streamable HTTP fails, run `powermem-mcp streamable-http 8848` and confirm the client URL matches the port.
+- If stdio fails, run `powermem-mcp stdio` in a terminal and inspect stderr.
 - If memory operations fail, check `.env`, provider credentials, embedding configuration, and `/tmp/powermem-mcp.log` or `/tmp/powermem-mcp.launchd.err`.
 - If port `8848` is busy, do not start a second PowerMem MCP process against the same data directory. Reuse or replace the existing process.
 - **Codex:** validate `~/.codex/context.json` is valid JSON and contains `mcpServers.powermem`; restart Codex after edits.

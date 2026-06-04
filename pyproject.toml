@@ -27,7 +27,9 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "httpx>=0.24.0",
     "sqlalchemy>=2.0.0",
-    "numpy>=1.21.0",
+    "greenlet<3.0; python_version < '3.12'",
+    "greenlet>=3.0; python_version >= '3.12'",
+    "numpy>=1.21.0,<2.0.0",
     "pytz>=2023.3",
     "python-dotenv>=1.0.0",
     "rank-bm25>=0.2.2",
@@ -49,7 +51,6 @@ dependencies = [
     "dashscope>=1.14.0",
     "psutil>=5.9.0",
     "zai-sdk>=0.2.0",
-    "pyseekdb>=1.3.0",
 ]
 
 [project.optional-dependencies]
@@ -67,17 +68,19 @@ mcp = [
     "fastmcp>=1.0",
     "uvicorn>=0.27.1",
 ]
-# pyseekdb is now a core dependency (it backs the zero-config default embedder),
-# so this extra is kept only for backward compatibility with `powermem[seekdb]`.
-seekdb = []
+seekdb = [
+    "pyseekdb>=1.3.0",
+]
 extras = [
     "sentence-transformers>=5.0.0",
 ]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
-    "pytest-playwright>=0.5.0",
-    "playwright>=1.40.0",
+    "pytest-playwright>=0.4.3,<0.6.0; python_version < '3.12'",
+    "pytest-playwright>=0.6.0,<0.9.0; python_version >= '3.12'",
+    "playwright>=1.33.0,<1.39.0; python_version < '3.12'",
+    "playwright>=1.40.0,<2.0.0; python_version >= '3.12'",
     "pytest-cov>=4.0.0",
     "black>=23.0.0",
     "isort>=5.12.0",

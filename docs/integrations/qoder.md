@@ -29,7 +29,7 @@ The agent follows [`apps/vscode-extension/SETUP.md`](https://github.com/oceanbas
 - Qoder IDE or Qoder CLI.
 - A running PowerMem backend:
   - `powermem-server --host 0.0.0.0 --port 8848`
-  - or `uvx powermem-mcp sse` (default port 8848)
+  - or `powermem-mcp sse` (default port 8848)
 - PowerMem configured with your LLM provider, API key, and model.
 
 ## Manual setup
@@ -41,13 +41,16 @@ Use this section only when you want to wire Qoder by hand.
 Install PowerMem with MCP support if you want local stdio MCP:
 
 ```bash
-pip install "powermem[mcp]"
+pip install "powermem[mcp,seekdb]"
 ```
 
-Or use `uvx` without a separate install:
+Use `powermem[mcp]` only when your `.env` points at non-seekdb storage/embedder
+providers.
+
+Then run the installed MCP command:
 
 ```bash
-uvx powermem-mcp stdio
+powermem-mcp stdio
 ```
 
 For remote MCP, start the API server:
@@ -85,8 +88,8 @@ For local stdio MCP, use:
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"]
+      "command": "powermem-mcp",
+      "args": ["stdio"]
     }
   }
 }
@@ -98,8 +101,8 @@ If your PowerMem server requires auth, add the relevant environment variable for
 {
   "mcpServers": {
     "powermem": {
-      "command": "uvx",
-      "args": ["powermem-mcp", "stdio"],
+      "command": "powermem-mcp",
+      "args": ["stdio"],
       "env": {
         "POWERMEM_API_KEY": "<your-api-key>"
       }
@@ -113,7 +116,7 @@ If your PowerMem server requires auth, add the relevant environment variable for
 Add a user-level stdio MCP server:
 
 ```bash
-qodercli mcp add -s user powermem -- uvx powermem-mcp stdio
+qodercli mcp add -s user powermem -- powermem-mcp stdio
 ```
 
 If Qoder CLI is already running, reload MCP servers:
@@ -134,7 +137,7 @@ For HTTP/SSE transport, use the Qoder IDE JSON flow above or follow Qoder CLI's 
 ## Troubleshooting
 
 - If remote MCP does not connect, verify `http://localhost:8848/api/v1/system/health` is healthy and `http://localhost:8848/mcp` is reachable.
-- If stdio MCP fails, verify `uvx powermem-mcp stdio` starts from a terminal.
+- If stdio MCP fails, verify `powermem-mcp stdio` starts from a terminal.
 - If tools time out, increase Qoder's MCP request timeout or check PowerMem server logs for slow LLM extraction.
 - If auth fails, set `POWERMEM_API_KEY` for stdio or configure the required HTTP header in Qoder's MCP server settings.
 

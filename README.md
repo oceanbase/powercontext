@@ -71,7 +71,7 @@ PowerMem ships first-party plugins and setup guides for the most common AI clien
 | Go apps | [SDKs](#sdks) |
 | Java apps | [SDKs](#sdks) |
 | TypeScript apps | [SDKs](#sdks) |
-| Any MCP client | `uvx powermem-mcp sse` (default :8848), see [MCP client guide](docs/integrations/mcp_client.md) |
+| Any MCP client | `powermem-mcp sse` (default :8848), see [MCP client guide](docs/integrations/mcp_client.md) |
 | HTTP REST apps | `powermem-server --host 0.0.0.0 --port 8848`, see [API server](docs/api/0005-api_server.md) |
 
 ### OpenClaw (ClawdBot)
@@ -194,28 +194,34 @@ Full framework guide: [LangChain and LangGraph integration](docs/integrations/la
 
 ## Quick start (Python SDK)
 
-**Prerequisites:** Copy [.env.example](.env.example) to `.env` and set your **LLM** API key — that is the only required credential. The default storage is the **OceanBase** provider with no host configured, which boots **embedded seekdb** on disk (same engine, no separate server, data under `./seekdb_data`); set `OCEANBASE_HOST` to point at a remote OceanBase cluster instead, or switch to `sqlite` / `postgres`. The default embedded LLM is a local `all-MiniLM-L6-v2` model (384 dims) that needs no API key and auto-downloads on first use. Need to tune providers or unlock advanced features? Copy [.env.example.full](.env.example.full) instead — it documents every available knob, grouped by component. After install, `pmem config init` walks you through the same setup interactively. See [Getting started](docs/guides/0001-getting_started.md).
+**Prerequisites:** Copy [.env.example](.env.example) to `.env` and set your **LLM** API key — that is the only required credential. For zero-config local storage, install the `seekdb` extra (`pip install "powermem[seekdb]"`, or combine it with `server` / `mcp`) so the default **OceanBase** provider can boot **embedded seekdb** on disk. Without `seekdb`, set `OCEANBASE_HOST` to point at a remote OceanBase cluster, or switch to `sqlite` / `postgres`. The default embedder is a local `all-MiniLM-L6-v2` model (384 dims) that needs no API key and auto-downloads on first use. Need to tune providers or unlock advanced features? Copy [.env.example.full](.env.example.full) instead — it documents every available knob, grouped by component. After install, `pmem config init` walks you through the same setup interactively. See [Getting started](docs/guides/0001-getting_started.md).
 
 ### Install
 
 ```bash
-# Core only (SDK + storage backends)
+# Core only (SDK; no optional CLI/server/MCP/seekdb)
 pip install powermem
 
 # With CLI (pmem / powermem-cli)
 pip install "powermem[cli]"
 
-# With HTTP API server (powermem-server)
+# With HTTP API server only (powermem-server; does not install seekdb)
 pip install "powermem[server]"
 
-# With MCP server (powermem-mcp)
+# With MCP server only (powermem-mcp; does not install seekdb)
 pip install "powermem[mcp]"
 
-# With SeekDB storage backend
+# With seekdb for zero-config local storage/embedder
 pip install "powermem[seekdb]"
 
-# Everything at once
-pip install "powermem[cli,server,mcp]"
+# HTTP API server + seekdb
+pip install "powermem[server,seekdb]"
+
+# MCP server + seekdb
+pip install "powermem[mcp,seekdb]"
+
+# Common full local install
+pip install "powermem[cli,server,mcp,seekdb]"
 ```
 
 ### SDK

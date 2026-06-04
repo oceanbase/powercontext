@@ -8,6 +8,8 @@ requires an OPENAI key to be constructible.
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -24,7 +26,7 @@ from powermem.integrations.embeddings import pyseekdb_default
 
 
 @pytest.fixture
-def mock_default_fn():
+def mock_default_fn(monkeypatch):
     """Mock pyseekdb.DefaultEmbeddingFunction so no model is downloaded.
 
     We also stub out ``_load_sentence_transformer_with_fallback``: the
@@ -33,12 +35,24 @@ def mock_default_fn():
     would import ``sentence_transformers`` (an optional extra) and hit the
     network on a cache miss, defeating the point of mocking the embedder.
     """
-    with (
-        patch(
-            "pyseekdb.client.embedding_function.DefaultEmbeddingFunction"
-        ) as mock_cls,
-        patch.object(pyseekdb_default, "_load_sentence_transformer_with_fallback"),
-    ):
+    pyseekdb_module = ModuleType("pyseekdb")
+    client_module = ModuleType("pyseekdb.client")
+    embedding_module = ModuleType("pyseekdb.client.embedding_function")
+
+    mock_cls = MagicMock(name="DefaultEmbeddingFunction")
+    embedding_module.DefaultEmbeddingFunction = mock_cls
+    client_module.embedding_function = embedding_module
+    pyseekdb_module.client = client_module
+
+    monkeypatch.setitem(sys.modules, "pyseekdb", pyseekdb_module)
+    monkeypatch.setitem(sys.modules, "pyseekdb.client", client_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "pyseekdb.client.embedding_function",
+        embedding_module,
+    )
+
+    with patch.object(pyseekdb_default, "_load_sentence_transformer_with_fallback"):
         instance = MagicMock()
         # Return one 384-dim vector per input document, matching all-MiniLM-L6-v2.
         instance.side_effect = lambda docs: [[0.1] * 384 for _ in docs]
