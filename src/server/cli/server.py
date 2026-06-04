@@ -14,9 +14,9 @@ import webbrowser
 from typing import Optional
 
 
-def _require_server_deps() -> None:
+def _require_packages(packages: tuple[str, ...], install_extra: str) -> None:
     missing = []
-    for pkg in ("click", "fastapi", "uvicorn"):
+    for pkg in packages:
         try:
             __import__(pkg)
         except ImportError:
@@ -24,16 +24,21 @@ def _require_server_deps() -> None:
     if missing:
         _sys.stderr.write(
             f"Missing dependencies: {', '.join(missing)}.\n"
-            "Run: pip install 'powermem[server]'\n"
+            f"Run: pip install 'powermem[{install_extra}]'\n"
         )
         _sys.exit(1)
 
+
+def _require_server_deps() -> None:
+    _require_packages(("fastapi", "uvicorn"), "server")
+
+
+_require_packages(("click",), "server")
 
 import click
 
 from ..config import config
 from ..dashboard_assets import dashboard_assets_available
-from ..middleware.logging import setup_logging
 
 
 logger = logging.getLogger("server")
@@ -199,6 +204,14 @@ def _run_server_app(**kwargs) -> None:
     uvicorn.run(**kwargs)
 
 
+def _setup_server_logging() -> None:
+    """Configure server logging after verifying server extras are installed."""
+    _require_server_deps()
+    from ..middleware.logging import setup_logging
+
+    setup_logging()
+
+
 @click.command()
 @click.option("--host", default=None, help="Host to bind to")
 @click.option("--port", default=None, type=int, help="Port to bind to")
@@ -242,7 +255,7 @@ def server(host, port, workers, reload, log_level, open_browser):
         config.workers = 1
 
     # Setup logging BEFORE starting uvicorn to ensure all logs have timestamps
-    setup_logging()
+    _setup_server_logging()
 
     if _should_open_browser(open_browser):
         _start_dashboard_browser(config.host, config.port)

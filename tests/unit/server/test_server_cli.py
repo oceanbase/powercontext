@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -183,7 +185,7 @@ def test_cli_starts_one_browser_waiter_with_reload_and_workers(monkeypatch):
     monkeypatch.setattr(server_cli, "_should_open_browser", lambda _requested: True)
     monkeypatch.setattr(server_cli, "_start_dashboard_browser", start_browser)
     monkeypatch.setattr(server_cli, "_is_embedded_storage", lambda: False)
-    monkeypatch.setattr(server_cli, "setup_logging", lambda: None)
+    monkeypatch.setattr(server_cli, "_setup_server_logging", lambda: None)
     monkeypatch.setattr(server_cli, "_run_server_app", uvicorn_run)
 
     try:
@@ -217,7 +219,7 @@ def test_cli_no_open_browser_disables_waiter(monkeypatch):
     monkeypatch.setattr(server_cli, "_should_open_browser", should_open)
     monkeypatch.setattr(server_cli, "_start_dashboard_browser", start_browser)
     monkeypatch.setattr(server_cli, "_is_embedded_storage", lambda: False)
-    monkeypatch.setattr(server_cli, "setup_logging", lambda: None)
+    monkeypatch.setattr(server_cli, "_setup_server_logging", lambda: None)
     monkeypatch.setattr(server_cli, "_run_server_app", Mock())
 
     result = runner.invoke(server_cli.server, ["--no-open-browser"])
@@ -232,3 +234,21 @@ def test_cli_help_documents_browser_options():
 
     assert result.exit_code == 0
     assert "--open-browser / --no-open-browser" in result.output
+
+
+def test_cli_module_import_does_not_require_server_extras():
+    script = (
+        "import sys; "
+        "sys.modules['fastapi'] = None; "
+        "sys.modules['uvicorn'] = None; "
+        "import server.cli.server"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
