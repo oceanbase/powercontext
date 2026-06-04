@@ -184,7 +184,7 @@ def test_cli_starts_one_browser_waiter_with_reload_and_workers(monkeypatch):
     monkeypatch.setattr(server_cli, "_start_dashboard_browser", start_browser)
     monkeypatch.setattr(server_cli, "_is_embedded_storage", lambda: False)
     monkeypatch.setattr(server_cli, "setup_logging", lambda: None)
-    monkeypatch.setattr(server_cli.uvicorn, "run", uvicorn_run)
+    monkeypatch.setattr(server_cli, "_run_server_app", uvicorn_run)
 
     try:
         result = runner.invoke(
@@ -218,7 +218,7 @@ def test_cli_no_open_browser_disables_waiter(monkeypatch):
     monkeypatch.setattr(server_cli, "_start_dashboard_browser", start_browser)
     monkeypatch.setattr(server_cli, "_is_embedded_storage", lambda: False)
     monkeypatch.setattr(server_cli, "setup_logging", lambda: None)
-    monkeypatch.setattr(server_cli.uvicorn, "run", Mock())
+    monkeypatch.setattr(server_cli, "_run_server_app", Mock())
 
     result = runner.invoke(server_cli.server, ["--no-open-browser"])
 

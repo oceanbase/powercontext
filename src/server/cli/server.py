@@ -29,10 +29,8 @@ def _require_server_deps() -> None:
         _sys.exit(1)
 
 
-_require_server_deps()
-
 import click
-import uvicorn
+
 from ..config import config
 from ..dashboard_assets import dashboard_assets_available
 from ..middleware.logging import setup_logging
@@ -193,6 +191,14 @@ def _is_embedded_storage() -> bool:
     return False
 
 
+def _run_server_app(**kwargs) -> None:
+    """Start uvicorn after verifying server extras are installed."""
+    _require_server_deps()
+    import uvicorn
+
+    uvicorn.run(**kwargs)
+
+
 @click.command()
 @click.option("--host", default=None, help="Host to bind to")
 @click.option("--port", default=None, type=int, help="Port to bind to")
@@ -241,9 +247,8 @@ def server(host, port, workers, reload, log_level, open_browser):
     if _should_open_browser(open_browser):
         _start_dashboard_browser(config.host, config.port)
 
-    # Start server
-    uvicorn.run(
-        "server.main:app",
+    _run_server_app(
+        app="server.main:app",
         host=config.host,
         port=config.port,
         reload=config.reload,
