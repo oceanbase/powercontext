@@ -9,6 +9,7 @@ The PowerMem Web Dashboard provides a visual interface for inspecting, managing,
 - [Getting Started](#getting-started)
   - [Starting the Server](#starting-the-server)
   - [Accessing the Dashboard](#accessing-the-dashboard)
+  - [Automatic Browser Opening](#automatic-browser-opening)
   - [Docker Deployment](#docker-deployment)
 - [Authentication](#authentication)
   - [Configuring API Keys](#configuring-api-keys)
@@ -65,6 +66,22 @@ You can also access the API documentation (Swagger UI) at:
 http://localhost:8848/docs
 ```
 
+### Automatic Browser Opening
+
+When you start `powermem-server` from an interactive local terminal and built Dashboard assets are available, PowerMem waits until `/dashboard/` responds and then opens it in your default browser. Bind addresses `0.0.0.0` and `::` are converted to loopback URLs (for example, `http://127.0.0.1:8848/dashboard/`).
+
+```bash
+# Disable automatic browser opening
+powermem-server --no-open-browser
+
+# Explicitly open when stdout is redirected (for example, Makefile background start)
+powermem-server --open-browser
+```
+
+Browser opening is skipped in CI, containers, SSH sessions, headless environments, and when Dashboard assets are unavailable—even with `--open-browser`.
+
+The `make server-dashboard-start` target passes `--open-browser` so the Dashboard opens after a background server start.
+
 ### Docker Deployment
 
 If you're using Docker Compose:
@@ -74,6 +91,8 @@ docker-compose -f docker/docker-compose.yml up -d
 ```
 
 The dashboard is available at the same URL: `http://localhost:8848/dashboard/`
+
+Docker and other headless deployments never attempt to launch a browser automatically. Open the dashboard URL from a client machine instead.
 
 For detailed deployment instructions, see the [Docker & Deployment Guide](https://github.com/oceanbase/powermem/blob/main/docker/README.md).
 

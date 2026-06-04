@@ -59,6 +59,20 @@ make server-restart
 
 ```
 
+### Dashboard browser behavior
+
+When `powermem-server` starts from an interactive local terminal and built Dashboard assets are available, it waits for `/dashboard/` to become reachable and opens it in the default browser.
+
+```bash
+# Disable automatic browser opening
+powermem-server --no-open-browser
+
+# Explicitly request browser opening, including when output is redirected
+powermem-server --open-browser
+```
+
+Browser opening is always skipped in CI, containers, SSH sessions, and headless environments. Binding to `0.0.0.0` or `::` opens the equivalent loopback URL rather than an unspecified-address URL.
+
 ### Optional: Build dashboard assets and sync to backend static directory
 
 If you need the backend service to serve the latest dashboard static files, run the following steps before starting or restarting the server. You can skip this section if frontend assets are not required in your deployment.
