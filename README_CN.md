@@ -272,6 +272,8 @@ pmem shell                           # 交互式 REPL
 powermem-server --host 0.0.0.0 --port 8848
 ```
 
+访问 `http://localhost:8848/dashboard/` 浏览记忆、查看分析数据与系统健康状态。完整使用说明见 [Web Dashboard 指南](docs/guides/0013-dashboard.md)。
+
 Docker / Compose 部署见 [API Server](docs/api/0005-api_server.md) 与 [Docker 说明](docker/README.md)。官方镜像：`oceanbase/powermem-server:latest`。
 
 ---
@@ -299,6 +301,7 @@ Docker / Compose 部署见 [API Server](docs/api/0005-api_server.md) 与 [Docker
 
 - [入门指南](docs/guides/0001-getting_started.md) — 安装、`.env`、首个 `Memory` 用法
 - [配置指南](docs/guides/0003-configuration.md) — 配置模型、存储后端、环境变量
+- [Web Dashboard](docs/guides/0013-dashboard.md) — 可视化界面，用于记忆检查、分析与系统监控
 - [架构说明](docs/architecture/overview.md) — 组件、存储布局与检索流程
 - [API 与服务](docs/api/overview.md) — REST、MCP、HTTP 服务与 Python 侧 API
 - [CLI 使用指南](docs/guides/0012-cli_usage.md) — `pmem`、交互 Shell、备份与迁移

@@ -15,6 +15,9 @@ The PowerMem HTTP API Server is built with FastAPI and provides:
 - **Production-ready** deployment options
 
 ### Starting the API Server
+
+> **Note:** If you already have the PowerMem server running, you can skip this section and proceed to the next step.
+
 ```bash
 # Method 1: Install from powermem package, use CLI command
 pip install powermem
@@ -71,6 +74,8 @@ cd ..
 mkdir -p src/server/dashboard
 cp -r dashboard/dist/* src/server/dashboard/
 ```
+
+Once the dashboard is built and the server is running, you can access it at `http://localhost:8848/dashboard/`. For a complete walkthrough of dashboard features and usage, see the [Web Dashboard Guide](../guides/0013-dashboard.md).
 
 ### PowerMem .env Configuration
 The PowerMem SDK configuration is the same as the previous v0.2.0 version, with the addition of PowerMem server configuration section 12. PowerMem HTTP API Server Configuration. In most cases, the default configuration can be kept.

@@ -14,6 +14,7 @@ Comprehensive guides for using powermem effectively.
 - **[UserMemory Guide](./0010-user_memory.md)** - User profile management and extraction
 - **[Sparse Vector Guide](./0011-sparse_vector.md)** - Sparse vector configuration, upgrade and migration
 - **[CLI Usage Guide](./0012-cli_usage.md)** - PowerMem CLI (pmem) usage and reference (1.0.0+)
+- **[Web Dashboard Guide](./0013-dashboard.md)** - Visual interface for memory inspection, analytics, and system monitoring
 
 ## Ecosystem Integrations
 
@@ -39,3 +40,4 @@ memory — all pointing at the same backend, with no per-client schema rewrites.
 - **User profiles?** See [UserMemory Guide](./0010-user_memory.md)
 - **Sparse vector?** See [Sparse Vector Guide](./0011-sparse_vector.md)
 - **CLI (pmem)?** See [CLI Usage Guide](./0012-cli_usage.md)
+- **Web Dashboard?** See [Web Dashboard Guide](./0013-dashboard.md)

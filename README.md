@@ -259,6 +259,8 @@ Uses the same `.env` as the SDK. Dashboard is served under `/dashboard/`.
 powermem-server --host 0.0.0.0 --port 8848
 ```
 
+Open the dashboard at `http://localhost:8848/dashboard/` to browse memories, view analytics, and monitor system health. See the [Web Dashboard Guide](docs/guides/0013-dashboard.md) for a complete walkthrough.
+
 Docker / Compose: see [API Server](docs/api/0005-api_server.md) and [Docker & deployment](docker/README.md). The official image is `oceanbase/powermem-server:latest`.
 
 ---
@@ -286,6 +288,7 @@ Docker / Compose: see [API Server](docs/api/0005-api_server.md) and [Docker & de
 
 - [Getting started](docs/guides/0001-getting_started.md) — install, `.env`, and first `Memory` usage
 - [Configuration](docs/guides/0003-configuration.md) — settings model, storage backends, environment variables
+- [Web Dashboard](docs/guides/0013-dashboard.md) — visual interface for memory inspection, analytics, and system monitoring
 - [Architecture](docs/architecture/overview.md) — major components, storage layout, and retrieval flow
 - [API & services](docs/api/overview.md) — REST, MCP, HTTP server, and Python-facing APIs
 - [CLI](docs/guides/0012-cli_usage.md) — `pmem` commands, interactive shell, backup and migration
