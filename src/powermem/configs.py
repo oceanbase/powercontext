@@ -227,6 +227,17 @@ class SkillStoreConfig(BaseModel):
     index_type: Optional[str] = Field(default=None, description="Vector index type (hnsw, ivf, etc.). Falls back to vector_store.config.index_type if not set")
 
 
+class SourceStoreConfig(BaseModel):
+    """Configuration for source store (fact-source linking).
+
+    When enabled, a sources table is created alongside the memory table
+    so that each memory record can be linked back to its origin
+    (conversation, file upload, API call, etc.).
+    """
+    enabled: bool = Field(default=False, description="Enable source linking")
+    collection_name: Optional[str] = Field(default=None, description="Table name; auto-generated if None")
+
+
 class MemoryConfig(BaseModel):
     """Main memory configuration class."""
 
@@ -310,6 +321,10 @@ class MemoryConfig(BaseModel):
     )
     skill_store: Optional[SkillStoreConfig] = Field(
         description="Configuration for skill storage (None means disabled)",
+        default=None,
+    )
+    source_store: Optional[SourceStoreConfig] = Field(
+        description="Configuration for source store / fact-source linking (None means disabled)",
         default=None,
     )
 
