@@ -361,6 +361,10 @@ class Memory(MemoryBase):
         self.skill_store = None
         self._init_skill_store()
 
+        # Source store (fact-source linking)
+        self.source_store = None
+        self._init_source_store()
+
         self.skill_manager = SkillManager(self.llm)
         self.content_reviewer = None  # content review disabled without reviewer
 
@@ -630,12 +634,23 @@ class Memory(MemoryBase):
                 - "relations" (Dict, optional): Graph relations if graph store is enabled, containing:
                     - "deleted_entities" (List): List of deleted graph entities
                     - "added_entities" (List): List of added graph entities
+
+        Note:
+            When ``source_store`` is enabled, the raw input is persisted as a
+            source record *before* fact extraction runs, and each extracted
+            memory is then linked back to that source. If extraction yields
+            no facts (or crashes), the source row remains with zero links --
+            this is intentional so raw material is preserved for debugging
+            and replay.
         """
         try:
             # Handle messages parameter
             if messages is None:
                 raise ValueError("messages must be provided (str, dict, or list[dict])")
-            
+
+            # Save original messages for source linking (before normalization)
+            original_messages = messages
+
             # Normalize input format
             if isinstance(messages, str):
                 messages = [{"role": "user", "content": messages}]
@@ -643,7 +658,7 @@ class Memory(MemoryBase):
                 messages = [messages]
             elif not isinstance(messages, list):
                 raise ValueError("messages must be str, dict, or list[dict]")
-            
+
             # Vision-aware message processing
             llm_cfg = {}
             try:
@@ -654,19 +669,33 @@ class Memory(MemoryBase):
                 messages = parse_vision_messages(messages, self.llm, llm_cfg.get("vision_details"), self.audio_llm)
             else:
                 messages = parse_vision_messages(messages, None, None, self.audio_llm)
-            
+
             # Use self.agent_id as fallback if agent_id is not provided
             agent_id = agent_id or self.agent_id
-            
+
+            actor_id = (metadata or {}).get("actor_id") if isinstance(metadata, dict) else None
+            source_id = self._maybe_create_source(
+                original_messages,
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                actor_id=actor_id,
+            )
+
             # Check if intelligent memory should be used
             use_infer = infer and isinstance(messages, list) and len(messages) > 0
-            
+
             # If not using intelligent memory, fall back to simple mode
             if not use_infer:
-                return self._simple_add(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
-            
-            # Intelligent memory mode: extract facts, search similar memories, and consolidate
-            return self._intelligent_add(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+                result = self._simple_add(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+            else:
+                # Intelligent memory mode: extract facts, search similar memories, and consolidate
+                result = self._intelligent_add(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+
+            if source_id is not None:
+                self._link_result_to_source(source_id, result)
+
+            return result
             
         except Exception as e:
             logger.error(f"Failed to add memory: {e}")
@@ -2225,6 +2254,249 @@ class Memory(MemoryBase):
                 logger.info("SkillStore initialized: %s", table_name)
             except Exception as e:
                 logger.warning("Failed to initialize SkillStore: %s", e)
+
+    def _init_source_store(self):
+        """Initialize source store for fact-source linking based on config."""
+        if self.storage_type.lower() != "oceanbase":
+            logger.debug(
+                "SourceStore disabled: storage_type=%s (only 'oceanbase' is supported)",
+                self.storage_type,
+            )
+            return
+
+        src_cfg = self.config.get("source_store") or {}
+        if isinstance(src_cfg, dict):
+            enabled = src_cfg.get("enabled", False)
+        else:
+            enabled = getattr(src_cfg, "enabled", False)
+
+        if not enabled:
+            return
+
+        # Reach into the vector store to reuse its SQLAlchemy engine. If the
+        # current storage backend isn't the OceanBase vector store (or its
+        # obvector handle hasn't been wired yet) we early-return instead of
+        # handing ``engine=None`` to OceanBaseSourceStore -- which would then
+        # crash during ``create_table()``.
+        engine = None
+        vector_store = getattr(self.storage, "vector_store", None)
+        obvector = getattr(vector_store, "obvector", None) if vector_store else None
+        if obvector is not None:
+            engine = getattr(obvector, "engine", None)
+        if engine is None:
+            logger.warning(
+                "SourceStore enabled but no OceanBase engine available; "
+                "skipping initialization (vector_store=%r)",
+                type(vector_store).__name__ if vector_store else None,
+            )
+            return
+
+        try:
+            from ..storage.source_store.oceanbase import OceanBaseSourceStore
+            main_collection = self.config.get("vector_store", {}).get("config", {}).get("collection_name", "memories")
+            table_name = (src_cfg.get("collection_name") if isinstance(src_cfg, dict) else getattr(src_cfg, "collection_name", None)) or f"{main_collection}_sources"
+            self.source_store = OceanBaseSourceStore(
+                engine=engine,
+                table_name=table_name,
+            )
+            logger.info("SourceStore initialized: %s", table_name)
+        except Exception as e:
+            logger.warning("Failed to initialize SourceStore: %s", e)
+
+    # ------------------------------------------------------------------ #
+    # Source linking (fact-source provenance)
+    # ------------------------------------------------------------------ #
+
+    @property
+    def source_store_enabled(self) -> bool:
+        """Whether the source store is configured and available."""
+        return self.source_store is not None
+
+    def _maybe_create_source(
+        self,
+        original_messages: Any,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
+    ) -> Optional[int]:
+        """Create a source record from raw ``add()`` input, if source store is enabled.
+
+        The four scope IDs mirror the memory table's scope dimensions so that
+        sources created here can be queried / purged along the same axes as
+        the memories they spawn.
+
+        Returns the new ``source_id`` on success, or ``None`` when the source
+        store is disabled, the input is empty, or creation failed. Never
+        raises -- failures are swallowed with a warning so that ``add()``
+        itself stays unaffected by the source-linking side channel.
+        """
+        if not self.source_store_enabled or not original_messages:
+            return None
+        try:
+            if isinstance(original_messages, str):
+                source_type = "text"
+                source_content = original_messages
+            else:
+                source_type = "conversation"
+                source_content = json.dumps(original_messages, ensure_ascii=False, default=str)
+            source = self.create_source(
+                source_type=source_type,
+                content=source_content,
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                actor_id=actor_id,
+            )
+            if not source:
+                return None
+            # ``source`` may be a dict (normal path) or -- for misbehaving
+            # backends -- any object; guard against both to keep the warning
+            # message informative instead of "'X' has no attribute 'get'".
+            if isinstance(source, dict):
+                return source.get("id")
+            return getattr(source, "id", None)
+        except Exception as e:
+            preview = str(original_messages)[:200]
+            logger.warning(
+                "Failed to create source during add: %s (input preview: %r)",
+                e, preview,
+            )
+            return None
+
+    def _link_result_to_source(self, source_id: int, result: Any) -> None:
+        """Link every memory record in an ``add()`` result to the given source.
+
+        Swallows per-link failures with a warning so a transient link error
+        never breaks the enclosing ``add()`` call.
+        """
+        result_list = result.get("results", []) if isinstance(result, dict) else []
+        for mem in result_list:
+            mem_id = mem.get("id") if isinstance(mem, dict) else getattr(mem, "id", None)
+            if mem_id is None:
+                continue
+            try:
+                self.link_memory_to_source(source_id, mem_id)
+            except Exception as e:
+                logger.warning(
+                    "Failed to link memory %s to source %s: %s",
+                    mem_id, source_id, e,
+                )
+
+    def create_source(
+        self,
+        source_type: str,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        actor_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Create a source record. Returns ``None`` when source_store is disabled.
+
+        Scope IDs (``user_id`` / ``agent_id`` / ``run_id`` / ``actor_id``)
+        are persisted on the source row so that provenance queries can be
+        scoped the same way as the main memory table.
+        """
+        if self.source_store is None:
+            return None
+        return self.source_store.create_source(
+            source_type=source_type,
+            content=content,
+            metadata=metadata,
+            user_id=user_id,
+            agent_id=agent_id,
+            run_id=run_id,
+            actor_id=actor_id,
+        )
+
+    def get_source(self, source_id: int) -> Optional[Dict[str, Any]]:
+        """Get a source by ID. Returns ``None`` when source_store is disabled."""
+        if self.source_store is None:
+            return None
+        return self.source_store.get_source(source_id)
+
+    def link_memory_to_source(self, source_id: int, memory_id: int) -> Optional[bool]:
+        """Link a memory record to a source.
+
+        Returns:
+            - ``None``  -- source store is not enabled.
+            - ``True``  -- a new link row was inserted by this call.
+            - ``False`` -- the link already existed (idempotent retry /
+              duplicate dispatch); the store logs this at info level.
+        """
+        if self.source_store is None:
+            return None
+        return self.source_store.link_memory(source_id, memory_id)
+
+    def get_sources_for_memory(self, memory_id: int) -> Optional[List[Dict[str, Any]]]:
+        """Return all sources linked to a memory. Returns ``None`` when disabled."""
+        if self.source_store is None:
+            return None
+        return self.source_store.get_sources_for_memory(memory_id)
+
+    def delete_source(self, source_id: int) -> Optional[bool]:
+        """Delete a source record and its links. Returns ``None`` when disabled."""
+        if self.source_store is None:
+            return None
+        return self.source_store.delete_source(source_id)
+
+    def unlink_memory_from_source(
+        self, source_id: int, memory_id: int
+    ) -> Optional[bool]:
+        """Remove the link between a source and a memory.
+
+        Named symmetrically with :meth:`link_memory_to_source` rather than
+        just ``unlink_memory`` -- on ``Memory`` the short form reads like
+        "delete a memory", which is the wrong mental model.
+
+        Returns:
+            - ``None``  -- source store is not enabled.
+            - ``True``  -- a link row was removed.
+            - ``False`` -- no matching link existed.
+        """
+        if self.source_store is None:
+            return None
+        return self.source_store.unlink_memory(source_id, memory_id)
+
+    # ------------------------------------------------------------------ #
+    # Skill <-> source linking
+    # ------------------------------------------------------------------ #
+
+    def link_skill_to_source(self, source_id: int, skill_id: int) -> Optional[bool]:
+        """Link a skill record to a source. ``None`` when disabled."""
+        if self.source_store is None:
+            return None
+        return self.source_store.link_skill(source_id, skill_id)
+
+    def unlink_skill_from_source(self, source_id: int, skill_id: int) -> Optional[bool]:
+        """Unlink a skill from a source. ``None`` when disabled."""
+        if self.source_store is None:
+            return None
+        return self.source_store.unlink_skill(source_id, skill_id)
+
+    def get_sources_for_skill(self, skill_id: int) -> Optional[List[Dict[str, Any]]]:
+        """Return all sources linked to a skill. ``None`` when disabled."""
+        if self.source_store is None:
+            return None
+        return self.source_store.get_sources_for_skill(skill_id)
+
+    # ------------------------------------------------------------------ #
+    # Reverse queries (source -> targets)
+    # ------------------------------------------------------------------ #
+
+    def get_memories_for_source(self, source_id: int) -> Optional[List[int]]:
+        """List memory IDs linked to a source. ``None`` when disabled."""
+        if self.source_store is None:
+            return None
+        return self.source_store.get_memories_for_source(source_id)
+
+    def get_skills_for_source(self, source_id: int) -> Optional[List[int]]:
+        """List skill IDs linked to a source. ``None`` when disabled."""
+        if self.source_store is None:
+            return None
+        return self.source_store.get_skills_for_source(source_id)
 
     def distill_skills(
         self,
