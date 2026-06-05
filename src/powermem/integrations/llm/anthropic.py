@@ -71,6 +71,9 @@ class AnthropicLLM(LLMBase):
                 filtered_messages.append(message)
 
         params = self._get_supported_params(messages=messages, **kwargs)
+        # Anthropic API rejects requests where both temperature and top_p are set.
+        # Keep temperature (more common); drop top_p.
+        params.pop("top_p", None)
         params.update(
             {
                 "model": self.config.model,

@@ -14,10 +14,18 @@ source tree or not, ask you for the few required secrets, and wire PowerMem up a
 Set up PowerMem memory for Claude Code on this machine **globally**. Do the whole
 integration autonomously and ask me for any secret you need — never invent credentials.
 
+**🔒 DATA SAFETY — API Key Masking (MANDATORY):**
+When displaying ANY `.env` content — current values, proposed changes, confirmation
+summaries, or any other output — you MUST mask `LLM_API_KEY` and any other secret
+values (passwords, tokens, keys):
+- **Key ≥ 10 chars:** show only first 4 + last 4 characters (e.g. `sk-a…b12x`)
+- **Key < 10 chars:** show `***`
+Non-secret values (provider, model, base URLs, storage type, etc.) may be shown in full.
+
 **⚠️ `.env` changes always require user approval.** Before modifying `.env` for any
 reason (LLM config, embedder settings, storage switches, ...), show the user the
-current values, propose the exact change, and WAIT for confirmation. Never patch
-`.env` silently.
+**masked** current values (using the rules above), propose the exact change, and WAIT
+for confirmation. Never patch `.env` silently.
 
 This procedure is **idempotent**: it is safe to re-run. Each step must detect existing
 state and either skip, reuse, or refresh it instead of failing or duplicating work.
@@ -32,27 +40,106 @@ state and either skip, reuse, or refresh it instead of failing or duplicating wo
 
 **⚠️ RULE: Every time you need to modify `.env` — for any reason, even a
 single variable — you MUST stop and ask the user what value to use. Show
-the current content of the relevant lines, propose the change, and WAIT
-for the user's confirmation before writing. Never silently patch `.env`.**
+the **masked** current content of the relevant lines (per the 🔒 DATA SAFETY
+rules above), propose the change, and WAIT for the user's confirmation before
+writing. Never silently patch `.env`.**
 
 2. COLLECT CONFIG (idempotent). If a .env already exists in the working directory
-   with LLM_PROVIDER / LLM_API_KEY / LLM_MODEL set, REUSE it and only ask me about
-   anything missing. Otherwise ask for: LLM provider (anthropic / openai / qwen /
-   ...), LLM API key, and LLM model. Use zero-config defaults for the rest
-   (storage = embedded seekdb, embedder = local all-MiniLM-L6-v2) unless I say
-   otherwise.
-   **Before writing or patching .env, you MUST:**
-     a. Show me the current `.env` lines that will change (or note it is new).
-     b. Propose the exact new/changed values.
-     c. WAIT for my explicit "yes" before applying the write.
-   Copy .env.example if present, then fill
-   LLM_PROVIDER / LLM_API_KEY / LLM_MODEL. For a custom endpoint, the var is the
-   provider-prefixed *_LLM_BASE_URL (e.g. OPENAI_LLM_BASE_URL, QWEN_LLM_BASE_URL) —
-   verify the exact spelling against .env.example.full; a typo is silently ignored.
-   Never echo my key back in full.
+   with LLM_PROVIDER / LLM_API_KEY / LLM_MODEL set to real values (not placeholders
+   like `your_api_key_here`), REUSE it — skip directly to step 3a/3b. Only collect
+   what is missing. Use zero-config defaults for everything else (storage = embedded
+   seekdb, embedder = local all-MiniLM-L6-v2) unless I say otherwise.
+
+   **2a. Auto-detect or manual?** Use AskUserQuestion (single-select):
+
+   | Option | Description |
+   |--------|-------------|
+   | Yes, auto-detect | Read Claude Code's current LLM config from `~/.claude/settings.json` |
+
+   If the user selects "Yes, auto-detect" (or "Other" and types "yes"/"auto"):
+
+   Read `~/.claude/settings.json`.
+
+   **Model and provider** — read `env.ANTHROPIC_MODEL` (Claude Code's standard model
+   key); fall back to the top-level `model` field if absent. Both use the format
+   `<provider>/<model>` — split on the first `/`:
+     - `"deepseek/deepseek-v4-pro"` → `LLM_PROVIDER=deepseek`, `LLM_MODEL=deepseek-v4-pro`
+     - `"anthropic/claude-sonnet-4-6"` → `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-sonnet-4-6`
+     - If neither field is present or has no `/`, ask for model and provider in 2e.
+
+   ⚠️ **Anthropic model name normalization**: Claude Code's `settings.json` uses
+   **dots** for version numbers (e.g. `claude-sonnet-4.6`), but the Anthropic API
+   requires **dashes** (e.g. `claude-sonnet-4-6`). After splitting on `/`, if
+   `LLM_PROVIDER=anthropic`, replace every `.` with `-` in the version suffix of
+   `LLM_MODEL`. Rule: `claude-<name>-<major>.<minor>` → `claude-<name>-<major>-<minor>`.
+   Example: `claude-sonnet-4.6` → `claude-sonnet-4-6`, `claude-haiku-4.5` → `claude-haiku-4-5`.
+
+   **API key** — Claude Code always stores its credentials under `ANTHROPIC_*` keys
+   regardless of the actual model or provider. Read directly:
+     - `env.ANTHROPIC_AUTH_TOKEN` (preferred) or `env.ANTHROPIC_API_KEY`
+
+   **Base URL** — read directly:
+     - `env.ANTHROPIC_BASE_URL` (if absent, leave blank — PowerMem will use the
+       provider's default endpoint)
+
+   Show a **masked** summary of what was detected (per 🔒 DATA SAFETY rules).
+   If a field is not found, ask for it manually as a plain chat question. Then
+   jump to **2f**.
+
+   If the user does NOT select auto-detect, fall back to the manual flow:
+
+   **2b.** Ask: "Any custom base URL? (paste it, or say `no` to use the default)"
+
+   **2c.** Ask: "What provider id? (e.g. openai, anthropic, qwen, deepseek, ollama)"
+
+   **2d.** Ask: "Please paste your API key." — skip if provider is `ollama` or `vllm`.
+
+   **2e.** Ask: "Which model? (e.g. gpt-4o-mini, claude-sonnet-4-6, qwen-plus)"
+
+   **For 2b–2e, ask each question as a plain chat message, one at a time.**
+   Do NOT use AskUserQuestion for these free-text inputs.
+
+   **2f. Confirm and write.** Show a **masked** summary of what will be written (per
+   🔒 DATA SAFETY rules above), then WAIT for explicit "yes" before writing. Copy
+   `.env.example` if `.env` does not exist, then fill `LLM_PROVIDER` / `LLM_API_KEY`
+   / `LLM_MODEL`. If a base URL was given, write it to the provider-prefixed
+   `*_LLM_BASE_URL` (e.g. `OPENAI_LLM_BASE_URL`) — verify spelling against
+   `.env.example.full`; a typo is silently ignored.
 
 3a. SOURCE path (global install):
-    - pip install -e '.[server,seekdb]'   (no-op if already installed editable from this checkout with these extras)
+    - pip install -e '.[server,mcp,seekdb]'
+      ⚠️ All three extras are required: `[server]` adds fastapi/uvicorn; `[mcp]` adds
+      fastmcp, which is checked at import time and calls sys.exit(1) if missing —
+      this kills the HTTP server before it can start even in HTTP-only mode;
+      `[seekdb]` adds the embedded seekdb storage backend (default).
+    - Start the embedding model download in the background immediately after pip
+      install, so it runs in parallel with the remaining setup steps (hook build,
+      plugin stage/install). Use ModelScope — NOT sentence_transformers or
+      huggingface_hub, which will hang silently if HuggingFace is unreachable:
+        pip install -q modelscope 2>/dev/null && python -c "
+        from modelscope import snapshot_download
+        snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')
+        import os, shutil, urllib.request, json
+        src = os.path.expanduser('~/.cache/modelscope/hub/models/AI-ModelScope/all-MiniLM-L6-v2')
+        hub = os.path.expanduser('~/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2')
+        try:
+            resp = urllib.request.urlopen('https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2', timeout=5)
+            rev = json.load(resp)['sha']
+        except Exception:
+            rev = 'fa97f6e7cb1a59073dff9e9d8ba1c7c1591cc08d'
+        snap = os.path.join(hub, 'snapshots', rev)
+        os.makedirs(snap, exist_ok=True)
+        os.makedirs(os.path.join(hub, 'refs'), exist_ok=True)
+        open(os.path.join(hub, 'refs', 'main'), 'w').write(rev)
+        skip = {'configuration.json', 'data_config.json'}
+        [shutil.copytree(os.path.join(src,n), os.path.join(snap,n))
+         if os.path.isdir(os.path.join(src,n))
+         else shutil.copy2(os.path.join(src,n), os.path.join(snap,n))
+         for n in os.listdir(src)
+         if n not in skip and not os.path.exists(os.path.join(snap,n))]
+        print('Model download and cache bridge complete.')
+        " >> /tmp/powermem-model-download.log 2>&1 &
+        POWERMEM_MODEL_DL_PID=$!
     - Build the hook binaries FIRST — they get copied into Claude's plugin cache at
       install time, so they must exist on disk before step "install":
         if Go 1.22+ is present:  make build-claude-hook
@@ -76,14 +163,34 @@ for the user's confirmation before writing. Never silently patch `.env`.**
     - Install + enable the plugin globally (user scope). Install auto-enables it:
         claude plugin install memory-powermem@powermem --scope user
       IMPORTANT idempotency rule: a plain re-install is a no-op and does NOT refresh
-      the cached copy. If the plugin is already installed AND you just rebuilt the
-      binaries or changed the plugin, force a refresh:
-        claude plugin uninstall memory-powermem@powermem
+      the cached copy. If you just rebuilt the binaries or changed the plugin, force
+      a refresh regardless of whether the plugin was previously installed:
+        claude plugin uninstall memory-powermem@powermem 2>/dev/null || true
         claude plugin install   memory-powermem@powermem --scope user
+      The `|| true` swallows the "not found" error when the plugin was never installed
+      — uninstall fails with exit code 1 in that case, which would abort a script.
       (Enablement is preserved across uninstall+reinstall.)
-    - Start the API server only if it is not already healthy (idempotent):
-        curl -s http://localhost:8848/api/v1/system/health   # if not healthy:
-        powermem-server --host 0.0.0.0 --port 8848 &         # run in background
+    - Wait for the background model download (started above) to finish before
+      starting the server. If it is already done this is a no-op:
+        if [ -n "${POWERMEM_MODEL_DL_PID:-}" ] && kill -0 "$POWERMEM_MODEL_DL_PID" 2>/dev/null; then
+          echo "Waiting for model download to finish..."
+          wait "$POWERMEM_MODEL_DL_PID"
+        fi
+        grep -q "complete" /tmp/powermem-model-download.log 2>/dev/null \
+          || { echo "Model download failed. Check /tmp/powermem-model-download.log"; exit 1; }
+    - Start the API server only if it is not already healthy (idempotent).
+      ⚠️ STARTUP TIME: first launch takes 60–120s (seekdb init + embedder load).
+      Exit code 7 means the port is not yet bound — do NOT kill and restart.
+        curl -s http://localhost:8848/api/v1/system/health | grep -q healthy \
+          || { powermem-server --host 0.0.0.0 --port 8848 &
+               echo "Waiting for server (first launch can take 60–120s)..."
+               for i in $(seq 1 30); do
+                 sleep 5
+                 curl -s -m 3 http://localhost:8848/api/v1/system/health \
+                   | grep -q healthy \
+                   && echo "Server ready after $((i*5))s." && break
+                 echo "  still starting... ($((i*5))s)"
+               done; }
     - Confirm the plugin is enabled:  claude plugin list  (look for
       memory-powermem@powermem). Do NOT print a --plugin-dir command — it is global
       now; every `claude` and `claude -p` loads it automatically.
@@ -272,11 +379,61 @@ STORAGE_TYPE=sqlite SQLITE_DB_PATH=sqlite_data/powermem.db powermem-server --hos
 ```
 
 #### [E006] Model Download Timeout
-**Problem**: Server hangs for 30-60s on startup, "timed out thrown while requesting HEAD"
-**Fix**: The embedder now auto-detects cache and falls back with a 30s timeout.
-If the model is not cached, download it manually:
+**Problem**: Server hangs or reports "timed out thrown while requesting HEAD" on startup.
+**Cause**: The embedding model is not cached and the network is unreachable.
+**Fix**: Follow the model pre-download step in Step 3a (ModelScope download + HF hub
+bridge). Quick reference:
 ```bash
-python -c "from modelscope import snapshot_download; snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')"
+pip install modelscope
+python -c "from modelscope import snapshot_download; \
+           snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')"
+# Verify (note: models/ subdirectory is required):
+ls ~/.cache/modelscope/hub/models/AI-ModelScope/all-MiniLM-L6-v2/
+```
+Then run the bridge script from Step 3a to populate the HuggingFace hub cache
+structure — the embedder's cache-detection function checks `~/.cache/huggingface/hub/`,
+not the ModelScope layout.
+
+⚠️ **DO NOT** use `sentence_transformers.SentenceTransformer(...)` or `huggingface_hub`
+to download — these pull from HuggingFace, which is unreachable in China and many
+corporate networks. Always download via ModelScope, then bridge to the HF hub format.
+
+To confirm which sources are reachable:
+```bash
+curl -s -m 10 -o /dev/null -w "ModelScope: HTTP %{http_code}\n" \
+  https://www.modelscope.cn/api/v1/models/AI-ModelScope/all-MiniLM-L6-v2
+curl -s -m 10 -o /dev/null -w "HuggingFace: HTTP %{http_code}\n" \
+  https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+```
+
+#### [E008] curl Exit Code 7 After Server Start
+**Problem**: `curl` returns exit code 7 ("Failed to connect") right after launching
+`powermem-server`.
+**Cause**: The server process is running but not yet listening on port 8848. First
+launch takes 60–120s (seekdb table creation + embedder load + uvicorn bind).
+**Fix**: Use the polling loop from Step 3a. Do NOT kill and restart — restarting
+resets initialization and makes startup take even longer.
+
+#### [E009] Server Exits Immediately — `fastapi`, `uvicorn`, or `fastmcp` Missing
+**Problem**: Server exits immediately after launch with "Missing dependencies" error.
+**Cause**: `pip install -e .` installs only base dependencies. `fastmcp` is checked
+at **import time** and calls `sys.exit(1)` if absent — `try/except` cannot catch this,
+so even the HTTP-only server is killed before it starts.
+**Fix**:
+```bash
+pip install -e '.[server,mcp]'
+```
+
+#### [E010] Anthropic `temperature` + `top_p` 同时发送导致 400
+**Problem**: 写记忆时返回 `success:true` 但 `data:[]`；server.log 报
+`Error code: 400 - temperature and top_p cannot both be specified for this model`.
+**Cause**: `base.py._get_common_params` 默认同时填 `temperature` 和 `top_p`，
+Anthropic API（包括大多数 Anthropic 兼容代理）禁止两者共存。
+**Fix**: 在 `src/powermem/integrations/llm/anthropic.py` 的 `generate_response` 里、
+发请求前 pop 掉 `top_p`：
+```python
+params = self._get_supported_params(messages=messages, **kwargs)
+params.pop("top_p", None)   # Anthropic rejects requests with both temperature and top_p
 ```
 
 #### [E007] Claude MCP Server Shows Failed
