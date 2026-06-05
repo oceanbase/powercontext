@@ -38,7 +38,8 @@ class AnthropicLLM(LLMBase):
             self.config.model = "claude-3-5-sonnet-20240620"
 
         api_key = self.config.api_key or os.getenv("ANTHROPIC_API_KEY")
-        self.client = anthropic.Anthropic(api_key=api_key)
+        base_url = getattr(self.config, "anthropic_base_url", None) or os.getenv("ANTHROPIC_BASE_URL")
+        self.client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
 
     def generate_response(
             self,
