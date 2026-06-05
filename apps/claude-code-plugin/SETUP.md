@@ -112,11 +112,21 @@ writing. Never silently patch `.env`.**
       fastmcp, which is checked at import time and calls sys.exit(1) if missing —
       this kills the HTTP server before it can start even in HTTP-only mode;
       `[seekdb]` adds the embedded seekdb storage backend (default).
+    - Immediately after pip install, detect which Python interpreter was used. Read
+      the shebang from the freshly-installed `powermem-server` entry point — this is
+      the only reliable way to guarantee that the model-download script, the pip call
+      inside it, and the server all use the exact same interpreter and site-packages.
+      On many Linux systems the default `python` points to a version below 3.11 and `python3` may point to a different minor
+      version than what pip used; relying on bare `python` or `pip` will silently use
+      the wrong environment and the download will fail with an ImportError:
+        POWERMEM_PYTHON=$(head -1 "$(command -v powermem-server)" \
+          | sed 's|#!||;s| .*||')
+        echo "Using interpreter: $POWERMEM_PYTHON"   # e.g. /usr/bin/python3.11
     - Start the embedding model download in the background immediately after pip
       install, so it runs in parallel with the remaining setup steps (hook build,
       plugin stage/install). Use ModelScope — NOT sentence_transformers or
       huggingface_hub, which will hang silently if HuggingFace is unreachable:
-        pip install -q modelscope 2>/dev/null && python -c "
+        $POWERMEM_PYTHON -m pip install -q modelscope && $POWERMEM_PYTHON -c "
         from modelscope import snapshot_download
         snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')
         import os, shutil, urllib.request, json
@@ -191,6 +201,19 @@ writing. Never silently patch `.env`.**
                    && echo "Server ready after $((i*5))s." && break
                  echo "  still starting... ($((i*5))s)"
                done; }
+    - Once the server is healthy, use AskUserQuestion (single-select) to ask whether
+      to build and open the Web Dashboard:
+
+      | Option | Description |
+      |--------|-------------|
+      | Yes, build dashboard | Run `make build-dashboard` to compile dashboard assets, then open `http://localhost:8848/dashboard/` in the browser |
+      | No, skip | Continue without building the dashboard |
+
+      If the user selects "Yes, build dashboard", run:
+        make build-dashboard
+      Wait for the command to finish, then open `http://localhost:8848/dashboard/` in
+      the default browser. The running server is not restarted.
+
     - Confirm the plugin is enabled:  claude plugin list  (look for
       memory-powermem@powermem). Do NOT print a --plugin-dir command — it is global
       now; every `claude` and `claude -p` loads it automatically.
@@ -384,12 +407,18 @@ STORAGE_TYPE=sqlite SQLITE_DB_PATH=sqlite_data/powermem.db powermem-server --hos
 **Fix**: Follow the model pre-download step in Step 3a (ModelScope download + HF hub
 bridge). Quick reference:
 ```bash
-pip install modelscope
-python -c "from modelscope import snapshot_download; \
-           snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')"
+# Detect the correct interpreter first (same one powermem uses):
+POWERMEM_PYTHON=$(head -1 "$(command -v powermem-server)" | sed 's|#!||;s| .*||')
+$POWERMEM_PYTHON -m pip install modelscope
+$POWERMEM_PYTHON -c "from modelscope import snapshot_download; \
+                     snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')"
 # Verify (note: models/ subdirectory is required):
 ls ~/.cache/modelscope/hub/models/AI-ModelScope/all-MiniLM-L6-v2/
 ```
+⚠️ Do NOT use bare `pip` or `python` here — on many systems the default `python` version is below 3.11
+and `pip` may target a different minor version than what powermem was installed under.
+Using the shebang from `powermem-server` guarantees all three steps (pip, download,
+bridge) run in the same environment.
 Then run the bridge script from Step 3a to populate the HuggingFace hub cache
 structure — the embedder's cache-detection function checks `~/.cache/huggingface/hub/`,
 not the ModelScope layout.
@@ -424,13 +453,14 @@ so even the HTTP-only server is killed before it starts.
 pip install -e '.[server,mcp]'
 ```
 
-#### [E010] Anthropic `temperature` + `top_p` 同时发送导致 400
-**Problem**: 写记忆时返回 `success:true` 但 `data:[]`；server.log 报
+#### [E010] Anthropic `temperature` + `top_p` both sent → 400
+**Problem**: Memory writes return `success:true` but `data:[]`; `server.log` reports
 `Error code: 400 - temperature and top_p cannot both be specified for this model`.
-**Cause**: `base.py._get_common_params` 默认同时填 `temperature` 和 `top_p`，
-Anthropic API（包括大多数 Anthropic 兼容代理）禁止两者共存。
-**Fix**: 在 `src/powermem/integrations/llm/anthropic.py` 的 `generate_response` 里、
-发请求前 pop 掉 `top_p`：
+**Cause**: `base.py._get_common_params` populates both `temperature` and `top_p` by
+default. The Anthropic API (and most Anthropic-compatible proxies) rejects requests
+that include both parameters simultaneously.
+**Fix**: In `src/powermem/integrations/llm/anthropic.py`, drop `top_p` from `params`
+before calling the API:
 ```python
 params = self._get_supported_params(messages=messages, **kwargs)
 params.pop("top_p", None)   # Anthropic rejects requests with both temperature and top_p
@@ -459,11 +489,73 @@ Diagnosis:
 - Empty stdout/stderr after 10 seconds usually means the process started and is
   waiting for JSON-RPC input; re-check Claude-side registration next.
 
+#### [E011] Python Version Below 3.11
+**Problem**: `pip install` fails or venv created with wrong Python version.
+PowerMem requires Python >= 3.11 (`pyproject.toml: requires-python = ">=3.11"`).
+**Fix**: Verify and use Python 3.11+:
+```bash
+python3 --version  # must be >= 3.11
+# If too old, find and use a newer Python:
+python3.11 --version
+python3.11 -m venv venv
+source venv/bin/activate
+```
+
+#### [E012] pip Too Old for Editable Install
+**Problem**: `pip install -e .` fails with "File setup.py not found. Directory cannot
+be installed in editable mode."
+**Cause**: pip < 21.3 does not support editable installs via pyproject.toml (PEP 660).
+**Fix**: Upgrade pip first:
+```bash
+source venv/bin/activate
+pip install --upgrade pip
+pip install -e '.[server,mcp,seekdb]'
+```
+
+#### [E013] Internal PyPI Mirror Missing Packages
+**Problem**: `pip install` fails with "No matching distribution found for pyobvector"
+(or pyseekdb, onnxruntime, etc.).
+**Cause**: The configured pip index (e.g. internal mirror at `yum.tbsite.net`) does not
+mirror all required packages.
+**Fix**: If the package is already installed elsewhere (e.g. system Python 3.11), copy
+it into the venv:
+```bash
+source venv/bin/activate
+SITE_PKGS=$(python -c "import site; print(site.getsitepackages()[0])")
+# Find the missing package in another Python installation:
+find ~/.local/lib/python3.11/site-packages -maxdepth 1 -name "pyobvector*" -type d
+# Copy both the package and its .dist-info:
+cp -r ~/.local/lib/python3.11/site-packages/pyobvector "$SITE_PKGS/"
+cp -r ~/.local/lib/python3.11/site-packages/pyobvector-*.dist-info "$SITE_PKGS/"
+```
+⚠️ After copying packages manually, you must also install their transitive
+dependencies — see [E014].
+
+#### [E014] Missing Transitive Dependencies After Manual Copy
+**Problem**: Server starts but returns "Memory service unavailable: storage backend
+initialization failed" with `ModuleNotFoundError: No module named 'onnxruntime'`
+(or `tenacity`, `tokenizers`).
+**Cause**: When packages like pyobvector/pyseekdb are copied manually into the venv,
+their transitive dependencies (onnxruntime, tenacity, tokenizers, etc.) are not
+automatically resolved by pip.
+**Fix**: Install the missing transitive dependencies:
+```bash
+source venv/bin/activate
+pip install onnxruntime tenacity tokenizers
+```
+To verify no other dependencies are missing after manual copying:
+```bash
+python -c "import pyobvector" 2>&1   # should produce no output
+python -c "import pyseekdb" 2>&1    # should produce no output
+```
+
 ## PRE-CHECK & PREREQUISITES
 
-1. **Verify Go version**: `go version` (must be 1.22+)
-2. **Check dependencies**: `python3 -m pip --version`
-3. **Install uvx**: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+1. **Verify Python version**: `python3 --version` (must be >= 3.11, see [E011])
+2. **Verify Go version**: `go version` (must be 1.22+)
+3. **Verify pip version**: `python3 -m pip --version` (must be >= 21.3, see [E012])
+4. **Check mirror access**: `pip config list` — if using an internal mirror, verify
+   it has `pyobvector`, `pyseekdb`, and `onnxruntime`; see [E013] if not.
 
 ## STEP BY STEP PROVEN PATH
 
@@ -472,11 +564,15 @@ Given the encountered errors, here are the tested workarounds for each approach:
 ### Method A: SOURCE Path (Current Directory Build)
 ```bash
 # Create virtual environment to avoid PEP 668 issues
+# (use python3.11 explicitly if the default python3 is < 3.11)
 python3 -m venv venv
 source venv/bin/activate
 
-# Install everything with extras
-pip install -e '.[server,seekdb]'
+# Upgrade pip first (needed for pyproject.toml editable installs)
+pip install --upgrade pip
+
+# Install everything with ALL required extras
+pip install -e '.[server,mcp,seekdb]'
 
 # Build and stage Claude hooks
 make build-claude-hook
