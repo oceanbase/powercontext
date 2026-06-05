@@ -145,13 +145,18 @@ jobs:
           set_env_var OCEANBASE_USER root
           set_env_var OCEANBASE_PASSWORD ""
           set_env_var OCEANBASE_DATABASE powermem
-          set_env_var OCEANBASE_COLLECTION memories
+          set_env_var OCEANBASE_COLLECTION memories_1536
           set_env_var DATABASE_PROVIDER oceanbase
           set_env_var LLM_PROVIDER siliconflow
           set_env_var LLM_MODEL THUDM/GLM-4-9B-0414
           set_env_var SILICONFLOW_LLM_BASE_URL https://api.siliconflow.cn/v1
+          set_env_var EMBEDDING_PROVIDER qwen
+          set_env_var EMBEDDING_MODEL text-embedding-v4
+          set_env_var EMBEDDING_DIMS 1536
+          set_env_var QWEN_EMBEDDING_BASE_URL https://dashscope.aliyuncs.com/api/v1
           set_env_var GRAPH_STORE_PORT 10001
           set_env_var GRAPH_STORE_PASSWORD ""
+          set_env_var OCEANBASE_EMBEDDING_MODEL_DIMS 1536
           set_env_var LLM_API_KEY "${SILICONFLOW_CN_API_KEY}"
           set_env_var EMBEDDING_API_KEY "${QWEN_API_KEY}"
           set_env_var POWERMEM_SERVER_API_KEYS key1,key2,key3
@@ -294,13 +299,18 @@ jobs:
           set_env_var OCEANBASE_USER root
           set_env_var OCEANBASE_PASSWORD ""
           set_env_var OCEANBASE_DATABASE powermem
-          set_env_var OCEANBASE_COLLECTION memories
+          set_env_var OCEANBASE_COLLECTION memories_1536
           set_env_var DATABASE_PROVIDER oceanbase
           set_env_var LLM_PROVIDER siliconflow
           set_env_var LLM_MODEL THUDM/GLM-4-9B-0414
           set_env_var SILICONFLOW_LLM_BASE_URL https://api.siliconflow.cn/v1
+          set_env_var EMBEDDING_PROVIDER qwen
+          set_env_var EMBEDDING_MODEL text-embedding-v4
+          set_env_var EMBEDDING_DIMS 1536
+          set_env_var QWEN_EMBEDDING_BASE_URL https://dashscope.aliyuncs.com/api/v1
           set_env_var GRAPH_STORE_PORT 10001
           set_env_var GRAPH_STORE_PASSWORD ""
+          set_env_var OCEANBASE_EMBEDDING_MODEL_DIMS 1536
           set_env_var LLM_API_KEY "${SILICONFLOW_CN_API_KEY}"
           set_env_var EMBEDDING_API_KEY "${QWEN_API_KEY}"
           set_env_var POWERMEM_SERVER_API_KEYS key1,key2,key3
