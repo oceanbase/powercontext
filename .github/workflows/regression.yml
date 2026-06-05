@@ -90,7 +90,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[dev,test,seekdb]"
+          pip install -e ".[dev,test,server,seekdb]"
 
       - name: Deploy SeekDB (OceanBase)
         run: |
@@ -244,7 +244,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[dev,test,seekdb]"
+          pip install -e ".[dev,test,server,seekdb]"
 
       - name: Deploy SeekDB (OceanBase)
         run: |

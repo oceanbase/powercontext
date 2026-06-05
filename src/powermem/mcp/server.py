@@ -14,21 +14,19 @@ Provides 13 tools for memory and user profile management:
 Requires: pip install 'powermem[mcp]'
 """
 
-import sys as _sys
-
-
 def _require_mcp_deps() -> None:
     missing = []
+    import_error = None
     try:
         import fastmcp  # noqa: F401
-    except ImportError:
+    except ImportError as exc:
         missing.append("fastmcp")
+        import_error = exc
     if missing:
-        _sys.stderr.write(
-            f"Missing dependencies: {', '.join(missing)}.\n"
-            "Run: pip install 'powermem[mcp]'\n"
-        )
-        _sys.exit(1)
+        raise ImportError(
+            f"Missing dependencies: {', '.join(missing)}. "
+            "Run: pip install 'powermem[mcp]'"
+        ) from import_error
 
 
 _require_mcp_deps()

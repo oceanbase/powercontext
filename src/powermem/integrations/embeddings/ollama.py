@@ -1,5 +1,3 @@
-import subprocess
-import sys
 from typing import Literal, Optional
 
 from powermem.integrations.embeddings.base import EmbeddingBase
@@ -7,22 +5,21 @@ from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
 
 try:
     from ollama import Client
-except ImportError:
-    user_input = input("The 'ollama' library is required. Install it now? [y/N]: ")
-    if user_input.lower() == "y":
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "ollama"])
-            from ollama import Client
-        except subprocess.CalledProcessError:
-            print("Failed to install 'ollama'. Please install it manually using 'pip install ollama'.")
-            sys.exit(1)
-    else:
-        print("The required 'ollama' library is not installed.")
-        sys.exit(1)
+except ImportError as exc:
+    Client = None
+    _OLLAMA_IMPORT_ERROR = exc
+else:
+    _OLLAMA_IMPORT_ERROR = None
 
 
 class OllamaEmbedding(EmbeddingBase):
     def __init__(self, config: Optional[BaseEmbedderConfig] = None):
+        if Client is None:
+            raise ImportError(
+                "The 'ollama' library is required. "
+                "Please install it using 'pip install ollama'."
+            ) from _OLLAMA_IMPORT_ERROR
+
         super().__init__(config)
 
         self.config.model = self.config.model or "nomic-embed-text"
