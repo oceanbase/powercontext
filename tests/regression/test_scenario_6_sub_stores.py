@@ -75,11 +75,11 @@ BASE_CONFIG: Dict[str, Any] = {
             "collection_name": "demo_memories",
             "embedding_model_dims": 768,
             "connection_args": {
-                "host": os.getenv("OCEANBASE_HOST", "6.12.235.2"),
+                "host": os.getenv("OCEANBASE_HOST", "127.0.0.1"),
                 "port": int(os.getenv("OCEANBASE_PORT", "10001")),
                 "user": os.getenv("OCEANBASE_USER", "root"),
                 "password": os.getenv("OCEANBASE_PASSWORD", ""),
-                "db_name": os.getenv("OCEANBASE_DB", "powermem"),
+                "db_name": os.getenv("OCEANBASE_DATABASE", "powermem"),
             },
         },
     },
@@ -333,4 +333,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

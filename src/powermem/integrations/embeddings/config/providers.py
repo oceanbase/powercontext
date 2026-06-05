@@ -1,10 +1,11 @@
 from typing import Any, Dict, Optional, Union
 
 import httpx
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 
 from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
 from powermem.settings import settings_config
+from powermem.utils.headers import parse_default_headers
 
 
 class OpenAIEmbeddingConfig(BaseEmbedderConfig):
@@ -22,6 +23,15 @@ class OpenAIEmbeddingConfig(BaseEmbedderConfig):
             "OPEN_EMBEDDING_BASE_URL",
         ),
     )
+    default_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "default_headers",
+            "OPENAI_EMBEDDING_DEFAULT_HEADERS",
+            "EMBEDDING_DEFAULT_HEADERS",
+        ),
+        description="Extra default headers sent with OpenAI-compatible embedding requests",
+    )
     #: When False, omit the ``dimensions`` argument on ``embeddings.create`` (required for some
     #: OpenAI-compatible gateways that reject Matryoshka / output-dimension overrides).
     pass_dimensions: bool = Field(
@@ -31,6 +41,11 @@ class OpenAIEmbeddingConfig(BaseEmbedderConfig):
             "EMBEDDING_OPENAI_PASS_DIMENSIONS",
         ),
     )
+
+    @field_validator("default_headers", mode="before")
+    @classmethod
+    def _parse_default_headers(cls, value):
+        return parse_default_headers(value)
 
 
 class QwenEmbeddingConfig(BaseEmbedderConfig):

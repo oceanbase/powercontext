@@ -17,7 +17,11 @@ class OpenAIStructuredLLM(LLMBase):
 
         api_key = self.config.api_key or os.getenv("OPENAI_API_KEY")
         base_url = getattr(self.config, "openai_base_url", None) or os.getenv("OPENAI_API_BASE") or "https://api.openai.com/v1"
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        client_kwargs = {"api_key": api_key, "base_url": base_url}
+        default_headers = getattr(self.config, "default_headers", None)
+        if default_headers:
+            client_kwargs["default_headers"] = default_headers
+        self.client = OpenAI(**client_kwargs)
 
     def generate_response(
             self,

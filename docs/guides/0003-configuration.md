@@ -383,6 +383,7 @@ OpenAI GPT models are supported.
 | `LLM_API_KEY` | string | Yes* | - | OpenAI API key. Required when `LLM_PROVIDER=openai` |
 | `LLM_MODEL` | string | No | `gpt-4` | OpenAI model name. Options: `gpt-4`, `gpt-4-turbo`, `gpt-3.5-turbo`, etc. |
 | `OPENAI_LLM_BASE_URL` | string | No | `https://api.openai.com/v1` | API base URL for OpenAI |
+| `OPENAI_LLM_DEFAULT_HEADERS` | JSON/string | No | - | Extra default HTTP headers for OpenAI-compatible gateways. JSON object is recommended for multiple headers. |
 | `LLM_TEMPERATURE` | float | No | `0.7` | Sampling temperature (0.0-2.0) |
 | `LLM_MAX_TOKENS` | integer | No | `1000` | Maximum number of tokens to generate |
 | `LLM_TOP_P` | float | No | `1.0` | Nucleus sampling parameter (0.0-1.0) |
@@ -393,6 +394,7 @@ LLM_PROVIDER=openai
 LLM_API_KEY=your-openai-api-key
 LLM_MODEL=gpt-4
 OPENAI_LLM_BASE_URL=https://api.openai.com/v1
+OPENAI_LLM_DEFAULT_HEADERS={"X-Custom-Header":"your-value"}
 LLM_TEMPERATURE=0.7
 LLM_MAX_TOKENS=1000
 LLM_TOP_P=1.0
@@ -407,6 +409,7 @@ LLM_TOP_P=1.0
       "api_key": "your-openai-api-key",
       "model": "gpt-4",
       "openai_base_url": "https://api.openai.com/v1",
+      "default_headers": {"X-Custom-Header": "your-value"},
       "temperature": 0.7,
       "max_tokens": 1000,
       "top_p": 1.0
@@ -502,6 +505,7 @@ OpenAI provides text embedding models.
 | `EMBEDDING_MODEL` | string | No | `text-embedding-ada-002` | OpenAI embedding model name. Options: `text-embedding-ada-002`, `text-embedding-3-small`, `text-embedding-3-large` |
 | `EMBEDDING_DIMS` | integer | Yes* | `1536` | Vector dimensions. Varies by model (ada-002: 1536, 3-small: 1536, 3-large: 3072). Required when `EMBEDDING_PROVIDER=openai` |
 | `OPEN_EMBEDDING_BASE_URL` | string | No | `https://api.openai.com/v1` | API base URL for OpenAI |
+| `OPENAI_EMBEDDING_DEFAULT_HEADERS` | JSON/string | No | - | Extra default HTTP headers for OpenAI-compatible embedding gateways. JSON object is recommended for multiple headers. |
 
 **Environment Variables Example:**
 ```env
@@ -510,6 +514,7 @@ EMBEDDING_API_KEY=your-openai-api-key
 EMBEDDING_MODEL=text-embedding-ada-002
 EMBEDDING_DIMS=1536
 OPEN_EMBEDDING_BASE_URL=https://api.openai.com/v1
+OPENAI_EMBEDDING_DEFAULT_HEADERS={"X-Custom-Header":"your-value"}
 ```
 
 **JSON Configuration Example:**

@@ -1,4 +1,3 @@
-import os
 from unittest.mock import Mock, patch
 
 import pytest
@@ -15,7 +14,7 @@ def mock_openai_client():
         yield mock_client
 
 
-def test_openai_llm_base_url():
+def test_openai_llm_base_url(monkeypatch):
     # case1: default config: with openai official base url
     config = OpenAIConfig(model="gpt-4o", temperature=0.7, max_tokens=100, top_p=1.0, api_key="api_key")
     llm = OpenAILLM(config)
@@ -24,7 +23,7 @@ def test_openai_llm_base_url():
 
     # case2: with env variable OPENAI_API_BASE
     provider_base_url = "https://api.provider.com/v1"
-    os.environ["OPENAI_BASE_URL"] = provider_base_url
+    monkeypatch.setenv("OPENAI_BASE_URL", provider_base_url)
     config = OpenAIConfig(model="gpt-4o", temperature=0.7, max_tokens=100, top_p=1.0, api_key="api_key")
     llm = OpenAILLM(config)
     # Note: openai client will parse the raw base_url into a URL object, which will have a trailing slash

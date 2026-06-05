@@ -1,9 +1,10 @@
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 
 from powermem.integrations.llm.config.base import BaseLLMConfig
 from powermem.settings import settings_config
+from powermem.utils.headers import parse_default_headers
 
 
 class OpenAIConfig(BaseLLMConfig):
@@ -36,6 +37,16 @@ class OpenAIConfig(BaseLLMConfig):
             "OPENAI_LLM_BASE_URL",
         ),
         description="OpenAI API base URL"
+    )
+
+    default_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "default_headers",
+            "OPENAI_LLM_DEFAULT_HEADERS",
+            "LLM_DEFAULT_HEADERS",
+        ),
+        description="Extra default headers sent with OpenAI-compatible LLM requests",
     )
     
     models: Optional[List[str]] = Field(
@@ -73,3 +84,8 @@ class OpenAIConfig(BaseLLMConfig):
         exclude=True,
         description="Optional callback for monitoring LLM responses"
     )
+
+    @field_validator("default_headers", mode="before")
+    @classmethod
+    def _parse_default_headers(cls, value):
+        return parse_default_headers(value)

@@ -80,7 +80,7 @@ custom_config = {
                 "port": int(os.getenv("OCEANBASE_PORT", "10001")),
                 "user": os.getenv("OCEANBASE_USER", "root"),
                 "password": os.getenv("OCEANBASE_PASSWORD", ""),
-                "db_name": os.getenv("OCEANBASE_DB", "powermem"),
+                "db_name": os.getenv("OCEANBASE_DATABASE", "powermem"),
             },
             "vidx_metric_type": "cosine",
             "index_type": "IVF_FLAT",

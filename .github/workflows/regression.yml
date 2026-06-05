@@ -90,7 +90,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[dev,test]"
+          pip install -e ".[dev,test,seekdb]"
 
       - name: Deploy SeekDB (OceanBase)
         run: |
@@ -132,22 +132,29 @@ jobs:
           echo "SILICONFLOW_CN_API_KEY length: ${#SILICONFLOW_CN_API_KEY}"
           echo "SILICONFLOW_COM_API_KEY length: ${#SILICONFLOW_COM_API_KEY}"
           cp .env.example .env
+          set_env_var() {
+            local key="$1"
+            local value="$2"
+            awk -v prefix="${key}=" 'index($0, prefix) != 1 { print }' .env > .env.tmp
+            mv .env.tmp .env
+            printf '%s=%s\n' "${key}" "${value}" >> .env
+          }
           # Update existing environment variables
-          sed -i 's|^OCEANBASE_HOST=.*|OCEANBASE_HOST=127.0.0.1|' .env
-          sed -i 's|^OCEANBASE_PORT=.*|OCEANBASE_PORT=10001|' .env
-          sed -i 's|^OCEANBASE_USER=.*|OCEANBASE_USER=root|' .env
-          sed -i 's|^OCEANBASE_PASSWORD=.*|OCEANBASE_PASSWORD=|' .env
-          sed -i 's|^OCEANBASE_DATABASE=.*|OCEANBASE_DATABASE=powermem|' .env
-          sed -i 's|^OCEANBASE_COLLECTION=.*|OCEANBASE_COLLECTION=memories|' .env
-          sed -i 's|^DATABASE_PROVIDER=.*|DATABASE_PROVIDER=oceanbase|' .env
-          sed -i 's|^LLM_PROVIDER=.*|LLM_PROVIDER=siliconflow|' .env
-          sed -i 's|^LLM_MODEL=.*|LLM_MODEL=THUDM/GLM-4-9B-0414|' .env
-          sed -i 's|^SILICONFLOW_LLM_BASE_URL=.*|SILICONFLOW_LLM_BASE_URL=https://api.siliconflow.cn/v1|' .env
-          sed -i 's|^GRAPH_STORE_PORT=.*|GRAPH_STORE_PORT=10001|' .env
-          sed -i 's|^GRAPH_STORE_PASSWORD=.*|GRAPH_STORE_PASSWORD=|' .env
-          sed -i "s|^LLM_API_KEY=.*|LLM_API_KEY=${SILICONFLOW_CN_API_KEY}|" .env
-          sed -i "s|^EMBEDDING_API_KEY=.*|EMBEDDING_API_KEY=${QWEN_API_KEY}|" .env
-          sed -i "s|^POWERMEM_SERVER_API_KEYS=.*|POWERMEM_SERVER_API_KEYS=key1,key2,key3|" .env
+          set_env_var OCEANBASE_HOST 127.0.0.1
+          set_env_var OCEANBASE_PORT 10001
+          set_env_var OCEANBASE_USER root
+          set_env_var OCEANBASE_PASSWORD ""
+          set_env_var OCEANBASE_DATABASE powermem
+          set_env_var OCEANBASE_COLLECTION memories
+          set_env_var DATABASE_PROVIDER oceanbase
+          set_env_var LLM_PROVIDER siliconflow
+          set_env_var LLM_MODEL THUDM/GLM-4-9B-0414
+          set_env_var SILICONFLOW_LLM_BASE_URL https://api.siliconflow.cn/v1
+          set_env_var GRAPH_STORE_PORT 10001
+          set_env_var GRAPH_STORE_PASSWORD ""
+          set_env_var LLM_API_KEY "${SILICONFLOW_CN_API_KEY}"
+          set_env_var EMBEDDING_API_KEY "${QWEN_API_KEY}"
+          set_env_var POWERMEM_SERVER_API_KEYS key1,key2,key3
 
       - name: Run regression tests
         id: run_tests
@@ -232,7 +239,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[dev,test]"
+          pip install -e ".[dev,test,seekdb]"
 
       - name: Deploy SeekDB (OceanBase)
         run: |
@@ -274,22 +281,29 @@ jobs:
           echo "SILICONFLOW_CN_API_KEY length: ${#SILICONFLOW_CN_API_KEY}"
           echo "SILICONFLOW_COM_API_KEY length: ${#SILICONFLOW_COM_API_KEY}"
           cp .env.example .env
+          set_env_var() {
+            local key="$1"
+            local value="$2"
+            awk -v prefix="${key}=" 'index($0, prefix) != 1 { print }' .env > .env.tmp
+            mv .env.tmp .env
+            printf '%s=%s\n' "${key}" "${value}" >> .env
+          }
           # Update existing environment variables
-          sed -i 's|^OCEANBASE_HOST=.*|OCEANBASE_HOST=127.0.0.1|' .env
-          sed -i 's|^OCEANBASE_PORT=.*|OCEANBASE_PORT=10001|' .env
-          sed -i 's|^OCEANBASE_USER=.*|OCEANBASE_USER=root|' .env
-          sed -i 's|^OCEANBASE_PASSWORD=.*|OCEANBASE_PASSWORD=|' .env
-          sed -i 's|^OCEANBASE_DATABASE=.*|OCEANBASE_DATABASE=powermem|' .env
-          sed -i 's|^OCEANBASE_COLLECTION=.*|OCEANBASE_COLLECTION=memories|' .env
-          sed -i 's|^DATABASE_PROVIDER=.*|DATABASE_PROVIDER=oceanbase|' .env
-          sed -i 's|^LLM_PROVIDER=.*|LLM_PROVIDER=siliconflow|' .env
-          sed -i 's|^LLM_MODEL=.*|LLM_MODEL=THUDM/GLM-4-9B-0414|' .env
-          sed -i 's|^SILICONFLOW_LLM_BASE_URL=.*|SILICONFLOW_LLM_BASE_URL=https://api.siliconflow.cn/v1|' .env
-          sed -i 's|^GRAPH_STORE_PORT=.*|GRAPH_STORE_PORT=10001|' .env
-          sed -i 's|^GRAPH_STORE_PASSWORD=.*|GRAPH_STORE_PASSWORD=|' .env
-          sed -i "s|^LLM_API_KEY=.*|LLM_API_KEY=${SILICONFLOW_CN_API_KEY}|" .env
-          sed -i "s|^EMBEDDING_API_KEY=.*|EMBEDDING_API_KEY=${QWEN_API_KEY}|" .env
-          sed -i "s|^POWERMEM_SERVER_API_KEYS=.*|POWERMEM_SERVER_API_KEYS=key1,key2,key3|" .env
+          set_env_var OCEANBASE_HOST 127.0.0.1
+          set_env_var OCEANBASE_PORT 10001
+          set_env_var OCEANBASE_USER root
+          set_env_var OCEANBASE_PASSWORD ""
+          set_env_var OCEANBASE_DATABASE powermem
+          set_env_var OCEANBASE_COLLECTION memories
+          set_env_var DATABASE_PROVIDER oceanbase
+          set_env_var LLM_PROVIDER siliconflow
+          set_env_var LLM_MODEL THUDM/GLM-4-9B-0414
+          set_env_var SILICONFLOW_LLM_BASE_URL https://api.siliconflow.cn/v1
+          set_env_var GRAPH_STORE_PORT 10001
+          set_env_var GRAPH_STORE_PASSWORD ""
+          set_env_var LLM_API_KEY "${SILICONFLOW_CN_API_KEY}"
+          set_env_var EMBEDDING_API_KEY "${QWEN_API_KEY}"
+          set_env_var POWERMEM_SERVER_API_KEYS key1,key2,key3
 
       - name: Run regression tests
         id: run_tests
@@ -337,4 +351,3 @@ jobs:
           require_tests: false
           job_name: Regression Tests
           check_name: Test Report
-
