@@ -733,7 +733,7 @@ def _config_from_env_file(
 
     result = {}
     for section_key, _ in _ENV_SECTION_PREFIXES:
-        if sections[section_key]:
+        if section_filter is None or sections[section_key]:
             result[section_key] = sections[section_key]
     if section_filter is not None:
         result = {section_filter: result.get(section_filter, {})}
