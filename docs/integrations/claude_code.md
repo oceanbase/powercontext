@@ -110,9 +110,35 @@ End the session (or run `/compact`), then look for `POST /api/v1/memories` in th
 claude --plugin-dir /path/to/powermem/apps/claude-code-plugin
 ```
 
-#### Option B: Install from marketplace (not yet available)
+#### Option B: Install from marketplace
 
-This plugin is **not yet published** to a Claude Code plugin marketplace — use `--plugin-dir` (Option A) for now. (Note: the `memory-powermem` listing you may find in plugin directories is the [OpenClaw plugin](https://github.com/ob-labs/memory-powermem), a different ecosystem.) Once a marketplace release is available, you will be able to install it from there.
+When the PowerMem marketplace entry is available, install it with:
+
+```text
+/plugin marketplace add oceanbase/powermem
+/plugin install memory-powermem@powermem
+/reload-plugins
+/memory-powermem:init
+```
+
+The marketplace step installs the Claude Code plugin connector. The
+`/memory-powermem:init` step prepares the PowerMem backend in a plugin-local venv
+and installs `powermem` from PyPI by default. The PyPI release must include the
+backend features required by the plugin, including the default local embedding
+dependencies. For branch testing before release, install the marketplace from a
+branch and run init with `POWERMEM_INIT_PACKAGE` pointing at the same Git branch
+or commit:
+
+```text
+/plugin marketplace add owner/powermem@<branch>
+/plugin install memory-powermem@powermem
+/reload-plugins
+```
+
+```bash
+POWERMEM_INIT_PACKAGE='powermem @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
+  sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
+```
 
 #### Option C: Pack and copy to another machine (offline / internal)
 
@@ -156,7 +182,7 @@ How you remove the plugin depends on how you enabled it:
 | **`claude --plugin-dir /path/to/...`** | Stop passing `--plugin-dir` (remove it from shell aliases, scripts, or IDE task). Optionally delete the plugin folder. Nothing is left in `~/.claude` **unless** you also changed global settings (see below). |
 | **Zip / copied folder** | Delete the unzipped directory. Stop using `--plugin-dir` pointing at it. |
 | **Git clone / repo path** | Stop using `--plugin-dir` for that path; remove the clone if you no longer need it. |
-| **Marketplace / built-in plugin UI** *(not yet available)* | Reserved for when the plugin is published to a Claude Code marketplace: you would disable or uninstall **memory-powermem** in Claude Code’s plugin settings ([Claude Code plugins](https://code.claude.com/docs/en/plugins)). Today the plugin is loaded via `--plugin-dir`, so use the rows above. |
+| **Marketplace / built-in plugin UI** | Run `/plugin uninstall memory-powermem@powermem`, then `/reload-plugins`. To remove the marketplace entry as well, run `/plugin marketplace remove powermem`. |
 | **You merged [`hooks/hooks.windows.example.json`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/hooks/hooks.windows.example.json) into `settings.json`** | Edit `~/.claude/settings.json` or `.claude/settings.json` in the project and remove the `UserPromptSubmit` / `SessionEnd` / `PostCompact` hook entries that call `run-hook.ps1` (or restore a backup). Otherwise hooks keep running even after the plugin folder is deleted. |
 
 The hook binary only **writes** to your PowerMem server; it does not install a system daemon. No separate “service uninstall” is required.
@@ -167,7 +193,7 @@ The hook binary only **writes** to your PowerMem server; it does not install a s
 |---------------|--------------|
 | **Zip** | Download the new `.zip`, replace the old folder (delete the previous `powermem-claude-code-plugin` tree, unzip the new one to the same or a new path), then start Claude with `--plugin-dir` pointing at the new folder. |
 | **Repo / `git`** | `git pull` (or fetch the release you want), run `make package-claude-plugin` or `bash scripts/package-plugin.sh` if you need a fresh zip, then restart Claude Code. |
-| **Marketplace** *(not yet available)* | Once published, you would “update” / reinstall from the marketplace when a new version ships. Until then, update via the **Repo / `git`** row above. |
+| **Marketplace** | Run `/plugin uninstall memory-powermem@powermem`, reinstall from the marketplace, then run `/reload-plugins`. If the backend package changed, re-run `/memory-powermem:init` so the plugin-local venv installs the new PyPI release. |
 
 After updating, restart the Claude Code session (or the whole app) so MCP config, skills, and hooks reload.
 

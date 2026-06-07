@@ -11,6 +11,100 @@ source tree or not, ask you for the few required secrets, and wire PowerMem up a
 
 ---
 
+## Installed plugin initialization
+
+Use this section when the `memory-powermem` plugin is already installed from a
+Claude Code marketplace and the user runs:
+
+```text
+/memory-powermem:init
+```
+
+In this mode, **do not** run the source/developer install flow below: do not build
+hook binaries, do not stage the plugin, do not run `claude plugin marketplace add`,
+do not run `claude plugin install`, and do not build the dashboard. The plugin is
+already installed; this section only prepares the PowerMem backend that the plugin
+connects to.
+
+Installed-plugin init creates a plugin-local Python environment and installs the
+backend package with `pip install powermem` by default. Therefore the PyPI release
+used by this flow must already contain the backend capabilities required by the
+plugin, including the local embedding dependencies. If the user is validating a
+plugin change that depends on unpublished backend code, use
+`POWERMEM_INIT_PACKAGE` to install that exact Git branch or commit instead of the
+PyPI package.
+
+Installed-plugin init is idempotent and uses plugin-local state:
+
+```text
+${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/memory-powermem-powermem}/
+  .env
+  runtime.env
+  server.pid
+  powermem-server.log
+  venv/
+```
+
+Follow these steps:
+
+1. If the skill was just installed or updated, ask the user to run `/reload-plugins`
+   first, then retry `/memory-powermem:init`.
+2. Run `sh "$CLAUDE_PLUGIN_ROOT/scripts/status.sh"` and inspect whether config,
+   venv, managed PID, Python versions, and health are present.
+3. If `.env` is missing, run init with auto-detection first:
+
+   ```bash
+   sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
+   ```
+
+   The script reads `~/.claude/settings.json` and attempts to derive:
+   `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, and provider base URL. It writes only
+   the plugin-local `.env`.
+4. If init reports missing values, ask the user only for those missing values. Do
+   not invent credentials. Re-run init with the matching environment variables:
+
+   ```bash
+   POWERMEM_INIT_LLM_PROVIDER=anthropic \
+   POWERMEM_INIT_LLM_MODEL=claude-sonnet-4-6 \
+   POWERMEM_INIT_LLM_API_KEY=... \
+   sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
+   ```
+
+   Optional variables:
+   - `POWERMEM_INIT_LLM_BASE_URL` for a custom provider gateway.
+   - `POWERMEM_INIT_PACKAGE` to test unpublished backend code instead of PyPI
+     `powermem`, for example
+     `powermem @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>`.
+   - `POWERMEM_INIT_PYTHON` to force a specific Python >= 3.11.
+   - `POWERMEM_INIT_PORT` to force the managed server port.
+   - `POWERMEM_INIT_PRELOAD_MODEL=1` to pre-download the default local
+     `all-MiniLM-L6-v2` embedding model before starting the server.
+5. Never print API keys. Mask any secret in summaries.
+6. After init succeeds, run `sh "$CLAUDE_PLUGIN_ROOT/scripts/status.sh"` again and
+   report the base URL.
+7. The hook launcher reads `runtime.env`, so once init writes a base URL, prompt
+   recall and session-save hooks use that backend automatically.
+
+Model preload uses the same robust path as the source setup below: download from
+ModelScope first, then bridge the files into the HuggingFace hub cache layout that
+the default embedder checks. Do **not** pre-warm with
+`sentence_transformers.SentenceTransformer(...)` or raw `huggingface_hub`; those
+can hang on networks where HuggingFace is slow or blocked. To test connectivity:
+
+If startup fails with `No module named 'sentence_transformers'`, the backend
+package installed in the plugin venv does not include the local embedding
+dependency. Publish or install a backend build that includes it, or set
+`POWERMEM_INIT_PACKAGE` to a Git branch/commit that does.
+
+```bash
+curl -s -m 10 -o /dev/null -w "ModelScope: HTTP %{http_code}\n" \
+  https://www.modelscope.cn/api/v1/models/AI-ModelScope/all-MiniLM-L6-v2
+curl -s -m 10 -o /dev/null -w "HuggingFace: HTTP %{http_code}\n" \
+  https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+```
+
+---
+
 Set up PowerMem memory for Claude Code on this machine **globally**. Do the whole
 integration autonomously and ask me for any secret you need — never invent credentials.
 
