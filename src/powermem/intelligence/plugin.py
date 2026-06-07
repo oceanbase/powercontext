@@ -233,20 +233,22 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
             Enhanced updates for search context
         """
         try:
-            # Add search-specific metadata
-            search_metadata = memory.get("metadata", {})
-            search_metadata["last_searched_at"] = get_current_datetime()
-            search_metadata["search_count"] = search_metadata.get("search_count", 0) + 1
-            
-            # Update base updates with search metadata
             enhanced_updates = base_updates.copy()
-            enhanced_updates["metadata"] = search_metadata
+            base_metadata = dict(base_updates.get("metadata") or {})
+            base_metadata["last_searched_at"] = get_current_datetime()
+            base_metadata["search_count"] = base_metadata.get("search_count", 0) + 1
+            enhanced_updates["metadata"] = base_metadata
             
             # Add search relevance score if not present
             if "search_relevance_score" not in memory:
                 # Simple relevance calculation based on access patterns
-                access_count = memory.get("access_count", 0)
-                importance_score = memory.get("importance_score", 0.5)
+                access_count = enhanced_updates.get(
+                    "access_count",
+                    base_metadata.get("access_count", memory.get("access_count", 0)),
+                )
+                importance_score = base_metadata.get(
+                    "importance_score", memory.get("importance_score", 0.5)
+                )
                 search_relevance = min(1.0, (access_count * 0.1) + (importance_score * 0.5))
                 enhanced_updates["search_relevance_score"] = search_relevance
             
