@@ -55,6 +55,13 @@ class IntelligentMemoryConfig(BaseModel):
         default=0.3,
         description="Factor by which memories are reinforced when accessed"
     )
+    forgotten_score_multiplier: float = Field(
+        default=0.1,
+        description=(
+            "Multiplier applied to search ranking scores for memories "
+            "marked should_forget"
+        )
+    )
     working_threshold: float = Field(
         default=0.3,
         description="Threshold for working memory classification"

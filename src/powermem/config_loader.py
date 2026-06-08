@@ -299,6 +299,7 @@ class IntelligentMemorySettings(_BasePowermemSettings):
         }
     )
     reinforcement_factor: float = Field(default=0.3)
+    forgotten_score_multiplier: float = Field(default=0.1)
     working_threshold: float = Field(default=0.3)
     short_term_threshold: float = Field(default=0.6)
     long_term_threshold: float = Field(default=0.8)
