@@ -52,6 +52,13 @@ logger = logging.getLogger(__name__)
 _BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=3)
 
 
+def _forget_marker_updates() -> Dict[str, Any]:
+    return {
+        "should_forget": True,
+        "marked_for_forgetting_at": get_current_datetime().isoformat(),
+    }
+
+
 def _auto_convert_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert legacy powermem config to format for compatibility.
@@ -1279,12 +1286,21 @@ class Memory(MemoryBase):
                             _BACKGROUND_EXECUTOR.submit(self.storage.update_memory, mem_id, {**upd}, user_id, agent_id)
                     logger.info(f"Submitted {len(updates)} update operations to background executor")
                 if deletes:
+                    # The plugin's "deletes" are memories that should be
+                    # forgotten by marking, not physically removed from storage.
                     for mem_id in deletes:
+                        forget_updates = _forget_marker_updates()
                         if _is_embedded_store:
-                            self.storage.delete_memory(mem_id, user_id, agent_id)
+                            self.storage.update_memory(mem_id, forget_updates, user_id, agent_id)
                         else:
-                            _BACKGROUND_EXECUTOR.submit(self.storage.delete_memory, mem_id, user_id, agent_id)
-                    logger.info(f"Submitted {len(deletes)} delete operations to background executor")
+                            _BACKGROUND_EXECUTOR.submit(
+                                self.storage.update_memory,
+                                mem_id,
+                                forget_updates,
+                                user_id,
+                                agent_id,
+                            )
+                    logger.info(f"Submitted {len(deletes)} forget marker update operations")
             
             # Transform results to match benchmark expected format
             # Benchmark expects: {"results": [{"memory": ..., "metadata": {...}, "score": ...}], "relations": [...]}
@@ -1416,8 +1432,7 @@ class Memory(MemoryBase):
                             
                             if updates is None:
                                 updates = {}
-                            updates["should_forget"] = True
-                            updates["marked_for_forgetting_at"] = get_current_datetime().isoformat()
+                            updates.update(_forget_marker_updates())
                         
                         if updates:
                             self.storage.update_memory(memory_id, {**updates}, user_id, agent_id)
