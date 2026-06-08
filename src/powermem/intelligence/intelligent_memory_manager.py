@@ -188,13 +188,18 @@ class IntelligentMemoryManager:
                     decay_rate=decay_rate,
                 )
                 
-                # Update result with processed information
+                # Update result with processed information. Keep the storage
+                # score for diagnostics, but expose the final score because
+                # it is the value used for user-visible ranking.
                 processed_result = result.copy()
+                original_score = processed_result.get("score")
                 forgotten_score_multiplier = (
                     self.forgotten_score_multiplier
                     if self._is_marked_forgetting(result)
                     else 1.0
                 )
+                if original_score is not None:
+                    processed_result["original_score"] = original_score
                 processed_result["relevance_score"] = relevance_score
                 processed_result["decay_factor"] = decay_factor
                 processed_result["forgotten_score_multiplier"] = (
@@ -203,6 +208,7 @@ class IntelligentMemoryManager:
                 processed_result["final_score"] = (
                     relevance_score * decay_factor * forgotten_score_multiplier
                 )
+                processed_result["score"] = processed_result["final_score"]
                 
                 processed_results.append(processed_result)
             
