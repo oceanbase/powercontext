@@ -2,9 +2,11 @@
 CLI command for starting the PowerMem API server
 """
 
+import errno
 import logging
 import os
 import platform
+import socket
 import sys as _sys
 import threading
 import time
@@ -43,6 +45,7 @@ from ..dashboard_assets import dashboard_assets_available
 
 logger = logging.getLogger("server")
 _NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_WINDOWS_ADDRESS_IN_USE = 10048
 
 
 def _env_truthy(name: str) -> bool:
@@ -161,6 +164,44 @@ def _start_dashboard_browser(host: str, port: int) -> None:
     ).start()
 
 
+def _is_address_in_use(error: OSError) -> bool:
+    return (
+        error.errno in {errno.EADDRINUSE, _WINDOWS_ADDRESS_IN_USE}
+        or getattr(error, "winerror", None) == _WINDOWS_ADDRESS_IN_USE
+    )
+
+
+def _assert_bind_available(host: str, port: int) -> None:
+    """Fail early with a clear message when the configured bind address is busy."""
+    if port == 0:
+        return
+
+    bind_host = (host or "").strip() or None
+    try:
+        addresses = socket.getaddrinfo(
+            bind_host,
+            port,
+            type=socket.SOCK_STREAM,
+            flags=socket.AI_PASSIVE,
+        )
+    except OSError:
+        return
+
+    for family, socktype, proto, _canonname, sockaddr in addresses:
+        probe = socket.socket(family, socktype, proto)
+        try:
+            probe.bind(sockaddr)
+        except OSError as exc:
+            if _is_address_in_use(exc):
+                display_host = host or "0.0.0.0"
+                raise click.ClickException(
+                    f"Port {port} is already in use on {display_host}. "
+                    "Stop the existing process or choose another --port."
+                ) from exc
+        finally:
+            probe.close()
+
+
 def _is_embedded_storage() -> bool:
     """
     Check whether the configured storage backend is an embedded (single-process) database.
@@ -256,6 +297,7 @@ def server(host, port, workers, reload, log_level, open_browser):
 
     # Setup logging BEFORE starting uvicorn to ensure all logs have timestamps
     _setup_server_logging()
+    _assert_bind_available(config.host, config.port)
 
     if _should_open_browser(open_browser):
         _start_dashboard_browser(config.host, config.port)

@@ -1,7 +1,9 @@
+import socket
 import subprocess
 import sys
 from unittest.mock import MagicMock, Mock
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -172,8 +174,25 @@ def test_start_browser_creates_one_daemon_waiter(monkeypatch):
     thread.return_value.start.assert_called_once_with()
 
 
+def test_assert_bind_available_rejects_occupied_port():
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    port = listener.getsockname()[1]
+
+    try:
+        with pytest.raises(click.ClickException) as exc_info:
+            server_cli._assert_bind_available("127.0.0.1", port)
+    finally:
+        listener.close()
+
+    assert f"Port {port} is already in use on 127.0.0.1" in str(exc_info.value)
+    assert "choose another --port" in str(exc_info.value)
+
+
 def test_cli_starts_one_browser_waiter_with_reload_and_workers(monkeypatch):
     runner = CliRunner()
+    bind_available = Mock()
     start_browser = Mock()
     uvicorn_run = Mock()
     original = {
@@ -183,6 +202,7 @@ def test_cli_starts_one_browser_waiter_with_reload_and_workers(monkeypatch):
         "reload": server_cli.config.reload,
     }
     monkeypatch.setattr(server_cli, "_should_open_browser", lambda _requested: True)
+    monkeypatch.setattr(server_cli, "_assert_bind_available", bind_available)
     monkeypatch.setattr(server_cli, "_start_dashboard_browser", start_browser)
     monkeypatch.setattr(server_cli, "_is_embedded_storage", lambda: False)
     monkeypatch.setattr(server_cli, "_setup_server_logging", lambda: None)
@@ -207,6 +227,7 @@ def test_cli_starts_one_browser_waiter_with_reload_and_workers(monkeypatch):
             setattr(server_cli.config, name, value)
 
     assert result.exit_code == 0
+    bind_available.assert_called_once_with("0.0.0.0", 9988)
     start_browser.assert_called_once_with("0.0.0.0", 9988)
     uvicorn_run.assert_called_once()
     assert uvicorn_run.call_args.kwargs["workers"] == 1
@@ -214,8 +235,10 @@ def test_cli_starts_one_browser_waiter_with_reload_and_workers(monkeypatch):
 
 def test_cli_no_open_browser_disables_waiter(monkeypatch):
     runner = CliRunner()
+    bind_available = Mock()
     should_open = Mock(return_value=False)
     start_browser = Mock()
+    monkeypatch.setattr(server_cli, "_assert_bind_available", bind_available)
     monkeypatch.setattr(server_cli, "_should_open_browser", should_open)
     monkeypatch.setattr(server_cli, "_start_dashboard_browser", start_browser)
     monkeypatch.setattr(server_cli, "_is_embedded_storage", lambda: False)
@@ -225,8 +248,44 @@ def test_cli_no_open_browser_disables_waiter(monkeypatch):
     result = runner.invoke(server_cli.server, ["--no-open-browser"])
 
     assert result.exit_code == 0
+    bind_available.assert_called_once_with(
+        server_cli.config.host, server_cli.config.port
+    )
     should_open.assert_called_once_with(False)
     start_browser.assert_not_called()
+
+
+def test_cli_port_in_use_stops_before_browser_and_uvicorn(monkeypatch):
+    runner = CliRunner()
+    should_open = Mock(return_value=True)
+    start_browser = Mock()
+    uvicorn_run = Mock()
+    monkeypatch.setattr(
+        server_cli,
+        "_assert_bind_available",
+        Mock(
+            side_effect=click.ClickException(
+                "Port 8848 is already in use on 127.0.0.1. "
+                "Stop the existing process or choose another --port."
+            )
+        ),
+    )
+    monkeypatch.setattr(server_cli, "_should_open_browser", should_open)
+    monkeypatch.setattr(server_cli, "_start_dashboard_browser", start_browser)
+    monkeypatch.setattr(server_cli, "_is_embedded_storage", lambda: False)
+    monkeypatch.setattr(server_cli, "_setup_server_logging", lambda: None)
+    monkeypatch.setattr(server_cli, "_run_server_app", uvicorn_run)
+
+    result = runner.invoke(
+        server_cli.server,
+        ["--host", "127.0.0.1", "--port", "8848", "--open-browser"],
+    )
+
+    assert result.exit_code != 0
+    assert "Port 8848 is already in use on 127.0.0.1" in result.output
+    should_open.assert_not_called()
+    start_browser.assert_not_called()
+    uvicorn_run.assert_not_called()
 
 
 def test_cli_help_documents_browser_options():
