@@ -90,7 +90,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             multi_agent_config.agent_memory._data['multi_agent_config'] = {
                 'enabled': True,
                 'default_permissions': {
-                    'owner': ['read', 'write', 'delete', 'admin'],
+                    'owner': ['read', 'write', 'delete', 'share', 'admin'],
                     'collaborator': ['read', 'write'],
                     'viewer': ['read']
                 },
@@ -124,7 +124,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
                 'cross_user_sharing': True,
                 'privacy_protection': True,
                 'default_permissions': {
-                    'owner': ['read', 'write', 'delete', 'admin'],
+                    'owner': ['read', 'write', 'delete', 'share', 'admin'],
                     'collaborator': ['read', 'write'],
                     'viewer': ['read']
                 },
