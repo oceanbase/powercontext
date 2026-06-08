@@ -31,6 +31,23 @@ logger = logging.getLogger("server")
 router = APIRouter(prefix="/memories", tags=["memories"])
 
 
+TIME_RANGE_PATTERN = "^(7d|30d|90d|all)$"
+
+
+def parse_time_range_cutoff(time_range: Optional[str]) -> Optional[datetime]:
+    """Convert a preset time-range string ('7d' / '30d' / '90d' / 'all') into a UTC cutoff datetime.
+
+    Returns None when the range is empty, 'all', or unparseable — meaning no time filter applies.
+    """
+    if not time_range or time_range == "all":
+        return None
+    try:
+        days = int(time_range[:-1])
+    except (TypeError, ValueError):
+        return None
+    return datetime.now(timezone.utc) - timedelta(days=days)
+
+
 def get_memory_service(request: Request) -> MemoryService:
     """Dependency to get memory service singleton from app state"""
     service = request.app.state.memory_service
@@ -175,35 +192,66 @@ async def list_memories(
     offset: int = Query(0, ge=0, description="Number of results to skip"),
     sort_by: Optional[str] = Query(None, description="Field to sort by: 'created_at', 'updated_at', 'id'"),
     order: str = Query("desc", description="Sort order: 'desc' (descending) or 'asc' (ascending)"),
+    time_range: Optional[str] = Query(
+        None,
+        pattern=TIME_RANGE_PATTERN,
+        description="Time range filter: 7d, 30d, 90d, or all"
+    ),
     api_key: str = Depends(verify_api_key),
     service: MemoryService = Depends(get_memory_service),
 ):
     """List memories with pagination and sorting"""
-    # Get total count first
-    total_count = service.count_memories(
-        user_id=user_id,
-        agent_id=agent_id,
-    )
-    
-    # Get paginated memories
-    memories = service.list_memories(
-        user_id=user_id,
-        agent_id=agent_id,
-        limit=limit,
-        offset=offset,
-        sort_by=sort_by,
-        order=order,
-    )
-    
+    cutoff_date = parse_time_range_cutoff(time_range)
+
+    if cutoff_date is None:
+        # Fast path: no time filter — storage handles pagination + sorting natively
+        total_count = service.count_memories(user_id=user_id, agent_id=agent_id)
+        memories = service.list_memories(
+            user_id=user_id,
+            agent_id=agent_id,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            order=order,
+        )
+    else:
+        # Storage doesn't natively filter by created_at range; pull a wide page,
+        # filter, then slice. Total becomes approximate (filtered count, not full set).
+        FETCH_CAP = 1000
+        raw = service.list_memories(
+            user_id=user_id,
+            agent_id=agent_id,
+            limit=FETCH_CAP,
+            offset=0,
+            sort_by=sort_by,
+            order=order,
+        )
+
+        def _created_at(m):
+            value = m.get("created_at")
+            if isinstance(value, str):
+                try:
+                    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                except ValueError:
+                    return None
+            return value
+
+        filtered = [
+            m for m in raw
+            if (_created_at(m) is not None and _created_at(m) >= cutoff_date)
+        ]
+        total_count = len(filtered)
+        memories = filtered[offset:offset + limit]
+
     memory_responses = [memory_dict_to_response(m) for m in memories]
-    
+
     response_data = MemoryListResponse(
         memories=memory_responses,
-        total=total_count,  # Use actual total count
+        total=total_count,
         limit=limit,
         offset=offset,
     )
-    
+
     return APIResponse(
         success=True,
         data=response_data.model_dump(mode='json'),
@@ -231,12 +279,8 @@ async def get_memory_stats(
     service: MemoryService = Depends(get_memory_service),
 ):
     """Get memory statistics"""
-    # Calculate cutoff date based on time_range
-    cutoff_date = None
-    if time_range and time_range != "all":
-        days = int(time_range[:-1])  # Extract number from "7d", "30d", "90d"
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-    
+    cutoff_date = parse_time_range_cutoff(time_range)
+
     stats = service.get_statistics(
         user_id=user_id,
         agent_id=agent_id,
@@ -270,12 +314,8 @@ async def get_memory_quality(
     service: MemoryService = Depends(get_memory_service),
 ):
     """Get memory quality metrics"""
-    # Calculate cutoff date based on time_range
-    cutoff_date = None
-    if time_range and time_range != "all":
-        days = int(time_range[:-1])  # Extract number from "7d", "30d", "90d"
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-    
+    cutoff_date = parse_time_range_cutoff(time_range)
+
     quality_metrics = await service.analyze_memory_quality(
         user_id=user_id,
         agent_id=agent_id,

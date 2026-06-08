@@ -109,6 +109,24 @@
     "filterPlaceholder": "Filter by content or category...",
     "filters": "Filters",
     "filtering": "Filtering...",
+    "timeRange": {
+      "label": "Time range",
+      "last7days": "Last 7 days",
+      "last30days": "Last 30 days",
+      "last90days": "Last 90 days",
+      "allTime": "All time"
+    },
+    "sort": {
+      "label": "Sort by",
+      "score": "Relevance",
+      "createdAt": "Created at",
+      "updatedAt": "Updated at",
+      "asc": "Ascending",
+      "desc": "Descending"
+    },
+    "search": {
+      "modeHint": "Semantic search"
+    },
     "columns": {
       "userId": "User ID",
       "agentId": "Agent ID",
@@ -116,6 +134,7 @@
       "content": "Content",
       "metadata": "Metadata",
       "createdAt": "Created At",
+      "score": "Score",
       "actions": "Actions"
     },
     "loading": "Loading memories...",

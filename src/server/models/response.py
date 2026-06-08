@@ -85,16 +85,39 @@ class MemoryListResponse(BaseModel):
 
 class SearchResult(BaseModel):
     """Single search result"""
-    
+
     memory_id: int = Field(..., description="Memory ID")
     content: str = Field(..., description="Memory content")
     score: Optional[float] = Field(None, description="Relevance score")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Metadata")
+    user_id: Optional[str] = Field(None, description="User ID")
+    agent_id: Optional[str] = Field(None, description="Agent ID")
+    run_id: Optional[str] = Field(None, description="Run ID")
+    created_at: Optional[datetime] = Field(None, description="Creation timestamp")
+    updated_at: Optional[datetime] = Field(None, description="Update timestamp")
+
+    @computed_field
+    @property
+    def id(self) -> str:
+        """Computed field: alias for memory_id serialized as string to prevent
+        JavaScript large integer precision loss (Snowflake IDs exceed 2^53)."""
+        return str(self.memory_id)
 
     @field_serializer('memory_id')
     def serialize_memory_id(self, value: int, _info) -> str:
         """Serialize as string to prevent JavaScript precision loss for large Snowflake IDs."""
         return str(value)
+
+    @field_serializer('created_at', 'updated_at')
+    def serialize_datetime(self, value: Optional[datetime], _info):
+        """Serialize datetime to ISO format string with Z suffix (UTC)"""
+        if value is None:
+            return None
+        if value.tzinfo is not None:
+            utc_value = value.astimezone(timezone.utc)
+        else:
+            utc_value = value
+        return utc_value.replace(tzinfo=None).isoformat() + "Z"
 
 
 class SearchResponse(BaseModel):

@@ -72,6 +72,18 @@ class SearchRequest(BaseModel):
     run_id: Optional[str] = Field(None, description="Filter by run ID")
     filters: Optional[Dict[str, Any]] = Field(None, description="Additional filters")
     limit: int = Field(default=30, ge=1, le=100, description="Maximum number of results")
+    time_range: Optional[str] = Field(
+        default=None,
+        description="Preset time window: '7d', '30d', '90d', or 'all'. When set, only memories created within the window are returned.",
+    )
+    sort_by: Optional[str] = Field(
+        default=None,
+        description="Field to sort results by: 'score' (default — by relevance), 'created_at', or 'updated_at'",
+    )
+    order: str = Field(
+        default="desc",
+        description="Sort order: 'desc' (default) or 'asc'",
+    )
 
 
 class UserProfileAddRequest(BaseModel):
