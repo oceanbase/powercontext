@@ -40,6 +40,13 @@ def oceanbase_remote_configured() -> bool:
     return bool(os.environ.get("OCEANBASE_HOST"))
 
 
+def _module_available(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+
+
 def embedded_seekdb_available() -> bool:
     """Return whether embedded SeekDB can be used on this platform.
 
@@ -50,9 +57,9 @@ def embedded_seekdb_available() -> bool:
     if not sys.platform.startswith("linux"):
         return False
     return (
-        importlib.util.find_spec("pyobvector") is not None
-        and importlib.util.find_spec("pyseekdb") is not None
-        and importlib.util.find_spec("pylibseekdb") is not None
+        _module_available("pyobvector")
+        and _module_available("pyseekdb")
+        and _module_available("pylibseekdb")
     )
 
 
@@ -129,9 +136,9 @@ def sqlite_capability_warning(provider: str, defaulted: bool | None = None) -> s
 def embedded_seekdb_unavailable_message() -> str:
     return (
         "Embedded SeekDB is not available on this platform or installation. "
-        f"platform={sys.platform}, pyobvector={importlib.util.find_spec('pyobvector') is not None}, "
-        f"pyseekdb={importlib.util.find_spec('pyseekdb') is not None}, "
-        f"pylibseekdb={importlib.util.find_spec('pylibseekdb') is not None}. "
+        f"platform={sys.platform}, pyobvector={_module_available('pyobvector')}, "
+        f"pyseekdb={_module_available('pyseekdb')}, "
+        f"pylibseekdb={_module_available('pylibseekdb')}. "
         'Use DATABASE_PROVIDER=sqlite for local basic storage, install "powermem[seekdb]" '
         "on Linux for embedded SeekDB, or set OCEANBASE_HOST for a remote OceanBase cluster."
     )

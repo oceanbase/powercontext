@@ -45,6 +45,23 @@ def test_linux_without_seekdb_defaults_to_sqlite(monkeypatch):
     assert platform_defaults.default_database_provider() == "sqlite"
 
 
+def test_modules_with_missing_spec_are_treated_as_unavailable(monkeypatch):
+    monkeypatch.delenv("DATABASE_PROVIDER", raising=False)
+    monkeypatch.delenv("OCEANBASE_HOST", raising=False)
+    monkeypatch.setattr(platform_defaults.sys, "platform", "linux")
+
+    def bad_find_spec(name):
+        if name == "pyobvector":
+            raise ValueError("pyobvector.__spec__ is not set")
+        return object()
+
+    monkeypatch.setattr(platform_defaults.importlib.util, "find_spec", bad_find_spec)
+
+    assert platform_defaults.embedded_seekdb_available() is False
+    assert platform_defaults.default_database_provider() == "sqlite"
+    assert "pyobvector=False" in platform_defaults.embedded_seekdb_unavailable_message()
+
+
 def test_explicit_database_provider_wins(monkeypatch):
     monkeypatch.setenv("DATABASE_PROVIDER", "postgres")
     monkeypatch.setenv("OCEANBASE_HOST", "ob.example.com")
