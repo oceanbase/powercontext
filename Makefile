@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check build-dashboard build-claude-hook package-claude-plugin publish-pypi publish-testpypi install-build-tools upload docs bump-version server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
+.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check build-mcp-package build-mcp-check build-all-python-packages build-dashboard build-claude-hook package-claude-plugin publish-pypi publish-mcp-pypi publish-all-pypi publish-testpypi install-build-tools upload docs bump-version check-package-versions server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
 
 help: ## Show help information
 	@echo "powermem Project Build Tools"
@@ -98,7 +98,10 @@ build: ## Build package (legacy, use build-package)
 	@echo "Use 'make build-package' instead"
 	$(MAKE) build-package
 
-build-package: clean ## Build distribution packages (wheel and sdist)
+check-package-versions: ## Verify powermem and powermem-mcp versions are aligned
+	python scripts/check_package_versions.py
+
+build-package: clean check-package-versions ## Build distribution packages (wheel and sdist)
 	@echo "Building distribution packages..."
 	python -m build
 	@echo "Build complete! Distribution files are in dist/"
@@ -108,6 +111,23 @@ build-check: build-package ## Check the built package
 	@echo "Checking built package..."
 	python -m twine check dist/*
 	@echo "Package check passed!"
+
+build-mcp-package: check-package-versions ## Build powermem-mcp wrapper package
+	@echo "Building powermem-mcp wrapper package..."
+	rm -rf packages/powermem-mcp/dist/
+	rm -rf packages/powermem-mcp/build/
+	rm -rf packages/powermem-mcp/*.egg-info/
+	rm -rf packages/powermem-mcp/src/*.egg-info/
+	cd packages/powermem-mcp && python -m build
+	@echo "Build complete! Distribution files are in packages/powermem-mcp/dist/"
+	@ls -lh packages/powermem-mcp/dist/
+
+build-mcp-check: build-mcp-package ## Check the powermem-mcp wrapper package
+	@echo "Checking powermem-mcp wrapper package..."
+	cd packages/powermem-mcp && python -m twine check dist/*
+	@echo "powermem-mcp package check passed!"
+
+build-all-python-packages: build-check build-mcp-check ## Build and check powermem plus powermem-mcp
 
 build-dashboard: ## Build dashboard frontend and inject into src/server/dashboard (for local dev; then use make server-start-reload)
 	@echo "Building dashboard..."
@@ -149,6 +169,21 @@ publish-pypi: build-check ## Publish to PyPI (requires credentials)
 	python -m twine upload dist/*
 	@echo "Upload complete!"
 	@echo "Package available at: https://pypi.org/project/powermem/"
+
+publish-mcp-pypi: build-mcp-check ## Publish powermem-mcp to PyPI (requires credentials)
+	@echo "Publishing powermem-mcp to PyPI..."
+	@echo "Make sure the matching powermem version is already available on PyPI."
+	@read -p "Continue with upload to PyPI? (y/N) " -n 1 -r; \
+	echo; \
+	if [[ ! $$REPLY =~ ^[Yy]$$ ]]; then \
+		echo "Upload cancelled."; \
+		exit 1; \
+	fi
+	cd packages/powermem-mcp && python -m twine upload dist/*
+	@echo "Upload complete!"
+	@echo "Package available at: https://pypi.org/project/powermem-mcp/"
+
+publish-all-pypi: publish-pypi publish-mcp-pypi ## Publish powermem first, then powermem-mcp
 
 publish-testpypi: build-check ## Publish to TestPyPI (for testing)
 	@echo "Publishing to TestPyPI..."
@@ -194,6 +229,10 @@ bump-version: ## Bump version number (usage: make bump-version VERSION=0.2.0)
 	@$(SED_INPLACE) -E 's/"version": "[0-9]+\.[0-9]+\.[0-9]+"/"version": "$(VERSION)"/g' src/powermem/core/telemetry.py
 	@# Update src/powermem/core/audit.py (match any x.y.z)
 	@$(SED_INPLACE) -E 's/"version": "[0-9]+\.[0-9]+\.[0-9]+"/"version": "$(VERSION)"/g' src/powermem/core/audit.py
+	@# Update powermem-mcp wrapper package version and dependency pin
+	@$(SED_INPLACE) 's/^version = ".*"/version = "$(VERSION)"/' packages/powermem-mcp/pyproject.toml
+	@$(SED_INPLACE) -E 's/powermem\[mcp,seekdb\]==[0-9]+\.[0-9]+\.[0-9]+/powermem[mcp,seekdb]==$(VERSION)/' packages/powermem-mcp/pyproject.toml
+	@$(MAKE) check-package-versions
 	@echo "✓ Version updated to $(VERSION) in all files (excluding examples/)"
 	@echo ""
 	@echo "Updated files:"
@@ -201,6 +240,7 @@ bump-version: ## Bump version number (usage: make bump-version VERSION=0.2.0)
 	@echo "  - src/powermem/version.py"
 	@echo "  - src/powermem/core/telemetry.py"
 	@echo "  - src/powermem/core/audit.py"
+	@echo "  - packages/powermem-mcp/pyproject.toml"
 	@echo ""
 	@echo "Note: Don't forget to update VERSION_HISTORY in src/powermem/version.py manually!"
 

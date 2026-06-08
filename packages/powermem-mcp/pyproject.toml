@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "powermem-mcp"
+version = "1.1.2"
+description = "PowerMem MCP server - thin wrapper that installs powermem[mcp,seekdb] and exposes the powermem-mcp command."
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    {name = "powermem Team", email = "open_oceanbase@oceanbase.com"}
+]
+requires-python = ">=3.11"
+dependencies = [
+    "powermem[mcp,seekdb]==1.1.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/oceanbase/powermem"
+Repository = "https://github.com/oceanbase/powermem.git"
+
+[project.scripts]
+powermem-mcp = "powermem.mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -86,6 +86,10 @@ jobs:
         run: |
           pip install build twine
 
+      - name: Check Python package versions
+        run: |
+          python scripts/check_package_versions.py
+
       - name: Clean previous builds
         run: |
           rm -rf dist/ build/ *.egg-info/
@@ -98,15 +102,38 @@ jobs:
         run: |
           python -m twine check dist/*
 
+      - name: Clean previous MCP wrapper builds
+        run: |
+          rm -rf packages/powermem-mcp/dist/ packages/powermem-mcp/build/
+          rm -rf packages/powermem-mcp/*.egg-info/ packages/powermem-mcp/src/*.egg-info/
+
+      - name: Build MCP wrapper package
+        run: |
+          cd packages/powermem-mcp
+          python -m build
+
+      - name: Check MCP wrapper package
+        run: |
+          cd packages/powermem-mcp
+          python -m twine check dist/*
+
       - name: List built files
         run: |
           ls -lh dist/
+          ls -lh packages/powermem-mcp/dist/
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist-python-${{ matrix.python-version }}
           path: dist/*
+          retention-days: 30
+
+      - name: Upload MCP wrapper build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-mcp-python-${{ matrix.python-version }}
+          path: packages/powermem-mcp/dist/*
           retention-days: 30
 
   combine-artifacts:

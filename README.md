@@ -224,6 +224,21 @@ pip install "powermem[mcp,seekdb]"
 pip install "powermem[cli,server,mcp,seekdb]"
 ```
 
+For zero-install MCP clients such as Cursor, Codex, Claude Desktop, Cline, or
+Goose, use the wrapper package:
+
+```bash
+uvx powermem-mcp
+```
+
+The `powermem-mcp` wrapper is version-locked to the main `powermem` release and
+installs `powermem[mcp,seekdb]` for the same version. If `uv` has cached an older
+tool environment, refresh it explicitly:
+
+```bash
+uvx --refresh --upgrade powermem-mcp
+```
+
 ### SDK
 
 Run from a directory that contains your configured `.env`:
