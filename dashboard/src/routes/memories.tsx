@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Calendar,
   ChevronLeft,
   ChevronRight,
@@ -12,7 +15,7 @@ import {
   Trash2,
   User,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { api, type Memory } from "../lib/api";
@@ -36,6 +39,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -52,12 +62,32 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
+type SortField = "score" | "created_at" | "updated_at";
+type SortOrder = "asc" | "desc";
+
 export const Route = createFileRoute("/memories")({
   validateSearch: (search: Record<string, unknown>) => {
+    const rawTimeRange = (search.time_range as string) || "all";
+    const allowedRanges = new Set(["7d", "30d", "90d", "all"]);
+    const time_range = allowedRanges.has(rawTimeRange) ? rawTimeRange : "all";
+
+    const rawSortBy = (search.sort_by as string) || "";
+    const allowedSorts = new Set<SortField>(["score", "created_at", "updated_at"]);
+    const sort_by = allowedSorts.has(rawSortBy as SortField)
+      ? (rawSortBy as SortField)
+      : undefined;
+
+    const rawOrder = (search.order as string) || "desc";
+    const order: SortOrder = rawOrder === "asc" ? "asc" : "desc";
+
     return {
       user_id: search.user_id as string | undefined,
       agent_id: search.agent_id as string | undefined,
       page: (search.page as number) || 1,
+      q: (search.q as string) || undefined,
+      time_range,
+      sort_by,
+      order,
     };
   },
   component: MemoriesPage,
@@ -65,30 +95,69 @@ export const Route = createFileRoute("/memories")({
 
 const LIMIT = 20;
 
+type MemoryRow = Memory & { score?: number };
+
 function MemoriesPage() {
   const { t } = useTranslation();
-  const { user_id, agent_id, page } = Route.useSearch();
+  const { user_id, agent_id, page, q, time_range, sort_by, order } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
-  const [searchInput, setSearchInput] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [userIdInput, setUserIdInput] = useState("");
-  const [userIdFilterTerm, setUserIdFilterTerm] = useState("");
-  const [agentIdInput, setAgentIdInput] = useState("");
-  const [agentIdFilterTerm, setAgentIdFilterTerm] = useState("");
-  const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
+  const [searchInput, setSearchInput] = useState(q ?? "");
+  const [userIdInput, setUserIdInput] = useState(user_id ?? "");
+  const [agentIdInput, setAgentIdInput] = useState(agent_id ?? "");
+  const [selectedMemory, setSelectedMemory] = useState<MemoryRow | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isFiltering, setIsFiltering] = useState(false);
   const queryClient = useQueryClient();
 
+  // Keep inputs in sync if URL changes (e.g. back/forward).
+  useEffect(() => { setSearchInput(q ?? ""); }, [q]);
+  useEffect(() => { setUserIdInput(user_id ?? ""); }, [user_id]);
+  useEffect(() => { setAgentIdInput(agent_id ?? ""); }, [agent_id]);
+
+  const hasQuery = !!q && q.trim().length > 0;
+  // Default sort: relevance when searching, created_at desc when listing.
+  // "score" only makes sense in search mode — fall back to created_at otherwise.
+  const effectiveSortBy: SortField =
+    sort_by && (sort_by !== "score" || hasQuery)
+      ? sort_by
+      : hasQuery
+      ? "score"
+      : "created_at";
+
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["memories", user_id, agent_id, page, searchTerm],
-    queryFn: () =>
-      api.getMemories({
+    queryKey: ["memories", user_id, agent_id, page, q, time_range, effectiveSortBy, order],
+    queryFn: async () => {
+      if (hasQuery) {
+        const resp = await api.searchMemories({
+          query: q!,
+          user_id,
+          agent_id,
+          limit: LIMIT,
+          time_range,
+          sort_by: effectiveSortBy,
+          order,
+        });
+        return {
+          rows: resp.results as MemoryRow[],
+          total: resp.total,
+          mode: "search" as const,
+        };
+      }
+      const resp = await api.getMemories({
         user_id,
         agent_id,
         limit: LIMIT,
         offset: (page - 1) * LIMIT,
-      }),
+        sort_by: effectiveSortBy === "score" ? undefined : effectiveSortBy,
+        order,
+        time_range: time_range === "all" ? undefined : time_range,
+      });
+      return {
+        rows: resp.memories as MemoryRow[],
+        total: resp.total,
+        mode: "list" as const,
+      };
+    },
   });
 
   const deleteMutation = useMutation({
@@ -103,42 +172,44 @@ function MemoriesPage() {
     },
   });
 
-  const memories = data?.memories || [];
-  const total = data?.total || 0;
-  const totalPages = Math.ceil(total / LIMIT);
+  const memories: MemoryRow[] = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const isSearchMode = data?.mode === "search";
+  // Search returns top-K within `total`; pagination only makes sense for list mode.
+  const totalPages = isSearchMode ? 1 : Math.ceil(total / LIMIT);
 
-  const filteredMemories = memories.filter((m) => {
-    const contentMatch = !searchTerm || 
-      m.content.toLowerCase().includes(searchTerm.toLowerCase());
-    const userIdMatch = !userIdFilterTerm || 
-      m.user_id?.toLowerCase().includes(userIdFilterTerm.toLowerCase());
-    const agentIdMatch = !agentIdFilterTerm || 
-      m.agent_id?.toLowerCase().includes(agentIdFilterTerm.toLowerCase());
-    return contentMatch && userIdMatch && agentIdMatch;
-  });
+  const updateSearchParams = async (
+    patch: Partial<{
+      q: string | undefined;
+      user_id: string | undefined;
+      agent_id: string | undefined;
+      time_range: string;
+      sort_by: SortField | undefined;
+      order: SortOrder;
+      page: number;
+    }>,
+    resetPage = true,
+  ) => {
+    await navigate({
+      search: (prev: any) => ({
+        ...prev,
+        ...patch,
+        ...(resetPage ? { page: 1 } : {}),
+      }),
+    });
+  };
 
   const handleFilter = async () => {
     setIsFiltering(true);
     try {
-    const normalizedSearch = searchInput.trim();
-    const normalizedUserId = userIdInput.trim();
-    const normalizedAgentId = agentIdInput.trim();
-
-    setSearchTerm(normalizedSearch);
-    setUserIdFilterTerm(normalizedUserId);
-    setAgentIdFilterTerm(normalizedAgentId);
-      if (page !== 1) {
-        await navigate({
-          search: (prev: any) => ({ ...prev, page: 1 }),
-        });
-      }
-      // Give a brief moment for the UI to update
-      await new Promise(resolve => setTimeout(resolve, 300));
-    toast.success(t("memories.toast.filterApplied"));
-    } catch (error) {
-      toast.error(t("common.error"), {
-        description: t("common.tryAgain"),
+      await updateSearchParams({
+        q: searchInput.trim() || undefined,
+        user_id: userIdInput.trim() || undefined,
+        agent_id: agentIdInput.trim() || undefined,
       });
+      toast.success(t("memories.toast.filterApplied"));
+    } catch (e) {
+      toast.error(t("common.error"), { description: t("common.tryAgain") });
     } finally {
       setIsFiltering(false);
     }
@@ -148,20 +219,31 @@ function MemoriesPage() {
     setSearchInput("");
     setUserIdInput("");
     setAgentIdInput("");
-    setSearchTerm("");
-    setUserIdFilterTerm("");
-    setAgentIdFilterTerm("");
-    if (page !== 1) {
-      await navigate({
-        search: (prev: any) => ({ ...prev, page: 1 }),
-      });
-    }
+    await updateSearchParams({
+      q: undefined,
+      user_id: undefined,
+      agent_id: undefined,
+      time_range: "all",
+      sort_by: undefined,
+      order: "desc",
+    });
     toast.success(t("memories.toast.filterCleared"));
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       handleFilter();
+    }
+  };
+
+  const handleSortByCreatedAt = async () => {
+    if (effectiveSortBy === "created_at") {
+      await updateSearchParams(
+        { sort_by: "created_at", order: order === "desc" ? "asc" : "desc" },
+        false,
+      );
+    } else {
+      await updateSearchParams({ sort_by: "created_at", order: "desc" }, false);
     }
   };
 
@@ -299,7 +381,7 @@ function MemoriesPage() {
     }
   };
 
-  const getDisplayRunId = (memory: Memory): string | undefined => {
+  const getDisplayRunId = (memory: MemoryRow): string | undefined => {
     if (memory.run_id) {
       return memory.run_id;
     }
@@ -473,10 +555,53 @@ function MemoriesPage() {
                 />
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={time_range}
+                onValueChange={(value) => updateSearchParams({ time_range: value })}
+              >
+                <SelectTrigger className="w-40 h-9" aria-label={t("memories.timeRange.label")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7d">{t("memories.timeRange.last7days")}</SelectItem>
+                  <SelectItem value="30d">{t("memories.timeRange.last30days")}</SelectItem>
+                  <SelectItem value="90d">{t("memories.timeRange.last90days")}</SelectItem>
+                  <SelectItem value="all">{t("memories.timeRange.allTime")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={effectiveSortBy}
+                onValueChange={(value) =>
+                  updateSearchParams({ sort_by: value as SortField }, false)
+                }
+              >
+                <SelectTrigger className="w-40 h-9" aria-label={t("memories.sort.label")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {hasQuery && (
+                    <SelectItem value="score">{t("memories.sort.score")}</SelectItem>
+                  )}
+                  <SelectItem value="created_at">{t("memories.sort.createdAt")}</SelectItem>
+                  <SelectItem value="updated_at">{t("memories.sort.updatedAt")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-2"
+                onClick={() =>
+                  updateSearchParams({ order: order === "desc" ? "asc" : "desc" }, false)
+                }
+                title={order === "desc" ? t("memories.sort.desc") : t("memories.sort.asc")}
+              >
+                {order === "desc" ? <ArrowDown className="size-4" /> : <ArrowUp className="size-4" />}
+                {order === "desc" ? t("memories.sort.desc") : t("memories.sort.asc")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 className="h-9 gap-2"
                 onClick={handleFilter}
                 disabled={isFiltering}
@@ -484,14 +609,19 @@ function MemoriesPage() {
                 <Filter className={`size-4 ${isFiltering ? "animate-pulse" : ""}`} />
                 {isFiltering ? t("memories.filtering") : t("memories.applyFilters")}
               </Button>
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 className="h-9 gap-2"
                 onClick={handleClearFilters}
               >
                 {t("memories.clearAllFilters")}
               </Button>
+              {hasQuery && (
+                <Badge variant="secondary" className="gap-1 ml-auto">
+                  <Search size={12} /> {t("memories.search.modeHint")}
+                </Badge>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -503,11 +633,30 @@ function MemoriesPage() {
                   <TableHead className="w-[120px]">{t("memories.columns.userId")}</TableHead>
                   <TableHead className="w-[120px]">{t("memories.columns.agentId")}</TableHead>
                   <TableHead>{t("memories.columns.content")}</TableHead>
+                  {isSearchMode && (
+                    <TableHead className="w-[80px] hidden md:table-cell">
+                      {t("memories.columns.score")}
+                    </TableHead>
+                  )}
                   <TableHead className="hidden md:table-cell">
                     {t("memories.columns.metadata")}
                   </TableHead>
-                  <TableHead className="hidden lg:table-cell">
-                    {t("memories.columns.createdAt")}
+                  <TableHead
+                    className="hidden lg:table-cell cursor-pointer select-none"
+                    onClick={handleSortByCreatedAt}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {t("memories.columns.createdAt")}
+                      {effectiveSortBy === "created_at" ? (
+                        order === "desc" ? (
+                          <ArrowDown className="size-3" />
+                        ) : (
+                          <ArrowUp className="size-3" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="size-3 opacity-50" />
+                      )}
+                    </span>
                   </TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
@@ -516,7 +665,7 @@ function MemoriesPage() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      <TableCell colSpan={6} className="h-16 text-center">
+                      <TableCell colSpan={isSearchMode ? 7 : 6} className="h-16 text-center">
                         <div className="flex items-center justify-center gap-2 text-muted-foreground">
                           <RefreshCcw className="size-4 animate-spin" />
                           {t("memories.loading")}
@@ -524,8 +673,8 @@ function MemoriesPage() {
                       </TableCell>
                     </TableRow>
                   ))
-                ) : filteredMemories.length > 0 ? (
-                  filteredMemories.map((memory) => (
+                ) : memories.length > 0 ? (
+                  memories.map((memory) => (
                     <TableRow
                       key={memory.id}
                       className="group cursor-pointer hover:bg-accent/30 transition-colors"
@@ -540,6 +689,11 @@ function MemoriesPage() {
                       <TableCell className="w-[300px] lg:w-[500px]">
                         {renderContentText(memory.content, "-", "max-w-[280px] lg:max-w-[480px]")}
                       </TableCell>
+                      {isSearchMode && (
+                        <TableCell className="hidden md:table-cell text-xs font-mono">
+                          {typeof memory.score === "number" ? memory.score.toFixed(3) : "-"}
+                        </TableCell>
+                      )}
                       <TableCell className="hidden md:table-cell">
                         <div className="flex flex-wrap gap-1">
                           {Object.entries(memory.metadata || {})
@@ -563,7 +717,9 @@ function MemoriesPage() {
                       <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
                         <div className="flex items-center gap-1">
                           <Calendar size={12} />
-                          {new Date(memory.created_at).toLocaleDateString()}
+                          {memory.created_at
+                            ? new Date(memory.created_at).toLocaleDateString()
+                            : "-"}
                         </div>
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
@@ -625,7 +781,7 @@ function MemoriesPage() {
                 ) : (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={isSearchMode ? 7 : 6}
                       className="h-32 text-center text-muted-foreground italic"
                     >
                       {t("memories.noMemories")}
@@ -638,9 +794,7 @@ function MemoriesPage() {
 
           <div className="flex items-center justify-between mt-4">
             <p className="text-xs text-muted-foreground">
-              {searchTerm
-                ? `${filteredMemories.length} filtered results from page ${page}`
-                : t("memories.showing", { count: memories.length, total })}
+              {t("memories.showing", { count: memories.length, total })}
             </p>
             <div className="flex items-center gap-2">
               <Button
@@ -707,7 +861,9 @@ function MemoriesPage() {
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">{t("memories.detail.createdAt")}</p>
                   <p className="text-sm">
-                    {new Date(selectedMemory.created_at).toLocaleString()}
+                    {selectedMemory.created_at
+                      ? new Date(selectedMemory.created_at).toLocaleString()
+                      : t("memories.detail.none")}
                   </p>
                 </div>
                 <div className="space-y-1">

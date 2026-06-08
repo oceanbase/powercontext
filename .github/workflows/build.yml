@@ -163,3 +163,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  dispatch-pypi-publish:
+    runs-on: ubuntu-latest
+    # Releases created with GITHUB_TOKEN do not emit a release.published event
+    # that starts another workflow. workflow_dispatch is the supported exception,
+    # and keeps PyPI trusted publishing bound to publish.yml.
+    if: startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/plugins-')
+    needs: build-and-release
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Dispatch PyPI publish workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh workflow run publish.yml --ref "$RELEASE_TAG" -f release_tag="$RELEASE_TAG"

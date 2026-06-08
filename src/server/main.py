@@ -21,6 +21,7 @@ from .middleware.auth import verify_api_key
 
 import os
 import logging
+from importlib.util import find_spec
 
 # Setup logging
 setup_logging()
@@ -33,6 +34,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def _load_mcp_asgi_app():
     """Return streamable HTTP MCP ASGI app when powermem[mcp] is installed."""
+    if find_spec("fastmcp") is None:
+        logger.warning("MCP extras not installed; /mcp endpoint disabled")
+        return None
+
     try:
         from powermem.mcp.server import mcp
 

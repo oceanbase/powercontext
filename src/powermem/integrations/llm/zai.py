@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
-from zai import ZhipuAiClient
+from openai import OpenAI
 
 from powermem.integrations.llm import LLMBase
 from powermem.integrations.llm.config.base import BaseLLMConfig
@@ -53,9 +53,9 @@ class ZaiLLM(LLMBase):
 
         # Get API key from config or environment
         api_key = self.config.api_key or os.getenv("ZAI_API_KEY")
+        base_url = getattr(self.config, "zai_base_url", None) or os.getenv("ZAI_BASE_URL")
 
-        # Initialize Zhipu AI client
-        self.client = ZhipuAiClient(api_key=api_key)
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
 
     def _parse_response(self, response, tools):
         """

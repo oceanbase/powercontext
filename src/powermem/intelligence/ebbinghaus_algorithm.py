@@ -183,7 +183,11 @@ class EbbinghausAlgorithm:
             Relevance score between 0 and 1
         """
         try:
-            content = memory.get("content", "").lower()
+            content = (
+                memory.get("content")
+                or memory.get("memory")
+                or ""
+            ).lower()
             query_lower = query.lower()
             
             # Simple keyword matching

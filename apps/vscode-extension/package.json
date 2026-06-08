@@ -3,6 +3,7 @@
   "displayName": "PowerMem for VS Code",
   "description": "PowerMem intelligent memory for AI assistants: connect Cursor, Claude Code, Codex, Windsurf to PowerMem with one click.",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "publisher": "OceanBase",
   "repository": {
     "type": "git",

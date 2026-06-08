@@ -138,3 +138,106 @@ def test_search_results_use_type_specific_decay_rate():
 
     assert by_id["working"]["decay_factor"] < by_id["long"]["decay_factor"]
     assert processed[0]["id"] == "long"
+
+
+def test_search_results_demote_memories_marked_for_forgetting():
+    manager = IntelligentMemoryManager(
+        {
+            "intelligent_memory": {
+                "decay_rate": 0.1,
+                "forgotten_score_multiplier": 0.1,
+            }
+        }
+    )
+    created_at = get_current_datetime()
+    results = [
+        {
+            "id": "active",
+            "content": "shared keyword",
+            "created_at": created_at,
+        },
+        {
+            "id": "forgotten",
+            "content": "shared keyword extra",
+            "created_at": created_at,
+            "should_forget": True,
+        },
+    ]
+
+    processed = manager.process_search_results(results, "keyword")
+    by_id = {item["id"]: item for item in processed}
+
+    assert by_id["forgotten"]["forgotten_score_multiplier"] == pytest.approx(
+        0.1
+    )
+    assert by_id["forgotten"]["final_score"] < by_id["active"]["final_score"]
+    assert processed[0]["id"] == "active"
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        {"should_forget": True},
+        {"metadata": {"should_forget": True}},
+        {"metadata": {"should_forget": "true"}},
+        {"metadata": {"memory_management": {"should_forget": True}}},
+    ],
+)
+def test_search_results_read_forget_marker_from_supported_locations(marker):
+    manager = IntelligentMemoryManager(
+        {
+            "intelligent_memory": {
+                "decay_rate": 0.1,
+                "forgotten_score_multiplier": 0.2,
+            }
+        }
+    )
+    result = {
+        "id": "forgotten",
+        "content": "keyword",
+        "created_at": get_current_datetime(),
+        **marker,
+    }
+
+    processed = manager.process_search_results([result], "keyword")
+
+    assert processed[0]["forgotten_score_multiplier"] == pytest.approx(0.2)
+
+
+def test_search_results_do_not_demote_unmarked_memories():
+    manager = IntelligentMemoryManager({"intelligent_memory": {"decay_rate": 0.1}})
+    result = {
+        "id": "active",
+        "content": "keyword",
+        "created_at": get_current_datetime(),
+        "metadata": {"should_forget": False},
+    }
+
+    processed = manager.process_search_results([result], "keyword")
+
+    assert processed[0]["forgotten_score_multiplier"] == pytest.approx(1.0)
+    assert processed[0]["final_score"] == pytest.approx(
+        processed[0]["relevance_score"] * processed[0]["decay_factor"]
+    )
+
+
+def test_search_results_calculate_relevance_from_storage_memory_field():
+    manager = IntelligentMemoryManager({"intelligent_memory": {"decay_rate": 0.1}})
+    result = {
+        "id": "storage-result",
+        "memory": "keyword from storage adapter",
+        "created_at": get_current_datetime(),
+    }
+
+    processed = manager.process_search_results([result], "keyword")
+
+    assert processed[0]["relevance_score"] == pytest.approx(1.0)
+    assert processed[0]["final_score"] > 0
+
+
+def test_forgotten_score_multiplier_does_not_boost_scores():
+    manager = IntelligentMemoryManager(
+        {"intelligent_memory": {"forgotten_score_multiplier": 2.0}}
+    )
+
+    assert manager.forgotten_score_multiplier == pytest.approx(1.0)

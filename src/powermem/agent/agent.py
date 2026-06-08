@@ -247,7 +247,7 @@ class AgentMemory:
             'default_collaboration_level': default_collaboration_level,
             'default_access_permission': default_access_permission,
             'default_permissions': {
-                'owner': ['read', 'write', 'delete', 'admin'],
+                'owner': ['read', 'write', 'delete', 'share', 'admin'],
                 'collaborator': ['read', 'write'],
                 'viewer': ['read']
             },
@@ -306,7 +306,7 @@ class AgentMemory:
             'cross_user_sharing': True,
             'privacy_protection': True,
             'default_permissions': {
-                'owner': ['read', 'write', 'delete', 'admin'],
+                'owner': ['read', 'write', 'delete', 'share', 'admin'],
                 'collaborator': ['read', 'write'],
                 'viewer': ['read']
             },

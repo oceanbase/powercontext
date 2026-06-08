@@ -178,6 +178,7 @@ def from_config(config: Any = None, **kwargs):
                  - initial_retention (float): Initial retention strength for new memories (default: 1.0)
                  - decay_rate (float): Rate at which memories decay over time (default: 0.1)
                  - reinforcement_factor (float): Factor by which memories are reinforced when accessed (default: 0.3)
+                 - forgotten_score_multiplier (float): Multiplier for memories marked should_forget in search ranking (default: 0.1)
                  - working_threshold (float): Threshold for working memory classification (default: 0.3)
                  - short_term_threshold (float): Threshold for short-term memory classification (default: 0.6)
                  - long_term_threshold (float): Threshold for long-term memory classification (default: 0.8)

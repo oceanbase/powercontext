@@ -69,18 +69,26 @@ def search_result_to_response(result: Dict[str, Any]) -> SearchResult:
     """
     # Handle different field names for content: "memory", "content", "memory_content", "data"
     content = (
-        result.get("memory") or 
-        result.get("content") or 
-        result.get("memory_content") or 
-        result.get("data") or 
+        result.get("memory") or
+        result.get("content") or
+        result.get("memory_content") or
+        result.get("data") or
         ""
     )
-    
+
+    created_at = _parse_datetime(result.get("created_at")) if "created_at" in result else None
+    updated_at = _parse_datetime(result.get("updated_at")) if "updated_at" in result else None
+
     return SearchResult(
         memory_id=result.get("memory_id") or result.get("id"),
         content=content,
         score=result.get("score") or result.get("similarity"),
         metadata=result.get("metadata", {}),
+        user_id=result.get("user_id"),
+        agent_id=result.get("agent_id"),
+        run_id=result.get("run_id"),
+        created_at=created_at,
+        updated_at=updated_at,
     )
 
 

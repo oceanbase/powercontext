@@ -109,6 +109,24 @@
     "filterPlaceholder": "按内容或分类筛选...",
     "filters": "筛选器",
     "filtering": "筛选中...",
+    "timeRange": {
+      "label": "时间范围",
+      "last7days": "最近 7 天",
+      "last30days": "最近 30 天",
+      "last90days": "最近 90 天",
+      "allTime": "全部时间"
+    },
+    "sort": {
+      "label": "排序",
+      "score": "相关度",
+      "createdAt": "创建时间",
+      "updatedAt": "更新时间",
+      "asc": "升序",
+      "desc": "降序"
+    },
+    "search": {
+      "modeHint": "语义搜索"
+    },
     "columns": {
       "userId": "用户 ID",
       "agentId": "代理 ID",
@@ -116,6 +134,7 @@
       "content": "内容",
       "metadata": "元数据",
       "createdAt": "创建时间",
+      "score": "相关度",
       "actions": "操作"
     },
     "loading": "加载记忆中...",

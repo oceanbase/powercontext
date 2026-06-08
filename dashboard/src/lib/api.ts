@@ -44,6 +44,25 @@ export interface MemoryList {
   offset: number;
 }
 
+export interface SearchResultItem {
+  id: string;
+  memory_id?: string;
+  content: string;
+  score?: number;
+  user_id?: string;
+  agent_id?: string;
+  run_id?: string;
+  metadata?: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SearchMemoriesResponse {
+  results: SearchResultItem[];
+  total: number;
+  query: string;
+}
+
 export interface UserProfile {
   id: number;
   user_id: string;
@@ -154,6 +173,7 @@ export const api = {
     offset?: number;
     sort_by?: string;
     order?: string;
+    time_range?: string;
   }) =>
     fetchWithAuth<
       MemoryList &
@@ -169,6 +189,27 @@ export const api = {
         offset: data.offset ?? params?.offset ?? 0,
       } satisfies MemoryList;
     }),
+
+  searchMemories: (params: {
+    query: string;
+    user_id?: string;
+    agent_id?: string;
+    run_id?: string;
+    limit?: number;
+    threshold?: number;
+    time_range?: string;
+    sort_by?: string;
+    order?: string;
+    filters?: Record<string, any>;
+  }) =>
+    fetchWithAuth<SearchMemoriesResponse>("/memories/search", {
+      method: "POST",
+      body: params,
+    }).then((data) => ({
+      results: data.results ?? [],
+      total: data.total ?? (data.results?.length ?? 0),
+      query: data.query ?? params.query,
+    })),
 
   deleteMemory: (memoryId: string) =>
     fetchWithAuth<void>(`/memories/${memoryId}`, { method: "DELETE" }),

@@ -546,7 +546,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
                 try:
                     scope = MemoryScope(scope_str) if isinstance(scope_str, str) else scope_str
                 except (ValueError, TypeError):
-                    scope = MemoryScope.AGENT  # Default scope
+                    scope = MemoryScope.AGENT_GROUP  # Backward-compatible "agent" scope
                 
                 try:
                     memory_type = MemoryType(memory_type_str) if isinstance(memory_type_str, str) else memory_type_str
@@ -1121,7 +1121,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             # Set default permissions if not provided
             if permissions is None:
                 permissions = {
-                    'owner': ['read', 'write', 'delete', 'admin'],
+                    'owner': ['read', 'write', 'delete', 'share', 'admin'],
                     'collaborator': ['read', 'write'],
                     'viewer': ['read']
                 }

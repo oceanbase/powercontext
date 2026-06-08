@@ -1,0 +1,20 @@
+{
+  "name": "powermem",
+  "owner": {
+    "name": "OceanBase / PowerMem",
+    "email": "open_oceanbase@oceanbase.com"
+  },
+  "metadata": {
+    "description": "PowerMem marketplace: intelligent memory for Claude Code.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "memory-powermem",
+      "source": "./apps/claude-code-plugin",
+      "description": "PowerMem intelligent memory for Claude Code: auto-recall on prompt submit and auto-save on session end via HTTP hooks.",
+      "category": "memory",
+      "tags": ["memory", "powermem", "rag", "hooks", "oceanbase"]
+    }
+  ]
+}

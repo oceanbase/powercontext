@@ -26,6 +26,7 @@ class AccessPermission(Enum):
     READ = "read"
     WRITE = "write"
     DELETE = "delete"
+    SHARE = "share"
     ADMIN = "admin"
 
 
@@ -49,5 +50,4 @@ class CollaborationStatus(Enum):
 class CollaborationLevel(Enum):
     ISOLATED = "isolated"
     COLLABORATIVE = "collaborative"
-
 
