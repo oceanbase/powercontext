@@ -24,6 +24,7 @@ let autoCaptureMaxChars = AUTO_CAPTURE_MAX_CHARS_DEFAULT;
 let chatAutoSummarizeTurns = 10;
 let chatAutoRetrieve = true;
 let seamlessMode = true;
+let outputChannel: vscode.OutputChannel;
 
 function getUseMCPFromConfig(config: vscode.WorkspaceConfiguration): boolean {
   const mode = config.get<'http' | 'mcp'>('connectionMode');
@@ -249,6 +250,20 @@ async function showSetup(): Promise<void> {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  outputChannel = vscode.window.createOutputChannel('PowerMem');
+  context.subscriptions.push(outputChannel);
+  outputChannel.appendLine('[PowerMem] Extension activating…');
+
+  // Platform check: only macOS and Linux are supported
+  const platform = process.platform;
+  if (platform === 'win32') {
+    const msg = 'PowerMem is not supported on Windows. Only macOS and Linux are supported.';
+    outputChannel.appendLine(`[PowerMem] ✗ ${msg}`);
+    vscode.window.showErrorMessage(msg);
+    return;
+  }
+  outputChannel.appendLine(`[PowerMem] Platform: ${platform} ✓`);
+
   const config = vscode.workspace.getConfiguration('powermem');
   isEnabled = config.get<boolean>('enabled') ?? true;
   backendUrl = config.get<string>('backendUrl') || 'http://localhost:8848';
@@ -256,6 +271,7 @@ export function activate(context: vscode.ExtensionContext): void {
   useMCP = getUseMCPFromConfig(config);
   mcpServerPath = config.get<string>('mcpServerPath') || '';
   seamlessMode = config.get<boolean>('seamlessMode') ?? true;
+  outputChannel.appendLine(`[PowerMem] Config: backendUrl=${backendUrl}, enabled=${isEnabled}, useMCP=${useMCP}`);
   // In seamless mode, default auto-capture on save to true so extraction is automatic
   const explicitAutoCapture = config.inspect<boolean>('autoCapture.onSave');
   const explicitOnSave = explicitAutoCapture?.workspaceValue ?? explicitAutoCapture?.globalValue;
@@ -294,13 +310,37 @@ export function activate(context: vscode.ExtensionContext): void {
   updateStatusBar('disconnected');
   statusBar.show();
 
-  checkHealth(backendUrl).then(async (connected) => {
+  // Retry health check with exponential backoff so the extension
+  // automatically connects once the backend becomes available.
+  const MAX_RETRIES = 6;
+  const INITIAL_DELAY_MS = 2000;
+  let retryDelay = INITIAL_DELAY_MS;
+  const attemptConnect = async (attempt: number): Promise<void> => {
+    outputChannel.appendLine(`[PowerMem] Health check attempt ${attempt + 1}/${MAX_RETRIES} → ${backendUrl}/api/v1/system/health`);
+    const connected = await checkHealth(backendUrl);
     if (connected) {
       await autoLinkAll();
       updateStatusBar('active');
+      outputChannel.appendLine(`[PowerMem] ✓ Connected on attempt ${attempt + 1}`);
+      console.log(`[PowerMem] Connected on attempt ${attempt + 1}`);
+      return;
+    }
+    outputChannel.appendLine(`[PowerMem] ✗ Health check failed (attempt ${attempt + 1}/${MAX_RETRIES}), retrying in ${retryDelay}ms…`);
+    console.warn(`[PowerMem] Health check failed (attempt ${attempt + 1}/${MAX_RETRIES}), retrying in ${retryDelay}ms…`);
+    if (attempt + 1 < MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, retryDelay));
+      retryDelay = Math.min(retryDelay * 2, 30000); // cap at 30s
+      await attemptConnect(attempt + 1);
     } else {
+      console.error('[PowerMem] All health check retries exhausted — staying disconnected');
+      outputChannel.appendLine('[PowerMem] ✗ All retries exhausted — staying disconnected. Click the status bar to reconnect.');
       updateStatusBar('disconnected');
     }
+  };
+  attemptConnect(0).catch((err) => {
+    console.error('[PowerMem] connect loop error:', err);
+    outputChannel.appendLine(`[PowerMem] ✗ Connect loop error: ${err}`);
+    updateStatusBar('disconnected');
   });
 
   context.subscriptions.push(

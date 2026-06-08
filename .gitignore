@@ -235,3 +235,5 @@ docs/website/.docusaurus/
 docs/website/node_modules/
 # docs/website/build/ is already covered by build/ above
 
+.codefuse/
+apps/vscode-extension/package-lock.json
