@@ -21,6 +21,7 @@ from .middleware.error_handler import error_handler
 from .middleware.auth import verify_api_key
 
 import logging
+import os
 from importlib.util import find_spec
 
 # Setup logging
@@ -56,18 +57,39 @@ async def _service_lifespan(app: FastAPI):
     from .services.agent_service import AgentService
 
     logger.info("Initializing service singletons...")
+    app.state.memory_service = None
+    app.state.search_service = None
+    app.state.user_service = None
+    app.state.agent_service = None
+    app.state.service_ready = False
+    app.state.service_startup_error = None
+    app.state.storage_type = None
+    app.state.storage_capabilities = None
     try:
+        from powermem.platform_defaults import (
+            sqlite_capability_warning,
+            storage_capabilities,
+        )
+
         app.state.memory_service = MemoryService()
         app.state.search_service = SearchService()
         app.state.user_service = UserService()
         app.state.agent_service = AgentService()
+        storage_type = getattr(app.state.memory_service.memory, "storage_type", None)
+        app.state.storage_type = storage_type
+        defaulted = not bool(os.environ.get("DATABASE_PROVIDER"))
+        app.state.storage_capabilities = storage_capabilities(
+            storage_type or "",
+            defaulted=defaulted,
+        )
+        warning = sqlite_capability_warning(storage_type or "", defaulted=defaulted)
+        if warning:
+            logger.warning("PowerMem is running with SQLite storage. %s", warning)
+        app.state.service_ready = True
         logger.info("Service singletons initialized")
     except Exception as e:
         logger.error(f"Failed to initialize service singletons: {e}", exc_info=True)
-        app.state.memory_service = None
-        app.state.search_service = None
-        app.state.user_service = None
-        app.state.agent_service = None
+        app.state.service_startup_error = str(e)
 
     yield
 

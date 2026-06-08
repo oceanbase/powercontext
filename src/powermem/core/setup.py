@@ -14,6 +14,7 @@ import logging
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
+from ..platform_defaults import default_database_provider
 from ..settings import settings_config
 
 logger = logging.getLogger(__name__)
@@ -138,12 +139,12 @@ def _convert_legacy_to_mem_config(config: Dict[str, Any]) -> Dict[str, Any]:
     if "database" in config:
         db_config = config["database"]
         converted["vector_store"] = {
-            "provider": db_config.get("provider", "oceanbase"),
+            "provider": db_config.get("provider", default_database_provider()),
             "config": db_config.get("config", {})
         }
     else:
         converted["vector_store"] = {
-            "provider": "oceanbase",
+            "provider": default_database_provider(),
             "config": {}
         }
     

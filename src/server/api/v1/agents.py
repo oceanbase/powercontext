@@ -12,6 +12,7 @@ from ...services.agent_service import AgentService
 from ...middleware.auth import verify_api_key
 from ...middleware.rate_limit import limiter, get_rate_limit_string
 from ...utils.converters import memory_dict_to_response
+from ...utils.service_errors import service_unavailable_message
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -23,7 +24,7 @@ def get_agent_service(request: Request) -> AgentService:
         from ...models.errors import ErrorCode, APIError
         raise APIError(
             code=ErrorCode.INTERNAL_ERROR,
-            message="Agent service unavailable: storage backend initialization failed",
+            message=service_unavailable_message(request, "Agent"),
             status_code=503,
         )
     return service

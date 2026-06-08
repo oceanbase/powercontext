@@ -11,6 +11,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
 from powermem.storage.base import VectorStoreBase, OutputData
+from powermem.platform_defaults import (
+    embedded_seekdb_available,
+    embedded_seekdb_unavailable_message,
+)
 from powermem.utils.utils import serialize_datetime, generate_snowflake_id
 from powermem.utils.oceanbase_util import OceanBaseUtil
 
@@ -217,6 +221,8 @@ class OceanBaseVectorStore(VectorStoreBase):
                 **kwargs,
             )
         else:
+            if not embedded_seekdb_available():
+                raise RuntimeError(embedded_seekdb_unavailable_message())
             ob_path = self.connection_args.get("ob_path", "./seekdb_data")
             OceanBaseUtil.ensure_embedded_database_exists(ob_path, db_name)
             self.obvector = ObVecClient(path=ob_path, db_name=db_name)

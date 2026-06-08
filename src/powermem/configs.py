@@ -23,7 +23,19 @@ from powermem.storage.config.oceanbase import (
     OceanBaseConfig,
     OceanBaseGraphConfig,  # noqa: F401 — keeps OceanBase graph provider registered
 )
+from powermem.platform_defaults import default_database_provider
 from powermem.integrations.rerank.config.base import BaseRerankConfig
+
+
+def _default_vector_store_config() -> BaseVectorStoreConfig:
+    provider = default_database_provider()
+    if provider == "sqlite":
+        return SQLiteConfig()
+    if provider in ("postgres", "pgvector"):
+        from powermem.storage.config.pgvector import PGVectorConfig
+
+        return PGVectorConfig()
+    return OceanBaseConfig()
 
 
 class IntelligentMemoryConfig(BaseModel):
@@ -251,13 +263,13 @@ class MemoryConfig(BaseModel):
 
     vector_store: BaseVectorStoreConfig = Field(
         description=(
-            "Configuration for the vector store. Defaults to the OceanBase "
-            "provider with an empty host, which boots embedded seekdb on "
-            "disk (no separate server) so PowerMem starts with zero ops; "
-            "set OCEANBASE_HOST to point at a remote OceanBase cluster, or "
-            "switch the provider to sqlite / postgres."
+            "Configuration for the vector store. Defaults are platform-aware: "
+            "explicit DATABASE_PROVIDER wins; OCEANBASE_HOST selects remote "
+            "OceanBase; Linux with embedded SeekDB capability uses OceanBase "
+            "embedded mode; otherwise PowerMem falls back to SQLite for basic "
+            "local memory CRUD/search."
         ),
-        default_factory=OceanBaseConfig,
+        default_factory=_default_vector_store_config,
     )
     llm: BaseLLMConfig = Field(
         description="Configuration for the language model",

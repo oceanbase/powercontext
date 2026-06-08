@@ -94,6 +94,12 @@ export function SystemHealthCard({ status }: SystemHealthCardProps) {
 
   const systemStatus = getStatusDisplay(status.status);
   const StatusIcon = systemStatus.icon;
+  const storageCapabilities = status.storage_capabilities;
+  const storageLimitations = storageCapabilities?.limitations ?? [];
+  const showStorageWarning =
+    status.storage_type?.toLowerCase() === "sqlite" ||
+    (storageCapabilities?.provider === "sqlite" &&
+      storageCapabilities.full_stack_available === false);
 
   return (
     <Card>
@@ -140,6 +146,25 @@ export function SystemHealthCard({ status }: SystemHealthCardProps) {
                   <p className="text-sm font-medium">{status.llm_provider}</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {showStorageWarning && (
+            <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900 dark:border-yellow-900/60 dark:bg-yellow-950/40 dark:text-yellow-100">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                <div className="space-y-1">
+                  <p className="font-medium">
+                    {t("dashboard.systemHealth.sqliteWarningTitle")}
+                  </p>
+                  <p>{t("dashboard.systemHealth.sqliteWarningDescription")}</p>
+                  {storageLimitations.length > 0 && (
+                    <p className="text-xs">
+                      {storageLimitations.join("; ")}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 

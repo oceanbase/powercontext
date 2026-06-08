@@ -15,6 +15,15 @@ export interface SystemStatus {
   version: string;
   storage_type?: string;
   llm_provider?: string;
+  memory_service_ready?: boolean;
+  startup_error?: string;
+  storage_capabilities?: {
+    provider?: string;
+    defaulted: boolean;
+    full_stack_available: boolean;
+    limitations: string[];
+    recommendation?: string;
+  };
   uptime_seconds: number;
   started_at: string;
   dependencies: Record<string, DependencyStatus>;

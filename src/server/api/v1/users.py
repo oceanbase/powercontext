@@ -12,6 +12,7 @@ from ...services.user_service import UserService
 from ...middleware.auth import verify_api_key
 from ...middleware.rate_limit import limiter, get_rate_limit_string
 from ...utils.converters import user_profile_to_response, memory_dict_to_response
+from ...utils.service_errors import service_unavailable_message
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -23,7 +24,7 @@ def get_user_service(request: Request) -> UserService:
         from ...models.errors import ErrorCode, APIError
         raise APIError(
             code=ErrorCode.INTERNAL_ERROR,
-            message="User service unavailable: storage backend initialization failed",
+            message=service_unavailable_message(request, "User"),
             status_code=503,
         )
     return service
