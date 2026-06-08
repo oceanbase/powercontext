@@ -99,7 +99,7 @@ build: ## Build package (legacy, use build-package)
 	$(MAKE) build-package
 
 check-package-versions: ## Verify powermem and powermem-mcp versions are aligned
-	python scripts/check_package_versions.py
+	python3 scripts/check_package_versions.py
 
 build-package: clean check-package-versions ## Build distribution packages (wheel and sdist)
 	@echo "Building distribution packages..."
