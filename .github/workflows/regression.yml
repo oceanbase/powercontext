@@ -350,8 +350,15 @@ jobs:
       - name: Collect JUnit reports
         run: |
           mkdir -p all-reports
-          # download-artifact 解压后可能是 junit-test1/report/test1.xml 或 junit-test1/test1.xml，用 find 兼容两种结构
-          find junit-test1 junit-test2 -maxdepth 3 -name '*.xml' -exec cp {} all-reports/ \;
+          # download-artifact may only fetch reports from successful test shards.
+          # Search existing junit-* directories instead of assuming every shard
+          # produced an artifact.
+          report_dirs=(junit-*)
+          if [ -d "${report_dirs[0]}" ]; then
+            find "${report_dirs[@]}" -maxdepth 3 -name '*.xml' -exec cp {} all-reports/ \;
+          else
+            echo "No JUnit artifact directories found."
+          fi
           ls -la all-reports/
       - name: Publish Test Report Summary
         uses: mikepenz/action-junit-report@v4
