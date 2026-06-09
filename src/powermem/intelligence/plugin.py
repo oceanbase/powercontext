@@ -164,6 +164,14 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
                     updates["memory_type"] = "long_term"
                     meta_updates["memory_type"] = "long_term"
 
+            # Clear forget marker on promotion — a promoted memory should
+            # no longer carry the 0.1x search penalty from a prior soft-forget.
+            if new_memory_type != memory_type:
+                meta_updates["should_forget"] = False
+                meta_updates["marked_for_forgetting_at"] = None
+                updates["should_forget"] = False
+                updates["marked_for_forgetting_at"] = None
+
             # Only check forget if not promoted in this call
             if new_memory_type == memory_type and self._algo.should_forget(normalized):
                 return None, True
