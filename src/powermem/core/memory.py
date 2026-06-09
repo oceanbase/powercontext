@@ -677,6 +677,9 @@ class Memory(MemoryBase):
             else:
                 messages = parse_vision_messages(messages, None, None, self.audio_llm)
 
+            if isinstance(messages, list) and len(messages) == 0:
+                return {"results": []}
+            
             # Use self.agent_id as fallback if agent_id is not provided
             agent_id = agent_id or self.agent_id
 
