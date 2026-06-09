@@ -15,6 +15,7 @@ from powermem.agent.types import (
     PrivacyLevel,
     AccessPermission
 )
+from powermem.agent.filters import matches_memory_filters
 from powermem.intelligence.intelligent_memory_manager import IntelligentMemoryManager
 from powermem.agent.abstract.manager import AgentMemoryManagerBase
 
@@ -567,6 +568,7 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
                     'user_id': db_memory.get('user_id', user_id),
                     'agent_id': db_memory.get('agent_id', agent_id),
                     'run_id': db_memory.get('run_id'),
+                    'category': db_memory.get('category'),
                     'metadata': db_memory.get('metadata', {}),
                     'created_at': db_memory.get('created_at'),
                     'updated_at': db_memory.get('updated_at'),
@@ -642,12 +644,14 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             
             # Apply additional filters if provided
             if filters:
-                for key, value in filters.items():
-                    if key != 'user_id':  # user_id already used for database query
-                        accessible_memories = [
-                            memory for memory in accessible_memories
-                            if memory.get(key) == value
-                        ]
+                additional_filters = {
+                    key: value for key, value in filters.items()
+                    if key != 'user_id'  # user_id already used for database query
+                }
+                accessible_memories = [
+                    memory for memory in accessible_memories
+                    if matches_memory_filters(memory, additional_filters)
+                ]
             
             # Update access statistics
             for memory in accessible_memories:
