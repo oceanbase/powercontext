@@ -59,6 +59,393 @@ def _forget_marker_updates() -> Dict[str, Any]:
     }
 
 
+def _normalize_api_base_url(raw_url: Optional[str]) -> str:
+    base_url = (raw_url or "http://localhost:8848").rstrip("/")
+    if base_url.endswith("/api/v1"):
+        return base_url
+    return f"{base_url}/api/v1"
+
+
+def _looks_like_embedded_seekdb_lock_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return (
+        "opened by other process" in text
+        or "already opened" in text
+        or ("seekdb" in text and "lock" in text)
+        or ("open seekdb failed" in text and "ob_error(4000)" in text)
+    )
+
+
+def _is_embedded_oceanbase_config(
+    storage_type: str,
+    vector_store_config: Dict[str, Any],
+) -> bool:
+    if storage_type.lower() != "oceanbase":
+        return False
+    connection_args = vector_store_config.get("connection_args") or {}
+    host = vector_store_config.get("host") or connection_args.get("host")
+    return not str(host or "").strip()
+
+
+def _messages_to_content(messages: Any) -> str:
+    if isinstance(messages, str):
+        return messages
+    if isinstance(messages, dict):
+        return str(messages.get("content", ""))
+    if isinstance(messages, list):
+        parts: List[str] = []
+        for item in messages:
+            if isinstance(item, dict):
+                content = item.get("content")
+                if content is not None:
+                    parts.append(str(content))
+            elif item is not None:
+                parts.append(str(item))
+        return "\n".join(parts)
+    return str(messages)
+
+
+class _HTTPMemoryClient:
+    """SDK fallback for embedded seekdb when the API server owns the DB."""
+
+    def __init__(self, base_url: str, api_key: Optional[str] = None):
+        self.base_url = _normalize_api_base_url(base_url)
+        self.api_key = api_key
+
+    @property
+    def _headers(self) -> Dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["X-API-Key"] = self.api_key
+        return headers
+
+    @classmethod
+    def from_env_if_healthy(cls) -> Optional["_HTTPMemoryClient"]:
+        base_url = (
+            os.getenv("POWERMEM_API_URL")
+            or os.getenv("POWERMEM_BASE_URL")
+            or "http://localhost:8848"
+        )
+        api_key = os.getenv("POWERMEM_API_KEY") or os.getenv("API_KEY")
+        client = cls(base_url=base_url, api_key=api_key)
+        try:
+            import httpx
+
+            response = httpx.get(f"{client.base_url}/system/health", timeout=2.0)
+            if response.status_code != 200:
+                return None
+            payload = response.json()
+            status = str(
+                payload.get("status")
+                or payload.get("data", {}).get("status")
+                or ""
+            ).lower()
+            if "healthy" not in status:
+                return None
+            return client
+        except Exception:
+            return None
+
+    def _request(self, method: str, path: str, **kwargs):
+        import httpx
+
+        response = httpx.request(
+            method,
+            f"{self.base_url}{path}",
+            headers=self._headers,
+            timeout=60.0,
+            **kwargs,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("success") is False:
+            raise RuntimeError(payload.get("message") or payload)
+        return payload.get("data")
+
+    @staticmethod
+    def _memory_response_to_result(item: Dict[str, Any]) -> Dict[str, Any]:
+        memory_id = item.get("memory_id") or item.get("id")
+        content = item.get("content") or item.get("memory") or ""
+        result = {
+            "id": memory_id,
+            "memory_id": memory_id,
+            "memory": content,
+            "event": item.get("event", "ADD"),
+            "user_id": item.get("user_id"),
+            "agent_id": item.get("agent_id"),
+            "run_id": item.get("run_id"),
+            "metadata": item.get("metadata") or {},
+            "created_at": item.get("created_at"),
+            "updated_at": item.get("updated_at"),
+        }
+        if "score" in item:
+            result["score"] = item.get("score")
+        return result
+
+    @staticmethod
+    def _metadata_matches_filters(
+        metadata: Dict[str, Any],
+        filters: Dict[str, Any],
+    ) -> bool:
+        if not filters:
+            return True
+        metadata = metadata or {}
+        for key, expected in filters.items():
+            actual = metadata.get(key)
+            if isinstance(expected, (list, tuple, set)):
+                if actual not in expected:
+                    return False
+            elif actual != expected:
+                return False
+        return True
+
+    @classmethod
+    def _memory_matches(
+        cls,
+        memory: Dict[str, Any],
+        run_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        if run_id is not None and memory.get("run_id") != run_id:
+            return False
+        if filters and not cls._metadata_matches_filters(
+            memory.get("metadata") or {},
+            filters,
+        ):
+            return False
+        return True
+
+    def add(
+        self,
+        messages,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        scope: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        infer: bool = True,
+        **_: Any,
+    ) -> Dict[str, Any]:
+        data = self._request(
+            "POST",
+            "/memories",
+            json={
+                "content": _messages_to_content(messages),
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "run_id": run_id,
+                "metadata": metadata,
+                "filters": filters,
+                "scope": scope,
+                "memory_type": memory_type,
+                "infer": infer,
+            },
+        )
+        items = data if isinstance(data, list) else ([data] if data else [])
+        return {"results": [self._memory_response_to_result(item) for item in items]}
+
+    def search(
+        self,
+        query: str,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 30,
+        **_: Any,
+    ) -> Dict[str, Any]:
+        data = self._request(
+            "POST",
+            "/memories/search",
+            json={
+                "query": query,
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "run_id": run_id,
+                "filters": filters,
+                "limit": limit,
+            },
+        )
+        results = data.get("results", []) if isinstance(data, dict) else []
+        return {
+            "results": [self._memory_response_to_result(item) for item in results],
+            "relations": [],
+        }
+
+    def get(
+        self,
+        memory_id: int,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        params = {"user_id": user_id, "agent_id": agent_id}
+        return self._request(
+            "GET",
+            f"/memories/{memory_id}",
+            params={k: v for k, v in params.items() if v is not None},
+        )
+
+    def get_all(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 100,
+        offset: int = 0,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        if run_id is not None or filters:
+            return self._get_all_with_client_side_filters(
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                filters=filters,
+                limit=limit,
+                offset=offset,
+                sort_by=kwargs.get("sort_by"),
+                order=kwargs.get("order", "desc"),
+            )
+
+        params = {
+            "user_id": user_id,
+            "agent_id": agent_id,
+            "limit": limit,
+            "offset": offset,
+            "sort_by": kwargs.get("sort_by"),
+            "order": kwargs.get("order", "desc"),
+        }
+        data = self._request(
+            "GET",
+            "/memories",
+            params={k: v for k, v in params.items() if v is not None},
+        )
+        memories = data.get("memories", []) if isinstance(data, dict) else []
+        return {"results": memories, "relations": []}
+
+    def _get_all_with_client_side_filters(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 100,
+        offset: int = 0,
+        sort_by: Optional[str] = None,
+        order: str = "desc",
+    ) -> Dict[str, Any]:
+        matched: List[Dict[str, Any]] = []
+        api_offset = 0
+        page_size = 1000
+
+        while True:
+            params = {
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "limit": page_size,
+                "offset": api_offset,
+                "sort_by": sort_by,
+                "order": order,
+            }
+            data = self._request(
+                "GET",
+                "/memories",
+                params={k: v for k, v in params.items() if v is not None},
+            )
+            memories = data.get("memories", []) if isinstance(data, dict) else []
+            if not memories:
+                break
+
+            for memory in memories:
+                if self._memory_matches(memory, run_id=run_id, filters=filters):
+                    matched.append(memory)
+
+            total = data.get("total") if isinstance(data, dict) else None
+            api_offset += len(memories)
+            if len(memories) < page_size or (total is not None and api_offset >= total):
+                break
+            if len(matched) >= offset + limit:
+                break
+
+        return {"results": matched[offset:offset + limit], "relations": []}
+
+    def update(
+        self,
+        memory_id: int,
+        data: Optional[str] = None,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        **_: Any,
+    ) -> Dict[str, Any]:
+        params = {"user_id": user_id, "agent_id": agent_id}
+        return self._request(
+            "PUT",
+            f"/memories/{memory_id}",
+            params={k: v for k, v in params.items() if v is not None},
+            json={"content": data, "metadata": metadata},
+        )
+
+    def delete(
+        self,
+        memory_id: int,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        params = {"user_id": user_id, "agent_id": agent_id}
+        return self._request(
+            "DELETE",
+            f"/memories/{memory_id}",
+            params={k: v for k, v in params.items() if v is not None},
+        )
+
+    def delete_all(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        deleted_ids: List[Any] = []
+        deleted_count = 0
+
+        while True:
+            memories = self.get_all(
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                limit=1000,
+            ).get("results", [])
+            ids = [
+                m.get("memory_id") or m.get("id")
+                for m in memories
+                if m.get("memory_id") or m.get("id")
+            ]
+            if not ids:
+                break
+
+            data = self._request(
+                "DELETE",
+                "/memories/batch",
+                json={
+                    "memory_ids": ids,
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                },
+            )
+            deleted_ids.extend(ids)
+            deleted_count += (data or {}).get("deleted_count", len(ids))
+
+            if len(ids) < 1000:
+                break
+
+        return {"deleted_count": deleted_count, "memory_ids": deleted_ids}
+
+    def reset(self) -> Dict[str, Any]:
+        return self.delete_all()
+
+
 def _auto_convert_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert legacy powermem config to format for compatibility.
@@ -167,6 +554,7 @@ class Memory(MemoryBase):
         from powermem.logging_config import setup_powermem_logging
 
         setup_powermem_logging()
+        self._http_client: Optional[_HTTPMemoryClient] = None
 
         # Handle MemoryConfig object or dict
 
@@ -233,7 +621,23 @@ class Memory(MemoryBase):
             vector_store_config['reranker'] = reranker
             logger.debug("Reranker passed to OceanBase vector store")
         
-        vector_store = VectorStoreFactory.create(self.storage_type, vector_store_config)
+        try:
+            vector_store = VectorStoreFactory.create(self.storage_type, vector_store_config)
+        except Exception as e:
+            if (
+                _is_embedded_oceanbase_config(self.storage_type, vector_store_config)
+                and _looks_like_embedded_seekdb_lock_error(e)
+            ):
+                http_client = _HTTPMemoryClient.from_env_if_healthy()
+                if http_client:
+                    self._http_client = http_client
+                    logger.info(
+                        "Embedded OceanBase is already opened by another process; "
+                        "using local PowerMem API fallback at %s",
+                        http_client.base_url,
+                    )
+                    return
+            raise
 
         # Extract graph_store config
         self.enable_graph = self._get_graph_enabled()
@@ -651,6 +1055,19 @@ class Memory(MemoryBase):
             and replay.
         """
         try:
+            if getattr(self, "_http_client", None):
+                return getattr(self, "_http_client", None).add(
+                    messages,
+                    user_id=user_id,
+                    agent_id=agent_id or self.agent_id,
+                    run_id=run_id,
+                    metadata=metadata,
+                    filters=filters,
+                    scope=scope,
+                    memory_type=memory_type,
+                    infer=infer,
+                )
+
             # Handle messages parameter
             if messages is None:
                 raise ValueError("messages must be provided (str, dict, or list[dict])")
@@ -1268,6 +1685,17 @@ class Memory(MemoryBase):
                 - "relations" (List, optional): Graph relations if graph store is enabled
         """
         try:
+            if getattr(self, "_http_client", None):
+                return getattr(self, "_http_client", None).search(
+                    query,
+                    user_id=user_id,
+                    agent_id=agent_id or self.agent_id,
+                    run_id=run_id,
+                    filters=filters,
+                    limit=limit,
+                    threshold=threshold,
+                )
+
             if not query or not query.strip():
                 return {
                     "results": [],
@@ -1451,6 +1879,12 @@ class Memory(MemoryBase):
                 Returns None if the memory is not found or access is denied.
         """
         try:
+            if getattr(self, "_http_client", None):
+                return getattr(self, "_http_client", None).get(
+                    memory_id,
+                    user_id=user_id,
+                    agent_id=agent_id or self.agent_id,
+                )
 
             result = self.storage.get_memory(memory_id, user_id, agent_id)
             
@@ -1527,6 +1961,15 @@ class Memory(MemoryBase):
                 Returns None if the memory is not found or access is denied.
         """
         try:
+            if getattr(self, "_http_client", None):
+                return getattr(self, "_http_client", None).update(
+                    memory_id,
+                    data=content,
+                    user_id=user_id,
+                    agent_id=agent_id or self.agent_id,
+                    metadata=metadata,
+                )
+
             # Validate content is not empty
             if not content or not content.strip():
                 raise ValueError(f"Cannot update memory with empty content: '{content}'")
@@ -1604,6 +2047,13 @@ class Memory(MemoryBase):
     ) -> bool:
         """Delete a memory."""
         try:
+            if getattr(self, "_http_client", None):
+                getattr(self, "_http_client", None).delete(
+                    memory_id,
+                    user_id=user_id,
+                    agent_id=agent_id or self.agent_id,
+                )
+                return True
 
             result = self.storage.delete_memory(memory_id, user_id, agent_id)
             
@@ -1628,6 +2078,14 @@ class Memory(MemoryBase):
     ) -> bool:
         """Delete all memories for given identifiers."""
         try:
+            if getattr(self, "_http_client", None):
+                getattr(self, "_http_client", None).delete_all(
+                    user_id=user_id,
+                    agent_id=agent_id or self.agent_id,
+                    run_id=run_id,
+                )
+                return True
+
             result = self.storage.clear_memories(user_id, agent_id, run_id)
             
             if result:
@@ -1692,6 +2150,18 @@ class Memory(MemoryBase):
                 - "relations" (List[Dict], optional): Graph relations if graph store is enabled
         """
         try:
+            if getattr(self, "_http_client", None):
+                return getattr(self, "_http_client", None).get_all(
+                    user_id=user_id,
+                    agent_id=agent_id or self.agent_id,
+                    run_id=run_id,
+                    limit=limit,
+                    offset=offset,
+                    filters=filters,
+                    sort_by=sort_by,
+                    order=order,
+                )
+
             results = self.storage.get_all_memories(
                 user_id, agent_id, run_id, limit, offset,
                 sort_by=sort_by, order=order, filters=filters
@@ -1893,6 +2363,10 @@ class Memory(MemoryBase):
         logger.warning("Resetting all memories")
         
         try:
+            if getattr(self, "_http_client", None):
+                getattr(self, "_http_client", None).reset()
+                return None
+
             # Reset vector store
             if hasattr(self.storage.vector_store, "reset"):
                 self.storage.vector_store.reset()
