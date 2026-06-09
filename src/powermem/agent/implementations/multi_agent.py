@@ -21,6 +21,7 @@ from powermem.agent.components.scope_controller import ScopeController
 from powermem.agent.components.permission_controller import PermissionController
 from powermem.agent.components.collaboration_coordinator import CollaborationCoordinator
 from powermem.agent.components.privacy_protector import PrivacyProtector
+from powermem.agent.filters import matches_memory_filters
 
 logger = logging.getLogger(__name__)
 
@@ -531,6 +532,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
                     'agent_id': db_memory.get('agent_id', agent_id),
                     'user_id': db_memory.get('user_id'),
                     'run_id': db_memory.get('run_id'),
+                    'category': db_memory.get('category'),
                     'metadata': db_memory.get('metadata', {}),
                     'created_at': db_memory.get('created_at'),
                     'updated_at': db_memory.get('updated_at'),
@@ -636,12 +638,14 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             
             # Apply additional filters if provided
             if filters:
-                for key, value in filters.items():
-                    if key != 'user_id':  # user_id already used for database query
-                        accessible_memories = [
-                            memory for memory in accessible_memories
-                            if memory.get(key) == value
-                        ]
+                additional_filters = {
+                    key: value for key, value in filters.items()
+                    if key != 'user_id'  # user_id already used for database query
+                }
+                accessible_memories = [
+                    memory for memory in accessible_memories
+                    if matches_memory_filters(memory, additional_filters)
+                ]
             
             # Update access statistics
             for memory in accessible_memories:

@@ -137,8 +137,12 @@ class MemoryBase(ABC):
         self,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        filters: Optional[Dict[str, Any]] = None,
+        sort_by: Optional[str] = None,
+        order: str = "desc",
     ) -> List[Dict[str, Any]]:
         """
         Get all memories with optional filtering.
@@ -146,8 +150,12 @@ class MemoryBase(ABC):
         Args:
             user_id: Filter by user ID
             agent_id: Filter by agent ID
+            run_id: Filter by run ID
             limit: Maximum number of results
             offset: Number of results to skip
+            filters: Additional filters
+            sort_by: Field to sort by
+            order: Sort order
             
         Returns:
             List of memories
