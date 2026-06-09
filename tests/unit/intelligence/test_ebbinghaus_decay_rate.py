@@ -287,3 +287,23 @@ def test_forgotten_score_multiplier_does_not_boost_scores():
     )
 
     assert manager.forgotten_score_multiplier == pytest.approx(1.0)
+
+
+def test_old_unaccessed_working_memory_is_forgotten_not_promoted():
+    """Regression: a 50h-old working memory with access_count=0 should be
+    soft-forgotten, not promoted. Age alone must not override decay."""
+    from powermem.intelligence.plugin import EbbinghausIntelligencePlugin
+
+    plugin = EbbinghausIntelligencePlugin({"enabled": True, "decay_rate": 1.5})
+    memory = {
+        "memory_type": "working",
+        "access_count": 0,
+        "importance_score": 0.3,
+        "created_at": (get_current_datetime() - timedelta(hours=50)).isoformat(),
+        "metadata": {},
+    }
+
+    updates, delete_flag = plugin.on_get(memory)
+
+    assert delete_flag is True
+    assert updates is None

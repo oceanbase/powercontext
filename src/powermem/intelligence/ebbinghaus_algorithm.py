@@ -223,10 +223,10 @@ class EbbinghausAlgorithm:
             if access_count >= 3:
                 return True
             
-            # Check recency
+            # Check recency — only promote if the memory has been accessed at
+            # least once, so that old never-accessed memories can still be forgotten.
             created_at = memory.get("created_at")
-            if created_at:
-                # Parse string to datetime if needed
+            if created_at and access_count > 0:
                 if isinstance(created_at, str):
                     created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                 time_elapsed = get_current_datetime() - created_at
