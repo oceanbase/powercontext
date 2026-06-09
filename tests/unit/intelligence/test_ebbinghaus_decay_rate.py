@@ -122,12 +122,14 @@ def test_search_results_use_type_specific_decay_rate():
         {
             "id": "working",
             "content": "shared keyword",
+            "score": 0.8,
             "created_at": created_at,
             "memory_type": "working",
         },
         {
             "id": "long",
             "content": "shared keyword",
+            "score": 0.8,
             "created_at": created_at,
             "memory_type": "long_term",
         },
@@ -154,11 +156,13 @@ def test_search_results_demote_memories_marked_for_forgetting():
         {
             "id": "active",
             "content": "shared keyword",
+            "score": 0.8,
             "created_at": created_at,
         },
         {
             "id": "forgotten",
             "content": "shared keyword extra",
+            "score": 0.8,
             "created_at": created_at,
             "should_forget": True,
         },
