@@ -817,7 +817,8 @@ def _process_content_item(
                 description = get_image_description(image_url, llm, vision_details)
                 return description if description else None
             except Exception as e:
-                raise Exception(f"Error while processing image {image_url}: {e}")
+                logger.warning(f"Skipping image {image_url}: {e}")
+                return None
         return None
 
     elif item_type == "audio":

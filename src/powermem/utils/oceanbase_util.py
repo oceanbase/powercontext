@@ -640,6 +640,10 @@ class OceanBaseUtil:
 
             # Dict values -> May be range query or other operators
             if isinstance(value, dict):
+                value = {
+                    op.lstrip("$") if isinstance(op, str) else op: op_value
+                    for op, op_value in value.items()
+                }
                 range_ops = {"gte", "gt", "lte", "lt"}
                 if any(op in value for op in range_ops):
                     range_params = {op: value[op] for op in range_ops if op in value}
