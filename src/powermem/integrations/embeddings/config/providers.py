@@ -151,7 +151,9 @@ class AzureOpenAIEmbeddingConfig(BaseEmbedderConfig):
     )
     azure_deployment: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("azure_deployment", "AZURE_DEPLOYMENT"),
+        validation_alias=AliasChoices(
+            "azure_deployment", "AZURE_DEPLOYMENT", "EMBEDDING_AZURE_DEPLOYMENT"
+        ),
     )
     azure_endpoint: Optional[str] = Field(
         default=None,
@@ -159,11 +161,14 @@ class AzureOpenAIEmbeddingConfig(BaseEmbedderConfig):
             "azure_endpoint",
             "AZURE_ENDPOINT",
             "AZURE_OPENAI_ENDPOINT",
+            "EMBEDDING_AZURE_ENDPOINT",
         ),
     )
     api_version: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("api_version", "AZURE_API_VERSION"),
+        validation_alias=AliasChoices(
+            "api_version", "AZURE_API_VERSION", "EMBEDDING_API_VERSION"
+        ),
     )
     default_headers: Optional[Dict[str, str]] = Field(default=None)
     http_client_proxies: Optional[Union[Dict[str, Any], str]] = Field(default=None)
