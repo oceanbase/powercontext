@@ -290,12 +290,12 @@ class IntelligentMemorySettings(_BasePowermemSettings):
 
     enabled: bool = Field(default=True)
     initial_retention: float = Field(default=1.0)
-    decay_rate: float = Field(default=0.1)
+    decay_rate: float = Field(default=1.5)
     decay_rate_multipliers: Dict[str, float] = Field(
         default_factory=lambda: {
-            "working": 0.5,
-            "short_term": 1.5,
-            "long_term": 2.0,
+            "working": 1,
+            "short_term": 7,
+            "long_term": 60,
         }
     )
     reinforcement_factor: float = Field(default=0.3)
@@ -317,7 +317,7 @@ class MemoryDecaySettings(_BasePowermemSettings):
     enabled: bool = Field(default=True)
     algorithm: str = Field(default="ebbinghaus")
     base_retention: float = Field(default=1.0)
-    forgetting_rate: float = Field(default=0.1)
+    forgetting_rate: float = Field(default=1.5)
     reinforcement_factor: float = Field(default=0.3)
 
     def to_config(self) -> Dict[str, Any]:

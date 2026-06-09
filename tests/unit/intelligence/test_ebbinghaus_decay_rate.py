@@ -11,7 +11,7 @@ from powermem.utils.utils import get_current_datetime
 
 @pytest.fixture
 def algo():
-    return EbbinghausAlgorithm({"decay_rate": 0.1})
+    return EbbinghausAlgorithm({"decay_rate": 1.5})
 
 
 def test_decay_rate_ordering_by_type(algo):
@@ -19,9 +19,9 @@ def test_decay_rate_ordering_by_type(algo):
     short_term = algo._get_decay_rate_for_type("short_term")
     long_term = algo._get_decay_rate_for_type("long_term")
 
-    assert working == pytest.approx(0.05)
-    assert short_term == pytest.approx(0.15)
-    assert long_term == pytest.approx(0.2)
+    assert working == pytest.approx(1.5)
+    assert short_term == pytest.approx(10.5)
+    assert long_term == pytest.approx(90.0)
     assert working < short_term < long_term
 
 
@@ -35,7 +35,7 @@ def test_calculate_decay_uses_explicit_decay_rate(algo):
 
 
 def test_should_forget_uses_memory_type_decay_rate(algo):
-    created_at = get_current_datetime() - timedelta(hours=2)
+    created_at = get_current_datetime() - timedelta(hours=50)
 
     working_memory = {
         "created_at": created_at,
@@ -63,7 +63,7 @@ def test_resolve_decay_rate_prefers_memory_type_over_stored_decay_rate(algo):
         }
     }
 
-    assert algo._resolve_decay_rate(memory) == pytest.approx(0.05)
+    assert algo._resolve_decay_rate(memory) == pytest.approx(1.5)
 
 
 def test_resolve_decay_rate_reads_nested_intelligence_memory_type(algo):
@@ -76,7 +76,7 @@ def test_resolve_decay_rate_reads_nested_intelligence_memory_type(algo):
         }
     }
 
-    assert algo._resolve_decay_rate(memory) == pytest.approx(0.2)
+    assert algo._resolve_decay_rate(memory) == pytest.approx(90.0)
 
 
 def test_resolve_decay_rate_falls_back_to_stored_rate(algo):

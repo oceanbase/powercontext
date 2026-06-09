@@ -18,9 +18,9 @@ class EbbinghausAlgorithm:
     Implements Ebbinghaus forgetting curve algorithm for memory management.
     """
     DEFAULT_DECAY_RATE_MULTIPLIERS = {
-        "working": 0.5,
-        "short_term": 1.5,
-        "long_term": 2.0,
+        "working": 1,
+        "short_term": 7,
+        "long_term": 60,
     }
     
     def __init__(self, config: Dict[str, Any]):
@@ -34,7 +34,7 @@ class EbbinghausAlgorithm:
         
         # Ebbinghaus curve parameters
         self.initial_retention = config.get("initial_retention", 1.0)
-        self.decay_rate = config.get("decay_rate", 0.1)
+        self.decay_rate = config.get("decay_rate", 1.5)
         self.decay_rate_multipliers = self._load_decay_rate_multipliers(
             config.get("decay_rate_multipliers")
         )
@@ -264,18 +264,6 @@ class EbbinghausAlgorithm:
                 )
                 if decay_factor < self.working_threshold:
                     return True
-            
-            # Check access frequency
-            access_count = memory.get("access_count", 0)
-            if access_count == 0:
-                # Check if memory is old enough to be forgotten
-                if created_at:
-                    # Parse string to datetime if needed
-                    if isinstance(created_at, str):
-                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                    time_elapsed = get_current_datetime() - created_at
-                    if time_elapsed > timedelta(days=7):
-                        return True
             
             return False
             
