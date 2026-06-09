@@ -247,6 +247,7 @@ def test_search_results_do_not_demote_unmarked_memories():
     result = {
         "id": "active",
         "content": "keyword",
+        "score": 0.85,
         "created_at": get_current_datetime(),
         "metadata": {"should_forget": False},
     }
@@ -255,22 +256,25 @@ def test_search_results_do_not_demote_unmarked_memories():
 
     assert processed[0]["forgotten_score_multiplier"] == pytest.approx(1.0)
     assert processed[0]["final_score"] == pytest.approx(
-        processed[0]["relevance_score"] * processed[0]["decay_factor"]
+        0.85 * processed[0]["decay_factor"]
     )
 
 
-def test_search_results_calculate_relevance_from_storage_memory_field():
+def test_search_results_use_storage_score_for_ranking():
     manager = IntelligentMemoryManager({"intelligent_memory": {"decay_rate": 0.1}})
     result = {
         "id": "storage-result",
-        "memory": "keyword from storage adapter",
+        "memory": "some content",
+        "score": 0.92,
         "created_at": get_current_datetime(),
     }
 
-    processed = manager.process_search_results([result], "keyword")
+    processed = manager.process_search_results([result], "any query")
 
-    assert processed[0]["relevance_score"] == pytest.approx(1.0)
-    assert processed[0]["final_score"] > 0
+    assert processed[0]["original_score"] == pytest.approx(0.92)
+    assert processed[0]["final_score"] == pytest.approx(
+        0.92 * processed[0]["decay_factor"]
+    )
 
 
 def test_forgotten_score_multiplier_does_not_boost_scores():
