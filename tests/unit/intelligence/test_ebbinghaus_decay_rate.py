@@ -171,7 +171,45 @@ def test_search_results_demote_memories_marked_for_forgetting():
         0.1
     )
     assert by_id["forgotten"]["final_score"] < by_id["active"]["final_score"]
+    assert by_id["forgotten"]["score"] == pytest.approx(
+        by_id["forgotten"]["final_score"]
+    )
     assert processed[0]["id"] == "active"
+
+
+def test_search_results_expose_scores_in_ranking_order():
+    manager = IntelligentMemoryManager(
+        {
+            "intelligent_memory": {
+                "decay_rate": 0.1,
+                "forgotten_score_multiplier": 0.1,
+            }
+        }
+    )
+    created_at = get_current_datetime()
+    results = [
+        {
+            "id": "forgotten",
+            "content": "shared keyword",
+            "created_at": created_at,
+            "score": 0.9,
+            "should_forget": True,
+        },
+        {
+            "id": "active",
+            "content": "shared keyword",
+            "created_at": created_at,
+            "score": 0.2,
+        },
+    ]
+
+    processed = manager.process_search_results(results, "keyword")
+    scores = [item["score"] for item in processed]
+
+    assert processed[0]["id"] == "active"
+    assert scores == sorted(scores, reverse=True)
+    assert processed[1]["id"] == "forgotten"
+    assert processed[1]["original_score"] == pytest.approx(0.9)
 
 
 @pytest.mark.parametrize(
