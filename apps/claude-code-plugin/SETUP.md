@@ -85,17 +85,19 @@ Follow these steps:
 7. The hook launcher reads `runtime.env`, so once init writes a base URL, prompt
    recall and session-save hooks use that backend automatically.
 
-Model preload uses the same robust path as the source setup below: download from
-ModelScope first, then bridge the files into the HuggingFace hub cache layout that
-the default embedder checks. Do **not** pre-warm with
-`sentence_transformers.SentenceTransformer(...)` or raw `huggingface_hub`; those
-can hang on networks where HuggingFace is slow or blocked. To test connectivity:
+Model preload branches on region (same as source setup — detect with Step 1a):
+
+- **CN region**: download from **ModelScope**, then bridge into HuggingFace hub cache
+  layout. Do NOT use `sentence_transformers.SentenceTransformer(...)` or raw
+  `huggingface_hub` — they hang on networks where HuggingFace is blocked.
+- **Non-CN region**: download directly via `huggingface_hub.snapshot_download`.
 
 If startup fails with `No module named 'sentence_transformers'`, the backend
 package installed in the plugin venv does not include the local embedding
 dependency. Publish or install a backend build that includes it, or set
 `POWERMEM_INIT_PACKAGE` to a Git branch/commit that does.
 
+To test connectivity:
 ```bash
 curl -s -m 10 -o /dev/null -w "ModelScope: HTTP %{http_code}\n" \
   https://www.modelscope.cn/api/v1/models/AI-ModelScope/all-MiniLM-L6-v2
@@ -115,6 +117,16 @@ values (passwords, tokens, keys):
 - **Key ≥ 10 chars:** show only first 4 + last 4 characters (e.g. `sk-a…b12x`)
 - **Key < 10 chars:** show `***`
 Non-secret values (provider, model, base URLs, storage type, etc.) may be shown in full.
+
+**🔒 Shell commands MUST also avoid printing secrets.** Terminal output is visible to
+the user and Claude Code cannot retroactively redact it. Follow these rules:
+- When reading env vars or `.env`, use inline masking so the shell never prints plaintext:
+  `echo "${VAR:0:4}...${VAR: -4}"` to show first 4 + last 4, or `[ -n "$VAR" ] && echo "set" || echo "empty"` just to check existence.
+- When you need to `cat .env` or `grep` for secrets, pipe through sed to mask before printing:
+  `cat .env | sed -E 's/(API_KEY=).*/\1***REDACTED***/'`
+- Never run `echo $LLM_API_KEY`, `env | grep KEY`, `cat .env` (unmasked), or any command
+  that would print a secret value directly to stdout.
+- Use `read` with `-s` (silent) when prompting for secrets interactively.
 
 **⚠️ `.env` changes always require user approval.** Before modifying `.env` for any
 reason (LLM config, embedder settings, storage switches, ...), show the user the
@@ -138,6 +150,53 @@ the **masked** current content of the relevant lines (per the 🔒 DATA SAFETY
 rules above), propose the change, and WAIT for the user's confirmation before
 writing. Never silently patch `.env`.**
 
+   1a. DETECT REGION (run before any network operations). Detect whether this
+   machine is in China — this determines model download source and PyPI mirror:
+
+   ```bash
+   CC=$(curl -s -m 5 https://ipinfo.io/country 2>/dev/null || echo "UNKNOWN")
+   echo "Region: $CC"
+   ```
+
+   - **If `CC=CN`**: use **ModelScope** for model downloads, and set PyPI mirror
+     to `https://pypi.tuna.tsinghua.edu.cn/simple/`.
+   - **If `CC != CN` (or `UNKNOWN`)**: use **HuggingFace** for model downloads,
+     and use the default PyPI index.
+   - Store `CC` in a shell variable — every pip install and model download step
+     below branches on this value. Re-check on every re-run (region may change
+     if the machine moves or VPN state changes).
+
+   **pip install conventions (apply to ALL pip commands in this file):**
+
+   a. **CN mirror** — if `CC=CN`, prefix every pip install with
+      `-i https://pypi.tuna.tsinghua.edu.cn/simple/ --trusted-host pypi.tuna.tsinghua.edu.cn`.
+      Non-CN (or UNKNOWN) uses the default PyPI index with no extra flags.
+
+   b. **Timeout — set once** before any pip install:
+      ```bash
+      pip config set global.timeout 60
+      ```
+
+   c. **Retry — on failure, retry up to 3 times.** If a pip install command fails,
+      do NOT immediately escalate to the user. Retry the EXACT same command up to
+      2 more times (3 total attempts). If all 3 fail, only then report the error.
+      Between retries, wait 2 seconds:
+      ```bash
+      for i in 1 2 3; do
+        pip install ... && break
+        echo "pip install attempt $i failed, retrying in 2s..."
+        sleep 2
+      done
+      ```
+      This applies to ALL pip install calls: editable installs, dependency installs,
+      model download dependencies, etc.
+
+   d. **All four pip install locations** affected by (a)-(c):
+      1. `pip install -e '.[server,mcp,seekdb]'` (source editable install)
+      2. `$POWERMEM_PYTHON -m pip install -q modelscope` (model download dep)
+      3. `pip install "powermem[mcp,seekdb]"` (PIP path)
+      4. `$POWERMEM_PYTHON -m pip install -q huggingface_hub` (non-CN model download dep)
+
 2. COLLECT CONFIG (idempotent). If a .env already exists in the working directory
    with LLM_PROVIDER / LLM_API_KEY / LLM_MODEL set to real values (not placeholders
    like `your_api_key_here`), REUSE it — skip directly to step 3a/3b. Only collect
@@ -148,18 +207,37 @@ writing. Never silently patch `.env`.**
 
    | Option | Description |
    |--------|-------------|
-   | Yes, auto-detect | Read Claude Code's current LLM config from `~/.claude/settings.json` |
+   | Yes, auto-detect | Auto-detect LLM config (priority: OS env → `~/.claude/settings.json` → manual) |
 
    If the user selects "Yes, auto-detect" (or "Other" and types "yes"/"auto"):
 
-   Read `~/.claude/settings.json`.
+   **Auto-detection priority chain** — same order Claude Code uses internally:
+   1. **OS environment variables** (highest priority) — check these first:
+      - `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY`
+      - `ANTHROPIC_MODEL` / `OPENAI_MODEL` / `DEEPSEEK_MODEL`
+      - `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `DEEPSEEK_BASE_URL`
+   2. **`~/.claude/settings.json`** — fall back if env vars are missing
+   3. **Manual input** — ask only for fields that are still missing
+
+   **Step 1 — Check OS environment variables.** Run these checks silently (do not
+   print the values, only note whether each field was found):
+
+   | Field | Check |
+   |-------|-------|
+   | LLM_PROVIDER | If `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set → `anthropic`; elif `OPENAI_API_KEY` → `openai`; elif `DEEPSEEK_API_KEY` → `deepseek` |
+   | LLM_MODEL | `$ANTHROPIC_MODEL` or `$OPENAI_MODEL` or `$DEEPSEEK_MODEL` (provider-specific) |
+   | LLM_API_KEY | `$ANTHROPIC_API_KEY` or `$ANTHROPIC_AUTH_TOKEN` or `$OPENAI_API_KEY` or `$DEEPSEEK_API_KEY` |
+   | LLM_BASE_URL | `$ANTHROPIC_BASE_URL` or `$OPENAI_BASE_URL` or `$DEEPSEEK_BASE_URL` |
+
+   **Step 2 — If any field is still missing, read `~/.claude/settings.json`.**
 
    **Model and provider** — read `env.ANTHROPIC_MODEL` (Claude Code's standard model
    key); fall back to the top-level `model` field if absent. Both use the format
    `<provider>/<model>` — split on the first `/`:
      - `"deepseek/deepseek-v4-pro"` → `LLM_PROVIDER=deepseek`, `LLM_MODEL=deepseek-v4-pro`
      - `"anthropic/claude-sonnet-4-6"` → `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-sonnet-4-6`
-     - If neither field is present or has no `/`, ask for model and provider in 2e.
+     - If neither field is present or has no `/`, leave the field unset — it will
+       be collected manually in Step 3.
 
    ⚠️ **Anthropic model name normalization**: Claude Code's `settings.json` uses
    **dots** for version numbers (e.g. `claude-sonnet-4.6`), but the Anthropic API
@@ -176,9 +254,12 @@ writing. Never silently patch `.env`.**
      - `env.ANTHROPIC_BASE_URL` (if absent, leave blank — PowerMem will use the
        provider's default endpoint)
 
-   Show a **masked** summary of what was detected (per 🔒 DATA SAFETY rules).
-   If a field is not found, ask for it manually as a plain chat question. Then
-   jump to **2f**.
+   **Step 3 — For any fields still missing after Steps 1-2,** ask as a plain chat
+   question (one at a time, per 2b–2e below). Only ask for what is actually missing.
+
+   After all three steps, show a **masked** summary of the merged result (per
+   🔒 DATA SAFETY rules), noting the source of each field (env / settings.json / manual).
+   Then jump to **2f**.
 
    If the user does NOT select auto-detect, fall back to the manual flow:
 
@@ -218,8 +299,9 @@ writing. Never silently patch `.env`.**
         echo "Using interpreter: $POWERMEM_PYTHON"   # e.g. /usr/bin/python3.11
     - Start the embedding model download in the background immediately after pip
       install, so it runs in parallel with the remaining setup steps (hook build,
-      plugin stage/install). Use ModelScope — NOT sentence_transformers or
-      huggingface_hub, which will hang silently if HuggingFace is unreachable:
+      plugin stage/install). Branch on the region detected in Step 1a:
+
+      **CN region (ModelScope path):**
         $POWERMEM_PYTHON -m pip install -q modelscope && $POWERMEM_PYTHON -c "
         from modelscope import snapshot_download
         snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')
@@ -243,6 +325,15 @@ writing. Never silently patch `.env`.**
          if n not in skip and not os.path.exists(os.path.join(snap,n))]
         print('Model download and cache bridge complete.')
         " >> /tmp/powermem-model-download.log 2>&1 &
+
+      **Non-CN region (HuggingFace path):**
+        $POWERMEM_PYTHON -c "
+        from huggingface_hub import snapshot_download
+        snapshot_download('sentence-transformers/all-MiniLM-L6-v2')
+        print('Model download complete.')
+        " >> /tmp/powermem-model-download.log 2>&1 &
+
+      Store the background PID:
         POWERMEM_MODEL_DL_PID=$!
     - Build the hook binaries FIRST — they get copied into Claude's plugin cache at
       install time, so they must exist on disk before step "install":
@@ -295,18 +386,39 @@ writing. Never silently patch `.env`.**
                    && echo "Server ready after $((i*5))s." && break
                  echo "  still starting... ($((i*5))s)"
                done; }
-    - Once the server is healthy, use AskUserQuestion (single-select) to ask whether
-      to build and open the Web Dashboard:
+    - Ask whether to build the Web Dashboard EARLY — before starting the server —
+      so the build runs in parallel with model download and server startup. Use
+      AskUserQuestion (single-select):
 
       | Option | Description |
       |--------|-------------|
-      | Yes, build dashboard | Run `make build-dashboard` to compile dashboard assets, then open `http://localhost:8848/dashboard/` in the browser |
+      | Yes, build dashboard | Run `make build-dashboard` in background, parallel with model download and server startup |
       | No, skip | Continue without building the dashboard |
 
-      If the user selects "Yes, build dashboard", run:
-        make build-dashboard
-      Wait for the command to finish, then open `http://localhost:8848/dashboard/` in
-      the default browser. The running server is not restarted.
+      If the user selects "Yes, build dashboard", launch it in the BACKGROUND
+      immediately (do NOT wait for it — model download starts in parallel too):
+        make build-dashboard >> /tmp/powermem-dashboard-build.log 2>&1 &
+        DASHBOARD_BUILD_PID=$!
+
+      **After the server is healthy**, auto-detect dashboard availability:
+      ```bash
+      # Wait for dashboard build to finish (if started):
+      if [ -n "${DASHBOARD_BUILD_PID:-}" ] && kill -0 "$DASHBOARD_BUILD_PID" 2>/dev/null; then
+        echo "Waiting for dashboard build to finish..."
+        wait "$DASHBOARD_BUILD_PID"
+      fi
+      # Auto-detect whether dashboard is available:
+      if curl -s -m 3 http://localhost:8848/dashboard/ | grep -q '<title>PowerMem'; then
+        echo "Dashboard is available at http://localhost:8848/dashboard/"
+        # open in browser if possible
+        command -v xdg-open >/dev/null 2>&1 && xdg-open http://localhost:8848/dashboard/ &
+        command -v open >/dev/null 2>&1 && open http://localhost:8848/dashboard/ &
+      else
+        echo "Dashboard build may have failed. Check /tmp/powermem-dashboard-build.log"
+      fi
+      ```
+      The running server is not restarted. Dashboard assets are served from the
+      static files directory configured in the server.
 
     - Confirm the plugin is enabled:  claude plugin list  (look for
       memory-powermem@powermem). Do NOT print a --plugin-dir command — it is global
@@ -498,8 +610,10 @@ STORAGE_TYPE=sqlite SQLITE_DB_PATH=sqlite_data/powermem.db powermem-server --hos
 #### [E006] Model Download Timeout
 **Problem**: Server hangs or reports "timed out thrown while requesting HEAD" on startup.
 **Cause**: The embedding model is not cached and the network is unreachable.
-**Fix**: Follow the model pre-download step in Step 3a (ModelScope download + HF hub
-bridge). Quick reference:
+**Fix**: Follow the model pre-download step in Step 3a (branch on region detected in
+Step 1a). Quick reference:
+
+**CN region** (ModelScope → HF hub bridge):
 ```bash
 # Detect the correct interpreter first (same one powermem uses):
 POWERMEM_PYTHON=$(head -1 "$(command -v powermem-server)" | sed 's|#!||;s| .*||')
@@ -509,6 +623,16 @@ $POWERMEM_PYTHON -c "from modelscope import snapshot_download; \
 # Verify (note: models/ subdirectory is required):
 ls ~/.cache/modelscope/hub/models/AI-ModelScope/all-MiniLM-L6-v2/
 ```
+
+**Non-CN region** (HuggingFace direct):
+```bash
+POWERMEM_PYTHON=$(head -1 "$(command -v powermem-server)" | sed 's|#!||;s| .*||')
+$POWERMEM_PYTHON -m pip install huggingface_hub
+$POWERMEM_PYTHON -c "from huggingface_hub import snapshot_download; \
+                     snapshot_download('sentence-transformers/all-MiniLM-L6-v2')"
+# Verify:
+ls ~/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/
+```
 ⚠️ Do NOT use bare `pip` or `python` here — on many systems the default `python` version is below 3.11
 and `pip` may target a different minor version than what powermem was installed under.
 Using the shebang from `powermem-server` guarantees all three steps (pip, download,
@@ -517,9 +641,10 @@ Then run the bridge script from Step 3a to populate the HuggingFace hub cache
 structure — the embedder's cache-detection function checks `~/.cache/huggingface/hub/`,
 not the ModelScope layout.
 
-⚠️ **DO NOT** use `sentence_transformers.SentenceTransformer(...)` or `huggingface_hub`
-to download — these pull from HuggingFace, which is unreachable in China and many
-corporate networks. Always download via ModelScope, then bridge to the HF hub format.
+⚠️ **DO NOT** use `sentence_transformers.SentenceTransformer(...)` to download — it can
+hang on networks where HuggingFace is unreachable. On CN region, use ModelScope +
+HF hub bridge. On non-CN region, use `huggingface_hub.snapshot_download`. Always
+check region first (Step 1a).
 
 To confirm which sources are reachable:
 ```bash
