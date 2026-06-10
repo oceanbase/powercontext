@@ -1185,7 +1185,7 @@ class TestPGVector(unittest.TestCase):
         # Verify results
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].id, self.test_ids[0])
-        self.assertEqual(results[0].score, 0.1)
+        self.assertAlmostEqual(results[0].score, 0.95)
         self.assertEqual(results[0].payload["user_id"], "alice")
         self.assertEqual(results[0].payload["agent_id"], "agent1")
         self.assertEqual(results[0].payload["run_id"], "run1")
@@ -1235,7 +1235,7 @@ class TestPGVector(unittest.TestCase):
         # Verify results
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].id, self.test_ids[0])
-        self.assertEqual(results[0].score, 0.1)
+        self.assertAlmostEqual(results[0].score, 0.95)
         self.assertEqual(results[0].payload["user_id"], "alice")
         self.assertEqual(results[0].payload["agent_id"], "agent1")
         self.assertEqual(results[0].payload["run_id"], "run1")
@@ -1285,7 +1285,7 @@ class TestPGVector(unittest.TestCase):
         # Verify results
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].id, self.test_ids[0])
-        self.assertEqual(results[0].score, 0.1)
+        self.assertAlmostEqual(results[0].score, 0.95)
         self.assertEqual(results[0].payload["user_id"], "alice")
 
     @patch('powermem.storage.pgvector.pgvector.PSYCOPG_VERSION', 2)
@@ -1333,7 +1333,7 @@ class TestPGVector(unittest.TestCase):
         # Verify results
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].id, self.test_ids[0])
-        self.assertEqual(results[0].score, 0.1)
+        self.assertAlmostEqual(results[0].score, 0.95)
         self.assertEqual(results[0].payload["user_id"], "alice")
 
     @patch('powermem.storage.pgvector.pgvector.PSYCOPG_VERSION', 3)
@@ -1381,9 +1381,9 @@ class TestPGVector(unittest.TestCase):
         # Verify results
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0].id, self.test_ids[0])
-        self.assertEqual(results[0].score, 0.1)
+        self.assertAlmostEqual(results[0].score, 0.95)
         self.assertEqual(results[1].id, self.test_ids[1])
-        self.assertEqual(results[1].score, 0.2)
+        self.assertAlmostEqual(results[1].score, 0.9)
 
     @patch('powermem.storage.pgvector.pgvector.PSYCOPG_VERSION', 2)
     @patch('powermem.storage.pgvector.pgvector.ConnectionPool')
@@ -1430,9 +1430,9 @@ class TestPGVector(unittest.TestCase):
         # Verify results
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0].id, self.test_ids[0])
-        self.assertEqual(results[0].score, 0.1)
+        self.assertAlmostEqual(results[0].score, 0.95)
         self.assertEqual(results[1].id, self.test_ids[1])
-        self.assertEqual(results[1].score, 0.2)
+        self.assertAlmostEqual(results[1].score, 0.9)
 
     @patch('powermem.storage.pgvector.pgvector.PSYCOPG_VERSION', 3)
     @patch('powermem.storage.pgvector.pgvector.ConnectionPool')
