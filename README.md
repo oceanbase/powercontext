@@ -274,7 +274,7 @@ Uses the same `.env` as the SDK. Dashboard is served under `/dashboard/`.
 powermem-server --host 0.0.0.0 --port 8848
 ```
 
-Open the dashboard at `http://localhost:8848/dashboard/` to browse memories, view analytics, and monitor system health. See the [Web Dashboard Guide](docs/guides/0013-dashboard.md) for a complete walkthrough.
+On an interactive local terminal, the server automatically opens the Dashboard in your default browser once it is ready. You can also open `http://localhost:8848/dashboard/` manually to browse memories, view analytics, and monitor system health. Use `--no-open-browser` to disable auto-open, or `--open-browser` when output is redirected. Browser opening is skipped in CI, containers, SSH sessions, headless environments, and when Dashboard assets are unavailable. See the [Web Dashboard Guide](docs/guides/0013-dashboard.md) for a complete walkthrough.
 
 Docker / Compose: see [API Server](docs/api/0005-api_server.md) and [Docker & deployment](docker/README.md). The official image is `oceanbase/powermem-server:latest`.
 

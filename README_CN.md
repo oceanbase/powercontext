@@ -272,7 +272,7 @@ pmem shell                           # 交互式 REPL
 powermem-server --host 0.0.0.0 --port 8848
 ```
 
-访问 `http://localhost:8848/dashboard/` 浏览记忆、查看分析数据与系统健康状态。完整使用说明见 [Web Dashboard 指南](docs/guides/0013-dashboard.md)。
+在本地交互式终端中，服务就绪后会自动使用默认浏览器打开 Dashboard；也可手动访问 `http://localhost:8848/dashboard/` 浏览记忆、查看分析数据与系统健康状态。使用 `--no-open-browser` 可禁用自动打开；输出被重定向时，可使用 `--open-browser` 显式请求打开。CI、容器、SSH、无图形环境以及 Dashboard 资源不可用时不会打开浏览器。完整使用说明见 [Web Dashboard 指南](docs/guides/0013-dashboard.md)。
 
 Docker / Compose 部署见 [API Server](docs/api/0005-api_server.md) 与 [Docker 说明](docker/README.md)。官方镜像：`oceanbase/powermem-server:latest`。
 

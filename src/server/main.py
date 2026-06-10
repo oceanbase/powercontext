@@ -13,13 +13,13 @@ from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 
 from .config import config
+from .dashboard_assets import DASHBOARD_DIR, dashboard_assets_available
 from .api.v1 import router as v1_router
 from .middleware.logging import setup_logging, LoggingMiddleware
 from .middleware.rate_limit import rate_limit_middleware
 from .middleware.error_handler import error_handler
 from .middleware.auth import verify_api_key
 
-import os
 import logging
 from importlib.util import find_spec
 
@@ -27,9 +27,6 @@ from importlib.util import find_spec
 setup_logging()
 
 logger = logging.getLogger("server")
-
-# Setup templates
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _load_mcp_asgi_app():
@@ -118,14 +115,16 @@ rate_limit_middleware(app)
 
 
 # Mount Dashboard (redirect /dashboard -> /dashboard/ so index.html is served)
-dashboard_dist = os.path.abspath(os.path.join(BASE_DIR, "dashboard"))
-if os.path.exists(dashboard_dist):
+if dashboard_assets_available():
+
     @app.get("/dashboard", include_in_schema=False)
     async def dashboard_redirect():
         return RedirectResponse(url="/dashboard/", status_code=302)
 
     app.mount(
-        "/dashboard", StaticFiles(directory=dashboard_dist, html=True), name="dashboard"
+        "/dashboard",
+        StaticFiles(directory=str(DASHBOARD_DIR), html=True),
+        name="dashboard",
     )
 
 # Include API routers
@@ -177,7 +176,7 @@ async def api_root():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "server.main:app",
         host=config.host,

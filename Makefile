@@ -258,6 +258,7 @@ ENV_SERVER_WORKERS := $(shell grep -E '^POWERMEM_SERVER_WORKERS=' .env 2>/dev/nu
 SERVER_HOST := $(or $(ENV_SERVER_HOST),0.0.0.0)
 SERVER_PORT := $(or $(ENV_SERVER_PORT),8848)
 SERVER_WORKERS := $(or $(ENV_SERVER_WORKERS),4)
+SERVER_BROWSER_ARGS ?=
 
 server-start: ## Start the PowerMem API server
 	@echo "Starting PowerMem API server..."
@@ -266,7 +267,7 @@ server-start: ## Start the PowerMem API server
 		echo "Use 'make server-stop' to stop it first, or 'make server-restart' to restart"; \
 		exit 1; \
 	fi
-	@powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --workers $(SERVER_WORKERS) > /dev/null 2>&1 & \
+	@powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --workers $(SERVER_WORKERS) $(SERVER_BROWSER_ARGS) > /dev/null 2>&1 & \
 	echo $$! > $(SERVER_PID_FILE); \
 	echo "Server started with PID: $$!"; \
 	echo "Server running at http://$(SERVER_HOST):$(SERVER_PORT)"; \
@@ -281,7 +282,7 @@ server-start-reload: ## Start the PowerMem API server with auto-reload (developm
 		echo "Use 'make server-stop' to stop it first"; \
 		exit 1; \
 	fi
-	@powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --reload > /dev/null 2>&1 & \
+	@powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --reload $(SERVER_BROWSER_ARGS) > /dev/null 2>&1 & \
 	echo $$! > $(SERVER_PID_FILE); \
 	echo "Server started with PID: $$! (auto-reload enabled)"; \
 	echo "Server running at http://$(SERVER_HOST):$(SERVER_PORT)"; \
@@ -383,7 +384,7 @@ server-dashboard-start: ## Build dashboard, then start server (stops existing se
 	@echo "[2/3] Building dashboard..."
 	@$(MAKE) build-dashboard
 	@echo "[3/3] Starting server..."
-	@$(MAKE) server-start
+	@$(MAKE) server-start SERVER_BROWSER_ARGS=--open-browser
 	@echo "✓ Dashboard at http://$(SERVER_HOST):$(SERVER_PORT)/dashboard/"
 
 # Docker commands
