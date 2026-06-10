@@ -47,7 +47,7 @@ jobs:
       - name: Get PR SHA (if PR number provided)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number != ''
         id: get_pr_sha
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -61,7 +61,7 @@ jobs:
             core.setOutput('sha', pr.head.sha);
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         # For pull_request_target, checkout the PR branch
         # For workflow_dispatch, checkout the PR SHA (if PR number provided), or specified ref, or default branch
         # For push, checkout the pushed branch
@@ -70,7 +70,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -81,7 +81,7 @@ jobs:
           pip install --upgrade setuptools wheel
 
       - name: Cache pip dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -172,7 +172,7 @@ jobs:
           pytest tests/regression/test_scenario*.py -vs --junitxml=report/test1.xml
       - name: Upload JUnit report
         if: always() && (steps.run_tests.outcome == 'success' || steps.run_tests.outcome == 'failure')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-test1
           path: report/
@@ -201,7 +201,7 @@ jobs:
       - name: Get PR SHA (if PR number provided)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number != ''
         id: get_pr_sha
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -215,7 +215,7 @@ jobs:
             core.setOutput('sha', pr.head.sha);
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         # For pull_request_target, checkout the PR branch
         # For workflow_dispatch, checkout the PR SHA (if PR number provided), or specified ref, or default branch
         # For push, checkout the pushed branch
@@ -224,7 +224,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -235,7 +235,7 @@ jobs:
           pip install --upgrade setuptools wheel
 
       - name: Cache pip dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
@@ -326,7 +326,7 @@ jobs:
           pytest tests/regression/ --ignore-glob='*test_scenario*.py' -vs --junitxml=report/test2.xml
       - name: Upload JUnit report
         if: always() && (steps.run_tests.outcome == 'success' || steps.run_tests.outcome == 'failure')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-test2
           path: report/
@@ -344,7 +344,7 @@ jobs:
     if: always() && (needs.test1.result == 'success' || needs.test1.result == 'failure') && (needs.test2.result == 'success' || needs.test2.result == 'failure')
     steps:
       - name: Download JUnit artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: junit-*
       - name: Collect JUnit reports
@@ -361,7 +361,7 @@ jobs:
           fi
           ls -la all-reports/
       - name: Publish Test Report Summary
-        uses: mikepenz/action-junit-report@v4
+        uses: mikepenz/action-junit-report@v6
         if: always()
         with:
           report_paths: 'all-reports/*.xml'

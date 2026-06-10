@@ -29,19 +29,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
-          cache-dependency-path: apps/vscode-extension/package-lock.json
+          cache-dependency-path: apps/vscode-extension/package.json
 
       - name: Build .vsix
         run: |
           cd apps/vscode-extension
-          npm ci
+          npm install
           npm run compile
           npx @vscode/vsce package --no-dependencies --no-rewrite-relative-links
           mkdir -p ../.vsix

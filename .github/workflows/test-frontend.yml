@@ -13,12 +13,12 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: docs/website/package-lock.json
 
@@ -39,4 +39,3 @@ jobs:
           du -sh docs/website/build
           echo "Number of files:"
           find docs/website/build -type f | wc -l
-

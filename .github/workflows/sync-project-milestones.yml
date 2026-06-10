@@ -28,7 +28,7 @@ jobs:
     steps:
       - name: Get Project ID
         id: get_project
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.PROJECT_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
@@ -209,7 +209,7 @@ jobs:
     
     steps:
       - name: Add Issue to Project
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.PROJECT_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
@@ -253,7 +253,7 @@ jobs:
     
     steps:
       - name: Sync Historical Issues and PRs with Milestones
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.PROJECT_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
@@ -399,4 +399,3 @@ jobs:
             console.log(`New PRs added to project: ${addedPRs}`);
             console.log(`Total items processed: ${totalIssues + totalPRs}`);
             console.log(`Total items added: ${addedIssues + addedPRs}`);
-
