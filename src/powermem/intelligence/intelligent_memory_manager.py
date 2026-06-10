@@ -176,23 +176,16 @@ class IntelligentMemoryManager:
             # Apply Ebbinghaus decay to results
             processed_results = []
             for result in results:
-                # Calculate relevance score
-                relevance_score = self.ebbinghaus_algorithm.calculate_relevance(
-                    result, query
-                )
-                
                 # Apply decay based on age and memory type
                 decay_rate = self.ebbinghaus_algorithm._resolve_decay_rate(result)
                 decay_factor = self.ebbinghaus_algorithm.calculate_decay(
                     result.get("created_at", get_current_datetime()),
                     decay_rate=decay_rate,
                 )
-                
-                # Update result with processed information. Keep the storage
-                # score for diagnostics, but expose the final score because
-                # it is the value used for user-visible ranking.
+
                 processed_result = result.copy()
                 original_score = processed_result.get("score")
+                base_score = original_score if original_score is not None else 0.0
                 forgotten_score_multiplier = (
                     self.forgotten_score_multiplier
                     if self._is_marked_forgetting(result)
@@ -200,13 +193,12 @@ class IntelligentMemoryManager:
                 )
                 if original_score is not None:
                     processed_result["original_score"] = original_score
-                processed_result["relevance_score"] = relevance_score
                 processed_result["decay_factor"] = decay_factor
                 processed_result["forgotten_score_multiplier"] = (
                     forgotten_score_multiplier
                 )
                 processed_result["final_score"] = (
-                    relevance_score * decay_factor * forgotten_score_multiplier
+                    base_score * decay_factor * forgotten_score_multiplier
                 )
                 processed_result["score"] = processed_result["final_score"]
                 

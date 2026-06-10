@@ -11,7 +11,7 @@ from powermem.utils.utils import get_current_datetime
 
 @pytest.fixture
 def algo():
-    return EbbinghausAlgorithm({"decay_rate": 0.1})
+    return EbbinghausAlgorithm({"decay_rate": 1.5})
 
 
 def test_decay_rate_ordering_by_type(algo):
@@ -19,9 +19,9 @@ def test_decay_rate_ordering_by_type(algo):
     short_term = algo._get_decay_rate_for_type("short_term")
     long_term = algo._get_decay_rate_for_type("long_term")
 
-    assert working == pytest.approx(0.05)
-    assert short_term == pytest.approx(0.15)
-    assert long_term == pytest.approx(0.2)
+    assert working == pytest.approx(1.5)
+    assert short_term == pytest.approx(10.5)
+    assert long_term == pytest.approx(90.0)
     assert working < short_term < long_term
 
 
@@ -35,7 +35,7 @@ def test_calculate_decay_uses_explicit_decay_rate(algo):
 
 
 def test_should_forget_uses_memory_type_decay_rate(algo):
-    created_at = get_current_datetime() - timedelta(hours=2)
+    created_at = get_current_datetime() - timedelta(hours=50)
 
     working_memory = {
         "created_at": created_at,
@@ -63,7 +63,7 @@ def test_resolve_decay_rate_prefers_memory_type_over_stored_decay_rate(algo):
         }
     }
 
-    assert algo._resolve_decay_rate(memory) == pytest.approx(0.05)
+    assert algo._resolve_decay_rate(memory) == pytest.approx(1.5)
 
 
 def test_resolve_decay_rate_reads_nested_intelligence_memory_type(algo):
@@ -76,7 +76,7 @@ def test_resolve_decay_rate_reads_nested_intelligence_memory_type(algo):
         }
     }
 
-    assert algo._resolve_decay_rate(memory) == pytest.approx(0.2)
+    assert algo._resolve_decay_rate(memory) == pytest.approx(90.0)
 
 
 def test_resolve_decay_rate_falls_back_to_stored_rate(algo):
@@ -122,12 +122,14 @@ def test_search_results_use_type_specific_decay_rate():
         {
             "id": "working",
             "content": "shared keyword",
+            "score": 0.8,
             "created_at": created_at,
             "memory_type": "working",
         },
         {
             "id": "long",
             "content": "shared keyword",
+            "score": 0.8,
             "created_at": created_at,
             "memory_type": "long_term",
         },
@@ -154,11 +156,13 @@ def test_search_results_demote_memories_marked_for_forgetting():
         {
             "id": "active",
             "content": "shared keyword",
+            "score": 0.8,
             "created_at": created_at,
         },
         {
             "id": "forgotten",
             "content": "shared keyword extra",
+            "score": 0.8,
             "created_at": created_at,
             "should_forget": True,
         },
@@ -247,6 +251,7 @@ def test_search_results_do_not_demote_unmarked_memories():
     result = {
         "id": "active",
         "content": "keyword",
+        "score": 0.85,
         "created_at": get_current_datetime(),
         "metadata": {"should_forget": False},
     }
@@ -255,22 +260,25 @@ def test_search_results_do_not_demote_unmarked_memories():
 
     assert processed[0]["forgotten_score_multiplier"] == pytest.approx(1.0)
     assert processed[0]["final_score"] == pytest.approx(
-        processed[0]["relevance_score"] * processed[0]["decay_factor"]
+        0.85 * processed[0]["decay_factor"]
     )
 
 
-def test_search_results_calculate_relevance_from_storage_memory_field():
+def test_search_results_use_storage_score_for_ranking():
     manager = IntelligentMemoryManager({"intelligent_memory": {"decay_rate": 0.1}})
     result = {
         "id": "storage-result",
-        "memory": "keyword from storage adapter",
+        "memory": "some content",
+        "score": 0.92,
         "created_at": get_current_datetime(),
     }
 
-    processed = manager.process_search_results([result], "keyword")
+    processed = manager.process_search_results([result], "any query")
 
-    assert processed[0]["relevance_score"] == pytest.approx(1.0)
-    assert processed[0]["final_score"] > 0
+    assert processed[0]["original_score"] == pytest.approx(0.92)
+    assert processed[0]["final_score"] == pytest.approx(
+        0.92 * processed[0]["decay_factor"]
+    )
 
 
 def test_forgotten_score_multiplier_does_not_boost_scores():
@@ -279,3 +287,23 @@ def test_forgotten_score_multiplier_does_not_boost_scores():
     )
 
     assert manager.forgotten_score_multiplier == pytest.approx(1.0)
+
+
+def test_old_unaccessed_working_memory_is_forgotten_not_promoted():
+    """Regression: a 50h-old working memory with access_count=0 should be
+    soft-forgotten, not promoted. Age alone must not override decay."""
+    from powermem.intelligence.plugin import EbbinghausIntelligencePlugin
+
+    plugin = EbbinghausIntelligencePlugin({"enabled": True, "decay_rate": 1.5})
+    memory = {
+        "memory_type": "working",
+        "access_count": 0,
+        "importance_score": 0.3,
+        "created_at": (get_current_datetime() - timedelta(hours=50)).isoformat(),
+        "metadata": {},
+    }
+
+    updates, delete_flag = plugin.on_get(memory)
+
+    assert delete_flag is True
+    assert updates is None

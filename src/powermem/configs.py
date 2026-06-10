@@ -37,14 +37,14 @@ class IntelligentMemoryConfig(BaseModel):
         description="Initial retention strength for new memories"
     )
     decay_rate: float = Field(
-        default=0.1,
+        default=1.5,
         description="Base memory decay strength; larger values decay slower"
     )
     decay_rate_multipliers: Dict[str, float] = Field(
         default_factory=lambda: {
-            "working": 0.5,
-            "short_term": 1.5,
-            "long_term": 2.0,
+            "working": 1,
+            "short_term": 7,
+            "long_term": 60,
         },
         description=(
             "Per memory_type multiplier on base decay_rate. Larger multipliers "
