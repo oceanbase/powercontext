@@ -1,5 +1,6 @@
 """Unit tests for per-memory Ebbinghaus decay rates."""
 
+import math
 from datetime import timedelta
 
 import pytest
@@ -40,12 +41,12 @@ def test_should_forget_uses_memory_type_decay_rate(algo):
     working_memory = {
         "created_at": created_at,
         "memory_type": "working",
-        "access_count": 1,
+        "access_count": 0,
     }
     long_term_memory = {
         "created_at": created_at,
         "memory_type": "long_term",
-        "access_count": 1,
+        "access_count": 0,
     }
 
     assert algo.should_forget(working_memory) is True
@@ -89,6 +90,83 @@ def test_resolve_decay_rate_falls_back_to_stored_rate(algo):
     }
 
     assert algo._resolve_decay_rate(memory) == pytest.approx(0.17)
+
+
+def test_resolve_decay_rate_applies_access_reinforcement(algo):
+    memory = {
+        "memory_type": "working",
+        "access_count": 2,
+    }
+
+    assert algo._resolve_decay_rate(memory) == pytest.approx(
+        1.5 * (1 + 0.3 * math.log1p(2))
+    )
+
+
+def test_resolve_decay_rate_uses_stored_reinforcement_factor(algo):
+    memory = {
+        "metadata": {
+            "access_count": 3,
+            "intelligence": {
+                "memory_type": "working",
+                "reinforcement_factor": 0.5,
+            },
+        }
+    }
+
+    assert algo._resolve_decay_rate(memory) == pytest.approx(
+        1.5 * (1 + 0.5 * math.log1p(3))
+    )
+
+
+def test_reinforced_memory_decays_slower_in_search_results():
+    manager = IntelligentMemoryManager(
+        {"intelligent_memory": {"decay_rate": 1.5}}
+    )
+    created_at = get_current_datetime() - timedelta(hours=50)
+    results = [
+        {
+            "id": "unreinforced",
+            "content": "shared keyword",
+            "score": 0.8,
+            "created_at": created_at,
+            "memory_type": "working",
+            "access_count": 0,
+        },
+        {
+            "id": "reinforced",
+            "content": "shared keyword",
+            "score": 0.8,
+            "created_at": created_at,
+            "memory_type": "working",
+            "access_count": 2,
+        },
+    ]
+
+    processed = manager.process_search_results(results, "keyword")
+    by_id = {item["id"]: item for item in processed}
+
+    assert (
+        by_id["reinforced"]["decay_factor"]
+        > by_id["unreinforced"]["decay_factor"]
+    )
+    assert processed[0]["id"] == "reinforced"
+
+
+def test_access_reinforcement_can_prevent_forgetting(algo):
+    created_at = get_current_datetime() - timedelta(hours=50)
+    base_memory = {
+        "created_at": created_at,
+        "memory_type": "working",
+        "access_count": 0,
+    }
+    reinforced_memory = {
+        **base_memory,
+        "access_count": 2,
+    }
+
+    assert algo.should_forget(base_memory) is True
+    assert algo.should_forget(reinforced_memory) is False
 
 
 def test_promotion_changes_effective_rate(algo):

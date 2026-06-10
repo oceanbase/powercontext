@@ -6,7 +6,7 @@ This module implements the Ebbinghaus forgetting curve for memory management.
 
 import logging
 import math
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Tuple
 from datetime import datetime, timedelta
 from powermem.utils.utils import get_current_datetime
 
@@ -371,8 +371,7 @@ class EbbinghausAlgorithm:
 
     def _resolve_decay_rate(self, memory: Dict[str, Any]) -> float:
         """Resolve the effective decay strength for a memory dict."""
-        meta = memory.get("metadata") or {}
-        intelligence = meta.get("intelligence") or memory.get("intelligence") or {}
+        meta, intelligence = self._resolve_metadata_sections(memory)
 
         memory_type = (
             memory.get("memory_type")
@@ -380,12 +379,13 @@ class EbbinghausAlgorithm:
             or intelligence.get("memory_type")
         )
         if memory_type:
-            return self._get_decay_rate_for_type(memory_type)
+            base_rate = self._get_decay_rate_for_type(memory_type)
+            return self._apply_reinforcement(memory, base_rate)
 
-        stored = (
-            memory.get("decay_rate")
-            or meta.get("decay_rate")
-            or intelligence.get("decay_rate")
+        stored = self._first_present(
+            memory.get("decay_rate"),
+            meta.get("decay_rate"),
+            intelligence.get("decay_rate"),
         )
         if stored is not None:
             try:
@@ -394,8 +394,67 @@ class EbbinghausAlgorithm:
                 logger.warning("Invalid stored decay_rate: %s", stored)
             else:
                 if rate > 0:
-                    return rate
-        return self.decay_rate
+                    return self._apply_reinforcement(memory, rate)
+        return self._apply_reinforcement(memory, self.decay_rate)
+
+    def _resolve_metadata_sections(
+        self, memory: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Return metadata and intelligence sections from supported layouts."""
+        meta = memory.get("metadata") or {}
+        intelligence = (
+            meta.get("intelligence")
+            or memory.get("intelligence")
+            or {}
+        )
+        return meta, intelligence
+
+    @staticmethod
+    def _first_present(*values: Any) -> Any:
+        """Return the first value that is not None."""
+        for value in values:
+            if value is not None:
+                return value
+        return None
+
+    def _apply_reinforcement(
+        self, memory: Dict[str, Any], base_rate: float
+    ) -> float:
+        """Increase decay strength with diminishing returns on access frequency."""
+        access_count = self._resolve_access_count(memory)
+        reinforcement_factor = self._resolve_reinforcement_factor(memory)
+        return base_rate * (1 + reinforcement_factor * math.log1p(access_count))
+
+    def _resolve_access_count(self, memory: Dict[str, Any]) -> int:
+        """Resolve access_count from top-level, metadata, or intelligence."""
+        meta, intelligence = self._resolve_metadata_sections(memory)
+        raw = self._first_present(
+            memory.get("access_count"),
+            meta.get("access_count"),
+            intelligence.get("access_count"),
+        )
+        try:
+            access_count = int(raw or 0)
+        except (TypeError, ValueError):
+            logger.warning("Invalid access_count for reinforcement: %s", raw)
+            return 0
+        return max(access_count, 0)
+
+    def _resolve_reinforcement_factor(self, memory: Dict[str, Any]) -> float:
+        """Resolve per-memory reinforcement factor with config fallback."""
+        meta, intelligence = self._resolve_metadata_sections(memory)
+        raw = self._first_present(
+            memory.get("reinforcement_factor"),
+            meta.get("reinforcement_factor"),
+            intelligence.get("reinforcement_factor"),
+            self.reinforcement_factor,
+        )
+        try:
+            factor = float(raw)
+        except (TypeError, ValueError):
+            logger.warning("Invalid reinforcement_factor: %s", raw)
+            return 0.0
+        return max(factor, 0.0)
     
     def _parse_datetime(self, value: Any) -> datetime:
         """Parse datetime from object or ISO string."""
