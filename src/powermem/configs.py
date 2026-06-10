@@ -230,7 +230,7 @@ class SkillStoreConfig(BaseModel):
     """Configuration for skill sub-store."""
     enabled: bool = Field(default=False, description="Enable skill storage")
     collection_name: Optional[str] = Field(default=None, description="Table name; auto-generated if None")
-    similarity_threshold: float = Field(default=0.75, description="Dedup similarity threshold")
+    similarity_threshold: float = Field(default=0.03, description="Dedup RRF score threshold")
     index_type: Optional[str] = Field(default=None, description="Vector index type (hnsw, ivf, etc.). Falls back to vector_store.config.index_type if not set")
 
 
