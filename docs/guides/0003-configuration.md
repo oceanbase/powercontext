@@ -610,7 +610,7 @@ Intelligent memory uses the Ebbinghaus forgetting curve to manage memory retenti
 |--------------|------|----------|---------|-------------|
 | `INTELLIGENT_MEMORY_ENABLED` | boolean | No | `true` | Enable intelligent memory management |
 | `INTELLIGENT_MEMORY_INITIAL_RETENTION` | float | No | `1.0` | Initial retention score (0.0-1.0). Starting memory strength |
-| `INTELLIGENT_MEMORY_DECAY_RATE` | float | No | `1.5` | Memory decay strength (S in R=e^{-t/24S}). Larger values mean slower decay |
+| `INTELLIGENT_MEMORY_DECAY_RATE` | float | No | `1.5` | Memory decay strength (S in `R=e^(-t/24S)`). Larger values mean slower decay |
 | `INTELLIGENT_MEMORY_REINFORCEMENT_FACTOR` | float | No | `0.3` | Reinforcement factor (0.0-1.0). How much memory strengthens when accessed |
 | `INTELLIGENT_MEMORY_WORKING_THRESHOLD` | float | No | `0.3` | Working memory threshold (0.0-1.0). Memories below this are in working memory |
 | `INTELLIGENT_MEMORY_SHORT_TERM_THRESHOLD` | float | No | `0.6` | Short-term memory threshold (0.0-1.0). Memories between working and this are short-term |
