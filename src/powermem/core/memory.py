@@ -3036,14 +3036,14 @@ class Memory(MemoryBase):
             if not safe:
                 return {"title": title, "action": "blocked", "reason": reason}
 
-        title_emb = title_embedding if title_embedding is not None else self._embed(title)
-        desc_emb = description_embedding if description_embedding is not None else self._embed(description)
+        title_emb = title_embedding if title_embedding is not None else self.embedding.embed(title)
+        desc_emb = description_embedding if description_embedding is not None else self.embedding.embed(description)
 
         similar = self.skill_store.search(
             query_embedding=title_emb, query_text=title,
             limit=1, user_id=user_id, agent_id=agent_id,
         )
-        threshold = (self.config.get("skill_store") or {}).get("similarity_threshold", 0.75) if isinstance(self.config.get("skill_store"), dict) else 0.75
+        threshold = (self.config.get("skill_store") or {}).get("similarity_threshold", 0.03) if isinstance(self.config.get("skill_store"), dict) else 0.03
 
         if similar and similar[0].get("score", 0) > threshold:
             existing = similar[0]
@@ -3057,8 +3057,8 @@ class Memory(MemoryBase):
                 merged_desc = merge_result.get("description") or description
                 merged_proc = merge_result.get("procedure") or procedure
                 merged_tags = list(set((tags or []) + (existing.get("tags") or [])))
-                merged_title_emb = self._embed(merged_title)
-                merged_desc_emb = self._embed(merged_desc)
+                merged_title_emb = self.embedding.embed(merged_title)
+                merged_desc_emb = self.embedding.embed(merged_desc)
                 self.skill_store.update(
                     existing["id"], merged_title, merged_desc,
                     tags=merged_tags, procedure_data=merged_proc,
@@ -3080,7 +3080,7 @@ class Memory(MemoryBase):
         """Search skills by embedding + fulltext."""
         if not self.skill_store:
             return []
-        query_emb = self._embed(query)
+        query_emb = self.embedding.embed(query)
         return self.skill_store.search(
             query_embedding=query_emb, query_text=query,
             limit=limit, user_id=user_id, agent_id=agent_id,
