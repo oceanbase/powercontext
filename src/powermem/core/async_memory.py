@@ -1382,7 +1382,6 @@ class AsyncMemory(MemoryBase):
             if self.enable_graph:
                 filters = {**(filters or {}), "user_id": user_id, "agent_id": agent_id, "run_id": run_id}
                 graph_results = await asyncio.to_thread(self.graph_store.get_all, filters, limit + offset)
-                results.extend(graph_results)
                 return {"results": results, "relations": graph_results}
 
             return {"results": results}

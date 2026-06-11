@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 class StorageAdapter:
     """Adapter that bridges VectorStoreBase interface with Memory class expectations."""
+
+    _SYSTEM_FILTER_KEYS = {"user_id", "agent_id", "run_id"}
     
     def __init__(self, vector_store: VectorStoreBase, embedding_service=None, sparse_embedder_service=None):
         """Initialize the adapter with a vector store and embedding service."""
@@ -53,6 +55,40 @@ class StorageAdapter:
         except Exception as e:
             logger.warning(f"Failed to generate sparse embedding ({memory_action}): {e}")
             return None
+
+    def _metadata_filter_key_for_store(self, key: str) -> str:
+        """Translate logical metadata filters to backend-specific payload paths."""
+        store_module = self.vector_store.__class__.__module__
+        if (
+            store_module.endswith("sqlite.sqlite_vector_store")
+            or ".pgvector." in store_module
+        ):
+            return f"metadata.{key}"
+        return key
+
+    def _build_db_filters(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Build filters that can be executed by the vector store."""
+        db_filters: Dict[str, Any] = {}
+        if user_id:
+            db_filters["user_id"] = user_id
+        if agent_id:
+            db_filters["agent_id"] = agent_id
+        if run_id:
+            db_filters["run_id"] = run_id
+        if filters:
+            for key, value in filters.items():
+                if key in self._SYSTEM_FILTER_KEYS:
+                    if key not in db_filters:
+                        db_filters[key] = value
+                else:
+                    db_filters[self._metadata_filter_key_for_store(key)] = value
+        return db_filters
 
     def add_memory(self, memory_data: Dict[str, Any]) -> int:
         """Add a memory to the store."""
@@ -478,15 +514,8 @@ class StorageAdapter:
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Get all memories with optional filtering and sorting."""
-        # Build filters for database-level filtering (only scope keys; backends use payload top-level)
-        db_filters: Dict[str, Any] = {}
-        if user_id:
-            db_filters["user_id"] = user_id
-        if agent_id:
-            db_filters["agent_id"] = agent_id
-        if run_id:
-            db_filters["run_id"] = run_id
-        # Pass only scope to DB; extra filters (e.g. metadata.name) applied in-memory below
+        db_filters = self._build_db_filters(user_id, agent_id, run_id, filters)
+
         results = self.vector_store.list(
             filters=db_filters if db_filters else None,
             limit=limit,
@@ -566,7 +595,7 @@ class StorageAdapter:
                 continue  # one extra filter did not match, skip this memory
             
             memories.append(memory)
-        
+
         return memories
 
     def count_all_memories(
@@ -577,15 +606,7 @@ class StorageAdapter:
         filters: Optional[Dict[str, Any]] = None,
     ) -> int:
         """Count all memories with optional filtering."""
-        db_filters: Dict[str, Any] = {}
-        if user_id:
-            db_filters["user_id"] = user_id
-        if agent_id:
-            db_filters["agent_id"] = agent_id
-        if run_id:
-            db_filters["run_id"] = run_id
-        if filters:
-            db_filters.update(filters)
+        db_filters = self._build_db_filters(user_id, agent_id, run_id, filters)
 
         try:
             if hasattr(self.vector_store, "count"):

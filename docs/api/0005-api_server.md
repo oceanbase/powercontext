@@ -540,6 +540,7 @@ curl -X POST "http://localhost:8848/api/v1/memories/batch" \
 **Query Parameters**:
 - `user_id` (optional): Filter by user ID
 - `agent_id` (optional): Filter by agent ID
+- `scope` (optional): Filter by metadata scope, such as personal or group memory
 - `limit` (optional, default: 100): Maximum number of results (1-1000)
 - `offset` (optional, default: 0): Number of results to skip
 - `sort_by` (optional): Field to sort by. Options: `created_at`, `updated_at`, `id`. If not specified, results are returned in their original order
@@ -558,6 +559,10 @@ curl -X GET "http://localhost:8848/api/v1/memories?user_id=user-123&limit=20&off
 
 # Filter by agent
 curl -X GET "http://localhost:8848/api/v1/memories?agent_id=agent-456&limit=50&offset=0" \
+  -H "X-API-Key: test-api-key-123"
+
+# Filter by metadata scope
+curl -X GET "http://localhost:8848/api/v1/memories?user_id=user-123&agent_id=agent-456&scope=personal&limit=20&offset=0" \
   -H "X-API-Key: test-api-key-123"
 
 # Sort by updated_at (descending - most recent first)

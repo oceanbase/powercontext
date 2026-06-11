@@ -253,7 +253,12 @@ class PGVectorStore(VectorStoreBase):
 
         if filters:
             for k, v in filters.items():
-                filter_conditions.append("payload->>%s = %s")
+                if "." in k:
+                    filter_conditions.append(
+                        "payload #>> string_to_array(%s, '.') = %s"
+                    )
+                else:
+                    filter_conditions.append("payload->>%s = %s")
                 filter_params.extend([k, str(v)])
 
         filter_clause = "WHERE " + " AND ".join(filter_conditions) if filter_conditions else ""
@@ -403,7 +408,12 @@ class PGVectorStore(VectorStoreBase):
 
         if filters:
             for k, v in filters.items():
-                filter_conditions.append("payload->>%s = %s")
+                if "." in k:
+                    filter_conditions.append(
+                        "payload #>> string_to_array(%s, '.') = %s"
+                    )
+                else:
+                    filter_conditions.append("payload->>%s = %s")
                 filter_params.extend([k, str(v)])
 
         filter_clause = "WHERE " + " AND ".join(filter_conditions) if filter_conditions else ""
@@ -457,7 +467,12 @@ class PGVectorStore(VectorStoreBase):
 
         if filters:
             for k, v in filters.items():
-                filter_conditions.append("payload->>%s = %s")
+                if "." in k:
+                    filter_conditions.append(
+                        "payload #>> string_to_array(%s, '.') = %s"
+                    )
+                else:
+                    filter_conditions.append("payload->>%s = %s")
                 filter_params.extend([k, str(v)])
 
         filter_clause = "WHERE " + " AND ".join(filter_conditions) if filter_conditions else ""

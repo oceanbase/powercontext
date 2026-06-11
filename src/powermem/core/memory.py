@@ -2180,7 +2180,6 @@ class Memory(MemoryBase):
             if self.enable_graph:
                 filters = {**(filters or {}), "user_id": user_id, "agent_id": agent_id, "run_id": run_id}
                 graph_results = self.graph_store.get_all(filters, limit + offset)
-                results.extend(graph_results)
                 return {"results": results, "relations": graph_results}
 
             return {"results": results}
@@ -2209,7 +2208,7 @@ class Memory(MemoryBase):
         """
         try:
             count = self.storage.count_all_memories(
-                user_id, agent_id, run_id
+                user_id, agent_id, run_id, filters=filters
             )
             
             self.audit.log_event("memory.count_all", {

@@ -225,6 +225,7 @@ class MemoryService:
         offset: int = 0,
         sort_by: Optional[str] = None,
         order: str = "desc",
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
         List memories with pagination and sorting.
@@ -236,6 +237,7 @@ class MemoryService:
             offset: Number of results to skip
             sort_by: Optional field to sort by: 'created_at', 'updated_at', 'id'
             order: Sort order: 'desc' (descending) or 'asc' (ascending)
+            filters: Additional metadata filters
             
         Returns:
             List of memories
@@ -246,6 +248,7 @@ class MemoryService:
                 agent_id=agent_id,
                 limit=limit,
                 offset=offset,
+                filters=filters,
                 sort_by=sort_by,
                 order=order,
             )
@@ -276,6 +279,7 @@ class MemoryService:
         self,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> int:
         """
         Count total memories matching the filters.
@@ -283,6 +287,7 @@ class MemoryService:
         Args:
             user_id: Filter by user ID
             agent_id: Filter by agent ID
+            filters: Additional metadata filters
             
         Returns:
             Total count of memories
@@ -292,6 +297,7 @@ class MemoryService:
             count = self.memory.count_all(
                 user_id=user_id,
                 agent_id=agent_id,
+                filters=filters,
             )
             return count
             

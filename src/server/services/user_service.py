@@ -193,6 +193,15 @@ class UserService:
                 agent_id=agent_id,
                 metadata=metadata,
             )
+            if result is None:
+                raise APIError(
+                    code=ErrorCode.MEMORY_NOT_FOUND,
+                    message=f"Memory not found or access denied: {memory_id}",
+                    status_code=404,
+                )
+            if isinstance(result, dict) and "id" not in result:
+                result["id"] = memory_id
+                result["memory_id"] = memory_id
             
             logger.info(f"User memory updated: user_id={user_id}, memory_id={memory_id}")
             return result
