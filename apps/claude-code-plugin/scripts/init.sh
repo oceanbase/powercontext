@@ -50,23 +50,35 @@ raw_model = (
     or ""
 ).strip()
 
-provider = os.environ.get("POWERMEM_INIT_LLM_PROVIDER", "").strip().lower()
-model = raw_model
-if not provider and "/" in raw_model:
-    provider, model = raw_model.split("/", 1)
-    provider = provider.strip().lower()
-    model = model.strip()
+# API key detection drives provider selection. First match wins.
+KEY_SOURCES = [
+    ("POWERMEM_INIT_LLM_API_KEY", None),
+    ("ANTHROPIC_AUTH_TOKEN",       "anthropic"),
+    ("ANTHROPIC_API_KEY",          "anthropic"),
+    ("OPENAI_API_KEY",             "openai"),
+    ("DEEPSEEK_API_KEY",           "deepseek"),
+    ("DASHSCOPE_API_KEY",          "qwen"),
+]
+api_key = ""
+key_provider = ""
+for env_var, implied_provider in KEY_SOURCES:
+    val = (os.environ.get(env_var) or settings_env.get(env_var) or "").strip()
+    if val:
+        api_key = val
+        if implied_provider:
+            key_provider = implied_provider
+        break
 
-model = os.environ.get("POWERMEM_INIT_LLM_MODEL", model).strip()
+model_prefix = raw_model.split("/", 1)[0].strip().lower() if "/" in raw_model else ""
+provider = (
+    os.environ.get("POWERMEM_INIT_LLM_PROVIDER", "").strip().lower()
+    or key_provider
+    or model_prefix
+)
+model = os.environ.get("POWERMEM_INIT_LLM_MODEL", raw_model).strip()
 if provider and model:
     model = normalize_model(provider, model)
 
-api_key = (
-    os.environ.get("POWERMEM_INIT_LLM_API_KEY")
-    or settings_env.get("ANTHROPIC_AUTH_TOKEN")
-    or settings_env.get("ANTHROPIC_API_KEY")
-    or ""
-).strip()
 base_url = (
     os.environ.get("POWERMEM_INIT_LLM_BASE_URL")
     or settings_env.get("ANTHROPIC_BASE_URL")
@@ -105,11 +117,93 @@ print(f"Wrote {env_path} with provider={provider}, model={model}, api_key={'set'
 PY
 }
 
+validate_llm_config() {
+  "$BOOTSTRAP_PYTHON" - "$ENV_FILE" <<'PY'
+import json, os, sys, urllib.request, urllib.error
+from pathlib import Path
+
+env = {}
+for line in Path(sys.argv[1]).read_text().splitlines():
+    line = line.strip()
+    if '=' in line and not line.startswith('#'):
+        k, v = line.split('=', 1)
+        env[k.strip()] = v.strip()
+
+provider = env.get('LLM_PROVIDER', '')
+model    = env.get('LLM_MODEL', '')
+api_key  = env.get('LLM_API_KEY', '')
+base_url = env.get(f'{provider.upper()}_LLM_BASE_URL', '') if provider else ''
+
+if provider in {'ollama', 'vllm'} or not api_key:
+    sys.exit(0)
+
+CONFIGS = {
+    'anthropic': {
+        'url':     lambda b: f"{b or 'https://api.anthropic.com'}/v1/messages",
+        'headers': lambda k: {'x-api-key': k, 'anthropic-version': '2023-06-01',
+                              'content-type': 'application/json'},
+        'body':    lambda m: {'model': m, 'max_tokens': 1,
+                              'messages': [{'role': 'user', 'content': 'hi'}]},
+    },
+    'openai': {
+        'url':     lambda b: f"{b or 'https://api.openai.com'}/v1/chat/completions",
+        'headers': lambda k: {'authorization': f'Bearer {k}',
+                              'content-type': 'application/json'},
+        'body':    lambda m: {'model': m, 'max_tokens': 1,
+                              'messages': [{'role': 'user', 'content': 'hi'}]},
+    },
+    'deepseek': {
+        'url':     lambda b: f"{b or 'https://api.deepseek.com'}/v1/chat/completions",
+        'headers': lambda k: {'authorization': f'Bearer {k}',
+                              'content-type': 'application/json'},
+        'body':    lambda m: {'model': m, 'max_tokens': 1,
+                              'messages': [{'role': 'user', 'content': 'hi'}]},
+    },
+    'qwen': {
+        'url':     lambda b: f"{b or 'https://dashscope.aliyuncs.com/compatible-mode'}/v1/chat/completions",
+        'headers': lambda k: {'authorization': f'Bearer {k}',
+                              'content-type': 'application/json'},
+        'body':    lambda m: {'model': m, 'max_tokens': 1,
+                              'messages': [{'role': 'user', 'content': 'hi'}]},
+    },
+}
+
+cfg = CONFIGS.get(provider)
+if not cfg:
+    print(f"No test template for provider={provider!r}, skipping LLM validation")
+    sys.exit(0)
+
+url     = cfg['url'](base_url)
+headers = cfg['headers'](api_key)
+body    = json.dumps(cfg['body'](model)).encode()
+
+try:
+    req = urllib.request.Request(url, data=body, headers=headers, method='POST')
+    with urllib.request.urlopen(req, timeout=15):
+        print(f"LLM test OK (provider={provider}, model={model})")
+        sys.exit(0)
+except urllib.error.HTTPError as e:
+    err = e.read().decode(errors='replace')
+    print(f"LLM test failed (HTTP {e.code}): {err}", file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(f"LLM test error: {e}", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 if [ ! -f "$ENV_FILE" ]; then
   echo "Creating plugin .env from Claude settings or POWERMEM_INIT_* variables."
   create_env_file
 else
   echo "Using existing plugin .env: $ENV_FILE"
+fi
+
+echo "Validating LLM config..."
+if ! validate_llm_config; then
+  echo "LLM validation failed. The model name may not match the provider." >&2
+  echo "Re-run with POWERMEM_INIT_LLM_MODEL=<model> (and optionally POWERMEM_INIT_LLM_PROVIDER=<provider>) to override." >&2
+  exit 1
 fi
 
 if [ ! -x "$(venv_powermem_server)" ]; then
@@ -120,7 +214,7 @@ if [ ! -x "$(venv_powermem_server)" ]; then
   PYTHON=$(venv_python)
   echo "Venv Python: $PYTHON ($(python_version "$PYTHON"))"
   "$PYTHON" -m pip install -U pip setuptools wheel
-  PACKAGE=${POWERMEM_INIT_PACKAGE:-powermem}
+  PACKAGE=${POWERMEM_INIT_PACKAGE:-powermem[server,seekdb]}
   echo "Installing $PACKAGE"
   "$PYTHON" -m pip install "$PACKAGE"
 else

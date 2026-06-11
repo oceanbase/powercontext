@@ -327,7 +327,7 @@ writing. Never silently patch `.env`.**
         " >> /tmp/powermem-model-download.log 2>&1 &
 
       **Non-CN region (HuggingFace path):**
-        $POWERMEM_PYTHON -c "
+        $POWERMEM_PYTHON -m pip install -q huggingface_hub && $POWERMEM_PYTHON -c "
         from huggingface_hub import snapshot_download
         snapshot_download('sentence-transformers/all-MiniLM-L6-v2')
         print('Model download complete.')
@@ -335,6 +335,19 @@ writing. Never silently patch `.env`.**
 
       Store the background PID:
         POWERMEM_MODEL_DL_PID=$!
+    - Ask whether to build the Web Dashboard EARLY — before starting the server —
+      so the build runs in parallel with model download and server startup. Use
+      AskUserQuestion (single-select):
+
+      | Option | Description |
+      |--------|-------------|
+      | Yes, build dashboard | Run `make build-dashboard` in background, parallel with model download and server startup |
+      | No, skip | Continue without building the dashboard |
+
+      If the user selects "Yes, build dashboard", launch it in the BACKGROUND
+      immediately (do NOT wait for it — model download starts in parallel too):
+        make build-dashboard >> /tmp/powermem-dashboard-build.log 2>&1 &
+        DASHBOARD_BUILD_PID=$!
     - Build the hook binaries FIRST — they get copied into Claude's plugin cache at
       install time, so they must exist on disk before step "install":
         if Go 1.22+ is present:  make build-claude-hook
@@ -386,21 +399,7 @@ writing. Never silently patch `.env`.**
                    && echo "Server ready after $((i*5))s." && break
                  echo "  still starting... ($((i*5))s)"
                done; }
-    - Ask whether to build the Web Dashboard EARLY — before starting the server —
-      so the build runs in parallel with model download and server startup. Use
-      AskUserQuestion (single-select):
-
-      | Option | Description |
-      |--------|-------------|
-      | Yes, build dashboard | Run `make build-dashboard` in background, parallel with model download and server startup |
-      | No, skip | Continue without building the dashboard |
-
-      If the user selects "Yes, build dashboard", launch it in the BACKGROUND
-      immediately (do NOT wait for it — model download starts in parallel too):
-        make build-dashboard >> /tmp/powermem-dashboard-build.log 2>&1 &
-        DASHBOARD_BUILD_PID=$!
-
-      **After the server is healthy**, auto-detect dashboard availability:
+    - **After the server is healthy**, auto-detect dashboard availability:
       ```bash
       # Wait for dashboard build to finish (if started):
       if [ -n "${DASHBOARD_BUILD_PID:-}" ] && kill -0 "$DASHBOARD_BUILD_PID" 2>/dev/null; then
