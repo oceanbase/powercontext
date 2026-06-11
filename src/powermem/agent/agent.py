@@ -242,7 +242,7 @@ class AgentMemory:
         
         return {
             'enabled': enabled,
-            'default_scope': default_scope,
+            'default_scope': default_scope.lower(),
             'default_privacy_level': default_privacy_level,
             'default_collaboration_level': default_collaboration_level,
             'default_access_permission': default_access_permission,
@@ -271,8 +271,7 @@ class AgentMemory:
                 'max_collaborators': 5,
                 'collaboration_timeout': 3600,
                 'default_collaboration_level': default_collaboration_level.lower()
-            },
-            'default_scope': default_scope.lower()
+            }
         }
     
     def _get_default_multi_user_config(self) -> Dict[str, Any]:

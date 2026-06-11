@@ -9,7 +9,7 @@ Run with: pytest -m e2e_config tests/e2e/test_basic_usage_e2e.py
 import os
 import pytest
 from dotenv import load_dotenv
-from powermem import Memory, auto_config
+from powermem import auto_config, create_memory
 
 
 @pytest.fixture(scope="module")
@@ -122,4 +122,3 @@ class TestBasicUsageE2E:
         
         # Cleanup
         memory.delete_all(user_id=user_id)
-

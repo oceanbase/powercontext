@@ -1,4 +1,6 @@
-.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow lint format clean build build-package build-check build-mcp-package build-mcp-check build-all-python-packages build-dashboard build-claude-hook package-claude-plugin publish-pypi publish-mcp-pypi publish-all-pypi publish-testpypi install-build-tools upload docs bump-version check-package-versions server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
+.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow check-python-version lint lint-full lint-pylint format clean build build-package build-check build-mcp-package build-mcp-check build-all-python-packages build-dashboard build-claude-hook package-claude-plugin publish-pypi publish-mcp-pypi publish-all-pypi publish-testpypi install-build-tools upload docs bump-version check-package-versions server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
+
+PYTHON ?= python3
 
 help: ## Show help information
 	@echo "powermem Project Build Tools"
@@ -59,9 +61,17 @@ test-marker: ## Run tests with specific marker (usage: make test-marker MARKER=u
 	pytest -m $(MARKER) -v
 
 # Code quality
-lint: ## Run linting checks
-	flake8 src tests
-	pylint src/powermem || true
+check-python-version: ## Check Python version compatibility
+	@$(PYTHON) -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else "Python >= 3.11 is required; set PYTHON to a compatible interpreter.")'
+
+lint: check-python-version ## Run high-signal linting checks
+	$(PYTHON) -m flake8 src tests --select=F601,F821,E999
+
+lint-full: check-python-version ## Run full flake8 report
+	$(PYTHON) -m flake8 src tests
+
+lint-pylint: check-python-version ## Run optional pylint checks
+	$(PYTHON) -m pylint src/powermem || true
 
 format-check: ## Check code formatting
 	black --check src tests

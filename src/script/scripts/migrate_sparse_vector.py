@@ -17,11 +17,14 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional, Any, Dict
+from typing import TYPE_CHECKING, List, Optional, Any, Dict
 
 from sqlalchemy import text
 
 from powermem.utils import OceanBaseUtil
+
+if TYPE_CHECKING:
+    from powermem import Memory
 
 logger = logging.getLogger(__name__)
 
