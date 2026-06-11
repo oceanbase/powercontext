@@ -52,8 +52,10 @@
     "charts": {
       "growthTrend": "Growth Trend",
       "growthTrendDesc": "Daily memory creation volume",
+      "growthTrendNoData": "No memory creation data yet",
       "memoryCategories": "Memory Categories",
       "memoryCategoriesDesc": "Distribution by classification",
+      "memoryCategoriesNoData": "No memory categories yet",
       "hotMemories": "Hot Memories",
       "hotMemoriesDesc": "Top retrieved records by access count",
       "contentSnippet": "Content Snippet",

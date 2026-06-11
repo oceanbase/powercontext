@@ -9,7 +9,7 @@ import {
   RefreshCcw,
   TrendingUp,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Bar,
@@ -251,10 +251,12 @@ function OverviewPage() {
   const trendData = Object.entries(stats.growth_trend)
     .sort()
     .map(([date, count]) => ({ date, count }));
+  const hasTrendData = trendData.some((item) => item.count > 0);
 
   const ageData = Object.entries(stats.age_distribution).map(
     ([name, value]) => ({ name, value }),
   );
+  const hasTypeData = typeData.some((item) => item.value > 0);
 
   const dynamicChartConfig = typeData.reduce((acc, curr) => {
     acc[curr.name] = {
@@ -368,30 +370,37 @@ function OverviewPage() {
               <CardDescription>{t("dashboard.charts.growthTrendDesc")}</CardDescription>
             </CardHeader>
             <CardContent>
-              <ChartContainer config={chartConfig} className="h-[300px] w-full">
-                <LineChart
-                  data={trendData}
-                  margin={{ top: 20, left: 12, right: 12 }}
-                >
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="date"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    minTickGap={32}
-                  />
-                  <YAxis tickLine={false} axisLine={false} tickMargin={8} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line
-                    type="monotone"
-                    dataKey="count"
-                    stroke="var(--color-count)"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ChartContainer>
+              {hasTrendData ? (
+                <ChartContainer config={chartConfig} className="h-[300px] w-full">
+                  <LineChart
+                    data={trendData}
+                    margin={{ top: 20, left: 12, right: 12 }}
+                  >
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="date"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      minTickGap={32}
+                    />
+                    <YAxis tickLine={false} axisLine={false} tickMargin={8} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      stroke="var(--color-count)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ChartContainer>
+              ) : (
+                <EmptyChartState
+                  icon={<TrendingUp className="size-6" />}
+                  message={t("dashboard.charts.growthTrendNoData")}
+                />
+              )}
             </CardContent>
           </Card>
         </ErrorBoundary>
@@ -407,30 +416,37 @@ function OverviewPage() {
             <CardDescription>{t("dashboard.charts.memoryCategoriesDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
-            <ChartContainer
-              config={dynamicChartConfig}
-              className="h-[300px] w-full"
-            >
-              <PieChart>
-                <Pie
-                  data={typeData}
-                  dataKey="value"
-                  nameKey="name"
-                  innerRadius={60}
-                  outerRadius={80}
-                  strokeWidth={5}
-                >
-                  {typeData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.fill} />
-                  ))}
-                </Pie>
-                <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                <ChartLegend
-                  content={<ChartLegendContent nameKey="name" />}
-                  className="-translate-y-2 flex-wrap gap-2 [&>*]:basis-1/4 [&>*]:justify-center"
-                />
-              </PieChart>
-            </ChartContainer>
+            {hasTypeData ? (
+              <ChartContainer
+                config={dynamicChartConfig}
+                className="h-[300px] w-full"
+              >
+                <PieChart>
+                  <Pie
+                    data={typeData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={60}
+                    outerRadius={80}
+                    strokeWidth={5}
+                  >
+                    {typeData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                  <ChartLegend
+                    content={<ChartLegendContent nameKey="name" />}
+                    className="-translate-y-2 flex-wrap gap-2 [&>*]:basis-1/4 [&>*]:justify-center"
+                  />
+                </PieChart>
+              </ChartContainer>
+            ) : (
+              <EmptyChartState
+                icon={<BarChart3 className="size-6" />}
+                message={t("dashboard.charts.memoryCategoriesNoData")}
+              />
+            )}
           </CardContent>
         </Card>
         </ErrorBoundary>
@@ -542,7 +558,7 @@ function StatCard({
   value,
   description,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
   description: string;
@@ -560,5 +576,20 @@ function StatCard({
         </p>
       </CardContent>
     </Card>
+  );
+}
+
+function EmptyChartState({
+  icon,
+  message,
+}: {
+  icon: ReactNode;
+  message: string;
+}) {
+  return (
+    <div className="h-[300px] w-full flex flex-col items-center justify-center gap-3 rounded-md border border-dashed text-muted-foreground">
+      <div className="rounded-full bg-muted p-3">{icon}</div>
+      <p className="text-sm">{message}</p>
+    </div>
   );
 }

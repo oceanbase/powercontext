@@ -52,8 +52,10 @@
     "charts": {
       "growthTrend": "增长趋势",
       "growthTrendDesc": "每日记忆创建量",
+      "growthTrendNoData": "暂无记忆创建数据",
       "memoryCategories": "记忆分类",
       "memoryCategoriesDesc": "按分类分布",
+      "memoryCategoriesNoData": "暂无记忆分类数据",
       "hotMemories": "热门记忆",
       "hotMemoriesDesc": "按访问次数排序的热门记录",
       "contentSnippet": "内容摘要",
