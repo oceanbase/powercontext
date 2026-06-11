@@ -13,6 +13,19 @@
 
 PowerMem combines vector, full-text, and graph retrieval with LLM-driven memory extraction and Ebbinghaus-style time decay. It ships **two-layer Experience + Skill distillation** for self-evolving memory, multi-agent isolation, user profiles, and multimodal signals (text, image, audio).
 
+## Why PowerMem
+
+AI agents need more than chat history. Context windows are finite, and naive "save everything" memory quickly becomes noisy, expensive, and hard to retrieve from. PowerMem turns conversations, actions, and feedback into structured long-term memory that can be searched, updated, decayed, and shared across agents.
+
+What makes PowerMem different:
+
+- **Intelligent memory lifecycle** — LLM-driven extraction, update, merge, and Ebbinghaus-style decay keep memories useful instead of becoming static note dumps.
+- **Self-evolving two-layer memory** — Experience + Skill distillation lets agents learn reusable workflows from interactions, not just recall facts. See [Experience + Skill distillation](docs/examples/scenario_6_sub_stores.md).
+- **Hybrid retrieval out of the box** — vector, full-text, graph, and recency signals work together in one memory layer without custom glue.
+- **Production-ready integration surface** — the same backend supports the Python SDK, HTTP server, MCP, CLI, and AI client plugins. See the [architecture overview](docs/architecture/overview.md).
+
+Use PowerMem when you are building long-running agents, copilots, or multi-agent systems that must remember users, projects, decisions, preferences, and learned workflows across sessions.
+
 ---
 
 ## Benchmarks
