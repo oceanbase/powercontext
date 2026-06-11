@@ -28,6 +28,8 @@ the local `pmem` CLI) — there are no per-client schema rewrites.
 
 - **[LangChain and LangGraph](./langchain.md)** — Persistent memory patterns
   for LCEL chains and LangGraph workflows.
+- **[AgentScope](./agentscope.md)** — Connect to PowerMem MCP tools from
+  AgentScope workflows for long-term memory.
 
 For FastAPI and custom LLM / embedding / storage providers, see the
 **[Integrations Guide](../guides/0009-integrations.md)**.

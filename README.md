@@ -81,6 +81,7 @@ PowerMem ships first-party plugins and setup guides for the most common AI clien
 |-----------------|---------|
 | Python SDK | `pip install powermem`, see [Quick start](#quick-start-python-sdk) |
 | LangChain / LangGraph | `pip install powermem`, see [LangChain guide](docs/integrations/langchain.md) |
+| AgentScope | Connect to `powermem-mcp` with AgentScope's MCP client, see [AgentScope guide](docs/integrations/agentscope.md) |
 | Go apps | [SDKs](#sdks) |
 | Java apps | [SDKs](#sdks) |
 | TypeScript apps | [SDKs](#sdks) |
@@ -193,6 +194,14 @@ End-to-end runnable demos:
 - [LangGraph customer service bot](examples/langgraph/README.md)
 
 Full framework guide: [LangChain and LangGraph integration](docs/integrations/langchain.md).
+
+### AgentScope
+
+PowerMem works with AgentScope through MCP. Start `powermem-mcp`, then connect
+to it with AgentScope's MCP client so AgentScope workflows can use `add_memory`,
+`search_memories`, and the other memory tools.
+
+Full framework guide: [AgentScope integration](docs/integrations/agentscope.md).
 
 ### SDKs
 
