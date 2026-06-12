@@ -2,9 +2,13 @@
 Data conversion utilities for PowerMem API
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from ..models.response import MemoryResponse, SearchResult, UserProfileResponse
+
+
+logger = logging.getLogger("server")
 
 
 def memory_to_response(memory_data: Dict[str, Any]) -> MemoryResponse:
@@ -76,13 +80,35 @@ def search_result_to_response(result: Dict[str, Any]) -> SearchResult:
         ""
     )
 
+    memory_id = result.get("memory_id") or result.get("id")
+    raw_score = result.get("score")
+    similarity = result.get("similarity")
+    resolved_score = raw_score if raw_score is not None else similarity
     created_at = _parse_datetime(result.get("created_at")) if "created_at" in result else None
     updated_at = _parse_datetime(result.get("updated_at")) if "updated_at" in result else None
 
+    logger.debug(
+        "Search result score conversion: memory_id=%s raw_score=%r similarity=%r resolved_score=%r",
+        memory_id,
+        raw_score,
+        similarity,
+        resolved_score,
+    )
+    if resolved_score is None:
+        logger.warning(
+            "Search result score resolved to null during API conversion: "
+            "memory_id=%s raw_score=%r similarity=%r score_key_present=%s similarity_key_present=%s",
+            memory_id,
+            raw_score,
+            similarity,
+            "score" in result,
+            "similarity" in result,
+        )
+
     return SearchResult(
-        memory_id=result.get("memory_id") or result.get("id"),
+        memory_id=memory_id,
         content=content,
-        score=result.get("score") or result.get("similarity"),
+        score=resolved_score,
         metadata=result.get("metadata", {}),
         user_id=result.get("user_id"),
         agent_id=result.get("agent_id"),

@@ -54,7 +54,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[dev,test]"
+          pip install -e ".[dev,test,server]"
 
       - name: Run tests (unit + integration, excluding all e2e tests and regression tests)
         run: |
