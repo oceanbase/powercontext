@@ -35,6 +35,7 @@ class SearchService:
         run_id: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
         limit: int = 30,
+        threshold: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Search memories.
@@ -46,6 +47,7 @@ class SearchService:
             run_id: Filter by run ID
             filters: Additional filters
             limit: Maximum number of results
+            threshold: Minimum similarity score threshold
             
         Returns:
             Search results dictionary
@@ -68,6 +70,7 @@ class SearchService:
                 run_id=run_id,
                 filters=filters,
                 limit=limit,
+                threshold=threshold,
             )
             
             logger.info(f"Search completed: {len(results.get('results', []))} results")

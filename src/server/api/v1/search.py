@@ -101,6 +101,7 @@ async def search_memories_post(
         run_id=body.run_id,
         filters=body.filters,
         limit=fetch_limit,
+        threshold=body.threshold,
     )
 
     raw_items = results.get("results", [])
@@ -137,6 +138,12 @@ async def search_memories_get(
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
     run_id: Optional[str] = Query(None, description="Filter by run ID"),
     limit: int = Query(30, ge=1, le=100, description="Maximum number of results"),
+    threshold: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity score threshold",
+    ),
     api_key: str = Depends(verify_api_key),
     service: SearchService = Depends(get_search_service),
 ):
@@ -148,6 +155,7 @@ async def search_memories_get(
         run_id=run_id,
         filters=None,  # GET method doesn't support complex filters
         limit=limit,
+        threshold=threshold,
     )
     
     search_results = [
