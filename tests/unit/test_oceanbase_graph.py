@@ -102,6 +102,29 @@ class TestOceanBaseGraph(unittest.TestCase):
         self.assertEqual(self.memory_graph.max_hops, 3)
         self.assertEqual(self.memory_graph.client, self.mock_client)
 
+    def test_entities_table_schema_is_user_scoped(self):
+        """Test graph entity table schema includes user isolation."""
+        first_call = self.mock_client.create_table_with_index_params.call_args_list[0]
+        kwargs = first_call.kwargs
+
+        self.assertEqual(kwargs["table_name"], constants.TABLE_ENTITIES)
+        self.assertIn("user_id", [column.name for column in kwargs["columns"]])
+        self.assertIn("idx_user_name", [index.name for index in kwargs["indexes"]])
+
+    def test_recreates_legacy_entities_table_without_user_id(self):
+        """Test legacy unscoped graph tables are recreated for user isolation."""
+        self.mock_client.reset_mock()
+        self.mock_client.check_table_exists.side_effect = [True, True, False]
+        self.memory_graph._entities_table_has_user_id = MagicMock(return_value=False)
+
+        self.memory_graph._create_tables()
+
+        self.mock_client.drop_table_if_exist.assert_any_call(constants.TABLE_RELATIONSHIPS)
+        self.mock_client.drop_table_if_exist.assert_any_call(constants.TABLE_ENTITIES)
+        create_calls = self.mock_client.create_table_with_index_params.call_args_list
+        self.assertEqual(create_calls[0].kwargs["table_name"], constants.TABLE_ENTITIES)
+        self.assertEqual(create_calls[1].kwargs["table_name"], constants.TABLE_RELATIONSHIPS)
+
     def test_init_without_embedding_dims(self):
         """Test initialization fails without embedding_model_dims."""
         # Create a mock config without embedding_model_dims
@@ -362,6 +385,8 @@ class TestOceanBaseGraph(unittest.TestCase):
 
             # Verify the method calls
             self.mock_client.ann_search.assert_called_once()
+            where_clause = self.mock_client.ann_search.call_args.kwargs["where_clause"]
+            self.assertEqual(len(where_clause), 2)
 
             # Check the result
             self.assertEqual(len(result), 2)
@@ -448,10 +473,36 @@ class TestOceanBaseGraph(unittest.TestCase):
 
         # Verify the method calls
         self.mock_client.upsert.assert_called_once()
+        inserted_record = self.mock_client.upsert.call_args.kwargs["data"][0]
+        self.assertEqual(inserted_record["user_id"], self.user_id)
 
         # Check the result is a Snowflake ID (int)
         self.assertIsInstance(result, int)
         self.assertGreater(result, 0)  # Snowflake ID should be positive
+
+    def test_delete_entities_scopes_entity_name_lookup_by_user(self):
+        """Test relationship deletion looks up entities only for the current user."""
+        to_be_deleted = [{
+            "source": "alice",
+            "relationship": "knows",
+            "destination": "bob",
+        }]
+        source_result = MagicMock()
+        source_result.fetchall.return_value = [(641905209349505024, "alice")]
+        dest_result = MagicMock()
+        dest_result.fetchall.return_value = [(641905209349505025, "bob")]
+        delete_result = MagicMock()
+        delete_result.rowcount = 1
+        self.mock_client.get.side_effect = [source_result, dest_result]
+        self.mock_client.delete.return_value = delete_result
+
+        result = self.memory_graph._delete_entities(to_be_deleted, self.test_filters)
+
+        self.assertEqual(result, [{"deleted_count": 1}])
+        source_where = self.mock_client.get.call_args_list[0].kwargs["where_clause"][0]
+        dest_where = self.mock_client.get.call_args_list[1].kwargs["where_clause"][0]
+        self.assertIn("user_id = :user_id", str(source_where))
+        self.assertIn("user_id = :user_id", str(dest_where))
 
     def test_create_or_update_relationship_new(self):
         """Test the _create_or_update_relationship method for new relationship."""
