@@ -55,9 +55,6 @@ KEY_SOURCES = [
     ("POWERMEM_INIT_LLM_API_KEY", None),
     ("ANTHROPIC_AUTH_TOKEN",       "anthropic"),
     ("ANTHROPIC_API_KEY",          "anthropic"),
-    ("OPENAI_API_KEY",             "openai"),
-    ("DEEPSEEK_API_KEY",           "deepseek"),
-    ("DASHSCOPE_API_KEY",          "qwen"),
 ]
 api_key = ""
 key_provider = ""
@@ -75,7 +72,9 @@ provider = (
     or key_provider
     or model_prefix
 )
-model = os.environ.get("POWERMEM_INIT_LLM_MODEL", raw_model).strip()
+# Strip provider prefix from raw model name (e.g. "anthropic/claude-sonnet-4-6" -> "claude-sonnet-4-6")
+raw_model_clean = raw_model.split("/", 1)[1].strip() if "/" in raw_model else raw_model
+model = os.environ.get("POWERMEM_INIT_LLM_MODEL", raw_model_clean).strip()
 if provider and model:
     model = normalize_model(provider, model)
 

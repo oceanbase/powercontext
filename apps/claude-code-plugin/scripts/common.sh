@@ -5,11 +5,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 PLUGIN_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
 powermem_data_dir() {
-  if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
-    printf '%s\n' "$CLAUDE_PLUGIN_DATA"
-  else
-    printf '%s\n' "$HOME/.claude/plugins/data/memory-powermem-powermem"
-  fi
+  printf '%s\n' "$HOME/.powermem"
 }
 
 DATA_DIR=$(powermem_data_dir)

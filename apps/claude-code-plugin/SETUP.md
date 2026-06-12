@@ -37,7 +37,7 @@ PyPI package.
 Installed-plugin init is idempotent and uses plugin-local state:
 
 ```text
-${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/memory-powermem-powermem}/
+$HOME/.powermem/
   .env
   runtime.env
   server.pid
@@ -46,6 +46,18 @@ ${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/memory-powermem-powermem}/
 ```
 
 Follow these steps:
+
+**Always use a two-step invocation: discover or reuse `CLAUDE_PLUGIN_ROOT`
+first, then run the script.** Never write `VAR=val sh "$VAR/..."` on one line —
+the shell expands `$VAR` before the assignment, producing an empty path.
+
+```bash
+# If CLAUDE_PLUGIN_ROOT is not already set, find the plugin root:
+if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  export CLAUDE_PLUGIN_ROOT=$(find ~/.claude/plugins/cache/powermem/memory-powermem -maxdepth 2 -name scripts -type d 2>/dev/null | head -1 | xargs dirname)
+fi
+sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
+```
 
 1. If the skill was just installed or updated, ask the user to run `/reload-plugins`
    first, then retry `/memory-powermem:init`.

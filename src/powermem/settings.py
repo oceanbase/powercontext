@@ -8,6 +8,7 @@ def _get_default_env_file() -> Optional[str]:
     project_root = Path(__file__).resolve().parents[2]
     candidates = (
         Path.cwd() / ".env",
+        Path.home() / ".powermem" / ".env",
         project_root / ".env",
         project_root / "examples" / "configs" / ".env",
     )
