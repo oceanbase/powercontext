@@ -37,7 +37,7 @@ PyPI package.
 Installed-plugin init is idempotent and uses plugin-local state:
 
 ```text
-${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/memory-powermem-powermem}/
+$HOME/.powermem/
   .env
   runtime.env
   server.pid

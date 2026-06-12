@@ -75,7 +75,9 @@ provider = (
     or key_provider
     or model_prefix
 )
-model = os.environ.get("POWERMEM_INIT_LLM_MODEL", raw_model).strip()
+# Strip provider prefix from raw model name (e.g. "anthropic/claude-sonnet-4-6" -> "claude-sonnet-4-6")
+raw_model_clean = raw_model.split("/", 1)[1].strip() if "/" in raw_model else raw_model
+model = os.environ.get("POWERMEM_INIT_LLM_MODEL", raw_model_clean).strip()
 if provider and model:
     model = normalize_model(provider, model)
 
