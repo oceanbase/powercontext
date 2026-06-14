@@ -28,12 +28,23 @@ class AnthropicConfig(BaseLLMConfig):
         description="Anthropic API key"
     )
 
+    auth_token: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "auth_token",
+            "LLM_AUTH_TOKEN",
+            "ANTHROPIC_AUTH_TOKEN",
+        ),
+        description="Anthropic bearer token for gateway/proxy authentication"
+    )
+
     # Anthropic-specific fields
     anthropic_base_url: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices(
             "anthropic_base_url",
             "ANTHROPIC_LLM_BASE_URL",
+            "ANTHROPIC_BASE_URL",
         ),
         description="Anthropic API base URL"
     )

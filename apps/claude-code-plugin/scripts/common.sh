@@ -8,12 +8,13 @@ powermem_data_dir() {
   printf '%s\n' "$HOME/.powermem"
 }
 
-DATA_DIR=$(powermem_data_dir)
-ENV_FILE="$DATA_DIR/.env"
-RUNTIME_FILE="$DATA_DIR/runtime.env"
-PID_FILE="$DATA_DIR/server.pid"
-LOG_FILE="$DATA_DIR/powermem-server.log"
-VENV_DIR="$DATA_DIR/venv"
+DATA_DIR="${POWERMEM_DATA_DIR:-$(powermem_data_dir)}"
+ENV_FILE="${POWERMEM_ENV_FILE:-$DATA_DIR/.env}"
+RUNTIME_FILE="${POWERMEM_RUNTIME_FILE:-$DATA_DIR/runtime.env}"
+PID_FILE="${POWERMEM_PID_FILE:-$DATA_DIR/powermem.pid}"
+LEGACY_PID_FILE="$DATA_DIR/server.pid"
+LOG_FILE="${POWERMEM_LOG_FILE:-$DATA_DIR/powermem-server.log}"
+VENV_DIR="${POWERMEM_VENV_DIR:-$DATA_DIR/venv}"
 
 mkdir -p "$DATA_DIR"
 
@@ -82,10 +83,101 @@ is_healthy() {
 }
 
 pid_alive() {
-  [ -f "$PID_FILE" ] || return 1
-  pid=$(cat "$PID_FILE" 2>/dev/null || true)
-  [ -n "$pid" ] || return 1
-  kill -0 "$pid" 2>/dev/null
+  pid=$(managed_pid) || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  pid_is_powermem_server "$pid" || return 1
+  pid_uses_env_file "$pid" || return 1
+}
+
+managed_pid_file() {
+  if [ -f "$PID_FILE" ]; then
+    printf '%s\n' "$PID_FILE"
+    return
+  fi
+  if [ -z "${POWERMEM_PID_FILE:-}" ] && [ -f "$LEGACY_PID_FILE" ]; then
+    printf '%s\n' "$LEGACY_PID_FILE"
+    return
+  fi
+  printf '%s\n' "$PID_FILE"
+}
+
+managed_pid() {
+  file=$(managed_pid_file)
+  [ -f "$file" ] || return 1
+  pid=$(cat "$file" 2>/dev/null | tr -d '[:space:]' || true)
+  case "$pid" in
+    ""|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$pid"
+}
+
+write_managed_pid() {
+  printf '%s\n' "$1" > "$PID_FILE"
+  if [ -z "${POWERMEM_PID_FILE:-}" ] && [ "$LEGACY_PID_FILE" != "$PID_FILE" ]; then
+    rm -f "$LEGACY_PID_FILE" 2>/dev/null || true
+  fi
+}
+
+remove_managed_pid_files() {
+  file=$(managed_pid_file)
+  rm -f "$file" 2>/dev/null || true
+  if [ -z "${POWERMEM_PID_FILE:-}" ]; then
+    rm -f "$PID_FILE" "$LEGACY_PID_FILE" 2>/dev/null || true
+  fi
+}
+
+pid_is_powermem_server() {
+  pid=$1
+  args=$(process_args "$pid")
+  [ -n "$args" ] || return 0
+  printf '%s\n' "$args" | grep -q 'powermem-server'
+}
+
+process_args() {
+  ps -p "$1" -o args= 2>/dev/null || ps -p "$1" -o command= 2>/dev/null || true
+}
+
+managed_base_url() {
+  pid=$(managed_pid) || return 1
+  args=$(process_args "$pid")
+  [ -n "$args" ] || return 1
+
+  host=127.0.0.1
+  port=
+  next=
+  for arg in $args; do
+    if [ "$next" = "host" ]; then
+      host=$arg
+      next=
+      continue
+    fi
+    if [ "$next" = "port" ]; then
+      port=$arg
+      next=
+      continue
+    fi
+    case "$arg" in
+      --host=*) host=${arg#--host=} ;;
+      --host) next=host ;;
+      --port=*) port=${arg#--port=} ;;
+      --port) next=port ;;
+    esac
+  done
+
+  case "$port" in
+    ""|*[!0-9]*) return 1 ;;
+  esac
+  case "$host" in
+    ""|"0.0.0.0"|"::"|"[::]") host=localhost ;;
+  esac
+  printf 'http://%s:%s\n' "$host" "$port"
+}
+
+pid_uses_env_file() {
+  pid=$1
+  environ="/proc/$pid/environ"
+  [ -r "$environ" ] || return 0
+  tr '\000' '\n' < "$environ" | grep -Fx "POWERMEM_ENV_FILE=$ENV_FILE" >/dev/null
 }
 
 venv_python() {

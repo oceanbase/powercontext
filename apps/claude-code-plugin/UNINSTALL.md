@@ -42,7 +42,7 @@ confirmation — those steps are gated below.
        PID=$(lsof -t -i:8848 2>/dev/null); [ -n "$PID" ] && { kill "$PID" 2>/dev/null; sleep 2; kill -9 "$PID" 2>/dev/null; }; true
    Then confirm nothing answers (either branch is fine, never errors):
        curl -s -m 3 http://localhost:8848/api/v1/system/health >/dev/null 2>&1 && echo "still up" || echo "server down"
-   Also remove a stale PID file if present: rm -f .server.pid 2>/dev/null || true
+   Also remove stale PID files if present: rm -f ~/.powermem/powermem.pid ~/.powermem/server.pid .server.pid 2>/dev/null || true
 
 3a. SOURCE path — remove the global plugin + marketplace (idempotent):
     - Disable then uninstall the plugin (skip silently if not installed):

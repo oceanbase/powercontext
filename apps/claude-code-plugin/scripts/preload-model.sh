@@ -16,7 +16,11 @@ fi
 
 echo "Preloading all-MiniLM-L6-v2 with Python: $PYTHON ($(python_version "$PYTHON"))"
 
-"$PYTHON" -m pip install -q modelscope
+if [ -n "${POWERMEM_PIP_INDEX_URL:-}" ]; then
+  "$PYTHON" -m pip install -q modelscope -i "$POWERMEM_PIP_INDEX_URL"
+else
+  "$PYTHON" -m pip install -q modelscope
+fi
 
 "$PYTHON" - <<'PY'
 import json
@@ -63,4 +67,3 @@ for name in os.listdir(src):
 print("ModelScope download and HuggingFace cache bridge complete.")
 print(f"HF cache snapshot: {snap}")
 PY
-

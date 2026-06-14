@@ -61,7 +61,11 @@ cd powermem
 
 ### Step 2 — Configure `.env`
 
-Copy the template and set your **LLM API key** — the only required credential. Storage defaults to the embedded **seekdb** (no separate database), and the embedder to a local `all-MiniLM-L6-v2` model (no API key, auto-downloaded on first use).
+Copy the template and set your Anthropic credential. For direct Anthropic API
+access use `LLM_API_KEY`; for a Claude Code-style bearer-token gateway use
+`LLM_AUTH_TOKEN` together with `ANTHROPIC_LLM_BASE_URL`. Storage defaults to the
+embedded **seekdb** (no separate database), and the embedder to a local
+`all-MiniLM-L6-v2` model (no API key, auto-downloaded on first use).
 
 ```bash
 cp .env.example .env
@@ -69,6 +73,12 @@ cp .env.example .env
 #   LLM_PROVIDER=anthropic        # or openai / qwen / ...
 #   LLM_API_KEY=sk-...
 #   LLM_MODEL=claude-3-5-sonnet-latest
+#
+# or for an Anthropic-compatible gateway:
+#   LLM_PROVIDER=anthropic
+#   LLM_AUTH_TOKEN=...
+#   ANTHROPIC_LLM_BASE_URL=https://your-gateway.example.com
+#   LLM_MODEL=anthropic/claude-sonnet-4.6
 ```
 
 Every available setting is documented under [Configuration](#configuration); `pmem config init` can also generate `.env` interactively.

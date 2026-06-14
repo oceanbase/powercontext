@@ -2,7 +2,7 @@
 # Select the correct native binary for macOS / Linux. Pass-through args (e.g. "poll" for file watcher).
 ROOT=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 PLUGIN_ROOT=$(CDPATH= cd -- "$ROOT/.." && pwd)
-DATA_DIR="$HOME/.powermem"
+DATA_DIR="${POWERMEM_DATA_DIR:-$HOME/.powermem}"
 if [ -f "$DATA_DIR/runtime.env" ]; then
   # shellcheck disable=SC1090
   . "$DATA_DIR/runtime.env"

@@ -40,7 +40,7 @@ Installed-plugin init is idempotent and uses plugin-local state:
 $HOME/.powermem/
   .env
   runtime.env
-  server.pid
+  powermem.pid
   powermem-server.log
   venv/
 ```
@@ -69,16 +69,32 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
    sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
    ```
 
-   The script reads `~/.claude/settings.json` and attempts to derive:
-   `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, and provider base URL. It writes only
-   the plugin-local `.env`.
+   The script reads the current process environment first and attempts to derive
+   the supported Anthropic configuration. It uses `ANTHROPIC_API_KEY` first; only
+   when that is absent does it use `ANTHROPIC_AUTH_TOKEN` together with
+   `ANTHROPIC_BASE_URL`. It also reads `ANTHROPIC_MODEL` from the environment.
+   If the environment does not provide a complete config, it falls back to
+   `~/.claude/settings.json` using the same Anthropic keys. It writes the
+   plugin-local `.env` with the full PowerMem backend defaults: embedded
+   OceanBase/seekdb storage, local default embedding, server settings, and logging
+   settings.
 4. If init reports missing values, ask the user only for those missing values. Do
    not invent credentials. Re-run init with the matching environment variables:
 
    ```bash
    POWERMEM_INIT_LLM_PROVIDER=anthropic \
-   POWERMEM_INIT_LLM_MODEL=claude-sonnet-4-6 \
+   POWERMEM_INIT_LLM_MODEL=anthropic/claude-sonnet-4.6 \
    POWERMEM_INIT_LLM_API_KEY=... \
+   sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
+   ```
+
+   For a bearer-token gateway, use:
+
+   ```bash
+   POWERMEM_INIT_LLM_PROVIDER=anthropic \
+   POWERMEM_INIT_LLM_MODEL=anthropic/claude-sonnet-4.6 \
+   POWERMEM_INIT_LLM_AUTH_TOKEN=... \
+   POWERMEM_INIT_LLM_BASE_URL=https://your-gateway.example.com \
    sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
    ```
 
@@ -91,7 +107,8 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
    - `POWERMEM_INIT_PORT` to force the managed server port.
    - `POWERMEM_INIT_PRELOAD_MODEL=1` to pre-download the default local
      `all-MiniLM-L6-v2` embedding model before starting the server.
-5. Never print API keys. Mask any secret in summaries.
+5. Never print API keys, auth tokens, or other credentials. Mask any secret in
+   summaries.
 6. After init succeeds, run `sh "$CLAUDE_PLUGIN_ROOT/scripts/status.sh"` again and
    report the base URL.
 7. The hook launcher reads `runtime.env`, so once init writes a base URL, prompt
@@ -124,7 +141,8 @@ integration autonomously and ask me for any secret you need — never invent cre
 
 **🔒 DATA SAFETY — API Key Masking (MANDATORY):**
 When displaying ANY `.env` content — current values, proposed changes, confirmation
-summaries, or any other output — you MUST mask `LLM_API_KEY` and any other secret
+summaries, or any other output — you MUST mask `LLM_API_KEY`, `LLM_AUTH_TOKEN`,
+and any other secret
 values (passwords, tokens, keys):
 - **Key ≥ 10 chars:** show only first 4 + last 4 characters (e.g. `sk-a…b12x`)
 - **Key < 10 chars:** show `***`
@@ -136,7 +154,8 @@ the user and Claude Code cannot retroactively redact it. Follow these rules:
   `echo "${VAR:0:4}...${VAR: -4}"` to show first 4 + last 4, or `[ -n "$VAR" ] && echo "set" || echo "empty"` just to check existence.
 - When you need to `cat .env` or `grep` for secrets, pipe through sed to mask before printing:
   `cat .env | sed -E 's/(API_KEY=).*/\1***REDACTED***/'`
-- Never run `echo $LLM_API_KEY`, `env | grep KEY`, `cat .env` (unmasked), or any command
+- Never run `echo $LLM_API_KEY`, `echo $LLM_AUTH_TOKEN`, `env | grep KEY`,
+  `cat .env` (unmasked), or any command
   that would print a secret value directly to stdout.
 - Use `read` with `-s` (silent) when prompting for secrets interactively.
 
@@ -210,7 +229,8 @@ writing. Never silently patch `.env`.**
       4. `$POWERMEM_PYTHON -m pip install -q huggingface_hub` (non-CN model download dep)
 
 2. COLLECT CONFIG (idempotent). If a .env already exists in the working directory
-   with LLM_PROVIDER / LLM_API_KEY / LLM_MODEL set to real values (not placeholders
+   with LLM_PROVIDER / LLM_API_KEY or LLM_AUTH_TOKEN / LLM_MODEL set to real
+   values (not placeholders
    like `your_api_key_here`), REUSE it — skip directly to step 3a/3b. Only collect
    what is missing. Use zero-config defaults for everything else (storage = embedded
    seekdb, embedder = local all-MiniLM-L6-v2) unless I say otherwise.
@@ -219,58 +239,69 @@ writing. Never silently patch `.env`.**
 
    | Option | Description |
    |--------|-------------|
-   | Yes, auto-detect | Auto-detect LLM config (priority: OS env → `~/.claude/settings.json` → manual) |
+   | Yes, auto-detect | Auto-detect LLM config from the current process environment, then `~/.claude/settings.json`, then ask only for missing fields |
 
    If the user selects "Yes, auto-detect" (or "Other" and types "yes"/"auto"):
 
-   **Auto-detection priority chain** — same order Claude Code uses internally:
-   1. **OS environment variables** (highest priority) — check these first:
-      - `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY`
-      - `ANTHROPIC_MODEL` / `OPENAI_MODEL` / `DEEPSEEK_MODEL`
-      - `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `DEEPSEEK_BASE_URL`
-   2. **`~/.claude/settings.json`** — fall back if env vars are missing
+   **Auto-detection priority chain**:
+   1. **Current process environment variables** — check these first:
+      - `ANTHROPIC_API_KEY`
+      - `ANTHROPIC_AUTH_TOKEN`
+      - `ANTHROPIC_BASE_URL`
+      - `ANTHROPIC_MODEL`
+   2. **`~/.claude/settings.json`** — use `env.ANTHROPIC_*`, `env.LLM_*`, and
+      top-level `model` as fallback sources
    3. **Manual input** — ask only for fields that are still missing
+
+   PowerMem supports Claude Code's Anthropic API-key path and bearer-token gateway
+   path. Do not treat `ANTHROPIC_AUTH_TOKEN` as `LLM_API_KEY`; copy it to
+   `LLM_AUTH_TOKEN` and require `ANTHROPIC_BASE_URL`. A token without a base URL
+   is incomplete; fall back to API-key mode or ask for the base URL instead of
+   sending the token to Anthropic's default endpoint. Do not migrate
+   `CLAUDE_CODE_OAUTH_TOKEN`, `/login` credentials, `apiKeyHelper`, Bedrock,
+   Vertex, or Foundry as either `LLM_API_KEY` or `LLM_AUTH_TOKEN`.
 
    **Step 1 — Check OS environment variables.** Run these checks silently (do not
    print the values, only note whether each field was found):
 
    | Field | Check |
    |-------|-------|
-   | LLM_PROVIDER | If `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set → `anthropic`; elif `OPENAI_API_KEY` → `openai`; elif `DEEPSEEK_API_KEY` → `deepseek` |
-   | LLM_MODEL | `$ANTHROPIC_MODEL` or `$OPENAI_MODEL` or `$DEEPSEEK_MODEL` (provider-specific) |
-   | LLM_API_KEY | `$ANTHROPIC_API_KEY` or `$ANTHROPIC_AUTH_TOKEN` or `$OPENAI_API_KEY` or `$DEEPSEEK_API_KEY` |
-   | LLM_BASE_URL | `$ANTHROPIC_BASE_URL` or `$OPENAI_BASE_URL` or `$DEEPSEEK_BASE_URL` |
+   | LLM_PROVIDER | If `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set → `anthropic`; otherwise infer from `ANTHROPIC_MODEL` prefix if present |
+   | LLM_MODEL | `$ANTHROPIC_MODEL` |
+   | LLM_API_KEY | `$ANTHROPIC_API_KEY` |
+   | LLM_AUTH_TOKEN | `$ANTHROPIC_AUTH_TOKEN`, only when `ANTHROPIC_API_KEY` is absent |
+   | LLM_BASE_URL | `$ANTHROPIC_BASE_URL` |
 
-   **Step 2 — If any field is still missing, read `~/.claude/settings.json`.**
+   If environment model detection fails, read `env.ANTHROPIC_MODEL`,
+   `env.LLM_MODEL`, or top-level `model` from `~/.claude/settings.json`. Keep
+   the model exactly as configured. Do not strip a `<provider>/` prefix and do
+   not rewrite dotted versions:
+     - `"anthropic/claude-opus-4.6"` → `LLM_PROVIDER=anthropic`, `LLM_MODEL=anthropic/claude-opus-4.6`
+     - `"anthropic/claude-sonnet-4.6"` → `LLM_PROVIDER=anthropic`, `LLM_MODEL=anthropic/claude-sonnet-4.6`
 
-   **Model and provider** — read `env.ANTHROPIC_MODEL` (Claude Code's standard model
-   key); fall back to the top-level `model` field if absent. Both use the format
-   `<provider>/<model>` — split on the first `/`:
-     - `"deepseek/deepseek-v4-pro"` → `LLM_PROVIDER=deepseek`, `LLM_MODEL=deepseek-v4-pro`
-     - `"anthropic/claude-sonnet-4-6"` → `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-sonnet-4-6`
-     - If neither field is present or has no `/`, leave the field unset — it will
-       be collected manually in Step 3.
-
-   ⚠️ **Anthropic model name normalization**: Claude Code's `settings.json` uses
-   **dots** for version numbers (e.g. `claude-sonnet-4.6`), but the Anthropic API
-   requires **dashes** (e.g. `claude-sonnet-4-6`). After splitting on `/`, if
-   `LLM_PROVIDER=anthropic`, replace every `.` with `-` in the version suffix of
-   `LLM_MODEL`. Rule: `claude-<name>-<major>.<minor>` → `claude-<name>-<major>-<minor>`.
-   Example: `claude-sonnet-4.6` → `claude-sonnet-4-6`, `claude-haiku-4.5` → `claude-haiku-4-5`.
-
-   **API key** — Claude Code always stores its credentials under `ANTHROPIC_*` keys
-   regardless of the actual model or provider. Read directly:
-     - `env.ANTHROPIC_AUTH_TOKEN` (preferred) or `env.ANTHROPIC_API_KEY`
+   **Credentials** — preserve PowerMem's environment precedence: API key first,
+   bearer-token gateway second. If environment credentials are incomplete, fall
+   back to the old `~/.claude/settings.json` credential flow. Read:
+     - `ANTHROPIC_API_KEY`
+     - `ANTHROPIC_AUTH_TOKEN`, only if `ANTHROPIC_API_KEY` is absent
+     - fallback `env.ANTHROPIC_AUTH_TOKEN` / `env.ANTHROPIC_API_KEY` from
+       `~/.claude/settings.json`
 
    **Base URL** — read directly:
-     - `env.ANTHROPIC_BASE_URL` (if absent, leave blank — PowerMem will use the
-       provider's default endpoint)
+     - `ANTHROPIC_BASE_URL`
+     - fallback `env.ANTHROPIC_BASE_URL` or `env.LLM_BASE_URL` from
+       `~/.claude/settings.json`
+     - If `ANTHROPIC_AUTH_TOKEN` is used, `ANTHROPIC_BASE_URL` is required.
+     - If `ANTHROPIC_API_KEY` is used and the base URL is absent, leave it blank —
+       PowerMem will use the provider's default endpoint.
 
-   **Step 3 — For any fields still missing after Steps 1-2,** ask as a plain chat
-   question (one at a time, per 2b–2e below). Only ask for what is actually missing.
+   **Step 3 — For any fields still missing after environment and settings
+   detection,** ask as a plain chat question (one at a time, per 2b–2e below).
+   Only ask for what is actually missing.
 
-   After all three steps, show a **masked** summary of the merged result (per
-   🔒 DATA SAFETY rules), noting the source of each field (env / settings.json / manual).
+   After detection/manual input, show a **masked** summary of the merged result
+   (per 🔒 DATA SAFETY rules), noting the source of each field
+   (env / settings.json / manual).
    Then jump to **2f**.
 
    If the user does NOT select auto-detect, fall back to the manual flow:
@@ -279,7 +310,8 @@ writing. Never silently patch `.env`.**
 
    **2c.** Ask: "What provider id? (e.g. openai, anthropic, qwen, deepseek, ollama)"
 
-   **2d.** Ask: "Please paste your API key." — skip if provider is `ollama` or `vllm`.
+   **2d.** Ask for the credential: API key for direct provider access, or auth
+   token for an Anthropic-compatible gateway. Skip if provider is `ollama` or `vllm`.
 
    **2e.** Ask: "Which model? (e.g. gpt-4o-mini, claude-sonnet-4-6, qwen-plus)"
 
@@ -288,7 +320,8 @@ writing. Never silently patch `.env`.**
 
    **2f. Confirm and write.** Show a **masked** summary of what will be written (per
    🔒 DATA SAFETY rules above), then WAIT for explicit "yes" before writing. Copy
-   `.env.example` if `.env` does not exist, then fill `LLM_PROVIDER` / `LLM_API_KEY`
+   `.env.example` if `.env` does not exist, then fill `LLM_PROVIDER` /
+   `LLM_API_KEY` or `LLM_AUTH_TOKEN`
    / `LLM_MODEL`. If a base URL was given, write it to the provider-prefixed
    `*_LLM_BASE_URL` (e.g. `OPENAI_LLM_BASE_URL`) — verify spelling against
    `.env.example.full`; a typo is silently ignored.
@@ -524,7 +557,7 @@ writing. Never silently patch `.env`.**
         sed -n '1,40p' /tmp/powermem-mcp.stdout
       Interpret the output:
         - stderr has import errors: install/repair the package or virtual environment.
-        - stderr has missing LLM/API key/config errors: fix `.env` after asking the
+        - stderr has missing LLM/API key/auth token/config errors: fix `.env` after asking the
           user for approval; never silently patch `.env`.
         - stderr has model download or network timeouts: pre-download the model or
           switch to a configured remote embedder.
@@ -613,9 +646,12 @@ make build-claude-hook
 
 #### [E005] Storage Backend Initialization
 **Problem**: 503 errors on API calls despite server health
-**Fix**: Use SQLite alternative
+**Fix**: the Claude Code plugin defaults to embedded OceanBase/seekdb. Stop the
+managed server, remove stale seekdb data, and restart init:
 ```bash
-STORAGE_TYPE=sqlite SQLITE_DB_PATH=sqlite_data/powermem.db powermem-server --host 0.0.0.0 --port 8848 &
+sh "$CLAUDE_PLUGIN_ROOT/scripts/stop.sh"
+rm -rf "$HOME/.powermem/seekdb_data"
+sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
 ```
 
 #### [E006] Model Download Timeout

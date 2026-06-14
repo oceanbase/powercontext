@@ -11,6 +11,7 @@ echo "PowerMem Claude Code plugin status"
 echo "Data dir: $DATA_DIR"
 echo "Runtime file: $RUNTIME_FILE"
 echo "Env file: $ENV_FILE"
+echo "PID file: $(managed_pid_file)"
 echo "Base URL: $base_url"
 
 if BOOTSTRAP_PYTHON=$(choose_python 2>/dev/null); then
@@ -26,7 +27,7 @@ else
 fi
 
 if pid_alive; then
-  echo "Managed server PID: $(cat "$PID_FILE")"
+  echo "Managed server PID: $(managed_pid)"
 else
   echo "Managed server PID: not running"
 fi
