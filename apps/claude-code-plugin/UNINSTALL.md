@@ -6,8 +6,8 @@ This file is a **prompt for Claude Code**. Open Claude Code in your terminal and
 
 It reverses everything `SETUP.md` did: it unregisters the plugin/MCP server, removes the
 staged marketplace copy (~/.claude/marketplaces/powermem), stops the PowerMem API server,
-uninstalls the powermem package, and (with my confirmation) cleans up build artifacts and
-stored data.
+cleans up legacy package installs when present, and (with my confirmation) cleans up build
+artifacts and stored data.
 
 ---
 
@@ -27,7 +27,7 @@ confirmation — those steps are gated below.
    pyproject.toml here has name = "powermem" (or src/powermem/ and
    apps/claude-code-plugin/ both exist). Tell me which path applies:
      - SOURCE  -> global plugin install (HTTP hooks) was used.
-     - PIP     -> the powermem-mcp server (MCP) was used.
+     - PYPI/MCP -> the powermem-mcp server (MCP) was used.
    If unsure, check both: `claude plugin list` (look for memory-powermem@powermem)
    and `claude mcp list` (look for powermem). If NEITHER is present, PowerMem is already
    unregistered — say so, then still run the remaining steps (they will all be harmless
@@ -58,15 +58,19 @@ confirmation — those steps are gated below.
       "memory-powermem@powermem". If a stale enabledPlugins entry remains, remove
       just that key (leave my other plugins untouched).
 
-3b. PIP path — remove the MCP server registration (idempotent):
+3b. PYPI/MCP path — remove the MCP server registration (idempotent):
         claude mcp remove powermem 2>/dev/null || true
     Verify `claude mcp list` no longer lists powermem.
 
-4. REMOVE THE PYTHON PACKAGE (idempotent). Uninstall the powermem package; this also
-   removes the powermem-server / powermem-mcp commands. Skip quietly if not installed:
-        pip uninstall -y powermem 2>/dev/null || true
-   Verify it is gone: `python -c "import powermem"` must fail, and `which powermem-server`
-   must return nothing.
+4. REMOVE LEGACY PYTHON PACKAGE INSTALLS (idempotent). Marketplace init starts the
+   backend with `uvx --from` and does not install `powermem` into a plugin venv. If
+   this machine previously used a source, MCP, or legacy venv install, uninstall
+   that package from the environment used for setup. Skip quietly if not installed:
+        [ -n "${VIRTUAL_ENV:-}" ] && uv pip uninstall --python "$VIRTUAL_ENV/bin/python" powermem 2>/dev/null || true
+        pip uninstall -y powermem 2>/dev/null || true  # legacy installs
+   Verify legacy installs are gone: `python -c "import powermem"` should fail in the
+   current environment, and `which powermem-server` should return nothing unless it is
+   intentionally provided by another environment.
 
 5. OPTIONAL CLEANUP — ask me before each of these; they are not required to disable
    the integration, and some destroy data:
@@ -75,16 +79,17 @@ confirmation — those steps are gated below.
         rm -rf apps/claude-code-plugin/hooks/bin
       (You may also restore the committed default if it drifted:
         git checkout -- apps/claude-code-plugin/.mcp.json 2>/dev/null || true)
-    - Stored memories (DESTRUCTIVE — this erases all my saved memories): the embedded
-      seekdb data lives in `./seekdb_data/` (or the path in my .env).
-      For SQLite storage mode, data lives in `./sqlite_data/`.
+    - Stored memories (DESTRUCTIVE — this erases all my saved memories): the default
+      embedded seekdb/OceanBase storage mode uses `./seekdb_data/` (or the path in
+      my .env). SQLite storage mode uses `./sqlite_data/` only if explicitly
+      configured.
       Only delete it if I explicitly say so.
     - Secrets: do NOT touch my .env unless I explicitly ask. If I do, redact the key
       in any output.
 
 6. SUMMARIZE: which path applied, what was removed vs. already absent, confirmation
    that the server is stopped and the plugin/MCP server is no longer registered, and
-   list anything left in place by design (e.g. .env, seekdb_data/, sqlite_data/,
+   list anything left in place by design (e.g. .env, sqlite_data/, seekdb_data/,
    the powermem package) so I know what — if anything — to clean up manually.
 
 For the install procedure, see SETUP.md. For the full manual reference, see

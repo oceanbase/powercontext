@@ -124,23 +124,24 @@
   <text x="295" y="2152" class="sub-title">子流程 D：准备本机运行环境</text>
 
   <rect x="430" y="2220" width="560" height="92" class="service"/>
-  <text x="710" y="2258" text-anchor="middle" class="text">1. 检查 ~/.powermem/venv</text>
-  <text x="710" y="2288" text-anchor="middle" class="small">缺少 venv 时用 bootstrap Python 创建</text>
+  <text x="710" y="2258" text-anchor="middle" class="text">1. 准备 uvx 后端来源</text>
+  <text x="710" y="2288" text-anchor="middle" class="small">默认 powermem[server,seekdb]，也可指向 Git</text>
 
-  <rect x="430" y="2380" width="560" height="126" class="service"/>
-  <text x="710" y="2420" text-anchor="middle" class="text">2. 确保 venv 里有 powermem-server</text>
-  <text x="710" y="2450" text-anchor="middle" class="small">已有可执行文件则复用，不重装</text>
-  <text x="710" y="2478" text-anchor="middle" class="small">缺少时安装 powermem[server,seekdb]</text>
+  <rect x="430" y="2380" width="560" height="142" class="service"/>
+  <text x="710" y="2416" text-anchor="middle" class="text">2. 通过 uvx 启动 powermem-server</text>
+  <text x="710" y="2446" text-anchor="middle" class="small">已有可执行文件则复用，不重装</text>
+  <text x="710" y="2474" text-anchor="middle" class="small">CN 包解析追加 TUNA default index</text>
+  <text x="710" y="2502" text-anchor="middle" class="small">默认使用 embedded seekdb 存储</text>
 
   <rect x="1075" y="2220" width="620" height="122" class="service"/>
-  <text x="1385" y="2260" text-anchor="middle" class="text">3. pip install 镜像选择</text>
+  <text x="1385" y="2260" text-anchor="middle" class="text">3. uv 安装与镜像选择</text>
   <text x="1385" y="2290" text-anchor="middle" class="small">公网 IP 检测为 CN 时追加</text>
   <text x="1385" y="2318" text-anchor="middle" class="small">-i https://pypi.tuna.tsinghua.edu.cn/simple</text>
 
   <rect x="1075" y="2410" width="620" height="118" class="service"/>
   <text x="1385" y="2450" text-anchor="middle" class="text">4. 可选预下载 embedding 模型</text>
   <text x="1385" y="2480" text-anchor="middle" class="small">POWERMEM_INIT_PRELOAD_MODEL=1</text>
-  <text x="1385" y="2508" text-anchor="middle" class="small">preload-model.sh 安装 modelscope 时沿用镜像</text>
+  <text x="1385" y="2508" text-anchor="middle" class="small">preload-model.sh 通过 uvx --from modelscope 运行</text>
 
   <rect x="680" y="2580" width="760" height="55" class="service"/>
   <text x="1060" y="2616" text-anchor="middle" class="small">输出：本机已有可执行的 powermem-server，可用于启动 managed 服务</text>

@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1780" viewBox="0 0 1600 1780" role="img" aria-labelledby="title desc">
+  <title id="title">PowerMem Claude Code 插件 uvx 初始化流程</title>
+  <desc id="desc">展示 Claude Code 插件安装后，通过 init skill 自动准备 uv、使用 uvx 启动 PowerMem 后端，并让 hooks 读 runtime.env 生效的流程。</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f9fc; }
+      .title { font: 700 38px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .subtitle { font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556074; }
+      .lane-title { font: 700 19px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .node-title { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .node-text { font: 400 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #465166; }
+      .small { font: 400 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #59667a; }
+      .mono { font: 500 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #293244; }
+      .lane { fill: #ffffff; stroke: #d8e0ee; stroke-width: 2; rx: 18; }
+      .start { fill: #e9f7ef; stroke: #48a868; stroke-width: 2; rx: 18; }
+      .process { fill: #ffffff; stroke: #8ea4c8; stroke-width: 2; rx: 14; }
+      .uv { fill: #edf5ff; stroke: #4279d8; stroke-width: 2; rx: 14; }
+      .storage { fill: #fff7e8; stroke: #d3942d; stroke-width: 2; rx: 14; }
+      .hook { fill: #f2efff; stroke: #7b61d1; stroke-width: 2; rx: 14; }
+      .decision { fill: #fff; stroke: #3f526d; stroke-width: 2; }
+      .end { fill: #e9f7ef; stroke: #48a868; stroke-width: 2; rx: 18; }
+      .arrow { fill: none; stroke: #40506a; stroke-width: 2.4; marker-end: url(#arrow); }
+      .arrow-soft { fill: none; stroke: #8a96aa; stroke-width: 2; marker-end: url(#arrow-soft); stroke-dasharray: 7 6; }
+      .label { font: 700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #2d3a50; }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#40506a"/>
+    </marker>
+    <marker id="arrow-soft" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#8a96aa"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#14213d" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="1780"/>
+  <text x="80" y="76" class="title">PowerMem Claude Code 插件：uvx 初始化与运行流程</text>
+  <text x="80" y="112" class="subtitle">目标：插件只负责连接器与 hooks；后端由 init skill 通过 uvx 按需解析并启动。</text>
+
+  <rect class="lane" x="70" y="155" width="420" height="1470" filter="url(#shadow)"/>
+  <rect class="lane" x="590" y="155" width="420" height="1470" filter="url(#shadow)"/>
+  <rect class="lane" x="1110" y="155" width="420" height="1470" filter="url(#shadow)"/>
+  <text x="280" y="197" text-anchor="middle" class="lane-title">Claude Code / 插件</text>
+  <text x="800" y="197" text-anchor="middle" class="lane-title">init.sh / uvx 启动</text>
+  <text x="1320" y="197" text-anchor="middle" class="lane-title">PowerMem 后端 / hooks</text>
+
+  <rect class="start" x="145" y="245" width="270" height="84"/>
+  <text x="280" y="281" text-anchor="middle" class="node-title">开始</text>
+  <text x="280" y="306" text-anchor="middle" class="node-text">插件已从 marketplace 安装</text>
+
+  <rect class="process" x="125" y="390" width="310" height="104"/>
+  <text x="280" y="428" text-anchor="middle" class="node-title">运行 init skill</text>
+  <text x="280" y="454" text-anchor="middle" class="mono">/memory-powermem:init</text>
+  <text x="280" y="478" text-anchor="middle" class="node-text">只准备后端，不重复安装插件</text>
+
+  <rect class="process" x="125" y="555" width="310" height="106"/>
+  <text x="280" y="592" text-anchor="middle" class="node-title">定位插件根目录</text>
+  <text x="280" y="619" text-anchor="middle" class="mono">$CLAUDE_PLUGIN_ROOT</text>
+  <text x="280" y="644" text-anchor="middle" class="node-text">然后运行 scripts/status.sh</text>
+
+  <polygon class="decision" points="800,250 956,330 800,410 644,330"/>
+  <text x="800" y="321" text-anchor="middle" class="node-title">.env 已存在？</text>
+  <text x="800" y="348" text-anchor="middle" class="node-text">~/.powermem/.env</text>
+
+  <rect class="process" x="645" y="470" width="310" height="110"/>
+  <text x="800" y="506" text-anchor="middle" class="node-title">收集/复用配置</text>
+  <text x="800" y="533" text-anchor="middle" class="node-text">优先环境变量，再读 Claude settings</text>
+  <text x="800" y="557" text-anchor="middle" class="node-text">缺失时只询问缺失项</text>
+
+  <rect class="process" x="645" y="640" width="310" height="106"/>
+  <text x="800" y="677" text-anchor="middle" class="node-title">校验 LLM 配置</text>
+  <text x="800" y="704" text-anchor="middle" class="node-text">provider / model / key / base URL</text>
+  <text x="800" y="728" text-anchor="middle" class="node-text">失败则停止并提示修正</text>
+
+  <polygon class="decision" points="800,805 956,885 800,965 644,885"/>
+  <text x="800" y="876" text-anchor="middle" class="node-title">uv 已可用？</text>
+  <text x="800" y="902" text-anchor="middle" class="node-text">command -v uv</text>
+
+  <rect class="uv" x="610" y="1030" width="380" height="124"/>
+  <text x="800" y="1068" text-anchor="middle" class="node-title">安装 uv</text>
+  <text x="800" y="1095" text-anchor="middle" class="node-text">非 CN：Astral installer</text>
+  <text x="800" y="1120" text-anchor="middle" class="node-text">CN：USTC GitHub Release mirror</text>
+  <text x="800" y="1143" text-anchor="middle" class="mono">UV_DOWNLOAD_URL=.../LatestRelease/</text>
+
+  <rect class="uv" x="610" y="1215" width="380" height="124"/>
+  <text x="800" y="1252" text-anchor="middle" class="node-title">选择后端来源</text>
+  <text x="800" y="1279" text-anchor="middle" class="mono">uvx --from powermem[server,seekdb]</text>
+  <text x="800" y="1304" text-anchor="middle" class="node-text">可用 POWERMEM_INIT_PACKAGE 指向 Git</text>
+  <text x="800" y="1327" text-anchor="middle" class="node-text">不创建插件本地 venv</text>
+
+  <rect class="uv" x="610" y="1400" width="380" height="126"/>
+  <text x="800" y="1437" text-anchor="middle" class="node-title">准备 uvx 参数</text>
+  <text x="800" y="1464" text-anchor="middle" class="mono">uv tool run --python &lt;3.11+&gt;</text>
+  <text x="800" y="1489" text-anchor="middle" class="mono">--from "$PACKAGE" powermem-server</text>
+  <text x="800" y="1513" text-anchor="middle" class="node-text">CN 时追加 TUNA Python package index</text>
+
+  <rect class="storage" x="1145" y="330" width="350" height="116"/>
+  <text x="1320" y="368" text-anchor="middle" class="node-title">使用 seekdb 存储</text>
+  <text x="1320" y="395" text-anchor="middle" class="node-text">DATABASE_PROVIDER=oceanbase</text>
+  <text x="1320" y="420" text-anchor="middle" class="node-text">OCEANBASE_PATH=seekdb_data</text>
+
+  <polygon class="decision" points="1320,515 1480,595 1320,675 1160,595"/>
+  <text x="1320" y="586" text-anchor="middle" class="node-title">需要预下载模型？</text>
+  <text x="1320" y="612" text-anchor="middle" class="mono">POWERMEM_INIT_PRELOAD_MODEL=1</text>
+
+  <rect class="storage" x="1145" y="735" width="350" height="124"/>
+  <text x="1320" y="772" text-anchor="middle" class="node-title">下载 embedding 模型</text>
+  <text x="1320" y="799" text-anchor="middle" class="node-text">uvx --from modelscope python</text>
+  <text x="1320" y="824" text-anchor="middle" class="node-text">ModelScope + HF cache bridge</text>
+  <text x="1320" y="847" text-anchor="middle" class="mono">all-MiniLM-L6-v2</text>
+
+  <polygon class="decision" points="1320,930 1480,1010 1320,1090 1160,1010"/>
+  <text x="1320" y="1001" text-anchor="middle" class="node-title">后端健康？</text>
+  <text x="1320" y="1027" text-anchor="middle" class="mono">/api/v1/system/health</text>
+
+  <rect class="process" x="1145" y="1150" width="350" height="110"/>
+  <text x="1320" y="1187" text-anchor="middle" class="node-title">uvx 启动托管 server</text>
+  <text x="1320" y="1214" text-anchor="middle" class="mono">uv tool run --from "$PACKAGE"</text>
+  <text x="1320" y="1238" text-anchor="middle" class="node-text">写入 pid 与日志</text>
+
+  <rect class="hook" x="1145" y="1320" width="350" height="116"/>
+  <text x="1320" y="1358" text-anchor="middle" class="node-title">写 runtime.env</text>
+  <text x="1320" y="1385" text-anchor="middle" class="mono">POWERMEM_BASE_URL=http://...</text>
+  <text x="1320" y="1410" text-anchor="middle" class="node-text">hooks 只读取 runtime.env</text>
+
+  <rect class="hook" x="1145" y="1495" width="350" height="118"/>
+  <text x="1320" y="1532" text-anchor="middle" class="node-title">hooks 自动生效</text>
+  <text x="1320" y="1559" text-anchor="middle" class="node-text">UserPromptSubmit：自动 recall</text>
+  <text x="1320" y="1584" text-anchor="middle" class="node-text">SessionEnd/PostCompact：自动 save</text>
+
+  <rect class="end" x="1180" y="1660" width="280" height="76"/>
+  <text x="1320" y="1694" text-anchor="middle" class="node-title">完成</text>
+  <text x="1320" y="1718" text-anchor="middle" class="node-text">之后每个 claude 会话自动使用</text>
+
+  <path class="arrow" d="M280 329 L280 390"/>
+  <path class="arrow" d="M280 494 L280 555"/>
+  <path class="arrow" d="M435 608 C520 608 555 330 644 330"/>
+  <path class="arrow" d="M800 410 L800 470"/>
+  <text x="830" y="445" class="label">否</text>
+  <path class="arrow" d="M956 330 C1040 330 1040 693 955 693"/>
+  <text x="1018" y="505" class="label">是</text>
+  <path class="arrow" d="M800 580 L800 640"/>
+  <path class="arrow" d="M800 746 L800 805"/>
+  <path class="arrow" d="M800 965 L800 1030"/>
+  <text x="830" y="1000" class="label">否</text>
+  <path class="arrow" d="M956 885 C1045 885 1045 1277 990 1277"/>
+  <text x="1018" y="1018" class="label">是</text>
+  <path class="arrow" d="M800 1154 L800 1215"/>
+  <path class="arrow" d="M800 1339 L800 1400"/>
+  <path class="arrow" d="M990 1463 C1050 1463 1080 388 1145 388"/>
+  <path class="arrow" d="M1320 446 L1320 515"/>
+  <path class="arrow" d="M1320 675 L1320 735"/>
+  <text x="1350" y="708" class="label">是</text>
+  <path class="arrow" d="M1480 595 C1530 595 1530 1010 1480 1010"/>
+  <text x="1494" y="788" class="label">否</text>
+  <path class="arrow" d="M1320 859 L1320 930"/>
+  <path class="arrow" d="M1320 1090 L1320 1150"/>
+  <text x="1350" y="1124" class="label">否</text>
+  <path class="arrow" d="M1480 1010 C1528 1010 1528 1378 1495 1378"/>
+  <text x="1495" y="1018" class="label">是</text>
+  <path class="arrow" d="M1320 1260 L1320 1320"/>
+  <path class="arrow" d="M1320 1436 L1320 1495"/>
+  <path class="arrow" d="M1320 1613 L1320 1660"/>
+
+  <path class="arrow-soft" d="M1145 1378 C1010 1378 1000 605 435 605"/>
+  <text x="835" y="1370" class="small">runtime.env 将后端地址提供给插件 hooks</text>
+
+  <rect x="82" y="1650" width="830" height="86" rx="14" fill="#ffffff" stroke="#d8e0ee" stroke-width="2"/>
+  <text x="110" y="1682" class="node-title">关键约束</text>
+  <text x="110" y="1710" class="node-text">1. 插件缓存目录不可写业务状态；持久状态放在 ~/.powermem/。</text>
+  <text x="110" y="1734" class="node-text">2. 后端启动统一走 uvx；CN 网络使用 USTC 下载 uv、TUNA 解析 Python 包。</text>
+</svg>

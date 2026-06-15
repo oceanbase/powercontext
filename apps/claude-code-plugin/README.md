@@ -30,25 +30,30 @@ installed skills such as `/memory-powermem:init`, `/memory-powermem:status`,
 `/memory-powermem:stop`, and `/memory-powermem:reset`.
 
 The marketplace install only installs the Claude Code plugin connector. The
-`/memory-powermem:init` step prepares the backend by creating a plugin-local venv
-and installing `powermem` from PyPI.
+`/memory-powermem:init` step prepares the backend by ensuring `uv`, then starts
+PowerMem with the uvx-style launcher
+`uvx --from 'powermem[server,seekdb]' powermem-server`. If `uv` is missing, init
+installs it automatically: non-CN networks use the official Astral installer,
+while CN networks use the USTC mirror at
+`https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/`.
+CN package resolution uses `--default-index https://pypi.tuna.tsinghua.edu.cn/simple`.
 
 The PyPI package used by init must include the backend features and dependencies
 required by the plugin, including the default local embedding path
 (`sentence-transformers` / `all-MiniLM-L6-v2`). If you are testing plugin changes
-that depend on unpublished backend code, run init with `POWERMEM_INIT_PACKAGE`
-instead of the skill command:
+that depend on unpublished backend code, set `POWERMEM_INIT_PACKAGE` to a Git URL;
+init passes it to `uvx --from`:
 
 ```bash
-POWERMEM_INIT_PACKAGE='powermem @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
+POWERMEM_INIT_PACKAGE='powermem[server,seekdb] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
   sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
 ```
 
-For marketplace branch testing before merge, add the marketplace from the same
-branch:
+For marketplace branch testing before merge, you can also add the marketplace
+from the same branch:
 
 ```text
-/plugin marketplace add owner/powermem@<branch>
+/plugin marketplace add https://github.com/owner/powermem.git#<branch>
 /plugin install memory-powermem@powermem
 /reload-plugins
 ```
@@ -90,8 +95,10 @@ If powermem-server has an error (HTTP 503, 500, or the hook calls fail):
    - "open seekdb failed" / "opened by other process" → a stale lock file.
      Kill all powermem-server processes, then clean and restart:
        pkill -9 -f powermem-server && rm -rf ./seekdb_data && powermem-server --host 0.0.0.0 --port 8848
-   - "ModuleNotFoundError" → missing pip dependency. Install it:
-       pip install <missing-package>
+   - "ModuleNotFoundError" → missing Python dependency. Re-run init with a package
+     version or Git ref that includes the dependency:
+       POWERMEM_INIT_PACKAGE='powermem[server,seekdb] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
+         sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
 3. After applying a fix, re-run the failing operation and confirm the log shows
    the request succeeded (200 status, no ERROR lines).
 ```

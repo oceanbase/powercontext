@@ -26,13 +26,13 @@ do not run `claude plugin install`, and do not build the dashboard. The plugin i
 already installed; this section only prepares the PowerMem backend that the plugin
 connects to.
 
-Installed-plugin init creates a plugin-local Python environment and installs the
-backend package with `pip install powermem` by default. Therefore the PyPI release
-used by this flow must already contain the backend capabilities required by the
-plugin, including the local embedding dependencies. If the user is validating a
-plugin change that depends on unpublished backend code, use
-`POWERMEM_INIT_PACKAGE` to install that exact Git branch or commit instead of the
-PyPI package.
+Installed-plugin init ensures `uv` is available, then starts the backend with the
+uvx-style launcher `uvx --from 'powermem[server,seekdb]' powermem-server`. It does
+not create a plugin-local venv. Therefore the PyPI release used by this flow must
+already contain the backend capabilities required by the plugin, including the
+local embedding dependencies. If the user is validating a plugin change that
+depends on unpublished backend code, use `POWERMEM_INIT_PACKAGE` to pass that
+exact Git branch or commit to `uvx --from` instead of the PyPI package.
 
 Installed-plugin init is idempotent and uses plugin-local state:
 
@@ -42,7 +42,7 @@ $HOME/.powermem/
   runtime.env
   powermem.pid
   powermem-server.log
-  venv/
+  seekdb_data/
 ```
 
 Follow these steps:
@@ -62,7 +62,7 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
 1. If the skill was just installed or updated, ask the user to run `/reload-plugins`
    first, then retry `/memory-powermem:init`.
 2. Run `sh "$CLAUDE_PLUGIN_ROOT/scripts/status.sh"` and inspect whether config,
-   venv, managed PID, Python versions, and health are present.
+   uv, managed PID, Python versions, and health are present.
 3. If `.env` is missing, run init with auto-detection first:
 
    ```bash
@@ -100,9 +100,9 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
 
    Optional variables:
    - `POWERMEM_INIT_LLM_BASE_URL` for a custom provider gateway.
-   - `POWERMEM_INIT_PACKAGE` to test unpublished backend code instead of PyPI
-     `powermem`, for example
-     `powermem @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>`.
+   - `POWERMEM_INIT_PACKAGE` to test unpublished backend code through
+     `uvx --from` instead of PyPI `powermem`, for example
+     `powermem[server,seekdb] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>`.
    - `POWERMEM_INIT_PYTHON` to force a specific Python >= 3.11.
    - `POWERMEM_INIT_PORT` to force the managed server port.
    - `POWERMEM_INIT_PRELOAD_MODEL=1` to pre-download the default local
@@ -114,17 +114,16 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
 7. The hook launcher reads `runtime.env`, so once init writes a base URL, prompt
    recall and session-save hooks use that backend automatically.
 
-Model preload branches on region (same as source setup — detect with Step 1a):
-
-- **CN region**: download from **ModelScope**, then bridge into HuggingFace hub cache
-  layout. Do NOT use `sentence_transformers.SentenceTransformer(...)` or raw
-  `huggingface_hub` — they hang on networks where HuggingFace is blocked.
-- **Non-CN region**: download directly via `huggingface_hub.snapshot_download`.
+Installed-plugin model preload uses `uvx --from modelscope python` to download
+from **ModelScope**, then bridges the files into the HuggingFace hub cache layout.
+Do NOT use `sentence_transformers.SentenceTransformer(...)` for preload; it starts
+model initialization instead of just populating the cache and can hang on networks
+where HuggingFace is blocked.
 
 If startup fails with `No module named 'sentence_transformers'`, the backend
-package installed in the plugin venv does not include the local embedding
-dependency. Publish or install a backend build that includes it, or set
-`POWERMEM_INIT_PACKAGE` to a Git branch/commit that does.
+package resolved by `uvx --from` does not include the local embedding dependency.
+Publish a backend build that includes it, or set `POWERMEM_INIT_PACKAGE` to a Git
+branch/commit that does.
 
 To test connectivity:
 ```bash
@@ -172,8 +171,8 @@ state and either skip, reuse, or refresh it instead of failing or duplicating wo
    apps/claude-code-plugin/ both exist). Tell me which path you will take:
      - SOURCE  -> build & deploy from this checkout and install the Claude Code
                   plugin GLOBALLY in HTTP mode (hooks -> REST; needs Go 1.22+).
-     - PIP     -> install from PyPI and connect via the powermem-mcp server
-                  (the plugin is NOT on PyPI, so pip users integrate over MCP).
+     - PYPI/MCP -> install PowerMem from PyPI with uv and connect via the
+                   powermem-mcp server (the plugin itself is NOT on PyPI).
 
 **⚠️ RULE: Every time you need to modify `.env` — for any reason, even a
 single variable — you MUST stop and ask the user what value to use. Show
@@ -182,51 +181,65 @@ rules above), propose the change, and WAIT for the user's confirmation before
 writing. Never silently patch `.env`.**
 
    1a. DETECT REGION (run before any network operations). Detect whether this
-   machine is in China — this determines model download source and PyPI mirror:
+   machine is in China — this determines uv install source, model download source,
+   and Python package index:
 
    ```bash
    CC=$(curl -s -m 5 https://ipinfo.io/country 2>/dev/null || echo "UNKNOWN")
    echo "Region: $CC"
    ```
 
-   - **If `CC=CN`**: use **ModelScope** for model downloads, and set PyPI mirror
-     to `https://pypi.tuna.tsinghua.edu.cn/simple/`.
-   - **If `CC != CN` (or `UNKNOWN`)**: use **HuggingFace** for model downloads,
-     and use the default PyPI index.
-   - Store `CC` in a shell variable — every pip install and model download step
-     below branches on this value. Re-check on every re-run (region may change
-     if the machine moves or VPN state changes).
+   - **If `CC=CN`**: install uv through the USTC GitHub Release mirror, use
+     **ModelScope** for model downloads, and set the Python package index to
+     `https://pypi.tuna.tsinghua.edu.cn/simple/`.
+   - **If `CC != CN` (or `UNKNOWN`)**: install uv through the official Astral
+     installer, use **HuggingFace** for model downloads, and use the default PyPI
+     index.
+   - Store `CC` in a shell variable — every uv install, package install, and model
+     download step below branches on this value. Re-check on every re-run (region
+     may change if the machine moves or VPN state changes).
 
-   **pip install conventions (apply to ALL pip commands in this file):**
+   **uv installation (run before any Python package install):**
 
-   a. **CN mirror** — if `CC=CN`, prefix every pip install with
-      `-i https://pypi.tuna.tsinghua.edu.cn/simple/ --trusted-host pypi.tuna.tsinghua.edu.cn`.
-      Non-CN (or UNKNOWN) uses the default PyPI index with no extra flags.
+   ```bash
+   if ! command -v uv >/dev/null 2>&1; then
+     if [ "$CC" = "CN" ]; then
+       export UV_DOWNLOAD_URL=https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/
+       curl -sL https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/uv-installer.sh | sh
+     else
+       curl -LsSf https://astral.sh/uv/install.sh | sh
+     fi
+     export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+   fi
+   uv --version
+   ```
 
-   b. **Timeout — set once** before any pip install:
-      ```bash
-      pip config set global.timeout 60
-      ```
+   **uv pip conventions (apply to ALL package installs in this file):**
 
-   c. **Retry — on failure, retry up to 3 times.** If a pip install command fails,
-      do NOT immediately escalate to the user. Retry the EXACT same command up to
-      2 more times (3 total attempts). If all 3 fail, only then report the error.
-      Between retries, wait 2 seconds:
+   a. **CN mirror** — if `CC=CN`, add
+      `--default-index https://pypi.tuna.tsinghua.edu.cn/simple` to every
+      `uv pip install` command. Non-CN (or UNKNOWN) uses the default PyPI index
+      with no extra flags.
+
+   b. **Retry — on failure, retry up to 3 times.** If a `uv pip install` command
+      fails, do NOT immediately escalate to the user. Retry the EXACT same command
+      up to 2 more times (3 total attempts). If all 3 fail, only then report the
+      error. Between retries, wait 2 seconds:
       ```bash
       for i in 1 2 3; do
-        pip install ... && break
-        echo "pip install attempt $i failed, retrying in 2s..."
+        uv pip install --python "$POWERMEM_PYTHON" ... && break
+        echo "uv pip install attempt $i failed, retrying in 2s..."
         sleep 2
       done
       ```
-      This applies to ALL pip install calls: editable installs, dependency installs,
-      model download dependencies, etc.
+      This applies to editable installs, dependency installs, model download
+      dependencies, etc.
 
-   d. **All four pip install locations** affected by (a)-(c):
-      1. `pip install -e '.[server,mcp,seekdb]'` (source editable install)
-      2. `$POWERMEM_PYTHON -m pip install -q modelscope` (model download dep)
-      3. `pip install "powermem[mcp,seekdb]"` (PIP path)
-      4. `$POWERMEM_PYTHON -m pip install -q huggingface_hub` (non-CN model download dep)
+   c. **All four package install locations** affected by (a)-(b):
+      1. `uv pip install --python "$POWERMEM_PYTHON" -e '.[server,mcp,seekdb]'`
+      2. `uv pip install --python "$POWERMEM_PYTHON" -q modelscope`
+      3. `uv pip install --python "$POWERMEM_PYTHON" "powermem[mcp,seekdb]"`
+      4. `uv pip install --python "$POWERMEM_PYTHON" -q huggingface_hub`
 
 2. COLLECT CONFIG (idempotent). If a .env already exists in the working directory
    with LLM_PROVIDER / LLM_API_KEY or LLM_AUTH_TOKEN / LLM_MODEL set to real
@@ -327,27 +340,34 @@ writing. Never silently patch `.env`.**
    `.env.example.full`; a typo is silently ignored.
 
 3a. SOURCE path (global install):
-    - pip install -e '.[server,mcp,seekdb]'
+    - Ensure uv is installed using Step 1a, then create/reuse an explicit Python
+      environment and install PowerMem with uv:
+      ```bash
+      uv venv venv --python python3.11
+      POWERMEM_PYTHON="$(pwd)/venv/bin/python"
+      export PATH="$(pwd)/venv/bin:$PATH"
+      uv pip install --python "$POWERMEM_PYTHON" -e '.[server,mcp,seekdb]'
+      ```
       ⚠️ All three extras are required: `[server]` adds fastapi/uvicorn; `[mcp]` adds
       fastmcp, which is checked at import time and calls sys.exit(1) if missing —
       this kills the HTTP server before it can start even in HTTP-only mode;
       `[seekdb]` adds the embedded seekdb storage backend (default).
-    - Immediately after pip install, detect which Python interpreter was used. Read
+    - Immediately after `uv pip install`, detect which Python interpreter was used. Read
       the shebang from the freshly-installed `powermem-server` entry point — this is
-      the only reliable way to guarantee that the model-download script, the pip call
+      the only reliable way to guarantee that the model-download script, the uv call
       inside it, and the server all use the exact same interpreter and site-packages.
       On many Linux systems the default `python` points to a version below 3.11 and `python3` may point to a different minor
-      version than what pip used; relying on bare `python` or `pip` will silently use
+      version than what uv used; relying on bare `python` will silently use
       the wrong environment and the download will fail with an ImportError:
         POWERMEM_PYTHON=$(head -1 "$(command -v powermem-server)" \
           | sed 's|#!||;s| .*||')
         echo "Using interpreter: $POWERMEM_PYTHON"   # e.g. /usr/bin/python3.11
-    - Start the embedding model download in the background immediately after pip
-      install, so it runs in parallel with the remaining setup steps (hook build,
+    - Start the embedding model download in the background immediately after the
+      uv package install, so it runs in parallel with the remaining setup steps (hook build,
       plugin stage/install). Branch on the region detected in Step 1a:
 
       **CN region (ModelScope path):**
-        $POWERMEM_PYTHON -m pip install -q modelscope && $POWERMEM_PYTHON -c "
+        uv pip install --python "$POWERMEM_PYTHON" -q modelscope && $POWERMEM_PYTHON -c "
         from modelscope import snapshot_download
         snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')
         import os, shutil, urllib.request, json
@@ -372,7 +392,7 @@ writing. Never silently patch `.env`.**
         " >> /tmp/powermem-model-download.log 2>&1 &
 
       **Non-CN region (HuggingFace path):**
-        $POWERMEM_PYTHON -m pip install -q huggingface_hub && $POWERMEM_PYTHON -c "
+        uv pip install --python "$POWERMEM_PYTHON" -q huggingface_hub && $POWERMEM_PYTHON -c "
         from huggingface_hub import snapshot_download
         snapshot_download('sentence-transformers/all-MiniLM-L6-v2')
         print('Model download complete.')
@@ -396,7 +416,7 @@ writing. Never silently patch `.env`.**
     - Build the hook binaries FIRST — they get copied into Claude's plugin cache at
       install time, so they must exist on disk before step "install":
         if Go 1.22+ is present:  make build-claude-hook
-        else tell me, and offer to install Go or fall back to the PIP path below.
+        else tell me, and offer to install Go or fall back to the PYPI/MCP path below.
     - Ensure the plugin's root .mcp.json stays empty ({}) — default HTTP mode.
     - STAGE the plugin into a stable, Claude-owned location so the marketplace does
       NOT depend on this checkout — you can move or delete the repo afterwards and
@@ -432,7 +452,7 @@ writing. Never silently patch `.env`.**
         grep -q "complete" /tmp/powermem-model-download.log 2>/dev/null \
           || { echo "Model download failed. Check /tmp/powermem-model-download.log"; exit 1; }
     - Start the API server only if it is not already healthy (idempotent).
-      ⚠️ STARTUP TIME: first launch takes 60–120s (seekdb init + embedder load).
+      ⚠️ STARTUP TIME: first launch can take 60–120s (local embedder load/download + uvicorn bind).
       Exit code 7 means the port is not yet bound — do NOT kill and restart.
         curl -s http://localhost:8848/api/v1/system/health | grep -q healthy \
           || { powermem-server --host 0.0.0.0 --port 8848 &
@@ -468,9 +488,12 @@ writing. Never silently patch `.env`.**
       memory-powermem@powermem). Do NOT print a --plugin-dir command — it is global
       now; every `claude` and `claude -p` loads it automatically.
 
-3b. PIP path:
+3b. PYPI/MCP path:
     - Install the MCP extra in the environment that Claude will use, then:
-      pip install "powermem[mcp,seekdb]"
+      uv venv venv --python python3.11
+      POWERMEM_PYTHON="$(pwd)/venv/bin/python"
+      export PATH="$(pwd)/venv/bin:$PATH"
+      uv pip install --python "$POWERMEM_PYTHON" "powermem[mcp,seekdb]"
       powermem-mcp --help
     - Register the MCP server globally so it persists across sessions (stdio = no
       port), run from the directory holding the .env. Idempotent: if `claude mcp get
@@ -533,13 +556,12 @@ writing. Never silently patch `.env`.**
       prompt from an UNRELATED dir with NO --plugin-dir, then check the logs for
       the two hook-driven calls it triggers:
         ( cd /tmp && claude -p "Reply with exactly: probe ok" )
-      Then in `server.log` (powermem-server) and `seekdb_data/log/seekdb.log`
-      (seekdb), AFTER that run, you MUST see both:
+      Then in `server.log` (powermem-server), AFTER that run, you MUST see both:
         POST /api/v1/memories/search   <- UserPromptSubmit hook (auto-recall)
         POST /api/v1/memories          <- SessionEnd hook (auto-save)
       Seeing both proves PowerMem loads automatically in every `claude`/`claude -p`.
 
-   PIP/MCP path: confirm `claude mcp list` shows powermem as "connected" (not
+   PYPI/MCP path: confirm `claude mcp list` shows powermem as "connected" (not
    "failed"). If it shows failed, run the MCP diagnostics below and do not report
    success until the direct MCP process starts cleanly and Claude shows it connected.
 
@@ -612,24 +634,24 @@ and their resolutions discovered during actual setup attempts:
 ### Error Resolution Checklist
 
 #### [E001] PEP 668 System Protection
-**Problem**: `pip install` fails with "externally-managed-environment"
-**Fix**: Use virtual environment
+**Problem**: system Python blocks package installation with "externally-managed-environment"
+**Fix**: use uv with a virtual environment
 ```bash
-python3 -m venv venv
+uv venv venv --python python3.11
 source venv/bin/activate
-pip install -e '.[server,seekdb]'
+uv pip install --python "$VIRTUAL_ENV/bin/python" -e '.[server,seekdb]'
 ```
 
 #### [E002] Missing Server Dependencies
 **Problem**: Server startup fails with missing packages
 **Fix**: Install missing dependencies
 ```bash
-pip install 'powermem[server,seekdb]'
+uv pip install --python "$POWERMEM_PYTHON" 'powermem[server,seekdb]'
 ```
 
 #### [E003] SeekDB File Locking
 **Problem**: "open seekdb failed OB_ERROR(4000)" or "db opened by other process"
-**Fix**: Clean corrupted data
+**Fix**: Stop duplicate servers, then remove stale seekdb data only if data loss is acceptable
 ```bash
 pkill -f powermem-server
 rm -rf seekdb_data
@@ -647,7 +669,8 @@ make build-claude-hook
 #### [E005] Storage Backend Initialization
 **Problem**: 503 errors on API calls despite server health
 **Fix**: the Claude Code plugin defaults to embedded OceanBase/seekdb. Stop the
-managed server, remove stale seekdb data, and restart init:
+managed server, remove stale seekdb data only if you accept deleting local memories, and
+restart init:
 ```bash
 sh "$CLAUDE_PLUGIN_ROOT/scripts/stop.sh"
 rm -rf "$HOME/.powermem/seekdb_data"
@@ -664,7 +687,7 @@ Step 1a). Quick reference:
 ```bash
 # Detect the correct interpreter first (same one powermem uses):
 POWERMEM_PYTHON=$(head -1 "$(command -v powermem-server)" | sed 's|#!||;s| .*||')
-$POWERMEM_PYTHON -m pip install modelscope
+uv pip install --python "$POWERMEM_PYTHON" modelscope
 $POWERMEM_PYTHON -c "from modelscope import snapshot_download; \
                      snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')"
 # Verify (note: models/ subdirectory is required):
@@ -674,15 +697,14 @@ ls ~/.cache/modelscope/hub/models/AI-ModelScope/all-MiniLM-L6-v2/
 **Non-CN region** (HuggingFace direct):
 ```bash
 POWERMEM_PYTHON=$(head -1 "$(command -v powermem-server)" | sed 's|#!||;s| .*||')
-$POWERMEM_PYTHON -m pip install huggingface_hub
+uv pip install --python "$POWERMEM_PYTHON" huggingface_hub
 $POWERMEM_PYTHON -c "from huggingface_hub import snapshot_download; \
                      snapshot_download('sentence-transformers/all-MiniLM-L6-v2')"
 # Verify:
 ls ~/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/
 ```
-⚠️ Do NOT use bare `pip` or `python` here — on many systems the default `python` version is below 3.11
-and `pip` may target a different minor version than what powermem was installed under.
-Using the shebang from `powermem-server` guarantees all three steps (pip, download,
+⚠️ Do NOT use bare `python` here — on many systems the default `python` version is below 3.11.
+Using the shebang from `powermem-server` guarantees all three steps (uv install, download,
 bridge) run in the same environment.
 Then run the bridge script from Step 3a to populate the HuggingFace hub cache
 structure — the embedder's cache-detection function checks `~/.cache/huggingface/hub/`,
@@ -705,18 +727,18 @@ curl -s -m 10 -o /dev/null -w "HuggingFace: HTTP %{http_code}\n" \
 **Problem**: `curl` returns exit code 7 ("Failed to connect") right after launching
 `powermem-server`.
 **Cause**: The server process is running but not yet listening on port 8848. First
-launch takes 60–120s (seekdb table creation + embedder load + uvicorn bind).
+launch can take 60–120s (local embedder load/download + uvicorn bind).
 **Fix**: Use the polling loop from Step 3a. Do NOT kill and restart — restarting
 resets initialization and makes startup take even longer.
 
 #### [E009] Server Exits Immediately — `fastapi`, `uvicorn`, or `fastmcp` Missing
 **Problem**: Server exits immediately after launch with "Missing dependencies" error.
-**Cause**: `pip install -e .` installs only base dependencies. `fastmcp` is checked
+**Cause**: installing only the base project skips optional server/MCP dependencies. `fastmcp` is checked
 at **import time** and calls `sys.exit(1)` if absent — `try/except` cannot catch this,
 so even the HTTP-only server is killed before it starts.
 **Fix**:
 ```bash
-pip install -e '.[server,mcp]'
+uv pip install --python "$POWERMEM_PYTHON" -e '.[server,mcp,seekdb]'
 ```
 
 #### [E010] Anthropic `temperature` + `top_p` both sent → 400
@@ -756,32 +778,36 @@ Diagnosis:
   waiting for JSON-RPC input; re-check Claude-side registration next.
 
 #### [E011] Python Version Below 3.11
-**Problem**: `pip install` fails or venv created with wrong Python version.
+**Problem**: package installation fails or venv created with wrong Python version.
 PowerMem requires Python >= 3.11 (`pyproject.toml: requires-python = ">=3.11"`).
 **Fix**: Verify and use Python 3.11+:
 ```bash
 python3 --version  # must be >= 3.11
 # If too old, find and use a newer Python:
 python3.11 --version
-python3.11 -m venv venv
+uv venv venv --python python3.11
 source venv/bin/activate
 ```
 
-#### [E012] pip Too Old for Editable Install
-**Problem**: `pip install -e .` fails with "File setup.py not found. Directory cannot
-be installed in editable mode."
-**Cause**: pip < 21.3 does not support editable installs via pyproject.toml (PEP 660).
-**Fix**: Upgrade pip first:
+#### [E012] uv Missing or Not on PATH
+**Problem**: `uv: command not found`
+**Fix**: Install uv for your region, then add the install directory to PATH:
 ```bash
-source venv/bin/activate
-pip install --upgrade pip
-pip install -e '.[server,mcp,seekdb]'
+# Non-CN:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# CN:
+export UV_DOWNLOAD_URL=https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/
+curl -sL https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/uv-installer.sh | sh
+
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+uv --version
 ```
 
 #### [E013] Internal PyPI Mirror Missing Packages
-**Problem**: `pip install` fails with "No matching distribution found for pyobvector"
+**Problem**: `uv pip install` fails with "No matching distribution found for pyobvector"
 (or pyseekdb, onnxruntime, etc.).
-**Cause**: The configured pip index (e.g. internal mirror at `yum.tbsite.net`) does not
+**Cause**: The configured Python package index (e.g. internal mirror at `yum.tbsite.net`) does not
 mirror all required packages.
 **Fix**: If the package is already installed elsewhere (e.g. system Python 3.11), copy
 it into the venv:
@@ -803,11 +829,11 @@ initialization failed" with `ModuleNotFoundError: No module named 'onnxruntime'`
 (or `tenacity`, `tokenizers`).
 **Cause**: When packages like pyobvector/pyseekdb are copied manually into the venv,
 their transitive dependencies (onnxruntime, tenacity, tokenizers, etc.) are not
-automatically resolved by pip.
+automatically resolved by the package installer.
 **Fix**: Install the missing transitive dependencies:
 ```bash
 source venv/bin/activate
-pip install onnxruntime tenacity tokenizers
+uv pip install --python "$VIRTUAL_ENV/bin/python" onnxruntime tenacity tokenizers
 ```
 To verify no other dependencies are missing after manual copying:
 ```bash
@@ -819,8 +845,8 @@ python -c "import pyseekdb" 2>&1    # should produce no output
 
 1. **Verify Python version**: `python3 --version` (must be >= 3.11, see [E011])
 2. **Verify Go version**: `go version` (must be 1.22+)
-3. **Verify pip version**: `python3 -m pip --version` (must be >= 21.3, see [E012])
-4. **Check mirror access**: `pip config list` — if using an internal mirror, verify
+3. **Verify uv**: `uv --version` (install it with [E012] if missing)
+4. **Check mirror access**: if using an internal mirror, verify
    it has `pyobvector`, `pyseekdb`, and `onnxruntime`; see [E013] if not.
 
 ## STEP BY STEP PROVEN PATH
@@ -829,16 +855,13 @@ Given the encountered errors, here are the tested workarounds for each approach:
 
 ### Method A: SOURCE Path (Current Directory Build)
 ```bash
-# Create virtual environment to avoid PEP 668 issues
-# (use python3.11 explicitly if the default python3 is < 3.11)
-python3 -m venv venv
+# Create virtual environment to avoid PEP 668 issues.
+uv venv venv --python python3.11
 source venv/bin/activate
-
-# Upgrade pip first (needed for pyproject.toml editable installs)
-pip install --upgrade pip
+POWERMEM_PYTHON="$VIRTUAL_ENV/bin/python"
 
 # Install everything with ALL required extras
-pip install -e '.[server,mcp,seekdb]'
+uv pip install --python "$POWERMEM_PYTHON" -e '.[server,mcp,seekdb]'
 
 # Build and stage Claude hooks
 make build-claude-hook
@@ -854,12 +877,13 @@ claude plugin install memory-powermem@powermem --scope user
 powermem-server --host 0.0.0.0 --port 8848 &
 ```
 
-### Method B: PIP Path (Recommended for Stability)
+### Method B: PYPI/MCP Path (Recommended for Stability)
 ```bash
 # Clean virtual environment approach
-python3 -m venv venv
+uv venv venv --python python3.11
 source venv/bin/activate
-pip install 'powermem[mcp,seekdb]'
+POWERMEM_PYTHON="$VIRTUAL_ENV/bin/python"
+uv pip install --python "$POWERMEM_PYTHON" 'powermem[mcp,seekdb]'
 claude mcp remove powermem 2>/dev/null
 claude mcp add powermem -- powermem-mcp stdio
 ```
@@ -869,11 +893,11 @@ claude mcp add powermem -- powermem-mcp stdio
 # Common troubleshooting commands
 lsof -i :8848    # Check if port is in use
 pkill -f powermem-server  # Kill any running server
-rm -rf seekdb_data  # Reset SeekDB if corrupted
+rm -rf seekdb_data  # Reset SeekDB if corrupted and data loss is acceptable
 
 # Check logs
-tail -f server.log              # PowerMem server errors
-tail -f seekdb_data/log/seekdb.log  # SeekDB engine errors
+tail -f server.log                    # PowerMem server errors
+tail -f seekdb_data/log/seekdb.log    # SeekDB engine errors
 ```
 
 ## FINAL VALIDATION STEPS
@@ -921,12 +945,12 @@ systemctl --user start powermem.service
 
 ## SUMMARY
 
-**Path taken**: **[Based on observed errors, recommend PIP approach for stability]**
+**Path taken**: **[Based on observed errors, recommend PYPI/MCP approach for stability]**
 - **.env location**: $(pwd)/.env
 - **Virtual environment**: $(pwd)/venv  
 - **Plugin marketplace**: ~/.claude/marketplaces/powermem
 - **Server URL**: http://localhost:8848
-- **Memory system**: SQLite storage with HTTP hooks
+- **Memory system**: seekdb storage with HTTP hooks
 - **Global enablement**: Complete via `claude plugin install`
 - **Usage**: Run `claude` command with no extra flags needed
 

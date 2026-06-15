@@ -14,7 +14,7 @@ RUNTIME_FILE="${POWERMEM_RUNTIME_FILE:-$DATA_DIR/runtime.env}"
 PID_FILE="${POWERMEM_PID_FILE:-$DATA_DIR/powermem.pid}"
 LEGACY_PID_FILE="$DATA_DIR/server.pid"
 LOG_FILE="${POWERMEM_LOG_FILE:-$DATA_DIR/powermem-server.log}"
-VENV_DIR="${POWERMEM_VENV_DIR:-$DATA_DIR/venv}"
+USTC_PYTHON_INSTALL_MIRROR="https://mirrors.ustc.edu.cn/github-release/astral-sh/python-build-standalone/"
 
 mkdir -p "$DATA_DIR"
 
@@ -39,11 +39,248 @@ PY
   return 1
 }
 
+ensure_bootstrap_python() {
+  if [ -n "${POWERMEM_INIT_PYTHON:-}" ]; then
+    BOOTSTRAP_PYTHON=$(choose_python) || {
+      echo "POWERMEM_INIT_PYTHON must point to Python >= 3.11." >&2
+      return 1
+    }
+  else
+    ensure_uv
+    configure_uv_python_install_mirror
+    echo "Ensuring Python 3.11 is available through uv."
+    "$UV_BIN" python install 3.11
+    BOOTSTRAP_PYTHON=$("$UV_BIN" python find 3.11) || {
+      echo "uv could not locate Python 3.11 after installation." >&2
+      return 1
+    }
+    if [ -z "$BOOTSTRAP_PYTHON" ]; then
+      echo "uv returned an empty Python 3.11 path." >&2
+      return 1
+    fi
+  fi
+
+  POWERMEM_BOOTSTRAP_PYTHON=$BOOTSTRAP_PYTHON
+  export BOOTSTRAP_PYTHON
+  export POWERMEM_BOOTSTRAP_PYTHON
+}
+
+configure_uv_python_install_mirror() {
+  if [ "${POWERMEM_UV_PYTHON_INSTALL_MIRROR_CONFIGURED:-0}" = "1" ]; then
+    return
+  fi
+  POWERMEM_UV_PYTHON_INSTALL_MIRROR_CONFIGURED=1
+  export POWERMEM_UV_PYTHON_INSTALL_MIRROR_CONFIGURED
+
+  if [ -n "${POWERMEM_UV_PYTHON_INSTALL_MIRROR:-}" ]; then
+    UV_PYTHON_INSTALL_MIRROR=$POWERMEM_UV_PYTHON_INSTALL_MIRROR
+    export UV_PYTHON_INSTALL_MIRROR
+    echo "uv Python install mirror: $UV_PYTHON_INSTALL_MIRROR"
+    return
+  fi
+
+  if [ -n "${UV_PYTHON_INSTALL_MIRROR:-}" ]; then
+    export UV_PYTHON_INSTALL_MIRROR
+    echo "uv Python install mirror: $UV_PYTHON_INSTALL_MIRROR"
+    return
+  fi
+
+  country=$(detect_public_ip_country || true)
+  case "$country" in
+    CN)
+      UV_PYTHON_INSTALL_MIRROR=$USTC_PYTHON_INSTALL_MIRROR
+      export UV_PYTHON_INSTALL_MIRROR
+      echo "Detected public IP country: CN; uv python install will use $UV_PYTHON_INSTALL_MIRROR"
+      ;;
+    "")
+      echo "Public IP country detection failed; uv python install will use the default Python download source."
+      ;;
+    *)
+      echo "Detected public IP country: $country; uv python install will use the default Python download source."
+      ;;
+  esac
+}
+
 python_version() {
   "$1" - <<'PY'
 import sys
 print(".".join(map(str, sys.version_info[:3])))
 PY
+}
+
+find_uv_bin() {
+  if [ -n "${POWERMEM_UV_BIN:-}" ] && command -v "$POWERMEM_UV_BIN" >/dev/null 2>&1; then
+    command -v "$POWERMEM_UV_BIN"
+    return
+  fi
+
+  if command -v uv >/dev/null 2>&1; then
+    command -v uv
+    return
+  fi
+
+  if [ -n "${HOME:-}" ]; then
+    for candidate in "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv"; do
+      if [ -x "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return
+      fi
+    done
+  fi
+
+  return 1
+}
+
+fetch_public_ip_country_url() {
+  url=$1
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -m 3 -A "powermem-init/1.0" "$url"
+    return
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -qO- -T 3 --user-agent="powermem-init/1.0" "$url"
+    return
+  fi
+
+  return 1
+}
+
+detect_public_ip_country() {
+  for url in \
+    "https://ipapi.co/country/" \
+    "https://ifconfig.co/country-iso" \
+    "https://ipinfo.io/country"
+  do
+    country=$(
+      fetch_public_ip_country_url "$url" 2>/dev/null \
+        | tr -d '[:space:]' \
+        | tr '[:lower:]' '[:upper:]' \
+        | cut -c 1-2 \
+        || true
+    )
+    case "$country" in
+      [A-Z][A-Z])
+        printf '%s\n' "$country"
+        return 0
+        ;;
+    esac
+  done
+
+  return 1
+}
+
+install_uv_from_url() {
+  installer_url=$1
+  download_url=${2:-}
+  installer_tmp="${TMPDIR:-/tmp}/powermem-uv-installer.$$.sh"
+
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsSL "$installer_url" -o "$installer_tmp"; then
+      if [ -n "$download_url" ]; then
+        env UV_DOWNLOAD_URL="$download_url" sh "$installer_tmp"
+      else
+        sh "$installer_tmp"
+      fi
+      status=$?
+      rm -f "$installer_tmp"
+      return "$status"
+    else
+      rm -f "$installer_tmp"
+      return 1
+    fi
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    if wget -qO "$installer_tmp" "$installer_url"; then
+      if [ -n "$download_url" ]; then
+        env UV_DOWNLOAD_URL="$download_url" sh "$installer_tmp"
+      else
+        sh "$installer_tmp"
+      fi
+      status=$?
+      rm -f "$installer_tmp"
+      return "$status"
+    else
+      rm -f "$installer_tmp"
+      return 1
+    fi
+  fi
+
+  echo "Neither curl nor wget is available; install uv manually and retry." >&2
+  return 1
+}
+
+ensure_uv() {
+  if UV_BIN=$(find_uv_bin); then
+    export UV_BIN
+    return
+  fi
+
+  country=$(detect_public_ip_country || true)
+  case "$country" in
+    CN)
+      echo "uv not found; installing uv from the USTC mirror for CN networks."
+      install_uv_from_url \
+        "https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/uv-installer.sh" \
+        "https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/" || {
+          echo "USTC uv mirror install failed; falling back to the official Astral installer." >&2
+          install_uv_from_url "https://astral.sh/uv/install.sh"
+        }
+      ;;
+    "")
+      echo "uv not found; region detection failed, installing uv from the official Astral installer."
+      install_uv_from_url "https://astral.sh/uv/install.sh"
+      ;;
+    *)
+      echo "uv not found; installing uv from the official Astral installer."
+      install_uv_from_url "https://astral.sh/uv/install.sh"
+      ;;
+  esac
+
+  PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+  export PATH
+  if command -v uv >/dev/null 2>&1; then
+    UV_BIN=$(command -v uv)
+    export UV_BIN
+    return
+  fi
+
+  echo "uv installer finished, but uv is not on PATH. Add ~/.local/bin to PATH and retry." >&2
+  return 1
+}
+
+configure_uv_index() {
+  if [ "${POWERMEM_UV_INDEX_CONFIGURED:-0}" = "1" ]; then
+    return
+  fi
+  POWERMEM_UV_INDEX_CONFIGURED=1
+  export POWERMEM_UV_INDEX_CONFIGURED
+
+  country=$(detect_public_ip_country || true)
+  case "$country" in
+    CN)
+      POWERMEM_UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+      export POWERMEM_UV_INDEX_URL
+      echo "Detected public IP country: CN; uvx will use --default-index $POWERMEM_UV_INDEX_URL"
+      ;;
+    "")
+      echo "Public IP country detection failed; uvx will use the default PyPI index."
+      ;;
+    *)
+      echo "Detected public IP country: $country; uvx will use the default PyPI index."
+      ;;
+  esac
+}
+
+uvx_run() {
+  ensure_uv
+  configure_uv_index
+  if [ -n "${POWERMEM_UV_INDEX_URL:-}" ]; then
+    "$UV_BIN" tool run --default-index "$POWERMEM_UV_INDEX_URL" "$@"
+  else
+    "$UV_BIN" tool run "$@"
+  fi
 }
 
 runtime_base_url() {
@@ -70,6 +307,28 @@ write_runtime_base_url() {
     printf 'POWERMEM_ENV_FILE=%s\n' "$ENV_FILE"
   } > "$tmp"
   mv "$tmp" "$RUNTIME_FILE"
+}
+
+export_env_file_vars() {
+  env_file=$1
+  [ -f "$env_file" ] || return 0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ""|\#*) continue ;;
+      *=*)
+        key=${line%%=*}
+        case "$key" in
+          [A-Za-z_]*)
+            case "$key" in
+              *[!A-Za-z0-9_]*) continue ;;
+            esac
+            export "$line"
+            ;;
+        esac
+        ;;
+    esac
+  done < "$env_file"
 }
 
 health_url() {
@@ -180,12 +439,37 @@ pid_uses_env_file() {
   tr '\000' '\n' < "$environ" | grep -Fx "POWERMEM_ENV_FILE=$ENV_FILE" >/dev/null
 }
 
-venv_python() {
-  printf '%s/bin/python\n' "$VENV_DIR"
+local_port_from_base_url() {
+  printf '%s\n' "$1" \
+    | sed -n -E 's#^http://(localhost|127\.0\.0\.1|\[::1\]):([0-9]+)(/.*)?$#\2#p'
 }
 
-venv_powermem_server() {
-  printf '%s/bin/powermem-server\n' "$VENV_DIR"
+listener_pids_for_port() {
+  port=$1
+  {
+    if command -v lsof >/dev/null 2>&1; then
+      lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+    fi
+    if command -v ss >/dev/null 2>&1; then
+      ss -H -ltnp "sport = :$port" 2>/dev/null \
+        | sed -n -E 's/.*pid=([0-9]+).*/\1/p' || true
+    fi
+    if command -v fuser >/dev/null 2>&1; then
+      fuser -n tcp "$port" 2>/dev/null || true
+    fi
+  } | tr ' ' '\n' | sed -n -E '/^[0-9]+$/p' | sort -u
+}
+
+powermem_server_pids_for_port() {
+  port=$1
+  listener_pids_for_port "$port" | while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    args=$(process_args "$pid")
+    [ -n "$args" ] || continue
+    printf '%s\n' "$args" | grep -q 'powermem-server' || continue
+    pid_uses_env_file "$pid" || continue
+    printf '%s\n' "$pid"
+  done
 }
 
 port_free() {

@@ -10,11 +10,7 @@ echo "Data dir: $DATA_DIR"
 
 base_url=$(runtime_base_url)
 
-BOOTSTRAP_PYTHON=$(choose_python) || {
-  echo "No Python >= 3.11 interpreter found. Set POWERMEM_INIT_PYTHON=/path/to/python3.11 and retry." >&2
-  exit 1
-}
-export POWERMEM_BOOTSTRAP_PYTHON=$BOOTSTRAP_PYTHON
+ensure_bootstrap_python || exit 1
 echo "Bootstrap Python: $BOOTSTRAP_PYTHON ($(python_version "$BOOTSTRAP_PYTHON"))"
 
 create_env_file() {
@@ -367,6 +363,8 @@ lines.extend(
         "# Logging",
         f"LOGGING_LEVEL={logging_level}",
         "LOGGING_FORMAT=json",
+        f"LOGGING_FILE={path_value('powermem.log')}",
+        f"AUDIT_LOG_FILE={path_value('audit.log')}",
         "",
         "# Vector store tuning",
         "VECTOR_STORE_BATCH_SIZE=50",
@@ -521,62 +519,6 @@ except Exception as e:
 PY
 }
 
-detect_public_ip_country() {
-  "$BOOTSTRAP_PYTHON" - <<'PY'
-import urllib.request
-
-endpoints = [
-    "https://ipapi.co/country/",
-    "https://ifconfig.co/country-iso",
-    "https://ipinfo.io/country",
-]
-
-for url in endpoints:
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "powermem-init/1.0"})
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            value = resp.read(64).decode(errors="replace").strip().upper()
-        if len(value) == 2 and value.isalpha():
-            print(value)
-            raise SystemExit(0)
-    except Exception:
-        pass
-
-raise SystemExit(1)
-PY
-}
-
-configure_pip_index() {
-  if [ "${POWERMEM_PIP_INDEX_CONFIGURED:-0}" = "1" ]; then
-    return
-  fi
-  POWERMEM_PIP_INDEX_CONFIGURED=1
-  export POWERMEM_PIP_INDEX_CONFIGURED
-
-  country=$(detect_public_ip_country || true)
-  case "$country" in
-    CN)
-      POWERMEM_PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
-      export POWERMEM_PIP_INDEX_URL
-      echo "Detected public IP country: CN; pip install will append -i $POWERMEM_PIP_INDEX_URL"
-      ;;
-    "")
-      echo "Public IP country detection failed; pip install will use the default PyPI index."
-      ;;
-    *)
-      echo "Detected public IP country: $country; pip install will use the default PyPI index."
-      ;;
-  esac
-}
-
-pip_install() {
-  if [ -n "${POWERMEM_PIP_INDEX_URL:-}" ]; then
-    "$PYTHON" -m pip install "$@" -i "$POWERMEM_PIP_INDEX_URL"
-  else
-    "$PYTHON" -m pip install "$@"
-  fi
-}
-
 stop_unhealthy_managed_server() {
   pid=$(managed_pid 2>/dev/null || true)
   if [ -n "$pid" ]; then
@@ -634,31 +576,7 @@ if ! validate_llm_config; then
   exit 1
 fi
 
-if [ ! -x "$(venv_powermem_server)" ]; then
-  echo "Preparing plugin virtualenv."
-  if [ ! -d "$VENV_DIR" ]; then
-    "$BOOTSTRAP_PYTHON" -m venv "$VENV_DIR"
-  fi
-  PYTHON=$(venv_python)
-  echo "Venv Python: $PYTHON ($(python_version "$PYTHON"))"
-  configure_pip_index
-  pip_install -U pip setuptools wheel
-  PACKAGE=${POWERMEM_INIT_PACKAGE:-powermem[server,seekdb]}
-  echo "Installing $PACKAGE"
-  pip_install "$PACKAGE"
-else
-  echo "Using existing plugin virtualenv: $VENV_DIR"
-  PYTHON=$(venv_python)
-  echo "Venv Python: $PYTHON ($(python_version "$PYTHON"))"
-fi
-
-if [ "${POWERMEM_INIT_PRELOAD_MODEL:-0}" = "1" ] || [ "${POWERMEM_INIT_PRELOAD_MODEL:-}" = "true" ]; then
-  echo "Preloading default local embedding model."
-  configure_pip_index
-  sh "$SCRIPT_DIR/preload-model.sh" "$PYTHON"
-else
-  echo "Skipping model preload. Set POWERMEM_INIT_PRELOAD_MODEL=1 to download via ModelScope and bridge to HuggingFace cache."
-fi
+PACKAGE=${POWERMEM_INIT_PACKAGE:-powermem[server,seekdb]}
 
 if pid_alive; then
   echo "Managed PowerMem server process is running: $(managed_pid)"
@@ -680,8 +598,21 @@ if is_healthy "$base_url"; then
   write_runtime_base_url "$base_url"
   echo "External PowerMem backend is healthy: $base_url"
   announce_dashboard_url "$base_url"
-  echo "Plugin config and venv are ready. Not starting a managed server."
+  echo "Plugin config is ready. Not starting a managed server."
   exit 0
+fi
+
+ensure_uv
+configure_uv_index
+export_env_file_vars "$ENV_FILE"
+echo "Backend package: $PACKAGE"
+echo "Backend launcher: uvx --from '$PACKAGE' powermem-server"
+
+if [ "${POWERMEM_INIT_PRELOAD_MODEL:-0}" = "1" ] || [ "${POWERMEM_INIT_PRELOAD_MODEL:-}" = "true" ]; then
+  echo "Preloading default local embedding model through uvx."
+  sh "$SCRIPT_DIR/preload-model.sh" "$BOOTSTRAP_PYTHON"
+else
+  echo "Skipping model preload. Set POWERMEM_INIT_PRELOAD_MODEL=1 to download via ModelScope and bridge to HuggingFace cache."
 fi
 
 if [ -n "${POWERMEM_INIT_PORT:-}" ]; then
@@ -703,9 +634,19 @@ else
   }
 fi
 
-server=$(venv_powermem_server)
-echo "Starting PowerMem server on port $port"
-POWERMEM_ENV_FILE="$ENV_FILE" nohup "$server" --host 127.0.0.1 --port "$port" >> "$LOG_FILE" 2>&1 &
+echo "Starting PowerMem server on port $port with uvx"
+if [ -n "${POWERMEM_UV_INDEX_URL:-}" ]; then
+  POWERMEM_ENV_FILE="$ENV_FILE" nohup "$UV_BIN" tool run \
+    --python "$BOOTSTRAP_PYTHON" \
+    --default-index "$POWERMEM_UV_INDEX_URL" \
+    --from "$PACKAGE" \
+    powermem-server --host 127.0.0.1 --port "$port" >> "$LOG_FILE" 2>&1 &
+else
+  POWERMEM_ENV_FILE="$ENV_FILE" nohup "$UV_BIN" tool run \
+    --python "$BOOTSTRAP_PYTHON" \
+    --from "$PACKAGE" \
+    powermem-server --host 127.0.0.1 --port "$port" >> "$LOG_FILE" 2>&1 &
+fi
 pid=$!
 write_managed_pid "$pid"
 echo "Recorded managed server PID $pid in $PID_FILE"
@@ -713,8 +654,16 @@ echo "Recorded managed server PID $pid in $PID_FILE"
 base_url="http://localhost:$port"
 
 echo "Waiting for backend health: $base_url"
+health_timeout=${POWERMEM_INIT_HEALTH_TIMEOUT_SECONDS:-300}
+case "$health_timeout" in
+  ""|*[!0-9]*) health_timeout=300 ;;
+esac
+max_checks=$((health_timeout / 2))
+if [ "$max_checks" -lt 1 ]; then
+  max_checks=1
+fi
 i=0
-while [ "$i" -lt 60 ]; do
+while [ "$i" -lt "$max_checks" ]; do
   if is_healthy "$base_url"; then
     write_runtime_base_url "$base_url"
     echo "PowerMem backend is healthy: $base_url"
@@ -723,11 +672,19 @@ while [ "$i" -lt 60 ]; do
     echo "Log: $LOG_FILE"
     exit 0
   fi
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "PowerMem server process exited before it became healthy." >&2
+    echo "Check log: $LOG_FILE" >&2
+    tail -n 80 "$LOG_FILE" >&2 2>/dev/null || true
+    remove_managed_pid_files
+    describe_port "$port" >&2
+    exit 1
+  fi
   i=$((i + 1))
   sleep 2
 done
 
-echo "PowerMem server did not become healthy within 120 seconds." >&2
+echo "PowerMem server did not become healthy within $((max_checks * 2)) seconds." >&2
 echo "Check log: $LOG_FILE" >&2
 stop_unhealthy_managed_server
 describe_port "$port" >&2

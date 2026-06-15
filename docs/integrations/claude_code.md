@@ -12,7 +12,7 @@ Open Claude Code in your terminal and paste this one line:
 Read and follow apps/claude-code-plugin/SETUP.md to set up PowerMem memory for Claude Code.
 ```
 
-Claude Code reads [`apps/claude-code-plugin/SETUP.md`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/SETUP.md) — the canonical automated-setup prompt — which detects whether you are in the PowerMem **source tree** (developer) or anywhere else (**pip user**), asks you for the few required secrets, and wires everything up end-to-end.
+Claude Code reads [`apps/claude-code-plugin/SETUP.md`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/SETUP.md) — the canonical automated-setup prompt — which detects whether you are in the PowerMem **source tree** (developer) or anywhere else (**PyPI/MCP user**), asks you for the few required secrets, and wires everything up end-to-end.
 
 Prefer to wire it by hand? The full plugin reference below covers every option.
 
@@ -64,8 +64,9 @@ cd powermem
 Copy the template and set your Anthropic credential. For direct Anthropic API
 access use `LLM_API_KEY`; for a Claude Code-style bearer-token gateway use
 `LLM_AUTH_TOKEN` together with `ANTHROPIC_LLM_BASE_URL`. Storage defaults to the
-embedded **seekdb** (no separate database), and the embedder to a local
-`all-MiniLM-L6-v2` model (no API key, auto-downloaded on first use).
+embedded **seekdb** database (no separate database), and the embedder to a local
+`sentence-transformers/all-MiniLM-L6-v2` model (no API key, auto-downloaded on
+first use).
 
 ```bash
 cp .env.example .env
@@ -83,16 +84,38 @@ cp .env.example .env
 
 Every available setting is documented under [Configuration](#configuration); `pmem config init` can also generate `.env` interactively.
 
-### Step 3 — Install PowerMem and build the hook binaries
+### Step 3 — Install uv
 
-`pip install -e '.[server,seekdb]'` provides the `powermem-server` and `pmem` commands plus the zero-config local seekdb path; `make build-claude-hook` compiles the native Go hook binaries (requires **Go 1.22+**):
+PowerMem uses `uv` for Python environment creation and package installation.
+Install it once:
 
 ```bash
-pip install -e '.[server,seekdb]'
+# Non-CN networks
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# CN networks
+export UV_DOWNLOAD_URL=https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/
+curl -sL https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/uv-installer.sh | sh
+
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+uv --version
+```
+
+### Step 4 — Install PowerMem and build the hook binaries
+
+`uv pip install -e '.[server,seekdb]'` provides the `powermem-server` and
+`pmem` commands plus the zero-config local seekdb path and local embedder.
+`make build-claude-hook` compiles the native Go hook binaries (requires
+**Go 1.22+**):
+
+```bash
+uv venv venv --python python3.11
+source venv/bin/activate
+uv pip install --python "$VIRTUAL_ENV/bin/python" -e '.[server,seekdb]'
 make build-claude-hook        # outputs apps/claude-code-plugin/hooks/bin/
 ```
 
-### Step 4 — Start the HTTP API server
+### Step 5 — Start the HTTP API server
 
 Hooks default to `http://localhost:8848`. Leave this running (or start it as a background service):
 
@@ -100,13 +123,13 @@ Hooks default to `http://localhost:8848`. Leave this running (or start it as a b
 powermem-server --host 0.0.0.0 --port 8848
 ```
 
-### Step 5 — Load the plugin into Claude Code
+### Step 6 — Load the plugin into Claude Code
 
 ```bash
 claude --plugin-dir "$(pwd)/apps/claude-code-plugin"
 ```
 
-### Step 6 — Verify
+### Step 7 — Verify
 
 End the session (or run `/compact`), then look for `POST /api/v1/memories` in the server log; run `/hooks` inside Claude Code to confirm the entries are registered. See [Troubleshooting](#troubleshooting-no-requests-while-vibe-coding) if nothing shows up.
 
@@ -132,21 +155,27 @@ When the PowerMem marketplace entry is available, install it with:
 ```
 
 The marketplace step installs the Claude Code plugin connector. The
-`/memory-powermem:init` step prepares the PowerMem backend in a plugin-local venv
-and installs `powermem` from PyPI by default. The PyPI release must include the
-backend features required by the plugin, including the default local embedding
-dependencies. For branch testing before release, install the marketplace from a
-branch and run init with `POWERMEM_INIT_PACKAGE` pointing at the same Git branch
-or commit:
+`/memory-powermem:init` step prepares the PowerMem backend by ensuring `uv`, then
+starts it with the uvx-style launcher
+`uvx --from 'powermem[server,seekdb]' powermem-server`. The PyPI release must
+include the backend features required by the plugin, including the default local
+embedding dependencies. If `uv` is missing, init installs it automatically:
+non-CN networks use the official Astral installer, while CN networks use the USTC
+mirror at
+`https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/`.
+CN package resolution uses `--default-index https://pypi.tuna.tsinghua.edu.cn/simple`.
+For branch testing before release, install the marketplace from a branch and run
+init with `POWERMEM_INIT_PACKAGE` pointing at the same Git branch or commit; init
+passes it to `uvx --from`:
 
 ```text
-/plugin marketplace add owner/powermem@<branch>
+/plugin marketplace add https://github.com/owner/powermem.git#<branch>
 /plugin install memory-powermem@powermem
 /reload-plugins
 ```
 
 ```bash
-POWERMEM_INIT_PACKAGE='powermem @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
+POWERMEM_INIT_PACKAGE='powermem[server,seekdb] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
   sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
 ```
 
@@ -203,7 +232,7 @@ The hook binary only **writes** to your PowerMem server; it does not install a s
 |---------------|--------------|
 | **Zip** | Download the new `.zip`, replace the old folder (delete the previous `powermem-claude-code-plugin` tree, unzip the new one to the same or a new path), then start Claude with `--plugin-dir` pointing at the new folder. |
 | **Repo / `git`** | `git pull` (or fetch the release you want), run `make package-claude-plugin` or `bash scripts/package-plugin.sh` if you need a fresh zip, then restart Claude Code. |
-| **Marketplace** | Run `/plugin uninstall memory-powermem@powermem`, reinstall from the marketplace, then run `/reload-plugins`. If the backend package changed, re-run `/memory-powermem:init` so the plugin-local venv installs the new PyPI release. |
+| **Marketplace** | Run `/plugin uninstall memory-powermem@powermem`, reinstall from the marketplace, then run `/reload-plugins`. If the backend package changed, re-run `/memory-powermem:init` so uvx resolves the new PyPI release. |
 
 After updating, restart the Claude Code session (or the whole app) so MCP config, skills, and hooks reload.
 
@@ -258,7 +287,7 @@ After `apply-connection-mode.sh mcp`, edit `.mcp.json` or `config/mcp-mode.mcp.j
 }
 ```
 
-Ensure PowerMem is installed (`pip install "powermem[mcp,seekdb]"`) and a `.env` is available when using stdio.
+Ensure PowerMem is installed (`uv pip install --python "$VIRTUAL_ENV/bin/python" "powermem[mcp,seekdb]"`) and a `.env` is available when using stdio.
 
 ### HTTP mode: REST only (standard)
 
