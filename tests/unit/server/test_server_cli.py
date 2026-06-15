@@ -1,6 +1,8 @@
+import os
 import socket
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, Mock
 
 import click
@@ -296,6 +298,13 @@ def test_cli_help_documents_browser_options():
 
 
 def test_cli_module_import_does_not_require_server_extras():
+    src_path = str(Path(__file__).resolve().parents[3] / "src")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = (
+        src_path
+        if not env.get("PYTHONPATH")
+        else f"{src_path}{os.pathsep}{env['PYTHONPATH']}"
+    )
     script = (
         "import sys; "
         "sys.modules['fastapi'] = None; "
@@ -305,6 +314,7 @@ def test_cli_module_import_does_not_require_server_extras():
 
     result = subprocess.run(
         [sys.executable, "-c", script],
+        env=env,
         capture_output=True,
         text=True,
         check=False,

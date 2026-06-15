@@ -53,6 +53,11 @@ class AnthropicLLM(LLMBase):
         else:
             client_kwargs["api_key"] = api_key
         self.client = anthropic.Anthropic(**client_kwargs)
+        if not auth_token:
+            # The Anthropic SDK also reads ANTHROPIC_AUTH_TOKEN from the process
+            # environment. PowerMem gives API keys precedence, so clear any SDK
+            # env-derived bearer token when this instance is using an API key.
+            self.client.auth_token = None
 
     def generate_response(
             self,
