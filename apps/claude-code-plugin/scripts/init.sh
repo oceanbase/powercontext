@@ -648,6 +648,20 @@ else
   echo "Venv Python: $PYTHON ($(python_version "$PYTHON"))"
 fi
 
+# For SQLite backend: auto-install pysqlite3-binary if bundled SQLite < 3.9.0
+_db_provider=$(grep '^DATABASE_PROVIDER=' "$ENV_FILE" 2>/dev/null \
+  | cut -d= -f2 | tr -d '[:space:]')
+_db_provider="${_db_provider:-sqlite}"
+if [ "$_db_provider" != "oceanbase" ]; then
+  _sqlite_ok=$("$PYTHON" -c \
+    "import sqlite3; print(sqlite3.sqlite_version_info >= (3,9,0))" 2>/dev/null || echo False)
+  if [ "$_sqlite_ok" != "True" ]; then
+    echo "System SQLite $("$PYTHON" -c 'import sqlite3; print(sqlite3.sqlite_version)' 2>/dev/null) < 3.9.0; installing pysqlite3-binary."
+    configure_pip_index
+    pip_install pysqlite3-binary
+  fi
+fi
+
 if [ "${POWERMEM_INIT_PRELOAD_MODEL:-0}" = "1" ] || [ "${POWERMEM_INIT_PRELOAD_MODEL:-}" = "true" ]; then
   echo "Preloading default local embedding model."
   configure_pip_index
