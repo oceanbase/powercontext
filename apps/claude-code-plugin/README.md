@@ -1,5 +1,10 @@
 # PowerMem Plugin for Claude Code
 
+The plugin uses **SQLite** as the default storage backend for coding agent scenarios
+(zero external dependencies, works out of the box). Set
+`POWERMEM_INIT_DATABASE_PROVIDER=oceanbase` before running `/memory-powermem:init`
+to use OceanBase/seekdb instead (production and cluster deployments).
+
 The full Claude Code integration guide — the auto-setup prompt, manual steps, the
 two connection modes (HTTP / MCP), hooks, configuration, troubleshooting, and
 uninstall — now lives in the docs and is the single source of truth:

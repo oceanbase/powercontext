@@ -8,8 +8,12 @@ Supports FTS5 fulltext search and hybrid search (vector + FTS5, RRF fusion).
 import json
 import logging
 import os
-import sqlite3
 import threading
+
+try:
+    import pysqlite3 as sqlite3
+except ImportError:
+    import sqlite3
 from typing import Any, Dict, List, Optional
 
 from powermem.storage.base import VectorStoreBase, OutputData
@@ -55,14 +59,24 @@ def _extract_fulltext_content(payload: dict) -> str:
 class SQLiteVectorStore(VectorStoreBase):
     """Simple SQLite-based vector store implementation with FTS5 hybrid search."""
 
-    def __init__(self, database_path: str = ":memory:", collection_name: str = "memories", **kwargs):
+    def __init__(self, database_path: str = ":memory:", collection_name: str = "memories",
+                 enable_wal: bool = True, timeout: int = 30, **kwargs):
         """
         Initialize SQLite vector store.
 
         Args:
             database_path: Path to SQLite database file
             collection_name: Name of the collection/table
+            enable_wal: Enable WAL journal mode for concurrent read/write
+            timeout: Connection timeout in seconds
         """
+        if sqlite3.sqlite_version_info < (3, 9, 0):
+            raise RuntimeError(
+                f"SQLite >= 3.9.0 required (FTS5 + JSON1), "
+                f"found {sqlite3.sqlite_version}. "
+                "Install pysqlite3-binary or set DATABASE_PROVIDER=oceanbase."
+            )
+
         self.db_path = database_path
         self.collection_name = collection_name
         self.connection = None
@@ -81,7 +95,10 @@ class SQLiteVectorStore(VectorStoreBase):
 
         # Connect to database
         try:
-            self.connection = sqlite3.connect(database_path, check_same_thread=False)
+            self.connection = sqlite3.connect(database_path, check_same_thread=False,
+                                              timeout=timeout)
+            if enable_wal and database_path != ":memory:":
+                self.connection.execute("PRAGMA journal_mode=WAL")
         except Exception as e:
             logger.error(f"Failed to connect to SQLite database at {database_path}: {e}")
             raise

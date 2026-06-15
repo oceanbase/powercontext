@@ -75,9 +75,10 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
    `ANTHROPIC_BASE_URL`. It also reads `ANTHROPIC_MODEL` from the environment.
    If the environment does not provide a complete config, it falls back to
    `~/.claude/settings.json` using the same Anthropic keys. It writes the
-   plugin-local `.env` with the full PowerMem backend defaults: embedded
-   OceanBase/seekdb storage, local default embedding, server settings, and logging
-   settings.
+   plugin-local `.env` with the full PowerMem backend defaults: SQLite storage
+   (default for coding agent; set `POWERMEM_INIT_DATABASE_PROVIDER=oceanbase` for
+   OceanBase/seekdb production use), local default embedding, server settings, and
+   logging settings.
 4. If init reports missing values, ask the user only for those missing values. Do
    not invent credentials. Re-run init with the matching environment variables:
 
@@ -99,6 +100,8 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
    ```
 
    Optional variables:
+   - `POWERMEM_INIT_DATABASE_PROVIDER`: storage backend — `sqlite` (default, coding
+     agent) or `oceanbase` (production/cluster). Invalid values fall back to `sqlite`.
    - `POWERMEM_INIT_LLM_BASE_URL` for a custom provider gateway.
    - `POWERMEM_INIT_PACKAGE` to test unpublished backend code through
      `uvx --from` instead of PyPI `powermem`, for example
