@@ -160,6 +160,7 @@ jobs:
           set_env_var LLM_API_KEY "${SILICONFLOW_CN_API_KEY}"
           set_env_var EMBEDDING_API_KEY "${QWEN_API_KEY}"
           set_env_var POWERMEM_SERVER_API_KEYS key1,key2,key3
+          set_env_var POWERMEM_SERVER_WORKERS 1
 
       - name: Run regression tests
         id: run_tests
@@ -314,6 +315,7 @@ jobs:
           set_env_var LLM_API_KEY "${SILICONFLOW_CN_API_KEY}"
           set_env_var EMBEDDING_API_KEY "${QWEN_API_KEY}"
           set_env_var POWERMEM_SERVER_API_KEYS key1,key2,key3
+          set_env_var POWERMEM_SERVER_WORKERS 1
 
       - name: Run regression tests
         id: run_tests

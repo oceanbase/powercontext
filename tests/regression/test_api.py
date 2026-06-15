@@ -12,11 +12,13 @@ Tests basic functionality of all API endpoints, including:
 
 import requests
 import json
+import socket
 import time
 import os
 import subprocess
 from typing import Dict, Any, Optional
 from datetime import datetime
+from urllib.parse import urlparse
 
 
 class APITester:
@@ -1880,7 +1882,71 @@ class APITester:
             self.log_result("Validation Error-Limit Exceeded", False, f"Exception: {str(e)}")
     
     # ==================== Run All Tests ====================
-    
+
+    def _server_host_port(self):
+        parsed_url = urlparse(self.base_url)
+        host = parsed_url.hostname or "localhost"
+        port = parsed_url.port or (443 if parsed_url.scheme == "https" else 80)
+        return host, port
+
+    def _server_port_accepts_connections(self) -> bool:
+        host, port = self._server_host_port()
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return True
+        except OSError:
+            return False
+
+    def _wait_for_server_port_release(self, timeout: int = 20) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not self._server_port_accepts_connections():
+                return True
+            time.sleep(0.5)
+        return not self._server_port_accepts_connections()
+
+    def _kill_processes_on_server_port(self):
+        _, port = self._server_host_port()
+        try:
+            result = subprocess.run(
+                ["lsof", "-t", f"-i:{port}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            print(f"Warning: unable to inspect port {port} processes: {exc}")
+            return
+
+        pids = sorted({pid.strip() for pid in result.stdout.splitlines() if pid.strip()})
+        if not pids:
+            return
+
+        print(f"Port {port} is still occupied by PID(s): {', '.join(pids)}")
+        subprocess.run(["kill", *pids], capture_output=True, text=True, timeout=5)
+        time.sleep(1)
+        subprocess.run(["kill", "-9", *pids], capture_output=True, text=True, timeout=5)
+
+    def _print_server_log_tail(self, makefile_dir: str, lines: int = 120):
+        log_path = os.path.join(makefile_dir, "server.log")
+        if not os.path.exists(log_path):
+            print(f"server.log not found at {log_path}")
+            return
+
+        try:
+            result = subprocess.run(
+                ["tail", "-n", str(lines), log_path],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            print(f"\nLast {lines} lines of server.log:")
+            print(result.stdout)
+            if result.stderr:
+                print(f"tail stderr: {result.stderr}")
+        except Exception as exc:
+            print(f"Warning: failed to read server.log: {exc}")
+
     def restart_server(self):
         """
         Restart server: execute make server-stop and make server-start
@@ -1926,9 +1992,14 @@ class APITester:
                 if result_stop.stdout:
                     print(f"Output: {result_stop.stdout.strip()}")
             
-            # Wait for server to stop
-            print("Waiting for server to stop...")
-            time.sleep(2)
+            # Wait until the old server has actually released the port. In CI,
+            # uvicorn workers may outlive the parent PID for a short window.
+            print("Waiting for server port to be released...")
+            if not self._wait_for_server_port_release(timeout=20):
+                self._kill_processes_on_server_port()
+                if not self._wait_for_server_port_release(timeout=10):
+                    print("Error: server port is still occupied after stop")
+                    return False
             
             # Execute make server-start
             print(f"Executing: make server-start (in directory: {makefile_dir})")
@@ -1944,6 +2015,7 @@ class APITester:
                 print(f"Warning: make server-start returned non-zero exit code: {result_start.returncode}")
                 if result_start.stderr:
                     print(f"Error message: {result_start.stderr}")
+                self._print_server_log_tail(makefile_dir)
                 return False
             else:
                 print("✓ make server-start executed successfully")
@@ -1970,6 +2042,7 @@ class APITester:
                     print(f"Waiting for server to start... (attempt {attempt + 1}/{max_retries}, error: {e})")
             
             print(f"Error: Server failed to start within {max_retries * retry_interval} seconds")
+            self._print_server_log_tail(makefile_dir)
             print("Please manually check server status")
             return False
             
