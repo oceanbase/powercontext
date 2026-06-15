@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch, Mock
 import pytest
 import uuid
+from powermem.prompts.graph.graph_tools_prompts import GraphToolsPrompts
 from powermem.storage.oceanbase.oceanbase_graph import MemoryGraph
 from powermem.storage.oceanbase import constants
 
@@ -209,6 +210,16 @@ class TestOceanBaseGraph(unittest.TestCase):
         result = self.memory_graph._coerce_tool_response_to_dict(response_invalid)
         self.assertEqual(result, {})
 
+    def test_structured_relations_tool_name_matches_regular_tool(self):
+        """Test structured relation extraction uses the expected tool name."""
+        prompts = GraphToolsPrompts()
+
+        regular_name = prompts.get_relations_tool()["function"]["name"]
+        structured_name = prompts.get_relations_tool(structured=True)["function"]["name"]
+
+        self.assertEqual(regular_name, "establish_relationships")
+        self.assertEqual(structured_name, regular_name)
+
     def test_add_method(self):
         """Test the add method with mocked components."""
         # Mock the necessary methods that add() calls
@@ -271,6 +282,7 @@ class TestOceanBaseGraph(unittest.TestCase):
             self.assertEqual(result[0]["source"], "alice")
             self.assertEqual(result[0]["relationship"], "knows")
             self.assertEqual(result[0]["destination"], "bob")
+            self.assertEqual(result[0]["score"], 0.8)
 
     def test_search_method_empty_results(self):
         """Test the search method with empty results."""
@@ -283,6 +295,69 @@ class TestOceanBaseGraph(unittest.TestCase):
 
         # Check the result
         self.assertEqual(result, [])
+
+    def test_search_graph_db_deduplicates_relations_across_seed_nodes(self):
+        """Test graph search removes duplicate triples from overlapping seeds."""
+        self.mock_embedding_model.embed.side_effect = [[0.1], [0.2]]
+        self.memory_graph._search_node = MagicMock(side_effect=[
+            [{"id": "entity1"}],
+            [{"id": "entity2"}],
+        ])
+        duplicate_relation = {
+            "source": "alice",
+            "relationship": "knows",
+            "destination": "bob",
+        }
+        self.memory_graph._multi_hop_search = MagicMock(side_effect=[
+            [duplicate_relation],
+            [dict(duplicate_relation)],
+        ])
+
+        result = self.memory_graph._search_graph_db(
+            node_list=["alice", "bob"],
+            filters=self.test_filters,
+        )
+
+        self.assertEqual(result, [duplicate_relation])
+
+    def test_retrieve_nodes_includes_noop_tool(self):
+        """Test entity extraction provides noop as an opt-out tool."""
+        extract_tool = {"function": {"name": "extract_entities"}}
+        noop_tool = {"function": {"name": "noop"}}
+        self.mock_graph_tools_prompts.get_extract_entities_tool.return_value = extract_tool
+        self.mock_graph_tools_prompts.get_noop_tool.return_value = noop_tool
+        self.mock_llm.generate_response.return_value = {"tool_calls": []}
+
+        self.memory_graph._retrieve_nodes_from_data("No memory here", self.test_filters)
+
+        self.mock_graph_tools_prompts.get_extract_entities_tool.assert_called_once_with(structured=True)
+        self.mock_graph_tools_prompts.get_noop_tool.assert_called_once_with(structured=True)
+        self.assertEqual(
+            self.mock_llm.generate_response.call_args.kwargs["tools"],
+            [extract_tool, noop_tool],
+        )
+
+    def test_establish_relations_includes_noop_tool(self):
+        """Test relation extraction provides noop as an opt-out tool."""
+        relations_tool = {"function": {"name": "establish_relationships"}}
+        noop_tool = {"function": {"name": "noop"}}
+        self.mock_graph_tools_prompts.get_relations_tool.return_value = relations_tool
+        self.mock_graph_tools_prompts.get_noop_tool.return_value = noop_tool
+        self.mock_llm.generate_response.return_value = {"tool_calls": []}
+
+        result = self.memory_graph._establish_nodes_relations_from_data(
+            "Alice knows Bob",
+            self.test_filters,
+            {"alice": "person", "bob": "person"},
+        )
+
+        self.assertEqual(result, [])
+        self.mock_graph_tools_prompts.get_relations_tool.assert_called_once_with(structured=True)
+        self.mock_graph_tools_prompts.get_noop_tool.assert_called_once_with(structured=True)
+        self.assertEqual(
+            self.mock_llm.generate_response.call_args.kwargs["tools"],
+            [relations_tool, noop_tool],
+        )
 
     def test_get_all_method(self):
         """Test the get_all method."""

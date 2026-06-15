@@ -313,7 +313,7 @@ NOOP_STRUCT_TOOL = {
 RELATIONS_STRUCT_TOOL = {
     "type": "function",
     "function": {
-        "name": "establish_relations",
+        "name": "establish_relationships",
         "description": "Establish relationships among the entities based on the provided text.",
         "strict": True,
         "parameters": {

@@ -536,9 +536,10 @@ class MemoryGraph(GraphStoreBase):
             if idx < len(search_output):
                 item = search_output[idx]
                 search_results.append({
-                    "source": item["source"], 
-                    "relationship": item["relationship"], 
-                    "destination": item["destination"]
+                    "source": item["source"],
+                    "relationship": item["relationship"],
+                    "destination": item["destination"],
+                    "score": float(scores[idx]),
                 })
 
         logger.info("Returned %d search results (from %d candidates)", len(search_results), len(search_output))
@@ -685,9 +686,16 @@ class MemoryGraph(GraphStoreBase):
         Returns:
             Dictionary mapping entity names to entity types.
         """
-        _tools = [self.graph_tools_prompts.get_extract_entities_tool()]
         if constants.is_structured_llm_provider(self.llm_provider):
-            _tools = [self.graph_tools_prompts.get_extract_entities_tool(structured=True)]
+            _tools = [
+                self.graph_tools_prompts.get_extract_entities_tool(structured=True),
+                self.graph_tools_prompts.get_noop_tool(structured=True),
+            ]
+        else:
+            _tools = [
+                self.graph_tools_prompts.get_extract_entities_tool(),
+                self.graph_tools_prompts.get_noop_tool(),
+            ]
 
         search_results = self.llm.generate_response(
             messages=[
@@ -769,9 +777,16 @@ class MemoryGraph(GraphStoreBase):
                 },
             ]
 
-        _tools = [self.graph_tools_prompts.get_relations_tool()]
         if constants.is_structured_llm_provider(self.llm_provider):
-            _tools = [self.graph_tools_prompts.get_relations_tool(structured=True)]
+            _tools = [
+                self.graph_tools_prompts.get_relations_tool(structured=True),
+                self.graph_tools_prompts.get_noop_tool(structured=True),
+            ]
+        else:
+            _tools = [
+                self.graph_tools_prompts.get_relations_tool(),
+                self.graph_tools_prompts.get_noop_tool(),
+            ]
 
         extracted_entities = self.llm.generate_response(
             messages=messages,
@@ -814,6 +829,7 @@ class MemoryGraph(GraphStoreBase):
             List of dictionaries containing source, relationship, destination and their IDs.
         """
         result_relations = []
+        seen_relations = set()
 
         for node in node_list:
             n_embedding = self.embedding_model.embed(node)
@@ -831,7 +847,16 @@ class MemoryGraph(GraphStoreBase):
 
             # Use multi-hop search with early stopping
             multi_hop_results = self._multi_hop_search(entity_ids, filters, limit)
-            result_relations.extend(multi_hop_results)
+            for relation in multi_hop_results:
+                relation_key = (
+                    relation.get("source"),
+                    relation.get("relationship"),
+                    relation.get("destination"),
+                )
+                if relation_key in seen_relations:
+                    continue
+                seen_relations.add(relation_key)
+                result_relations.append(relation)
 
         return result_relations
 
