@@ -40,6 +40,32 @@ def _json_path_for_key(key: str) -> str:
     return path
 
 
+def _check_sqlite_features(conn) -> None:
+    """Verify FTS5 and JSON1 are compiled into the SQLite library.
+
+    A version number alone is not sufficient — distributions sometimes ship
+    SQLite >= 3.9 without FTS5 or JSON1.  This probe actually exercises both
+    features so the error is raised immediately rather than on first use.
+    """
+    try:
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS _pm_fts5_probe USING fts5(x)"
+        )
+        conn.execute("DROP TABLE IF EXISTS _pm_fts5_probe")
+    except Exception as exc:
+        raise RuntimeError(
+            f"SQLite FTS5 extension not available: {exc}. "
+            "Install pysqlite3-binary or set DATABASE_PROVIDER=oceanbase."
+        ) from exc
+    try:
+        conn.execute("SELECT json_extract('{}', '$')")
+    except Exception as exc:
+        raise RuntimeError(
+            f"SQLite JSON1 extension not available: {exc}. "
+            "Install pysqlite3-binary or set DATABASE_PROVIDER=oceanbase."
+        ) from exc
+
+
 def _extract_fulltext_content(payload: dict) -> str:
     """Extract text content from payload for FTS indexing.
 
@@ -70,13 +96,6 @@ class SQLiteVectorStore(VectorStoreBase):
             enable_wal: Enable WAL journal mode for concurrent read/write
             timeout: Connection timeout in seconds
         """
-        if sqlite3.sqlite_version_info < (3, 9, 0):
-            raise RuntimeError(
-                f"SQLite >= 3.9.0 required (FTS5 + JSON1), "
-                f"found {sqlite3.sqlite_version}. "
-                "Install pysqlite3-binary or set DATABASE_PROVIDER=oceanbase."
-            )
-
         self.db_path = database_path
         self.collection_name = collection_name
         self.connection = None
@@ -99,6 +118,7 @@ class SQLiteVectorStore(VectorStoreBase):
                                               timeout=timeout)
             if enable_wal and database_path != ":memory:":
                 self.connection.execute("PRAGMA journal_mode=WAL")
+            _check_sqlite_features(self.connection)
         except Exception as e:
             logger.error(f"Failed to connect to SQLite database at {database_path}: {e}")
             raise

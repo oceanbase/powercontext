@@ -249,11 +249,23 @@ if missing:
         print("Run init again with these environment variables set.", file=sys.stderr)
         sys.exit(2)
 
-embedding_provider = env_first("POWERMEM_INIT_EMBEDDING_PROVIDER", "EMBEDDING_PROVIDER") or "default"
+VALID_PROVIDERS = {"sqlite", "oceanbase"}
+db_provider = (env_first("POWERMEM_INIT_DATABASE_PROVIDER") or "sqlite").lower()
+if db_provider not in VALID_PROVIDERS:
+    print(f"Warning: unknown DATABASE_PROVIDER '{db_provider}', falling back to sqlite",
+          file=sys.stderr)
+    db_provider = "sqlite"
+
+# For the SQLite path, use huggingface (sentence-transformers, local, no API key)
+# instead of `default` which requires the seekdb extra.  OceanBase keeps `default`.
+_embedding_fallback = "huggingface" if db_provider == "sqlite" else "default"
+
+embedding_provider = env_first("POWERMEM_INIT_EMBEDDING_PROVIDER", "EMBEDDING_PROVIDER") or _embedding_fallback
 embedding_provider = embedding_provider.lower()
 
 embedding_model_defaults = {
     "default": "all-MiniLM-L6-v2",
+    "huggingface": "all-MiniLM-L6-v2",
     "qwen": "text-embedding-v4",
     "openai": "text-embedding-3-small",
     "siliconflow": "BAAI/bge-m3",
@@ -262,6 +274,7 @@ embedding_model_defaults = {
 }
 embedding_dim_defaults = {
     "default": "384",
+    "huggingface": "384",
     "qwen": "1536",
     "openai": "1536",
     "siliconflow": "1024",
@@ -285,7 +298,7 @@ if not embedding_api_key:
     elif embedding_provider == "siliconflow":
         embedding_api_key = env_first("SILICONFLOW_API_KEY") or settings_first(settings_env, "SILICONFLOW_API_KEY")
 
-if embedding_provider not in {"default", "ollama", "lmstudio"} and not embedding_api_key:
+if embedding_provider not in {"default", "huggingface", "ollama", "lmstudio"} and not embedding_api_key:
     print(
         "Missing configuration: POWERMEM_INIT_EMBEDDING_API_KEY "
         f"for EMBEDDING_PROVIDER={embedding_provider}",
@@ -298,13 +311,6 @@ server_host = env_first("POWERMEM_SERVER_HOST") or "127.0.0.1"
 server_workers = env_first("POWERMEM_SERVER_WORKERS") or "1"
 server_log_file = env_first("POWERMEM_SERVER_LOG_FILE") or path_value("powermem-server.log")
 logging_level = env_first("LOGGING_LEVEL") or "INFO"
-
-VALID_PROVIDERS = {"sqlite", "oceanbase"}
-db_provider = (env_first("POWERMEM_INIT_DATABASE_PROVIDER") or "sqlite").lower()
-if db_provider not in VALID_PROVIDERS:
-    print(f"Warning: unknown DATABASE_PROVIDER '{db_provider}', falling back to sqlite",
-          file=sys.stderr)
-    db_provider = "sqlite"
 
 if db_provider == "sqlite":
     db_lines = [
@@ -373,6 +379,11 @@ lines.extend(
 )
 if embedding_api_key:
     lines.append(f"EMBEDDING_API_KEY={embedding_api_key}")
+if embedding_provider == "huggingface":
+    # sentence-transformers contacts huggingface.co even when the model is
+    # cached.  Set offline mode so startup is instant and works behind GFW.
+    # The model must be pre-downloaded (run preload-model.sh first).
+    lines.append("HF_HUB_OFFLINE=1")
 
 embedding_base_override = env_first("POWERMEM_INIT_EMBEDDING_BASE_URL", "EMBEDDING_BASE_URL")
 embedding_base_keys = {
@@ -638,7 +649,7 @@ if [ ! -x "$(venv_powermem_server)" ]; then
   db_provider="${db_provider:-sqlite}"
   case "$db_provider" in
     oceanbase) PACKAGE="${POWERMEM_INIT_PACKAGE:-powermem[server,seekdb]}" ;;
-    *)         PACKAGE="${POWERMEM_INIT_PACKAGE:-powermem[server]}" ;;
+    *)         PACKAGE="${POWERMEM_INIT_PACKAGE:-powermem[server,extras]}" ;;
   esac
   echo "Installing $PACKAGE (db_provider=$db_provider)"
   pip_install "$PACKAGE"
@@ -667,7 +678,13 @@ if [ "${POWERMEM_INIT_PRELOAD_MODEL:-0}" = "1" ] || [ "${POWERMEM_INIT_PRELOAD_M
   configure_pip_index
   sh "$SCRIPT_DIR/preload-model.sh" "$PYTHON"
 else
-  echo "Skipping model preload. Set POWERMEM_INIT_PRELOAD_MODEL=1 to download via ModelScope and bridge to HuggingFace cache."
+  _emb_prov=$(grep '^EMBEDDING_PROVIDER=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+  if [ "${_emb_prov:-}" = "huggingface" ]; then
+    echo "WARNING: EMBEDDING_PROVIDER=huggingface requires the model to be cached locally (HF_HUB_OFFLINE=1 is set in .env)."
+    echo "         Run with POWERMEM_INIT_PRELOAD_MODEL=1 to download all-MiniLM-L6-v2 via ModelScope."
+  else
+    echo "Skipping model preload. Set POWERMEM_INIT_PRELOAD_MODEL=1 to download via ModelScope and bridge to HuggingFace cache."
+  fi
 fi
 
 if pid_alive; then

@@ -77,8 +77,9 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
    `~/.claude/settings.json` using the same Anthropic keys. It writes the
    plugin-local `.env` with the full PowerMem backend defaults: SQLite storage
    (default for coding agent; set `POWERMEM_INIT_DATABASE_PROVIDER=oceanbase` for
-   OceanBase/seekdb production use), local default embedding, server settings, and
-   logging settings.
+   OceanBase/seekdb production use), local HuggingFace embedding (no API key,
+   `sentence-transformers` from `powermem[extras]`), server settings, and logging
+   settings.
 4. If init reports missing values, ask the user only for those missing values. Do
    not invent credentials. Re-run init with the matching environment variables:
 
