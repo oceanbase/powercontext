@@ -269,6 +269,8 @@ SERVER_HOST := $(or $(ENV_SERVER_HOST),0.0.0.0)
 SERVER_PORT := $(or $(ENV_SERVER_PORT),8848)
 SERVER_WORKERS := $(or $(ENV_SERVER_WORKERS),4)
 SERVER_BROWSER_ARGS ?=
+SERVER_PORT_LISTEN_PIDS = lsof -nP -t -iTCP:$(SERVER_PORT) -sTCP:LISTEN 2>/dev/null || true
+SERVER_PORT_BIND_CHECK = $(PYTHON) -c 'import socket, sys; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("0.0.0.0", int(sys.argv[1]))); s.close()' $(SERVER_PORT)
 
 server-start: ## Start the PowerMem API server
 	@echo "Starting PowerMem API server..."
@@ -277,9 +279,26 @@ server-start: ## Start the PowerMem API server
 		echo "Use 'make server-stop' to stop it first, or 'make server-restart' to restart"; \
 		exit 1; \
 	fi
-	@powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --workers $(SERVER_WORKERS) $(SERVER_BROWSER_ARGS) >> server.log 2>&1 & \
-	echo $$! > $(SERVER_PID_FILE); \
-	echo "Server started with PID: $$!"; \
+	@PORT_PID=$$($(SERVER_PORT_LISTEN_PIDS)); \
+	if [ -n "$$PORT_PID" ]; then \
+		echo "Port $(SERVER_PORT) is already in use by PID(s): $$PORT_PID"; \
+		exit 1; \
+	fi; \
+	if ! $(SERVER_PORT_BIND_CHECK) >/dev/null 2>&1; then \
+		echo "Port $(SERVER_PORT) is not available for binding"; \
+		exit 1; \
+	fi; \
+	powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --workers $(SERVER_WORKERS) $(SERVER_BROWSER_ARGS) >> server.log 2>&1 & \
+	PID=$$!; \
+	echo $$PID > $(SERVER_PID_FILE); \
+	sleep 1; \
+	if ! kill -0 $$PID 2>/dev/null; then \
+		echo "Server process exited during startup. Last 80 lines of server.log:"; \
+		tail -n 80 server.log 2>/dev/null || true; \
+		rm -f $(SERVER_PID_FILE); \
+		exit 1; \
+	fi; \
+	echo "Server started with PID: $$PID"; \
 	echo "Server running at http://$(SERVER_HOST):$(SERVER_PORT)"; \
 	echo "API docs available at http://$(SERVER_HOST):$(SERVER_PORT)/docs"; \
 	echo "Process output is appended to server.log"; \
@@ -293,9 +312,26 @@ server-start-reload: ## Start the PowerMem API server with auto-reload (developm
 		echo "Use 'make server-stop' to stop it first"; \
 		exit 1; \
 	fi
-	@powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --reload $(SERVER_BROWSER_ARGS) >> server.log 2>&1 & \
-	echo $$! > $(SERVER_PID_FILE); \
-	echo "Server started with PID: $$! (auto-reload enabled)"; \
+	@PORT_PID=$$($(SERVER_PORT_LISTEN_PIDS)); \
+	if [ -n "$$PORT_PID" ]; then \
+		echo "Port $(SERVER_PORT) is already in use by PID(s): $$PORT_PID"; \
+		exit 1; \
+	fi; \
+	if ! $(SERVER_PORT_BIND_CHECK) >/dev/null 2>&1; then \
+		echo "Port $(SERVER_PORT) is not available for binding"; \
+		exit 1; \
+	fi; \
+	powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --reload $(SERVER_BROWSER_ARGS) >> server.log 2>&1 & \
+	PID=$$!; \
+	echo $$PID > $(SERVER_PID_FILE); \
+	sleep 1; \
+	if ! kill -0 $$PID 2>/dev/null; then \
+		echo "Server process exited during startup. Last 80 lines of server.log:"; \
+		tail -n 80 server.log 2>/dev/null || true; \
+		rm -f $(SERVER_PID_FILE); \
+		exit 1; \
+	fi; \
+	echo "Server started with PID: $$PID (auto-reload enabled)"; \
 	echo "Server running at http://$(SERVER_HOST):$(SERVER_PORT)"; \
 	echo "API docs available at http://$(SERVER_HOST):$(SERVER_PORT)/docs"; \
 	echo "Process output is appended to server.log"; \
@@ -303,45 +339,59 @@ server-start-reload: ## Start the PowerMem API server with auto-reload (developm
 	echo "Use 'make server-stop' to stop the server"
 
 server-stop: ## Stop the PowerMem API server
-	@if [ ! -f $(SERVER_PID_FILE) ]; then \
-		echo "Server PID file not found. Checking for running processes..."; \
-		PID=$$(lsof -t -i:$(SERVER_PORT) 2>/dev/null || echo ""); \
-		if [ -z "$$PID" ]; then \
-			echo "No server process found on port $(SERVER_PORT)"; \
-			exit 0; \
-		else \
-			echo "Found process $$PID on port $(SERVER_PORT), stopping..."; \
-			kill $$PID 2>/dev/null || kill -9 $$PID 2>/dev/null; \
-			echo "Server stopped"; \
-			exit 0; \
-		fi; \
-	fi
-	@PID=$$(cat $(SERVER_PID_FILE) 2>/dev/null || echo ""); \
-	if [ -z "$$PID" ]; then \
-		echo "PID file exists but is empty"; \
-		rm -f $(SERVER_PID_FILE); \
-		exit 0; \
-	fi; \
-	if ps -p $$PID > /dev/null 2>&1; then \
+	@PID=$$(cat $(SERVER_PID_FILE) 2>/dev/null || true); \
+	if [ -n "$$PID" ] && ps -p $$PID > /dev/null 2>&1; then \
 		echo "Stopping server (PID: $$PID)..."; \
-		kill $$PID 2>/dev/null || kill -9 $$PID 2>/dev/null; \
-		sleep 1; \
-		if ps -p $$PID > /dev/null 2>&1; then \
-			echo "Force killing server (PID: $$PID)..."; \
-			kill -9 $$PID 2>/dev/null; \
-		fi; \
-		echo "Server stopped"; \
+		kill $$PID 2>/dev/null || true; \
 	else \
-		echo "Server process (PID: $$PID) not found (stale PID), cleaning up PID file"; \
-		PORT_PID=$$(lsof -t -i:$(SERVER_PORT) 2>/dev/null || echo ""); \
-		if [ -n "$$PORT_PID" ]; then \
-			echo "Found process $$PORT_PID on port $(SERVER_PORT), stopping it..."; \
-			kill $$PORT_PID 2>/dev/null || kill -9 $$PORT_PID 2>/dev/null; \
-			echo "Port $(SERVER_PORT) cleared"; \
+		if [ -f $(SERVER_PID_FILE) ]; then \
+			echo "Server process not found from PID file, checking port $(SERVER_PORT)..."; \
+		else \
+			echo "Server PID file not found. Checking port $(SERVER_PORT)..."; \
 		fi; \
 	fi; \
 	rm -f $(SERVER_PID_FILE); \
-	echo "✓ Server stopped"
+	for attempt in 1 2 3 4 5 6 7 8 9 10; do \
+		PID_ALIVE=0; \
+		if [ -n "$$PID" ] && ps -p $$PID > /dev/null 2>&1; then \
+			PID_ALIVE=1; \
+		fi; \
+		PORT_PID=$$($(SERVER_PORT_LISTEN_PIDS)); \
+		if [ -z "$$PORT_PID" ] && $(SERVER_PORT_BIND_CHECK) >/dev/null 2>&1; then \
+			echo "✓ Server stopped"; \
+			exit 0; \
+		fi; \
+		if [ "$$attempt" = "1" ] && [ -n "$$PORT_PID" ]; then \
+			echo "Found process(es) on port $(SERVER_PORT), stopping: $$PORT_PID"; \
+			kill $$PORT_PID 2>/dev/null || true; \
+		fi; \
+		if [ "$$attempt" = "10" ]; then \
+			if [ "$$PID_ALIVE" = "1" ]; then \
+				echo "Force killing server (PID: $$PID)..."; \
+				kill -9 $$PID 2>/dev/null || true; \
+			fi; \
+			if [ -n "$$PORT_PID" ]; then \
+				echo "Force killing process(es) on port $(SERVER_PORT): $$PORT_PID"; \
+				kill -9 $$PORT_PID 2>/dev/null || true; \
+			fi; \
+		fi; \
+		sleep 1; \
+	done; \
+	PORT_PID=$$($(SERVER_PORT_LISTEN_PIDS)); \
+	if [ -n "$$PORT_PID" ]; then \
+		echo "Force killing process(es) on port $(SERVER_PORT): $$PORT_PID"; \
+		kill -9 $$PORT_PID 2>/dev/null || true; \
+	fi; \
+	for attempt in 1 2 3 4 5; do \
+		PORT_PID=$$($(SERVER_PORT_LISTEN_PIDS)); \
+		if [ -z "$$PORT_PID" ] && $(SERVER_PORT_BIND_CHECK) >/dev/null 2>&1; then \
+			echo "✓ Server stopped"; \
+			exit 0; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "Error: port $(SERVER_PORT) is still occupied after server-stop"; \
+	exit 1
 
 server-restart: server-stop server-start ## Restart the PowerMem API server
 	@echo "✓ Server restarted"

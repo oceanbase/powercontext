@@ -1891,25 +1891,92 @@ class APITester:
 
     def _server_port_accepts_connections(self) -> bool:
         host, port = self._server_host_port()
+        targets = []
+
         try:
-            with socket.create_connection((host, port), timeout=1):
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            targets.extend((family, socktype, proto, sockaddr) for family, socktype, proto, _, sockaddr in infos)
+        except OSError as exc:
+            print(f"Warning: unable to resolve server host {host!r}: {exc}")
+
+        if host in {"localhost", "0.0.0.0", "::"}:
+            for loopback_host in ("127.0.0.1", "::1"):
+                try:
+                    infos = socket.getaddrinfo(loopback_host, port, type=socket.SOCK_STREAM)
+                    targets.extend((family, socktype, proto, sockaddr) for family, socktype, proto, _, sockaddr in infos)
+                except OSError:
+                    pass
+
+        seen = set()
+        for family, socktype, proto, sockaddr in targets:
+            key = (family, sockaddr)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                with socket.socket(family, socktype, proto) as sock:
+                    sock.settimeout(1)
+                    sock.connect(sockaddr)
+                    return True
+            except OSError:
+                continue
+
+        return False
+
+    def _server_port_has_listener(self) -> bool:
+        _, port = self._server_host_port()
+        try:
+            result = subprocess.run(
+                ["lsof", "-nP", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except FileNotFoundError:
+            return self._server_port_accepts_connections()
+        except subprocess.TimeoutExpired as exc:
+            print(f"Warning: timed out inspecting port {port}: {exc}")
+            return self._server_port_accepts_connections()
+
+        if result.returncode == 0:
+            return bool(result.stdout.strip())
+        if result.returncode == 1:
+            return False
+
+        print(f"Warning: lsof returned {result.returncode} while inspecting port {port}: {result.stderr.strip()}")
+        return self._server_port_accepts_connections()
+
+    def _server_port_can_bind(self) -> bool:
+        host, port = self._server_host_port()
+        bind_host = "0.0.0.0" if host in {"localhost", "127.0.0.1", "0.0.0.0"} else host
+        family = socket.AF_INET6 if ":" in bind_host else socket.AF_INET
+
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if family == socket.AF_INET6 and hasattr(socket, "IPV6_V6ONLY"):
+                    sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                sock.bind((bind_host, port))
                 return True
         except OSError:
             return False
 
+    def _server_port_is_released(self) -> bool:
+        return not self._server_port_has_listener() and self._server_port_can_bind()
+
     def _wait_for_server_port_release(self, timeout: int = 20) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if not self._server_port_accepts_connections():
+            if self._server_port_is_released():
                 return True
             time.sleep(0.5)
-        return not self._server_port_accepts_connections()
+        return self._server_port_is_released()
 
     def _kill_processes_on_server_port(self):
         _, port = self._server_host_port()
         try:
             result = subprocess.run(
-                ["lsof", "-t", f"-i:{port}"],
+                ["lsof", "-nP", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
                 capture_output=True,
                 text=True,
                 timeout=5,

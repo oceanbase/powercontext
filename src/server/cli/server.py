@@ -190,6 +190,9 @@ def _assert_bind_available(host: str, port: int) -> None:
     for family, socktype, proto, _canonname, sockaddr in addresses:
         probe = socket.socket(family, socktype, proto)
         try:
+            # Match uvicorn/asyncio TCP bind behavior so restart probes do not
+            # reject ports that are only held by reusable TCP shutdown state.
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             probe.bind(sockaddr)
         except OSError as exc:
             if _is_address_in_use(exc):

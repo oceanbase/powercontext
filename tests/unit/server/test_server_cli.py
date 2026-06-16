@@ -192,6 +192,65 @@ def test_assert_bind_available_rejects_occupied_port():
     assert "choose another --port" in str(exc_info.value)
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="Windows has different TCP port reuse semantics",
+)
+def test_assert_bind_available_allows_reusable_shutdown_state():
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    port = listener.getsockname()[1]
+    client = socket.create_connection(("127.0.0.1", port))
+    accepted, _address = listener.accept()
+
+    accepted.close()
+    client.close()
+    listener.close()
+
+    server_cli._assert_bind_available("127.0.0.1", port)
+
+
+def test_assert_bind_available_matches_uvicorn_reuseaddr(monkeypatch):
+    calls = []
+
+    class ProbeSocket:
+        def setsockopt(self, level, option, value):
+            calls.append(("setsockopt", level, option, value))
+
+        def bind(self, sockaddr):
+            calls.append(("bind", sockaddr))
+
+        def close(self):
+            calls.append(("close",))
+
+    monkeypatch.setattr(
+        server_cli.socket,
+        "getaddrinfo",
+        Mock(
+            return_value=[
+                (
+                    socket.AF_INET,
+                    socket.SOCK_STREAM,
+                    6,
+                    "",
+                    ("0.0.0.0", 8848),
+                )
+            ]
+        ),
+    )
+    monkeypatch.setattr(server_cli.socket, "socket", Mock(return_value=ProbeSocket()))
+
+    server_cli._assert_bind_available("0.0.0.0", 8848)
+
+    assert calls == [
+        ("setsockopt", socket.SOL_SOCKET, socket.SO_REUSEADDR, 1),
+        ("bind", ("0.0.0.0", 8848)),
+        ("close",),
+    ]
+
+
 def test_cli_starts_one_browser_waiter_with_reload_and_workers(monkeypatch):
     runner = CliRunner()
     bind_available = Mock()
