@@ -635,11 +635,8 @@ export_env_file_vars "$ENV_FILE"
 echo "Backend package: $PACKAGE"
 echo "Backend launcher: uvx --from '$PACKAGE' powermem-server"
 
-if [ "${POWERMEM_INIT_PRELOAD_MODEL:-0}" = "1" ] || [ "${POWERMEM_INIT_PRELOAD_MODEL:-}" = "true" ]; then
-  echo "Preloading default local embedding model through uvx."
-  sh "$SCRIPT_DIR/preload-model.sh" "$BOOTSTRAP_PYTHON"
-else
-  echo "Skipping model preload. Set POWERMEM_INIT_PRELOAD_MODEL=1 to download via ModelScope and bridge to HuggingFace cache."
+if [ -n "${POWERMEM_INIT_PRELOAD_MODEL:-}" ]; then
+  echo "POWERMEM_INIT_PRELOAD_MODEL is deprecated; the embedding model is now downloaded automatically by PowerMem at startup."
 fi
 
 if [ -n "${POWERMEM_INIT_PORT:-}" ]; then
