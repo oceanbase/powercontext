@@ -292,5 +292,19 @@ class PyseekdbDefaultEmbeddingConfig(BaseEmbedderConfig):
     embedding_dims: Optional[int] = Field(default=384)
 
 
+class NoopEmbeddingConfig(BaseEmbedderConfig):
+    """Configuration for the disabled embedding provider (EMBEDDING_PROVIDER=none)."""
+
+    _provider_name = "none"
+    _class_path = "powermem.integrations.embeddings.noop.NoopEmbedding"
+
+    model_config = settings_config("EMBEDDING_", extra="allow", env_file=None)
+
+    model: Optional[str] = Field(
+        default="none",
+        description="Placeholder model name used when embedding is disabled.",
+    )
+
+
 class CustomEmbeddingConfig(BaseEmbedderConfig):
     model_config = settings_config("EMBEDDING_", extra="allow", env_file=None)
