@@ -163,3 +163,27 @@ def test_adapter_skips_embed_call_when_noop(tmp_path):
     })
 
     noop_embedder.embed.assert_not_called()
+
+
+def test_adapter_falls_back_to_mock_vector_when_precomputed_embedding_is_empty():
+    """When memory_data carries embedding=[] (returned by NoopEmbedding), adapter
+    must fall back to mock vector instead of passing vector_size=0 to the store."""
+    from powermem.storage.adapter import StorageAdapter
+
+    mock_store = MagicMock()
+    mock_store.collection_name = "test"
+    mock_store.insert.return_value = [1]
+
+    adapter = StorageAdapter(mock_store, embedding_service=None)
+    adapter.add_memory({
+        "content": "test memory",
+        "embedding": [],  # empty vector from NoopEmbedding
+        "user_id": "u1",
+        "agent_id": "",
+        "run_id": "",
+    })
+
+    # insert([vector], [payload]) must have been called with non-empty vector
+    mock_store.insert.assert_called_once()
+    stored_vector = mock_store.insert.call_args[0][0][0]
+    assert len(stored_vector) > 0, "adapter must not store a zero-length vector"

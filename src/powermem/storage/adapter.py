@@ -104,8 +104,8 @@ class StorageAdapter:
         # Check if embedding is already provided (preferred way)
         vector = memory_data.get("embedding")
 
-        if vector is None:
-            # No embedding provided, generate using embedding service
+        if not vector:
+            # No embedding provided (or noop returned []), generate using embedding service
             if self.embedding_service and not getattr(self.embedding_service, "is_noop", False):
                 try:
                     vector = self.embedding_service.embed(content, memory_action="add")
