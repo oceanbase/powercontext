@@ -174,7 +174,7 @@ class DependencyStatus(BaseModel):
     """Response model for dependency health status"""
     
     name: str = Field(..., description="Dependency name")
-    status: str = Field(..., description="Health status: healthy | degraded | unavailable")
+    status: str = Field(..., description="Health status: healthy | degraded | unavailable | disabled")
     latency_ms: Optional[float] = Field(None, description="Connection latency in milliseconds")
     error_message: Optional[str] = Field(None, description="Error message if unhealthy")
     last_checked: datetime = Field(default_factory=get_current_datetime, description="Last check timestamp")

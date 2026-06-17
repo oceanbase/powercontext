@@ -96,6 +96,13 @@ class UserMemory:
         
         logger.info("UserMemory initialized")
 
+    def _is_llm_disabled(self) -> bool:
+        """Return True when profile extraction should not call an LLM."""
+        return (
+            getattr(self.memory.llm, "is_noop", False) is True
+            or self.memory.llm_provider == "noop"
+        )
+
     def _filter_messages_by_roles(
         self,
         messages: Any,
@@ -223,6 +230,12 @@ class UserMemory:
             
             # Step 2: Extract profile information
             logger.info(f"Step 2: Extracting profile information for user_id: {user_id}, profile_type: {profile_type}")
+
+            if self._is_llm_disabled():
+                logger.info("LLM is disabled; skipping user profile extraction.")
+                result = memory_result.copy()
+                result["profile_extracted"] = False
+                return result
 
             # Filter messages by roles for profile extraction
             filtered_messages = self._filter_messages_by_roles(
@@ -775,4 +788,3 @@ class UserMemory:
         except Exception as e:
             logger.error(f"Failed to delete profile for user_id: {user_id}: {e}")
             raise
-

@@ -7,6 +7,7 @@ from powermem.integrations.llm.config.base import BaseLLMConfig
 from powermem.integrations.llm.config.deepseek import DeepSeekConfig
 from powermem.integrations.llm.config.gemini import GeminiConfig
 from powermem.integrations.llm.config.langchain import LangchainConfig
+from powermem.integrations.llm.config.noop import NoopConfig
 from powermem.integrations.llm.config.ollama import OllamaConfig
 from powermem.integrations.llm.config.openai import OpenAIConfig
 from powermem.integrations.llm.config.openai_structured import OpenAIStructuredConfig

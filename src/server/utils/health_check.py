@@ -82,6 +82,14 @@ async def check_llm() -> DependencyStatus:
                 error_message="LLM provider not configured",
                 last_checked=datetime.utcnow(),
             )
+
+        if str(llm_provider).lower() == "noop":
+            return DependencyStatus(
+                name="llm",
+                status="disabled",
+                error_message="LLM features are disabled by configuration",
+                last_checked=datetime.utcnow(),
+            )
         
         # For now, just check if LLM is configured
         # In the future, could make a test API call

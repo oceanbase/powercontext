@@ -205,26 +205,49 @@ if not base_url and not auth_token:
 base_url = base_url.strip()
 
 missing = []
+llm_credentials_missing = False
 if not provider:
     missing.append("POWERMEM_INIT_LLM_PROVIDER")
+    llm_credentials_missing = True
 if not model:
     missing.append("POWERMEM_INIT_LLM_MODEL")
 if provider not in {"ollama", "vllm"}:
     if provider == "anthropic":
         if not auth_token and not api_key:
+            llm_credentials_missing = True
             missing.append(
                 "ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL, "
                 "ANTHROPIC_API_KEY, or POWERMEM_INIT_LLM_API_KEY"
             )
         if auth_token and not base_url:
+            llm_credentials_missing = True
             missing.append("ANTHROPIC_BASE_URL or POWERMEM_INIT_LLM_BASE_URL")
     elif not api_key:
+        llm_credentials_missing = True
         missing.append("POWERMEM_INIT_LLM_API_KEY or LLM_API_KEY")
 
 if missing:
-    print("Missing configuration: " + ", ".join(missing), file=sys.stderr)
-    print("Run init again with these environment variables set.", file=sys.stderr)
-    sys.exit(2)
+    if llm_credentials_missing:
+        print("No complete LLM configuration found: " + ", ".join(missing))
+        print(
+            "PowerMem will run in no-LLM mode. Basic memory add/search/update/delete "
+            "will work, while fact extraction, profile extraction, query rewrite, "
+            "compression, and graph extraction will be skipped."
+        )
+        provider = "noop"
+        provider_source = "fallback:no complete LLM config"
+        model = "noop"
+        model_source = "fallback:no complete LLM config"
+        api_key = ""
+        api_key_source = ""
+        auth_token = ""
+        auth_token_source = ""
+        base_url = ""
+        base_url_source = ""
+    else:
+        print("Missing configuration: " + ", ".join(missing), file=sys.stderr)
+        print("Run init again with these environment variables set.", file=sys.stderr)
+        sys.exit(2)
 
 embedding_provider = env_first("POWERMEM_INIT_EMBEDDING_PROVIDER", "EMBEDDING_PROVIDER") or "default"
 embedding_provider = embedding_provider.lower()
@@ -438,6 +461,10 @@ if provider == 'anthropic':
             file=sys.stderr,
         )
         sys.exit(1)
+
+if provider == 'noop':
+    print("LLM validation skipped: no-LLM mode is enabled.")
+    sys.exit(0)
 
 if provider in {'ollama', 'vllm'} or not (api_key or auth_token):
     sys.exit(0)

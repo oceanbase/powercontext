@@ -39,7 +39,7 @@ class ScopeController(AgentScopeManagerBase):
         
         # Extract llm config as dict (handle both ConfigObject and dict)
         try:
-            llm_provider = config.llm.provider if hasattr(config, 'llm') else 'mock'
+            llm_provider = config.llm.provider if hasattr(config, 'llm') else 'noop'
             llm_config_obj = config.llm.config if hasattr(config, 'llm') else {}
             
             # Convert to dict if ConfigObject
@@ -49,7 +49,7 @@ class ScopeController(AgentScopeManagerBase):
                 llm_config = dict(llm_config_obj) if llm_config_obj else {}
         except Exception as e:
             logger.warning(f"Failed to extract LLM config: {e}")
-            llm_provider = 'mock'
+            llm_provider = 'noop'
             llm_config = {}
         
         self.llm = LLMFactory.create(llm_provider, llm_config)
@@ -163,6 +163,29 @@ class ScopeController(AgentScopeManagerBase):
                 }
             }
     
+    def _default_scope(self) -> MemoryScope:
+        default_scope = self.multi_agent_config.default_scope
+        if isinstance(default_scope, MemoryScope):
+            return default_scope
+
+        default_scope_str = str(default_scope).upper()
+        fallback_mapping = {
+            'PRIVATE': MemoryScope.PRIVATE,
+            'PUBLIC': MemoryScope.PUBLIC,
+            'AGENT_GROUP': MemoryScope.AGENT_GROUP,
+            'AGENT': MemoryScope.AGENT_GROUP,
+            'USER_GROUP': MemoryScope.USER_GROUP,
+            'USER': MemoryScope.USER_GROUP,
+            'RESTRICTED': MemoryScope.RESTRICTED,
+        }
+        if default_scope_str in fallback_mapping:
+            return fallback_mapping[default_scope_str]
+
+        try:
+            return MemoryScope(str(default_scope).lower())
+        except ValueError:
+            return MemoryScope.PRIVATE
+
     def determine_scope(
         self,
         agent_id: str,
@@ -181,6 +204,10 @@ class ScopeController(AgentScopeManagerBase):
             Determined memory scope
         """
         try:
+            if getattr(self.llm, "is_noop", False) is True:
+                logger.debug("LLM is disabled; using default memory scope.")
+                return self._default_scope()
+
             # Extract content from metadata if available
             content = metadata.get('content', '') if metadata else ''
             

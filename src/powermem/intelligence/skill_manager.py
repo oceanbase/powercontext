@@ -42,6 +42,10 @@ class SkillManager:
         if user_content is None:
             return []
 
+        if getattr(self.llm, "is_noop", False) is True:
+            logger.debug("LLM is disabled; skipping skill distillation")
+            return []
+
         try:
             response = self.llm.generate_response(
                 messages=[
@@ -64,6 +68,10 @@ class SkillManager:
 
         user_content = self._build_distill_input(messages)
         if user_content is None:
+            return []
+
+        if getattr(self.llm, "is_noop", False) is True:
+            logger.debug("LLM is disabled; skipping skill distillation")
             return []
 
         try:
@@ -89,6 +97,10 @@ class SkillManager:
             or ``{"action": "skip"}``.
             Falls back to ``{"action": "skip"}`` on failure.
         """
+        if getattr(self.llm, "is_noop", False) is True:
+            logger.debug("LLM is disabled; skipping skill merge")
+            return {"action": "skip"}
+
         try:
             response = self.llm.generate_response(
                 messages=[
@@ -104,6 +116,10 @@ class SkillManager:
     async def amerge(self, existing: str, new: str) -> Dict[str, Any]:
         """Async variant of :meth:`merge`."""
         import asyncio
+
+        if getattr(self.llm, "is_noop", False) is True:
+            logger.debug("LLM is disabled; skipping skill merge")
+            return {"action": "skip"}
 
         try:
             response = await asyncio.to_thread(

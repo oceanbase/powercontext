@@ -188,6 +188,10 @@ class MemoryOptimizer:
             "errors": 0
         }
 
+        if getattr(self.llm, "is_noop", False) is True:
+            logger.info("LLM is disabled; skipping memory compression.")
+            return stats
+
         try:
             # 1. Fetch memories
             memories = self.storage.get_all_memories(user_id=user_id, limit=1000)

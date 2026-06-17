@@ -16,6 +16,7 @@ from powermem.integrations.embeddings.config.base import BaseEmbedderConfig
 from powermem.integrations.embeddings.config.providers import CustomEmbeddingConfig
 from powermem.integrations.embeddings.config.sparse_base import BaseSparseEmbedderConfig
 from powermem.integrations.llm.config.base import BaseLLMConfig
+from powermem.integrations.llm.config.noop import NoopConfig  # noqa: F401 - register noop provider
 from powermem.settings import _DEFAULT_ENV_FILE, settings_config
 from powermem.utils.utils import detect_system_timezone
 
@@ -219,7 +220,12 @@ class LLMSettings(_BasePowermemSettings):
         # Determine model name
         llm_model = self.model
         if llm_model is None:
-            llm_model = "qwen-plus" if llm_provider == "qwen" else "gpt-4o-mini"
+            if llm_provider == "qwen":
+                llm_model = "qwen-plus"
+            elif llm_provider == "noop":
+                llm_model = "noop"
+            else:
+                llm_model = "gpt-4o-mini"
 
         # 1. Get provider config class from registry
         config_cls = (

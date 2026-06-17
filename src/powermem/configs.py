@@ -15,6 +15,7 @@ from powermem.integrations.embeddings.config.providers import (
 from powermem.integrations.embeddings.config.sparse_base import BaseSparseEmbedderConfig
 import powermem.integrations.embeddings.config.sparse_providers  # noqa: F401 — ensures sparse provider registry is populated
 from powermem.integrations.llm.config.base import BaseLLMConfig
+from powermem.integrations.llm.config.noop import NoopConfig  # noqa: F401 - keeps noop provider registered
 from powermem.integrations.llm.config.qwen import QwenConfig
 from powermem.storage.config.base import BaseVectorStoreConfig, BaseGraphStoreConfig
 from powermem.storage.config.sqlite import SQLiteConfig  # noqa: F401 — keeps SQLite provider registered

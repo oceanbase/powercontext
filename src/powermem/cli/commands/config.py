@@ -266,7 +266,7 @@ def _validate_loaded_config(config: Dict[str, Any], strict: bool) -> Dict[str, A
     if llm_config:
         provider = llm_config.get("provider", "")
         inner_config = llm_config.get("config", {})
-        if provider not in ["mock", "ollama"]:
+        if provider not in ["mock", "noop", "ollama"]:
             api_key = inner_config.get("api_key")
             if not api_key:
                 (errors if strict else warnings).append(
@@ -356,7 +356,7 @@ def _run_connectivity_checks(config: Dict[str, Any]) -> List[str]:
         return errors
 
     llm_provider = (config.get("llm") or {}).get("provider", "")
-    if llm_provider and llm_provider not in ("mock", "ollama"):
+    if llm_provider and llm_provider not in ("mock", "noop", "ollama"):
         try:
             if hasattr(memory, "llm") and memory.llm:
                 messages = [{"role": "user", "content": "Say 'test' and nothing else."}]
@@ -507,7 +507,11 @@ def test_cmd(ctx: CLIContext, component, json_output):
             print_info("Testing LLM connection...")
             # Access the LLM through memory
             memory = ctx.memory
-            if hasattr(memory, 'llm') and memory.llm:
+            if (
+                hasattr(memory, 'llm')
+                and memory.llm
+                and getattr(memory.llm, "is_noop", False) is not True
+            ):
                 # Try a simple generation
                 messages = [{"role": "user", "content": "Say 'test' and nothing else."}]
                 llm = memory.llm
@@ -525,9 +529,9 @@ def test_cmd(ctx: CLIContext, component, json_output):
             else:
                 results["llm"] = {
                     "status": "skipped",
-                    "message": "LLM not configured or using mock provider"
+                    "message": "LLM not configured or disabled"
                 }
-                print_warning("LLM: Skipped (not configured)")
+                print_warning("LLM: Skipped (not configured or disabled)")
         except Exception as e:
             results["llm"] = {
                 "status": "failed",
@@ -1353,7 +1357,11 @@ def init_cmd(ctx: CLIContext, env_file: Optional[str], dry_run: bool, test: bool
                 print_info("Testing LLM connection...")
                 try:
                     memory = test_ctx.memory
-                    if hasattr(memory, "llm") and memory.llm:
+                    if (
+                        hasattr(memory, "llm")
+                        and memory.llm
+                        and getattr(memory.llm, "is_noop", False) is not True
+                    ):
                         messages = [{"role": "user", "content": "Say 'test' and nothing else."}]
                         llm = memory.llm
                         if hasattr(llm, "generate_response"):
@@ -1362,7 +1370,7 @@ def init_cmd(ctx: CLIContext, env_file: Optional[str], dry_run: bool, test: bool
                             llm.generate(messages=messages)
                         print_success("LLM: Connected")
                     else:
-                        print_warning("LLM: Skipped (not configured)")
+                        print_warning("LLM: Skipped (not configured or disabled)")
                 except Exception as e:
                     print_error(f"LLM: Failed - {e}")
 

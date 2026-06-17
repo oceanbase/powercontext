@@ -74,6 +74,15 @@ class QueryRewriter:
                 is_rewritten=False,
             )
 
+        if getattr(self.llm, "is_noop", False) is True:
+            logger.debug("LLM is disabled, skipping query rewrite")
+            return QueryRewriteResult(
+                original_query=query,
+                rewritten_query=query,
+                is_rewritten=False,
+                metadata={"skipped_reason": "llm_disabled"},
+            )
+
         try:
             start_time = time.time()
 
@@ -116,4 +125,3 @@ class QueryRewriter:
                 is_rewritten=False,
                 error=str(e)
             )
-

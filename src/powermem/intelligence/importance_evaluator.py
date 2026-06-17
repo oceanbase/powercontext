@@ -171,7 +171,11 @@ class ImportanceEvaluator:
         if not self.llm:
             logger.warning("LLM not initialized, falling back to rule-based evaluation")
             return self._rule_based_evaluation(content, metadata, context)
-        
+
+        if getattr(self.llm, "is_noop", False) is True:
+            logger.info("LLM is disabled; using rule-based importance evaluation.")
+            return self._rule_based_evaluation(content, metadata, context)
+
         try:
             # Prepare evaluation prompt
             prompt = self.prompts.get_importance_evaluation_prompt(content, metadata, context)

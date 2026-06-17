@@ -7,3 +7,14 @@ def test_export_route_is_defined_before_memory_id_route():
     assert source.index('@router.get(\n    "/export"') < source.index(
         '@router.get(\n    "/{memory_id}"'
     )
+
+
+def test_import_route_calls_memory_import_with_supported_signature():
+    source = Path("src/server/api/v1/memories.py").read_text(encoding="utf-8")
+    import_route = source[
+        source.index("async def import_memories") : source.index(
+            'message=f"Import completed'
+        )
+    ]
+
+    assert "is_file" not in import_route
