@@ -5,8 +5,9 @@ Covers:
 - EmbedderFactory routing for provider="none"
 - BaseEmbedderConfig provider registry
 - config_loader env-var path (EMBEDDING_PROVIDER=none)
-- Memory._is_embedding_disabled / _embed helpers
+- Memory._is_embedding_disabled / _embed helpers (including exception handling)
 - StorageAdapter skips embed call when embedding is noop
+- StorageAdapter search returns [] for empty query_embedding
 """
 
 from __future__ import annotations
@@ -137,6 +138,19 @@ def test_embed_calls_embedding_when_enabled():
     assert result == [0.1] * 384
 
 
+def test_embed_returns_none_on_embedding_exception():
+    """_embed() must swallow exceptions from embed() and return None."""
+    mock_embedding = MagicMock()
+    mock_embedding.is_noop = False
+    mock_embedding.embed.side_effect = RuntimeError("model unavailable")
+    stub = _StubMemory(embedding=mock_embedding, embedding_provider="default")
+
+    result = stub._embed("hello")
+
+    assert result is None
+    mock_embedding.embed.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # StorageAdapter skips embed when noop
 # ---------------------------------------------------------------------------
@@ -187,3 +201,42 @@ def test_adapter_falls_back_to_mock_vector_when_precomputed_embedding_is_empty()
     mock_store.insert.assert_called_once()
     stored_vector = mock_store.insert.call_args[0][0][0]
     assert len(stored_vector) > 0, "adapter must not store a zero-length vector"
+
+
+def test_adapter_search_returns_empty_for_empty_query_embedding():
+    """search_memories with an empty query_embedding (returned by NoopEmbedding)
+    must return [] instead of attempting a vector search."""
+    from powermem.storage.adapter import StorageAdapter
+
+    mock_store = MagicMock()
+    mock_store.collection_name = "test"
+
+    adapter = StorageAdapter(mock_store, embedding_service=None)
+    result = adapter.search_memories(
+        query_embedding=[],  # empty from NoopEmbedding
+        user_id="u1",
+        query="anything",
+    )
+
+    assert result == []
+    mock_store.search.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# MemoryConfig with NoopEmbeddingConfig requires no API key
+# ---------------------------------------------------------------------------
+
+
+def test_memory_config_none_embedding_requires_no_api_key(monkeypatch):
+    """MemoryConfig with EMBEDDING_PROVIDER=none must not require an API key."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+
+    from powermem.configs import MemoryConfig
+    from powermem.integrations.embeddings.config.providers import NoopEmbeddingConfig
+
+    cfg = MemoryConfig(embedder=NoopEmbeddingConfig())
+
+    assert isinstance(cfg.embedder, NoopEmbeddingConfig)
+    assert cfg.embedder.provider == "none"
+    assert cfg.embedder.api_key is None
