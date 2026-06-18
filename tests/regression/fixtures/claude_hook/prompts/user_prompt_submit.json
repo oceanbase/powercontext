@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "session-prompt-1049",
+  "cwd": "/workspace/project",
+  "prompt": "Find memories about no-LLM hook regression. Use Bearer abcdefghijk, Bearer redactme1049, and Bearer sentinelsecret1049 carefully."
+}

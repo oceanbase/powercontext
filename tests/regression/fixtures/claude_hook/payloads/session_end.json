@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "SessionEnd",
+  "session_id": "session-end-1049",
+  "cwd": "/workspace/project",
+  "reason": "logout",
+  "transcript_path": "__TRANSCRIPT_PATH__"
+}

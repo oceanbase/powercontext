@@ -6,6 +6,8 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'apps/claude-code-plugin/**'
+      - 'docker/Dockerfile.claude-hook-regression'
       - 'pyproject.toml'
       - 'Makefile'
       - '.github/workflows/test.yml'
@@ -15,6 +17,8 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'apps/claude-code-plugin/**'
+      - 'docker/Dockerfile.claude-hook-regression'
       - 'pyproject.toml'
       - 'Makefile'
       - '.github/workflows/test.yml'
@@ -87,3 +91,13 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip check
+
+  claude-hook-regression:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run isolated Claude Code hook regression
+        run: make test-claude-hook-docker

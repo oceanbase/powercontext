@@ -1,0 +1,3 @@
+{"type":"summary","summary":"No LLM regression session"}
+{"type":"user","message":{"content":[{"type":"text","text":"Please add isolated hook tests. Bearer redactme1049 and Bearer sentinelsecret1049 must not leave the hook."}]}}
+{"type":"assistant","message":{"content":"I will verify request payloads and headers with a fake local server."}}

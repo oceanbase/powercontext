@@ -1,0 +1,26 @@
+FROM golang:1.24-alpine AS hook-builder
+
+ARG TARGETOS=linux
+ARG TARGETARCH
+
+WORKDIR /src/apps/claude-code-plugin
+COPY apps/claude-code-plugin/go.* ./
+COPY apps/claude-code-plugin/cmd ./cmd
+RUN CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH:-amd64}" \
+    go build -trimpath -ldflags="-s -w" -o /out/powermem-hook ./cmd/powermem-hook
+
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    POWERMEM_HOOK_BIN=/workspace/apps/claude-code-plugin/hooks/bin/powermem-hook-linux-amd64
+
+WORKDIR /workspace
+
+COPY tests/regression/test_claude_hook_no_llm.py tests/regression/test_claude_hook_no_llm.py
+COPY tests/regression/fixtures/claude_hook tests/regression/fixtures/claude_hook
+COPY --from=hook-builder /out/powermem-hook apps/claude-code-plugin/hooks/bin/powermem-hook-linux-amd64
+
+RUN chmod +x apps/claude-code-plugin/hooks/bin/powermem-hook-linux-amd64
+
+CMD ["python", "tests/regression/test_claude_hook_no_llm.py"]
