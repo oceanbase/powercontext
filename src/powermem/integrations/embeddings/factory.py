@@ -41,6 +41,11 @@ class EmbedderFactory:
             value = getattr(embedder_config, 'embedding_dims', default)
             return default if value is None else value
         
+        # Handle none provider directly (embedding disabled)
+        if provider_name == "none":
+            from powermem.integrations.embeddings.noop import NoopEmbedding
+            return NoopEmbedding()
+
         # Handle mock provider directly
         if provider_name == "mock":
             # Extract dimension from vector_config or embedder config, default to 1536
