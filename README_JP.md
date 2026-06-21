@@ -110,10 +110,10 @@ cd powermem
 ターミナルで Claude Code を開き、次の一行を貼り付けます:
 
 ```text
-Read and follow apps/claude-code-plugin/SETUP.md to set up PowerMem memory for Claude Code.
+Read and follow apps/agent-plugin/SETUP.md to set up PowerMem memory for Claude Code.
 ```
 
-Claude Code は [`apps/claude-code-plugin/SETUP.md`](apps/claude-code-plugin/SETUP.md) を読み、必要な秘密情報だけを尋ね、エンドツーエンドで設定を完了します。
+Claude Code は [`apps/agent-plugin/SETUP.md`](apps/agent-plugin/SETUP.md) を読み、必要な秘密情報だけを尋ね、エンドツーエンドで設定を完了します。
 
 #### 手動セットアップ
 

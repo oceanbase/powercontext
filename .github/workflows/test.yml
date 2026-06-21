@@ -6,7 +6,7 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
-      - 'apps/claude-code-plugin/**'
+      - 'apps/agent-plugin/**'
       - 'docker/Dockerfile.claude-hook-regression'
       - 'pyproject.toml'
       - 'Makefile'
@@ -17,7 +17,7 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
-      - 'apps/claude-code-plugin/**'
+      - 'apps/agent-plugin/**'
       - 'docker/Dockerfile.claude-hook-regression'
       - 'pyproject.toml'
       - 'Makefile'

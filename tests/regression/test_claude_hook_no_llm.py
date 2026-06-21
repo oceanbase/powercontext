@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "claude_hook"
-PLUGIN_ROOT = ROOT / "apps" / "claude-code-plugin"
+PLUGIN_ROOT = ROOT / "apps" / "agent-plugin"
 HOOK_BIN_ENV = "POWERMEM_HOOK_BIN"
 _BUILT_HOOK_BIN: Path | None = None
 SENTINEL = "Bearer sentinelsecret1049"

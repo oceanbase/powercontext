@@ -110,10 +110,10 @@ cd powermem
 在终端打开 Claude Code，粘贴下面这一行：
 
 ```text
-Read and follow apps/claude-code-plugin/SETUP.md to set up PowerMem memory for Claude Code.
+Read and follow apps/agent-plugin/SETUP.md to set up PowerMem memory for Claude Code.
 ```
 
-Claude Code 会阅读 [`apps/claude-code-plugin/SETUP.md`](apps/claude-code-plugin/SETUP.md)，向你询问少量必要密钥，并端到端完成全部配置。
+Claude Code 会阅读 [`apps/agent-plugin/SETUP.md`](apps/agent-plugin/SETUP.md)，向你询问少量必要密钥，并端到端完成全部配置。
 
 #### 手动配置
 

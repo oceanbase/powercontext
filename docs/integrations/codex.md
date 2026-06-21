@@ -1,63 +1,115 @@
-# Codex
+# Codex CLI
 
-Connect Codex to PowerMem through MCP. The recommended setup path is the generic [PowerMem MCP client setup](https://github.com/oceanbase/powermem/blob/main/apps/mcp-client/SETUP.md).
+Connect Codex CLI to PowerMem with the native `memory-powermem` plugin plus an
+explicit MCP server entry.
 
-## Recommended setup — let your MCP client agent set it up
+The Codex plugin installs PowerMem skills and reuses the same backend bootstrap
+as the Claude Code plugin. It intentionally does **not** register Codex hooks or
+write a hard-coded MCP URL during plugin install. After init writes
+`~/.powermem/runtime.env`, add the MCP endpoint with `codex mcp add`.
 
-First download the code and enter the directory:
+## Recommended Setup
+
+Install the PowerMem marketplace and plugin:
 
 ```bash
-git clone https://github.com/oceanbase/powermem
-cd powermem
+codex plugin marketplace add oceanbase/powermem
+codex plugin add memory-powermem@powermem
 ```
 
-Then open the AI agent window where you run Codex and paste this one line:
+For branch testing from a fork:
+
+```bash
+codex plugin remove memory-powermem 2>/dev/null || true
+codex plugin marketplace remove powermem 2>/dev/null || true
+codex plugin marketplace add https://github.com/<owner>/powermem.git --ref <branch>
+codex plugin add memory-powermem@powermem
+```
+
+Start a new Codex thread after installing or updating the plugin so Codex loads
+the new skills. Then ask Codex:
 
 ```text
-Read and follow apps/mcp-client/SETUP.md to setup PowerMem
+Use the memory-powermem init skill to initialize PowerMem.
 ```
 
-The agent follows [`apps/mcp-client/SETUP.md`](https://github.com/oceanbase/powermem/blob/main/apps/mcp-client/SETUP.md), runs `powermem-mcp` directly, and updates only the Codex MCP configuration.
+The init skill prepares shared local state under `~/.powermem/`:
+
+```text
+~/.powermem/.env
+~/.powermem/runtime.env
+~/.powermem/powermem.pid
+server log under the local state directory
+~/.powermem/venv/
+```
+
+After init succeeds, wire Codex MCP to the managed server:
+
+```bash
+. "$HOME/.powermem/runtime.env"
+codex mcp remove powermem 2>/dev/null || true
+codex mcp add powermem --url "${POWERMEM_BASE_URL%/}/mcp"
+```
 
 ## Prerequisites
 
-- Codex installed and able to read `~/.codex/context.json`.
-- A running PowerMem MCP endpoint or local `powermem-mcp` command.
-- PowerMem configured with your LLM provider, API key, and model.
+- Codex CLI with `codex plugin` and `codex mcp` commands.
+- A supported Python runtime for the PowerMem backend. The init script creates
+  `~/.powermem/venv` and installs `powermem` there.
+- Anthropic credentials available from the environment or `~/.claude/settings.json`.
+  `ANTHROPIC_API_KEY` works by itself. `ANTHROPIC_AUTH_TOKEN` must be paired with
+  `ANTHROPIC_BASE_URL`.
 
-## Manual setup
+## Manual MCP Only
 
-Use this section only when you want to wire Codex by hand.
+If you do not want the Codex plugin skills, you can still connect Codex as a
+plain MCP client:
 
-### Configure
-
-Add PowerMem to `~/.codex/context.json`:
-
-```json
-{
-  "mcpServers": {
-    "powermem": {
-      "url": "http://localhost:8848/mcp"
-    }
-  }
-}
+```bash
+codex mcp add powermem --url http://localhost:8848/mcp
 ```
 
-If the PowerMem MCP endpoint requires auth, add the matching header or pass
-`POWERMEM_API_KEY` to a stdio MCP command.
+Use this only when a PowerMem HTTP server is already running. The native plugin
+path is preferred because the `init`, `status`, `stop`, and `reset` skills manage
+the local server lifecycle for you.
 
 ## Verify
 
-1. Restart Codex so it reloads `~/.codex/context.json`.
-2. Confirm the `powermem` MCP server is listed.
-3. Add a probe memory with content `PowerMem Codex probe: dragonfruit-zx9`.
-4. Search for `dragonfruit-zx9` and confirm Codex receives the result.
+1. Confirm the managed server is healthy:
+
+   ```bash
+   . "$HOME/.powermem/runtime.env"
+   curl -fsS "${POWERMEM_BASE_URL%/}/api/v1/system/health"
+   ```
+
+2. Confirm Codex has the MCP entry:
+
+   ```bash
+   codex mcp list
+   ```
+
+3. In Codex, ask it to remember a probe such as
+   `PowerMem Codex probe: dragonfruit-zx9`, then search for `dragonfruit-zx9`.
 
 ## Troubleshooting
 
-- If Codex ignores the config, validate that `~/.codex/context.json` is valid JSON.
-- If MCP fails, confirm `http://localhost:8848/mcp` is reachable or switch to stdio MCP.
+- If the plugin skills do not appear, start a new Codex thread after
+  `codex plugin add`.
+- If MCP uses the wrong port, reload `~/.powermem/runtime.env` and re-run
+  `codex mcp remove powermem` followed by `codex mcp add`.
+- If the server fails to start, read the server log under the local state directory.
+- If package installation is slow in CN networks, init detects the current
+  machine region and adds the Tsinghua PyPI mirror for `pip install`.
 
 ## Uninstall
 
-Remove `mcpServers.powermem` from `~/.codex/context.json`. Leave other providers untouched. For agent-guided cleanup, follow [`apps/mcp-client/UNINSTALL.md`](https://github.com/oceanbase/powermem/blob/main/apps/mcp-client/UNINSTALL.md).
+Remove the MCP entry and plugin:
+
+```bash
+codex mcp remove powermem
+codex plugin remove memory-powermem 2>/dev/null || true
+```
+
+If your Codex CLI does not expose `plugin remove`, use `codex plugin list` to
+inspect the installed plugin and remove it through the CLI version's supported
+plugin management command.

@@ -7,10 +7,14 @@ First-party setup flows that connect PowerMem to AI clients and IDEs. Every path
 | If you use… | Use this directory | One-line agent prompt |
 |-------------|-------------------|------------------------|
 | **Cursor**, **VS Code**, **Windsurf**, **GitHub Copilot**, **Qoder** | [`vscode-extension/`](vscode-extension/) | `Read and follow apps/vscode-extension/SETUP.md to setup PowerMem` |
-| **Claude Desktop**, **Cline**, **Codex**, **OpenCode**, Roo Code, Goose, or any other MCP client | [`mcp-client/`](mcp-client/) | `Read and follow apps/mcp-client/SETUP.md to setup PowerMem` |
-| **Claude Code** (hook-based plugin) | [`claude-code-plugin/`](claude-code-plugin/) | `Read and follow apps/claude-code-plugin/SETUP.md to set up PowerMem memory for Claude Code.` |
+| **Claude Desktop**, **Cline**, **OpenCode**, Roo Code, Goose, or any other MCP client | [`mcp-client/`](mcp-client/) | `Read and follow apps/mcp-client/SETUP.md to setup PowerMem` |
+| **Codex CLI** | [`agent-plugin/`](agent-plugin/) | Install `memory-powermem` with `codex plugin`, then ask Codex to use the init skill. |
+| **Claude Code** (hook-based plugin) | [`agent-plugin/`](agent-plugin/) | `Read and follow apps/agent-plugin/SETUP.md to set up PowerMem memory for Claude Code.` |
 
-> **Codex** and **OpenCode** belong under `mcp-client/`, not `vscode-extension/`. The VS Code extension flow is for VS Code–compatible IDEs only.
+> **Codex CLI** has a native plugin path under `agent-plugin/`; generic
+> MCP-only Codex setup can still use `mcp-client/`. **OpenCode** belongs under
+> `mcp-client/`, not `vscode-extension/`. The VS Code extension flow is for
+> VS Code–compatible IDEs only.
 
 For **OpenClaw**, use the separate [`memory-powermem`](https://github.com/ob-labs/memory-powermem) plugin — see [OpenClaw integration](../docs/integrations/openclaw.md).
 
@@ -19,8 +23,8 @@ For **OpenClaw**, use the separate [`memory-powermem`](https://github.com/ob-lab
 | Directory | Description |
 |-----------|-------------|
 | **[vscode-extension](vscode-extension/)** | VS Code extension and agent-guided setup for Cursor, VS Code, Windsurf, GitHub Copilot, and Qoder. Commands: Query memories, Add selection, Quick note, Link to AI tools, Setup, Dashboard. |
-| **[mcp-client](mcp-client/)** | Agent-guided setup for generic MCP clients (Claude Desktop, Cline, Codex, OpenCode, and others). Uses `powermem-mcp` directly; prefers SSE on port `8848`. |
-| **[claude-code-plugin](claude-code-plugin/)** | Claude Code plugin with **HTTP mode by default** (REST hooks; empty `mcpServers`). Optional **MCP mode** via [`config/mcp-mode.mcp.json`](claude-code-plugin/config/mcp-mode.mcp.json). |
+| **[mcp-client](mcp-client/)** | Agent-guided setup for generic MCP clients (Claude Desktop, Cline, OpenCode, and others). Uses `powermem-mcp` directly; prefers SSE on port `8848`. |
+| **[agent-plugin](agent-plugin/)** | Claude Code and Codex CLI plugin descriptors. Claude Code uses **HTTP mode by default** (REST hooks; empty `mcpServers`). Codex CLI uses skills plus explicit `codex mcp add`. Optional Claude **MCP mode** via [`config/mcp-mode.mcp.json`](agent-plugin/config/mcp-mode.mcp.json). |
 
 ## Quick start
 
@@ -52,7 +56,7 @@ All setup flows share the same backend priority:
 3. **Fall back** to MCP-only only when HTTP is unavailable:
    `powermem-mcp sse 8848` (or streamable HTTP / stdio when the target client requires it)
 
-The `mcp-client/` path uses `powermem-mcp` directly and prefers SSE on port `8848`. The `vscode-extension/` path prefers the HTTP API and links the current IDE/client first. The `claude-code-plugin/` path defaults to HTTP hooks and optionally enables in-chat MCP tools.
+The `mcp-client/` path uses `powermem-mcp` directly and prefers SSE on port `8848`. The `vscode-extension/` path prefers the HTTP API and links the current IDE/client first. The `agent-plugin/` path defaults to HTTP hooks for Claude Code, and provides a Codex CLI plugin that manages init/status/stop/reset skills while MCP is added explicitly with `codex mcp add`.
 
 ## Setup & uninstall guides
 
@@ -60,7 +64,7 @@ The `mcp-client/` path uses `powermem-mcp` directly and prefers SSE on port `884
 |-----------|-------|-----------|---------|
 | `vscode-extension/` | [SETUP.md](vscode-extension/SETUP.md) | [UNINSTALL.md](vscode-extension/UNINSTALL.md) | [README.md](vscode-extension/README.md) |
 | `mcp-client/` | [SETUP.md](mcp-client/SETUP.md) | [UNINSTALL.md](mcp-client/UNINSTALL.md) | — |
-| `claude-code-plugin/` | [SETUP.md](claude-code-plugin/SETUP.md) | [UNINSTALL.md](claude-code-plugin/UNINSTALL.md) | [README.md](claude-code-plugin/README.md) |
+| `agent-plugin/` | [SETUP.md](agent-plugin/SETUP.md) | [UNINSTALL.md](agent-plugin/UNINSTALL.md) | [README.md](agent-plugin/README.md) |
 
 ## Per-client manual guides
 

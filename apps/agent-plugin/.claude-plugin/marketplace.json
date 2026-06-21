@@ -11,7 +11,7 @@
   "plugins": [
     {
       "name": "memory-powermem",
-      "source": "./apps/agent-plugin",
+      "source": "./",
       "description": "PowerMem intelligent memory for Claude Code and Codex CLI: Claude Code uses HTTP hooks; Codex CLI uses skills with explicit MCP wiring.",
       "category": "memory",
       "tags": ["memory", "powermem", "rag", "hooks", "mcp", "codex", "oceanbase"]

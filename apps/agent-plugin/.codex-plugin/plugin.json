@@ -1,0 +1,30 @@
+{
+  "name": "memory-powermem",
+  "version": "0.1.0",
+  "description": "PowerMem intelligent memory for Codex CLI: initialize a local PowerMem backend and use memory skills with optional MCP tools.",
+  "author": {
+    "name": "OceanBase / PowerMem",
+    "email": "open_oceanbase@oceanbase.com",
+    "url": "https://github.com/oceanbase"
+  },
+  "homepage": "https://github.com/oceanbase/powermem/tree/main/apps/agent-plugin",
+  "repository": "https://github.com/oceanbase/powermem",
+  "license": "Apache-2.0",
+  "keywords": ["memory", "powermem", "codex", "mcp", "oceanbase"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "PowerMem",
+    "shortDescription": "Persistent memory for Codex CLI.",
+    "longDescription": "Initialize and connect a local PowerMem backend for persistent recall, memory writes, and project decisions from Codex CLI.",
+    "developerName": "OceanBase / PowerMem",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://github.com/oceanbase/powermem",
+    "defaultPrompt": [
+      "Initialize PowerMem for Codex CLI.",
+      "Search my PowerMem memories for this task.",
+      "Remember this project decision in PowerMem."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

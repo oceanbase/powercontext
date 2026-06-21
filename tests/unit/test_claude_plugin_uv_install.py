@@ -5,11 +5,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-COMMON_SH = ROOT / "apps" / "claude-code-plugin" / "scripts" / "common.sh"
-INIT_SH = ROOT / "apps" / "claude-code-plugin" / "scripts" / "init.sh"
-STOP_SH = ROOT / "apps" / "claude-code-plugin" / "scripts" / "stop.sh"
-RUN_HOOK_SH = ROOT / "apps" / "claude-code-plugin" / "hooks" / "run-hook.sh"
-SCRIPT_ARG0 = ROOT / "apps" / "claude-code-plugin" / "scripts" / "init.sh"
+COMMON_SH = ROOT / "apps" / "agent-plugin" / "scripts" / "common.sh"
+INIT_SH = ROOT / "apps" / "agent-plugin" / "scripts" / "init.sh"
+STOP_SH = ROOT / "apps" / "agent-plugin" / "scripts" / "stop.sh"
+RUN_HOOK_SH = ROOT / "apps" / "agent-plugin" / "hooks" / "run-hook.sh"
+SCRIPT_ARG0 = ROOT / "apps" / "agent-plugin" / "scripts" / "init.sh"
 
 
 def run_common(script: str, tmp_path: Path, *, bin_dir: Path | None = None) -> subprocess.CompletedProcess[str]:

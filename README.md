@@ -120,10 +120,10 @@ cd powermem
 Then open Claude Code in your terminal and paste this one line:
 
 ```text
-Read and follow apps/claude-code-plugin/SETUP.md to set up PowerMem memory for Claude Code.
+Read and follow apps/agent-plugin/SETUP.md to set up PowerMem memory for Claude Code.
 ```
 
-Claude Code reads [`apps/claude-code-plugin/SETUP.md`](apps/claude-code-plugin/SETUP.md), asks you for the few required secrets, and wires everything up end-to-end.
+Claude Code reads [`apps/agent-plugin/SETUP.md`](apps/agent-plugin/SETUP.md), asks you for the few required secrets, and wires everything up end-to-end.
 
 #### Manual setup
 

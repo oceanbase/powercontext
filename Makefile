@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow test-claude-hook-docker check-python-version lint lint-full lint-pylint format clean build build-package build-check build-mcp-package build-mcp-check build-all-python-packages build-dashboard build-claude-hook package-claude-plugin publish-pypi publish-mcp-pypi publish-all-pypi publish-testpypi install-build-tools upload docs bump-version check-package-versions server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
+.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow test-claude-hook-docker check-python-version lint lint-full lint-pylint format clean build build-package build-check build-mcp-package build-mcp-check build-all-python-packages build-dashboard build-claude-hook package-agent-plugin package-claude-plugin publish-pypi publish-mcp-pypi publish-all-pypi publish-testpypi install-build-tools upload docs bump-version check-package-versions server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
 
 PYTHON ?= python3
 
@@ -167,11 +167,13 @@ build-dashboard: ## Build dashboard frontend and inject into src/server/dashboar
 	@cp -r dashboard/dist/* src/server/dashboard/
 	@echo "✓ Dashboard built. Start server with: make server-start-reload (then open http://localhost:$(SERVER_PORT)/dashboard/)"
 
-build-claude-hook: ## Build Claude Code hook binaries (Go; output: apps/claude-code-plugin/hooks/bin/)
-	@bash apps/claude-code-plugin/scripts/build-hook-binaries.sh
+build-claude-hook: ## Build Claude Code hook binaries (Go; output: apps/agent-plugin/hooks/bin/)
+	@bash apps/agent-plugin/scripts/build-hook-binaries.sh
 
-package-claude-plugin: ## Zip Claude Code plugin for sharing (apps/claude-code-plugin/dist/*.zip)
-	@bash apps/claude-code-plugin/scripts/package-plugin.sh
+package-agent-plugin: ## Zip Agent plugin for sharing (apps/agent-plugin/dist/*.zip)
+	@bash apps/agent-plugin/scripts/package-plugin.sh
+
+package-claude-plugin: package-agent-plugin ## Compatibility alias for package-agent-plugin
 
 install-build-tools: ## Install build and upload tools
 	@echo "Installing build tools..."
