@@ -634,41 +634,25 @@ if ! validate_llm_config; then
   exit 1
 fi
 
-if [ ! -x "$(venv_powermem_server)" ]; then
-  echo "Preparing plugin virtualenv."
-  if [ ! -d "$VENV_DIR" ]; then
-    "$BOOTSTRAP_PYTHON" -m venv "$VENV_DIR"
-  fi
-  PYTHON=$(venv_python)
-  echo "Venv Python: $PYTHON ($(python_version "$PYTHON"))"
-  configure_pip_index
-  pip_install -U pip setuptools wheel
-  db_provider=$(grep '^DATABASE_PROVIDER=' "$ENV_FILE" 2>/dev/null \
-    | cut -d= -f2 | tr -d '[:space:]')
-  db_provider="${db_provider:-sqlite}"
-  case "$db_provider" in
-    oceanbase) PACKAGE="${POWERMEM_INIT_PACKAGE:-powermem[server,seekdb]}" ;;
-    *)         PACKAGE="${POWERMEM_INIT_PACKAGE:-powermem[server,extras]}" ;;
-  esac
-  echo "Installing $PACKAGE (db_provider=$db_provider)"
-  pip_install "$PACKAGE"
-else
-  echo "Using existing plugin virtualenv: $VENV_DIR"
-  PYTHON=$(venv_python)
-  echo "Venv Python: $PYTHON ($(python_version "$PYTHON"))"
-fi
-
-# For SQLite backend: auto-install pysqlite3-binary if bundled SQLite < 3.9.0
-_db_provider=$(grep '^DATABASE_PROVIDER=' "$ENV_FILE" 2>/dev/null \
+db_provider=$(grep '^DATABASE_PROVIDER=' "$ENV_FILE" 2>/dev/null \
   | cut -d= -f2 | tr -d '[:space:]')
-_db_provider="${_db_provider:-sqlite}"
-if [ "$_db_provider" != "oceanbase" ]; then
-  _sqlite_ok=$("$PYTHON" -c \
+db_provider="${db_provider:-sqlite}"
+case "$db_provider" in
+  oceanbase) PACKAGE="${POWERMEM_INIT_PACKAGE:-powermem[server,seekdb]}" ;;
+  *)         PACKAGE="${POWERMEM_INIT_PACKAGE:-powermem[server,extras]}" ;;
+esac
+
+# For SQLite backend: probe FTS5/JSON1 support via the bootstrap Python and,
+# if the bundled SQLite is too old (< 3.9.0), inject pysqlite3-binary into
+# the uvx invocation so PowerMem gets a modern SQLite at runtime.
+UVX_WITH_ARGS=""
+if [ "$db_provider" != "oceanbase" ]; then
+  _sqlite_ok=$("$BOOTSTRAP_PYTHON" -c \
     "import sqlite3; print(sqlite3.sqlite_version_info >= (3,9,0))" 2>/dev/null || echo False)
   if [ "$_sqlite_ok" != "True" ]; then
-    echo "System SQLite $("$PYTHON" -c 'import sqlite3; print(sqlite3.sqlite_version)' 2>/dev/null) < 3.9.0; installing pysqlite3-binary."
-    configure_pip_index
-    pip_install pysqlite3-binary
+    _sys_ver=$("$BOOTSTRAP_PYTHON" -c 'import sqlite3; print(sqlite3.sqlite_version)' 2>/dev/null || echo unknown)
+    echo "System SQLite $_sys_ver < 3.9.0; injecting pysqlite3-binary into uvx invocation."
+    UVX_WITH_ARGS="--with pysqlite3-binary"
   fi
 fi
 
@@ -731,11 +715,13 @@ if [ -n "${POWERMEM_UV_INDEX_URL:-}" ]; then
     --python "$BOOTSTRAP_PYTHON" \
     --default-index "$POWERMEM_UV_INDEX_URL" \
     --from "$PACKAGE" \
+    $UVX_WITH_ARGS \
     powermem-server --host 127.0.0.1 --port "$port" >> "$LOG_FILE" 2>&1 &
 else
   POWERMEM_ENV_FILE="$ENV_FILE" nohup "$UV_BIN" tool run \
     --python "$BOOTSTRAP_PYTHON" \
     --from "$PACKAGE" \
+    $UVX_WITH_ARGS \
     powermem-server --host 127.0.0.1 --port "$port" >> "$LOG_FILE" 2>&1 &
 fi
 pid=$!
