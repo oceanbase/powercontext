@@ -5,9 +5,11 @@ This module evaluates the importance of memory content using LLM.
 """
 
 import logging
+import re
 from typing import Any, Dict, Optional
-import json
+
 from ..prompts.importance_evaluation import ImportanceEvaluationPrompts
+from ..utils.utils import parse_json_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +194,13 @@ class ImportanceEvaluator:
             # Parse the response to extract importance score
             importance_score = self._parse_importance_response(response)
             
+            if importance_score is None:
+                logger.warning(
+                    "LLM response could not be parsed reliably, "
+                    "falling back to rule-based evaluation"
+                )
+                return self._rule_based_evaluation(content, metadata, context)
+            
             logger.debug(f"LLM evaluated importance: {importance_score}")
             
             return importance_score
@@ -310,43 +319,105 @@ class ImportanceEvaluator:
         
         return min(score, 1.0)
     
-    def _parse_importance_response(self, response: str) -> float:
+    def _parse_importance_response(self, response: str) -> Optional[float]:
         """
         Parse LLM response to extract importance score.
-        
+
+        Uses a three-level fallback strategy where each level only accepts
+        verifiable signals. Returns None when no reliable score can be
+        extracted, allowing the caller to fall back to rule-based evaluation.
+
         Args:
             response: LLM response string
-            
+
         Returns:
-            Importance score between 0 and 1
+            Importance score between 0 and 1, or None if parsing fails
         """
-        try:
-            # Try to extract JSON from response
-            if "{" in response and "}" in response:
-                start = response.find("{")
-                end = response.rfind("}") + 1
-                json_str = response[start:end]
-                
-                result = json.loads(json_str)
-                
-                if "importance_score" in result:
-                    score = float(result["importance_score"])
-                    # Ensure score is within valid range
-                    return max(0.0, min(1.0, score))
-            
-            # Fallback: try to extract number from response
-            import re
-            numbers = re.findall(r'\d+\.?\d*', response)
-            if numbers:
-                score = float(numbers[0])
-                return max(0.0, min(1.0, score))
-            
-            logger.warning(f"Could not parse importance score from response: {response}")
-            return 0.5  # Default medium importance
-            
-        except Exception as e:
-            logger.error(f"Failed to parse importance response: {e}")
-            return 0.5  # Default medium importance
+        # L1: Structured JSON parsing via shared utility
+        score = self._parse_importance_from_json(response)
+        if score is not None:
+            return score
+
+        # L2: Field-name-anchored regex (only accepts numbers next to known keys)
+        score = self._parse_importance_from_field_regex(response)
+        if score is not None:
+            return score
+
+        # L3: Safe failure — return None so caller can fall back to rule-based
+        logger.warning(
+            "Could not parse importance score from LLM response, "
+            "will fall back to rule-based evaluation"
+        )
+        return None
+
+    def _parse_importance_from_json(self, response: str) -> Optional[float]:
+        """L1: Extract importance score from JSON in the response."""
+        result = parse_json_from_text(response, expected_type=dict)
+        if result is None:
+            return None
+
+        # Try primary field names: importance_score, overall_score
+        for field in ("importance_score", "overall_score"):
+            if field in result:
+                try:
+                    score = float(result[field])
+                    if 0.0 <= score <= 1.0:
+                        return score
+                    logger.warning(
+                        f"Parsed '{field}' = {score} is outside [0, 1], ignoring"
+                    )
+                except (TypeError, ValueError):
+                    pass
+
+        # Fallback: synthesize from criteria_scores using weights
+        criteria = result.get("criteria_scores")
+        if isinstance(criteria, dict) and criteria:
+            return self._synthesize_from_criteria(criteria)
+
+        return None
+
+    def _synthesize_from_criteria(self, criteria: Dict[str, Any]) -> Optional[float]:
+        """Compute weighted importance score from criteria_scores dict."""
+        weighted_sum = 0.0
+        total_weight = 0.0
+
+        for key, weight in self.criteria_weights.items():
+            raw = criteria.get(key)
+            # criteria_scores may be either flat floats or nested {"score": float}
+            if isinstance(raw, dict):
+                raw = raw.get("score")
+            if raw is None:
+                continue
+            try:
+                val = float(raw)
+                if 0.0 <= val <= 1.0:
+                    weighted_sum += val * weight
+                    total_weight += weight
+            except (TypeError, ValueError):
+                continue
+
+        if total_weight == 0.0:
+            return None
+
+        score = weighted_sum / total_weight
+        return max(0.0, min(1.0, score))
+
+    def _parse_importance_from_field_regex(self, response: str) -> Optional[float]:
+        """L2: Extract score only when anchored to a recognized field name."""
+        patterns = [
+            r'(?:importance_score|overall_score)\s*[":]\s*(\d+\.?\d*)',
+            r'(?:importance|score)\s*[:=]\s*(\d+\.?\d*)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, response, re.IGNORECASE)
+            if match:
+                try:
+                    score = float(match.group(1))
+                    if 0.0 <= score <= 1.0:
+                        return score
+                except (ValueError, IndexError):
+                    continue
+        return None
     
     def _evaluate_personal(self, content: str, metadata: Optional[Dict[str, Any]]) -> float:
         """Evaluate if content is personal."""
