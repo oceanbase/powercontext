@@ -101,9 +101,11 @@ If powermem-server has an error (HTTP 503, 500, or the hook calls fail):
    - "libomp.dylib already initialized" (OMP Error #15) → multiple OpenMP
      runtimes loaded. Restart with:
        KMP_DUPLICATE_LIB_OK=TRUE powermem-server --host 0.0.0.0 --port 8848
-   - "Connection timed out" downloading HF models → Hugging Face unreachable.
-     Use the China mirror:
-       HF_ENDPOINT=https://hf-mirror.com powermem-server --host 0.0.0.0 --port 8848
+   - "Connection timed out" downloading HF models → PowerMem's internal
+     downloader already routes CN networks to ModelScope and non-CN to
+     HuggingFace. If it still fails (e.g. CDN unreachable), pre-download
+     the model manually:
+       python -c "from modelscope import snapshot_download; snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')"
    - "open seekdb failed" / "opened by other process" → a stale lock file.
      Kill all powermem-server processes, then clean and restart:
        pkill -9 -f powermem-server && rm -rf ./seekdb_data && powermem-server --host 0.0.0.0 --port 8848

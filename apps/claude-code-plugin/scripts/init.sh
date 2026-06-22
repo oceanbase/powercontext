@@ -379,11 +379,10 @@ lines.extend(
 )
 if embedding_api_key:
     lines.append(f"EMBEDDING_API_KEY={embedding_api_key}")
-if embedding_provider == "huggingface":
-    # sentence-transformers contacts huggingface.co even when the model is
-    # cached.  Set offline mode so startup is instant and works behind GFW.
-    # The model must be pre-downloaded (run preload-model.sh first).
-    lines.append("HF_HUB_OFFLINE=1")
+# Note: do NOT write HF_HUB_OFFLINE=1 here. PowerMem's HuggingFaceEmbedding
+# manages offline behaviour itself via SentenceTransformer(local_files_only=True)
+# and runs an internal ModelScope/HF download when the cache is empty. Forcing
+# HF_HUB_OFFLINE=1 globally would block that download for non-CN users.
 
 embedding_base_override = env_first("POWERMEM_INIT_EMBEDDING_BASE_URL", "EMBEDDING_BASE_URL")
 embedding_base_keys = {
@@ -670,20 +669,6 @@ if [ "$_db_provider" != "oceanbase" ]; then
     echo "System SQLite $("$PYTHON" -c 'import sqlite3; print(sqlite3.sqlite_version)' 2>/dev/null) < 3.9.0; installing pysqlite3-binary."
     configure_pip_index
     pip_install pysqlite3-binary
-  fi
-fi
-
-if [ "${POWERMEM_INIT_PRELOAD_MODEL:-0}" = "1" ] || [ "${POWERMEM_INIT_PRELOAD_MODEL:-}" = "true" ]; then
-  echo "Preloading default local embedding model."
-  configure_pip_index
-  sh "$SCRIPT_DIR/preload-model.sh" "$PYTHON"
-else
-  _emb_prov=$(grep '^EMBEDDING_PROVIDER=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
-  if [ "${_emb_prov:-}" = "huggingface" ]; then
-    echo "WARNING: EMBEDDING_PROVIDER=huggingface requires the model to be cached locally (HF_HUB_OFFLINE=1 is set in .env)."
-    echo "         Run with POWERMEM_INIT_PRELOAD_MODEL=1 to download all-MiniLM-L6-v2 via ModelScope."
-  else
-    echo "Skipping model preload. Set POWERMEM_INIT_PRELOAD_MODEL=1 to download via ModelScope and bridge to HuggingFace cache."
   fi
 fi
 
