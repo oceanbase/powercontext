@@ -70,12 +70,10 @@ from the same branch:
 /reload-plugins
 ```
 
-To pre-download the default local embedding model through ModelScope before
-starting the server:
-
-```bash
-POWERMEM_INIT_PRELOAD_MODEL=1 sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
-```
+The default local embedding model (`all-MiniLM-L6-v2`) is downloaded
+automatically by PowerMem at startup: cache hit → load from disk; cache miss
++ CN → ModelScope; cache miss + non-CN → HuggingFace. No `init.sh` flag is
+needed. (`POWERMEM_INIT_PRELOAD_MODEL` is deprecated and now a no-op.)
 
 Uninstall:
 

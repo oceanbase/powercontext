@@ -114,8 +114,6 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
      `powermem[server,extras] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>`.
    - `POWERMEM_INIT_PYTHON` to force a specific Python >= 3.11.
    - `POWERMEM_INIT_PORT` to force the managed server port.
-   - `POWERMEM_INIT_PRELOAD_MODEL=1` to pre-download the default local
-     `all-MiniLM-L6-v2` embedding model before starting the server.
 5. Never print API keys, auth tokens, or other credentials. Mask any secret in
    summaries.
 6. After init succeeds, run `sh "$CLAUDE_PLUGIN_ROOT/scripts/status.sh"` again and
@@ -123,11 +121,13 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
 7. The hook launcher reads `runtime.env`, so once init writes a base URL, prompt
    recall and session-save hooks use that backend automatically.
 
-Installed-plugin model preload uses `uvx --from modelscope python` to download
-from **ModelScope**, then bridges the files into the HuggingFace hub cache layout.
-Do NOT use `sentence_transformers.SentenceTransformer(...)` for preload; it starts
-model initialization instead of just populating the cache and can hang on networks
-where HuggingFace is blocked.
+The default local embedding model (`all-MiniLM-L6-v2`) is downloaded
+automatically by PowerMem at startup — cache hit loads from disk via
+`SentenceTransformer(local_files_only=True)`; cache miss on CN networks
+downloads through ModelScope and bridges into the HuggingFace hub cache;
+cache miss elsewhere downloads from HuggingFace with a 30s timeout.
+`POWERMEM_INIT_PRELOAD_MODEL` is deprecated and now a no-op; init prints a
+deprecation message if it is set.
 
 If startup fails with `No module named 'sentence_transformers'`, the backend
 package resolved by `uvx --from` does not include the local embedding dependency.
