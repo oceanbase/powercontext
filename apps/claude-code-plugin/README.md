@@ -36,8 +36,10 @@ installed skills such as `/memory-powermem:init`, `/memory-powermem:status`,
 
 The marketplace install only installs the Claude Code plugin connector. The
 `/memory-powermem:init` step prepares the backend by ensuring `uv`, then starts
-PowerMem with the uvx-style launcher
-`uvx --from 'powermem[server,seekdb]' powermem-server`. If `uv` is missing, init
+PowerMem with the uvx-style launcher. The package spec depends on the storage
+backend: the default SQLite path uses `powermem[server,extras]` (pulls
+`sentence-transformers` for the local `huggingface` embedder), while the
+OceanBase path uses `powermem[server,seekdb]`. If `uv` is missing, init
 installs it automatically: non-CN networks use the official Astral installer,
 while CN networks use the USTC mirror at
 `https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/`.
@@ -50,7 +52,12 @@ that depend on unpublished backend code, set `POWERMEM_INIT_PACKAGE` to a Git UR
 init passes it to `uvx --from`:
 
 ```bash
+# Default SQLite path
+POWERMEM_INIT_PACKAGE='powermem[server,extras] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
+  sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
+# OceanBase path
 POWERMEM_INIT_PACKAGE='powermem[server,seekdb] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
+  POWERMEM_INIT_DATABASE_PROVIDER=oceanbase \
   sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
 ```
 
@@ -101,8 +108,14 @@ If powermem-server has an error (HTTP 503, 500, or the hook calls fail):
      Kill all powermem-server processes, then clean and restart:
        pkill -9 -f powermem-server && rm -rf ./seekdb_data && powermem-server --host 0.0.0.0 --port 8848
    - "ModuleNotFoundError" → missing Python dependency. Re-run init with a package
-     version or Git ref that includes the dependency:
+     version or Git ref that includes the dependency. Use the spec that matches
+     your storage backend:
+       # SQLite (default): needs sentence-transformers via [server,extras]
+       POWERMEM_INIT_PACKAGE='powermem[server,extras] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
+         sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
+       # OceanBase: needs pyseekdb via [server,seekdb]
        POWERMEM_INIT_PACKAGE='powermem[server,seekdb] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
+         POWERMEM_INIT_DATABASE_PROVIDER=oceanbase \
          sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
 3. After applying a fix, re-run the failing operation and confirm the log shows
    the request succeeded (200 status, no ERROR lines).

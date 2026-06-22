@@ -26,13 +26,16 @@ do not run `claude plugin install`, and do not build the dashboard. The plugin i
 already installed; this section only prepares the PowerMem backend that the plugin
 connects to.
 
-Installed-plugin init ensures `uv` is available, then starts the backend with the
-uvx-style launcher `uvx --from 'powermem[server,seekdb]' powermem-server`. It does
-not create a plugin-local venv. Therefore the PyPI release used by this flow must
-already contain the backend capabilities required by the plugin, including the
-local embedding dependencies. If the user is validating a plugin change that
-depends on unpublished backend code, use `POWERMEM_INIT_PACKAGE` to pass that
-exact Git branch or commit to `uvx --from` instead of the PyPI package.
+Installed-plugin init ensures `uv` is available, then starts the backend with
+the uvx-style launcher. The package spec depends on the storage backend: the
+default SQLite path uses `powermem[server,extras]` (pulls `sentence-transformers`
+for the local `huggingface` embedder), while the OceanBase path uses
+`powermem[server,seekdb]`. It does not create a plugin-local venv. Therefore the
+PyPI release used by this flow must already contain the backend capabilities
+required by the plugin, including the local embedding dependencies. If the user
+is validating a plugin change that depends on unpublished backend code, use
+`POWERMEM_INIT_PACKAGE` to pass that exact Git branch or commit to `uvx --from`
+instead of the PyPI package.
 
 Installed-plugin init is idempotent and uses plugin-local state:
 
@@ -105,8 +108,10 @@ sh "$CLAUDE_PLUGIN_ROOT/scripts/..."
      agent) or `oceanbase` (production/cluster). Invalid values fall back to `sqlite`.
    - `POWERMEM_INIT_LLM_BASE_URL` for a custom provider gateway.
    - `POWERMEM_INIT_PACKAGE` to test unpublished backend code through
-     `uvx --from` instead of PyPI `powermem`, for example
-     `powermem[server,seekdb] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>`.
+     `uvx --from` instead of PyPI `powermem`. Match the extras to the storage
+     backend: `powermem[server,extras]` for SQLite (default, includes
+     `sentence-transformers`), `powermem[server,seekdb]` for OceanBase. Example:
+     `powermem[server,extras] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>`.
    - `POWERMEM_INIT_PYTHON` to force a specific Python >= 3.11.
    - `POWERMEM_INIT_PORT` to force the managed server port.
    - `POWERMEM_INIT_PRELOAD_MODEL=1` to pre-download the default local
@@ -643,13 +648,19 @@ and their resolutions discovered during actual setup attempts:
 ```bash
 uv venv venv --python python3.11
 source venv/bin/activate
-uv pip install --python "$VIRTUAL_ENV/bin/python" -e '.[server,seekdb]'
+# Use the extras matching your storage backend:
+#   SQLite (default):  .[server,extras]   (pulls sentence-transformers)
+#   OceanBase:         .[server,seekdb]
+uv pip install --python "$VIRTUAL_ENV/bin/python" -e '.[server,extras]'
 ```
 
 #### [E002] Missing Server Dependencies
 **Problem**: Server startup fails with missing packages
-**Fix**: Install missing dependencies
+**Fix**: Install missing dependencies with the extras matching your backend
 ```bash
+# SQLite (default)
+uv pip install --python "$POWERMEM_PYTHON" 'powermem[server,extras]'
+# OceanBase
 uv pip install --python "$POWERMEM_PYTHON" 'powermem[server,seekdb]'
 ```
 
