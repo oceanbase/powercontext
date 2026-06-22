@@ -1,10 +1,12 @@
 import unittest
-from unittest.mock import MagicMock, patch, Mock
-import pytest
 import uuid
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
+
 from powermem.prompts.graph.graph_tools_prompts import GraphToolsPrompts
-from powermem.storage.oceanbase.oceanbase_graph import MemoryGraph
 from powermem.storage.oceanbase import constants
+from powermem.storage.oceanbase.oceanbase_graph import MemoryGraph
 
 
 class TestOceanBaseGraph(unittest.TestCase):
@@ -15,7 +17,7 @@ class TestOceanBaseGraph(unittest.TestCase):
 
         # Create a mock config
         self.config = MagicMock()
-        
+
         # Mock OceanBase config
         self.config.graph_store.config.host = "127.0.0.1"
         self.config.graph_store.config.port = "2881"
@@ -27,15 +29,18 @@ class TestOceanBaseGraph(unittest.TestCase):
         self.config.graph_store.config.vidx_metric_type = "l2"
         self.config.graph_store.config.vidx_name = "vidx"
         self.config.graph_store.config.max_hops = 3
-        self.config.graph_store.config.vidx_algo_params = {"M": 16, "efConstruction": 200}
-        
+        self.config.graph_store.config.vidx_algo_params = {
+            "M": 16,
+            "efConstruction": 200,
+        }
+
         # Mock embedder config
         self.config.embedder.provider = "openai"
         self.config.embedder.config = MagicMock()
-        
+
         # Mock vector store config
         self.config.vector_store.config = MagicMock()
-        
+
         # Mock LLM config
         self.config.llm.provider = "openai_structured"
         self.config.llm.config = MagicMock()
@@ -52,24 +57,34 @@ class TestOceanBaseGraph(unittest.TestCase):
         self.mock_graph_tools_prompts = MagicMock()
 
         # Patch the necessary components
-        self.embedding_factory_patcher = patch("powermem.storage.oceanbase.oceanbase_graph.EmbedderFactory")
+        self.embedding_factory_patcher = patch(
+            "powermem.storage.oceanbase.oceanbase_graph.EmbedderFactory"
+        )
         self.mock_embedding_factory = self.embedding_factory_patcher.start()
         self.mock_embedding_factory.create.return_value = self.mock_embedding_model
 
-        self.llm_factory_patcher = patch("powermem.storage.oceanbase.oceanbase_graph.LLMFactory")
+        self.llm_factory_patcher = patch(
+            "powermem.storage.oceanbase.oceanbase_graph.LLMFactory"
+        )
         self.mock_llm_factory = self.llm_factory_patcher.start()
         self.mock_llm_factory.create.return_value = self.mock_llm
 
-        self.obvec_client_patcher = patch("powermem.storage.oceanbase.oceanbase_graph.ObVecClient")
+        self.obvec_client_patcher = patch(
+            "powermem.storage.oceanbase.oceanbase_graph.ObVecClient"
+        )
         self.mock_obvec_client = self.obvec_client_patcher.start()
         self.mock_obvec_client.return_value = self.mock_client
         self.mock_client.engine = self.mock_engine
 
-        self.graph_prompts_patcher = patch("powermem.storage.oceanbase.oceanbase_graph.GraphPrompts")
+        self.graph_prompts_patcher = patch(
+            "powermem.storage.oceanbase.oceanbase_graph.GraphPrompts"
+        )
         self.mock_graph_prompts_class = self.graph_prompts_patcher.start()
         self.mock_graph_prompts_class.return_value = self.mock_graph_prompts
 
-        self.graph_tools_prompts_patcher = patch("powermem.storage.oceanbase.oceanbase_graph.GraphToolsPrompts")
+        self.graph_tools_prompts_patcher = patch(
+            "powermem.storage.oceanbase.oceanbase_graph.GraphToolsPrompts"
+        )
         self.mock_graph_tools_prompts_class = self.graph_tools_prompts_patcher.start()
         self.mock_graph_tools_prompts_class.return_value = self.mock_graph_tools_prompts
 
@@ -120,11 +135,15 @@ class TestOceanBaseGraph(unittest.TestCase):
 
         self.memory_graph._create_tables()
 
-        self.mock_client.drop_table_if_exist.assert_any_call(constants.TABLE_RELATIONSHIPS)
+        self.mock_client.drop_table_if_exist.assert_any_call(
+            constants.TABLE_RELATIONSHIPS
+        )
         self.mock_client.drop_table_if_exist.assert_any_call(constants.TABLE_ENTITIES)
         create_calls = self.mock_client.create_table_with_index_params.call_args_list
         self.assertEqual(create_calls[0].kwargs["table_name"], constants.TABLE_ENTITIES)
-        self.assertEqual(create_calls[1].kwargs["table_name"], constants.TABLE_RELATIONSHIPS)
+        self.assertEqual(
+            create_calls[1].kwargs["table_name"], constants.TABLE_RELATIONSHIPS
+        )
 
     def test_init_without_embedding_dims(self):
         """Test initialization fails without embedding_model_dims."""
@@ -170,27 +189,51 @@ class TestOceanBaseGraph(unittest.TestCase):
         self.assertEqual(identity, "user_id: test_user")
 
         # Test with additional fields
-        filters_with_agent = {"user_id": "test_user", "agent_id": "agent_1", "run_id": "run_1"}
+        filters_with_agent = {
+            "user_id": "test_user",
+            "agent_id": "agent_1",
+            "run_id": "run_1",
+        }
         identity = self.memory_graph._build_user_identity(filters_with_agent)
-        self.assertEqual(identity, "user_id: test_user, agent_id: agent_1, run_id: run_1")
+        self.assertEqual(
+            identity, "user_id: test_user, agent_id: agent_1, run_id: run_1"
+        )
 
     def test_build_filter_conditions(self):
         """Test filter conditions building."""
         # Test with only user_id
-        filter_parts, params = self.memory_graph._build_filter_conditions(self.test_filters)
+        filter_parts, params = self.memory_graph._build_filter_conditions(
+            self.test_filters
+        )
         self.assertEqual(filter_parts, ["user_id = :user_id"])
         self.assertEqual(params, {"user_id": "test_user"})
 
         # Test with additional fields
-        filters_with_agent = {"user_id": "test_user", "agent_id": "agent_1", "run_id": "run_1"}
-        filter_parts, params = self.memory_graph._build_filter_conditions(filters_with_agent)
-        expected_parts = ["user_id = :user_id", "agent_id = :agent_id", "run_id = :run_id"]
-        expected_params = {"user_id": "test_user", "agent_id": "agent_1", "run_id": "run_1"}
+        filters_with_agent = {
+            "user_id": "test_user",
+            "agent_id": "agent_1",
+            "run_id": "run_1",
+        }
+        filter_parts, params = self.memory_graph._build_filter_conditions(
+            filters_with_agent
+        )
+        expected_parts = [
+            "user_id = :user_id",
+            "agent_id = :agent_id",
+            "run_id = :run_id",
+        ]
+        expected_params = {
+            "user_id": "test_user",
+            "agent_id": "agent_1",
+            "run_id": "run_1",
+        }
         self.assertEqual(filter_parts, expected_parts)
         self.assertEqual(params, expected_params)
 
         # Test with prefix
-        filter_parts, params = self.memory_graph._build_filter_conditions(self.test_filters, prefix="r.")
+        filter_parts, params = self.memory_graph._build_filter_conditions(
+            self.test_filters, prefix="r."
+        )
         self.assertEqual(filter_parts, ["r.user_id = :user_id"])
 
     def test_coerce_tool_response_to_dict(self):
@@ -215,7 +258,9 @@ class TestOceanBaseGraph(unittest.TestCase):
         prompts = GraphToolsPrompts()
 
         regular_name = prompts.get_relations_tool()["function"]["name"]
-        structured_name = prompts.get_relations_tool(structured=True)["function"]["name"]
+        structured_name = prompts.get_relations_tool(structured=True)["function"][
+            "name"
+        ]
 
         self.assertEqual(regular_name, "establish_relationships")
         self.assertEqual(structured_name, regular_name)
@@ -223,12 +268,18 @@ class TestOceanBaseGraph(unittest.TestCase):
     def test_add_method(self):
         """Test the add method with mocked components."""
         # Mock the necessary methods that add() calls
-        self.memory_graph._retrieve_nodes_from_data = MagicMock(return_value={"alice": "person", "bob": "person"})
+        self.memory_graph._retrieve_nodes_from_data = MagicMock(
+            return_value={"alice": "person", "bob": "person"}
+        )
         self.memory_graph._establish_nodes_relations_from_data = MagicMock(
-            return_value=[{"source": "alice", "relationship": "knows", "destination": "bob"}]
+            return_value=[
+                {"source": "alice", "relationship": "knows", "destination": "bob"}
+            ]
         )
         self.memory_graph._search_graph_db = MagicMock(return_value=[])
-        self.memory_graph._get_delete_entities_from_search_output = MagicMock(return_value=[])
+        self.memory_graph._get_delete_entities_from_search_output = MagicMock(
+            return_value=[]
+        )
         self.memory_graph._delete_entities = MagicMock(return_value=[])
         self.memory_graph._add_entities = MagicMock(
             return_value=[{"source": "alice", "relationship": "knows", "target": "bob"}]
@@ -240,12 +291,16 @@ class TestOceanBaseGraph(unittest.TestCase):
         result = self.memory_graph.add("Alice knows Bob", self.test_filters)
 
         # Verify the method calls
-        self.memory_graph._retrieve_nodes_from_data.assert_called_once_with("Alice knows Bob", self.test_filters)
+        self.memory_graph._retrieve_nodes_from_data.assert_called_once_with(
+            "Alice knows Bob", self.test_filters
+        )
         self.memory_graph._establish_nodes_relations_from_data.assert_called_once()
         self.memory_graph._search_graph_db.assert_called_once()
         self.memory_graph._get_delete_entities_from_search_output.assert_called_once()
         self.memory_graph.engine.begin.assert_called_once()
-        self.memory_graph._delete_entities.assert_called_once_with([], self.test_filters, conn=mock_conn)
+        self.memory_graph._delete_entities.assert_called_once_with(
+            [], self.test_filters, conn=mock_conn
+        )
         self.memory_graph._add_entities.assert_called_once_with(
             [{"source": "alice", "relationship": "knows", "destination": "bob"}],
             self.test_filters,
@@ -260,7 +315,9 @@ class TestOceanBaseGraph(unittest.TestCase):
     def test_search_method(self):
         """Test the search method with mocked components."""
         # Mock the necessary methods that search() calls
-        self.memory_graph._retrieve_nodes_from_data = MagicMock(return_value={"alice": "person"})
+        self.memory_graph._retrieve_nodes_from_data = MagicMock(
+            return_value={"alice": "person"}
+        )
 
         # Mock search results
         mock_search_results = [
@@ -282,8 +339,12 @@ class TestOceanBaseGraph(unittest.TestCase):
             result = self.memory_graph.search("Find Alice", self.test_filters, limit=5)
 
             # Verify the method calls
-            self.memory_graph._retrieve_nodes_from_data.assert_called_once_with("Find Alice", self.test_filters)
-            self.memory_graph._search_graph_db.assert_called_once_with(node_list=["alice"], filters=self.test_filters, limit=5)
+            self.memory_graph._retrieve_nodes_from_data.assert_called_once_with(
+                "Find Alice", self.test_filters
+            )
+            self.memory_graph._search_graph_db.assert_called_once_with(
+                node_list=["alice"], filters=self.test_filters, limit=5
+            )
 
             # Check the result structure
             self.assertEqual(len(result), 2)
@@ -295,7 +356,9 @@ class TestOceanBaseGraph(unittest.TestCase):
     def test_search_method_empty_results(self):
         """Test the search method with empty results."""
         # Mock empty search results
-        self.memory_graph._retrieve_nodes_from_data = MagicMock(return_value={"alice": "person"})
+        self.memory_graph._retrieve_nodes_from_data = MagicMock(
+            return_value={"alice": "person"}
+        )
         self.memory_graph._search_graph_db = MagicMock(return_value=[])
 
         # Call the search method
@@ -307,19 +370,23 @@ class TestOceanBaseGraph(unittest.TestCase):
     def test_search_graph_db_deduplicates_relations_across_seed_nodes(self):
         """Test graph search removes duplicate triples from overlapping seeds."""
         self.mock_embedding_model.embed.side_effect = [[0.1], [0.2]]
-        self.memory_graph._search_node = MagicMock(side_effect=[
-            [{"id": "entity1"}],
-            [{"id": "entity2"}],
-        ])
+        self.memory_graph._search_node = MagicMock(
+            side_effect=[
+                [{"id": "entity1"}],
+                [{"id": "entity2"}],
+            ]
+        )
         duplicate_relation = {
             "source": "alice",
             "relationship": "knows",
             "destination": "bob",
         }
-        self.memory_graph._multi_hop_search = MagicMock(side_effect=[
-            [duplicate_relation],
-            [dict(duplicate_relation)],
-        ])
+        self.memory_graph._multi_hop_search = MagicMock(
+            side_effect=[
+                [duplicate_relation],
+                [dict(duplicate_relation)],
+            ]
+        )
 
         result = self.memory_graph._search_graph_db(
             node_list=["alice", "bob"],
@@ -332,14 +399,20 @@ class TestOceanBaseGraph(unittest.TestCase):
         """Test entity extraction provides noop as an opt-out tool."""
         extract_tool = {"function": {"name": "extract_entities"}}
         noop_tool = {"function": {"name": "noop"}}
-        self.mock_graph_tools_prompts.get_extract_entities_tool.return_value = extract_tool
+        self.mock_graph_tools_prompts.get_extract_entities_tool.return_value = (
+            extract_tool
+        )
         self.mock_graph_tools_prompts.get_noop_tool.return_value = noop_tool
         self.mock_llm.generate_response.return_value = {"tool_calls": []}
 
         self.memory_graph._retrieve_nodes_from_data("No memory here", self.test_filters)
 
-        self.mock_graph_tools_prompts.get_extract_entities_tool.assert_called_once_with(structured=True)
-        self.mock_graph_tools_prompts.get_noop_tool.assert_called_once_with(structured=True)
+        self.mock_graph_tools_prompts.get_extract_entities_tool.assert_called_once_with(
+            structured=True
+        )
+        self.mock_graph_tools_prompts.get_noop_tool.assert_called_once_with(
+            structured=True
+        )
         self.assertEqual(
             self.mock_llm.generate_response.call_args.kwargs["tools"],
             [extract_tool, noop_tool],
@@ -360,8 +433,12 @@ class TestOceanBaseGraph(unittest.TestCase):
         )
 
         self.assertEqual(result, [])
-        self.mock_graph_tools_prompts.get_relations_tool.assert_called_once_with(structured=True)
-        self.mock_graph_tools_prompts.get_noop_tool.assert_called_once_with(structured=True)
+        self.mock_graph_tools_prompts.get_relations_tool.assert_called_once_with(
+            structured=True
+        )
+        self.mock_graph_tools_prompts.get_noop_tool.assert_called_once_with(
+            structured=True
+        )
         self.assertEqual(
             self.mock_llm.generate_response.call_args.kwargs["tools"],
             [relations_tool, noop_tool],
@@ -386,7 +463,10 @@ class TestOceanBaseGraph(unittest.TestCase):
         ]
         mock_entities_result = MagicMock()
         mock_entities_result.fetchall.return_value = mock_entities
-        self.mock_client.get.side_effect = [mock_relationships_result, mock_entities_result]
+        self.mock_client.get.side_effect = [
+            mock_relationships_result,
+            mock_entities_result,
+        ]
 
         # Call the get_all method
         result = self.memory_graph.get_all(self.test_filters, limit=10)
@@ -434,7 +514,9 @@ class TestOceanBaseGraph(unittest.TestCase):
 
         # Verify the method calls
         self.assertEqual(self.mock_client.get.call_count, 1)
-        self.assertEqual(self.mock_client.delete.call_count, 2)  # relationships and entities
+        self.assertEqual(
+            self.mock_client.delete.call_count, 2
+        )  # relationships and entities
 
     def test_search_node(self):
         """Test the _search_node method."""
@@ -455,16 +537,26 @@ class TestOceanBaseGraph(unittest.TestCase):
         self.mock_client.ann_search.return_value = mock_search_results
 
         # Mock Table creation and l2_distance
-        with patch("powermem.storage.oceanbase.oceanbase_graph.Table") as mock_table_class, \
-             patch("powermem.storage.oceanbase.oceanbase_graph.l2_distance") as mock_l2_distance:
+        with (
+            patch(
+                "powermem.storage.oceanbase.oceanbase_graph.Table"
+            ) as mock_table_class,
+            patch(
+                "powermem.storage.oceanbase.oceanbase_graph.l2_distance"
+            ) as mock_l2_distance,
+        ):
             mock_table_class.return_value = mock_table
             # Create a mock that supports comparison
             mock_distance_expr = MagicMock()
-            mock_distance_expr.__lt__ = lambda self, other: True  # Always return True for comparison
+            mock_distance_expr.__lt__ = (
+                lambda self, other: True
+            )  # Always return True for comparison
             mock_l2_distance.return_value = mock_distance_expr
 
             # Call the _search_node method with limit > 1
-            result = self.memory_graph._search_node("alice", mock_embedding, self.test_filters, limit=2)
+            result = self.memory_graph._search_node(
+                "alice", mock_embedding, self.test_filters, limit=2
+            )
 
             # Verify the method calls
             self.mock_client.ann_search.assert_called_once()
@@ -493,16 +585,26 @@ class TestOceanBaseGraph(unittest.TestCase):
         self.mock_client.ann_search.return_value = mock_search_results
 
         # Mock Table creation and l2_distance
-        with patch("powermem.storage.oceanbase.oceanbase_graph.Table") as mock_table_class, \
-             patch("powermem.storage.oceanbase.oceanbase_graph.l2_distance") as mock_l2_distance:
+        with (
+            patch(
+                "powermem.storage.oceanbase.oceanbase_graph.Table"
+            ) as mock_table_class,
+            patch(
+                "powermem.storage.oceanbase.oceanbase_graph.l2_distance"
+            ) as mock_l2_distance,
+        ):
             mock_table_class.return_value = mock_table
             # Create a mock that supports comparison
             mock_distance_expr = MagicMock()
-            mock_distance_expr.__lt__ = lambda self, other: True  # Always return True for comparison
+            mock_distance_expr.__lt__ = (
+                lambda self, other: True
+            )  # Always return True for comparison
             mock_l2_distance.return_value = mock_distance_expr
 
             # Call the _search_node method with limit = 1
-            result = self.memory_graph._search_node("alice", mock_embedding, self.test_filters, limit=1)
+            result = self.memory_graph._search_node(
+                "alice", mock_embedding, self.test_filters, limit=1
+            )
 
             # Check the result
             self.assertIsInstance(result, dict)
@@ -526,73 +628,205 @@ class TestOceanBaseGraph(unittest.TestCase):
         self.mock_client.ann_search.return_value = mock_search_results
 
         # Mock Table creation and l2_distance
-        with patch("powermem.storage.oceanbase.oceanbase_graph.Table") as mock_table_class, \
-             patch("powermem.storage.oceanbase.oceanbase_graph.l2_distance") as mock_l2_distance:
+        with (
+            patch(
+                "powermem.storage.oceanbase.oceanbase_graph.Table"
+            ) as mock_table_class,
+            patch(
+                "powermem.storage.oceanbase.oceanbase_graph.l2_distance"
+            ) as mock_l2_distance,
+        ):
             mock_table_class.return_value = mock_table
             # Create a mock that supports comparison
             mock_distance_expr = MagicMock()
-            mock_distance_expr.__lt__ = lambda self, other: True  # Always return True for comparison
+            mock_distance_expr.__lt__ = (
+                lambda self, other: True
+            )  # Always return True for comparison
             mock_l2_distance.return_value = mock_distance_expr
 
             # Call the _search_node method
-            result = self.memory_graph._search_node("alice", mock_embedding, self.test_filters)
+            result = self.memory_graph._search_node(
+                "alice", mock_embedding, self.test_filters
+            )
 
             # Check the result
             self.assertIsNone(result)
 
     def test_create_entity(self):
-        """Test the _create_entity method."""
-        # Mock data
+        """Test the _create_entity method uses INSERT ON DUPLICATE KEY UPDATE."""
         name = "alice"
         entity_type = "person"
         embedding = [0.1, 0.2, 0.3]
         filters = self.test_filters
 
-        # Mock upsert
-        self.mock_client.upsert.return_value = None
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = (12345,)
+        self.mock_engine.connect.return_value.__enter__ = MagicMock(
+            return_value=mock_conn
+        )
+        self.mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
 
-        # Call the _create_entity method
         result = self.memory_graph._create_entity(name, entity_type, embedding, filters)
 
-        # Verify the method calls
-        self.mock_client.upsert.assert_called_once()
-        inserted_record = self.mock_client.upsert.call_args.kwargs["data"][0]
-        self.assertEqual(inserted_record["user_id"], self.user_id)
-
-        # Check the result is a Snowflake ID (int)
-        self.assertIsInstance(result, int)
-        self.assertGreater(result, 0)  # Snowflake ID should be positive
+        self.mock_engine.connect.assert_called_once()
+        self.assertEqual(mock_conn.execute.call_count, 2)
+        insert_sql = str(mock_conn.execute.call_args_list[0][0][0])
+        self.assertIn("ON DUPLICATE KEY UPDATE", insert_sql)
+        mock_conn.commit.assert_called_once()
+        self.assertEqual(result, 12345)
 
     def test_create_entity_uses_transaction_connection(self):
-        """Test entity creation uses the provided transaction connection."""
-        conn = MagicMock()
+        """Test _create_entity uses the provided conn without creating a new one."""
+        name = "alice"
+        entity_type = "person"
+        embedding = [0.1, 0.2, 0.3]
+        filters = self.test_filters
+
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = (99999,)
 
         result = self.memory_graph._create_entity(
-            "alice",
-            "person",
-            [0.1, 0.2, 0.3],
-            self.test_filters,
-            conn=conn,
+            name, entity_type, embedding, filters, conn=mock_conn
         )
 
-        conn.execute.assert_called_once()
-        inserted_record = conn.execute.call_args.args[1]
-        self.assertEqual(inserted_record["user_id"], self.user_id)
-        self.assertEqual(inserted_record["name"], "alice")
-        self.mock_client.upsert.assert_not_called()
-        self.assertIsInstance(result, int)
-        self.assertGreater(result, 0)
+        # Should NOT create its own connection
+        self.mock_engine.connect.assert_not_called()
+        # Should NOT commit (outer transaction manages it)
+        mock_conn.commit.assert_not_called()
+        # Should execute INSERT and SELECT
+        self.assertEqual(mock_conn.execute.call_count, 2)
+        insert_sql = str(mock_conn.execute.call_args_list[0][0][0])
+        self.assertIn("ON DUPLICATE KEY UPDATE", insert_sql)
+        # Should return the ID from SELECT
+        self.assertEqual(result, 99999)
+
+    def test_create_entity_standalone_mode(self):
+        """Test _create_entity creates own connection when conn=None."""
+        name = "bob"
+        entity_type = "person"
+        embedding = [0.4, 0.5, 0.6]
+        filters = self.test_filters
+
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = (88888,)
+        self.mock_engine.connect.return_value.__enter__ = MagicMock(
+            return_value=mock_conn
+        )
+        self.mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = self.memory_graph._create_entity(name, entity_type, embedding, filters)
+
+        # Should create its own connection
+        self.mock_engine.connect.assert_called_once()
+        # Should commit
+        mock_conn.commit.assert_called_once()
+        # Should execute INSERT and SELECT
+        self.assertEqual(mock_conn.execute.call_count, 2)
+        insert_sql = str(mock_conn.execute.call_args_list[0][0][0])
+        self.assertIn("ON DUPLICATE KEY UPDATE", insert_sql)
+        self.assertEqual(result, 88888)
+
+    def test_needs_unique_index_migration_returns_true(self):
+        """Test returns True when idx_user_name is non-unique (NON_UNIQUE=1)."""
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = (1,)
+        self.mock_engine.connect.return_value.__enter__ = MagicMock(
+            return_value=mock_conn
+        )
+        self.mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = self.memory_graph._needs_unique_index_migration()
+
+        self.assertTrue(result)
+        sql_text = str(mock_conn.execute.call_args[0][0])
+        self.assertIn("INFORMATION_SCHEMA.STATISTICS", sql_text)
+        self.assertIn("idx_user_name", sql_text)
+
+    def test_needs_unique_index_migration_returns_false(self):
+        """Test returns False when idx_user_name is already unique (NON_UNIQUE=0)."""
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = (0,)
+        self.mock_engine.connect.return_value.__enter__ = MagicMock(
+            return_value=mock_conn
+        )
+        self.mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = self.memory_graph._needs_unique_index_migration()
+
+        self.assertFalse(result)
+
+    def test_migrate_to_unique_index_with_duplicates(self):
+        """Test migration deduplicates then alters index when duplicates exist."""
+        mock_conn = MagicMock()
+        # First call: SELECT duplicates -> returns rows
+        # Subsequent calls: DELETE, DROP INDEX, ADD UNIQUE INDEX
+        dup_result = MagicMock()
+        dup_result.fetchall.return_value = [("user1", "alice", 2)]
+        mock_conn.execute.return_value = dup_result
+        self.mock_engine.connect.return_value.__enter__ = MagicMock(
+            return_value=mock_conn
+        )
+        self.mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        self.memory_graph._migrate_to_unique_index()
+
+        # SELECT dups, 2x repoint UPDATE, DELETE, DROP INDEX, ADD UNIQUE
+        self.assertGreaterEqual(mock_conn.execute.call_count, 6)
+        sqls = [c[0][0].text for c in mock_conn.execute.call_args_list]
+        all_sql = " ".join(sqls)
+        self.assertIn("GROUP BY", all_sql)
+        self.assertIn("DELETE", all_sql)
+        self.assertIn("DROP INDEX", all_sql)
+        self.assertIn("UNIQUE INDEX", all_sql)
+        # Relationships must be repointed for both endpoints before the DELETE
+        self.assertIn("source_entity_id", all_sql)
+        self.assertIn("destination_entity_id", all_sql)
+        repoint_idx = next(
+            i for i, s in enumerate(sqls) if "UPDATE" in s and "source_entity_id" in s
+        )
+        delete_idx = next(i for i, s in enumerate(sqls) if "DELETE" in s)
+        self.assertLess(
+            repoint_idx,
+            delete_idx,
+            "relationships must be repointed before duplicate entities are deleted",
+        )
+        # Should commit at least twice (after dedup + after alter)
+        self.assertGreaterEqual(mock_conn.commit.call_count, 2)
+
+    def test_migrate_to_unique_index_no_duplicates(self):
+        """Test migration only alters index when no duplicates exist."""
+        mock_conn = MagicMock()
+        # First call: SELECT duplicates -> empty
+        dup_result = MagicMock()
+        dup_result.fetchall.return_value = []
+        mock_conn.execute.return_value = dup_result
+        self.mock_engine.connect.return_value.__enter__ = MagicMock(
+            return_value=mock_conn
+        )
+        self.mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        self.memory_graph._migrate_to_unique_index()
+
+        # Should have 3 execute calls: SELECT dups, DROP INDEX, ADD UNIQUE
+        # (no duplicates -> no repoint UPDATEs, no DELETE)
+        self.assertEqual(mock_conn.execute.call_count, 3)
+        all_sql = " ".join(c[0][0].text for c in mock_conn.execute.call_args_list)
+        self.assertNotIn("DELETE", all_sql)
+        self.assertIn("DROP INDEX", all_sql)
+        self.assertIn("UNIQUE INDEX", all_sql)
 
     def test_add_entities_passes_transaction_connection_to_entity_creation(self):
         """Test entity creation participates in the add transaction."""
         conn = MagicMock()
         source_id = 641905209349505024
         dest_id = 641905209349505025
-        to_be_added = [{
-            "source": "alice",
-            "relationship": "knows",
-            "destination": "bob",
-        }]
+        to_be_added = [
+            {
+                "source": "alice",
+                "relationship": "knows",
+                "destination": "bob",
+            }
+        ]
         entity_type_map = {"alice": "person", "bob": "person"}
         self.mock_embedding_model.embed.side_effect = [
             [0.1, 0.2, 0.3],
@@ -612,10 +846,16 @@ class TestOceanBaseGraph(unittest.TestCase):
             conn=conn,
         )
 
-        self.assertEqual(result, [{"source": "alice", "relationship": "knows", "target": "bob"}])
+        self.assertEqual(
+            result, [{"source": "alice", "relationship": "knows", "target": "bob"}]
+        )
         self.assertEqual(self.memory_graph._create_entity.call_count, 2)
-        self.assertIs(self.memory_graph._create_entity.call_args_list[0].kwargs["conn"], conn)
-        self.assertIs(self.memory_graph._create_entity.call_args_list[1].kwargs["conn"], conn)
+        self.assertIs(
+            self.memory_graph._create_entity.call_args_list[0].kwargs["conn"], conn
+        )
+        self.assertIs(
+            self.memory_graph._create_entity.call_args_list[1].kwargs["conn"], conn
+        )
         self.memory_graph._create_or_update_relationship.assert_called_once_with(
             source_id,
             dest_id,
@@ -643,11 +883,15 @@ class TestOceanBaseGraph(unittest.TestCase):
         ]
         self.memory_graph._search_source_node = MagicMock(return_value=None)
         self.memory_graph._search_destination_node = MagicMock(return_value=None)
-        self.memory_graph._create_entity = MagicMock(side_effect=[alice_id, bob_id, charlie_id])
-        self.memory_graph._create_or_update_relationship = MagicMock(side_effect=[
-            {"source": "alice", "relationship": "knows", "target": "bob"},
-            {"source": "alice", "relationship": "likes", "target": "charlie"},
-        ])
+        self.memory_graph._create_entity = MagicMock(
+            side_effect=[alice_id, bob_id, charlie_id]
+        )
+        self.memory_graph._create_or_update_relationship = MagicMock(
+            side_effect=[
+                {"source": "alice", "relationship": "knows", "target": "bob"},
+                {"source": "alice", "relationship": "likes", "target": "charlie"},
+            ]
+        )
 
         result = self.memory_graph._add_entities(
             to_be_added,
@@ -682,11 +926,13 @@ class TestOceanBaseGraph(unittest.TestCase):
 
     def test_delete_entities_uses_transaction_connection(self):
         """Test relationship deletion uses the provided transaction connection."""
-        to_be_deleted = [{
-            "source": "alice",
-            "relationship": "knows",
-            "destination": "bob",
-        }]
+        to_be_deleted = [
+            {
+                "source": "alice",
+                "relationship": "knows",
+                "destination": "bob",
+            }
+        ]
         source_result = MagicMock()
         source_result.fetchall.return_value = [(641905209349505024, "alice")]
         dest_result = MagicMock()
@@ -698,7 +944,9 @@ class TestOceanBaseGraph(unittest.TestCase):
         self.mock_client.get.side_effect = [source_result, dest_result]
         conn.execute.return_value = delete_result
 
-        result = self.memory_graph._delete_entities(to_be_deleted, self.test_filters, conn=conn)
+        result = self.memory_graph._delete_entities(
+            to_be_deleted, self.test_filters, conn=conn
+        )
 
         self.assertEqual(result, [{"deleted_count": 1}])
         conn.execute.assert_called_once()
@@ -706,11 +954,13 @@ class TestOceanBaseGraph(unittest.TestCase):
 
     def test_delete_entities_scopes_entity_name_lookup_by_user(self):
         """Test relationship deletion looks up entities only for the current user."""
-        to_be_deleted = [{
-            "source": "alice",
-            "relationship": "knows",
-            "destination": "bob",
-        }]
+        to_be_deleted = [
+            {
+                "source": "alice",
+                "relationship": "knows",
+                "destination": "bob",
+            }
+        ]
         source_result = MagicMock()
         source_result.fetchall.return_value = [(641905209349505024, "alice")]
         dest_result = MagicMock()
@@ -747,12 +997,18 @@ class TestOceanBaseGraph(unittest.TestCase):
         mock_entity_result = MagicMock()
         mock_entity_result.fetchone.side_effect = [
             (source_id, "alice"),
-            (dest_id, "bob")
+            (dest_id, "bob"),
         ]
-        self.mock_client.get.side_effect = [mock_get_result, mock_entity_result, mock_entity_result]
+        self.mock_client.get.side_effect = [
+            mock_get_result,
+            mock_entity_result,
+            mock_entity_result,
+        ]
 
         # Call the _create_or_update_relationship method
-        result = self.memory_graph._create_or_update_relationship(source_id, dest_id, relationship_type, filters)
+        result = self.memory_graph._create_or_update_relationship(
+            source_id, dest_id, relationship_type, filters
+        )
 
         # Verify the method calls
         self.mock_client.insert.assert_called_once()
@@ -771,19 +1027,27 @@ class TestOceanBaseGraph(unittest.TestCase):
 
         # Mock get results (existing relationship)
         mock_get_result = MagicMock()
-        mock_get_result.fetchall.return_value = [(641905209349505026,)]  # existing relationship (no mentions field)
+        mock_get_result.fetchall.return_value = [
+            (641905209349505026,)
+        ]  # existing relationship (no mentions field)
         self.mock_client.get.return_value = mock_get_result
 
         # Mock entity names for return value
         mock_entity_result = MagicMock()
         mock_entity_result.fetchone.side_effect = [
             (source_id, "alice"),
-            (dest_id, "bob")
+            (dest_id, "bob"),
         ]
-        self.mock_client.get.side_effect = [mock_get_result, mock_entity_result, mock_entity_result]
+        self.mock_client.get.side_effect = [
+            mock_get_result,
+            mock_entity_result,
+            mock_entity_result,
+        ]
 
         # Call the _create_or_update_relationship method
-        result = self.memory_graph._create_or_update_relationship(source_id, dest_id, relationship_type, filters)
+        result = self.memory_graph._create_or_update_relationship(
+            source_id, dest_id, relationship_type, filters
+        )
 
         # Verify insert is NOT called (relationship already exists)
         self.mock_client.insert.assert_not_called()
@@ -832,8 +1096,16 @@ class TestOceanBaseGraph(unittest.TestCase):
     def test_remove_spaces_from_entities(self):
         """Test the _remove_spaces_from_entities method."""
         entity_list = [
-            {"source": "Alice Smith", "relationship": "knows", "destination": "Bob Johnson"},
-            {"source": "Charlie Brown", "relationship": "works with", "destination": "David Wilson"},
+            {
+                "source": "Alice Smith",
+                "relationship": "knows",
+                "destination": "Bob Johnson",
+            },
+            {
+                "source": "Charlie Brown",
+                "relationship": "works with",
+                "destination": "David Wilson",
+            },
         ]
 
         # Call the _remove_spaces_from_entities method
@@ -854,13 +1126,19 @@ class TestOceanBaseGraph(unittest.TestCase):
         mock_embedding = [0.1, 0.2, 0.3]
 
         # Mock _search_node
-        self.memory_graph._search_node = MagicMock(return_value={"id": "entity1", "name": "alice", "distance": 0.5})
+        self.memory_graph._search_node = MagicMock(
+            return_value={"id": "entity1", "name": "alice", "distance": 0.5}
+        )
 
         # Call the _search_source_node method
-        result = self.memory_graph._search_source_node(mock_embedding, self.test_filters, threshold=0.9, limit=1)
+        result = self.memory_graph._search_source_node(
+            mock_embedding, self.test_filters, threshold=0.9, limit=1
+        )
 
         # Verify the method calls
-        self.memory_graph._search_node.assert_called_once_with("source", mock_embedding, self.test_filters, 0.9, 1)
+        self.memory_graph._search_node.assert_called_once_with(
+            "source", mock_embedding, self.test_filters, 0.9, 1
+        )
 
         # Check the result
         self.assertEqual(result["id"], "entity1")
@@ -872,13 +1150,19 @@ class TestOceanBaseGraph(unittest.TestCase):
         mock_embedding = [0.1, 0.2, 0.3]
 
         # Mock _search_node
-        self.memory_graph._search_node = MagicMock(return_value={"id": "entity2", "name": "bob", "distance": 0.6})
+        self.memory_graph._search_node = MagicMock(
+            return_value={"id": "entity2", "name": "bob", "distance": 0.6}
+        )
 
         # Call the _search_destination_node method
-        result = self.memory_graph._search_destination_node(mock_embedding, self.test_filters, threshold=0.9, limit=1)
+        result = self.memory_graph._search_destination_node(
+            mock_embedding, self.test_filters, threshold=0.9, limit=1
+        )
 
         # Verify the method calls
-        self.memory_graph._search_node.assert_called_once_with("destination", mock_embedding, self.test_filters, 0.9, 1)
+        self.memory_graph._search_node.assert_called_once_with(
+            "destination", mock_embedding, self.test_filters, 0.9, 1
+        )
 
         # Check the result
         self.assertEqual(result["id"], "entity2")
@@ -888,9 +1172,12 @@ class TestOceanBaseGraph(unittest.TestCase):
         """Test the reset method."""
         # Reset the mock call counts
         self.mock_client.reset_mock()
-        
+
         # Mock table existence checks
-        self.mock_client.check_table_exists.side_effect = [True, True]  # Both tables exist
+        self.mock_client.check_table_exists.side_effect = [
+            True,
+            True,
+        ]  # Both tables exist
 
         # Mock drop table methods
         self.mock_client.drop_table_if_exist.return_value = None
