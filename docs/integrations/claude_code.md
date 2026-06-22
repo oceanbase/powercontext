@@ -314,11 +314,18 @@ Optional environment variables (where you launch Claude Code):
 | `POWERMEM_USER_ID` | No | Defaults to OS login name |
 | `POWERMEM_AGENT_ID` | No | Optional `agent_id` on memories |
 | `POWERMEM_HOOK_MAX_CHARS` | No | Transcript cap (default `120000`) |
+| `POWERMEM_HOOK_SCRUB` | No | Deterministic local scrubber for hook payloads. Default `1`; set `0` / `false` / `no` / `off` only if you want raw hook data sent to the configured server. |
+| `POWERMEM_HOOK_PRIVACY_LEVEL` | No | `standard` (default) redacts high-confidence credential patterns; `strict` also redacts common emails and phone numbers. |
+| `POWERMEM_HOOK_SECRET_ACTION` | No | `redact` (default) replaces matched values; `block` skips the memory write successfully when a high-confidence credential is found. |
+| `POWERMEM_HOOK_PATH_PRIVACY` | No | Path handling for content and metadata: `home` (default; home paths become `~/...`, other absolute paths keep only the basename), `basename`, `omit`, or `full`. |
+| `POWERMEM_HOOK_SEARCH_SECRET_POLICY` | No | Prompt-search handling for high-confidence credential patterns: `skip` (default), `redact`, or `off` (disables only the search secret skip/redact policy; path privacy and strict PII scrubbing still apply when hook scrubbing is enabled). |
 | `POWERMEM_INFER_TRANSCRIPT` | No | Set `1` to enable server-side infer on large transcripts (default off) |
 | `POWERMEM_INFER_COMPACT` | No | Set `0` to disable infer on compact summaries (default on) |
 | `POWERMEM_PROMPT_SEARCH` | No | **Default: on** — injects semantic search results on every user prompt via `UserPromptSubmit`. Set **`0`** / **`false`** / **`no`** / **`off`** to disable. |
 | `POWERMEM_PROMPT_SEARCH_LIMIT` | No | Max memories returned per prompt (default **8**, cap **30**). |
 | `POWERMEM_PROMPT_SEARCH_MAX_CHARS` | No | Cap on injected context string (default **24000**). |
+
+The hook scrubber runs before `SessionEnd`, `PostCompact`, workspace-file writes, prompt search, and the `PostCompact` detached-worker environment handoff. Write metadata includes a `privacy` object with the active level, path mode, action, and redaction counts; original matched values are not recorded there.
 
 **SessionEnd timeout:** Claude Code defaults to a short timeout for `SessionEnd` hooks. The hook **returns immediately** and uploads in a **detached worker process**, so large transcripts still upload without blocking exit. If you ever switch to a synchronous upload inside the hook, raise `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` (see [Claude Code hooks – SessionEnd](https://code.claude.com/docs/en/hooks#sessionend)).
 

@@ -12,6 +12,7 @@ import (
 
 func runPollLoop() {
 	base := baseURL()
+	privacyCfg := loadHookPrivacyConfig()
 	root := filepath.Clean(os.Getenv("POWERMEM_WATCH_ROOT"))
 	if root == "" || root == "." {
 		var err error
@@ -22,7 +23,7 @@ func runPollLoop() {
 		}
 	}
 	if st, err := os.Stat(root); err != nil || !st.IsDir() {
-		fmt.Fprintf(os.Stderr, "POWERMEM_WATCH_ROOT is not a directory: %s\n", root)
+		fmt.Fprintf(os.Stderr, "POWERMEM_WATCH_ROOT is not a directory: %s\n", scrubPathForDisplay(root, privacyCfg))
 		os.Exit(1)
 	}
 
@@ -46,7 +47,7 @@ func runPollLoop() {
 	statePath := filepath.Join(root, ".powermem-watcher-state.json")
 	state := loadState(statePath)
 
-	fmt.Fprintf(os.Stdout, "PowerMem file watcher: root=%s interval=%gs -> %s\n", root, interval, strings.TrimRight(base, "/"))
+	fmt.Fprintf(os.Stdout, "PowerMem file watcher: root=%s interval=%gs -> %s\n", scrubPathForDisplay(root, privacyCfg), interval, scrubTextForDisplay(strings.TrimRight(base, "/"), privacyCfg))
 
 	for {
 		current := scanMtimes(root, suffixes, ignore)
@@ -58,7 +59,7 @@ func runPollLoop() {
 			if err := runWorkerFileSync(pathStr); err == nil {
 				state[pathStr] = mtimeNs
 				changed = true
-				fmt.Fprintf(os.Stdout, "uploaded: %s\n", pathStr)
+				fmt.Fprintf(os.Stdout, "uploaded: %s\n", scrubPathForDisplay(pathStr, privacyCfg))
 			}
 		}
 		if changed {

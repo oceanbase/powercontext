@@ -77,6 +77,10 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      - name: Test Claude Code hook
+        working-directory: apps/claude-code-plugin
+        run: go test ./...
+
       - name: Package Claude Code plugin (cross-compile hooks + zip)
         run: bash apps/claude-code-plugin/scripts/package-plugin.sh
 
