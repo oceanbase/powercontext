@@ -255,14 +255,15 @@ class EbbinghausAlgorithm:
             True if memory should be forgotten
         """
         try:
-            # Check decay factor
             created_at = memory.get("created_at")
             if created_at:
                 decay_factor = self.calculate_decay(
                     created_at,
                     decay_rate=self._resolve_decay_rate(memory),
                 )
-                if decay_factor < self.working_threshold:
+                initial_retention = self._resolve_initial_retention(memory)
+                effective_retention = initial_retention * decay_factor
+                if effective_retention < self.working_threshold:
                     return True
             
             return False
@@ -303,6 +304,60 @@ class EbbinghausAlgorithm:
             logger.error(f"Failed to check archiving: {e}")
             return False
     
+    def reinforce(self, memory: Dict[str, Any]) -> Dict[str, Any]:
+        """Boost current_retention on review and advance the review schedule.
+
+        Called when a memory is accessed at or after its ``next_review`` time.
+        Uses diminishing-returns formula so retention approaches but never
+        exceeds 1.0.
+
+        Returns:
+            Dict with updated intelligence fields to merge back.
+        """
+        _, intelligence = self._resolve_metadata_sections(memory)
+        current_retention = intelligence.get("current_retention")
+        if current_retention is None:
+            current_retention = intelligence.get("initial_retention", 1.0)
+        try:
+            current_retention = float(current_retention)
+        except (TypeError, ValueError):
+            current_retention = 1.0
+
+        reinforcement_factor = self._resolve_reinforcement_factor(memory)
+        review_count = int(intelligence.get("review_count") or 0)
+
+        new_retention = min(
+            1.0, current_retention + reinforcement_factor * (1.0 - current_retention)
+        )
+        new_review_count = review_count + 1
+
+        review_schedule = intelligence.get("review_schedule") or []
+        next_review = (
+            review_schedule[new_review_count]
+            if new_review_count < len(review_schedule)
+            else None
+        )
+
+        now = get_current_datetime()
+        return {
+            "current_retention": new_retention,
+            "review_count": new_review_count,
+            "last_reviewed": now.isoformat(),
+            "next_review": next_review,
+        }
+
+    def calculate_current_retention(self, memory: Dict[str, Any]) -> float:
+        """Return the real-time effective retention for display/ranking.
+
+        ``effective_retention = initial_retention * decay_factor``
+        """
+        initial = self._resolve_initial_retention(memory)
+        created_at = memory.get("created_at")
+        decay = self.calculate_decay(
+            created_at, decay_rate=self._resolve_decay_rate(memory)
+        )
+        return initial * decay
+
     def get_review_schedule(
         self, memory: Dict[str, Any], *, prefer_stored: bool = True
     ) -> list:
@@ -455,7 +510,25 @@ class EbbinghausAlgorithm:
             logger.warning("Invalid reinforcement_factor: %s", raw)
             return 0.0
         return max(factor, 0.0)
-    
+
+    def _resolve_initial_retention(self, memory: Dict[str, Any]) -> float:
+        """Resolve initial_retention from memory metadata with config fallback."""
+        meta, intelligence = self._resolve_metadata_sections(memory)
+        raw = self._first_present(
+            memory.get("initial_retention"),
+            meta.get("initial_retention"),
+            intelligence.get("initial_retention"),
+        )
+        if raw is not None:
+            try:
+                val = float(raw)
+            except (TypeError, ValueError):
+                logger.warning("Invalid initial_retention: %s", raw)
+            else:
+                if 0.0 < val <= 1.0:
+                    return val
+        return self.initial_retention
+
     def _parse_datetime(self, value: Any) -> datetime:
         """Parse datetime from object or ISO string."""
         if isinstance(value, datetime):
