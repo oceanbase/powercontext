@@ -27,7 +27,7 @@ def test_mcp_missing_fastmcp_raises_import_error_not_system_exit(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", guarded_import)
 
     try:
-        with pytest.raises(ImportError, match="powermem\\[mcp\\]"):
+        with pytest.raises(ImportError, match="powermem\\[server\\]"):
             importlib.import_module(module_name)
     finally:
         _restore_module(module_name, saved_module)

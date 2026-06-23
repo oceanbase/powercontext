@@ -27,8 +27,8 @@ The agent follows [`apps/vscode-extension/SETUP.md`](https://github.com/oceanbas
   - `powermem-mcp sse` (port 8848) when you only need MCP.
 - A configured PowerMem `.env` or equivalent environment variables. Set your LLM provider, API key, and model before starting the backend.
 
-Install `powermem[server]` for the HTTP API server. Install `powermem[mcp]` for the
-local MCP command, and add `seekdb` when using the default embedded seekdb
+Install `powermem[server]` for the HTTP API server and MCP runtime
+dependencies, and add `seekdb` when using the default embedded seekdb
 storage/embedder.
 
 ## Manual setup

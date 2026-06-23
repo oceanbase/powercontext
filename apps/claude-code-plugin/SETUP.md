@@ -236,9 +236,9 @@ writing. Never silently patch `.env`.**
       dependencies, etc.
 
    c. **All four package install locations** affected by (a)-(b):
-      1. `uv pip install --python "$POWERMEM_PYTHON" -e '.[server,mcp,seekdb]'`
+      1. `uv pip install --python "$POWERMEM_PYTHON" -e '.[server,seekdb]'`
       2. `uv pip install --python "$POWERMEM_PYTHON" -q modelscope`
-      3. `uv pip install --python "$POWERMEM_PYTHON" "powermem[mcp,seekdb]"`
+      3. `uv pip install --python "$POWERMEM_PYTHON" "powermem[server,seekdb]"`
       4. `uv pip install --python "$POWERMEM_PYTHON" -q huggingface_hub`
 
 2. COLLECT CONFIG (idempotent). If a .env already exists in the working directory
@@ -346,11 +346,10 @@ writing. Never silently patch `.env`.**
       uv venv venv --python python3.11
       POWERMEM_PYTHON="$(pwd)/venv/bin/python"
       export PATH="$(pwd)/venv/bin:$PATH"
-      uv pip install --python "$POWERMEM_PYTHON" -e '.[server,mcp,seekdb]'
+      uv pip install --python "$POWERMEM_PYTHON" -e '.[server,seekdb]'
       ```
-      ⚠️ All three extras are required: `[server]` adds fastapi/uvicorn; `[mcp]` adds
-      fastmcp, which is checked at import time and calls sys.exit(1) if missing —
-      this kills the HTTP server before it can start even in HTTP-only mode;
+      ⚠️ Both extras are required: `[server]` adds fastapi/uvicorn and
+      fastmcp for the HTTP API plus MCP transports;
       `[seekdb]` adds the embedded seekdb storage backend (default).
     - Immediately after `uv pip install`, detect which Python interpreter was used. Read
       the shebang from the freshly-installed `powermem-server` entry point — this is
@@ -489,11 +488,11 @@ writing. Never silently patch `.env`.**
       now; every `claude` and `claude -p` loads it automatically.
 
 3b. PYPI/MCP path:
-    - Install the MCP extra in the environment that Claude will use, then:
+    - Install the server extra in the environment that Claude will use, then:
       uv venv venv --python python3.11
       POWERMEM_PYTHON="$(pwd)/venv/bin/python"
       export PATH="$(pwd)/venv/bin:$PATH"
-      uv pip install --python "$POWERMEM_PYTHON" "powermem[mcp,seekdb]"
+      uv pip install --python "$POWERMEM_PYTHON" "powermem[server,seekdb]"
       powermem-mcp --help
     - Register the MCP server globally so it persists across sessions (stdio = no
       port), run from the directory holding the .env. Idempotent: if `claude mcp get
@@ -733,12 +732,12 @@ resets initialization and makes startup take even longer.
 
 #### [E009] Server Exits Immediately — `fastapi`, `uvicorn`, or `fastmcp` Missing
 **Problem**: Server exits immediately after launch with "Missing dependencies" error.
-**Cause**: installing only the base project skips optional server/MCP dependencies. `fastmcp` is checked
-at **import time** and calls `sys.exit(1)` if absent — `try/except` cannot catch this,
-so even the HTTP-only server is killed before it starts.
+**Cause**: installing only the base project skips optional server dependencies.
+`powermem[server]` installs fastapi, uvicorn, and fastmcp for the HTTP API plus
+MCP transports.
 **Fix**:
 ```bash
-uv pip install --python "$POWERMEM_PYTHON" -e '.[server,mcp,seekdb]'
+uv pip install --python "$POWERMEM_PYTHON" -e '.[server,seekdb]'
 ```
 
 #### [E010] Anthropic `temperature` + `top_p` both sent → 400
@@ -861,7 +860,7 @@ source venv/bin/activate
 POWERMEM_PYTHON="$VIRTUAL_ENV/bin/python"
 
 # Install everything with ALL required extras
-uv pip install --python "$POWERMEM_PYTHON" -e '.[server,mcp,seekdb]'
+uv pip install --python "$POWERMEM_PYTHON" -e '.[server,seekdb]'
 
 # Build and stage Claude hooks
 make build-claude-hook
@@ -883,7 +882,7 @@ powermem-server --host 0.0.0.0 --port 8848 &
 uv venv venv --python python3.11
 source venv/bin/activate
 POWERMEM_PYTHON="$VIRTUAL_ENV/bin/python"
-uv pip install --python "$POWERMEM_PYTHON" 'powermem[mcp,seekdb]'
+uv pip install --python "$POWERMEM_PYTHON" 'powermem[server,seekdb]'
 claude mcp remove powermem 2>/dev/null
 claude mcp add powermem -- powermem-mcp stdio
 ```

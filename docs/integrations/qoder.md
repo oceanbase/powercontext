@@ -41,10 +41,10 @@ Use this section only when you want to wire Qoder by hand.
 Install PowerMem with MCP support if you want local stdio MCP:
 
 ```bash
-pip install "powermem[mcp,seekdb]"
+pip install "powermem[server,seekdb]"
 ```
 
-Use `powermem[mcp]` only when your `.env` points at non-seekdb storage/embedder
+Use `powermem[server]` only when your `.env` points at non-seekdb storage/embedder
 providers.
 
 Then run the installed MCP command:

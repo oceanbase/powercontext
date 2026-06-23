@@ -216,34 +216,28 @@ Full framework guide: [AgentScope integration](docs/integrations/agentscope.md).
 
 ## Quick start (Python SDK)
 
-**Prerequisites:** Copy [.env.example](.env.example) to `.env` and set your **LLM** API key — that is the only required credential. For zero-config local storage, install the `seekdb` extra (`pip install "powermem[seekdb]"`, or combine it with `server` / `mcp`) so the default **OceanBase** provider can boot **embedded seekdb** on disk. Without `seekdb`, set `OCEANBASE_HOST` to point at a remote OceanBase cluster, or switch to `sqlite` / `postgres`. The default embedder is a local `all-MiniLM-L6-v2` model (384 dims) that needs no API key and auto-downloads on first use. Need to tune providers or unlock advanced features? Copy [.env.example.full](.env.example.full) instead — it documents every available knob, grouped by component. After install, `pmem config init` walks you through the same setup interactively. See [Getting started](docs/guides/0001-getting_started.md).
+**Prerequisites:** Copy [.env.example](.env.example) to `.env` and set your **LLM** API key — that is the only required credential. For zero-config local storage, install the `seekdb` extra (`pip install "powermem[seekdb]"`, or combine it with `server`) so the default **OceanBase** provider can boot **embedded seekdb** on disk. Without `seekdb`, set `OCEANBASE_HOST` to point at a remote OceanBase cluster, or switch to `sqlite` / `postgres`. The default embedder is a local `all-MiniLM-L6-v2` model (384 dims) that needs no API key and auto-downloads on first use. Need to tune providers or unlock advanced features? Copy [.env.example.full](.env.example.full) instead — it documents every available knob, grouped by component. After install, `pmem config init` walks you through the same setup interactively. See [Getting started](docs/guides/0001-getting_started.md).
 
 ### Install
 
 ```bash
-# Core only (SDK; no optional CLI/server/MCP/seekdb)
+# Core only (SDK; no optional CLI/server/seekdb)
 pip install powermem
 
 # With CLI (pmem / powermem-cli)
 pip install "powermem[cli]"
 
-# With HTTP API server only (powermem-server; does not install seekdb)
+# With HTTP API server and MCP support (powermem-server / powermem-mcp; does not install seekdb)
 pip install "powermem[server]"
-
-# With MCP server only (powermem-mcp; does not install seekdb)
-pip install "powermem[mcp]"
 
 # With seekdb for zero-config local storage/embedder
 pip install "powermem[seekdb]"
 
-# HTTP API server + seekdb
+# HTTP API server + MCP support + seekdb
 pip install "powermem[server,seekdb]"
 
-# MCP server + seekdb
-pip install "powermem[mcp,seekdb]"
-
 # Common full local install
-pip install "powermem[cli,server,mcp,seekdb]"
+pip install "powermem[cli,server,seekdb]"
 ```
 
 For zero-install MCP clients such as Cursor, Codex, Claude Desktop, Cline, or
@@ -254,7 +248,7 @@ uvx powermem-mcp
 ```
 
 The `powermem-mcp` wrapper is version-locked to the main `powermem` release and
-installs `powermem[mcp,seekdb]` for the same version. If `uv` has cached an older
+installs `powermem[server,seekdb]` for the same version. If `uv` has cached an older
 tool environment, refresh it explicitly:
 
 ```bash

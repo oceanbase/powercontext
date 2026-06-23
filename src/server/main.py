@@ -30,9 +30,9 @@ logger = logging.getLogger("server")
 
 
 def _load_mcp_asgi_app():
-    """Return streamable HTTP MCP ASGI app when powermem[mcp] is installed."""
+    """Return streamable HTTP MCP ASGI app when powermem[server] is installed."""
     if find_spec("fastmcp") is None:
-        logger.warning("MCP extras not installed; /mcp endpoint disabled")
+        logger.warning("MCP server dependencies not installed; /mcp endpoint disabled")
         return None
 
     try:
@@ -40,7 +40,9 @@ def _load_mcp_asgi_app():
 
         return mcp.http_app(path="/mcp", transport="streamable-http")
     except ImportError as exc:
-        logger.warning("MCP extras not installed; /mcp endpoint disabled: %s", exc)
+        logger.warning(
+            "MCP server dependencies not installed; /mcp endpoint disabled: %s", exc
+        )
         return None
 
 
@@ -130,7 +132,7 @@ if dashboard_assets_available():
 # Include API routers
 app.include_router(v1_router)
 
-# Streamable HTTP MCP on the same port as the REST API (requires powermem[mcp])
+# Streamable HTTP MCP on the same port as the REST API (requires powermem[server])
 if mcp_asgi_app is not None:
     app.mount("", mcp_asgi_app)
     logger.info("Mounted PowerMem MCP at /mcp")

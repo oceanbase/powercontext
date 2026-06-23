@@ -14,7 +14,7 @@ AgentScope-specific storage adapter is required.
 - PowerMem installed with MCP support:
 
 ```bash
-pip install "powermem[mcp]"
+pip install "powermem[server]"
 ```
 
 - PowerMem configured with your storage, LLM, and embedding providers.

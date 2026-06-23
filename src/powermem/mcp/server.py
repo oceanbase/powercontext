@@ -11,7 +11,7 @@ Provides 13 tools for memory and user profile management:
 - 6 user profile tools: add_with_profile, search_with_profile, get_profile,
   list_profiles, delete_profile, delete_memory_with_profile
 
-Requires: pip install 'powermem[mcp]'
+Requires: pip install 'powermem[server]'
 """
 
 def _require_mcp_deps() -> None:
@@ -25,7 +25,7 @@ def _require_mcp_deps() -> None:
     if missing:
         raise ImportError(
             f"Missing dependencies: {', '.join(missing)}. "
-            "Run: pip install 'powermem[mcp]'"
+            "Run: pip install 'powermem[server]'"
         ) from import_error
 
 

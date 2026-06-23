@@ -287,7 +287,7 @@ After `apply-connection-mode.sh mcp`, edit `.mcp.json` or `config/mcp-mode.mcp.j
 }
 ```
 
-Ensure PowerMem is installed (`uv pip install --python "$VIRTUAL_ENV/bin/python" "powermem[mcp,seekdb]"`) and a `.env` is available when using stdio.
+Ensure PowerMem is installed (`uv pip install --python "$VIRTUAL_ENV/bin/python" "powermem[server,seekdb]"`) and a `.env` is available when using stdio.
 
 ### HTTP mode: REST only (standard)
 
