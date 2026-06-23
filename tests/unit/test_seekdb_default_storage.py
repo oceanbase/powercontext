@@ -17,6 +17,7 @@ def test_memory_config_default_storage_is_oceanbase_when_embedded_seekdb_availab
 
     import powermem.platform_defaults as platform_defaults
 
+    monkeypatch.setattr(platform_defaults, "_configured_env_files", lambda: [])
     monkeypatch.setattr(platform_defaults.sys, "platform", "linux")
     monkeypatch.setattr(
         platform_defaults.importlib.util,
@@ -38,11 +39,17 @@ def test_memory_config_default_storage_is_oceanbase_when_embedded_seekdb_availab
 
 def test_database_settings_default_provider_matches_platform_helper(monkeypatch):
     monkeypatch.delenv("DATABASE_PROVIDER", raising=False)
+    monkeypatch.delenv("OCEANBASE_HOST", raising=False)
 
+    import powermem.platform_defaults as platform_defaults
     from powermem.config_loader import DatabaseSettings
-    from powermem.platform_defaults import default_database_provider
 
-    assert DatabaseSettings().provider == default_database_provider()
+    monkeypatch.setattr(platform_defaults, "_configured_env_files", lambda: [])
+    model_config = dict(DatabaseSettings.model_config)
+    model_config["env_file"] = None
+    monkeypatch.setattr(DatabaseSettings, "model_config", model_config)
+
+    assert DatabaseSettings().provider == platform_defaults.default_database_provider()
 
 
 def test_oceanbase_provider_picks_up_remote_host(monkeypatch):

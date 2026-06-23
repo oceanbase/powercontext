@@ -24,6 +24,7 @@ from ..utils.output import (
     print_info,
 )
 from powermem.platform_defaults import (
+    database_provider_explicitly_configured,
     default_database_provider,
     embedded_seekdb_available,
     embedded_seekdb_unavailable_message,
@@ -311,7 +312,10 @@ def _validate_loaded_config(config: Dict[str, Any], strict: bool) -> Dict[str, A
             elif not embedded_seekdb_available():
                 errors.append(embedded_seekdb_unavailable_message())
         elif provider == "sqlite":
-            warning = sqlite_capability_warning(provider, defaulted=not bool(os.environ.get("DATABASE_PROVIDER")))
+            warning = sqlite_capability_warning(
+                provider,
+                defaulted=not database_provider_explicitly_configured(),
+            )
             if warning:
                 warnings.append(warning)
         elif provider in ("postgres", "pgvector"):

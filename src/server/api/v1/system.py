@@ -36,12 +36,10 @@ router = APIRouter(prefix="/system", tags=["system"])
 async def health_check(request: Request):
     """Health check endpoint"""
     ready = bool(getattr(request.app.state, "service_ready", False))
-    startup_error = getattr(request.app.state, "service_startup_error", None)
     health = HealthResponse(
         status="healthy" if ready else "degraded",
         memory_service_ready=ready,
         storage_type=getattr(request.app.state, "storage_type", None),
-        startup_error=(str(startup_error)[:200] if startup_error else None),
     )
     
     return APIResponse(

@@ -21,7 +21,6 @@ from .middleware.error_handler import error_handler
 from .middleware.auth import verify_api_key
 
 import logging
-import os
 from importlib.util import find_spec
 
 # Setup logging
@@ -67,6 +66,7 @@ async def _service_lifespan(app: FastAPI):
     app.state.storage_capabilities = None
     try:
         from powermem.platform_defaults import (
+            database_provider_explicitly_configured,
             sqlite_capability_warning,
             storage_capabilities,
         )
@@ -77,7 +77,7 @@ async def _service_lifespan(app: FastAPI):
         app.state.agent_service = AgentService()
         storage_type = getattr(app.state.memory_service.memory, "storage_type", None)
         app.state.storage_type = storage_type
-        defaulted = not bool(os.environ.get("DATABASE_PROVIDER"))
+        defaulted = not database_provider_explicitly_configured()
         app.state.storage_capabilities = storage_capabilities(
             storage_type or "",
             defaulted=defaulted,

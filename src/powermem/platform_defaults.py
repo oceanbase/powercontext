@@ -6,6 +6,7 @@ import importlib.util
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict
 
 
@@ -32,12 +33,81 @@ class StorageDefaultDecision:
     embedded_seekdb_available: bool
 
 
+def _configured_env_files() -> list[str]:
+    env_files: list[str] = []
+    cli_env = os.environ.get("POWERMEM_ENV_FILE")
+    if cli_env:
+        env_files.append(os.path.expanduser(os.path.expandvars(cli_env.strip())))
+
+    try:
+        from powermem.settings import _DEFAULT_ENV_FILE
+    except Exception:
+        _DEFAULT_ENV_FILE = None
+
+    if _DEFAULT_ENV_FILE:
+        env_files.append(str(_DEFAULT_ENV_FILE))
+
+    seen = set()
+    result = []
+    for path in env_files:
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        result.append(path)
+    return result
+
+
+def _read_env_file_value(path: str, key: str) -> str | None:
+    env_path = Path(path)
+    if not env_path.is_file():
+        return None
+
+    try:
+        from dotenv import dotenv_values
+
+        values = dotenv_values(env_path)
+        for env_key, value in values.items():
+            if env_key and env_key.upper() == key.upper() and value:
+                return value
+        return None
+    except Exception:
+        pass
+
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        env_key, value = stripped.split("=", 1)
+        if env_key.strip().upper() != key.upper():
+            continue
+        value = value.strip().strip("'\"")
+        return value or None
+    return None
+
+
+def _settings_value(key: str) -> str | None:
+    for env_key, value in os.environ.items():
+        if env_key.upper() == key.upper() and value:
+            return value
+
+    for env_file in _configured_env_files():
+        value = _read_env_file_value(env_file, key)
+        if value:
+            return value
+    return None
+
+
 def database_provider_explicitly_configured() -> bool:
-    return bool(os.environ.get("DATABASE_PROVIDER"))
+    return bool(_settings_value("DATABASE_PROVIDER"))
 
 
 def oceanbase_remote_configured() -> bool:
-    return bool(os.environ.get("OCEANBASE_HOST"))
+    return bool(_settings_value("OCEANBASE_HOST"))
 
 
 def _module_available(module_name: str) -> bool:
@@ -64,7 +134,7 @@ def embedded_seekdb_available() -> bool:
 
 
 def choose_default_database_provider() -> StorageDefaultDecision:
-    configured_provider = os.environ.get("DATABASE_PROVIDER")
+    configured_provider = _settings_value("DATABASE_PROVIDER")
     if configured_provider:
         return StorageDefaultDecision(
             provider=configured_provider.lower(),

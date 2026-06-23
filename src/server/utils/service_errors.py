@@ -16,4 +16,3 @@ def service_unavailable_message(request: Request, service_name: str) -> str:
         'with "powermem[seekdb]" or configure remote OceanBase with OCEANBASE_HOST.'
     )
     return message
-

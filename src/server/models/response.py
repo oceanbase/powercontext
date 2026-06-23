@@ -156,7 +156,6 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Health status")
     memory_service_ready: Optional[bool] = Field(None, description="Whether the memory service initialized successfully")
     storage_type: Optional[str] = Field(None, description="Storage backend type")
-    startup_error: Optional[str] = Field(None, description="Startup error if service initialization failed")
     timestamp: datetime = Field(default_factory=get_current_datetime, description="Check timestamp")
     
     @field_serializer('timestamp')
