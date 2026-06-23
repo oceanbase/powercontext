@@ -43,5 +43,8 @@
   },
   "engines": {
     "node": ">=20.0"
+  },
+  "overrides": {
+    "http-proxy-middleware": "2.0.10"
   }
 }
