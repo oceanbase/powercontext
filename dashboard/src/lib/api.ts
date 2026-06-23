@@ -44,6 +44,71 @@ export interface MemoryList {
   offset: number;
 }
 
+export interface SessionCapabilities {
+  event_log?: boolean;
+  memory_snapshot?: boolean;
+  before_after_diff?: boolean;
+  source_on_demand?: boolean;
+}
+
+export interface SessionSummary {
+  run_id: string;
+  user_id?: string;
+  agent_id?: string;
+  first_seen?: string;
+  last_seen?: string;
+  event_count: number;
+  memory_count: number;
+  latest_preview: string;
+  precision: "memory_snapshot" | "event_log" | string;
+}
+
+export interface SessionList {
+  sessions: SessionSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+  precision: "memory_snapshot" | "event_log" | string;
+  capabilities: SessionCapabilities;
+}
+
+export interface SessionStats {
+  total_sessions: number;
+  total_events: number;
+  changed_memories: number;
+  no_op_events: number;
+  no_op_rate: number;
+  event_types: Record<string, number>;
+  precision: "memory_snapshot" | "event_log" | string;
+  capabilities: SessionCapabilities;
+}
+
+export interface TimelineEvent {
+  event_id: string;
+  occurred_at?: string;
+  run_id?: string;
+  user_id?: string;
+  agent_id?: string;
+  memory_id?: string;
+  event_type: string;
+  pipeline_mode?: string;
+  content_preview: string;
+  metadata: Record<string, unknown>;
+  source_preview?: string;
+  source_content?: string;
+  precision: "memory_snapshot" | "event_log" | string;
+}
+
+export interface TimelinePage {
+  events: TimelineEvent[];
+  total: number;
+  limit: number;
+  next_cursor?: string;
+  order: "asc" | "desc" | string;
+  precision: "memory_snapshot" | "event_log" | string;
+  capabilities: SessionCapabilities;
+}
+
 export interface SearchResultItem {
   id: string;
   memory_id?: string;
@@ -169,6 +234,7 @@ export const api = {
   getMemories: (params?: {
     user_id?: string;
     agent_id?: string;
+    run_id?: string;
     limit?: number;
     offset?: number;
     sort_by?: string;
@@ -188,6 +254,80 @@ export const api = {
         limit: data.limit ?? params?.limit ?? memories.length,
         offset: data.offset ?? params?.offset ?? 0,
       } satisfies MemoryList;
+    }),
+
+  getSessions: (params?: {
+    user_id?: string;
+    agent_id?: string;
+    run_id?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    order?: string;
+    time_range?: string;
+  }) =>
+    fetchWithAuth<
+      SessionList &
+        PaginationLike & {
+          items?: SessionSummary[];
+        }
+    >("/memories/sessions", { params }).then((data) => {
+      const sessions = data.sessions ?? data.items ?? [];
+      return {
+        sessions,
+        total: normalizeTotal(data, sessions.length),
+        limit: data.limit ?? params?.limit ?? sessions.length,
+        offset: data.offset ?? params?.offset ?? 0,
+        precision: data.precision ?? "memory_snapshot",
+        capabilities: data.capabilities ?? { memory_snapshot: true },
+      } satisfies SessionList;
+    }),
+
+  getSessionStats: (params?: {
+    user_id?: string;
+    agent_id?: string;
+    run_id?: string;
+    time_range?: string;
+  }) =>
+    fetchWithAuth<SessionStats>("/memories/session-stats", { params }).then((data) => ({
+      total_sessions: data.total_sessions ?? 0,
+      total_events: data.total_events ?? 0,
+      changed_memories: data.changed_memories ?? 0,
+      no_op_events: data.no_op_events ?? 0,
+      no_op_rate: data.no_op_rate ?? 0,
+      event_types: data.event_types ?? {},
+      precision: data.precision ?? "memory_snapshot",
+      capabilities: data.capabilities ?? { memory_snapshot: true },
+    })),
+
+  getTimeline: (params?: {
+    user_id?: string;
+    agent_id?: string;
+    run_id?: string;
+    event_type?: string;
+    q?: string;
+    cursor?: string;
+    limit?: number;
+    order?: string;
+    time_range?: string;
+    include_source?: boolean;
+  }) =>
+    fetchWithAuth<
+      TimelinePage &
+        PaginationLike & {
+          items?: TimelineEvent[];
+        }
+    >("/memories/timeline", { params }).then((data) => {
+      const events = data.events ?? data.items ?? [];
+      return {
+        events,
+        total: normalizeTotal(data, events.length),
+        limit: data.limit ?? params?.limit ?? events.length,
+        next_cursor: data.next_cursor,
+        order: data.order ?? params?.order ?? "desc",
+        precision: data.precision ?? "memory_snapshot",
+        capabilities: data.capabilities ?? { memory_snapshot: true },
+      } satisfies TimelinePage;
     }),
 
   searchMemories: (params: {

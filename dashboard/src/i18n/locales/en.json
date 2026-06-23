@@ -3,6 +3,7 @@
     "overview": "Overview",
     "dashboard": "Dashboard",
     "memories": "Memories",
+    "sessions": "Sessions",
     "userProfile": "UserProfile",
     "settings": "Settings",
     "application": "Application",
@@ -172,6 +173,70 @@
       "filterCleared": "Filter cleared successfully"
     },
     "error": "Error loading memories"
+  },
+  "sessions": {
+    "title": "Sessions",
+    "subtitle": "Inspect coding-agent memory timelines.",
+    "refresh": "Refresh",
+    "filters": "Filters",
+    "filterByUserId": "Filter by User ID...",
+    "filterByAgentId": "Filter by Agent ID...",
+    "filterByRunId": "Filter by Run ID...",
+    "filterByContent": "Search timeline...",
+    "applyFilters": "Apply",
+    "clearAllFilters": "Clear",
+    "loading": "Loading...",
+    "noSessions": "No sessions found.",
+    "noEvents": "No timeline events found.",
+    "none": "None",
+    "error": "Error loading sessions",
+    "prev": "Prev",
+    "next": "Next",
+    "page": "Page {{page}} of {{total}}",
+    "showingSessions": "Showing {{count}} of {{total}} sessions",
+    "precision": {
+      "title": "Snapshot precision.",
+      "body": "Timeline rows are projected from current memory records until an event log store is available."
+    },
+    "timeRange": {
+      "last7days": "Last 7 days",
+      "last30days": "Last 30 days",
+      "last90days": "Last 90 days",
+      "allTime": "All time"
+    },
+    "stats": {
+      "sessions": "Sessions",
+      "events": "Events",
+      "changed": "Changed Memories",
+      "noopRate": "No-op Rate"
+    },
+    "sessionTable": {
+      "title": "Session List"
+    },
+    "columns": {
+      "runId": "Run ID",
+      "userAgent": "User / Agent",
+      "lastSeen": "Last Seen",
+      "events": "Events"
+    },
+    "timeline": {
+      "title": "Timeline",
+      "allRuns": "All runs",
+      "allEvents": "All events",
+      "firstPage": "First page"
+    },
+    "detail": {
+      "title": "Event Detail",
+      "preview": "Preview",
+      "memoryId": "Memory ID",
+      "agentId": "Agent ID",
+      "metadata": "Metadata"
+    },
+    "toast": {
+      "filterApplied": "Filter applied",
+      "filterCleared": "Filters cleared",
+      "refreshed": "Sessions refreshed"
+    }
   },
   "settings": {
     "title": "Settings",

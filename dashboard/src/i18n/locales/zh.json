@@ -3,6 +3,7 @@
     "overview": "概览",
     "dashboard": "仪表盘",
     "memories": "记忆管理",
+    "sessions": "会话时间线",
     "userProfile": "用户画像",
     "settings": "设置",
     "application": "应用",
@@ -172,6 +173,70 @@
       "filterCleared": "筛选已清除"
     },
     "error": "加载记忆失败"
+  },
+  "sessions": {
+    "title": "会话时间线",
+    "subtitle": "查看编码代理记忆时间线。",
+    "refresh": "刷新",
+    "filters": "筛选器",
+    "filterByUserId": "按用户 ID 筛选...",
+    "filterByAgentId": "按代理 ID 筛选...",
+    "filterByRunId": "按运行 ID 筛选...",
+    "filterByContent": "搜索时间线...",
+    "applyFilters": "应用",
+    "clearAllFilters": "清除",
+    "loading": "加载中...",
+    "noSessions": "未找到会话。",
+    "noEvents": "未找到时间线事件。",
+    "none": "无",
+    "error": "加载会话失败",
+    "prev": "上一页",
+    "next": "下一页",
+    "page": "第 {{page}} 页，共 {{total}} 页",
+    "showingSessions": "显示 {{total}} 个会话中的 {{count}} 个",
+    "precision": {
+      "title": "快照精度。",
+      "body": "在事件日志存储可用前，时间线由当前记忆记录投影生成。"
+    },
+    "timeRange": {
+      "last7days": "最近 7 天",
+      "last30days": "最近 30 天",
+      "last90days": "最近 90 天",
+      "allTime": "全部时间"
+    },
+    "stats": {
+      "sessions": "会话数",
+      "events": "事件数",
+      "changed": "变更记忆",
+      "noopRate": "无操作占比"
+    },
+    "sessionTable": {
+      "title": "会话列表"
+    },
+    "columns": {
+      "runId": "运行 ID",
+      "userAgent": "用户 / 代理",
+      "lastSeen": "最后出现",
+      "events": "事件"
+    },
+    "timeline": {
+      "title": "时间线",
+      "allRuns": "全部运行",
+      "allEvents": "全部事件",
+      "firstPage": "第一页"
+    },
+    "detail": {
+      "title": "事件详情",
+      "preview": "预览",
+      "memoryId": "记忆 ID",
+      "agentId": "代理 ID",
+      "metadata": "元数据"
+    },
+    "toast": {
+      "filterApplied": "筛选已应用",
+      "filterCleared": "筛选已清除",
+      "refreshed": "会话已刷新"
+    }
   },
   "settings": {
     "title": "设置",

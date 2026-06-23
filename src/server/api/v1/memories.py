@@ -20,6 +20,9 @@ from ...models.request import (
 from ...models.response import (
     APIResponse,
     MemoryListResponse,
+    SessionListResponse,
+    SessionStatsResponse,
+    TimelineResponse,
 )
 from ...services.memory_service import MemoryService
 from ...middleware.auth import verify_api_key
@@ -188,6 +191,7 @@ async def list_memories(
     request: Request,
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    run_id: Optional[str] = Query(None, description="Filter by run ID"),
     scope: Optional[str] = Query(None, description="Filter by metadata scope"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
@@ -210,11 +214,13 @@ async def list_memories(
         total_count = service.count_memories(
             user_id=user_id,
             agent_id=agent_id,
+            run_id=run_id,
             filters=filters,
         )
         memories = service.list_memories(
             user_id=user_id,
             agent_id=agent_id,
+            run_id=run_id,
             limit=limit,
             offset=offset,
             sort_by=sort_by,
@@ -228,6 +234,7 @@ async def list_memories(
         raw = service.list_memories(
             user_id=user_id,
             agent_id=agent_id,
+            run_id=run_id,
             limit=FETCH_CAP,
             offset=0,
             sort_by=sort_by,
@@ -299,6 +306,143 @@ async def get_memory_stats(
         success=True,
         data=stats,
         message="Statistics retrieved successfully",
+    )
+
+
+@router.get(
+    "/sessions",
+    response_model=APIResponse,
+    summary="List coding-agent sessions",
+    description="Get session summaries projected from stored coding-agent memories",
+)
+@limiter.limit(get_rate_limit_string())
+async def list_memory_sessions(
+    request: Request,
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    run_id: Optional[str] = Query(None, description="Filter by run ID"),
+    limit: int = Query(50, ge=1, le=1000, description="Maximum number of sessions"),
+    offset: int = Query(0, ge=0, description="Number of sessions to skip"),
+    sort_by: str = Query(
+        "last_seen",
+        description="Sort field: last_seen, first_seen, event_count, memory_count, run_id",
+    ),
+    order: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
+    time_range: Optional[str] = Query(
+        None,
+        pattern=TIME_RANGE_PATTERN,
+        description="Time range filter: 7d, 30d, 90d, or all",
+    ),
+    api_key: str = Depends(verify_api_key),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """List coding-agent session summaries."""
+    cutoff_date = parse_time_range_cutoff(time_range)
+    data = service.list_session_summaries(
+        user_id=user_id,
+        agent_id=agent_id,
+        run_id=run_id,
+        cutoff_date=cutoff_date,
+        limit=limit,
+        offset=offset,
+        sort_by=sort_by,
+        order=order,
+    )
+    response_data = SessionListResponse(**data)
+
+    return APIResponse(
+        success=True,
+        data=response_data.model_dump(mode="json", exclude_none=True),
+        message="Sessions retrieved successfully",
+    )
+
+
+@router.get(
+    "/session-stats",
+    response_model=APIResponse,
+    summary="Get coding-agent session statistics",
+    description="Get overview metrics for coding-agent session timeline views",
+)
+@limiter.limit(get_rate_limit_string())
+async def get_memory_session_stats(
+    request: Request,
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    run_id: Optional[str] = Query(None, description="Filter by run ID"),
+    time_range: Optional[str] = Query(
+        None,
+        pattern=TIME_RANGE_PATTERN,
+        description="Time range filter: 7d, 30d, 90d, or all",
+    ),
+    api_key: str = Depends(verify_api_key),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """Get coding-agent session statistics."""
+    cutoff_date = parse_time_range_cutoff(time_range)
+    data = service.get_session_stats(
+        user_id=user_id,
+        agent_id=agent_id,
+        run_id=run_id,
+        cutoff_date=cutoff_date,
+    )
+    response_data = SessionStatsResponse(**data)
+
+    return APIResponse(
+        success=True,
+        data=response_data.model_dump(mode="json", exclude_none=True),
+        message="Session statistics retrieved successfully",
+    )
+
+
+@router.get(
+    "/timeline",
+    response_model=APIResponse,
+    summary="List coding-agent timeline events",
+    description="Get cursor-paginated timeline events projected from stored memories",
+)
+@limiter.limit(get_rate_limit_string())
+async def list_memory_timeline(
+    request: Request,
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    run_id: Optional[str] = Query(None, description="Filter by run ID"),
+    event_type: Optional[str] = Query(None, description="Filter by event type"),
+    q: Optional[str] = Query(None, description="Search timeline previews and metadata"),
+    cursor: Optional[str] = Query(None, description="Opaque cursor from a previous page"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of events"),
+    order: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
+    time_range: Optional[str] = Query(
+        None,
+        pattern=TIME_RANGE_PATTERN,
+        description="Time range filter: 7d, 30d, 90d, or all",
+    ),
+    include_source: bool = Query(
+        False,
+        description="Include full source content instead of previews only",
+    ),
+    api_key: str = Depends(verify_api_key),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """List coding-agent timeline events."""
+    cutoff_date = parse_time_range_cutoff(time_range)
+    data = service.list_timeline_events(
+        user_id=user_id,
+        agent_id=agent_id,
+        run_id=run_id,
+        event_type=event_type,
+        q=q,
+        cursor=cursor,
+        limit=limit,
+        order=order,
+        cutoff_date=cutoff_date,
+        include_source=include_source,
+    )
+    response_data = TimelineResponse(**data)
+
+    return APIResponse(
+        success=True,
+        data=response_data.model_dump(mode="json", exclude_none=True),
+        message="Timeline retrieved successfully",
     )
 
 

@@ -1,16 +1,74 @@
-"""
-Memory service for PowerMem API
-"""
+"""Memory service for PowerMem API."""
 
+import base64
+import binascii
+import json
 import logging
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from pydantic import ValidationError
 from powermem import Memory, auto_config
 from ..models.errors import ErrorCode, APIError
+from ..models.request import ObservationIngestRequest
 from ..utils.converters import memory_dict_to_response
 from ..utils.metrics import get_metrics_collector
 
 logger = logging.getLogger("server")
+
+
+OBSERVATION_SCHEMA = "powermem.coding_agent_observation.v1"
+OBSERVATION_SOURCE = "coding_agent"
+OBSERVATION_MEMORY_TYPE = "coding_agent_observation"
+OBSERVATION_SCOPE = "coding_agent"
+OBSERVATION_CONTROL_FIELDS = {
+    "save_raw",
+    "infer",
+    "dedupe",
+    "filters",
+    "user_id",
+    "agent_id",
+    "run_id",
+    "scope",
+    "memory_type",
+}
+OBSERVATION_FLAT_FIELDS = (
+    "source",
+    "observation_id",
+    "observation_kind",
+    "observation_level",
+    "observation_status",
+    "repo",
+    "branch",
+    "commit_sha",
+    "tool_name",
+    "task_id",
+    "thread_id",
+    "session_id",
+)
+SESSION_TIMELINE_PRECISION = "memory_snapshot"
+SESSION_TIMELINE_CAPABILITIES = {
+    "event_log": False,
+    "memory_snapshot": True,
+    "before_after_diff": False,
+    "source_on_demand": True,
+}
+SESSION_TIMELINE_FETCH_CAP = 5000
+SESSION_TIMELINE_SOURCE_KEYS = {
+    "content",
+    "full_source",
+    "raw_content",
+    "raw_source",
+    "source_body",
+    "source_content",
+    "source_text",
+    "transcript",
+    "transcript_content",
+}
+SESSION_TIMELINE_JSON_ENCODER = json.JSONEncoder(default=str, sort_keys=True)
+SESSION_TIMELINE_CURSOR_ENCODER = json.JSONEncoder(
+    separators=(",", ":"),
+    sort_keys=True,
+)
 
 
 class MemoryService:
@@ -28,6 +86,295 @@ class MemoryService:
         
         self.memory = Memory(config=config)
         logger.info("MemoryService initialized")
+
+    def _observation_payload(
+        self,
+        request: ObservationIngestRequest,
+    ) -> Dict[str, Any]:
+        """Return only the structured observation payload, excluding ingest controls."""
+        payload = request.model_dump(mode="json", exclude_none=True)
+        return {
+            key: value
+            for key, value in payload.items()
+            if key not in OBSERVATION_CONTROL_FIELDS
+        }
+
+    def _observation_flat_metadata(
+        self,
+        observation: Dict[str, Any],
+        record_kind: str,
+        scope: str,
+        memory_type: str,
+    ) -> Dict[str, Any]:
+        """Build flat filterable metadata for an observation record."""
+        flat = {
+            "schema": OBSERVATION_SCHEMA,
+            "source": observation.get("source") or OBSERVATION_SOURCE,
+            "record_kind": record_kind,
+            "memory_type": memory_type,
+            "scope": scope,
+        }
+        for key in OBSERVATION_FLAT_FIELDS:
+            value = observation.get(key)
+            if value is not None:
+                flat[key] = value
+        return flat
+
+    def _flat_user_metadata(
+        self,
+        metadata: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Keep user metadata filterable at the top level."""
+        if not metadata:
+            return {}
+        return {
+            key: value
+            for key, value in metadata.items()
+            if isinstance(value, (str, int, float, bool))
+        }
+
+    def _build_observation_metadata(
+        self,
+        request: ObservationIngestRequest,
+        record_kind: str,
+    ) -> Dict[str, Any]:
+        """Build storage metadata with flat fields and the full structured payload."""
+        observation = self._observation_payload(request)
+        metadata = self._flat_user_metadata(request.metadata)
+        flat = self._observation_flat_metadata(
+            observation=observation,
+            record_kind=record_kind,
+            scope=request.scope or OBSERVATION_SCOPE,
+            memory_type=request.memory_type or OBSERVATION_MEMORY_TYPE,
+        )
+        metadata.update(flat)
+        metadata["observation"] = observation
+        return metadata
+
+    def _build_observation_filters(
+        self,
+        request: ObservationIngestRequest,
+        record_kind: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build metadata filters for observation lookup/search routing."""
+        observation = self._observation_payload(request)
+        filters = dict(request.filters or {})
+        flat = self._observation_flat_metadata(
+            observation=observation,
+            record_kind=record_kind or "observation_raw",
+            scope=request.scope or OBSERVATION_SCOPE,
+            memory_type=request.memory_type or OBSERVATION_MEMORY_TYPE,
+        )
+        filters.update(flat)
+        return filters
+
+    def _find_existing_observation(
+        self,
+        request: ObservationIngestRequest,
+        record_kind: str = "observation_raw",
+    ) -> Optional[Dict[str, Any]]:
+        """Find one existing observation record when dedupe is requested."""
+        matches = self._find_existing_observations(
+            request,
+            record_kind=record_kind,
+            limit=1,
+        )
+        return matches[0] if matches else None
+
+    def _find_existing_observations(
+        self,
+        request: ObservationIngestRequest,
+        record_kind: str,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Find existing observation records of one stored kind."""
+        if not request.observation_id:
+            return []
+
+        filters = {
+            "schema": OBSERVATION_SCHEMA,
+            "source": request.source or OBSERVATION_SOURCE,
+            "record_kind": record_kind,
+            "observation_id": request.observation_id,
+        }
+        result = self.memory.get_all(
+            user_id=request.user_id,
+            agent_id=request.agent_id,
+            run_id=request.run_id,
+            filters=filters,
+            limit=limit,
+            offset=0,
+        )
+        matches = result.get("results", []) if isinstance(result, dict) else []
+        return matches if isinstance(matches, list) else []
+
+    def _coerce_observation_request(
+        self,
+        observation: Any,
+    ) -> ObservationIngestRequest:
+        """Validate one batch item as an observation ingest request."""
+        if isinstance(observation, ObservationIngestRequest):
+            return observation
+        return ObservationIngestRequest.model_validate(observation)
+
+    def _observation_id_from_item(self, observation: Any) -> Optional[str]:
+        """Best-effort observation_id extraction for batch item errors."""
+        if isinstance(observation, ObservationIngestRequest):
+            return observation.observation_id
+        if isinstance(observation, dict):
+            value = observation.get("observation_id")
+            return str(value) if value is not None else None
+        return None
+
+    def ingest_observation(
+        self,
+        request: ObservationIngestRequest,
+    ) -> Dict[str, Any]:
+        """
+        Ingest a structured coding-agent observation.
+
+        Raw observations are stored deterministically without LLM inference.
+        When infer=True, semantic extraction is attempted after raw persistence
+        and may return zero memories in noop/no-LLM configurations.
+        """
+        try:
+            existing_raw = None
+            existing_semantic_memories: List[Dict[str, Any]] = []
+            if request.dedupe:
+                if request.save_raw:
+                    existing_raw = self._find_existing_observation(
+                        request,
+                        record_kind="observation_raw",
+                    )
+                if request.infer:
+                    existing_semantic_memories = self._find_existing_observations(
+                        request,
+                        record_kind="observation_semantic",
+                    )
+
+            filters = self._build_observation_filters(request)
+            raw_memories: List[Dict[str, Any]] = []
+            semantic_memories: List[Dict[str, Any]] = []
+
+            if existing_raw:
+                raw_memories = [existing_raw]
+            elif request.save_raw:
+                raw_metadata = self._build_observation_metadata(
+                    request,
+                    record_kind="observation_raw",
+                )
+                raw_memories = self.create_memory(
+                    content=request.content,
+                    user_id=request.user_id,
+                    agent_id=request.agent_id,
+                    run_id=request.run_id,
+                    metadata=raw_metadata,
+                    filters=filters,
+                    scope=request.scope or OBSERVATION_SCOPE,
+                    memory_type=request.memory_type or OBSERVATION_MEMORY_TYPE,
+                    infer=False,
+                )
+                if not raw_memories:
+                    raise APIError(
+                        code=ErrorCode.MEMORY_CREATE_FAILED,
+                        message="Failed to store raw observation",
+                        status_code=500,
+                    )
+
+            if request.infer and existing_semantic_memories:
+                semantic_memories = existing_semantic_memories
+            elif request.infer:
+                semantic_metadata = self._build_observation_metadata(
+                    request,
+                    record_kind="observation_semantic",
+                )
+                semantic_memories = self.create_memory(
+                    content=request.content,
+                    user_id=request.user_id,
+                    agent_id=request.agent_id,
+                    run_id=request.run_id,
+                    metadata=semantic_metadata,
+                    filters=filters,
+                    scope=request.scope or OBSERVATION_SCOPE,
+                    memory_type=request.memory_type or OBSERVATION_MEMORY_TYPE,
+                    infer=True,
+                )
+
+            return {
+                "observation_id": request.observation_id,
+                "raw_memory": raw_memories[0] if raw_memories else None,
+                "semantic_memories": semantic_memories,
+                "memories": raw_memories + semantic_memories,
+                "saved_raw": bool(raw_memories),
+                "inferred": request.infer,
+                "deduped": existing_raw is not None or bool(existing_semantic_memories),
+            }
+        except APIError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to ingest observation: {e}", exc_info=True)
+            raise APIError(
+                code=ErrorCode.MEMORY_CREATE_FAILED,
+                message=f"Failed to ingest observation: {str(e)}",
+                status_code=500,
+            )
+
+    def batch_ingest_observations(
+        self,
+        observations: List[Any],
+    ) -> Dict[str, Any]:
+        """Ingest multiple observations with per-item partial failure results."""
+        items = []
+        success_count = 0
+        failed_count = 0
+
+        for idx, observation_item in enumerate(observations):
+            observation_id = self._observation_id_from_item(observation_item)
+            try:
+                observation = self._coerce_observation_request(observation_item)
+                result = self.ingest_observation(observation)
+                items.append({
+                    "index": idx,
+                    "success": True,
+                    "observation_id": observation.observation_id,
+                    "result": result,
+                    "error": None,
+                })
+                success_count += 1
+            except ValidationError as e:
+                items.append({
+                    "index": idx,
+                    "success": False,
+                    "observation_id": observation_id,
+                    "result": None,
+                    "error": f"Request validation failed: {e.errors()}",
+                })
+                failed_count += 1
+            except APIError as e:
+                items.append({
+                    "index": idx,
+                    "success": False,
+                    "observation_id": observation_id,
+                    "result": None,
+                    "error": e.message,
+                })
+                failed_count += 1
+            except Exception as e:
+                items.append({
+                    "index": idx,
+                    "success": False,
+                    "observation_id": observation_id,
+                    "result": None,
+                    "error": str(e),
+                })
+                failed_count += 1
+
+        return {
+            "items": items,
+            "total": len(observations),
+            "success_count": success_count,
+            "failed_count": failed_count,
+        }
     
     def create_memory(
         self,
@@ -221,6 +568,7 @@ class MemoryService:
         self,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
         sort_by: Optional[str] = None,
@@ -233,6 +581,7 @@ class MemoryService:
         Args:
             user_id: Filter by user ID
             agent_id: Filter by agent ID
+            run_id: Filter by run ID
             limit: Maximum number of results
             offset: Number of results to skip
             sort_by: Optional field to sort by: 'created_at', 'updated_at', 'id'
@@ -243,15 +592,18 @@ class MemoryService:
             List of memories
         """
         try:
-            result = self.memory.get_all(
-                user_id=user_id,
-                agent_id=agent_id,
-                limit=limit,
-                offset=offset,
-                filters=filters,
-                sort_by=sort_by,
-                order=order,
-            )
+            kwargs = {
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "limit": limit,
+                "offset": offset,
+                "filters": filters,
+                "sort_by": sort_by,
+                "order": order,
+            }
+            if run_id is not None:
+                kwargs["run_id"] = run_id
+            result = self.memory.get_all(**kwargs)
             
             # Extract results from the dictionary response
             # get_all returns {"results": [...], "relations": [...]}
@@ -279,6 +631,7 @@ class MemoryService:
         self,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
     ) -> int:
         """
@@ -287,6 +640,7 @@ class MemoryService:
         Args:
             user_id: Filter by user ID
             agent_id: Filter by agent ID
+            run_id: Filter by run ID
             filters: Additional metadata filters
             
         Returns:
@@ -294,16 +648,549 @@ class MemoryService:
         """
         try:
             # Use the new count_all method from core Memory
-            count = self.memory.count_all(
-                user_id=user_id,
-                agent_id=agent_id,
-                filters=filters,
-            )
+            kwargs = {
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "filters": filters,
+            }
+            if run_id is not None:
+                kwargs["run_id"] = run_id
+            count = self.memory.count_all(**kwargs)
             return count
             
         except Exception as e:
             logger.error(f"Failed to count memories: {e}", exc_info=True)
             return 0
+
+    @staticmethod
+    def _as_dict(value: Any) -> Dict[str, Any]:
+        """Return value when it is a dict, otherwise an empty dict."""
+        return value if isinstance(value, dict) else {}
+
+    @classmethod
+    def _memory_metadata(cls, memory: Dict[str, Any]) -> Dict[str, Any]:
+        return cls._as_dict(memory.get("metadata"))
+
+    @classmethod
+    def _memory_observation(cls, memory: Dict[str, Any]) -> Dict[str, Any]:
+        return cls._as_dict(cls._memory_metadata(memory).get("observation"))
+
+    @staticmethod
+    def _string_value(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @classmethod
+    def _memory_field(cls, memory: Dict[str, Any], *keys: str) -> Optional[str]:
+        metadata = cls._memory_metadata(memory)
+        observation = cls._memory_observation(memory)
+        for key in keys:
+            value = (
+                cls._string_value(memory.get(key))
+                or cls._string_value(metadata.get(key))
+                or cls._string_value(observation.get(key))
+            )
+            if value is not None:
+                return value
+        return None
+
+    @classmethod
+    def _memory_id(cls, memory: Dict[str, Any]) -> Optional[str]:
+        return cls._memory_field(memory, "memory_id", "id")
+
+    @classmethod
+    def _memory_run_id(cls, memory: Dict[str, Any]) -> Optional[str]:
+        return cls._memory_field(memory, "run_id", "session_id", "thread_id")
+
+    @classmethod
+    def _memory_user_id(cls, memory: Dict[str, Any]) -> Optional[str]:
+        return cls._memory_field(memory, "user_id")
+
+    @classmethod
+    def _memory_agent_id(cls, memory: Dict[str, Any]) -> Optional[str]:
+        return cls._memory_field(memory, "agent_id")
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> Optional[datetime]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        else:
+            return None
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+
+    @classmethod
+    def _memory_datetime(cls, memory: Dict[str, Any]) -> Optional[datetime]:
+        metadata = cls._memory_metadata(memory)
+        observation = cls._memory_observation(memory)
+        return cls._parse_datetime(
+            metadata.get("occurred_at")
+            or observation.get("occurred_at")
+            or observation.get("timestamp")
+            or memory.get("created_at")
+            or memory.get("updated_at")
+        )
+
+    @staticmethod
+    def _datetime_to_iso(value: Optional[datetime]) -> Optional[str]:
+        if value is None:
+            return None
+        return value.replace(tzinfo=None).isoformat() + "Z"
+
+    @classmethod
+    def _memory_timestamp(cls, memory: Dict[str, Any]) -> Optional[str]:
+        parsed = cls._memory_datetime(memory)
+        if parsed is not None:
+            return cls._datetime_to_iso(parsed)
+        value = memory.get("created_at") or memory.get("updated_at")
+        return cls._string_value(value)
+
+    @classmethod
+    def _memory_content(cls, memory: Dict[str, Any]) -> str:
+        content = (
+            memory.get("content")
+            or memory.get("memory")
+            or memory.get("data")
+            or cls._memory_observation(memory).get("content")
+            or ""
+        )
+        return str(content)
+
+    @staticmethod
+    def _preview(content: Any, limit: int = 240) -> str:
+        text = " ".join(str(content or "").split())
+        if len(text) <= limit:
+            return text
+        return text[: max(limit - 1, 0)].rstrip() + "..."
+
+    @classmethod
+    def _source_preview(cls, value: Any, limit: int = 240) -> str:
+        if isinstance(value, (dict, list)):
+            try:
+                value = SESSION_TIMELINE_JSON_ENCODER.encode(value)
+            except (TypeError, ValueError):
+                value = str(value)
+        return cls._preview(value, limit=limit)
+
+    @classmethod
+    def _event_type(cls, memory: Dict[str, Any]) -> str:
+        metadata = cls._memory_metadata(memory)
+        observation = cls._memory_observation(memory)
+        for key in (
+            "event_type",
+            "observation_kind",
+            "hook_event",
+            "record_kind",
+            "memory_type",
+            "source",
+        ):
+            value = cls._string_value(metadata.get(key)) or cls._string_value(
+                observation.get(key)
+            )
+            if value is not None:
+                return value
+        return "memory"
+
+    @classmethod
+    def _pipeline_mode(cls, memory: Dict[str, Any]) -> Optional[str]:
+        metadata = cls._memory_metadata(memory)
+        observation = cls._memory_observation(memory)
+        return (
+            cls._string_value(metadata.get("pipeline_mode"))
+            or cls._string_value(observation.get("pipeline_mode"))
+            or cls._string_value(metadata.get("inference_mode"))
+            or cls._string_value(observation.get("inference_mode"))
+        )
+
+    @classmethod
+    def _is_noop_event(cls, memory: Dict[str, Any]) -> bool:
+        metadata = cls._memory_metadata(memory)
+        observation = cls._memory_observation(memory)
+        values = [
+            cls._event_type(memory),
+            metadata.get("observation_status"),
+            observation.get("observation_status"),
+            metadata.get("reason_status"),
+            observation.get("reason_status"),
+        ]
+        normalized = {str(value).strip().lower() for value in values if value}
+        return bool(normalized & {"none", "noop", "no_op", "skipped", "unchanged"})
+
+    @classmethod
+    def _timeline_metadata(
+        cls,
+        memory: Dict[str, Any],
+        include_source: bool,
+    ) -> Dict[str, Any]:
+        metadata = dict(cls._memory_metadata(memory))
+        if not include_source:
+            metadata = cls._redact_source_metadata(metadata)
+        return metadata
+
+    @classmethod
+    def _redact_source_metadata(cls, value: Any) -> Any:
+        """Replace source-heavy metadata fields with bounded previews."""
+        if isinstance(value, dict):
+            redacted = {}
+            for key, item in value.items():
+                if key.lower() in SESSION_TIMELINE_SOURCE_KEYS:
+                    preview = cls._source_preview(item)
+                    if preview:
+                        redacted[f"{key}_preview"] = preview
+                    continue
+                redacted[key] = cls._redact_source_metadata(item)
+            return redacted
+        if isinstance(value, list):
+            return [cls._redact_source_metadata(item) for item in value]
+        return value
+
+    @classmethod
+    def _is_session_memory(cls, memory: Dict[str, Any]) -> bool:
+        metadata = cls._memory_metadata(memory)
+        observation = cls._memory_observation(memory)
+        return bool(
+            cls._memory_run_id(memory)
+            or metadata.get("schema") == OBSERVATION_SCHEMA
+            or metadata.get("scope") == OBSERVATION_SCOPE
+            or metadata.get("source") == OBSERVATION_SOURCE
+            or observation.get("source") == OBSERVATION_SOURCE
+        )
+
+    def _load_session_memories(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        cutoff_date: Optional[datetime] = None,
+        sort_order: str = "desc",
+    ) -> List[Dict[str, Any]]:
+        """Load a bounded memory snapshot for session/timeline projections."""
+        memories = self.list_memories(
+            user_id=user_id,
+            agent_id=agent_id,
+            limit=SESSION_TIMELINE_FETCH_CAP,
+            offset=0,
+            sort_by="created_at",
+            order=sort_order,
+        )
+        filtered = []
+        for memory in memories:
+            if not self._is_session_memory(memory):
+                continue
+            if run_id is not None and self._memory_run_id(memory) != run_id:
+                continue
+            occurred_at = self._memory_datetime(memory)
+            if cutoff_date is not None and (
+                occurred_at is None or occurred_at < cutoff_date.replace(tzinfo=None)
+            ):
+                continue
+            filtered.append(memory)
+        return filtered
+
+    @staticmethod
+    def _timeline_capabilities() -> Dict[str, bool]:
+        return dict(SESSION_TIMELINE_CAPABILITIES)
+
+    @classmethod
+    def _event_sort_key(cls, event: Dict[str, Any]) -> Tuple[datetime, str, str]:
+        occurred_at = cls._parse_datetime(event.get("occurred_at")) or datetime.min
+        memory_id = event.get("memory_id") or ""
+        event_id = event.get("event_id") or ""
+        return occurred_at, str(memory_id), str(event_id)
+
+    @staticmethod
+    def _encode_timeline_cursor(event: Dict[str, Any]) -> str:
+        payload = {
+            "event_id": event.get("event_id"),
+            "occurred_at": event.get("occurred_at"),
+            "memory_id": event.get("memory_id"),
+        }
+        raw = SESSION_TIMELINE_CURSOR_ENCODER.encode(payload).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    @staticmethod
+    def _decode_timeline_cursor(cursor: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not cursor:
+            return None
+        try:
+            padded = cursor + "=" * (-len(cursor) % 4)
+            decoded = base64.urlsafe_b64decode(padded.encode("ascii"))
+            payload = json.loads(decoded.decode("utf-8"))
+        except (binascii.Error, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    @classmethod
+    def _apply_timeline_cursor(
+        cls,
+        events: List[Dict[str, Any]],
+        cursor: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        payload = cls._decode_timeline_cursor(cursor)
+        if not payload:
+            return events
+        for idx, event in enumerate(events):
+            if (
+                event.get("event_id") == payload.get("event_id")
+                and event.get("occurred_at") == payload.get("occurred_at")
+                and event.get("memory_id") == payload.get("memory_id")
+            ):
+                return events[idx + 1 :]
+        return events
+
+    @classmethod
+    def _timeline_event_from_memory(
+        cls,
+        memory: Dict[str, Any],
+        include_source: bool = False,
+    ) -> Dict[str, Any]:
+        memory_id = cls._memory_id(memory)
+        metadata = cls._timeline_metadata(memory, include_source=include_source)
+        observation = cls._as_dict(metadata.get("observation"))
+        event_id = (
+            cls._string_value(metadata.get("event_id"))
+            or cls._string_value(metadata.get("observation_id"))
+            or cls._string_value(observation.get("observation_id"))
+            or memory_id
+            or ""
+        )
+        content = cls._memory_content(memory)
+        event = {
+            "event_id": str(event_id),
+            "occurred_at": cls._memory_timestamp(memory),
+            "run_id": cls._memory_run_id(memory),
+            "user_id": cls._memory_user_id(memory),
+            "agent_id": cls._memory_agent_id(memory),
+            "memory_id": memory_id,
+            "event_type": cls._event_type(memory),
+            "pipeline_mode": cls._pipeline_mode(memory),
+            "content_preview": cls._preview(content),
+            "metadata": metadata,
+            "precision": SESSION_TIMELINE_PRECISION,
+        }
+        if include_source:
+            event["source_preview"] = cls._preview(content, limit=1000)
+            event["source_content"] = content
+        return event
+
+    @staticmethod
+    def _event_matches_query(event: Dict[str, Any], query: Optional[str]) -> bool:
+        if not query:
+            return True
+        needle = query.strip().lower()
+        if not needle:
+            return True
+        haystack = [
+            event.get("content_preview"),
+            event.get("event_type"),
+            event.get("run_id"),
+            event.get("user_id"),
+            event.get("agent_id"),
+            event.get("memory_id"),
+            SESSION_TIMELINE_JSON_ENCODER.encode(event.get("metadata") or {}),
+        ]
+        return any(needle in str(value or "").lower() for value in haystack)
+
+    def list_session_summaries(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        cutoff_date: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+        sort_by: str = "last_seen",
+        order: str = "desc",
+    ) -> Dict[str, Any]:
+        """Return session summaries projected from the current memory snapshot."""
+        memories = self._load_session_memories(
+            user_id=user_id,
+            agent_id=agent_id,
+            run_id=run_id,
+            cutoff_date=cutoff_date,
+            sort_order=order,
+        )
+        sessions: Dict[str, Dict[str, Any]] = {}
+        for memory in memories:
+            session_run_id = self._memory_run_id(memory)
+            if not session_run_id:
+                continue
+            occurred_at = self._memory_datetime(memory)
+            occurred_iso = self._datetime_to_iso(occurred_at)
+            session = sessions.setdefault(
+                session_run_id,
+                {
+                    "run_id": session_run_id,
+                    "user_id": self._memory_user_id(memory),
+                    "agent_id": self._memory_agent_id(memory),
+                    "first_seen": occurred_iso,
+                    "last_seen": occurred_iso,
+                    "event_count": 0,
+                    "memory_ids": set(),
+                    "latest_preview": "",
+                    "latest_at": occurred_at,
+                    "precision": SESSION_TIMELINE_PRECISION,
+                },
+            )
+            session["event_count"] += 1
+            memory_id = self._memory_id(memory)
+            if memory_id is not None:
+                session["memory_ids"].add(memory_id)
+
+            first_at = self._parse_datetime(session.get("first_seen"))
+            last_at = self._parse_datetime(session.get("last_seen"))
+            if occurred_at is not None and (first_at is None or occurred_at < first_at):
+                session["first_seen"] = occurred_iso
+            if occurred_at is not None and (last_at is None or occurred_at >= last_at):
+                session["last_seen"] = occurred_iso
+                session["latest_at"] = occurred_at
+                session["latest_preview"] = self._preview(self._memory_content(memory))
+
+        summaries = []
+        for session in sessions.values():
+            summaries.append({
+                "run_id": session["run_id"],
+                "user_id": session.get("user_id"),
+                "agent_id": session.get("agent_id"),
+                "first_seen": session.get("first_seen"),
+                "last_seen": session.get("last_seen"),
+                "event_count": session["event_count"],
+                "memory_count": len(session["memory_ids"]),
+                "latest_preview": session.get("latest_preview") or "",
+                "precision": SESSION_TIMELINE_PRECISION,
+            })
+
+        sort_field = sort_by if sort_by in {
+            "run_id",
+            "first_seen",
+            "last_seen",
+            "event_count",
+            "memory_count",
+        } else "last_seen"
+
+        def sort_key(item: Dict[str, Any]):
+            if sort_field in {"event_count", "memory_count"}:
+                return item.get(sort_field) or 0
+            if sort_field in {"first_seen", "last_seen"}:
+                return self._parse_datetime(item.get(sort_field)) or datetime.min
+            return str(item.get(sort_field) or "")
+
+        summaries.sort(key=sort_key, reverse=(order != "asc"))
+        total = len(summaries)
+        page = summaries[offset:offset + limit]
+        return {
+            "sessions": page,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "precision": SESSION_TIMELINE_PRECISION,
+            "capabilities": self._timeline_capabilities(),
+        }
+
+    def get_session_stats(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        cutoff_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Return overview metrics for coding-agent session timeline views."""
+        memories = self._load_session_memories(
+            user_id=user_id,
+            agent_id=agent_id,
+            run_id=run_id,
+            cutoff_date=cutoff_date,
+        )
+        session_ids = {
+            session_run_id
+            for memory in memories
+            if (session_run_id := self._memory_run_id(memory))
+        }
+        changed_memory_ids = {
+            memory_id
+            for memory in memories
+            if (memory_id := self._memory_id(memory))
+        }
+        event_types: Dict[str, int] = {}
+        no_op_events = 0
+        for memory in memories:
+            event_type = self._event_type(memory)
+            event_types[event_type] = event_types.get(event_type, 0) + 1
+            if self._is_noop_event(memory):
+                no_op_events += 1
+        total_events = len(memories)
+        return {
+            "total_sessions": len(session_ids),
+            "total_events": total_events,
+            "changed_memories": len(changed_memory_ids),
+            "no_op_events": no_op_events,
+            "no_op_rate": round(no_op_events / total_events, 4) if total_events else 0.0,
+            "event_types": event_types,
+            "precision": SESSION_TIMELINE_PRECISION,
+            "capabilities": self._timeline_capabilities(),
+        }
+
+    def list_timeline_events(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        q: Optional[str] = None,
+        cursor: Optional[str] = None,
+        limit: int = 50,
+        order: str = "desc",
+        cutoff_date: Optional[datetime] = None,
+        include_source: bool = False,
+    ) -> Dict[str, Any]:
+        """Return a cursor-paginated timeline projected from the memory snapshot."""
+        memories = self._load_session_memories(
+            user_id=user_id,
+            agent_id=agent_id,
+            run_id=run_id,
+            cutoff_date=cutoff_date,
+            sort_order=order,
+        )
+        events = [
+            self._timeline_event_from_memory(memory, include_source=include_source)
+            for memory in memories
+        ]
+        if event_type:
+            expected = event_type.strip().lower()
+            events = [
+                event for event in events
+                if str(event.get("event_type") or "").lower() == expected
+            ]
+        events = [
+            event for event in events
+            if self._event_matches_query(event, q)
+        ]
+        events.sort(key=self._event_sort_key, reverse=(order != "asc"))
+        total = len(events)
+        events_after_cursor = self._apply_timeline_cursor(events, cursor)
+        page = events_after_cursor[:limit]
+        next_cursor = None
+        if len(events_after_cursor) > limit and page:
+            next_cursor = self._encode_timeline_cursor(page[-1])
+        return {
+            "events": page,
+            "total": total,
+            "limit": limit,
+            "next_cursor": next_cursor,
+            "order": order,
+            "precision": SESSION_TIMELINE_PRECISION,
+            "capabilities": self._timeline_capabilities(),
+        }
     
     def update_memory(
         self,
