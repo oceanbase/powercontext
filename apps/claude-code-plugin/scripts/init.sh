@@ -13,6 +13,150 @@ base_url=$(runtime_base_url)
 ensure_bootstrap_python || exit 1
 echo "Bootstrap Python: $BOOTSTRAP_PYTHON ($(python_version "$BOOTSTRAP_PYTHON"))"
 
+# Interactive configuration prompts.
+# Bypass: POWERMEM_NON_INTERACTIVE=1, or var already set, or stdin not a TTY.
+ask_user() {
+  var_name="$1"
+  prompt="$2"
+  default="$3"
+  choices="${4:-}"
+
+  if [ "${POWERMEM_NON_INTERACTIVE:-0}" = "1" ]; then
+    eval "${var_name}=\"\${${var_name}:-${default}}\""
+    export "${var_name}"
+    return 0
+  fi
+
+  eval "_existing=\${${var_name}:-}"
+  if [ -n "${_existing}" ]; then
+    return 0
+  fi
+
+  if [ ! -t 0 ] || [ ! -e /dev/tty ]; then
+    eval "${var_name}=\"${default}\""
+    export "${var_name}"
+    return 0
+  fi
+
+  while true; do
+    hint=""
+    [ -n "${choices}" ] && hint=" [${choices}]"
+    [ -n "${default}" ] && hint="${hint} (default: ${default})"
+    printf "%s%s: " "${prompt}" "${hint}"
+    read -r _answer </dev/tty || {
+      eval "${var_name}=\"${default}\""
+      export "${var_name}"
+      return 0
+    }
+    [ -z "${_answer}" ] && _answer="${default}"
+    if [ -z "${choices}" ]; then
+      eval "${var_name}=\"${_answer}\""
+      export "${var_name}"
+      return 0
+    fi
+    _match=0
+    _old_ifs="${IFS:-}"
+    IFS='|'
+    for _opt in ${choices}; do
+      if [ "${_opt}" = "${_answer}" ]; then _match=1; break; fi
+    done
+    IFS="${_old_ifs}"
+    if [ "${_match}" = "1" ]; then
+      eval "${var_name}=\"${_answer}\""
+      export "${var_name}"
+      return 0
+    fi
+    echo "Invalid choice: ${_answer}. Valid: ${choices}" >&2
+  done
+}
+
+prompt_user_config() {
+  echo ""
+  echo "=== Interactive configuration ==="
+  echo "Bypass: POWERMEM_NON_INTERACTIVE=1, or pre-set the POWERMEM_INIT_* env vars."
+  echo ""
+
+  ask_user POWERMEM_INIT_DATABASE_PROVIDER \
+    "Storage backend (sqlite=single-user local, oceanbase=multi-agent/prod)" \
+    "sqlite" \
+    "sqlite|oceanbase"
+  echo "  -> DATABASE_PROVIDER=${POWERMEM_INIT_DATABASE_PROVIDER}"
+
+  _has_llm_cred=0
+  if [ -n "${POWERMEM_INIT_LLM_API_KEY:-}${LLM_API_KEY:-}${ANTHROPIC_API_KEY:-}${POWERMEM_INIT_LLM_AUTH_TOKEN:-}${LLM_AUTH_TOKEN:-${ANTHROPIC_AUTH_TOKEN:-}}" ]; then
+    _has_llm_cred=1
+  fi
+  if [ "$_has_llm_cred" = "0" ] && [ -f "${HOME}/.claude/settings.json" ]; then
+    if "$BOOTSTRAP_PYTHON" -c "
+import json, sys
+try:
+    d = json.load(open('${HOME}/.claude/settings.json')).get('env', {})
+except Exception:
+    sys.exit(1)
+sys.exit(0 if any(d.get(k) for k in ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'LLM_API_KEY']) else 1)
+" 2>/dev/null; then
+      _has_llm_cred=1
+    fi
+  fi
+
+  if [ "$_has_llm_cred" = "0" ]; then
+    echo "No LLM credentials detected in env or ~/.claude/settings.json."
+    ask_user _llm_choice \
+      "Choose LLM provider (noop=skip fact extraction, CRUD still works)" \
+      "noop" \
+      "noop|anthropic|openai|deepseek|qwen|siliconflow"
+    case "${_llm_choice}" in
+      noop)
+        export POWERMEM_INIT_LLM_PROVIDER=noop
+        echo "  -> LLM=noop (fact extraction / profile extraction disabled)"
+        ;;
+      anthropic|openai|deepseek|qwen|siliconflow)
+        export POWERMEM_INIT_LLM_PROVIDER="${_llm_choice}"
+        ask_user POWERMEM_INIT_LLM_API_KEY "  API key for ${_llm_choice}" "" ""
+        ask_user POWERMEM_INIT_LLM_MODEL "  Model name" "" ""
+        _default_base=""
+        case "${_llm_choice}" in
+          openai)      _default_base="https://api.openai.com/v1" ;;
+          deepseek)    _default_base="https://api.deepseek.com/v1" ;;
+          qwen)        _default_base="https://dashscope.aliyuncs.com/compatible-mode/v1" ;;
+          siliconflow) _default_base="https://api.siliconflow.cn/v1" ;;
+        esac
+        if [ -n "${_default_base}" ]; then
+          export POWERMEM_INIT_LLM_BASE_URL="${POWERMEM_INIT_LLM_BASE_URL:-${_default_base}}"
+          echo "  -> LLM=${_llm_choice}, base_url=${POWERMEM_INIT_LLM_BASE_URL}"
+        else
+          echo "  -> LLM=${_llm_choice}"
+        fi
+        ;;
+    esac
+  else
+    echo "LLM credentials detected; skipping LLM provider prompt."
+  fi
+
+  if [ -z "${POWERMEM_INIT_EMBEDDING_PROVIDER:-}${EMBEDDING_PROVIDER:-}" ]; then
+    _embed_default="huggingface"
+    if [ "${POWERMEM_INIT_DATABASE_PROVIDER}" = "oceanbase" ]; then
+      _embed_default="default"
+    fi
+    _cloud_embed=""
+    if [ -n "${OPENAI_API_KEY:-}" ]; then _cloud_embed="openai"
+    elif [ -n "${DASHSCOPE_API_KEY:-}${QWEN_API_KEY:-}" ]; then _cloud_embed="qwen"
+    elif [ -n "${SILICONFLOW_API_KEY:-}" ]; then _cloud_embed="siliconflow"
+    fi
+    if [ -n "${_cloud_embed}" ] && [ "${_cloud_embed}" != "${_embed_default}" ]; then
+      ask_user POWERMEM_INIT_EMBEDDING_PROVIDER \
+        "Detected ${_cloud_embed} API key. Use local or cloud embedding?" \
+        "${_embed_default}" \
+        "${_embed_default}|${_cloud_embed}"
+      echo "  -> EMBEDDING_PROVIDER=${POWERMEM_INIT_EMBEDDING_PROVIDER}"
+    fi
+  else
+    echo "Embedding provider pre-set; skipping prompt."
+  fi
+
+  echo ""
+}
+
 create_env_file() {
   "$BOOTSTRAP_PYTHON" - "$ENV_FILE" "$DATA_DIR" <<'PY'
 import json
@@ -601,6 +745,7 @@ announce_dashboard_url() {
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Creating plugin .env from environment variables or Claude settings fallback."
+  prompt_user_config
   create_env_file
 else
   echo "Using existing plugin .env: $ENV_FILE"

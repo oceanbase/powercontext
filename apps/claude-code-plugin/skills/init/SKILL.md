@@ -26,9 +26,75 @@ unpublished backend changes, run the script with
 (SQLite) or the matching `[server,seekdb]` spec (OceanBase) so that value is
 passed to `uvx --from` instead of using the default PyPI package.
 
-If values are missing, ask only for the missing values and pass them through
-`POWERMEM_INIT_*` environment variables. Never print API keys; mask secrets in
-summaries.
+## Interactive configuration via AskUserQuestion
+
+Before running `scripts/init.sh`, check what the user already has configured:
+
+1. **LLM credentials** — check env vars (`POWERMEM_INIT_LLM_API_KEY`, `LLM_API_KEY`,
+   `ANTHROPIC_API_KEY`, `POWERMEM_INIT_LLM_AUTH_TOKEN`, `LLM_AUTH_TOKEN`,
+   `ANTHROPIC_AUTH_TOKEN`) and `~/.claude/settings.json` (`env.ANTHROPIC_API_KEY`,
+   `env.ANTHROPIC_AUTH_TOKEN`, `env.LLM_API_KEY`).
+2. **Storage preference** — check `POWERMEM_INIT_DATABASE_PROVIDER` env var.
+3. **Embedding preference** — check `POWERMEM_INIT_EMBEDDING_PROVIDER` / `EMBEDDING_PROVIDER`
+   env vars, and whether cloud API keys exist (`OPENAI_API_KEY`, `DASHSCOPE_API_KEY`,
+   `QWEN_API_KEY`, `SILICONFLOW_API_KEY`).
+
+Use the **AskUserQuestion** tool to collect any missing decisions. Ask up to 3
+questions in a single call when possible:
+
+### Question 1 — Storage backend (ask if `POWERMEM_INIT_DATABASE_PROVIDER` unset)
+- **header**: "Storage"
+- **question**: "Which storage backend should PowerMem use?"
+- **options**:
+  - "SQLite (Recommended)" — Single-user, local, zero-config. Data in `~/.powermem/powermem.db`.
+  - "OceanBase" — Multi-agent sharing / production. Requires OceanBase instance.
+
+Map answer → `POWERMEM_INIT_DATABASE_PROVIDER=sqlite` (or `oceanbase`).
+
+### Question 2 — LLM provider (ask ONLY if no LLM credentials detected)
+- **header**: "LLM"
+- **question**: "No LLM credentials found. How should PowerMem handle LLM-based features (fact extraction, profile extraction, query rewrite)?"
+- **options**:
+  - "No-LLM mode (Recommended)" — Skip LLM features. Memory CRUD still works. Reconfigurable later via `/init`.
+  - "Anthropic" — Use Anthropic API. Will ask for API key + model next.
+  - "OpenAI" — Use OpenAI API. Will ask for API key + model next.
+
+If the user picks Anthropic or OpenAI, make a **follow-up AskUserQuestion call**
+with 2 questions (free-text via the "Other" option):
+- **header**: "API Key" — question: "Paste the API key for <provider>"
+- **header**: "Model" — question: "Which model? (e.g. claude-sonnet-4-6, gpt-4o)"
+
+Map answers → `POWERMEM_INIT_LLM_PROVIDER`, `POWERMEM_INIT_LLM_API_KEY`,
+`POWERMEM_INIT_LLM_MODEL`. For OpenAI/Anthropic, set a sensible `POWERMEM_INIT_LLM_BASE_URL`
+if the user doesn't provide one.
+
+### Question 3 — Embedding (ask ONLY if cloud API key detected AND embedding unset)
+- **header**: "Embedding"
+- **question**: "A cloud API key (<provider>) was detected. Use local or cloud embedding?"
+- **options**:
+  - "Local HuggingFace (Recommended)" — `all-MiniLM-L6-v2`, 384-dim, downloads automatically, no API key needed.
+  - "Cloud (<provider>)" — Use the detected API key for embedding.
+
+Map answer → `POWERMEM_INIT_EMBEDDING_PROVIDER=huggingface` (or `default` for
+OceanBase path, or the detected cloud provider name).
+
+## Running init.sh
+
+After collecting answers, run init.sh with `POWERMEM_NON_INTERACTIVE=1` to bypass
+the shell-level interactive prompts (the AskUserQuestion flow replaces them):
+
+```sh
+POWERMEM_NON_INTERACTIVE=1 \
+  POWERMEM_INIT_DATABASE_PROVIDER=<sqlite|oceanbase> \
+  [POWERMEM_INIT_LLM_PROVIDER=<provider>] \
+  [POWERMEM_INIT_LLM_API_KEY=<key>] \
+  [POWERMEM_INIT_LLM_MODEL=<model>] \
+  [POWERMEM_INIT_LLM_BASE_URL=<url>] \
+  [POWERMEM_INIT_EMBEDDING_PROVIDER=<provider>] \
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh"
+```
+
+Never print API keys in your output. Mask secrets as `<hidden>` in summaries.
 
 The default local embedding model (`all-MiniLM-L6-v2`) is downloaded
 automatically by PowerMem at startup — no `init.sh` flag is needed. CN networks
