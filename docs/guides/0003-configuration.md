@@ -145,6 +145,22 @@ config = {
 }
 ```
 
+**SQLite requirements and limitations:**
+
+- Requires SQLite ≥ 3.9.0 (FTS5 and JSON1 extensions). Run
+  `python3 -c "import sqlite3; print(sqlite3.sqlite_version)"` to verify. If the
+  system SQLite is too old, install `pysqlite3-binary` (bundles SQLite 3.45+).
+- WAL mode (`SQLITE_ENABLE_WAL=true`) is strongly recommended for coding agent use:
+  the `UserPromptSubmit` (recall) and `SessionEnd` (save) hooks may run concurrently,
+  and WAL allows reads and writes to proceed without exclusive locks.
+- The following features are not available with SQLite and are silently disabled:
+  sub-stores, source store, skill store, graph store, sparse vectors, native hybrid
+  search, and data migration. All core memory operations (add, search, update,
+  delete, Ebbinghaus decay) are fully supported.
+- Vector search uses pure Python cosine similarity (O(n) linear scan). For a single
+  coding agent with typical memory volumes this is fast enough; for large-scale
+  deployments use OceanBase.
+
 ### OceanBase Configuration
 
 OceanBase is recommended for production deployments and enterprise applications with high-scale requirements.

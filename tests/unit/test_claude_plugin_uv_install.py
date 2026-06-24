@@ -561,3 +561,56 @@ def test_init_writes_absolute_sdk_log_paths_to_generated_env() -> None:
     assert 'f"AUDIT_LOG_FILE={path_value(\'audit.log\')}"' in script
     assert "LOGGING_FILE=./logs" not in script
     assert "AUDIT_LOG_FILE=./logs" not in script
+
+
+def test_init_does_not_write_hf_hub_offline_to_env() -> None:
+    """PowerMem's HuggingFaceEmbedding manages offline mode internally via
+    SentenceTransformer(local_files_only=True) and runs an internal
+    ModelScope/HF download when the cache is empty.  Forcing HF_HUB_OFFLINE=1
+    globally would block that download for non-CN users.  init.sh must not
+    write HF_HUB_OFFLINE to the generated .env (regression guard for
+    wayyoungboy's review comment #3-1 on PR #1031).
+    """
+    script = INIT_SH.read_text(encoding="utf-8")
+
+    assert 'lines.append("HF_HUB_OFFLINE=1")' not in script
+    assert 'lines.append("HF_HUB_OFFLINE=' not in script
+    # Any remaining HF_HUB_OFFLINE=1 must be inside comment lines only.
+    for line in script.splitlines():
+        stripped = line.lstrip()
+        if "HF_HUB_OFFLINE=1" in stripped:
+            assert stripped.startswith("#"), (
+                f"HF_HUB_OFFLINE=1 outside a comment: {line!r}"
+            )
+
+
+def test_init_package_spec_matches_db_provider() -> None:
+    """SQLite path must install powermem[server,extras] (sentence-transformers
+    for the default huggingface embedder); OceanBase path must install
+    powermem[server,seekdb] (pyseekdb).  Regression guard for
+    wayyoungboy's review comment #1 on PR #1031.
+    """
+    script = INIT_SH.read_text(encoding="utf-8")
+
+    assert 'oceanbase) PACKAGE="${POWERMEM_INIT_PACKAGE:-powermem[server,seekdb]}"' in script
+    assert '*)         PACKAGE="${POWERMEM_INIT_PACKAGE:-powermem[server,extras]}"' in script
+    # default (non-oceanbase) must not accidentally pull seekdb-only deps
+    assert 'PACKAGE="${POWERMEM_INIT_PACKAGE:-powermem[server]}"' not in script
+
+
+def test_init_preload_model_is_deprecated_no_op() -> None:
+    """POWERMEM_INIT_PRELOAD_MODEL must not call preload-model.sh or otherwise
+    attempt to download the embedding model — that now lives inside PowerMem's
+    HuggingFaceEmbedding (upstream #1057, CN-aware: ModelScope for CN, HF for
+    non-CN, local_files_only=True on cache hit).  init.sh may only print a
+    deprecation message when the variable is set.
+    """
+    script = INIT_SH.read_text(encoding="utf-8")
+
+    assert 'preload-model.sh' not in script.replace(
+        '# preload-model.sh', ''
+    ).replace(
+        'preload-model.sh is deprecated', ''
+    )
+    assert 'sh "$SCRIPT_DIR/preload-model.sh"' not in script
+    assert 'POWERMEM_INIT_PRELOAD_MODEL is deprecated' in script
