@@ -16,20 +16,26 @@ const valueProps = [
 const getComparisonData = (isZh: boolean) => ({
   accurate: {
     fullContext: 52.9,
-    powermem: 78.7,
-    unit: '',
+    powermem: 87.79,
+    unit: '%',
+    prefix: '',
+    improvement: '+65.9%',
     label: isZh ? 'LLM 评分' : 'LLM Score',
   },
   agile: {
     fullContext: 17.12,
     powermem: 1.44,
     unit: 's',
-    label: isZh ? '响应时间' : 'Response Time',
+    prefix: '',
+    improvement: '-91.6%',
+    label: isZh ? 'Retrieval P95' : 'Retrieval P95',
   },
   affordable: {
     fullContext: 26,
     powermem: 0.9,
     unit: 'k',
+    prefix: '~',
+    improvement: '-96.5%',
     label: isZh ? 'Token 使用量' : 'Token Usage',
   },
 });
@@ -144,25 +150,11 @@ export default function ValueProps4() {
                     <div className={`${styles.dashboardItem} ${styles.dashboardPowerMem}`}>
                       <div className={styles.dashboardLabel}>PowerMem</div>
                       <div className={styles.dashboardValue}>
-                        {activeComparison.powermem}
+                        {activeComparison.prefix}{activeComparison.powermem}
                         <span className={styles.dashboardUnit}>{activeComparison.unit}</span>
                       </div>
                       <div className={styles.dashboardImprovement}>
-                        {hoveredKey === 'accurate' && (
-                          <span className={styles.improvementText}>
-                            +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}
-                          </span>
-                        )}
-                        {hoveredKey === 'agile' && (
-                          <span className={styles.improvementText}>
-                            {((activeComparison.fullContext / activeComparison.powermem).toFixed(1))}x faster
-                          </span>
-                        )}
-                        {hoveredKey === 'affordable' && (
-                          <span className={styles.improvementText}>
-                            {((activeComparison.fullContext / activeComparison.powermem).toFixed(1))}x less
-                          </span>
-                        )}
+                    <span className={styles.improvementText}>{activeComparison.improvement}</span>
                       </div>
                     </div>
 
@@ -175,7 +167,7 @@ export default function ValueProps4() {
                     <div className={`${styles.dashboardItem} ${styles.dashboardFullContext}`}>
                       <div className={styles.dashboardLabel}>Full-Context</div>
                       <div className={styles.dashboardValue}>
-                        {activeComparison.fullContext}
+                        {activeComparison.prefix}{activeComparison.fullContext}
                         <span className={styles.dashboardUnit}>{activeComparison.unit}</span>
                       </div>
                     </div>

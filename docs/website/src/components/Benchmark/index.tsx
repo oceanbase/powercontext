@@ -6,7 +6,7 @@ import ZapIcon from './icons/ZapIcon';
 import styles from './styles.module.css';
 
 const overallScores = {
-  llm_score: 0.7708,
+  llm_score: 0.8779,
 };
 
 const translations: Record<string, Record<string, string>> = {
@@ -29,7 +29,7 @@ const translations: Record<string, Record<string, string>> = {
 };
 
 const formatScore = (num: number) => {
-  return (num * 100).toFixed(2);
+  return (num * 100).toFixed(2) + '%';
 };
 
 export default function Benchmark() {
