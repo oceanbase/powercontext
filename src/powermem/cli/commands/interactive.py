@@ -8,6 +8,7 @@ available (typical on Unix; on Windows install pyreadline for similar behavior).
 
 import atexit
 import click
+import json
 import os
 import shlex
 import sys
@@ -36,6 +37,7 @@ class InteractiveSession:
     # Commands for Tab completion (first word only)
     COMMANDS = [
         "add", "search", "get", "update", "delete", "list", "stats",
+        "export", "import", "optimize", "profile",
         "set", "show", "clear", "help", "exit", "quit", "q", "memory",
     ]
     
@@ -44,11 +46,11 @@ PowerMem Interactive Mode
 =========================
 
 Available commands (you can also use "memory <cmd> ..." e.g. memory add "..."):
-  add <content> [--user-id <id>] [--agent-id <id>]
-      Add a new memory (same as CLI: pmem memory add ...)
+  add <content> [--user-id <id>] [--agent-id <id>] [--with-profile]
+      Add a new memory (--with-profile: also extract user profile)
       
-  search <query> [--user-id <id>] [--limit <n>] [--threshold <t>]
-      Search for memories (--threshold: min similarity, e.g. 0.3)
+  search <query> [--user-id <id>] [--limit <n>] [--threshold <t>] [--add-profile]
+      Search for memories (--add-profile: include user profile in results)
       
   get <memory_id> [--user-id <id>]
       Get a specific memory
@@ -61,6 +63,24 @@ Available commands (you can also use "memory <cmd> ..." e.g. memory add "..."):
       
   list [--user-id <id>] [--limit <n>] [-j|--json]
       List memories (-j/--json for JSON output)
+      
+  export [--format json|csv] [--user-id <id>] [--output <file>]
+      Export memories to file or stdout
+      
+  import <file> [--format json|csv] [--user-id <id>]
+      Import memories from a file
+      
+  optimize [--strategy deduplicate|compress] [--user-id <id>] [--threshold <t>]
+      Optimize memory storage
+      
+  profile get <user_id>
+      Get a user profile
+      
+  profile list [--user-id <id>] [--main-topic <topic>]
+      List user profiles
+      
+  profile delete <user_id>
+      Delete a user profile
       
   stats [--user-id <id>]
       Show statistics
@@ -91,6 +111,8 @@ Examples:
   powermem> search "preferences"
   powermem> set user user123
   powermem> list --limit 10
+  powermem> profile get user123
+  powermem> export --output backup.json
 """
     
     def __init__(self, ctx: CLIContext):
@@ -192,6 +214,10 @@ Examples:
             "update": self._cmd_update,
             "delete": self._cmd_delete,
             "list": self._cmd_list,
+            "export": self._cmd_export,
+            "import": self._cmd_import,
+            "optimize": self._cmd_optimize,
+            "profile": self._cmd_profile,
             "stats": self._cmd_stats,
             "set": self._cmd_set,
             "show": self._cmd_show,
@@ -255,18 +281,35 @@ Examples:
         positional, options = self._parse_options(args)
         
         if not positional:
-            print_error("Usage: add <content> [--user-id <id>] [--agent-id <id>]")
+            print_error("Usage: add <content> [--user-id <id>] [--agent-id <id>] [--with-profile]")
             return
         
         content = " ".join(positional)
+        with_profile = options.get("with_profile", False)
         
         try:
-            result = self.ctx.memory.add(
-                messages=content,
-                user_id=self._get_user_id(options),
-                agent_id=self._get_agent_id(options),
-                infer=not options.get("no_infer", False),
-            )
+            user_id = self._get_user_id(options)
+            agent_id = self._get_agent_id(options)
+
+            if with_profile:
+                if not user_id:
+                    print_error("--with-profile requires --user-id or 'set user'")
+                    return
+                result = self.ctx.user_memory.add(
+                    messages=content,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    infer=not options.get("no_infer", False),
+                    profile_type=options.get("profile_type", "content"),
+                    native_language=options.get("native_language"),
+                )
+            else:
+                result = self.ctx.memory.add(
+                    messages=content,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    infer=not options.get("no_infer", False),
+                )
             
             results = result.get("results", [])
             if results:
@@ -276,6 +319,9 @@ Examples:
                     print_success(f"Memory {event}: ID={memory_id}")
             else:
                 print_warning("No memory was added")
+
+            if with_profile and result.get("profile_extracted"):
+                print_success("User profile extracted")
                 
         except Exception as e:
             print_error(f"Failed: {e}")
@@ -285,7 +331,7 @@ Examples:
         positional, options = self._parse_options(args)
         
         if not positional:
-            print_error("Usage: search <query> [--user-id <id>] [--limit <n>] [--threshold <t>]")
+            print_error("Usage: search <query> [--user-id <id>] [--limit <n>] [--threshold <t>] [--add-profile]")
             return
         
         query = " ".join(positional)
@@ -296,15 +342,33 @@ Examples:
                 threshold = float(threshold)
             except (TypeError, ValueError):
                 threshold = None
+
+        add_profile = options.get("add_profile", False)
         
         try:
-            result = self.ctx.memory.search(
-                query=query,
-                user_id=self._get_user_id(options),
-                agent_id=self._get_agent_id(options),
-                limit=limit,
-                threshold=threshold,
-            )
+            user_id = self._get_user_id(options)
+            agent_id = self._get_agent_id(options)
+
+            if add_profile:
+                if not user_id:
+                    print_error("--add-profile requires --user-id or 'set user'")
+                    return
+                result = self.ctx.user_memory.search(
+                    query=query,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    limit=limit,
+                    threshold=threshold,
+                    add_profile=True,
+                )
+            else:
+                result = self.ctx.memory.search(
+                    query=query,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    limit=limit,
+                    threshold=threshold,
+                )
             
             memories = result.get("results", [])
             if not memories:
@@ -319,12 +383,21 @@ Examples:
                 content = mem.get("memory") or mem.get("content", "N/A")
                 score = mem.get("score", 0)
                 
-                # Truncate content
                 if len(content) > 60:
                     content = content[:57] + "..."
                 
                 click.echo(f"{i}. [{memory_id}] (score: {score:.4f})")
                 click.echo(f"   {content}")
+
+            if add_profile:
+                profile_content = result.get("profile_content")
+                topics = result.get("topics")
+                if profile_content or topics:
+                    click.echo("\n--- User Profile ---")
+                    if profile_content:
+                        click.echo(f"Profile: {profile_content}")
+                    if topics:
+                        click.echo(f"Topics: {json.dumps(topics, ensure_ascii=False, indent=2)}")
                 
         except Exception as e:
             print_error(f"Search failed: {e}")
@@ -489,6 +562,164 @@ Examples:
         except Exception as e:
             print_error(f"Failed: {e}")
     
+    def _cmd_export(self, args: List[str]):
+        """Handle export command."""
+        _, options = self._parse_options(args)
+
+        fmt = options.get("format", "json")
+        output_file = options.get("output")
+        limit = int(options.get("limit", 1000))
+
+        try:
+            content = self.ctx.memory.export_memories(
+                format=fmt,
+                user_id=self._get_user_id(options),
+                agent_id=self._get_agent_id(options),
+                limit=limit,
+            )
+            if output_file:
+                import os
+                out_dir = os.path.dirname(output_file)
+                if out_dir:
+                    os.makedirs(out_dir, exist_ok=True)
+                with open(output_file, "w", encoding="utf-8") as f:
+                    f.write(content)
+                print_success(f"Exported to {output_file}")
+            else:
+                click.echo(content)
+        except Exception as e:
+            print_error(f"Export failed: {e}")
+
+    def _cmd_import(self, args: List[str]):
+        """Handle import command."""
+        positional, options = self._parse_options(args)
+
+        if not positional:
+            print_error("Usage: import <file> [--format json|csv] [--user-id <id>]")
+            return
+
+        input_file = positional[0]
+        fmt = options.get("format", "json")
+
+        try:
+            with open(input_file, "r", encoding="utf-8") as f:
+                source = f.read()
+            if not source.strip():
+                print_error("Import file is empty")
+                return
+            result = self.ctx.memory.import_memories(
+                source=source,
+                format=fmt,
+                user_id=self._get_user_id(options),
+                agent_id=self._get_agent_id(options),
+            )
+            print_success(
+                f"Import complete: {result.get('success', 0)} succeeded, "
+                f"{result.get('failed', 0)} failed"
+            )
+        except FileNotFoundError:
+            print_error(f"File not found: {input_file}")
+        except Exception as e:
+            print_error(f"Import failed: {e}")
+
+    def _cmd_optimize(self, args: List[str]):
+        """Handle optimize command."""
+        _, options = self._parse_options(args)
+
+        strategy = options.get("strategy", "deduplicate")
+        threshold = options.get("threshold")
+        try:
+            threshold = float(threshold) if threshold else 0.95
+        except (TypeError, ValueError):
+            threshold = 0.95
+
+        try:
+            result = self.ctx.memory.optimize(
+                strategy=strategy,
+                user_id=self._get_user_id(options),
+                threshold=threshold,
+            )
+            print_success(f"Optimization complete ({strategy})")
+            if isinstance(result, dict):
+                for k, v in result.items():
+                    click.echo(f"  {k}: {v}")
+        except Exception as e:
+            print_error(f"Optimization failed: {e}")
+
+    def _cmd_profile(self, args: List[str]):
+        """Handle profile command (get/list/delete)."""
+        if not args:
+            print_error("Usage: profile <get|list|delete> [args...]")
+            return
+
+        sub_cmd = args[0].lower()
+        sub_args = args[1:]
+
+        if sub_cmd == "get":
+            self._cmd_profile_get(sub_args)
+        elif sub_cmd == "list":
+            self._cmd_profile_list(sub_args)
+        elif sub_cmd == "delete":
+            self._cmd_profile_delete(sub_args)
+        else:
+            print_error(f"Unknown profile subcommand: {sub_cmd}")
+            print_info("Available: get, list, delete")
+
+    def _cmd_profile_get(self, args: List[str]):
+        """Handle profile get command."""
+        positional, _ = self._parse_options(args)
+        if not positional:
+            print_error("Usage: profile get <user_id>")
+            return
+        user_id = positional[0]
+        try:
+            result = self.ctx.user_memory.profile(user_id=user_id)
+            if not result:
+                print_error(f"Profile not found for user: {user_id}")
+                return
+            output = format_output(result, "profile")
+            click.echo(output)
+        except Exception as e:
+            print_error(f"Failed: {e}")
+
+    def _cmd_profile_list(self, args: List[str]):
+        """Handle profile list command."""
+        _, options = self._parse_options(args)
+        try:
+            result = self.ctx.user_memory.profile_list(
+                user_id=self._get_user_id(options),
+                main_topic=[options["main_topic"]] if options.get("main_topic") else None,
+                sub_topic=[options["sub_topic"]] if options.get("sub_topic") else None,
+                limit=int(options.get("limit", 100)),
+                offset=int(options.get("offset", 0)),
+            )
+            if not result:
+                print_info("No profiles found")
+                return
+            output = format_output(result, "profiles")
+            click.echo(output)
+        except Exception as e:
+            print_error(f"Failed: {e}")
+
+    def _cmd_profile_delete(self, args: List[str]):
+        """Handle profile delete command."""
+        positional, _ = self._parse_options(args)
+        if not positional:
+            print_error("Usage: profile delete <user_id>")
+            return
+        user_id = positional[0]
+        if not click.confirm(f"Delete profile for user {user_id}?"):
+            print_info("Cancelled")
+            return
+        try:
+            result = self.ctx.user_memory.delete_profile(user_id=user_id)
+            if result:
+                print_success(f"Profile deleted for user: {user_id}")
+            else:
+                print_error(f"Profile not found for user: {user_id}")
+        except Exception as e:
+            print_error(f"Failed: {e}")
+
     def _cmd_stats(self, args: List[str]):
         """Handle stats command."""
         _, options = self._parse_options(args)
