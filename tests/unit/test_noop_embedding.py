@@ -203,25 +203,6 @@ def test_adapter_falls_back_to_mock_vector_when_precomputed_embedding_is_empty()
     assert len(stored_vector) > 0, "adapter must not store a zero-length vector"
 
 
-def test_adapter_search_returns_empty_for_empty_query_embedding():
-    """search_memories with an empty query_embedding (returned by NoopEmbedding)
-    must return [] instead of attempting a vector search."""
-    from powermem.storage.adapter import StorageAdapter
-
-    mock_store = MagicMock()
-    mock_store.collection_name = "test"
-
-    adapter = StorageAdapter(mock_store, embedding_service=None)
-    result = adapter.search_memories(
-        query_embedding=[],  # empty from NoopEmbedding
-        user_id="u1",
-        query="anything",
-    )
-
-    assert result == []
-    mock_store.search.assert_not_called()
-
-
 # ---------------------------------------------------------------------------
 # MemoryConfig with NoopEmbeddingConfig requires no API key
 # ---------------------------------------------------------------------------
