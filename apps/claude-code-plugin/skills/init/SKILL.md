@@ -30,19 +30,35 @@ passed to `uvx --from` instead of using the default PyPI package.
 
 Before running `scripts/init.sh`, check what the user already has configured:
 
-1. **LLM credentials** — check env vars (`POWERMEM_INIT_LLM_API_KEY`, `LLM_API_KEY`,
+1. Run `sh "$CLAUDE_PLUGIN_ROOT/scripts/status.sh"` to check server health and read
+   `~/.powermem/.env` for existing config.
+2. **Storage preference** — read `DATABASE_PROVIDER` from `~/.powermem/.env`. If set,
+   note the current backend. Also check `POWERMEM_INIT_DATABASE_PROVIDER` env var.
+3. **LLM credentials** — check env vars (`POWERMEM_INIT_LLM_API_KEY`, `LLM_API_KEY`,
    `ANTHROPIC_API_KEY`, `POWERMEM_INIT_LLM_AUTH_TOKEN`, `LLM_AUTH_TOKEN`,
    `ANTHROPIC_AUTH_TOKEN`) and `~/.claude/settings.json` (`env.ANTHROPIC_API_KEY`,
    `env.ANTHROPIC_AUTH_TOKEN`, `env.LLM_API_KEY`).
-2. **Storage preference** — check `POWERMEM_INIT_DATABASE_PROVIDER` env var.
-3. **Embedding preference** — check `POWERMEM_INIT_EMBEDDING_PROVIDER` / `EMBEDDING_PROVIDER`
+4. **Embedding preference** — check `POWERMEM_INIT_EMBEDDING_PROVIDER` / `EMBEDDING_PROVIDER`
    env vars, and whether cloud API keys exist (`OPENAI_API_KEY`, `DASHSCOPE_API_KEY`,
    `QWEN_API_KEY`, `SILICONFLOW_API_KEY`).
 
-Use the **AskUserQuestion** tool to collect any missing decisions. Ask up to 3
-questions in a single call when possible:
+### When the server is already healthy
 
-### Question 1 — Storage backend (ask if `POWERMEM_INIT_DATABASE_PROVIDER` unset)
+If `status.sh` reports the server is healthy AND `.env` exists with
+`DATABASE_PROVIDER` set, **do not ask the Storage question**. Instead:
+
+- Tell the user: "PowerMem is running with **<current_backend>** storage backend."
+- Only re-run `init.sh` if the user explicitly wants to change the storage
+  backend — in that case, ask Question 1 and pass `POWERMEM_INIT_DATABASE_PROVIDER`
+  to `init.sh`.
+- For LLM credentials and embedding: still ask if those values are unset.
+
+### When config is missing (server not healthy, or `.env` missing, or values unset)
+
+Use the **AskUserQuestion** tool to collect any missing decisions. Ask up to 3
+questions in a single call when possible.
+
+### Question 1 — Storage backend (ask only if `DATABASE_PROVIDER` not in `.env` AND `POWERMEM_INIT_DATABASE_PROVIDER` unset)
 - **header**: "Storage"
 - **question**: "Which storage backend should PowerMem use?"
 - **options**:
