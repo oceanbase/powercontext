@@ -206,10 +206,30 @@
 }
 
 .scoresTable {
+  display: table !important;
   width: 100%;
+  min-width: 760px;
+  table-layout: fixed;
   border-collapse: collapse;
   color: #e5e7eb;
   margin: 0;
+  overflow: visible;
+}
+
+.categoryColumn {
+  width: 24%;
+}
+
+.descriptionColumn {
+  width: 48%;
+}
+
+.scoreColumn {
+  width: 14%;
+}
+
+.countColumn {
+  width: 14%;
 }
 
 .scoresTable thead {
