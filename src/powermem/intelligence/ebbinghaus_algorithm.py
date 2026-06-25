@@ -262,7 +262,21 @@ class EbbinghausAlgorithm:
                     decay_rate=self._resolve_decay_rate(memory),
                 )
                 initial_retention = self._resolve_initial_retention(memory)
-                effective_retention = initial_retention * decay_factor
+                base_retention = initial_retention * decay_factor
+
+                _, intelligence = self._resolve_metadata_sections(memory)
+                stored_retention = intelligence.get("current_retention")
+                if stored_retention is not None:
+                    try:
+                        stored_retention = float(stored_retention)
+                    except (TypeError, ValueError):
+                        stored_retention = None
+
+                effective_retention = (
+                    max(base_retention, stored_retention)
+                    if stored_retention is not None
+                    else base_retention
+                )
                 if effective_retention < self.working_threshold:
                     return True
             
@@ -349,14 +363,26 @@ class EbbinghausAlgorithm:
     def calculate_current_retention(self, memory: Dict[str, Any]) -> float:
         """Return the real-time effective retention for display/ranking.
 
-        ``effective_retention = initial_retention * decay_factor``
+        Uses ``max(initial_retention * decay_factor, current_retention)`` so
+        that review reinforcement is reflected in search ranking and display.
         """
         initial = self._resolve_initial_retention(memory)
         created_at = memory.get("created_at")
         decay = self.calculate_decay(
             created_at, decay_rate=self._resolve_decay_rate(memory)
         )
-        return initial * decay
+        base = initial * decay
+
+        _, intelligence = self._resolve_metadata_sections(memory)
+        stored = intelligence.get("current_retention")
+        if stored is not None:
+            try:
+                stored = float(stored)
+            except (TypeError, ValueError):
+                stored = None
+        if stored is not None:
+            return max(base, stored)
+        return base
 
     def get_review_schedule(
         self, memory: Dict[str, Any], *, prefer_stored: bool = True

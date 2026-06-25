@@ -261,7 +261,7 @@ def test_reprocess_preserves_current_retention():
 # ---- Test 6: calculate_current_retention combines initial and decay ----
 
 def test_calculate_current_retention_combines_initial_and_decay(algo):
-    """calculate_current_retention should return initial_retention * decay_factor."""
+    """Without stored current_retention, should return initial_retention * decay_factor."""
     created_at = get_current_datetime() - timedelta(hours=24)
 
     memory = {
@@ -338,3 +338,145 @@ def test_search_ranking_uses_effective_retention():
 
     assert by_id["high-init"]["final_score"] > by_id["low-init"]["final_score"]
     assert "effective_retention" in by_id["high-init"]
+
+
+# ---- Tests for review-reinforcement protecting against forgetting ----
+
+def test_should_forget_respects_stored_current_retention(algo):
+    """A memory whose base retention (initial * decay) falls below threshold
+    should NOT be forgotten if current_retention (from reinforcement) is still
+    above the threshold."""
+    created_at = get_current_datetime() - timedelta(hours=50)
+
+    memory = {
+        "created_at": created_at,
+        "memory_type": "working",
+        "access_count": 0,
+        "metadata": {
+            "intelligence": {
+                "initial_retention": 0.3,
+                "current_retention": 0.8,
+            }
+        },
+    }
+
+    assert algo.should_forget(memory) is False
+
+
+def test_on_get_reinforced_memory_not_forgotten_same_call():
+    """A memory that is reinforced during on_get should not be deleted in the
+    same call, even if its pre-reinforcement effective retention was below the
+    forget threshold."""
+    config = {
+        "enabled": True,
+        "importance": {},
+        "llm": {},
+        "decay_rate": 1.5,
+        "initial_retention": 1.0,
+        "reinforcement_factor": 0.3,
+        "working_threshold": 0.3,
+    }
+    plugin = EbbinghausIntelligencePlugin(config)
+
+    now = get_current_datetime()
+    past_review = (now - timedelta(hours=1)).isoformat()
+    future_review = (now + timedelta(hours=23)).isoformat()
+    created_at = (now - timedelta(hours=50)).isoformat()
+
+    memory = {
+        "id": "reinforce-protect",
+        "content": "important content",
+        "memory_type": "working",
+        "access_count": 0,
+        "importance_score": 0.3,
+        "created_at": created_at,
+        "metadata": {
+            "memory_type": "working",
+            "intelligence": {
+                "current_retention": 0.25,
+                "initial_retention": 0.3,
+                "reinforcement_factor": 0.3,
+                "review_count": 0,
+                "next_review": past_review,
+                "review_schedule": [past_review, future_review],
+            }
+        },
+    }
+
+    updates, delete = plugin.on_get(memory)
+
+    assert delete is False
+    assert updates is not None
+    intel = updates["metadata"]["intelligence"]
+    assert intel["current_retention"] > 0.25
+
+
+def test_calculate_current_retention_reflects_reinforcement(algo):
+    """calculate_current_retention should return max(base, stored
+    current_retention) so search ranking reflects reinforcement."""
+    created_at = get_current_datetime() - timedelta(hours=50)
+
+    memory = {
+        "created_at": created_at,
+        "memory_type": "working",
+        "access_count": 0,
+        "metadata": {
+            "intelligence": {
+                "initial_retention": 0.3,
+                "current_retention": 0.85,
+            }
+        },
+    }
+
+    base_decay = algo.calculate_decay(
+        created_at, decay_rate=algo._resolve_decay_rate(memory)
+    )
+    base_retention = 0.3 * base_decay
+
+    result = algo.calculate_current_retention(memory)
+
+    assert result == pytest.approx(max(base_retention, 0.85))
+    assert result >= 0.85
+
+
+def test_search_ranking_reflects_reinforced_current_retention():
+    """process_search_results should rank a reinforced memory higher than
+    an unreinforced one with the same initial conditions."""
+    manager = IntelligentMemoryManager(
+        {"intelligent_memory": {"decay_rate": 1.5, "initial_retention": 1.0}}
+    )
+    created_at = get_current_datetime() - timedelta(hours=50)
+
+    results = [
+        {
+            "id": "unreinforced",
+            "content": "keyword",
+            "score": 0.8,
+            "created_at": created_at,
+            "memory_type": "working",
+            "access_count": 0,
+            "metadata": {
+                "intelligence": {"initial_retention": 0.3}
+            },
+        },
+        {
+            "id": "reinforced",
+            "content": "keyword",
+            "score": 0.8,
+            "created_at": created_at,
+            "memory_type": "working",
+            "access_count": 0,
+            "metadata": {
+                "intelligence": {
+                    "initial_retention": 0.3,
+                    "current_retention": 0.85,
+                }
+            },
+        },
+    ]
+
+    processed = manager.process_search_results(results, "keyword")
+    by_id = {item["id"]: item for item in processed}
+
+    assert by_id["reinforced"]["effective_retention"] > by_id["unreinforced"]["effective_retention"]
+    assert processed[0]["id"] == "reinforced"
