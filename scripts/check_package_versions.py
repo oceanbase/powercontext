@@ -24,7 +24,7 @@ def main() -> int:
     root_version = read_project_version(ROOT_PYPROJECT)
     mcp_text = MCP_PYPROJECT.read_text()
     mcp_version = read_project_version(MCP_PYPROJECT)
-    expected_dependency = f"powermem[mcp,seekdb]=={root_version}"
+    expected_dependency = f"powermem[server,seekdb]=={root_version}"
 
     errors: list[str] = []
     if mcp_version != root_version:

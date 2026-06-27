@@ -4,8 +4,8 @@ Use this guide for Claude Desktop, Cline, Codex, OpenCode, Roo Code, Goose, or a
 
 ## Prerequisites
 
-- PowerMem installed with MCP support. Use `powermem[mcp,seekdb]` for zero-config
-  local seekdb, or `powermem[mcp]` when your `.env` points at non-seekdb
+- PowerMem installed with MCP support. Use `powermem[server,seekdb]` for zero-config
+  local seekdb, or `powermem[server]` when your `.env` points at non-seekdb
   storage/embedder providers.
 - PowerMem configured with your LLM provider, API key, and model.
 

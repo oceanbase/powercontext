@@ -3,7 +3,7 @@ Request models for PowerMem API
 """
 
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class MemoryCreateRequest(BaseModel):
@@ -38,6 +38,67 @@ class MemoryBatchCreateRequest(BaseModel):
     agent_id: Optional[str] = Field(None, description="Agent identifier (applied to all memories)")
     run_id: Optional[str] = Field(None, description="Run/conversation identifier (applied to all memories)")
     infer: bool = Field(True, description="Enable intelligent memory processing")
+
+
+class CodingAgentObservation(BaseModel):
+    """Structured coding-agent event payload."""
+
+    model_config = ConfigDict(extra="allow")
+
+    content: str = Field(..., description="Observation content to persist")
+    observation_id: Optional[str] = Field(None, description="Client-provided observation ID")
+    observation_kind: str = Field("event", description="Observation kind, such as command_result")
+    observation_level: Optional[str] = Field(None, description="Observation level, such as info or error")
+    observation_status: Optional[str] = Field(None, description="Observation status, such as succeeded or failed")
+    source: str = Field("coding_agent", description="Observation source")
+    repo: Optional[str] = Field(None, description="Repository name or slug")
+    branch: Optional[str] = Field(None, description="Repository branch")
+    commit_sha: Optional[str] = Field(None, description="Repository commit SHA")
+    tool_name: Optional[str] = Field(None, description="Tool or command name")
+    task_id: Optional[str] = Field(None, description="Task identifier")
+    thread_id: Optional[str] = Field(None, description="Thread identifier")
+    session_id: Optional[str] = Field(None, description="Session identifier")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional observation metadata")
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        """Reject empty observation content."""
+        if not value or not value.strip():
+            raise ValueError("content is required")
+        return value.strip()
+
+
+class ObservationIngestRequest(CodingAgentObservation):
+    """Request model for ingesting a structured coding-agent observation."""
+
+    user_id: Optional[str] = Field(None, description="User identifier")
+    agent_id: Optional[str] = Field(None, description="Agent identifier")
+    run_id: Optional[str] = Field(None, description="Run/conversation identifier")
+    filters: Optional[Dict[str, Any]] = Field(None, description="Additional filters")
+    scope: str = Field("coding_agent", description="Memory scope")
+    memory_type: str = Field("coding_agent_observation", description="Memory type classification")
+    save_raw: bool = Field(True, description="Persist the raw structured observation")
+    infer: bool = Field(False, description="Also run intelligent memory extraction")
+    dedupe: bool = Field(False, description="Reuse existing observation records with the same ID when available")
+
+    @model_validator(mode="after")
+    def validate_ingest_mode(self):
+        """At least one ingest mode must be enabled."""
+        if not self.save_raw and not self.infer:
+            raise ValueError("save_raw=false and infer=false would not store anything")
+        return self
+
+
+class ObservationBatchIngestRequest(BaseModel):
+    """Request model for ingesting multiple coding-agent observations."""
+
+    observations: List[Any] = Field(
+        ...,
+        description="Observations to ingest",
+        min_length=1,
+        max_length=100,
+    )
 
 
 class MemoryUpdateRequest(BaseModel):

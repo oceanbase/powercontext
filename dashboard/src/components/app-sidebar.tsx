@@ -2,6 +2,7 @@ import {
   Brain,
   Database,
   LayoutDashboard,
+  ListTree,
   Settings,
   UserCircle,
 } from "lucide-react";
@@ -35,6 +36,11 @@ export function AppSidebar() {
       title: t("nav.memories"),
       url: "/memories",
       icon: Database,
+    },
+    {
+      title: t("nav.sessions"),
+      url: "/sessions",
+      icon: ListTree,
     },
     {
       title: t("nav.userProfile"),

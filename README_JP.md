@@ -207,34 +207,28 @@ pip install powermem langchain langchain-openai
 
 ## クイックスタート（Python SDK）
 
-**前提:** [.env.example](.env.example) を `.env` にコピーし、**LLM** の API キーだけを設定してください。ゼロコンフィグのローカルストレージを使う場合は `seekdb` extra（`pip install "powermem[seekdb]"`、または `server` / `mcp` との組み合わせ）をインストールしてください。これにより、デフォルトの **OceanBase** プロバイダは host 未設定時に **埋め込み seekdb** を起動できます。`seekdb` をインストールしない場合は、`OCEANBASE_HOST` でリモート OceanBase クラスタを指定するか、`sqlite` / `postgres` に切り替えてください。デフォルトの embedder はローカル実行の `all-MiniLM-L6-v2`（384 次元）で、API キー不要・初回利用時に自動ダウンロードされます。プロバイダ切り替えや高度な設定が必要な場合は [.env.example.full](.env.example.full) をコピーしてください。コンポーネントごとに全ての設定項目がまとめられています。インストール後は `pmem config init` で対話的に同じ設定を生成できます。詳しくは [はじめに](docs/guides/0001-getting_started.md) を参照してください。
+**前提:** [.env.example](.env.example) を `.env` にコピーし、**LLM** の API キーだけを設定してください。ゼロコンフィグのローカルストレージを使う場合は `seekdb` extra（`pip install "powermem[seekdb]"`、または `server` との組み合わせ）をインストールしてください。これにより、デフォルトの **OceanBase** プロバイダは host 未設定時に **埋め込み seekdb** を起動できます。`seekdb` をインストールしない場合は、`OCEANBASE_HOST` でリモート OceanBase クラスタを指定するか、`sqlite` / `postgres` に切り替えてください。デフォルトの embedder はローカル実行の `all-MiniLM-L6-v2`（384 次元）で、API キー不要・初回利用時に自動ダウンロードされます。プロバイダ切り替えや高度な設定が必要な場合は [.env.example.full](.env.example.full) をコピーしてください。コンポーネントごとに全ての設定項目がまとめられています。インストール後は `pmem config init` で対話的に同じ設定を生成できます。詳しくは [はじめに](docs/guides/0001-getting_started.md) を参照してください。
 
 ### インストール
 
 ```bash
-# コアのみ（SDK。CLI/server/MCP/seekdb は含まない）
+# コアのみ（SDK。CLI/server/seekdb は含まない）
 pip install powermem
 
 # CLI付き（pmem / powermem-cli）
 pip install "powermem[cli]"
 
-# HTTP API Server のみ（powermem-server。seekdb はインストールしない）
+# HTTP API Server と MCP サポート（powermem-server / powermem-mcp。seekdb はインストールしない）
 pip install "powermem[server]"
-
-# MCP Server のみ（powermem-mcp。seekdb はインストールしない）
-pip install "powermem[mcp]"
 
 # seekdb 付き（ゼロコンフィグのローカルストレージ / embedder に必要）
 pip install "powermem[seekdb]"
 
-# HTTP API Server + seekdb
+# HTTP API Server + MCP サポート + seekdb
 pip install "powermem[server,seekdb]"
 
-# MCP Server + seekdb
-pip install "powermem[mcp,seekdb]"
-
 # 一般的なローカル全部入りインストール
-pip install "powermem[cli,server,mcp,seekdb]"
+pip install "powermem[cli,server,seekdb]"
 ```
 
 ### SDK サンプル

@@ -207,34 +207,28 @@ pip install powermem langchain langchain-openai
 
 ## 快速开始（Python SDK）
 
-**前置条件：** 将 [.env.example](.env.example) 复制为 `.env`，仅需配置 **LLM** 的 API key。如需零配置本地存储，请安装 `seekdb` extra（`pip install "powermem[seekdb]"`，或与 `server` / `mcp` 组合安装），这样默认的 **OceanBase** provider 才能在未配置 host 时启动 **嵌入式 seekdb**。未安装 `seekdb` 时，请设置 `OCEANBASE_HOST` 连接远端 OceanBase 集群，或改用 `sqlite` / `postgres`。默认 embedder 是本地的 `all-MiniLM-L6-v2`（384 维），无需 API key，首次使用时自动下载。如需更高性能或开启高级特性，可改用 [.env.example.full](.env.example.full)，其中按组件分组记录了所有可调参数。安装后执行 `pmem config init` 可交互式生成同样的配置。详见 [入门指南](docs/guides/0001-getting_started.md)。
+**前置条件：** 将 [.env.example](.env.example) 复制为 `.env`，仅需配置 **LLM** 的 API key。如需零配置本地存储，请安装 `seekdb` extra（`pip install "powermem[seekdb]"`，或与 `server` 组合安装），这样默认的 **OceanBase** provider 才能在未配置 host 时启动 **嵌入式 seekdb**。未安装 `seekdb` 时，请设置 `OCEANBASE_HOST` 连接远端 OceanBase 集群，或改用 `sqlite` / `postgres`。默认 embedder 是本地的 `all-MiniLM-L6-v2`（384 维），无需 API key，首次使用时自动下载。如需更高性能或开启高级特性，可改用 [.env.example.full](.env.example.full)，其中按组件分组记录了所有可调参数。安装后执行 `pmem config init` 可交互式生成同样的配置。详见 [入门指南](docs/guides/0001-getting_started.md)。
 
 ### 安装
 
 ```bash
-# 仅核心（SDK；不包含 CLI/server/MCP/seekdb）
+# 仅核心（SDK；不包含 CLI/server/seekdb）
 pip install powermem
 
 # 带 CLI（pmem / powermem-cli）
 pip install "powermem[cli]"
 
-# 仅带 HTTP API Server（powermem-server；不安装 seekdb）
+# 带 HTTP API Server 和 MCP 支持（powermem-server / powermem-mcp；不安装 seekdb）
 pip install "powermem[server]"
-
-# 仅带 MCP Server（powermem-mcp；不安装 seekdb）
-pip install "powermem[mcp]"
 
 # 带 seekdb（零配置本地存储 / embedder 必需）
 pip install "powermem[seekdb]"
 
-# HTTP API Server + seekdb
+# HTTP API Server + MCP 支持 + seekdb
 pip install "powermem[server,seekdb]"
 
-# MCP Server + seekdb
-pip install "powermem[mcp,seekdb]"
-
 # 常用本地完整安装
-pip install "powermem[cli,server,mcp,seekdb]"
+pip install "powermem[cli,server,seekdb]"
 ```
 
 ### SDK 用法

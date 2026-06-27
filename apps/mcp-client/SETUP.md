@@ -76,10 +76,10 @@ cd "$REPO_ROOT"
 [ -d .venv ] || python3 -m venv .venv
 source .venv/bin/activate
 if command -v uv >/dev/null 2>&1; then
-  uv pip install -e ".[mcp,cli]"
+  uv pip install -e ".[server,cli]"
 else
   python -m pip install -U pip setuptools wheel
-  python -m pip install -e ".[mcp,cli]"
+  python -m pip install -e ".[server,cli]"
 fi
 ```
 

@@ -5,6 +5,7 @@ import Heading from '@theme/Heading';
 import AgileIcon from '../ValueProps/icons/AgileIcon';
 import AffordableIcon from '../ValueProps/icons/AffordableIcon';
 import AccurateIcon from '../ValueProps/icons/AccurateIcon';
+import {localizedPath} from '../../utils/localizedPath';
 import styles from './styles.module.css';
 
 const valueProps = [
@@ -16,20 +17,26 @@ const valueProps = [
 const getComparisonData = (isZh: boolean) => ({
   accurate: {
     fullContext: 52.9,
-    powermem: 78.7,
-    unit: '',
+    powermem: 87.79,
+    unit: '%',
+    prefix: '',
+    improvement: '+65.9%',
     label: isZh ? 'LLM 评分' : 'LLM Score',
   },
   agile: {
     fullContext: 17.12,
     powermem: 1.44,
     unit: 's',
-    label: isZh ? '响应时间' : 'Response Time',
+    prefix: '',
+    improvement: '-91.6%',
+    label: isZh ? 'Retrieval P95' : 'Retrieval P95',
   },
   affordable: {
     fullContext: 26,
     powermem: 0.9,
     unit: 'k',
+    prefix: '~',
+    improvement: '-96.5%',
     label: isZh ? 'Token 使用量' : 'Token Usage',
   },
 });
@@ -52,7 +59,7 @@ const translations: Record<string, Record<string, string>> = {
   },
   zh: {
     'valueProps.title': '为什么选择 PowerMem？-1',
-    'valueProps.subtitle': '更快、更省、更准 - 最佳的 AI 内存管理体验',
+    'valueProps.subtitle': '更快、更省、更准 - 更好的 AI 记忆管理体验',
     'valueProps.benchmarkDesc': '基于 LOCOMO 数据集的真实性能指标',
     'valueProps.viewBenchmark': '查看完整压测数据',
     'valueProps.agile.title': '更快',
@@ -60,7 +67,7 @@ const translations: Record<string, Record<string, string>> = {
     'valueProps.agile.desc': '极速检索响应，高性能异步处理，智能缓存优化',
     'valueProps.affordable.title': '更省',
     'valueProps.affordable.en': 'Affordable',
-    'valueProps.affordable.desc': '降低存储成本，智能内存管理，资源高效利用',
+    'valueProps.affordable.desc': '降低存储成本，智能记忆管理，资源高效利用',
     'valueProps.accurate.title': '更准',
     'valueProps.accurate.en': 'Accurate',
     'valueProps.accurate.desc': '精准记忆检索，AI 驱动的重要性评分，上下文感知匹配',
@@ -178,26 +185,12 @@ export default function ValueProps5() {
                           />
                         </svg>
                         <div className={styles.circleValue}>
-                          {activeComparison.powermem}
+                          {activeComparison.prefix}{activeComparison.powermem}
                           <span className={styles.circleUnit}>{activeComparison.unit}</span>
                         </div>
                       </div>
                       <div className={styles.circleImprovement}>
-                        {hoveredKey === 'accurate' && (
-                          <span className={styles.improvementText}>
-                            +{(activeComparison.powermem - activeComparison.fullContext).toFixed(1)}
-                          </span>
-                        )}
-                        {hoveredKey === 'agile' && (
-                          <span className={styles.improvementText}>
-                            {((activeComparison.fullContext / activeComparison.powermem).toFixed(1))}x faster
-                          </span>
-                        )}
-                        {hoveredKey === 'affordable' && (
-                          <span className={styles.improvementText}>
-                            {((activeComparison.fullContext / activeComparison.powermem).toFixed(1))}x less
-                          </span>
-                        )}
+                        <span className={styles.improvementText}>{activeComparison.improvement}</span>
                       </div>
                     </div>
 
@@ -232,7 +225,7 @@ export default function ValueProps5() {
                           />
                         </svg>
                         <div className={styles.circleValue}>
-                          {activeComparison.fullContext}
+                          {activeComparison.prefix}{activeComparison.fullContext}
                           <span className={styles.circleUnit}>{activeComparison.unit}</span>
                         </div>
                       </div>
@@ -246,7 +239,7 @@ export default function ValueProps5() {
 
         <div className={styles.footer}>
           <Link
-            to="/benchmark"
+            to={localizedPath('/benchmark', isZh)}
             className="button button--secondary"
           >
             {t('valueProps.viewBenchmark')} →
@@ -256,4 +249,3 @@ export default function ValueProps5() {
     </section>
   );
 }
-

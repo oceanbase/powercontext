@@ -20,6 +20,18 @@ class StorageAdapter:
     """Adapter that bridges VectorStoreBase interface with Memory class expectations."""
 
     _SYSTEM_FILTER_KEYS = {"user_id", "agent_id", "run_id"}
+    _PAYLOAD_FILTER_KEYS = {
+        "actor_id",
+        "category",
+        "created_at",
+        "data",
+        "fulltext_content",
+        "hash",
+        "role",
+        "sparse_embedding",
+        "type",
+        "updated_at",
+    }
     
     def __init__(self, vector_store: VectorStoreBase, embedding_service=None, sparse_embedder_service=None):
         """Initialize the adapter with a vector store and embedding service."""
@@ -58,11 +70,16 @@ class StorageAdapter:
 
     def _metadata_filter_key_for_store(self, key: str) -> str:
         """Translate logical metadata filters to backend-specific payload paths."""
+        if key in self._PAYLOAD_FILTER_KEYS:
+            return key
         store_module = self.vector_store.__class__.__module__
-        if (
+        payload_nested_store = (
             store_module.endswith("sqlite.sqlite_vector_store")
             or ".pgvector." in store_module
-        ):
+        )
+        if key.startswith("metadata."):
+            return key if payload_nested_store else key[len("metadata."):]
+        if payload_nested_store:
             return f"metadata.{key}"
         return key
 
@@ -89,6 +106,17 @@ class StorageAdapter:
                 else:
                     db_filters[self._metadata_filter_key_for_store(key)] = value
         return db_filters
+
+    def _memory_matches_filter(self, memory: Dict[str, Any], key: str, expected: Any) -> bool:
+        """Match logical filters against normalized memory payloads."""
+        actual = memory.get(key)
+        metadata = memory.get("metadata")
+        if actual is None and isinstance(metadata, dict):
+            if key.startswith("metadata."):
+                actual = metadata.get(key[len("metadata."):])
+            if actual is None:
+                actual = metadata.get(key)
+        return actual == expected
 
     def add_memory(self, memory_data: Dict[str, Any]) -> int:
         """Add a memory to the store."""
@@ -186,8 +214,8 @@ class StorageAdapter:
         # Generate sparse embedding if sparse embedder service is available and query is provided
         sparse_embedding = self._generate_sparse_embedding(query, "search") if query else None
 
-        # Merge user_id/agent_id/run_id into filters to ensure consistency
-        # This ensures filters are applied at the database level, avoiding redundant filtering
+        # Merge user_id/agent_id/run_id into logical filters for sub-store routing,
+        # then translate metadata filters into backend-specific payload paths for search.
         effective_filters = filters.copy() if filters else {}
         if user_id is not None:
             effective_filters["user_id"] = user_id
@@ -195,6 +223,7 @@ class StorageAdapter:
             effective_filters["agent_id"] = agent_id
         if run_id is not None:
             effective_filters["run_id"] = run_id
+        db_filters = self._build_db_filters(user_id, agent_id, run_id, filters)
         
         # Route to target store (main or sub store)
         target_store = self._route_to_store(effective_filters)
@@ -214,7 +243,7 @@ class StorageAdapter:
                 "query": search_query,
                 "vectors": query_vector,
                 "limit": limit,
-                "filters": effective_filters,
+                "filters": db_filters if db_filters else None,
             }
             if 'sparse_embedding' in search_params:
                 search_kwargs["sparse_embedding"] = sparse_embedding
@@ -225,7 +254,12 @@ class StorageAdapter:
         except TypeError:
             # Fallback to SQLite format (doesn't support query text parameter)
             # Pass filters to ensure filtering works correctly
-            results = target_store.search(search_query if query else "", vectors=[query_vector], limit=limit, filters=effective_filters)
+            results = target_store.search(
+                search_query if query else "",
+                vectors=[query_vector],
+                limit=limit,
+                filters=db_filters if db_filters else None,
+            )
         
         # Convert results to unified format
         memories = []
@@ -583,10 +617,7 @@ class StorageAdapter:
                 for key, expected in filters.items():
                     if key in ("user_id", "agent_id", "run_id"):
                         continue
-                    actual = memory.get(key)
-                    if actual is None and memory.get("metadata"):
-                        actual = memory["metadata"].get(key)
-                    if actual != expected:
+                    if not self._memory_matches_filter(memory, key, expected):
                         break
                 else:
                     pass  # all extra filters matched

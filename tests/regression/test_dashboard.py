@@ -936,6 +936,85 @@ class TestMemoriesPage:
             dashboard_page.wait_for_timeout(2000)
 
 
+# ==================== Sessions Page Tests ====================
+
+class TestSessionsPage:
+    """Test Sessions/Timeline dashboard page"""
+
+    @pytest.fixture(autouse=True)
+    def navigate_to_sessions(self, dashboard_page: Page):
+        """Navigate to Sessions page before each test"""
+        sessions_link = dashboard_page.locator(
+            "a[href*='sessions'], button:has-text('Sessions')"
+        ).first
+        if sessions_link.is_visible():
+            sessions_link.click()
+            dashboard_page.wait_for_timeout(1000)
+        else:
+            dashboard_page.goto(f"{DASHBOARD_URL}#/sessions", wait_until="networkidle")
+
+        dashboard_page.wait_for_selector("text=Sessions", timeout=10000)
+
+    def test_sessions_page_loads_and_renders_timeline(self, dashboard_page: Page):
+        """Sessions page should render summary cards, table, and timeline rail"""
+        assert_text_visible(dashboard_page, "Sessions")
+        assert_text_visible(dashboard_page, "Session List")
+        assert_text_visible(dashboard_page, "Timeline")
+        assert_text_visible(dashboard_page, "Snapshot precision.")
+        expect(dashboard_page.locator("table").first).to_be_visible(timeout=5000)
+        expect(
+            dashboard_page.locator("button:has-text('Next')").last
+        ).to_be_visible(timeout=5000)
+
+    def test_sessions_filter_empty_state_and_clear(self, dashboard_page: Page):
+        """Run filter should drive empty states and clear should reset controls"""
+        run_input = dashboard_page.locator("input[placeholder*='Run ID']").first
+        expect(run_input).to_be_visible(timeout=5000)
+        run_input.fill("missing-session-run")
+
+        apply_button = dashboard_page.locator("button:has-text('Apply')").first
+        apply_button.click()
+        dashboard_page.wait_for_timeout(2000)
+
+        page_content = dashboard_page.content()
+        assert "No sessions found." in page_content or "No timeline events found." in page_content
+
+        clear_button = dashboard_page.locator("button:has-text('Clear')").first
+        clear_button.click()
+        dashboard_page.wait_for_timeout(1000)
+        expect(run_input).to_have_value("", timeout=5000)
+
+    def test_sessions_filter_and_detail_sheet(self, dashboard_page: Page, test_data: Dict):
+        """Filtering by run ID should render events and open event details"""
+        run_input = dashboard_page.locator("input[placeholder*='Run ID']").first
+        run_input.fill(test_data["run_id"])
+        dashboard_page.locator("button:has-text('Apply')").first.click()
+        dashboard_page.wait_for_timeout(2000)
+
+        assert_text_visible(dashboard_page, test_data["run_id"], timeout=10000)
+        event_button = dashboard_page.locator(
+            "button:has-text('Dashboard test memory')"
+        ).first
+        expect(event_button).to_be_visible(timeout=10000)
+        event_button.click()
+
+        assert_text_visible(dashboard_page, "Metadata", timeout=5000)
+        assert_text_visible(dashboard_page, "Preview", timeout=5000)
+
+    def test_sessions_navigation_performance_threshold(self, page: Page, api_key: str):
+        """Sessions page should navigate and render within the dashboard threshold"""
+        start = time.perf_counter()
+        page.goto(DASHBOARD_URL, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
+        api_key_json = json.JSONEncoder().encode(api_key)
+        page.evaluate(f"localStorage.setItem('powermem_api_key', {api_key_json})")
+        page.goto(f"{DASHBOARD_URL}#/sessions", wait_until="networkidle", timeout=PAGE_LOAD_TIMEOUT)
+        page.wait_for_selector("text=Sessions", timeout=10000)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        assert elapsed_ms < 12000
+        assert_text_visible(page, "Timeline", timeout=5000)
+
+
 # ==================== User Profile Page Tests ====================
 
 class TestUserProfilePage:

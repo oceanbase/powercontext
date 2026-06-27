@@ -1,0 +1,32 @@
+FROM centos:centos7.9.2009
+
+# CentOS 7 is EOL. Use vault by default so GitHub Actions can still resolve yum
+# repositories without relying on the retired mirrorlist service.
+ARG CENTOS_BASEURL_PREFIX=https://vault.centos.org/centos
+ARG MINICONDA_SH=Miniconda3-py311_23.5.2-0-Linux-x86_64.sh
+ARG MINICONDA_SHA256=634d76df5e489c44ade4085552b97bebc786d49245ed1a830022b0b406de5817
+
+RUN sed -i '/^\[main\]/a retries=10' /etc/yum.conf \
+    && sed -i '/^\[main\]/a minrate=0' /etc/yum.conf \
+    && sed -i '/^\[main\]/a ip_resolve=4' /etc/yum.conf \
+    && sed -i 's/^enabled=1/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf 2>/dev/null || true \
+    && sed -i 's/^mirrorlist=/#mirrorlist=/' /etc/yum.repos.d/CentOS-*.repo \
+    && sed -i "s|^#baseurl=http://mirror.centos.org/centos/|baseurl=${CENTOS_BASEURL_PREFIX}/|" /etc/yum.repos.d/CentOS-*.repo \
+    && yum clean all \
+    && yum install -y binutils ca-certificates curl file gcc gcc-c++ gzip make tar \
+    && update-ca-trust
+
+# Miniconda3-latest requires glibc >= 2.28; CentOS 7 has glibc 2.17.
+RUN curl -fsSL "https://repo.anaconda.com/miniconda/${MINICONDA_SH}" -o /tmp/miniconda.sh \
+    && echo "${MINICONDA_SHA256}  /tmp/miniconda.sh" | sha256sum -c - \
+    && sh /tmp/miniconda.sh -p /opt/miniconda3 -b \
+    && rm -f /tmp/miniconda.sh
+
+WORKDIR /powermem
+COPY ./ ./
+
+RUN /opt/miniconda3/bin/conda create --name powermem python=3.11 -y \
+    && /opt/miniconda3/envs/powermem/bin/python -m pip install --upgrade pip "setuptools<81" wheel \
+    && /opt/miniconda3/envs/powermem/bin/pip install ".[cli,server,mcp,seekdb]" pyinstaller \
+    && /opt/miniconda3/envs/powermem/bin/python scripts/check_package_versions.py \
+    && PATH="/opt/miniconda3/envs/powermem/bin:${PATH}" bash scripts/build_linux_binaries.sh

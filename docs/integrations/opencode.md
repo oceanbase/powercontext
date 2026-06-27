@@ -32,8 +32,8 @@ The agent follows [`apps/mcp-client/SETUP.md`](https://github.com/oceanbase/powe
   - Preferred for OpenCode MCP tools: `powermem-mcp stdio` or `powermem-mcp streamable-http 8848`
 - PowerMem configured with your LLM provider, API key, and model.
 
-Install `powermem[server]` for the HTTP API server. Install `powermem[mcp]` for the
-local MCP command, and add `seekdb` when using the default embedded seekdb
+Install `powermem[server]` for the HTTP API server and MCP runtime
+dependencies, and add `seekdb` when using the default embedded seekdb
 storage/embedder.
 
 ## Manual setup

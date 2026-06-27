@@ -77,17 +77,18 @@ const translations: Record<string, Record<string, string>> = {
   zh: {
     'features.title': '即将推出的特性',
     'features.subtitle': '我们为 PowerMem 未来规划的前沿功能',
+    'features.description': 'PowerMem 即将推出的特性',
     'features.more.title': '还有更多...',
     'features.more.desc': '我们正在持续开发新功能和改进。敬请期待更多令人兴奋的更新！',
     'feature.realtime.title': '实时同步与协作',
-    'feature.realtime.desc': '支持多设备、多用户的无缝内存同步，为团队协作的 AI 应用提供实时协作能力。',
+    'feature.realtime.desc': '支持多设备、多用户的无缝记忆同步，为团队协作的 AI 应用提供实时协作能力。',
     'feature.realtime.detail1': '多设备同步',
     'feature.realtime.detail2': '实时协作',
     'feature.realtime.detail3': '冲突解决',
     'feature.realtime.detail4': '离线优先架构',
     'feature.analytics.title': '高级分析与洞察',
-    'feature.analytics.desc': '全面的分析仪表板，提供内存使用模式、性能指标分析，以及智能优化建议。',
-    'feature.analytics.detail1': '内存使用分析',
+    'feature.analytics.desc': '全面的分析仪表板，提供记忆使用模式、性能指标分析，以及智能优化建议。',
+    'feature.analytics.detail1': '记忆使用分析',
     'feature.analytics.detail2': '性能监控',
     'feature.analytics.detail3': '智能推荐',
     'feature.analytics.detail4': '可定制仪表板',
@@ -118,7 +119,7 @@ export default function FeaturesPage() {
   const t = (key: string) => translations[isZh ? 'zh' : 'en'][key] || key;
 
   return (
-    <Layout title="Features" description="PowerMem Upcoming Features">
+    <Layout title={t('features.title')} description={isZh ? t('features.description') : 'PowerMem Upcoming Features'}>
       <div className={styles.featuresPage}>
         <div className="container margin-vert--lg">
           <div className={styles.header}>

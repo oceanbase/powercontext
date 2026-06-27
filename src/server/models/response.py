@@ -83,6 +83,132 @@ class MemoryListResponse(BaseModel):
     offset: int = Field(0, description="Offset applied")
 
 
+class SessionSummaryResponse(BaseModel):
+    """Response model for one coding-agent session summary."""
+
+    run_id: str = Field(..., description="Run/session identifier")
+    user_id: Optional[str] = Field(None, description="User ID")
+    agent_id: Optional[str] = Field(None, description="Agent ID")
+    first_seen: Optional[str] = Field(None, description="First event timestamp")
+    last_seen: Optional[str] = Field(None, description="Latest event timestamp")
+    event_count: int = Field(0, description="Number of projected timeline events")
+    memory_count: int = Field(0, description="Number of unique memories in the session")
+    latest_preview: str = Field("", description="Latest memory/event preview")
+    precision: str = Field("memory_snapshot", description="Timeline precision mode")
+
+
+class SessionListResponse(BaseModel):
+    """Response model for session summaries."""
+
+    sessions: List[SessionSummaryResponse] = Field(
+        default_factory=list,
+        description="List of session summaries",
+    )
+    total: int = Field(0, description="Total number of matching sessions")
+    limit: int = Field(0, description="Limit applied")
+    offset: int = Field(0, description="Offset applied")
+    precision: str = Field("memory_snapshot", description="Timeline precision mode")
+    capabilities: Dict[str, bool] = Field(
+        default_factory=dict,
+        description="Supported timeline capabilities",
+    )
+
+
+class SessionStatsResponse(BaseModel):
+    """Response model for session timeline overview metrics."""
+
+    total_sessions: int = Field(0, description="Number of sessions")
+    total_events: int = Field(0, description="Number of projected events")
+    changed_memories: int = Field(0, description="Number of unique memory records")
+    no_op_events: int = Field(0, description="Number of no-op events")
+    no_op_rate: float = Field(0.0, description="No-op event ratio")
+    event_types: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Event type distribution",
+    )
+    precision: str = Field("memory_snapshot", description="Timeline precision mode")
+    capabilities: Dict[str, bool] = Field(
+        default_factory=dict,
+        description="Supported timeline capabilities",
+    )
+
+
+class TimelineEventResponse(BaseModel):
+    """Response model for one projected timeline event."""
+
+    event_id: str = Field(..., description="Stable event identifier")
+    occurred_at: Optional[str] = Field(None, description="Event timestamp")
+    run_id: Optional[str] = Field(None, description="Run/session identifier")
+    user_id: Optional[str] = Field(None, description="User ID")
+    agent_id: Optional[str] = Field(None, description="Agent ID")
+    memory_id: Optional[str] = Field(None, description="Linked memory ID")
+    event_type: str = Field("memory", description="Projected event type")
+    pipeline_mode: Optional[str] = Field(None, description="Pipeline mode, when recorded")
+    content_preview: str = Field("", description="Preview of memory or source content")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Event metadata")
+    source_preview: Optional[str] = Field(None, description="Source preview when requested")
+    source_content: Optional[str] = Field(None, description="Full source content when requested")
+    precision: str = Field("memory_snapshot", description="Timeline precision mode")
+
+
+class TimelineResponse(BaseModel):
+    """Response model for a timeline event page."""
+
+    events: List[TimelineEventResponse] = Field(
+        default_factory=list,
+        description="Timeline events",
+    )
+    total: int = Field(0, description="Total number of matching events")
+    limit: int = Field(0, description="Limit applied")
+    next_cursor: Optional[str] = Field(None, description="Opaque cursor for the next page")
+    order: str = Field("desc", description="Sort order")
+    precision: str = Field("memory_snapshot", description="Timeline precision mode")
+    capabilities: Dict[str, bool] = Field(
+        default_factory=dict,
+        description="Supported timeline capabilities",
+    )
+
+
+class ObservationIngestResponse(BaseModel):
+    """Response model for a structured observation ingest operation."""
+
+    observation_id: Optional[str] = Field(None, description="Observation ID")
+    raw_memory: Optional[MemoryResponse] = Field(None, description="Persisted raw observation memory")
+    semantic_memories: List[MemoryResponse] = Field(
+        default_factory=list,
+        description="Semantic memories extracted from the observation",
+    )
+    memories: List[MemoryResponse] = Field(
+        default_factory=list,
+        description="All memories created or returned by this ingest operation",
+    )
+    saved_raw: bool = Field(False, description="Whether a raw observation was saved")
+    inferred: bool = Field(False, description="Whether intelligent extraction was requested")
+    deduped: bool = Field(False, description="Whether an existing raw observation was reused")
+
+
+class ObservationBatchItemResponse(BaseModel):
+    """Response model for one item in a batch observation ingest operation."""
+
+    index: int = Field(..., description="Original item index")
+    success: bool = Field(..., description="Whether the item was ingested successfully")
+    observation_id: Optional[str] = Field(None, description="Observation ID")
+    result: Optional[ObservationIngestResponse] = Field(None, description="Ingest result")
+    error: Optional[str] = Field(None, description="Failure message")
+
+
+class ObservationBatchIngestResponse(BaseModel):
+    """Response model for batch observation ingest."""
+
+    items: List[ObservationBatchItemResponse] = Field(
+        default_factory=list,
+        description="Per-item ingest results",
+    )
+    total: int = Field(0, description="Total number of observations")
+    success_count: int = Field(0, description="Number of successful observations")
+    failed_count: int = Field(0, description="Number of failed observations")
+
+
 class SearchResult(BaseModel):
     """Single search result"""
 

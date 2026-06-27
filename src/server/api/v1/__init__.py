@@ -4,6 +4,7 @@ API v1 routes
 
 from fastapi import APIRouter
 from .memories import router as memories_router
+from .observations import router as observations_router
 from .search import router as search_router
 from .users import router as users_router
 from .agents import router as agents_router
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/api/v1", tags=["v1"])
 # is matched by the search route, not by GET /memories/{memory_id}
 router.include_router(search_router)
 router.include_router(memories_router)
+router.include_router(observations_router)
 router.include_router(users_router)
 router.include_router(agents_router)
 router.include_router(system_router)

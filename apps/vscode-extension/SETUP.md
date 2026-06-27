@@ -207,10 +207,10 @@ if [ "${POWERMEM_BACKEND_READY:-0}" != "1" ]; then
   [ -d .venv ] || python3 -m venv .venv
   source .venv/bin/activate
   if command -v uv >/dev/null 2>&1; then
-    uv pip install -e ".[server,mcp,cli]"
+    uv pip install -e ".[server,cli]"
   else
     python -m pip install -U pip setuptools wheel
-    python -m pip install -e ".[server,mcp,cli]"
+    python -m pip install -e ".[server,cli]"
   fi
 fi
 ```
@@ -786,7 +786,7 @@ Ask **one setting at a time**:
 ```bash
 command -v powermem-server || {
   cd /path/to/powermem
-  pip install -e ".[server,mcp,cli,seekdb]"
+  pip install -e ".[server,cli,seekdb]"
 }
 ```
 

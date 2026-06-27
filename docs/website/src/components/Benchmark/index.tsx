@@ -3,10 +3,11 @@ import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Heading from '@theme/Heading';
 import ZapIcon from './icons/ZapIcon';
+import {localizedPath} from '../../utils/localizedPath';
 import styles from './styles.module.css';
 
 const overallScores = {
-  llm_score: 0.7708,
+  llm_score: 0.8779,
 };
 
 const translations: Record<string, Record<string, string>> = {
@@ -29,7 +30,7 @@ const translations: Record<string, Record<string, string>> = {
 };
 
 const formatScore = (num: number) => {
-  return (num * 100).toFixed(2);
+  return (num * 100).toFixed(2) + '%';
 };
 
 export default function Benchmark() {
@@ -86,7 +87,7 @@ export default function Benchmark() {
       <div className={styles.footer}>
         <div className="container">
           <Link
-            to="/benchmark"
+            to={localizedPath('/benchmark', isZh)}
             className="button button--secondary"
           >
             {t('benchmark.viewDetails')} →

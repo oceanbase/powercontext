@@ -2322,6 +2322,8 @@ class APITester:
         # Module 2: Memory management endpoints
         self.test_create_memory_with_auth()
         self.test_batch_create_memories_with_auth()
+        self.test_observation_ingest_default_raw_with_auth()
+        self.test_observation_ingest_infer_true_noop_compatible_with_auth()
         self.test_list_memories_with_auth()
         self.test_get_memory_with_auth()
         self.test_update_memory_with_auth()
@@ -2469,6 +2471,154 @@ if __name__ == "__main__":
 
 import pytest
 
+
+def _observation_ingest_default_raw_with_auth(self):
+    """Test observation ingest default raw persistence (with API Key)"""
+    record = getattr(self, "log_result")
+    print("\n=== Testing Observation Ingest Default Raw Endpoint (with API Key) ===")
+
+    observation_id = f"obs-default-{int(time.time())}"
+    data = {
+        "content": "pytest failed with exit code 1",
+        "observation_id": observation_id,
+        "observation_kind": "command_result",
+        "observation_level": "error",
+        "observation_status": "failed",
+        "repo": "powermem",
+        "branch": "feature-x",
+        "tool_name": "pytest",
+        "task_id": "api-regression",
+        "thread_id": "api-thread",
+    }
+
+    try:
+        response = self.make_request("POST", "/observations", data=data)
+        if response.status_code == 200:
+            result = response.json()
+            payload = result.get("data", {})
+            raw_memory = payload.get("raw_memory")
+            metadata = raw_memory.get("metadata", {}) if raw_memory else {}
+            if (
+                result.get("success")
+                and payload.get("saved_raw") is True
+                and payload.get("inferred") is False
+                and raw_memory
+                and metadata.get("schema") == "powermem.coding_agent_observation.v1"
+                and metadata.get("record_kind") == "observation_raw"
+                and metadata.get("scope") == "coding_agent"
+                and metadata.get("observation_id") == observation_id
+                and isinstance(metadata.get("observation"), dict)
+            ):
+                created_id = raw_memory.get("memory_id")
+                if "memory_id" in raw_memory:
+                    self.test_data["memory_ids"].append(raw_memory["memory_id"])
+
+                list_response = self.make_request(
+                    "GET",
+                    "/memories",
+                    params={"scope": "coding_agent", "limit": 20},
+                    print_response=False,
+                )
+                list_result = list_response.json() if list_response.status_code == 200 else {}
+                scoped_memories = list_result.get("data", {}).get("memories", [])
+                found_observation = any(
+                    str(memory.get("memory_id") or memory.get("id")) == str(created_id)
+                    for memory in scoped_memories
+                )
+                if (
+                    list_response.status_code == 200
+                    and list_result.get("success")
+                    and found_observation
+                ):
+                    record(
+                        "Observation Ingest-Default Raw-with API Key",
+                        True,
+                        "Raw observation stored and retrievable with scope=coding_agent",
+                        result,
+                    )
+                else:
+                    record(
+                        "Observation Ingest-Default Raw-with API Key",
+                        False,
+                        "Raw observation stored but was not found with scope=coding_agent",
+                        result,
+                    )
+            else:
+                record(
+                    "Observation Ingest-Default Raw-with API Key",
+                    False,
+                    f"Response format incorrect: {result}",
+                )
+        else:
+            record(
+                "Observation Ingest-Default Raw-with API Key",
+                False,
+                f"Returned status code: {response.status_code}",
+            )
+    except Exception as e:
+        record("Observation Ingest-Default Raw-with API Key", False, f"Exception: {str(e)}")
+
+
+def _observation_ingest_infer_true_noop_compatible_with_auth(self):
+    """Test observation infer=true keeps raw observation even when semantic results are empty."""
+    record = getattr(self, "log_result")
+    print("\n=== Testing Observation Ingest Infer True Endpoint (with API Key) ===")
+
+    data = {
+        "content": "Tool pytest completed with no semantic fact extraction required.",
+        "observation_id": f"obs-infer-{int(time.time())}",
+        "observation_kind": "command_result",
+        "observation_level": "info",
+        "observation_status": "succeeded",
+        "repo": "powermem",
+        "tool_name": "pytest",
+        "save_raw": True,
+        "infer": True,
+    }
+
+    try:
+        response = self.make_request("POST", "/observations", data=data)
+        if response.status_code == 200:
+            result = response.json()
+            payload = result.get("data", {})
+            raw_memory = payload.get("raw_memory")
+            semantic_memories = payload.get("semantic_memories")
+            if (
+                result.get("success")
+                and payload.get("saved_raw") is True
+                and payload.get("inferred") is True
+                and raw_memory
+                and isinstance(semantic_memories, list)
+            ):
+                if "memory_id" in raw_memory:
+                    self.test_data["memory_ids"].append(raw_memory["memory_id"])
+                record(
+                    "Observation Ingest-Infer True-with API Key",
+                    True,
+                    "Raw observation persisted and semantic results may be empty",
+                    result,
+                )
+            else:
+                record(
+                    "Observation Ingest-Infer True-with API Key",
+                    False,
+                    f"Response format incorrect: {result}",
+                )
+        else:
+            record(
+                "Observation Ingest-Infer True-with API Key",
+                False,
+                f"Returned status code: {response.status_code}",
+            )
+    except Exception as e:
+        record("Observation Ingest-Infer True-with API Key", False, f"Exception: {str(e)}")
+
+
+APITester.test_observation_ingest_default_raw_with_auth = _observation_ingest_default_raw_with_auth
+APITester.test_observation_ingest_infer_true_noop_compatible_with_auth = (
+    _observation_ingest_infer_true_noop_compatible_with_auth
+)
+
 # Global tester instance to share state across tests
 _global_tester = None
 
@@ -2507,6 +2657,8 @@ _WITH_AUTH_TESTS = [
     'test_system_delete_all_memories_with_auth',
     'test_create_memory_with_auth',
     'test_batch_create_memories_with_auth',
+    'test_observation_ingest_default_raw_with_auth',
+    'test_observation_ingest_infer_true_noop_compatible_with_auth',
     'test_list_memories_with_auth',
     'test_get_memory_with_auth',
     'test_update_memory_with_auth',

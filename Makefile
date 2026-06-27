@@ -256,7 +256,7 @@ bump-version: ## Bump version number (usage: make bump-version VERSION=0.2.0)
 	@$(SED_INPLACE) -E 's/"version": "[0-9]+\.[0-9]+\.[0-9]+"/"version": "$(VERSION)"/g' src/powermem/core/audit.py
 	@# Update powermem-mcp wrapper package version and dependency pin
 	@$(SED_INPLACE) 's/^version = ".*"/version = "$(VERSION)"/' packages/powermem-mcp/pyproject.toml
-	@$(SED_INPLACE) -E 's/powermem\[mcp,seekdb\]==[0-9]+\.[0-9]+\.[0-9]+/powermem[mcp,seekdb]==$(VERSION)/' packages/powermem-mcp/pyproject.toml
+	@$(SED_INPLACE) -E 's/powermem\[server,seekdb\]==[0-9]+\.[0-9]+\.[0-9]+/powermem[server,seekdb]==$(VERSION)/' packages/powermem-mcp/pyproject.toml
 	@$(MAKE) check-package-versions
 	@echo "✓ Version updated to $(VERSION) in all files (excluding examples/)"
 	@echo ""

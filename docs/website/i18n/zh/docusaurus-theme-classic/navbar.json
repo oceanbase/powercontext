@@ -1,0 +1,38 @@
+{
+  "title": {
+    "message": "PowerMem",
+    "description": "The title in the navbar"
+  },
+  "logo.alt": {
+    "message": "PowerMem 标志",
+    "description": "The alt text of navbar logo"
+  },
+  "item.label.Docs": {
+    "message": "文档",
+    "description": "Navbar item with label Docs"
+  },
+  "item.label.Features": {
+    "message": "特性",
+    "description": "Navbar item with label Features"
+  },
+  "item.label.Benchmark": {
+    "message": "压测",
+    "description": "Navbar item with label Benchmark"
+  },
+  "item.label.Community": {
+    "message": "社区",
+    "description": "Navbar item with label Community"
+  },
+  "item.label.GitHub": {
+    "message": "GitHub",
+    "description": "Navbar item with label GitHub"
+  },
+  "item.label.Discord": {
+    "message": "Discord",
+    "description": "Navbar item with label Discord"
+  },
+  "item.label.X": {
+    "message": "X",
+    "description": "Navbar item with label X"
+  }
+}

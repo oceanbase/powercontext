@@ -244,11 +244,14 @@ def test_assert_bind_available_matches_uvicorn_reuseaddr(monkeypatch):
 
     server_cli._assert_bind_available("0.0.0.0", 8848)
 
-    assert calls == [
-        ("setsockopt", socket.SOL_SOCKET, socket.SO_REUSEADDR, 1),
+    expected_calls = []
+    if not sys.platform.startswith("win"):
+        expected_calls.append(("setsockopt", socket.SOL_SOCKET, socket.SO_REUSEADDR, 1))
+    expected_calls.extend([
         ("bind", ("0.0.0.0", 8848)),
         ("close",),
-    ]
+    ])
+    assert calls == expected_calls
 
 
 def test_cli_starts_one_browser_waiter_with_reload_and_workers(monkeypatch):

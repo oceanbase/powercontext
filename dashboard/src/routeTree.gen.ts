@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UserProfileRouteImport } from './routes/user-profile'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as MemoriesRouteImport } from './routes/memories'
 import { Route as IndexRouteImport } from './routes/index'
 
@@ -22,6 +23,11 @@ const UserProfileRoute = UserProfileRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SessionsRoute = SessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MemoriesRoute = MemoriesRouteImport.update({
@@ -38,12 +44,14 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/memories': typeof MemoriesRoute
+  '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
   '/user-profile': typeof UserProfileRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/memories': typeof MemoriesRoute
+  '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
   '/user-profile': typeof UserProfileRoute
 }
@@ -51,20 +59,28 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/memories': typeof MemoriesRoute
+  '/sessions': typeof SessionsRoute
   '/settings': typeof SettingsRoute
   '/user-profile': typeof UserProfileRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/memories' | '/settings' | '/user-profile'
+  fullPaths: '/' | '/memories' | '/sessions' | '/settings' | '/user-profile'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/memories' | '/settings' | '/user-profile'
-  id: '__root__' | '/' | '/memories' | '/settings' | '/user-profile'
+  to: '/' | '/memories' | '/sessions' | '/settings' | '/user-profile'
+  id:
+    | '__root__'
+    | '/'
+    | '/memories'
+    | '/sessions'
+    | '/settings'
+    | '/user-profile'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   MemoriesRoute: typeof MemoriesRoute
+  SessionsRoute: typeof SessionsRoute
   SettingsRoute: typeof SettingsRoute
   UserProfileRoute: typeof UserProfileRoute
 }
@@ -83,6 +99,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sessions': {
+      id: '/sessions'
+      path: '/sessions'
+      fullPath: '/sessions'
+      preLoaderRoute: typeof SessionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/memories': {
@@ -105,6 +128,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   MemoriesRoute: MemoriesRoute,
+  SessionsRoute: SessionsRoute,
   SettingsRoute: SettingsRoute,
   UserProfileRoute: UserProfileRoute,
 }

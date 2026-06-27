@@ -1,0 +1,54 @@
+{
+  "link.title.Docs": {
+    "message": "文档",
+    "description": "The title of the footer links column with title=Docs in the footer"
+  },
+  "link.title.Community": {
+    "message": "社区",
+    "description": "The title of the footer links column with title=Community in the footer"
+  },
+  "link.title.More": {
+    "message": "更多",
+    "description": "The title of the footer links column with title=More in the footer"
+  },
+  "link.item.label.Getting Started": {
+    "message": "快速开始",
+    "description": "The label of footer link with label=Getting Started linking to /docs/guides/0001-getting_started"
+  },
+  "link.item.label.API Reference": {
+    "message": "API 参考",
+    "description": "The label of footer link with label=API Reference linking to /docs/api/overview"
+  },
+  "link.item.label.Examples": {
+    "message": "示例",
+    "description": "The label of footer link with label=Examples linking to /docs/examples/overview"
+  },
+  "link.item.label.GitHub": {
+    "message": "GitHub",
+    "description": "The label of footer link with label=GitHub linking to https://github.com/oceanbase/powermem"
+  },
+  "link.item.label.Discord": {
+    "message": "Discord",
+    "description": "The label of footer link with label=Discord linking to https://discord.com/invite/74cF8vbNEs"
+  },
+  "link.item.label.X": {
+    "message": "X",
+    "description": "The label of footer link with label=X linking to https://x.com/OceanBaseDB"
+  },
+  "link.item.label.Features": {
+    "message": "特性",
+    "description": "The label of footer link with label=Features linking to /features"
+  },
+  "link.item.label.Benchmark": {
+    "message": "压测",
+    "description": "The label of footer link with label=Benchmark linking to /benchmark"
+  },
+  "link.item.label.Community": {
+    "message": "社区",
+    "description": "The label of footer link with label=Community linking to /community"
+  },
+  "copyright": {
+    "message": "Copyright © 2026 OceanBase.",
+    "description": "The footer copyright"
+  }
+}

@@ -8,8 +8,12 @@ Supports FTS5 fulltext search and hybrid search (vector + FTS5, RRF fusion).
 import json
 import logging
 import os
-import sqlite3
 import threading
+
+try:
+    import pysqlite3 as sqlite3
+except ImportError:
+    import sqlite3
 from typing import Any, Dict, List, Optional
 
 from powermem.storage.base import VectorStoreBase, OutputData
@@ -36,6 +40,32 @@ def _json_path_for_key(key: str) -> str:
     return path
 
 
+def _check_sqlite_features(conn) -> None:
+    """Verify FTS5 and JSON1 are compiled into the SQLite library.
+
+    A version number alone is not sufficient — distributions sometimes ship
+    SQLite >= 3.9 without FTS5 or JSON1.  This probe actually exercises both
+    features so the error is raised immediately rather than on first use.
+    """
+    try:
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS _pm_fts5_probe USING fts5(x)"
+        )
+        conn.execute("DROP TABLE IF EXISTS _pm_fts5_probe")
+    except Exception as exc:
+        raise RuntimeError(
+            f"SQLite FTS5 extension not available: {exc}. "
+            "Install pysqlite3-binary or set DATABASE_PROVIDER=oceanbase."
+        ) from exc
+    try:
+        conn.execute("SELECT json_extract('{}', '$')")
+    except Exception as exc:
+        raise RuntimeError(
+            f"SQLite JSON1 extension not available: {exc}. "
+            "Install pysqlite3-binary or set DATABASE_PROVIDER=oceanbase."
+        ) from exc
+
+
 def _extract_fulltext_content(payload: dict) -> str:
     """Extract text content from payload for FTS indexing.
 
@@ -55,13 +85,16 @@ def _extract_fulltext_content(payload: dict) -> str:
 class SQLiteVectorStore(VectorStoreBase):
     """Simple SQLite-based vector store implementation with FTS5 hybrid search."""
 
-    def __init__(self, database_path: str = ":memory:", collection_name: str = "memories", **kwargs):
+    def __init__(self, database_path: str = ":memory:", collection_name: str = "memories",
+                 enable_wal: bool = True, timeout: int = 30, **kwargs):
         """
         Initialize SQLite vector store.
 
         Args:
             database_path: Path to SQLite database file
             collection_name: Name of the collection/table
+            enable_wal: Enable WAL journal mode for concurrent read/write
+            timeout: Connection timeout in seconds
         """
         self.db_path = database_path
         self.collection_name = collection_name
@@ -81,7 +114,11 @@ class SQLiteVectorStore(VectorStoreBase):
 
         # Connect to database
         try:
-            self.connection = sqlite3.connect(database_path, check_same_thread=False)
+            self.connection = sqlite3.connect(database_path, check_same_thread=False,
+                                              timeout=timeout)
+            if enable_wal and database_path != ":memory:":
+                self.connection.execute("PRAGMA journal_mode=WAL")
+            _check_sqlite_features(self.connection)
         except Exception as e:
             logger.error(f"Failed to connect to SQLite database at {database_path}: {e}")
             raise
