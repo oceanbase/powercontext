@@ -688,13 +688,21 @@ def import_cmd(ctx: CLIContext, input_file, fmt, user_id, agent_id, json_output)
             agent_id=agent_id,
         )
 
+        success = result.get("success", 0)
+        failed = result.get("failed", 0)
+        all_rows_failed = success == 0 and failed > 0
+
         if ctx.json_output:
             click.echo(format_output(result, "generic", json_output=True))
+        elif all_rows_failed:
+            print_error(f"Import failed: {success} succeeded, {failed} failed")
         else:
             print_success(
-                f"Import complete: {result.get('success', 0)} succeeded, "
-                f"{result.get('failed', 0)} failed"
+                f"Import complete: {success} succeeded, {failed} failed"
             )
+
+        if all_rows_failed:
+            sys.exit(1)
 
     except Exception as e:
         print_error(f"Import failed: {e}")

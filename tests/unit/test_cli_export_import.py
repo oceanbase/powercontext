@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 from click.testing import CliRunner
 
+from powermem.core.memory import Memory
 from powermem.cli.main import cli
 
 
@@ -203,6 +204,76 @@ class TestImport:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["success"] == 3
+
+    def test_import_exits_nonzero_when_all_rows_fail(self, runner, mock_memory, tmp_path):
+        in_file = str(tmp_path / "import.json")
+        with open(in_file, "w", encoding="utf-8") as f:
+            json.dump([{"content": ""}], f)
+        mock_memory.import_memories.return_value = {"success": 0, "failed": 1}
+
+        with patch("powermem.cli.commands.memory.CLIContext.memory",
+                   new_callable=PropertyMock, return_value=mock_memory):
+            result = runner.invoke(cli, ["memory", "import", in_file])
+        assert result.exit_code != 0
+        assert "0 succeeded" in result.output
+        assert "1 failed" in result.output
+
+
+class TestExportImportRoundTrip:
+
+    def test_json_exported_memory_field_imports_as_content(self):
+        source = Memory.__new__(Memory)
+        source.get_all = MagicMock(return_value={
+            "results": [
+                {
+                    "id": 1,
+                    "memory": "Remember the exported JSON body",
+                    "user_id": "u1",
+                    "agent_id": "a1",
+                    "metadata": {"source": "test"},
+                },
+            ],
+        })
+        exported = Memory.export_memories(source, format="json")
+
+        target = Memory.__new__(Memory)
+        target.add = MagicMock()
+        result = Memory.import_memories(target, exported, format="json")
+
+        assert result == {"success": 1, "failed": 0}
+        target.add.assert_called_once()
+        kwargs = target.add.call_args.kwargs
+        assert kwargs["messages"] == "Remember the exported JSON body"
+        assert kwargs["user_id"] == "u1"
+        assert kwargs["agent_id"] == "a1"
+        assert kwargs["metadata"] == {"source": "test"}
+
+    def test_csv_exported_memory_field_imports_as_content(self):
+        source = Memory.__new__(Memory)
+        source.get_all = MagicMock(return_value={
+            "results": [
+                {
+                    "id": 1,
+                    "memory": "Remember the exported CSV body",
+                    "user_id": "u1",
+                    "agent_id": "a1",
+                    "metadata": {"source": "test"},
+                },
+            ],
+        })
+        exported = Memory.export_memories(source, format="csv")
+
+        target = Memory.__new__(Memory)
+        target.add = MagicMock()
+        result = Memory.import_memories(target, exported, format="csv")
+
+        assert result == {"success": 1, "failed": 0}
+        target.add.assert_called_once()
+        kwargs = target.add.call_args.kwargs
+        assert kwargs["messages"] == "Remember the exported CSV body"
+        assert kwargs["user_id"] == "u1"
+        assert kwargs["agent_id"] == "a1"
+        assert kwargs["metadata"] == {"source": "test"}
 
 
 # ==================== Batch Add ====================
