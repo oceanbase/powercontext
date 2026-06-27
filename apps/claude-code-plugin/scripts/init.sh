@@ -8,155 +8,76 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 echo "PowerMem Claude Code plugin init"
 echo "Data dir: $DATA_DIR"
 
+# --- Remote mode short-circuit ---
+# Triggered when the user provides a remote PowerMem server URL via
+# POWERMEM_INIT_BASE_URL (AskUserQuestion) or POWERMEM_BASE_URL (env, non-localhost).
+# Skips .env creation, uvx launch, PID management.
+# Connection mode (POWERMEM_INIT_CONNECTION_MODE=hook|mcp|both, default both)
+# decides which files get written:
+#   hook → runtime.env only (.mcp.json reset to empty)
+#   mcp  → .mcp.json only (no runtime.env, hooks unconfigured)
+#   both → both files
+remote_init_url="${POWERMEM_INIT_BASE_URL:-${POWERMEM_BASE_URL:-}}"
+if [ -n "$remote_init_url" ] && is_remote_url "$remote_init_url"; then
+  remote_api_key="${POWERMEM_INIT_API_KEY:-${POWERMEM_API_KEY:-}}"
+  remote_mode="${POWERMEM_INIT_CONNECTION_MODE:-both}"
+  case "$remote_mode" in
+    hook|mcp|both) ;;
+    *) echo "ERROR: POWERMEM_INIT_CONNECTION_MODE must be hook, mcp, or both (got: $remote_mode)" >&2; exit 1 ;;
+  esac
+  echo "Remote server mode: $remote_init_url (connection: $remote_mode)"
+  mkdir -p "$DATA_DIR"
+
+  echo "Verifying connectivity..."
+  if ! is_healthy "$remote_init_url"; then
+    echo "ERROR: remote server at $remote_init_url is not healthy." >&2
+    echo "Check the URL and any required API key." >&2
+    exit 1
+  fi
+  echo "Remote server healthy: $remote_init_url"
+
+  case "$remote_mode" in
+    hook|both)
+      write_runtime_remote "$remote_init_url" "$remote_api_key"
+      echo "Wrote $RUNTIME_FILE"
+      ;;
+  esac
+
+  case "$remote_mode" in
+    mcp|both)
+      mcp_url=$(printf '%s' "$remote_init_url" | sed 's:/*$::')"/mcp"
+      mcp_file="$PLUGIN_ROOT/.mcp.json"
+      tmp="$mcp_file.tmp"
+      if [ -n "$remote_api_key" ]; then
+        printf '{"mcpServers":{"powermem":{"type":"http","url":"%s","headers":{"Authorization":"Bearer %s"}}}}' \
+          "$mcp_url" "$remote_api_key" > "$tmp"
+      else
+        printf '{"mcpServers":{"powermem":{"type":"http","url":"%s"}}}' \
+          "$mcp_url" > "$tmp"
+      fi
+      mv "$tmp" "$mcp_file"
+      echo "Wrote $mcp_file (url=$mcp_url)"
+      ;;
+  esac
+
+  case "$remote_mode" in
+    hook)
+      # Reset .mcp.json to empty so MCP is disabled in hook-only mode.
+      mcp_file="$PLUGIN_ROOT/.mcp.json"
+      printf '{"mcpServers":{}}' > "$mcp_file"
+      echo "Reset $mcp_file (MCP disabled)"
+      ;;
+  esac
+
+  exit 0
+fi
+
 base_url=$(runtime_base_url)
 
 ensure_bootstrap_python || exit 1
 echo "Bootstrap Python: $BOOTSTRAP_PYTHON ($(python_version "$BOOTSTRAP_PYTHON"))"
 
 # Interactive configuration prompts.
-# Bypass: POWERMEM_NON_INTERACTIVE=1, or var already set, or stdin not a TTY.
-ask_user() {
-  var_name="$1"
-  prompt="$2"
-  default="$3"
-  choices="${4:-}"
-
-  if [ "${POWERMEM_NON_INTERACTIVE:-0}" = "1" ]; then
-    eval "${var_name}=\"\${${var_name}:-${default}}\""
-    export "${var_name}"
-    return 0
-  fi
-
-  eval "_existing=\${${var_name}:-}"
-  if [ -n "${_existing}" ]; then
-    return 0
-  fi
-
-  if [ ! -t 0 ] || [ ! -e /dev/tty ]; then
-    eval "${var_name}=\"${default}\""
-    export "${var_name}"
-    return 0
-  fi
-
-  while true; do
-    hint=""
-    [ -n "${choices}" ] && hint=" [${choices}]"
-    [ -n "${default}" ] && hint="${hint} (default: ${default})"
-    printf "%s%s: " "${prompt}" "${hint}"
-    read -r _answer </dev/tty || {
-      eval "${var_name}=\"${default}\""
-      export "${var_name}"
-      return 0
-    }
-    [ -z "${_answer}" ] && _answer="${default}"
-    if [ -z "${choices}" ]; then
-      eval "${var_name}=\"${_answer}\""
-      export "${var_name}"
-      return 0
-    fi
-    _match=0
-    _old_ifs="${IFS:-}"
-    IFS='|'
-    for _opt in ${choices}; do
-      if [ "${_opt}" = "${_answer}" ]; then _match=1; break; fi
-    done
-    IFS="${_old_ifs}"
-    if [ "${_match}" = "1" ]; then
-      eval "${var_name}=\"${_answer}\""
-      export "${var_name}"
-      return 0
-    fi
-    echo "Invalid choice: ${_answer}. Valid: ${choices}" >&2
-  done
-}
-
-prompt_user_config() {
-  echo ""
-  echo "=== Interactive configuration ==="
-  echo "Bypass: POWERMEM_NON_INTERACTIVE=1, or pre-set the POWERMEM_INIT_* env vars."
-  echo ""
-
-  ask_user POWERMEM_INIT_DATABASE_PROVIDER \
-    "Storage backend (sqlite=single-user local, oceanbase=multi-agent/prod)" \
-    "sqlite" \
-    "sqlite|oceanbase"
-  echo "  -> DATABASE_PROVIDER=${POWERMEM_INIT_DATABASE_PROVIDER}"
-
-  _has_llm_cred=0
-  if [ -n "${POWERMEM_INIT_LLM_API_KEY:-}${LLM_API_KEY:-}${ANTHROPIC_API_KEY:-}${POWERMEM_INIT_LLM_AUTH_TOKEN:-}${LLM_AUTH_TOKEN:-${ANTHROPIC_AUTH_TOKEN:-}}" ]; then
-    _has_llm_cred=1
-  fi
-  if [ "$_has_llm_cred" = "0" ] && [ -f "${HOME}/.claude/settings.json" ]; then
-    if "$BOOTSTRAP_PYTHON" -c "
-import json, sys
-try:
-    d = json.load(open('${HOME}/.claude/settings.json')).get('env', {})
-except Exception:
-    sys.exit(1)
-sys.exit(0 if any(d.get(k) for k in ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'LLM_API_KEY']) else 1)
-" 2>/dev/null; then
-      _has_llm_cred=1
-    fi
-  fi
-
-  if [ "$_has_llm_cred" = "0" ]; then
-    echo "No LLM credentials detected in env or ~/.claude/settings.json."
-    ask_user _llm_choice \
-      "Choose LLM provider (noop=skip fact extraction, CRUD still works)" \
-      "noop" \
-      "noop|anthropic|openai|deepseek|qwen|siliconflow"
-    case "${_llm_choice}" in
-      noop)
-        export POWERMEM_INIT_LLM_PROVIDER=noop
-        echo "  -> LLM=noop (fact extraction / profile extraction disabled)"
-        ;;
-      anthropic|openai|deepseek|qwen|siliconflow)
-        export POWERMEM_INIT_LLM_PROVIDER="${_llm_choice}"
-        ask_user POWERMEM_INIT_LLM_API_KEY "  API key for ${_llm_choice}" "" ""
-        ask_user POWERMEM_INIT_LLM_MODEL "  Model name" "" ""
-        _default_base=""
-        case "${_llm_choice}" in
-          openai)      _default_base="https://api.openai.com/v1" ;;
-          deepseek)    _default_base="https://api.deepseek.com/v1" ;;
-          qwen)        _default_base="https://dashscope.aliyuncs.com/compatible-mode/v1" ;;
-          siliconflow) _default_base="https://api.siliconflow.cn/v1" ;;
-        esac
-        if [ -n "${_default_base}" ]; then
-          export POWERMEM_INIT_LLM_BASE_URL="${POWERMEM_INIT_LLM_BASE_URL:-${_default_base}}"
-          echo "  -> LLM=${_llm_choice}, base_url=${POWERMEM_INIT_LLM_BASE_URL}"
-        else
-          echo "  -> LLM=${_llm_choice}"
-        fi
-        ;;
-    esac
-  else
-    echo "LLM credentials detected; skipping LLM provider prompt."
-  fi
-
-  if [ -z "${POWERMEM_INIT_EMBEDDING_PROVIDER:-}${EMBEDDING_PROVIDER:-}" ]; then
-    _embed_default="huggingface"
-    if [ "${POWERMEM_INIT_DATABASE_PROVIDER}" = "oceanbase" ]; then
-      _embed_default="default"
-    fi
-    _cloud_embed=""
-    if [ -n "${OPENAI_API_KEY:-}" ]; then _cloud_embed="openai"
-    elif [ -n "${DASHSCOPE_API_KEY:-}${QWEN_API_KEY:-}" ]; then _cloud_embed="qwen"
-    elif [ -n "${SILICONFLOW_API_KEY:-}" ]; then _cloud_embed="siliconflow"
-    fi
-    if [ -n "${_cloud_embed}" ] && [ "${_cloud_embed}" != "${_embed_default}" ]; then
-      ask_user POWERMEM_INIT_EMBEDDING_PROVIDER \
-        "Detected ${_cloud_embed} API key. Use local or cloud embedding?" \
-        "${_embed_default}" \
-        "${_embed_default}|${_cloud_embed}"
-      echo "  -> EMBEDDING_PROVIDER=${POWERMEM_INIT_EMBEDDING_PROVIDER}"
-    fi
-  else
-    echo "Embedding provider pre-set; skipping prompt."
-  fi
-
-  echo ""
-}
-
 create_env_file() {
   "$BOOTSTRAP_PYTHON" - "$ENV_FILE" "$DATA_DIR" <<'PY'
 import json
@@ -408,6 +329,7 @@ embedding_provider = env_first("POWERMEM_INIT_EMBEDDING_PROVIDER", "EMBEDDING_PR
 embedding_provider = embedding_provider.lower()
 
 embedding_model_defaults = {
+    "none": "none",
     "default": "all-MiniLM-L6-v2",
     "huggingface": "all-MiniLM-L6-v2",
     "qwen": "text-embedding-v4",
@@ -417,6 +339,7 @@ embedding_model_defaults = {
     "lmstudio": "text-embedding-nomic-embed-text-v1.5",
 }
 embedding_dim_defaults = {
+    "none": "0",
     "default": "384",
     "huggingface": "384",
     "qwen": "1536",
@@ -442,7 +365,7 @@ if not embedding_api_key:
     elif embedding_provider == "siliconflow":
         embedding_api_key = env_first("SILICONFLOW_API_KEY") or settings_first(settings_env, "SILICONFLOW_API_KEY")
 
-if embedding_provider not in {"default", "huggingface", "ollama", "lmstudio"} and not embedding_api_key:
+if embedding_provider not in {"none", "default", "huggingface", "ollama", "lmstudio"} and not embedding_api_key:
     print(
         "Missing configuration: POWERMEM_INIT_EMBEDDING_API_KEY "
         f"for EMBEDDING_PROVIDER={embedding_provider}",
@@ -451,7 +374,7 @@ if embedding_provider not in {"default", "huggingface", "ollama", "lmstudio"} an
     sys.exit(2)
 
 server_port = env_first("POWERMEM_SERVER_PORT", "POWERMEM_INIT_PORT") or "8848"
-server_host = env_first("POWERMEM_SERVER_HOST") or "127.0.0.1"
+server_host = env_first("POWERMEM_SERVER_HOST") or "0.0.0.0"
 server_workers = env_first("POWERMEM_SERVER_WORKERS") or "1"
 server_log_file = env_first("POWERMEM_SERVER_LOG_FILE") or path_value("powermem-server.log")
 logging_level = env_first("LOGGING_LEVEL") or "INFO"
@@ -745,7 +668,6 @@ announce_dashboard_url() {
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Creating plugin .env from environment variables or Claude settings fallback."
-  prompt_user_config
   create_env_file
 else
   echo "Using existing plugin .env: $ENV_FILE"
@@ -861,13 +783,13 @@ if [ -n "${POWERMEM_UV_INDEX_URL:-}" ]; then
     --default-index "$POWERMEM_UV_INDEX_URL" \
     --from "$PACKAGE" \
     $UVX_WITH_ARGS \
-    powermem-server --host 127.0.0.1 --port "$port" >> "$LOG_FILE" 2>&1 &
+    powermem-server --host "${POWERMEM_SERVER_HOST:-0.0.0.0}" --port "$port" >> "$LOG_FILE" 2>&1 &
 else
   POWERMEM_ENV_FILE="$ENV_FILE" nohup "$UV_BIN" tool run \
     --python "$BOOTSTRAP_PYTHON" \
     --from "$PACKAGE" \
     $UVX_WITH_ARGS \
-    powermem-server --host 127.0.0.1 --port "$port" >> "$LOG_FILE" 2>&1 &
+    powermem-server --host "${POWERMEM_SERVER_HOST:-0.0.0.0}" --port "$port" >> "$LOG_FILE" 2>&1 &
 fi
 pid=$!
 write_managed_pid "$pid"

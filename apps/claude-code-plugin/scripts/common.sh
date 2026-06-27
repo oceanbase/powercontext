@@ -309,6 +309,29 @@ write_runtime_base_url() {
   mv "$tmp" "$RUNTIME_FILE"
 }
 
+# Write runtime.env for remote-server mode (no local .env, no local PID).
+# Args: base_url [api_key]
+write_runtime_remote() {
+  remote_url=$1
+  remote_key=${2:-}
+  tmp="$RUNTIME_FILE.tmp"
+  {
+    printf 'POWERMEM_BASE_URL=%s\n' "$remote_url"
+    if [ -n "$remote_key" ]; then
+      printf 'POWERMEM_API_KEY=%s\n' "$remote_key"
+    fi
+  } > "$tmp"
+  mv "$tmp" "$RUNTIME_FILE"
+}
+
+# Return 0 if the given URL points at a remote host (not localhost/127.0.0.1).
+is_remote_url() {
+  case "$1" in
+    http://localhost:*|http://127.0.0.1:*|https://localhost:*|https://127.0.0.1:*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 export_env_file_vars() {
   env_file=$1
   [ -f "$env_file" ] || return 0
