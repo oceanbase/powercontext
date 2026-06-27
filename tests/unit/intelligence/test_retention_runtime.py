@@ -301,6 +301,119 @@ def test_calculate_current_retention_defaults_without_stored_initial(algo):
     assert result == pytest.approx(algo.initial_retention * raw_decay)
 
 
+def test_initialized_current_retention_decays_and_can_forget(algo):
+    """Real process_memory_metadata output should not create a permanent floor.
+
+    process_memory_metadata initializes current_retention to initial_retention.
+    That stored snapshot must still decay over time, otherwise normal working
+    memories can never fall below the forget threshold.
+    """
+    created_at = get_current_datetime() - timedelta(hours=50)
+    metadata = algo.process_memory_metadata(
+        "ordinary working memory",
+        importance_score=0.5,
+        memory_type="working",
+    )
+    intelligence = metadata["intelligence"]
+    intelligence["last_reviewed"] = created_at.isoformat()
+    metadata["created_at"] = created_at.isoformat()
+
+    memory = {
+        "created_at": created_at,
+        "memory_type": "working",
+        "access_count": 0,
+        "metadata": {
+            "memory_type": "working",
+            "intelligence": intelligence,
+        },
+    }
+
+    assert intelligence["current_retention"] == pytest.approx(
+        intelligence["initial_retention"]
+    )
+    assert algo.calculate_current_retention(memory) < algo.working_threshold
+    assert algo.should_forget(memory) is True
+
+
+def test_search_ranking_decays_initialized_current_retention():
+    """Search ranking should not treat initialized current_retention as fixed."""
+    manager = IntelligentMemoryManager(
+        {"intelligent_memory": {"decay_rate": 1.5, "initial_retention": 1.0}}
+    )
+    algo = manager.ebbinghaus_algorithm
+    old_time = get_current_datetime() - timedelta(hours=50)
+    fresh_time = get_current_datetime()
+
+    old_meta = algo.process_memory_metadata("keyword", 0.5, "working")
+    old_meta["intelligence"]["last_reviewed"] = old_time.isoformat()
+    fresh_meta = algo.process_memory_metadata("keyword", 0.5, "working")
+    fresh_meta["intelligence"]["last_reviewed"] = fresh_time.isoformat()
+
+    results = [
+        {
+            "id": "old",
+            "content": "keyword",
+            "score": 0.8,
+            "created_at": old_time,
+            "memory_type": "working",
+            "access_count": 0,
+            "metadata": {
+                "memory_type": "working",
+                "intelligence": old_meta["intelligence"],
+            },
+        },
+        {
+            "id": "fresh",
+            "content": "keyword",
+            "score": 0.8,
+            "created_at": fresh_time,
+            "memory_type": "working",
+            "access_count": 0,
+            "metadata": {
+                "memory_type": "working",
+                "intelligence": fresh_meta["intelligence"],
+            },
+        },
+    ]
+
+    processed = manager.process_search_results(results, "keyword")
+    by_id = {item["id"]: item for item in processed}
+
+    assert by_id["old"]["effective_retention"] < by_id["fresh"]["effective_retention"]
+    assert processed[0]["id"] == "fresh"
+
+
+def test_reinforce_uses_decayed_current_retention_before_boost(algo):
+    """reinforce() should boost the real-time retention, not a stale snapshot."""
+    last_reviewed = get_current_datetime() - timedelta(hours=50)
+    memory = {
+        "created_at": last_reviewed,
+        "memory_type": "working",
+        "access_count": 0,
+        "metadata": {
+            "intelligence": {
+                "initial_retention": 0.3,
+                "current_retention": 0.8,
+                "last_reviewed": last_reviewed.isoformat(),
+                "reinforcement_factor": 0.3,
+                "review_count": 0,
+                "review_schedule": [],
+            }
+        },
+    }
+    decayed = 0.8 * algo.calculate_decay(
+        last_reviewed,
+        decay_rate=algo._resolve_decay_rate(memory),
+    )
+
+    result = algo.reinforce(memory)
+
+    assert result["current_retention"] == pytest.approx(
+        decayed + 0.3 * (1.0 - decayed)
+    )
+    assert result["current_retention"] < 0.8
+
+
 def test_search_ranking_uses_effective_retention():
     """process_search_results should rank by effective_retention, not raw decay."""
     manager = IntelligentMemoryManager(
@@ -343,10 +456,9 @@ def test_search_ranking_uses_effective_retention():
 # ---- Tests for review-reinforcement protecting against forgetting ----
 
 def test_should_forget_respects_stored_current_retention(algo):
-    """A memory whose base retention (initial * decay) falls below threshold
-    should NOT be forgotten if current_retention (from reinforcement) is still
-    above the threshold."""
+    """Recent reinforced retention can protect a memory from forgetting."""
     created_at = get_current_datetime() - timedelta(hours=50)
+    last_reviewed = get_current_datetime()
 
     memory = {
         "created_at": created_at,
@@ -356,6 +468,7 @@ def test_should_forget_respects_stored_current_retention(algo):
             "intelligence": {
                 "initial_retention": 0.3,
                 "current_retention": 0.8,
+                "last_reviewed": last_reviewed.isoformat(),
             }
         },
     }
@@ -412,9 +525,9 @@ def test_on_get_reinforced_memory_not_forgotten_same_call():
 
 
 def test_calculate_current_retention_reflects_reinforcement(algo):
-    """calculate_current_retention should return max(base, stored
-    current_retention) so search ranking reflects reinforcement."""
+    """calculate_current_retention should decay a reinforced retention snapshot."""
     created_at = get_current_datetime() - timedelta(hours=50)
+    last_reviewed = get_current_datetime()
 
     memory = {
         "created_at": created_at,
@@ -424,6 +537,7 @@ def test_calculate_current_retention_reflects_reinforcement(algo):
             "intelligence": {
                 "initial_retention": 0.3,
                 "current_retention": 0.85,
+                "last_reviewed": last_reviewed.isoformat(),
             }
         },
     }
@@ -435,8 +549,8 @@ def test_calculate_current_retention_reflects_reinforcement(algo):
 
     result = algo.calculate_current_retention(memory)
 
-    assert result == pytest.approx(max(base_retention, 0.85))
-    assert result >= 0.85
+    assert result > base_retention
+    assert result <= 0.85
 
 
 def test_search_ranking_reflects_reinforced_current_retention():
@@ -446,6 +560,7 @@ def test_search_ranking_reflects_reinforced_current_retention():
         {"intelligent_memory": {"decay_rate": 1.5, "initial_retention": 1.0}}
     )
     created_at = get_current_datetime() - timedelta(hours=50)
+    last_reviewed = get_current_datetime()
 
     results = [
         {
@@ -470,6 +585,7 @@ def test_search_ranking_reflects_reinforced_current_retention():
                 "intelligence": {
                     "initial_retention": 0.3,
                     "current_retention": 0.85,
+                    "last_reviewed": last_reviewed.isoformat(),
                 }
             },
         },

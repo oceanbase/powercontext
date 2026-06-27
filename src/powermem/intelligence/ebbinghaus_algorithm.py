@@ -255,31 +255,8 @@ class EbbinghausAlgorithm:
             True if memory should be forgotten
         """
         try:
-            created_at = memory.get("created_at")
-            if created_at:
-                decay_factor = self.calculate_decay(
-                    created_at,
-                    decay_rate=self._resolve_decay_rate(memory),
-                )
-                initial_retention = self._resolve_initial_retention(memory)
-                base_retention = initial_retention * decay_factor
-
-                _, intelligence = self._resolve_metadata_sections(memory)
-                stored_retention = intelligence.get("current_retention")
-                if stored_retention is not None:
-                    try:
-                        stored_retention = float(stored_retention)
-                    except (TypeError, ValueError):
-                        stored_retention = None
-
-                effective_retention = (
-                    max(base_retention, stored_retention)
-                    if stored_retention is not None
-                    else base_retention
-                )
-                if effective_retention < self.working_threshold:
-                    return True
-            
+            if self.calculate_current_retention(memory) < self.working_threshold:
+                return True
             return False
             
         except Exception as e:
@@ -329,14 +306,7 @@ class EbbinghausAlgorithm:
             Dict with updated intelligence fields to merge back.
         """
         _, intelligence = self._resolve_metadata_sections(memory)
-        current_retention = intelligence.get("current_retention")
-        if current_retention is None:
-            current_retention = intelligence.get("initial_retention", 1.0)
-        try:
-            current_retention = float(current_retention)
-        except (TypeError, ValueError):
-            current_retention = 1.0
-
+        current_retention = self.calculate_current_retention(memory)
         reinforcement_factor = self._resolve_reinforcement_factor(memory)
         review_count = int(intelligence.get("review_count") or 0)
 
@@ -363,26 +333,27 @@ class EbbinghausAlgorithm:
     def calculate_current_retention(self, memory: Dict[str, Any]) -> float:
         """Return the real-time effective retention for display/ranking.
 
-        Uses ``max(initial_retention * decay_factor, current_retention)`` so
-        that review reinforcement is reflected in search ranking and display.
+        ``current_retention`` is a snapshot captured at ``last_reviewed`` (or
+        creation time for initial metadata), so it must decay before runtime
+        consumers use it. This avoids treating initialized retention as a
+        permanent floor while still reflecting recent review reinforcement.
         """
-        initial = self._resolve_initial_retention(memory)
-        created_at = memory.get("created_at")
-        decay = self.calculate_decay(
-            created_at, decay_rate=self._resolve_decay_rate(memory)
-        )
-        base = initial * decay
+        stored = self._resolve_current_retention(memory)
+        if stored is not None:
+            anchor = self._resolve_retention_anchor(memory)
+            decay = self.calculate_decay(
+                anchor,
+                decay_rate=self._resolve_decay_rate(memory),
+            )
+            return max(0.0, min(1.0, stored * decay))
 
-        _, intelligence = self._resolve_metadata_sections(memory)
-        stored = intelligence.get("current_retention")
-        if stored is not None:
-            try:
-                stored = float(stored)
-            except (TypeError, ValueError):
-                stored = None
-        if stored is not None:
-            return max(base, stored)
-        return base
+        initial = self._resolve_initial_retention(memory)
+        created_at = self._resolve_created_at(memory)
+        decay = self.calculate_decay(
+            created_at,
+            decay_rate=self._resolve_decay_rate(memory),
+        )
+        return max(0.0, min(1.0, initial * decay))
 
     def get_review_schedule(
         self, memory: Dict[str, Any], *, prefer_stored: bool = True
@@ -554,6 +525,44 @@ class EbbinghausAlgorithm:
                 if 0.0 < val <= 1.0:
                     return val
         return self.initial_retention
+
+    def _resolve_current_retention(
+        self, memory: Dict[str, Any]
+    ) -> Optional[float]:
+        """Resolve stored current_retention as a bounded snapshot value."""
+        meta, intelligence = self._resolve_metadata_sections(memory)
+        raw = self._first_present(
+            memory.get("current_retention"),
+            meta.get("current_retention"),
+            intelligence.get("current_retention"),
+        )
+        if raw is None:
+            return None
+        try:
+            retention = float(raw)
+        except (TypeError, ValueError):
+            logger.warning("Invalid current_retention: %s", raw)
+            return None
+        return max(0.0, min(1.0, retention))
+
+    def _resolve_created_at(self, memory: Dict[str, Any]) -> Any:
+        """Resolve creation timestamp from supported memory layouts."""
+        meta, intelligence = self._resolve_metadata_sections(memory)
+        return self._first_present(
+            memory.get("created_at"),
+            meta.get("created_at"),
+            intelligence.get("created_at"),
+        )
+
+    def _resolve_retention_anchor(self, memory: Dict[str, Any]) -> Any:
+        """Resolve the timestamp for decaying current_retention snapshots."""
+        meta, intelligence = self._resolve_metadata_sections(memory)
+        return self._first_present(
+            intelligence.get("last_reviewed"),
+            memory.get("last_reviewed"),
+            meta.get("last_reviewed"),
+            self._resolve_created_at(memory),
+        )
 
     def _parse_datetime(self, value: Any) -> datetime:
         """Parse datetime from object or ISO string."""

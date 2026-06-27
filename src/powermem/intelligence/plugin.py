@@ -160,10 +160,10 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
                     intel_updates.update(reinforcement_result)
 
             # Apply reinforcement to normalized so downstream should_forget()
-            # and should_promote() see the boosted current_retention.
-            if intel_updates.get("current_retention") is not None:
+            # uses the boosted retention and its new timestamp anchor.
+            if intel_updates:
                 norm_intel = dict(normalized.get("metadata", {}).get("intelligence") or {})
-                norm_intel["current_retention"] = intel_updates["current_retention"]
+                norm_intel.update(intel_updates)
                 norm_meta = dict(normalized.get("metadata") or {})
                 norm_meta["intelligence"] = norm_intel
                 normalized = {**normalized, "metadata": norm_meta}
