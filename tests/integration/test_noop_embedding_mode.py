@@ -7,7 +7,9 @@ When embedding is disabled:
 - add() stores memories using a mock fallback vector
 - get() retrieves stored memories by ID
 - update() and delete() function normally
-- search() returns empty results (vector search requires embeddings)
+- search() falls back to FTS5 keyword search (vector search requires
+  embeddings; when query_embedding is empty but query text is present,
+  the adapter forwards the query to the SQLite FTS layer)
 """
 
 from __future__ import annotations
@@ -59,14 +61,17 @@ def test_noop_embedding_preserves_basic_memory_crud(tmp_path):
     assert memory.get(memory_id, user_id="user_noop_embed") is None
 
 
-def test_noop_embedding_search_returns_empty(tmp_path):
-    """Vector search must return empty results when embedding is disabled."""
+def test_noop_embedding_search_returns_fts_hits(tmp_path):
+    """When embedding is disabled, search falls back to FTS5 keyword search
+    and returns matching memories instead of an empty list."""
     memory = Memory(config=_sqlite_noop_embedding_config(tmp_path))
 
     memory.add("User loves hiking", user_id="user_search_noop")
 
     results = memory.search("hiking", user_id="user_search_noop")
-    assert results["results"] == []
+    assert len(results["results"]) == 1
+    hit = results["results"][0]
+    assert "hiking" in hit.get("memory", "") or "hiking" in hit.get("content", "")
 
 
 def test_noop_embedding_add_multiple_memories(tmp_path):
