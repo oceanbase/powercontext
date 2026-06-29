@@ -74,24 +74,15 @@ jobs:
           mkdir -p src/server/dashboard
           cp -r dashboard-dist/* src/server/dashboard/
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+      - name: Set up uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Upgrade pip
-        run: |
-          python -m pip install --upgrade pip
-          pip install --upgrade setuptools wheel
-
-      - name: Install build tools
-        run: |
-          pip install build twine
+          enable-cache: true
 
       - name: Check Python package versions
         run: |
-          python scripts/check_package_versions.py
+          uv run --no-project --python "${{ matrix.python-version }}" python scripts/check_package_versions.py
 
       - name: Clean previous builds
         run: |
@@ -99,11 +90,11 @@ jobs:
 
       - name: Build package
         run: |
-          python -m build
+          uv build --python "${{ matrix.python-version }}"
 
       - name: Check package
         run: |
-          python -m twine check dist/*
+          uv run --no-project --python "${{ matrix.python-version }}" --with twine python -m twine check dist/*
 
       - name: Clean previous MCP wrapper builds
         run: |
@@ -112,13 +103,11 @@ jobs:
 
       - name: Build MCP wrapper package
         run: |
-          cd packages/powermem-mcp
-          python -m build
+          uv build --python "${{ matrix.python-version }}" --out-dir packages/powermem-mcp/dist packages/powermem-mcp
 
       - name: Check MCP wrapper package
         run: |
-          cd packages/powermem-mcp
-          python -m twine check dist/*
+          uv run --no-project --python "${{ matrix.python-version }}" --with twine python -m twine check packages/powermem-mcp/dist/*
 
       - name: List built files
         run: |
@@ -181,6 +170,12 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
       - name: Package Claude Code plugin
         run: bash apps/claude-code-plugin/scripts/package-plugin.sh
 
@@ -230,7 +225,7 @@ jobs:
             powermem-binaries-centos7 \
             -lc '
               set -eux
-              /opt/miniconda3/envs/powermem/bin/python scripts/smoke_binary_package.py \
+              uv run --no-project --python /opt/miniconda3/envs/powermem/bin/python python scripts/smoke_binary_package.py \
                 --dist /powermem/dist-binaries \
                 --target-os linux \
                 --target-arch amd64
@@ -274,17 +269,14 @@ jobs:
           - runner: macos-15-intel
             binary-os: macos
             binary-arch: amd64
-            python-architecture: x64
             archive-format: tar.gz
           - runner: macos-15
             binary-os: macos
             binary-arch: aarch64
-            python-architecture: arm64
             archive-format: tar.gz
           - runner: windows-2022
             binary-os: windows
             binary-arch: amd64
-            python-architecture: x64
             archive-format: zip
 
     steps:
@@ -303,19 +295,16 @@ jobs:
           mkdir -p src/server/dashboard
           cp -r dashboard-dist/* src/server/dashboard/
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           python-version: "3.11"
-          architecture: ${{ matrix.python-architecture }}
-          cache: "pip"
+          enable-cache: true
 
-      - name: Install binary build dependencies
+      - name: Check Python package versions
         shell: bash
         run: |
-          python -m pip install --upgrade pip "setuptools<81" wheel
-          python -m pip install ".[cli,server,mcp,seekdb]" pyinstaller
-          python scripts/check_package_versions.py
+          uv run --no-project --python "3.11" python scripts/check_package_versions.py
 
       - name: Build native binary package
         shell: bash
@@ -323,12 +312,12 @@ jobs:
           POWERMEM_BINARY_OS: ${{ matrix.binary-os }}
           POWERMEM_BINARY_ARCH: ${{ matrix.binary-arch }}
           POWERMEM_BINARY_FORMAT: ${{ matrix.archive-format }}
-        run: bash scripts/build_binary_package.sh
+        run: UV_PYTHON=3.11 bash scripts/build_binary_package.sh
 
       - name: Verify native binary package
         shell: bash
         run: |
-          python scripts/smoke_binary_package.py \
+          uv run --no-project --python "3.11" python scripts/smoke_binary_package.py \
             --dist dist-binaries \
             --target-os "${{ matrix.binary-os }}" \
             --target-arch "${{ matrix.binary-arch }}"

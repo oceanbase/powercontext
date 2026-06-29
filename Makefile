@@ -1,6 +1,14 @@
 .PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow test-claude-hook-docker check-python-version lint lint-full lint-pylint format clean build build-package build-check build-mcp-package build-mcp-check build-all-python-packages build-dashboard build-claude-hook package-claude-plugin publish-pypi publish-mcp-pypi publish-all-pypi publish-testpypi install-build-tools upload docs bump-version check-package-versions server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
 
-PYTHON ?= python3
+UV ?= uv
+UV_PYTHON ?= 3.11
+UV_RUN = $(UV) run --no-project --python $(UV_PYTHON)
+UV_DEV = $(UV_RUN) --with-editable ".[dev]"
+UV_TEST = $(UV_RUN) --with-editable ".[dev,test,server]"
+UV_SERVER = $(UV_RUN) --with-editable ".[server,seekdb]"
+UV_TWINE = $(UV_RUN) --with twine python -m twine
+PYTHON = $(UV_RUN) python
+VENV_PYTHON = .venv/bin/python
 
 help: ## Show help information
 	@echo "powermem Project Build Tools"
@@ -9,56 +17,59 @@ help: ## Show help information
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install project dependencies
-	pip install -e .
+	$(UV) venv --python $(UV_PYTHON)
+	$(UV) pip install --python $(VENV_PYTHON) -e .
 
 install-dev: ## Install development dependencies
-	pip install -e ".[dev]"
+	$(UV) venv --python $(UV_PYTHON)
+	$(UV) pip install --python $(VENV_PYTHON) -e ".[dev]"
 
 install-test: ## Install test dependencies
-	pip install -e ".[dev,test,llm,vector_stores]"
+	$(UV) venv --python $(UV_PYTHON)
+	$(UV) pip install --python $(VENV_PYTHON) -e ".[dev,test,server,seekdb]"
 
 # Test commands
 test: ## Run all tests (excludes all e2e tests)
-	pytest -m "not e2e and not e2e_config"
+	$(UV_TEST) pytest -m "not e2e and not e2e_config"
 
 test-unit: ## Run unit tests only
-	pytest tests/unit/ -v
+	$(UV_TEST) pytest tests/unit/ -v
 
 test-integration: ## Run integration tests only
-	pytest tests/integration/ -v
+	$(UV_TEST) pytest tests/integration/ -v
 
 test-e2e: ## Run end-to-end tests only
-	pytest tests/e2e/ -v -m "e2e and not e2e_config"
+	$(UV_TEST) pytest tests/e2e/ -v -m "e2e and not e2e_config"
 
 test-e2e-config: ## Run end-to-end tests with real configuration (requires config files)
-	pytest tests/e2e/ -v -m e2e_config
+	$(UV_TEST) pytest tests/e2e/ -v -m e2e_config
 
 test-fast: ## Run fast tests (exclude slow markers)
-	pytest -m "not slow" -v
+	$(UV_TEST) pytest -m "not slow" -v
 
 test-slow: ## Run slow tests only
-	pytest -m "slow" -v
+	$(UV_TEST) pytest -m "slow" -v
 
 test-coverage: ## Run tests with coverage report
-	pytest --cov=src/powermem --cov-report=html --cov-report=term-missing --cov-report=xml -v
+	$(UV_TEST) pytest --cov=src/powermem --cov-report=html --cov-report=term-missing --cov-report=xml -v
 
 test-coverage-unit: ## Run unit tests with coverage
-	pytest tests/unit/ --cov=src/powermem --cov-report=html --cov-report=term-missing -v
+	$(UV_TEST) pytest tests/unit/ --cov=src/powermem --cov-report=html --cov-report=term-missing -v
 
 test-coverage-integration: ## Run integration tests with coverage
-	pytest tests/integration/ --cov=src/powermem --cov-report=html --cov-report=term-missing -v
+	$(UV_TEST) pytest tests/integration/ --cov=src/powermem --cov-report=html --cov-report=term-missing -v
 
 test-watch: ## Run tests in watch mode (requires pytest-watch)
-	ptw tests/ -- -v
+	$(UV_TEST) --with pytest-watch ptw tests/ -- -v
 
 test-verbose: ## Run tests with verbose output
-	pytest -vv
+	$(UV_TEST) pytest -vv
 
 test-specific: ## Run specific test file (usage: make test-specific FILE=tests/unit/test_memory.py)
-	pytest $(FILE) -v
+	$(UV_TEST) pytest $(FILE) -v
 
 test-marker: ## Run tests with specific marker (usage: make test-marker MARKER=unit)
-	pytest -m $(MARKER) -v
+	$(UV_TEST) pytest -m $(MARKER) -v
 
 CLAUDE_HOOK_REGRESSION_IMAGE ?= powermem-claude-hook-regression:local
 
@@ -80,24 +91,24 @@ check-python-version: ## Check Python version compatibility
 	@$(PYTHON) -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else "Python >= 3.11 is required; set PYTHON to a compatible interpreter.")'
 
 lint: check-python-version ## Run high-signal linting checks
-	$(PYTHON) -m flake8 src tests --select=F601,F821,E999
+	$(UV_DEV) python -m flake8 src tests --select=F601,F821,E999
 
 lint-full: check-python-version ## Run full flake8 report
-	$(PYTHON) -m flake8 src tests
+	$(UV_DEV) python -m flake8 src tests
 
 lint-pylint: check-python-version ## Run optional pylint checks
-	$(PYTHON) -m pylint src/powermem || true
+	$(UV_DEV) --with pylint python -m pylint src/powermem || true
 
 format-check: ## Check code formatting
-	black --check src tests
-	isort --check-only src tests
+	$(UV_DEV) black --check src tests
+	$(UV_DEV) isort --check-only src tests
 
 format: ## Format code
-	black src tests
-	isort src tests
+	$(UV_DEV) black src tests
+	$(UV_DEV) isort src tests
 
 type-check: ## Run type checking with mypy
-	mypy src/powermem
+	$(UV_DEV) mypy src/powermem
 
 # Cleanup
 clean: ## Clean build files
@@ -124,17 +135,17 @@ build: ## Build package (legacy, use build-package)
 	$(MAKE) build-package
 
 check-package-versions: ## Verify powermem and powermem-mcp versions are aligned
-	python3 scripts/check_package_versions.py
+	$(PYTHON) scripts/check_package_versions.py
 
 build-package: clean check-package-versions ## Build distribution packages (wheel and sdist)
 	@echo "Building distribution packages..."
-	python -m build
+	$(UV) build --python $(UV_PYTHON)
 	@echo "Build complete! Distribution files are in dist/"
 	@ls -lh dist/
 
 build-check: build-package ## Check the built package
 	@echo "Checking built package..."
-	python -m twine check dist/*
+	$(UV_TWINE) check dist/*
 	@echo "Package check passed!"
 
 build-mcp-package: check-package-versions ## Build powermem-mcp wrapper package
@@ -143,13 +154,13 @@ build-mcp-package: check-package-versions ## Build powermem-mcp wrapper package
 	rm -rf packages/powermem-mcp/build/
 	rm -rf packages/powermem-mcp/*.egg-info/
 	rm -rf packages/powermem-mcp/src/*.egg-info/
-	cd packages/powermem-mcp && python -m build
+	$(UV) build --python $(UV_PYTHON) --out-dir packages/powermem-mcp/dist packages/powermem-mcp
 	@echo "Build complete! Distribution files are in packages/powermem-mcp/dist/"
 	@ls -lh packages/powermem-mcp/dist/
 
 build-mcp-check: build-mcp-package ## Check the powermem-mcp wrapper package
 	@echo "Checking powermem-mcp wrapper package..."
-	cd packages/powermem-mcp && python -m twine check dist/*
+	$(UV_TWINE) check packages/powermem-mcp/dist/*
 	@echo "powermem-mcp package check passed!"
 
 build-all-python-packages: build-check build-mcp-check ## Build and check powermem plus powermem-mcp
@@ -175,7 +186,7 @@ package-claude-plugin: ## Zip Claude Code plugin for sharing (apps/claude-code-p
 
 install-build-tools: ## Install build and upload tools
 	@echo "Installing build tools..."
-	pip install --upgrade build twine
+	$(UV) tool install twine
 	@echo "Build tools installed!"
 
 # PyPI Publishing
@@ -191,7 +202,7 @@ publish-pypi: build-check ## Publish to PyPI (requires credentials)
 		echo "Upload cancelled."; \
 		exit 1; \
 	fi
-	python -m twine upload dist/*
+	$(UV_TWINE) upload dist/*
 	@echo "Upload complete!"
 	@echo "Package available at: https://pypi.org/project/powermem/"
 
@@ -204,7 +215,7 @@ publish-mcp-pypi: build-mcp-check ## Publish powermem-mcp to PyPI (requires cred
 		echo "Upload cancelled."; \
 		exit 1; \
 	fi
-	cd packages/powermem-mcp && python -m twine upload dist/*
+	$(UV_TWINE) upload packages/powermem-mcp/dist/*
 	@echo "Upload complete!"
 	@echo "Package available at: https://pypi.org/project/powermem-mcp/"
 
@@ -218,22 +229,23 @@ publish-testpypi: build-check ## Publish to TestPyPI (for testing)
 		echo "Upload cancelled."; \
 		exit 1; \
 	fi
-	python -m twine upload --repository testpypi dist/*
+	$(UV_TWINE) upload --repository testpypi dist/*
 	@echo "Upload complete!"
 	@echo "Package available at: https://test.pypi.org/project/powermem/"
 
 install-local: build-package ## Install package locally from dist/
 	@echo "Installing package locally..."
-	pip install --force-reinstall dist/powermem-*.whl
+	$(UV) venv --python $(UV_PYTHON)
+	$(UV) pip install --python $(VENV_PYTHON) --force-reinstall dist/powermem-*.whl
 	@echo "Package installed locally!"
 
 # Benchmark and performance
 benchmark: ## Run performance tests
-	python scripts/benchmark.py
+	$(PYTHON) scripts/benchmark.py
 
 # Setup
 setup-env: ## Setup development environment
-	python scripts/setup.py
+	$(PYTHON) scripts/setup.py
 
 # Version management
 # macOS BSD sed: -i requires a backup extension; use '' for in-place without backup.
@@ -303,7 +315,7 @@ server-start: ## Start the PowerMem API server
 		echo "Port $(SERVER_PORT) is not available for binding"; \
 		exit 1; \
 	fi; \
-	powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --workers $(SERVER_WORKERS) $(SERVER_BROWSER_ARGS) >> server.log 2>&1 & \
+		$(UV_SERVER) powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --workers $(SERVER_WORKERS) $(SERVER_BROWSER_ARGS) >> server.log 2>&1 & \
 	PID=$$!; \
 	echo $$PID > $(SERVER_PID_FILE); \
 	sleep 1; \
@@ -336,7 +348,7 @@ server-start-reload: ## Start the PowerMem API server with auto-reload (developm
 		echo "Port $(SERVER_PORT) is not available for binding"; \
 		exit 1; \
 	fi; \
-	powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --reload $(SERVER_BROWSER_ARGS) >> server.log 2>&1 & \
+		$(UV_SERVER) powermem-server --host $(SERVER_HOST) --port $(SERVER_PORT) --reload $(SERVER_BROWSER_ARGS) >> server.log 2>&1 & \
 	PID=$$!; \
 	echo $$PID > $(SERVER_PID_FILE); \
 	sleep 1; \
@@ -474,7 +486,7 @@ docker-build: ## Build Docker image
 	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) -f docker/Dockerfile .
 	@echo "✓ Docker image built successfully"
 
-docker-build-mirror: ## Build Docker image with pip mirror source (usage: make docker-build-mirror MIRROR=tsinghua)
+docker-build-mirror: ## Build Docker image with Python package mirror source (usage: make docker-build-mirror MIRROR=tsinghua)
 	@if [ -z "$(MIRROR)" ]; then \
 		echo "Error: MIRROR is required. Usage: make docker-build-mirror MIRROR=tsinghua"; \
 		echo "Available mirrors: tsinghua, aliyun"; \

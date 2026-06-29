@@ -58,6 +58,17 @@ def test_release_binary_builder_accepts_platform_and_arch_targets() -> None:
     assert ".sha256" in builder
 
 
+def test_release_binary_zip_packaging_keeps_uv_in_project_root() -> None:
+    builder = (ROOT / "scripts" / "build_binary_package.sh").read_text()
+
+    assert '( cd "${DIST}" && "${PYTHON_CMD[@]}" -m zipfile' not in builder
+    assert (
+        'zipfile.ZipFile(archive_file, "w", compression=zipfile.ZIP_DEFLATED)'
+        in builder
+    )
+    assert "path.relative_to(package_dir).as_posix()" in builder
+
+
 def test_release_binary_matrix_includes_supported_macos_and_windows_arches() -> None:
     workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text()
 
@@ -68,14 +79,37 @@ def test_release_binary_matrix_includes_supported_macos_and_windows_arches() -> 
     assert "windows-11-arm" not in workflow
     assert "binary-arch: amd64" in workflow
     assert "binary-arch: aarch64" in workflow
-    assert 'python -m pip install --upgrade pip "setuptools<81" wheel' in workflow
-    assert 'python -m pip install ".[cli,server,mcp,seekdb]" pyinstaller' in workflow
+    assert (
+        "uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0"
+        in workflow
+    )
+    assert (
+        'uv run --no-project --python "3.11" python scripts/check_package_versions.py'
+        in workflow
+    )
+    assert "run: UV_PYTHON=3.11 bash scripts/build_binary_package.sh" in workflow
+    assert (
+        'uv run --no-project --python "3.11" python scripts/smoke_binary_package.py'
+        in workflow
+    )
 
 
 def test_linux_binary_dockerfile_pins_pyinstaller_setuptools_runtime_api() -> None:
     dockerfile = (ROOT / "docker" / "Dockerfile.binaries-centos7").read_text()
+    builder = (ROOT / "scripts" / "build_binary_package.sh").read_text()
 
-    assert 'python -m pip install --upgrade pip "setuptools<81" wheel' in dockerfile
+    assert "env UV_INSTALL_DIR=/usr/local/bin sh /tmp/uv-install.sh" in dockerfile
+    assert (
+        "uv run --no-project --python /opt/miniconda3/envs/powermem/bin/python"
+        in dockerfile
+    )
+    assert (
+        "UV_PYTHON=/opt/miniconda3/envs/powermem/bin/python bash scripts/build_linux_binaries.sh"
+        in dockerfile
+    )
+    assert "--with pyinstaller" in builder
+    assert '--with "setuptools<81"' in builder
+    assert "--with wheel" in builder
 
 
 def test_release_uploads_arch_named_binary_assets() -> None:

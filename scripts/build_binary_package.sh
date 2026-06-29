@@ -3,7 +3,24 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON="${PYTHON:-python}"
+UV="${UV:-uv}"
+UV_PYTHON="${UV_PYTHON:-3.11}"
+UV_BUILD_WITH="${UV_BUILD_WITH:-.[cli,server,seekdb]}"
+
+if [[ -n "${PYTHON:-}" ]]; then
+  PYTHON_CMD=("${PYTHON}")
+else
+  PYTHON_CMD=(
+    "${UV}" run
+    --no-project
+    --python "${UV_PYTHON}"
+    --with-editable "${UV_BUILD_WITH}"
+    --with pyinstaller
+    --with "setuptools<81"
+    --with wheel
+    python
+  )
+fi
 
 detect_os() {
   case "$(uname -s)" in
@@ -44,7 +61,7 @@ fi
 
 cd "${ROOT}"
 
-VERSION="$("${PYTHON}" - <<'PY'
+VERSION="$("${PYTHON_CMD[@]}" - <<'PY'
 import tomllib
 with open("pyproject.toml", "rb") as f:
     print(tomllib.load(f)["project"]["version"])
@@ -99,7 +116,7 @@ build_binary() {
   local output="${BIN_DIR}/${name}${EXE_SUFFIX}"
 
   echo "Building ${name} for ${TARGET_OS}-${TARGET_ARCH}"
-  "${PYTHON}" -m PyInstaller "${COMMON_OPTS[@]}" --name "${name}" "${entrypoint}"
+  "${PYTHON_CMD[@]}" -m PyInstaller "${COMMON_OPTS[@]}" --name "${name}" "${entrypoint}"
   chmod +x "${output}" 2>/dev/null || true
 
   if command -v file >/dev/null 2>&1; then
@@ -145,7 +162,25 @@ case "${ARCHIVE_FORMAT}" in
     ;;
   zip)
     ARCHIVE_FILE="${DIST}/${PACKAGE_BASENAME}-binaries.zip"
-    ( cd "${DIST}" && "${PYTHON}" -m zipfile -c "${PACKAGE_BASENAME}-binaries.zip" "${PACKAGE_BASENAME}" )
+    "${PYTHON_CMD[@]}" - "${ARCHIVE_FILE}" "${PACKAGE_DIR}" "${PACKAGE_BASENAME}" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+archive_file = pathlib.Path(sys.argv[1])
+package_dir = pathlib.Path(sys.argv[2])
+package_basename = sys.argv[3]
+
+with zipfile.ZipFile(archive_file, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    for path in sorted(package_dir.rglob("*")):
+        if path.is_file():
+            archive.write(
+                path,
+                pathlib.PurePosixPath(
+                    package_basename, path.relative_to(package_dir).as_posix()
+                ),
+            )
+PY
     ;;
   *)
     echo "error: unsupported POWERMEM_BINARY_FORMAT=${ARCHIVE_FORMAT}" >&2
@@ -153,7 +188,7 @@ case "${ARCHIVE_FORMAT}" in
     ;;
 esac
 
-"${PYTHON}" - "${ARCHIVE_FILE}" > "${ARCHIVE_FILE}.sha256" <<'PY'
+"${PYTHON_CMD[@]}" - "${ARCHIVE_FILE}" > "${ARCHIVE_FILE}.sha256" <<'PY'
 import hashlib
 import pathlib
 import sys
