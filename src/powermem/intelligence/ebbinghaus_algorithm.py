@@ -17,21 +17,22 @@ class EbbinghausAlgorithm:
     """
     Implements Ebbinghaus forgetting curve algorithm for memory management.
     """
+
     DEFAULT_DECAY_RATE_MULTIPLIERS = {
         "working": 1,
         "short_term": 7,
         "long_term": 60,
     }
-    
+
     def __init__(self, config: Dict[str, Any]):
         """
         Initialize Ebbinghaus algorithm.
-        
+
         Args:
             config: Algorithm configuration
         """
         self.config = config
-        
+
         # Ebbinghaus curve parameters
         self.initial_retention = config.get("initial_retention", 1.0)
         self.decay_rate = config.get("decay_rate", 1.5)
@@ -39,52 +40,54 @@ class EbbinghausAlgorithm:
             config.get("decay_rate_multipliers")
         )
         self.reinforcement_factor = config.get("reinforcement_factor", 0.3)
-        
+
         # Memory type thresholds
         self.working_threshold = config.get("working_threshold", 0.3)
         self.short_term_threshold = config.get("short_term_threshold", 0.6)
         self.long_term_threshold = config.get("long_term_threshold", 0.8)
-        
+
         # Time intervals (in hours)
         self.review_intervals = config.get("review_intervals", [1, 6, 24, 72, 168])
         # Review schedule: higher importance -> shorter intervals (shared by persist + query)
         self.review_adjustment_factor = config.get("review_adjustment_factor", 0.3)
         self.review_interval_min_hours = config.get("review_interval_min_hours", 0.5)
-        
+
         logger.info("EbbinghausAlgorithm initialized")
-    
+
     def process_memory_metadata(
-        self,
-        content: str,
-        importance_score: float,
-        memory_type: str
+        self, content: str, importance_score: float, memory_type: str
     ) -> Dict[str, Any]:
         """
         Process memory using Ebbinghaus algorithm and return metadata.
-        
+
         Args:
             content: Memory content
             importance_score: Importance score
             memory_type: Type of memory
-            
+
         Returns:
             Dictionary containing intelligence metadata
         """
         try:
             current_time = get_current_datetime()
-            
-            # Calculate initial retention based on importance
-            initial_retention = self.initial_retention * importance_score
-            
+
+            initial_retention = self._calculate_initial_retention(importance_score)
+
             # Calculate decay rate based on memory type
             decay_rate = self._get_decay_rate_for_type(memory_type)
-            
+
             # Generate review schedule
-            review_schedule = self._generate_review_schedule(importance_score, current_time)
-            
+            review_schedule = self._generate_review_schedule(
+                importance_score, current_time
+            )
+
             # Calculate next review time
-            next_review = review_schedule[0] if review_schedule else current_time + timedelta(hours=1)
-            
+            next_review = (
+                review_schedule[0]
+                if review_schedule
+                else current_time + timedelta(hours=1)
+            )
+
             intelligence_metadata = {
                 # Ebbinghaus algorithm data
                 "intelligence": {
@@ -111,21 +114,23 @@ class EbbinghausAlgorithm:
                 "created_at": current_time.isoformat(),
                 "updated_at": current_time.isoformat(),
             }
-            
-            logger.debug(f"Generated intelligence metadata for type: {memory_type}, importance: {importance_score}")
-            
+
+            logger.debug(
+                f"Generated intelligence metadata for type: {memory_type}, importance: {importance_score}"
+            )
+
             return intelligence_metadata
-            
+
         except Exception as e:
             logger.error(f"Failed to process memory metadata: {e}")
             return {
                 "intelligence": {
                     "importance_score": importance_score,
                     "memory_type": memory_type,
-                    "error": str(e)
+                    "error": str(e),
                 }
             }
-    
+
     def calculate_decay(
         self,
         created_at,
@@ -133,11 +138,11 @@ class EbbinghausAlgorithm:
     ) -> float:
         """
         Calculate decay factor based on time elapsed.
-        
+
         Args:
             created_at: When the memory was created (datetime object or ISO string)
             decay_rate: Per-memory strength parameter. Larger values decay slower.
-            
+
         Returns:
             Decay factor between 0 and 1
         """
@@ -145,75 +150,73 @@ class EbbinghausAlgorithm:
             # Handle both datetime objects and ISO string formats
             if isinstance(created_at, str):
                 if created_at:
-                    created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    created_at = datetime.fromisoformat(
+                        created_at.replace("Z", "+00:00")
+                    )
                 else:
                     # If empty string, use current time
                     created_at = get_current_datetime()
             elif created_at is None:
                 # If None, use current time
                 created_at = get_current_datetime()
-            
+
             time_elapsed = get_current_datetime() - created_at
             hours_elapsed = time_elapsed.total_seconds() / 3600
-            
+
             rate = self.decay_rate if decay_rate is None else decay_rate
             if rate <= 0:
                 logger.warning("Invalid decay_rate %s, falling back to default", rate)
                 rate = self.decay_rate
-            
+
             # Ebbinghaus forgetting curve: R = e^(-t/S)
             # where R is retention, t is time, S is strength.
             decay_factor = math.exp(-hours_elapsed / (24 * rate))
-            
+
             return max(decay_factor, 0.0)
-            
+
         except Exception as e:
             logger.error(f"Failed to calculate decay: {e}")
             return 0.5
-    
+
     def calculate_relevance(self, memory: Dict[str, Any], query: str) -> float:
         """
         Calculate relevance score for a memory given a query.
-        
+
         Args:
             memory: Memory data
             query: Search query
-            
+
         Returns:
             Relevance score between 0 and 1
         """
         try:
-            content = (
-                memory.get("content")
-                or memory.get("memory")
-                or ""
-            ).lower()
+            content = (memory.get("content") or memory.get("memory") or "").lower()
             query_lower = query.lower()
-            
+
             # Simple keyword matching
             query_words = query_lower.split()
             content_words = content.split()
-            
+
             matches = 0
             for word in query_words:
                 if word in content_words:
                     matches += 1
-            
+
             relevance_score = matches / len(query_words) if query_words else 0.0
-            
+
             return min(relevance_score, 1.0)
-            
+
         except Exception as e:
             logger.error(f"Failed to calculate relevance: {e}")
             return 0.0
-    
+
     def should_promote(self, memory: Dict[str, Any]) -> bool:
         """
         Determine if a memory should be promoted to a higher tier.
-        
+
         Args:
             memory: Memory data
-            
+
         Returns:
             True if memory should be promoted
         """
@@ -222,35 +225,37 @@ class EbbinghausAlgorithm:
             access_count = memory.get("access_count", 0)
             if access_count >= 3:
                 return True
-            
+
             # Check recency — only promote if the memory has been accessed at
             # least once, so that old never-accessed memories can still be forgotten.
             created_at = memory.get("created_at")
             if created_at and access_count > 0:
                 if isinstance(created_at, str):
-                    created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    created_at = datetime.fromisoformat(
+                        created_at.replace("Z", "+00:00")
+                    )
                 time_elapsed = get_current_datetime() - created_at
                 if time_elapsed > timedelta(hours=24):
                     return True
-            
+
             # Check importance
             importance = memory.get("importance_score", 0.5)
             if importance >= self.short_term_threshold:
                 return True
-            
+
             return False
-            
+
         except Exception as e:
             logger.error(f"Failed to check promotion: {e}")
             return False
-    
+
     def should_forget(self, memory: Dict[str, Any]) -> bool:
         """
         Determine if a memory should be forgotten.
-        
+
         Args:
             memory: Memory data
-            
+
         Returns:
             True if memory should be forgotten
         """
@@ -258,18 +263,18 @@ class EbbinghausAlgorithm:
             if self.calculate_current_retention(memory) < self.working_threshold:
                 return True
             return False
-            
+
         except Exception as e:
             logger.error(f"Failed to check forgetting: {e}")
             return False
-    
+
     def should_archive(self, memory: Dict[str, Any]) -> bool:
         """
         Determine if a memory should be archived.
-        
+
         Args:
             memory: Memory data
-            
+
         Returns:
             True if memory should be archived
         """
@@ -279,22 +284,24 @@ class EbbinghausAlgorithm:
             if created_at:
                 # Parse string to datetime if needed
                 if isinstance(created_at, str):
-                    created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    created_at = datetime.fromisoformat(
+                        created_at.replace("Z", "+00:00")
+                    )
                 time_elapsed = get_current_datetime() - created_at
                 if time_elapsed > timedelta(days=30):
                     return True
-            
+
             # Check importance
             importance = memory.get("importance_score", 0.5)
             if importance < self.working_threshold:
                 return True
-            
+
             return False
-            
+
         except Exception as e:
             logger.error(f"Failed to check archiving: {e}")
             return False
-    
+
     def reinforce(self, memory: Dict[str, Any]) -> Dict[str, Any]:
         """Boost current_retention on review and advance the review schedule.
 
@@ -383,7 +390,7 @@ class EbbinghausAlgorithm:
         except Exception as e:
             logger.error(f"Failed to get review schedule: {e}")
             return []
-    
+
     def _load_decay_rate_multipliers(
         self, raw: Optional[Dict[str, Any]]
     ) -> Dict[str, float]:
@@ -394,16 +401,16 @@ class EbbinghausAlgorithm:
                 try:
                     multiplier = float(value)
                 except (TypeError, ValueError):
-                    logger.warning("Invalid decay multiplier for %s: %s", memory_type, value)
+                    logger.warning(
+                        "Invalid decay multiplier for %s: %s", memory_type, value
+                    )
                     continue
                 if multiplier > 0:
                     multipliers[memory_type] = multiplier
         self._validate_decay_rate_multipliers(multipliers)
         return multipliers
 
-    def _validate_decay_rate_multipliers(
-        self, multipliers: Dict[str, float]
-    ) -> None:
+    def _validate_decay_rate_multipliers(self, multipliers: Dict[str, float]) -> None:
         """Warn when default tier ordering would not make higher tiers last longer."""
         working = multipliers.get("working", self.decay_rate)
         short_term = multipliers.get("short_term", self.decay_rate)
@@ -413,7 +420,7 @@ class EbbinghausAlgorithm:
                 "decay_rate_multipliers should satisfy "
                 "working < short_term < long_term"
             )
-    
+
     def _get_decay_rate_for_type(self, memory_type: str) -> float:
         """Get decay strength S based on memory type; larger S decays slower."""
         multiplier = self.decay_rate_multipliers.get(memory_type)
@@ -454,11 +461,7 @@ class EbbinghausAlgorithm:
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Return metadata and intelligence sections from supported layouts."""
         meta = memory.get("metadata") or {}
-        intelligence = (
-            meta.get("intelligence")
-            or memory.get("intelligence")
-            or {}
-        )
+        intelligence = meta.get("intelligence") or memory.get("intelligence") or {}
         return meta, intelligence
 
     @staticmethod
@@ -469,9 +472,7 @@ class EbbinghausAlgorithm:
                 return value
         return None
 
-    def _apply_reinforcement(
-        self, memory: Dict[str, Any], base_rate: float
-    ) -> float:
+    def _apply_reinforcement(self, memory: Dict[str, Any], base_rate: float) -> float:
         """Increase decay strength with diminishing returns on access frequency."""
         access_count = self._resolve_access_count(memory)
         reinforcement_factor = self._resolve_reinforcement_factor(memory)
@@ -526,9 +527,22 @@ class EbbinghausAlgorithm:
                     return val
         return self.initial_retention
 
-    def _resolve_current_retention(
-        self, memory: Dict[str, Any]
-    ) -> Optional[float]:
+    def _calculate_initial_retention(self, importance_score: float) -> float:
+        """Calculate bounded initial retention for newly persisted memories."""
+        try:
+            score = float(importance_score)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid importance_score for retention: %s", importance_score
+            )
+            score = 0.0
+
+        score = max(0.0, min(1.0, score))
+        max_retention = max(0.0, min(1.0, float(self.initial_retention)))
+        retention_floor = min(max_retention, max(0.0, min(1.0, self.working_threshold)))
+        return max(max_retention * score, retention_floor)
+
+    def _resolve_current_retention(self, memory: Dict[str, Any]) -> Optional[float]:
         """Resolve stored current_retention as a bounded snapshot value."""
         meta, intelligence = self._resolve_metadata_sections(memory)
         raw = self._first_present(
@@ -624,9 +638,7 @@ class EbbinghausAlgorithm:
     ) -> List[datetime]:
         """Build review datetimes from importance and anchor time."""
         intervals = self._adjust_review_intervals(importance_score)
-        return [
-            created_at + timedelta(hours=hours) for hours in intervals
-        ]
+        return [created_at + timedelta(hours=hours) for hours in intervals]
 
     def _generate_review_schedule(
         self, importance_score: float, created_at: datetime

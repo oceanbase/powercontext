@@ -33,6 +33,7 @@ def algo_low_retention():
 
 # ---- Test 1: should_forget considers initial_retention ----
 
+
 def test_should_forget_considers_initial_retention(algo):
     """High-importance memory should survive longer than low-importance at same age."""
     created_at = get_current_datetime() - timedelta(hours=30)
@@ -65,6 +66,7 @@ def test_should_forget_considers_initial_retention(algo):
 
 
 # ---- Test 2: reinforce boosts current_retention ----
+
 
 def test_reinforce_boosts_current_retention(algo):
     """reinforce() should increase current_retention with diminishing returns."""
@@ -114,6 +116,7 @@ def test_reinforce_never_exceeds_one(algo):
 
 # ---- Test 3: on_get triggers reinforcement when review is due ----
 
+
 def test_on_get_triggers_reinforcement_when_review_due():
     """When now >= next_review, on_get should boost current_retention."""
     config = {
@@ -146,7 +149,7 @@ def test_on_get_triggers_reinforcement_when_review_due():
                 "review_count": 0,
                 "next_review": past_review,
                 "review_schedule": [past_review, future_review],
-            }
+            },
         },
     }
 
@@ -161,6 +164,7 @@ def test_on_get_triggers_reinforcement_when_review_due():
 
 
 # ---- Test 4: on_get does NOT reinforce before review time ----
+
 
 def test_on_get_does_not_reinforce_before_review_due():
     """When now < next_review, current_retention should not change via reinforce."""
@@ -193,7 +197,7 @@ def test_on_get_does_not_reinforce_before_review_due():
                 "review_count": 0,
                 "next_review": future_review,
                 "review_schedule": [future_review],
-            }
+            },
         },
     }
 
@@ -207,6 +211,7 @@ def test_on_get_does_not_reinforce_before_review_due():
 
 
 # ---- Test 5: reprocessing preserves current_retention ----
+
 
 def test_reprocess_preserves_current_retention():
     """When access_count%5 triggers reprocessing, current_retention from
@@ -243,7 +248,7 @@ def test_reprocess_preserves_current_retention():
                 "last_reviewed": (now - timedelta(hours=1)).isoformat(),
                 "next_review": past_review,
                 "review_schedule": [past_review, future_review],
-            }
+            },
         },
     }
 
@@ -259,6 +264,7 @@ def test_reprocess_preserves_current_retention():
 
 
 # ---- Test 6: calculate_current_retention combines initial and decay ----
+
 
 def test_calculate_current_retention_combines_initial_and_decay(algo):
     """Without stored current_retention, should return initial_retention * decay_factor."""
@@ -408,9 +414,7 @@ def test_reinforce_uses_decayed_current_retention_before_boost(algo):
 
     result = algo.reinforce(memory)
 
-    assert result["current_retention"] == pytest.approx(
-        decayed + 0.3 * (1.0 - decayed)
-    )
+    assert result["current_retention"] == pytest.approx(decayed + 0.3 * (1.0 - decayed))
     assert result["current_retention"] < 0.8
 
 
@@ -429,9 +433,7 @@ def test_search_ranking_uses_effective_retention():
             "created_at": created_at,
             "memory_type": "working",
             "access_count": 0,
-            "metadata": {
-                "intelligence": {"initial_retention": 0.3}
-            },
+            "metadata": {"intelligence": {"initial_retention": 0.3}},
         },
         {
             "id": "high-init",
@@ -440,9 +442,7 @@ def test_search_ranking_uses_effective_retention():
             "created_at": created_at,
             "memory_type": "working",
             "access_count": 0,
-            "metadata": {
-                "intelligence": {"initial_retention": 0.95}
-            },
+            "metadata": {"intelligence": {"initial_retention": 0.95}},
         },
     ]
 
@@ -453,7 +453,61 @@ def test_search_ranking_uses_effective_retention():
     assert "effective_retention" in by_id["high-init"]
 
 
+def test_fresh_zero_importance_memory_keeps_search_relevance():
+    """A fresh relevant hit should not be zeroed out by importance_score=0."""
+    manager = IntelligentMemoryManager(
+        {"intelligent_memory": {"decay_rate": 1.5, "initial_retention": 1.0}}
+    )
+    algo = manager.ebbinghaus_algorithm
+    now = get_current_datetime()
+    relevant_meta = algo.process_memory_metadata(
+        "Zhang San is a software engineer",
+        importance_score=0.0,
+        memory_type="working",
+    )
+
+    results = [
+        {
+            "id": "relevant",
+            "content": "Zhang San is a software engineer",
+            "score": 0.62,
+            "created_at": now,
+            "memory_type": "working",
+            "access_count": 0,
+            "metadata": {
+                "memory_type": "working",
+                "intelligence": relevant_meta["intelligence"],
+            },
+        },
+        {
+            "id": "irrelevant",
+            "content": "Wang Wu likes running",
+            "score": 0.01,
+            "created_at": now,
+            "memory_type": "working",
+            "access_count": 0,
+            "metadata": {
+                "memory_type": "working",
+                "intelligence": {
+                    "initial_retention": 1.0,
+                    "current_retention": 1.0,
+                    "last_reviewed": now.isoformat(),
+                },
+            },
+        },
+    ]
+
+    processed = manager.process_search_results(results, "Zhang San occupation")
+
+    assert relevant_meta["intelligence"]["initial_retention"] == pytest.approx(
+        algo.working_threshold
+    )
+    assert processed[0]["id"] == "relevant"
+    assert processed[0]["final_score"] > 0
+
+
 # ---- Tests for review-reinforcement protecting against forgetting ----
+
 
 def test_should_forget_respects_stored_current_retention(algo):
     """Recent reinforced retention can protect a memory from forgetting."""
@@ -512,7 +566,7 @@ def test_on_get_reinforced_memory_not_forgotten_same_call():
                 "review_count": 0,
                 "next_review": past_review,
                 "review_schedule": [past_review, future_review],
-            }
+            },
         },
     }
 
@@ -570,9 +624,7 @@ def test_search_ranking_reflects_reinforced_current_retention():
             "created_at": created_at,
             "memory_type": "working",
             "access_count": 0,
-            "metadata": {
-                "intelligence": {"initial_retention": 0.3}
-            },
+            "metadata": {"intelligence": {"initial_retention": 0.3}},
         },
         {
             "id": "reinforced",
@@ -594,5 +646,8 @@ def test_search_ranking_reflects_reinforced_current_retention():
     processed = manager.process_search_results(results, "keyword")
     by_id = {item["id"]: item for item in processed}
 
-    assert by_id["reinforced"]["effective_retention"] > by_id["unreinforced"]["effective_retention"]
+    assert (
+        by_id["reinforced"]["effective_retention"]
+        > by_id["unreinforced"]["effective_retention"]
+    )
     assert processed[0]["id"] == "reinforced"
