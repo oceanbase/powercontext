@@ -147,8 +147,8 @@ def test_reinforced_memory_decays_slower_in_search_results():
     by_id = {item["id"]: item for item in processed}
 
     assert (
-        by_id["reinforced"]["decay_factor"]
-        > by_id["unreinforced"]["decay_factor"]
+        by_id["reinforced"]["effective_retention"]
+        > by_id["unreinforced"]["effective_retention"]
     )
     assert processed[0]["id"] == "reinforced"
 
@@ -216,7 +216,7 @@ def test_search_results_use_type_specific_decay_rate():
     processed = manager.process_search_results(results, "keyword")
     by_id = {item["id"]: item for item in processed}
 
-    assert by_id["working"]["decay_factor"] < by_id["long"]["decay_factor"]
+    assert by_id["working"]["effective_retention"] < by_id["long"]["effective_retention"]
     assert processed[0]["id"] == "long"
 
 
@@ -338,7 +338,7 @@ def test_search_results_do_not_demote_unmarked_memories():
 
     assert processed[0]["forgotten_score_multiplier"] == pytest.approx(1.0)
     assert processed[0]["final_score"] == pytest.approx(
-        0.85 * processed[0]["decay_factor"]
+        0.85 * processed[0]["effective_retention"]
     )
 
 
@@ -355,7 +355,7 @@ def test_search_results_use_storage_score_for_ranking():
 
     assert processed[0]["original_score"] == pytest.approx(0.92)
     assert processed[0]["final_score"] == pytest.approx(
-        0.92 * processed[0]["decay_factor"]
+        0.92 * processed[0]["effective_retention"]
     )
 
 

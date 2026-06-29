@@ -122,9 +122,8 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
         if not self.enabled or not self._algo:
             return None, False
         try:
-            # Normalize: intelligence fields may be stored inside the metadata
-            # JSON column and not exposed at the top level of the memory dict.
             meta = memory.get("metadata") or {}
+            intelligence = meta.get("intelligence") or memory.get("intelligence") or {}
             memory_type = memory.get("memory_type") or meta.get("memory_type")
             access_count_old = memory.get("access_count")
             if access_count_old is None:
@@ -136,20 +135,38 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
                 importance_score = 0.5
 
             new_access_count = access_count_old + 1
+            now = get_current_datetime()
             updates: Dict[str, Any] = {
                 "access_count": new_access_count,
-                "updated_at": get_current_datetime(),
+                "updated_at": now,
             }
-            # Track which fields need updating inside the metadata JSON column
             meta_updates: Dict[str, Any] = {"access_count": new_access_count}
+            intel_updates: Dict[str, Any] = {}
 
-            # Provide normalized values to algorithm checks
             normalized = {
                 **memory,
                 "memory_type": memory_type,
                 "access_count": access_count_old,
                 "importance_score": importance_score,
             }
+
+            # Review reinforcement: if the access happens at or after
+            # next_review, boost current_retention and advance the schedule.
+            next_review_raw = intelligence.get("next_review")
+            if next_review_raw:
+                next_review_dt = self._algo._parse_datetime(next_review_raw)
+                if now >= next_review_dt:
+                    reinforcement_result = self._algo.reinforce(normalized)
+                    intel_updates.update(reinforcement_result)
+
+            # Apply reinforcement to normalized so downstream should_forget()
+            # uses the boosted retention and its new timestamp anchor.
+            if intel_updates:
+                norm_intel = dict(normalized.get("metadata", {}).get("intelligence") or {})
+                norm_intel.update(intel_updates)
+                norm_meta = dict(normalized.get("metadata") or {})
+                norm_meta["intelligence"] = norm_intel
+                normalized = {**normalized, "metadata": norm_meta}
 
             # Check promotion first — an accessed memory that qualifies for
             # promotion should not be forgotten in the same on_get call.
@@ -164,8 +181,7 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
                     updates["memory_type"] = "long_term"
                     meta_updates["memory_type"] = "long_term"
 
-            # Clear forget marker on promotion — a promoted memory should
-            # no longer carry the 0.1x search penalty from a prior soft-forget.
+            # Clear forget marker on promotion
             if new_memory_type != memory_type:
                 meta_updates["should_forget"] = False
                 meta_updates["marked_for_forgetting_at"] = None
@@ -176,7 +192,6 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
             if new_memory_type == memory_type and self._algo.should_forget(normalized):
                 return None, True
 
-            # Check if memory should be archived
             if self._algo.should_archive(normalized):
                 meta_updates["archived"] = True
 
@@ -194,8 +209,26 @@ class EbbinghausIntelligencePlugin(IntelligentMemoryPlugin):
                     original_content, importance_score, new_memory_type or "working"
                 )
                 if "intelligence" in intelligence_metadata:
-                    updates["metadata"]["intelligence"] = intelligence_metadata["intelligence"]
-                updates["last_reprocessed_at"] = get_current_datetime()
+                    reprocessed_intel = intelligence_metadata["intelligence"]
+                    # Preserve current_retention and review progress from
+                    # reinforcement; reprocessing should only refresh
+                    # decay_rate and review_schedule, not reset retention.
+                    for keep_key in (
+                        "current_retention",
+                        "review_count",
+                        "last_reviewed",
+                        "next_review",
+                    ):
+                        if keep_key in intel_updates:
+                            reprocessed_intel[keep_key] = intel_updates[keep_key]
+                        elif keep_key in intelligence:
+                            reprocessed_intel[keep_key] = intelligence[keep_key]
+                    updates["metadata"]["intelligence"] = reprocessed_intel
+                updates["last_reprocessed_at"] = now
+            elif intel_updates:
+                existing_intel = dict(updates["metadata"].get("intelligence") or intelligence)
+                existing_intel.update(intel_updates)
+                updates["metadata"]["intelligence"] = existing_intel
 
             return updates, False
         except Exception as e:
