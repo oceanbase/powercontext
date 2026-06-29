@@ -144,9 +144,16 @@ Loopback is the script default; all-interface binding is an explicit opt-in.
 If the user picks **Remote**, make a **follow-up AskUserQuestion call** with
 3 questions in one round:
 - **header**: "Server URL" — question: "PowerMem server URL (e.g. http://host:port)（PowerMem 服务地址，例如 http://host:port）"
+  - The user will type their actual URL via "Other". Provide 2 distinct
+    protocol hints as options — do NOT give two duplicate placeholder URLs:
+    - "http://host:port (HTTP)" — Plain HTTP, internal/trusted network only.（明文 HTTP，仅限内网/可信网络。）
+    - "https://host:port (HTTPS)" — HTTPS, TLS-secured, recommended for cross-network.（HTTPS 加密，跨网络推荐。）
 - **header**: "API Key" — question: "API key for the remote server (optional, leave blank if none)（远程服务 API key，可选，没有则留空）"
+  - The user types the key via "Other" or picks the no-key option:
+    - "No API key (无 key)" — Server has auth disabled, or you'll connect via MCP which doesn't use this key.（服务端未开 auth，或走 MCP 不需要此 key。）
+    - "Enter key (输入 key)" — Type the key via "Other".（通过 Other 输入 key。）
 - **header**: "Connection" — question: "How should Claude Code connect?（Claude Code 应该如何连接？）"
-  - "Hook (REST) (Hook REST)" — Use REST API only. Disable if your server requires an API key you don't have.（仅用 REST API。若服务器需要 API key 而你没有，请改选 MCP。）
+  - "Hook (REST) (Hook REST)" — Use REST API only. Works if the server has auth disabled, or if you provided a valid API key above.（仅用 REST API。服务端未开 auth 或提供了有效 key 时可用。）
   - "MCP" — Use MCP streamable-http only. Hooks disabled.（仅用 MCP streamable-http，禁用 hook。）
   - "Both (两路并存)" — Enable both. If REST 401s at runtime, hooks fail silently; MCP keeps working.（同时启用。运行时若 REST 返回 401，hook 静默失败，MCP 继续工作。）
 

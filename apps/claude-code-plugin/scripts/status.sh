@@ -7,8 +7,10 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 
 # --- Discover connection configuration ---
 # Hook mode (REST):   runtime.env holds POWERMEM_BASE_URL (+ optional POWERMEM_API_KEY)
-# MCP mode (http):    $PLUGIN_ROOT/.mcp.json holds mcpServers.powermem.url
-# Both mode:          both files populated
+# MCP mode (http):    user-scope ~/.claude.json holds mcpServers.powermem.url
+#                     (written via `claude mcp add --scope user`, survives plugin
+#                     reinstalls; the plugin cache .mcp.json is volatile and unused)
+# Both mode:          both sources populated
 hook_url=""
 if [ -f "$RUNTIME_FILE" ]; then
   # shellcheck disable=SC1090
@@ -17,7 +19,7 @@ if [ -f "$RUNTIME_FILE" ]; then
 fi
 
 mcp_url=""
-mcp_file="$PLUGIN_ROOT/.mcp.json"
+mcp_file="${HOME:-}/.claude.json"
 if [ -f "$mcp_file" ]; then
   if BOOTSTRAP_PYTHON=$(choose_python 2>/dev/null); then
     mcp_url=$("$BOOTSTRAP_PYTHON" - "$mcp_file" <<'PY' 2>/dev/null || true

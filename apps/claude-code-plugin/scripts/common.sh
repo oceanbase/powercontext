@@ -314,13 +314,27 @@ write_runtime_base_url() {
 write_runtime_remote() {
   remote_url=$1
   remote_key=${2:-}
+  # Single-quote values so URLs / keys with shell metacharacters ($, ;, spaces,
+  # backticks, etc.) survive being sourced by run-hook.sh and status.sh.
+  # Embedded single quotes are escaped via the standard '\'' trick.
+  sq_url=$(printf '%s' "$remote_url" | sed "s/'/'\\\\''/g")
   tmp="$RUNTIME_FILE.tmp"
   {
-    printf 'POWERMEM_BASE_URL=%s\n' "$remote_url"
+    printf "POWERMEM_BASE_URL='%s'\n" "$sq_url"
     if [ -n "$remote_key" ]; then
-      printf 'POWERMEM_API_KEY=%s\n' "$remote_key"
+      sq_key=$(printf '%s' "$remote_key" | sed "s/'/'\\\\''/g")
+      printf "POWERMEM_API_KEY='%s'\n" "$sq_key"
     fi
   } > "$tmp"
+  mv "$tmp" "$RUNTIME_FILE"
+}
+
+# Write runtime.env for MCP-only mode: no base URL, hooks disabled.
+# Overwrites any stale POWERMEM_BASE_URL so run-hook.sh exits early instead
+# of hitting the previous remote/local URL that no longer applies.
+write_runtime_hook_disabled() {
+  tmp="$RUNTIME_FILE.tmp"
+  printf 'POWERMEM_HOOK_DISABLED=1\n' > "$tmp"
   mv "$tmp" "$RUNTIME_FILE"
 }
 
@@ -576,4 +590,3 @@ remove_user_mcp_config() {
   fi
   claude mcp remove powermem --scope user >/dev/null 2>&1 || true
 }
-

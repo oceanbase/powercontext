@@ -14,9 +14,10 @@ echo "Data dir: $DATA_DIR"
 # Skips .env creation, uvx launch, PID management.
 # Connection mode (POWERMEM_INIT_CONNECTION_MODE=hook|mcp|both, default both)
 # decides which files get written:
-#   hook → runtime.env only; remove powermem from user-level mcpServers
-#   mcp  → user-level mcpServers only (no runtime.env, hooks unconfigured)
-#   both → both
+#   hook → runtime.env with URL + key; remove powermem from user-level mcpServers
+#   mcp  → user-level mcpServers only; runtime.env gets POWERMEM_HOOK_DISABLED=1
+#          so the hook launcher exits early instead of falling back to a stale URL
+#   both → both sources populated, hook enabled
 # MCP config is written to the user-scope config (~/.claude.json top-level
 # mcpServers) so it survives plugin reinstalls and applies to all projects.
 remote_init_url="${POWERMEM_INIT_BASE_URL:-${POWERMEM_BASE_URL:-}}"
@@ -59,6 +60,13 @@ if [ -n "$remote_init_url" ] && is_remote_url "$remote_init_url"; then
       # hook-only mode. Other MCP servers are preserved.
       remove_user_mcp_config
       echo "Removed powermem from user-scope config (MCP disabled)"
+      ;;
+    mcp)
+      # Write a marker runtime.env so run-hook.sh exits early instead of
+      # falling back to a stale POWERMEM_BASE_URL. Without this, the hook
+      # binary would run with whatever URL was last configured.
+      write_runtime_hook_disabled
+      echo "Wrote $RUNTIME_FILE (hook disabled; MCP-only mode)"
       ;;
   esac
 
