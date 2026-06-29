@@ -228,7 +228,8 @@ jobs:
               uv run --no-project --python /opt/miniconda3/envs/powermem/bin/python python scripts/smoke_binary_package.py \
                 --dist /powermem/dist-binaries \
                 --target-os linux \
-                --target-arch amd64
+                --target-arch amd64 \
+                --require-individual-assets
             '
 
       - name: Copy Linux binaries out of image
@@ -239,14 +240,17 @@ jobs:
             -v "${GITHUB_WORKSPACE}/dist-binaries:/out" \
             --entrypoint /bin/bash \
             powermem-binaries-centos7 \
-            -c 'cp -av /powermem/dist-binaries/*.tar.gz /powermem/dist-binaries/*.sha256 /out/'
+            -c 'find /powermem/dist-binaries -maxdepth 1 -type f -print -exec cp -av {} /out/ \;'
 
       - name: Verify copied Linux binary artifacts
         run: |
           set -eux
           cd dist-binaries
-          sha256sum -c powermem-*-linux-amd64-binaries.tar.gz.sha256
-          ls -lh powermem-*-linux-amd64-binaries.tar.gz powermem-*-linux-amd64-binaries.tar.gz.sha256
+          sha256sum -c powermem-*-linux-amd64-*.sha256
+          ls -lh \
+            powermem-*-linux-amd64-binaries.tar.gz \
+            powermem-*-linux-amd64-binaries.tar.gz.sha256 \
+            powermem-*-linux-amd64-powermem*
 
       - name: Upload Linux amd64 binaries
         uses: actions/upload-artifact@v7
@@ -255,6 +259,7 @@ jobs:
           path: |
             dist-binaries/powermem-*-linux-amd64-binaries.tar.gz
             dist-binaries/powermem-*-linux-amd64-binaries.tar.gz.sha256
+            dist-binaries/powermem-*-linux-amd64-powermem*
           if-no-files-found: error
           retention-days: 30
 
@@ -320,7 +325,8 @@ jobs:
           uv run --no-project --python "3.11" python scripts/smoke_binary_package.py \
             --dist dist-binaries \
             --target-os "${{ matrix.binary-os }}" \
-            --target-arch "${{ matrix.binary-arch }}"
+            --target-arch "${{ matrix.binary-arch }}" \
+            --require-individual-assets
 
       - name: Upload native binaries
         uses: actions/upload-artifact@v7
@@ -328,6 +334,7 @@ jobs:
           name: powermem-${{ matrix.binary-os }}-${{ matrix.binary-arch }}-binaries
           path: |
             dist-binaries/powermem-*-${{ matrix.binary-os }}-${{ matrix.binary-arch }}-binaries.*
+            dist-binaries/powermem-*-${{ matrix.binary-os }}-${{ matrix.binary-arch }}-powermem*
           if-no-files-found: error
           retention-days: 30
 

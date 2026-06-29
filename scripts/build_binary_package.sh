@@ -188,7 +188,9 @@ PY
     ;;
 esac
 
-"${PYTHON_CMD[@]}" - "${ARCHIVE_FILE}" > "${ARCHIVE_FILE}.sha256" <<'PY'
+write_sha256() {
+  local path="$1"
+  "${PYTHON_CMD[@]}" - "${path}" > "${path}.sha256" <<'PY'
 import hashlib
 import pathlib
 import sys
@@ -196,6 +198,26 @@ import sys
 path = pathlib.Path(sys.argv[1])
 print(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
 PY
+}
+
+write_sha256 "${ARCHIVE_FILE}"
+
+SINGLE_BINARY_FILES=()
+
+publish_binary_asset() {
+  local binary_name="$1"
+  local source="${BIN_DIR}/${binary_name}${EXE_SUFFIX}"
+  local asset="${DIST}/${PACKAGE_BASENAME}-${binary_name}${EXE_SUFFIX}"
+
+  cp -av "${source}" "${asset}"
+  chmod +x "${asset}" 2>/dev/null || true
+  write_sha256 "${asset}"
+  SINGLE_BINARY_FILES+=("${asset}" "${asset}.sha256")
+}
+
+publish_binary_asset powermem
+publish_binary_asset powermem-server
+publish_binary_asset powermem-mcp
 
 echo "Built ${TARGET_OS}-${TARGET_ARCH} binaries:"
-ls -lh "${BIN_DIR}" "${ARCHIVE_FILE}" "${ARCHIVE_FILE}.sha256"
+ls -lh "${BIN_DIR}" "${ARCHIVE_FILE}" "${ARCHIVE_FILE}.sha256" "${SINGLE_BINARY_FILES[@]}"

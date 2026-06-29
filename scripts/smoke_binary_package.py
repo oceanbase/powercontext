@@ -48,15 +48,21 @@ def _strip_suffix(value: str, suffix: str) -> str:
     return value
 
 
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _verify_checksum(archive: Path) -> None:
     checksum_path = archive.with_name(f"{archive.name}.sha256")
     if not checksum_path.is_file():
         _fail(f"missing checksum file: {checksum_path.name}")
 
     expected = checksum_path.read_text(encoding="utf-8").split()[0]
-    actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+    actual = _sha256(archive)
     if actual != expected:
-        _fail(f"checksum mismatch for {archive.name}: expected {expected}, got {actual}")
+        _fail(
+            f"checksum mismatch for {archive.name}: expected {expected}, got {actual}"
+        )
 
 
 def _extract(archive: Path, target: Path) -> None:
@@ -116,8 +122,7 @@ def _run_checked(
 
     if result.returncode != 0:
         _fail(
-            f"{description} exited with status {result.returncode}\n"
-            f"{result.stdout}"
+            f"{description} exited with status {result.returncode}\n" f"{result.stdout}"
         )
     return result
 
@@ -178,7 +183,9 @@ def _smoke_server(server_binary: Path, port: int) -> None:
             }
         )
 
-        with server_output_path.open("w", encoding="utf-8", errors="replace") as server_output:
+        with server_output_path.open(
+            "w", encoding="utf-8", errors="replace"
+        ) as server_output:
             process = subprocess.Popen(
                 [
                     str(server_binary),
@@ -210,7 +217,9 @@ def _smoke_server(server_binary: Path, port: int) -> None:
                         )
                         break
                     try:
-                        health_body = _fetch(f"http://localhost:{port}/api/v1/system/health")
+                        health_body = _fetch(
+                            f"http://localhost:{port}/api/v1/system/health"
+                        )
                         dashboard_body = _fetch(f"http://localhost:{port}/dashboard/")
                         break
                     except urllib.error.HTTPError as exc:
@@ -232,9 +241,13 @@ def _smoke_server(server_binary: Path, port: int) -> None:
                     assert dashboard_body is not None
                     health = json.loads(health_body.decode("utf-8"))
                     if health.get("success") is not True:
-                        failure = f"health response did not report success=true: {health}"
+                        failure = (
+                            f"health response did not report success=true: {health}"
+                        )
                     elif health.get("data", {}).get("status") != "healthy":
-                        failure = f"health response did not report status=healthy: {health}"
+                        failure = (
+                            f"health response did not report status=healthy: {health}"
+                        )
                     elif not dashboard_body.strip():
                         failure = "dashboard response body is empty"
             finally:
@@ -264,12 +277,34 @@ def _smoke_mcp(mcp_binary: Path) -> None:
         )
 
 
+def _verify_individual_binary_assets(
+    dist: Path,
+    package_name: str,
+    packaged_binaries: dict[str, Path],
+) -> None:
+    for binary_file_name, packaged_binary in packaged_binaries.items():
+        asset = dist / f"{package_name}-{binary_file_name}"
+        if not asset.is_file():
+            _fail(f"missing individual binary asset: {asset.name}")
+        _verify_checksum(asset)
+        if _sha256(asset) != _sha256(packaged_binary):
+            _fail(
+                "individual binary asset does not match archive contents: "
+                f"{asset.name}"
+            )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dist", default="dist-binaries", type=Path)
     parser.add_argument("--target-os", required=True)
     parser.add_argument("--target-arch", required=True)
     parser.add_argument("--port", default=18848, type=int)
+    parser.add_argument(
+        "--require-individual-assets",
+        action="store_true",
+        help="Also require per-command binary assets next to the archive.",
+    )
     args = parser.parse_args()
 
     dist = args.dist.resolve()
@@ -281,11 +316,12 @@ def main() -> None:
         ],
     )
     _verify_checksum(archive)
+    package_name = _package_name(archive)
 
     with _temporary_directory(prefix="powermem-binary-smoke-") as tmp:
         extract_root = Path(tmp)
         _extract(archive, extract_root)
-        package_root = extract_root / _package_name(archive)
+        package_root = extract_root / package_name
         bin_dir = package_root / "bin"
         if not bin_dir.is_dir():
             _fail(f"missing bin directory: {bin_dir}")
@@ -298,20 +334,25 @@ def main() -> None:
         }
         actual = {path.name for path in bin_dir.iterdir() if path.is_file()}
         if actual != expected:
-            _fail(f"unexpected bin contents: expected {sorted(expected)}, got {sorted(actual)}")
+            _fail(
+                f"unexpected bin contents: expected {sorted(expected)}, got {sorted(actual)}"
+            )
 
         binaries = {
-            name: bin_dir / f"{name}{exe_suffix}"
+            f"{name}{exe_suffix}": bin_dir / f"{name}{exe_suffix}"
             for name in ("powermem", "powermem-server", "powermem-mcp")
         }
         for binary in binaries.values():
             if args.target_os != "windows" and not os.access(binary, os.X_OK):
                 _fail(f"binary is not executable: {binary}")
 
-        _run_help(binaries["powermem"])
-        _run_help(binaries["powermem-server"])
-        _smoke_server(binaries["powermem-server"], args.port)
-        _smoke_mcp(binaries["powermem-mcp"])
+        if args.require_individual_assets:
+            _verify_individual_binary_assets(dist, package_name, binaries)
+
+        _run_help(binaries[f"powermem{exe_suffix}"])
+        _run_help(binaries[f"powermem-server{exe_suffix}"])
+        _smoke_server(binaries[f"powermem-server{exe_suffix}"], args.port)
+        _smoke_mcp(binaries[f"powermem-mcp{exe_suffix}"])
 
     print(f"Smoke test passed for {archive.name}")
 
