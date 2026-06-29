@@ -536,3 +536,44 @@ find_free_port() {
   done
   return 1
 }
+
+# --- User-level MCP config ---
+#
+# We write the powermem MCP entry to the user-scope config so it persists
+# across plugin reinstalls (the plugin cache .mcp.json is volatile — wiped
+# on every uninstall+install) and applies to all projects.
+#
+# Implemented via the `claude mcp` CLI so the storage location tracks
+# whatever Claude Code uses for the current version / platform / config
+# dir, rather than hardcoding ~/.claude.json.
+#
+# Usage:
+#   write_user_mcp_config <url> [api_key]
+#   remove_user_mcp_config
+
+write_user_mcp_config() {
+  mcp_url="$1"
+  mcp_api_key="${2:-}"
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "ERROR: 'claude' CLI not found on PATH; cannot configure user-scope MCP." >&2
+    echo "Run 'claude mcp add --scope user --transport http powermem \"$mcp_url\"' manually." >&2
+    return 1
+  fi
+  # Remove any existing entry first so the add is idempotent and stale
+  # headers don't linger when the API key changes.
+  claude mcp remove powermem --scope user >/dev/null 2>&1 || true
+  if [ -n "$mcp_api_key" ]; then
+    claude mcp add --scope user --transport http powermem "$mcp_url" \
+      --header "Authorization: Bearer $mcp_api_key" >/dev/null
+  else
+    claude mcp add --scope user --transport http powermem "$mcp_url" >/dev/null
+  fi
+}
+
+remove_user_mcp_config() {
+  if ! command -v claude >/dev/null 2>&1; then
+    return 0
+  fi
+  claude mcp remove powermem --scope user >/dev/null 2>&1 || true
+}
+

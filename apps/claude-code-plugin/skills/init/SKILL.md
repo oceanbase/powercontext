@@ -238,15 +238,22 @@ branch behavior:
 - **mode=hook or both** → writes `~/.powermem/runtime.env` with
   `POWERMEM_BASE_URL=<url>` and optional `POWERMEM_API_KEY=<key>` (only when
   key is non-empty).
-- **mode=mcp or both** → writes `${CLAUDE_PLUGIN_ROOT}/.mcp.json` with:
+- **mode=mcp or both** → registers the `powermem` MCP server in the
+  user-scope config via `claude mcp add --scope user --transport http`:
   ```json
-  {"mcpServers":{"powermem":{"type":"http","url":"<url>/mcp"
-   [,"headers":{"Authorization":"Bearer <key>"}]}}}
+  {"type":"http","url":"<url>/mcp"
+   [,"headers":{"Authorization":"Bearer <key>"}]}
   ```
-  (headers block only added when key is non-empty).
+  (headers block only added when key is non-empty). User-scope is used so
+  the config survives plugin reinstalls (the plugin cache `.mcp.json` is
+  wiped on every uninstall+install) and applies to all projects. The
+  `claude mcp` CLI decides where to store it (typically `~/.claude.json`
+  top-level `mcpServers`), so the location tracks the current Claude Code
+  version / platform rather than being hardcoded.
 - **mode=mcp** → does NOT write `runtime.env` (hooks unconfigured, won't fire).
-- **mode=hook** → writes `runtime.env` only; leaves `.mcp.json` as
-  `{"mcpServers": {}}` (MCP disabled).
+- **mode=hook** → writes `runtime.env` only; runs
+  `claude mcp remove powermem --scope user` to disable MCP (other MCP
+  servers preserved).
 - No `.env`, no uvx launch, no PID file. Storage/LLM/Embedding env vars are
   **not** passed and would be ignored.
 

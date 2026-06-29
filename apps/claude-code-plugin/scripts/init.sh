@@ -14,9 +14,11 @@ echo "Data dir: $DATA_DIR"
 # Skips .env creation, uvx launch, PID management.
 # Connection mode (POWERMEM_INIT_CONNECTION_MODE=hook|mcp|both, default both)
 # decides which files get written:
-#   hook → runtime.env only (.mcp.json reset to empty)
-#   mcp  → .mcp.json only (no runtime.env, hooks unconfigured)
-#   both → both files
+#   hook → runtime.env only; remove powermem from user-level mcpServers
+#   mcp  → user-level mcpServers only (no runtime.env, hooks unconfigured)
+#   both → both
+# MCP config is written to the user-scope config (~/.claude.json top-level
+# mcpServers) so it survives plugin reinstalls and applies to all projects.
 remote_init_url="${POWERMEM_INIT_BASE_URL:-${POWERMEM_BASE_URL:-}}"
 if [ -n "$remote_init_url" ] && is_remote_url "$remote_init_url"; then
   remote_api_key="${POWERMEM_INIT_API_KEY:-${POWERMEM_API_KEY:-}}"
@@ -46,26 +48,17 @@ if [ -n "$remote_init_url" ] && is_remote_url "$remote_init_url"; then
   case "$remote_mode" in
     mcp|both)
       mcp_url=$(printf '%s' "$remote_init_url" | sed 's:/*$::')"/mcp"
-      mcp_file="$PLUGIN_ROOT/.mcp.json"
-      tmp="$mcp_file.tmp"
-      if [ -n "$remote_api_key" ]; then
-        printf '{"mcpServers":{"powermem":{"type":"http","url":"%s","headers":{"Authorization":"Bearer %s"}}}}' \
-          "$mcp_url" "$remote_api_key" > "$tmp"
-      else
-        printf '{"mcpServers":{"powermem":{"type":"http","url":"%s"}}}' \
-          "$mcp_url" > "$tmp"
-      fi
-      mv "$tmp" "$mcp_file"
-      echo "Wrote $mcp_file (url=$mcp_url)"
+      write_user_mcp_config "$mcp_url" "$remote_api_key"
+      echo "Wrote powermem MCP server to user-scope config (url=$mcp_url)"
       ;;
   esac
 
   case "$remote_mode" in
     hook)
-      # Reset .mcp.json to empty so MCP is disabled in hook-only mode.
-      mcp_file="$PLUGIN_ROOT/.mcp.json"
-      printf '{"mcpServers":{}}' > "$mcp_file"
-      echo "Reset $mcp_file (MCP disabled)"
+      # Remove powermem from user-level mcpServers so MCP is disabled in
+      # hook-only mode. Other MCP servers are preserved.
+      remove_user_mcp_config
+      echo "Removed powermem from user-scope config (MCP disabled)"
       ;;
   esac
 
