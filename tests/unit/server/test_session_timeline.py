@@ -1,6 +1,9 @@
-from unittest.mock import MagicMock
+import uuid
+from unittest.mock import MagicMock, patch
 
-from server.services.memory_service import MemoryService
+import pytest
+
+from server.services.memory_service import MemoryService, SESSION_TIMELINE_FETCH_CAP
 
 
 def _memory(
@@ -302,3 +305,370 @@ def test_timeline_query_filters_preview_and_metadata():
 
     assert result["total"] == 1
     assert result["events"][0]["memory_id"] == "1"
+
+
+def test_load_session_memories_pushes_run_id_to_storage_when_filtering():
+    service = MemoryService.__new__(MemoryService)
+    service.list_memories = MagicMock(return_value=[])
+
+    service._load_session_memories(user_id="user-1", agent_id="agent-1", run_id="target-run")
+
+    assert service.list_memories.call_count == 3
+    kwargs_list = [inv.kwargs for inv in service.list_memories.call_args_list]
+    assert any(kwargs.get("run_id") == "target-run" for kwargs in kwargs_list)
+    assert any(kwargs.get("filters") == {"session_id": "target-run"} for kwargs in kwargs_list)
+    assert any(kwargs.get("filters") == {"thread_id": "target-run"} for kwargs in kwargs_list)
+    run_kwargs = next(kwargs for kwargs in kwargs_list if kwargs.get("run_id") == "target-run")
+    assert run_kwargs.get("limit") == SESSION_TIMELINE_FETCH_CAP
+    alias_kwargs = [
+        kwargs
+        for kwargs in kwargs_list
+        if kwargs.get("filters") in ({"session_id": "target-run"}, {"thread_id": "target-run"})
+    ]
+    assert len(alias_kwargs) == 2
+    for kwargs in alias_kwargs:
+        assert kwargs.get("limit") == SESSION_TIMELINE_FETCH_CAP
+        assert kwargs.get("user_id") == "user-1"
+        assert kwargs.get("agent_id") == "agent-1"
+
+
+def test_fetch_session_memories_for_run_id_merges_alias_records_when_under_fetch_cap():
+    target_run = "target-run"
+    canonical_memory = _memory(
+        1,
+        "canonical run_id match",
+        run_id=target_run,
+        observation_kind="session_start",
+    )
+    alias_only_memory = _memory(
+        2,
+        "alias-only legacy record",
+        run_id=None,
+        session_id=target_run,
+        observation_kind="command_result",
+    )
+
+    def list_memories_side_effect(**kwargs):
+        if kwargs.get("run_id") == target_run:
+            return [canonical_memory]
+        filters = kwargs.get("filters") or {}
+        if filters.get("session_id") == target_run:
+            return [alias_only_memory]
+        if filters.get("thread_id") == target_run:
+            return []
+        return []
+
+    service = MemoryService.__new__(MemoryService)
+    service.list_memories = MagicMock(side_effect=list_memories_side_effect)
+
+    merged = service._fetch_session_memories_for_run_id(run_id=target_run)
+
+    assert len(merged) == 2
+    assert {service._memory_id(memory) for memory in merged} == {"1", "2"}
+
+
+def test_merge_memories_by_id_prefers_later_batch_for_same_memory_id():
+    service = MemoryService.__new__(MemoryService)
+    alias_copy = _memory(42, "alias copy", run_id=None, session_id="target-run")
+    canonical_copy = _memory(42, "canonical copy", run_id="target-run")
+
+    merged = service._merge_memories_by_id([alias_copy], [canonical_copy])
+
+    assert len(merged) == 1
+    assert merged[0]["content"] == "canonical copy"
+
+
+def test_alias_only_records_not_dropped_when_run_id_at_cap():
+    target_run = "target-run"
+    fillers = [
+        _memory(index, f"filler {index}", run_id=target_run)
+        for index in range(SESSION_TIMELINE_FETCH_CAP)
+    ]
+    alias_only = _memory(
+        5001,
+        "legacy alias",
+        run_id=None,
+        session_id=target_run,
+        observation_kind="command_result",
+    )
+
+    def side_effect(**kwargs):
+        if kwargs.get("run_id") == target_run:
+            return fillers
+        filters = kwargs.get("filters") or {}
+        if filters.get("session_id") == target_run:
+            return [alias_only]
+        return []
+
+    service = MemoryService.__new__(MemoryService)
+    service.list_memories = MagicMock(side_effect=side_effect)
+
+    result = service._fetch_session_memories_for_run_id(run_id=target_run)
+
+    assert service.list_memories.call_count == 3
+    assert any(service._memory_id(memory) == "5001" for memory in result)
+    assert len(result) == SESSION_TIMELINE_FETCH_CAP
+
+
+def test_fetch_session_memories_for_run_id_uses_full_cap_for_alias_when_run_at_cap():
+    target_run = "target-run"
+    fillers = [
+        _memory(index, f"filler {index}", run_id=target_run)
+        for index in range(SESSION_TIMELINE_FETCH_CAP)
+    ]
+
+    def side_effect(**kwargs):
+        if kwargs.get("run_id") == target_run:
+            return fillers
+        return []
+
+    service = MemoryService.__new__(MemoryService)
+    service.list_memories = MagicMock(side_effect=side_effect)
+
+    service._fetch_session_memories_for_run_id(run_id=target_run)
+
+    kwargs_list = [inv.kwargs for inv in service.list_memories.call_args_list]
+    alias_kwargs = [
+        kwargs
+        for kwargs in kwargs_list
+        if kwargs.get("filters") in ({"session_id": target_run}, {"thread_id": target_run})
+    ]
+    assert len(alias_kwargs) == 2
+    for kwargs in alias_kwargs:
+        assert kwargs.get("limit") == SESSION_TIMELINE_FETCH_CAP
+
+
+def test_fetch_session_memories_for_run_id_uses_remaining_limit_for_alias_queries():
+    target_run = "target-run"
+    canonical_memory = _memory(1, "canonical run_id match", run_id=target_run)
+
+    def list_memories_side_effect(**kwargs):
+        if kwargs.get("run_id") == target_run:
+            return [canonical_memory]
+        return []
+
+    service = MemoryService.__new__(MemoryService)
+    service.list_memories = MagicMock(side_effect=list_memories_side_effect)
+
+    service._fetch_session_memories_for_run_id(run_id=target_run)
+
+    assert service.list_memories.call_count == 3
+    kwargs_list = [inv.kwargs for inv in service.list_memories.call_args_list]
+    alias_kwargs = [
+        kwargs
+        for kwargs in kwargs_list
+        if kwargs.get("filters") in ({"session_id": target_run}, {"thread_id": target_run})
+    ]
+    assert len(alias_kwargs) == 2
+    for kwargs in alias_kwargs:
+        assert kwargs.get("limit") == SESSION_TIMELINE_FETCH_CAP - 1
+
+
+def test_timeline_run_id_filter_uses_storage_side_query_beyond_global_snapshot():
+    target_run = "target-run"
+    target_memory = _memory(
+        999,
+        "older targeted session event",
+        run_id=target_run,
+        created_at="2025-01-01T00:00:00Z",
+        observation_kind="session_start",
+    )
+    noise_memories = [
+        _memory(
+            index,
+            f"newer noise {index}",
+            run_id=f"run-{index}",
+            created_at="2026-06-01T00:00:00Z",
+            observation_kind="command_result",
+        )
+        for index in range(5001)
+    ]
+
+    def list_memories_side_effect(**kwargs):
+        if kwargs.get("run_id") == target_run:
+            return [target_memory]
+        filters = kwargs.get("filters") or {}
+        if filters.get("session_id") == target_run or filters.get("thread_id") == target_run:
+            return []
+        if kwargs.get("run_id") is None and not filters:
+            return noise_memories
+        return []
+
+    service = MemoryService.__new__(MemoryService)
+    service.list_memories = MagicMock(side_effect=list_memories_side_effect)
+
+    global_memories = service._load_session_memories(run_id=None)
+    assert sum(
+        1 for memory in global_memories if service._memory_run_id(memory) == target_run
+    ) == 0
+
+    targeted_memories = service._load_session_memories(run_id=target_run)
+    assert len(targeted_memories) == 1
+    assert service._memory_id(targeted_memories[0]) == "999"
+    assert service._memory_run_id(targeted_memories[0]) == target_run
+
+    timeline = service.list_timeline_events(run_id=target_run)
+    assert timeline["total"] == 1
+    assert timeline["events"][0]["run_id"] == target_run
+    assert timeline["events"][0]["memory_id"] == "999"
+
+
+def test_fetch_session_memories_for_run_id_deduplicates_run_and_alias_results():
+    target_run = "target-run"
+    shared_memory = _memory(
+        42,
+        "shared session record",
+        run_id=target_run,
+        observation_kind="session_start",
+    )
+    filler_memories = [
+        _memory(
+            index + 1000,
+            f"fill {index}",
+            run_id=target_run,
+            observation_kind="command_result",
+        )
+        for index in range(SESSION_TIMELINE_FETCH_CAP - 1)
+    ]
+
+    def list_memories_side_effect(**kwargs):
+        if kwargs.get("run_id") == target_run:
+            return filler_memories + [shared_memory]
+        filters = kwargs.get("filters") or {}
+        if filters.get("session_id") == target_run:
+            return [shared_memory]
+        if filters.get("thread_id") == target_run:
+            return []
+        return []
+
+    service = MemoryService.__new__(MemoryService)
+    service.list_memories = MagicMock(side_effect=list_memories_side_effect)
+
+    merged = service._fetch_session_memories_for_run_id(run_id=target_run)
+
+    assert len(merged) == SESSION_TIMELINE_FETCH_CAP
+    assert sum(1 for memory in merged if service._memory_id(memory) == "42") == 1
+    assert service.list_memories.call_count == 3
+
+
+def test_timeline_run_id_filter_drops_conflicting_explicit_run_id():
+    service = _service_with_memories([
+        _memory(
+            1,
+            "wrong run alias match",
+            run_id="other-run",
+            session_id="target-run",
+            observation_kind="command_result",
+        ),
+        _memory(
+            2,
+            "correct target run",
+            run_id="target-run",
+            observation_kind="session_start",
+        ),
+    ])
+
+    timeline = service.list_timeline_events(run_id="target-run")
+
+    assert timeline["total"] == 1
+    assert timeline["events"][0]["memory_id"] == "2"
+    assert timeline["events"][0]["run_id"] == "target-run"
+
+
+def _session_observation_metadata(**metadata):
+    return {
+        "schema": "powermem.coding_agent_observation.v1",
+        "scope": "coding_agent",
+        "source": "coding_agent",
+        "record_kind": "observation_raw",
+        **metadata,
+    }
+
+
+def _insert_storage_session_memory(storage, content, run_id, created_at, **metadata):
+    return storage.add_memory(
+        {
+            "content": content,
+            "user_id": "user-1",
+            "agent_id": "agent-1",
+            "run_id": run_id,
+            "created_at": created_at,
+            "updated_at": created_at,
+            "metadata": _session_observation_metadata(**metadata),
+        }
+    )
+
+
+@pytest.fixture
+def sqlite_timeline_service():
+    config = {
+        "vector_store": {
+            "provider": "sqlite",
+            "config": {
+                "database_path": ":memory:",
+                "collection_name": f"timeline_test_{uuid.uuid4().hex[:8]}",
+            },
+        },
+        "llm": {
+            "provider": "openai",
+            "config": {
+                "model": "gpt-4o-mini",
+                "api_key": "mock-key",
+            },
+        },
+        "embedder": {
+            "provider": "mock",
+            "config": {},
+        },
+    }
+    patcher = patch("powermem.integrations.llm.factory.LLMFactory.create")
+    mock_llm_factory = patcher.start()
+    mock_llm = MagicMock()
+    mock_llm.generate_response.return_value = {"content": "Test memory content"}
+    mock_llm_factory.return_value = mock_llm
+    try:
+        yield MemoryService(config=config)
+    finally:
+        patcher.stop()
+
+
+def test_timeline_run_id_filter_finds_old_session_with_sqlite_storage(sqlite_timeline_service):
+    service = sqlite_timeline_service
+    storage = service.memory.storage
+
+    for index in range(5001):
+        _insert_storage_session_memory(
+            storage,
+            f"noise {index}",
+            run_id=f"noise-run-{index}",
+            created_at="2026-06-01T00:00:00Z",
+            observation_kind="command_result",
+        )
+    _insert_storage_session_memory(
+        storage,
+        "older targeted session event",
+        run_id="target-run",
+        created_at="2020-01-01T00:00:00Z",
+        observation_kind="session_start",
+    )
+    _insert_storage_session_memory(
+        storage,
+        "second older targeted session event",
+        run_id="target-run",
+        created_at="2020-01-02T00:00:00Z",
+        observation_kind="command_result",
+    )
+
+    global_timeline = service.list_timeline_events()
+    assert sum(
+        1 for event in global_timeline["events"] if event.get("run_id") == "target-run"
+    ) == 0
+
+    targeted_timeline = service.list_timeline_events(run_id="target-run")
+
+    assert targeted_timeline["total"] == 2
+    assert {event["run_id"] for event in targeted_timeline["events"]} == {"target-run"}
+    assert {event["content_preview"] for event in targeted_timeline["events"]} == {
+        "older targeted session event",
+        "second older targeted session event",
+    }

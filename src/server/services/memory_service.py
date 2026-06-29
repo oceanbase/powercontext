@@ -866,6 +866,95 @@ class MemoryService:
             or observation.get("source") == OBSERVATION_SOURCE
         )
 
+    @classmethod
+    def _merge_memories_by_id(
+        cls,
+        *memory_batches: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Merge memory batches. Later batches overwrite earlier ones for each memory ID."""
+        merged: Dict[str, Dict[str, Any]] = {}
+        for batch in memory_batches:
+            for memory in batch:
+                memory_id = cls._memory_id(memory)
+                if memory_id is None:
+                    logger.debug("Skipping memory without identifiable ID during merge")
+                    continue
+                merged[str(memory_id)] = memory
+        return list(merged.values())
+
+    def _cap_merged_session_memories(
+        self,
+        run_results: List[Dict[str, Any]],
+        merged: List[Dict[str, Any]],
+        sort_order: str,
+    ) -> List[Dict[str, Any]]:
+        """Bound merged fetch results while preserving alias-only rows not in run_results."""
+        cap = SESSION_TIMELINE_FETCH_CAP
+        if len(merged) <= cap:
+            return merged
+
+        run_result_ids = {
+            str(memory_id)
+            for memory in run_results
+            if (memory_id := self._memory_id(memory)) is not None
+        }
+        alias_only = [
+            memory
+            for memory in merged
+            if (memory_id := self._memory_id(memory)) is not None
+            and str(memory_id) not in run_result_ids
+        ]
+        run_batch = [
+            memory
+            for memory in merged
+            if (memory_id := self._memory_id(memory)) is not None
+            and str(memory_id) in run_result_ids
+        ]
+
+        reverse = sort_order == "desc"
+        sort_key = lambda memory: self._memory_datetime(memory) or datetime.min
+        run_batch.sort(key=sort_key, reverse=reverse)
+
+        remaining = cap - len(alias_only)
+        if remaining <= 0:
+            alias_only.sort(key=sort_key, reverse=reverse)
+            return alias_only[:cap]
+
+        alias_only.sort(key=sort_key, reverse=reverse)
+        return alias_only + run_batch[:remaining]
+
+    def _fetch_session_memories_for_run_id(
+        self,
+        run_id: str,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        sort_order: str = "desc",
+    ) -> List[Dict[str, Any]]:
+        """Fetch session memories using storage-side run/alias filters."""
+        run_kwargs = {
+            "user_id": user_id,
+            "agent_id": agent_id,
+            "limit": SESSION_TIMELINE_FETCH_CAP,
+            "offset": 0,
+            "sort_by": "created_at",
+            "order": sort_order,
+        }
+        run_results = self.list_memories(**run_kwargs, run_id=run_id)
+        if len(run_results) >= SESSION_TIMELINE_FETCH_CAP:
+            alias_limit = SESSION_TIMELINE_FETCH_CAP
+        else:
+            alias_limit = SESSION_TIMELINE_FETCH_CAP - len(run_results)
+        alias_kwargs = {
+            **run_kwargs,
+            "limit": alias_limit,
+        }
+        merged = self._merge_memories_by_id(
+            self.list_memories(**alias_kwargs, filters={"session_id": run_id}),
+            self.list_memories(**alias_kwargs, filters={"thread_id": run_id}),
+            run_results,
+        )
+        return self._cap_merged_session_memories(run_results, merged, sort_order)
+
     def _load_session_memories(
         self,
         user_id: Optional[str] = None,
@@ -875,18 +964,28 @@ class MemoryService:
         sort_order: str = "desc",
     ) -> List[Dict[str, Any]]:
         """Load a bounded memory snapshot for session/timeline projections."""
-        memories = self.list_memories(
-            user_id=user_id,
-            agent_id=agent_id,
-            limit=SESSION_TIMELINE_FETCH_CAP,
-            offset=0,
-            sort_by="created_at",
-            order=sort_order,
-        )
+        if run_id is not None:
+            memories = self._fetch_session_memories_for_run_id(
+                run_id=run_id,
+                user_id=user_id,
+                agent_id=agent_id,
+                sort_order=sort_order,
+            )
+        else:
+            memories = self.list_memories(
+                user_id=user_id,
+                agent_id=agent_id,
+                limit=SESSION_TIMELINE_FETCH_CAP,
+                offset=0,
+                sort_by="created_at",
+                order=sort_order,
+            )
         filtered = []
         for memory in memories:
             if not self._is_session_memory(memory):
                 continue
+            # Drop rows whose projected run id differs from the filter (e.g. explicit
+            # run_id="other-run" with session_id="target-run"); unset run_id is kept.
             if run_id is not None and self._memory_run_id(memory) != run_id:
                 continue
             occurred_at = self._memory_datetime(memory)
