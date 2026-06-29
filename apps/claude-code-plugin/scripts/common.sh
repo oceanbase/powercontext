@@ -309,6 +309,43 @@ write_runtime_base_url() {
   mv "$tmp" "$RUNTIME_FILE"
 }
 
+# Write runtime.env for remote-server mode (no local .env, no local PID).
+# Args: base_url [api_key]
+write_runtime_remote() {
+  remote_url=$1
+  remote_key=${2:-}
+  # Single-quote values so URLs / keys with shell metacharacters ($, ;, spaces,
+  # backticks, etc.) survive being sourced by run-hook.sh and status.sh.
+  # Embedded single quotes are escaped via the standard '\'' trick.
+  sq_url=$(printf '%s' "$remote_url" | sed "s/'/'\\\\''/g")
+  tmp="$RUNTIME_FILE.tmp"
+  {
+    printf "POWERMEM_BASE_URL='%s'\n" "$sq_url"
+    if [ -n "$remote_key" ]; then
+      sq_key=$(printf '%s' "$remote_key" | sed "s/'/'\\\\''/g")
+      printf "POWERMEM_API_KEY='%s'\n" "$sq_key"
+    fi
+  } > "$tmp"
+  mv "$tmp" "$RUNTIME_FILE"
+}
+
+# Write runtime.env for MCP-only mode: no base URL, hooks disabled.
+# Overwrites any stale POWERMEM_BASE_URL so run-hook.sh exits early instead
+# of hitting the previous remote/local URL that no longer applies.
+write_runtime_hook_disabled() {
+  tmp="$RUNTIME_FILE.tmp"
+  printf 'POWERMEM_HOOK_DISABLED=1\n' > "$tmp"
+  mv "$tmp" "$RUNTIME_FILE"
+}
+
+# Return 0 if the given URL points at a remote host (not localhost/127.0.0.1).
+is_remote_url() {
+  case "$1" in
+    http://localhost:*|http://127.0.0.1:*|https://localhost:*|https://127.0.0.1:*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 export_env_file_vars() {
   env_file=$1
   [ -f "$env_file" ] || return 0
@@ -512,4 +549,44 @@ find_free_port() {
     port=$((port + 1))
   done
   return 1
+}
+
+# --- User-level MCP config ---
+#
+# We write the powermem MCP entry to the user-scope config so it persists
+# across plugin reinstalls (the plugin cache .mcp.json is volatile — wiped
+# on every uninstall+install) and applies to all projects.
+#
+# Implemented via the `claude mcp` CLI so the storage location tracks
+# whatever Claude Code uses for the current version / platform / config
+# dir, rather than hardcoding ~/.claude.json.
+#
+# Usage:
+#   write_user_mcp_config <url> [api_key]
+#   remove_user_mcp_config
+
+write_user_mcp_config() {
+  mcp_url="$1"
+  mcp_api_key="${2:-}"
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "ERROR: 'claude' CLI not found on PATH; cannot configure user-scope MCP." >&2
+    echo "Run 'claude mcp add --scope user --transport http powermem \"$mcp_url\"' manually." >&2
+    return 1
+  fi
+  # Remove any existing entry first so the add is idempotent and stale
+  # headers don't linger when the API key changes.
+  claude mcp remove powermem --scope user >/dev/null 2>&1 || true
+  if [ -n "$mcp_api_key" ]; then
+    claude mcp add --scope user --transport http powermem "$mcp_url" \
+      --header "Authorization: Bearer $mcp_api_key" >/dev/null
+  else
+    claude mcp add --scope user --transport http powermem "$mcp_url" >/dev/null
+  fi
+}
+
+remove_user_mcp_config() {
+  if ! command -v claude >/dev/null 2>&1; then
+    return 0
+  fi
+  claude mcp remove powermem --scope user >/dev/null 2>&1 || true
 }

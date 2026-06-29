@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from powermem.integrations.embeddings import pyseekdb_default
+from powermem.integrations.embeddings import _model_cache, pyseekdb_default
 
 
 # ---------------------------------------------------------------------------
@@ -43,28 +43,28 @@ class TestDetectCountry:
 
     def test_first_api_returns_cn(self):
         side_effect = self._mock_urlopen([b"CN"])
-        with patch.object(pyseekdb_default.urllib.request, "urlopen", side_effect=side_effect):
+        with patch.object(_model_cache.urllib.request, "urlopen", side_effect=side_effect):
             assert pyseekdb_default._detect_country() == "CN"
 
     def test_first_fails_second_returns_us(self):
         side_effect = self._mock_urlopen([OSError("timeout"), b"US"])
-        with patch.object(pyseekdb_default.urllib.request, "urlopen", side_effect=side_effect):
+        with patch.object(_model_cache.urllib.request, "urlopen", side_effect=side_effect):
             assert pyseekdb_default._detect_country() == "US"
 
     def test_all_fail_returns_empty(self):
         side_effect = self._mock_urlopen([OSError(), OSError(), OSError()])
-        with patch.object(pyseekdb_default.urllib.request, "urlopen", side_effect=side_effect):
+        with patch.object(_model_cache.urllib.request, "urlopen", side_effect=side_effect):
             assert pyseekdb_default._detect_country() == ""
 
     def test_dirty_data_is_skipped(self):
         # First returns non-alpha data (digits), second returns valid
         side_effect = self._mock_urlopen([b"123", b"CN"])
-        with patch.object(pyseekdb_default.urllib.request, "urlopen", side_effect=side_effect):
+        with patch.object(_model_cache.urllib.request, "urlopen", side_effect=side_effect):
             assert pyseekdb_default._detect_country() == "CN"
 
     def test_lowercase_normalised_to_upper(self):
         side_effect = self._mock_urlopen([b"cn"])
-        with patch.object(pyseekdb_default.urllib.request, "urlopen", side_effect=side_effect):
+        with patch.object(_model_cache.urllib.request, "urlopen", side_effect=side_effect):
             assert pyseekdb_default._detect_country() == "CN"
 
 
@@ -76,8 +76,8 @@ class TestDetectCountry:
 class TestDownloadViaModelscope:
     def test_raises_when_uv_not_found(self, monkeypatch):
         monkeypatch.delenv("POWERMEM_UV_BIN", raising=False)
-        with patch.object(pyseekdb_default.shutil, "which", return_value=None), \
-             patch.object(pyseekdb_default.os.path, "isfile", return_value=False):
+        with patch.object(_model_cache.shutil, "which", return_value=None), \
+             patch.object(_model_cache.os.path, "isfile", return_value=False):
             with pytest.raises(RuntimeError, match="uv is required"):
                 pyseekdb_default._download_via_modelscope()
 
@@ -92,8 +92,8 @@ class TestDownloadViaModelscope:
         def fake_run(cmd, check):
             captured.append(cmd)
 
-        with patch.object(pyseekdb_default.subprocess, "run", side_effect=fake_run), \
-             patch.object(pyseekdb_default.os.path, "isfile", return_value=True):
+        with patch.object(_model_cache.subprocess, "run", side_effect=fake_run), \
+             patch.object(_model_cache.os.path, "isfile", return_value=True):
             pyseekdb_default._download_via_modelscope(country="CN")
 
         assert "--default-index" in captured[0]
@@ -110,8 +110,8 @@ class TestDownloadViaModelscope:
         def fake_run(cmd, check):
             captured.append(cmd)
 
-        with patch.object(pyseekdb_default.subprocess, "run", side_effect=fake_run), \
-             patch.object(pyseekdb_default.os.path, "isfile", return_value=True):
+        with patch.object(_model_cache.subprocess, "run", side_effect=fake_run), \
+             patch.object(_model_cache.os.path, "isfile", return_value=True):
             pyseekdb_default._download_via_modelscope(country="CN")
 
         assert "https://pypi.tuna.tsinghua.edu.cn/simple" in captured[0]
@@ -127,8 +127,8 @@ class TestDownloadViaModelscope:
         def fake_run(cmd, check):
             captured.append(cmd)
 
-        with patch.object(pyseekdb_default.subprocess, "run", side_effect=fake_run), \
-             patch.object(pyseekdb_default.os.path, "isfile", return_value=True):
+        with patch.object(_model_cache.subprocess, "run", side_effect=fake_run), \
+             patch.object(_model_cache.os.path, "isfile", return_value=True):
             pyseekdb_default._download_via_modelscope(country="US")
 
         assert "--default-index" not in captured[0]
@@ -145,8 +145,8 @@ class TestDownloadViaModelscope:
         def fake_run(cmd, check):
             captured.append(cmd)
 
-        with patch.object(pyseekdb_default.subprocess, "run", side_effect=fake_run), \
-             patch.object(pyseekdb_default.os.path, "isfile", return_value=True):
+        with patch.object(_model_cache.subprocess, "run", side_effect=fake_run), \
+             patch.object(_model_cache.os.path, "isfile", return_value=True):
             pyseekdb_default._download_via_modelscope()
 
         assert "--python" in captured[0]
@@ -161,9 +161,9 @@ class TestDownloadViaModelscope:
         monkeypatch.setenv("POWERMEM_UV_BIN", fake_uv)
         monkeypatch.delenv("POWERMEM_UV_INDEX_URL", raising=False)
 
-        with patch.object(pyseekdb_default.subprocess, "run",
+        with patch.object(_model_cache.subprocess, "run",
                           side_effect=sp.CalledProcessError(1, "uv")), \
-             patch.object(pyseekdb_default.os.path, "isfile", return_value=True):
+             patch.object(_model_cache.os.path, "isfile", return_value=True):
             with pytest.raises(sp.CalledProcessError):
                 pyseekdb_default._download_via_modelscope()
 
@@ -179,8 +179,8 @@ class TestDownloadViaModelscope:
         def fake_run(cmd, check):
             captured.append(cmd)
 
-        with patch.object(pyseekdb_default.subprocess, "run", side_effect=fake_run), \
-             patch.object(pyseekdb_default.os.path, "isfile", return_value=True):
+        with patch.object(_model_cache.subprocess, "run", side_effect=fake_run), \
+             patch.object(_model_cache.os.path, "isfile", return_value=True):
             pyseekdb_default._download_via_modelscope()
 
         assert "modelscope==1.99.0" in captured[0]
@@ -217,7 +217,7 @@ class TestBridgeModelscope:
             resp.read.return_value = json.dumps({"sha": fake_sha}).encode()
             return resp
 
-        with patch.object(pyseekdb_default.urllib.request, "urlopen", side_effect=fake_urlopen):
+        with patch.object(_model_cache.urllib.request, "urlopen", side_effect=fake_urlopen):
             pyseekdb_default._bridge_modelscope_to_hf_cache()
 
         hf_dir_name = "models--" + pyseekdb_default.DEFAULT_MODEL_REPO_ID.replace("/", "--")
@@ -248,7 +248,7 @@ class TestBridgeModelscope:
             resp.read.return_value = json.dumps({"sha": fake_sha}).encode()
             return resp
 
-        with patch.object(pyseekdb_default.urllib.request, "urlopen", side_effect=fake_urlopen):
+        with patch.object(_model_cache.urllib.request, "urlopen", side_effect=fake_urlopen):
             pyseekdb_default._bridge_modelscope_to_hf_cache()
 
         assert existing.read_text() == "original"
@@ -257,7 +257,7 @@ class TestBridgeModelscope:
         monkeypatch.setenv("HOME", str(tmp_path))
         self._setup_modelscope_src(tmp_path)
 
-        with patch.object(pyseekdb_default.urllib.request, "urlopen",
+        with patch.object(_model_cache.urllib.request, "urlopen",
                           side_effect=OSError("no network")):
             pyseekdb_default._bridge_modelscope_to_hf_cache()
 
@@ -282,8 +282,8 @@ class TestLoadSentenceTransformerWithFallback:
 
     def test_cache_hit_loads_locally_no_download(self):
         mock_st_cls = MagicMock(return_value=MagicMock())
-        with patch.object(pyseekdb_default, "_is_model_cached", return_value=True), \
-             patch.object(pyseekdb_default, "_detect_country") as mock_detect, \
+        with patch.object(_model_cache, "is_model_cached", return_value=True), \
+             patch.object(_model_cache, "detect_country") as mock_detect, \
              patch.object(pyseekdb_default, "_patch_sentence_transformer_cache"), \
              patch.dict("sys.modules", {"sentence_transformers": MagicMock(
                  SentenceTransformer=mock_st_cls)}):
@@ -292,10 +292,10 @@ class TestLoadSentenceTransformerWithFallback:
         mock_detect.assert_not_called()
 
     def test_cache_miss_cn_triggers_modelscope(self):
-        with patch.object(pyseekdb_default, "_is_model_cached", return_value=False), \
-             patch.object(pyseekdb_default, "_detect_country", return_value="CN"), \
-             patch.object(pyseekdb_default, "_download_via_modelscope") as mock_dl, \
-             patch.object(pyseekdb_default, "_bridge_modelscope_to_hf_cache") as mock_bridge, \
+        with patch.object(_model_cache, "is_model_cached", return_value=False), \
+             patch.object(_model_cache, "detect_country", return_value="CN"), \
+             patch.object(_model_cache, "download_via_modelscope") as mock_dl, \
+             patch.object(_model_cache, "bridge_modelscope_to_hf_cache") as mock_bridge, \
              patch.dict("sys.modules", {"sentence_transformers": None}):
             pyseekdb_default._load_sentence_transformer_with_fallback(self.MODEL, self.REPO)
 
@@ -306,9 +306,9 @@ class TestLoadSentenceTransformerWithFallback:
         mock_st_instance = MagicMock()
         mock_st_cls = MagicMock(return_value=mock_st_instance)
 
-        with patch.object(pyseekdb_default, "_is_model_cached", return_value=False), \
-             patch.object(pyseekdb_default, "_detect_country", return_value="US"), \
-             patch.object(pyseekdb_default, "_download_via_modelscope") as mock_dl, \
+        with patch.object(_model_cache, "is_model_cached", return_value=False), \
+             patch.object(_model_cache, "detect_country", return_value="US"), \
+             patch.object(_model_cache, "download_via_modelscope") as mock_dl, \
              patch.dict("sys.modules", {"sentence_transformers": MagicMock(
                  SentenceTransformer=mock_st_cls)}):
             pyseekdb_default._load_sentence_transformer_with_fallback(self.MODEL, self.REPO)
@@ -319,9 +319,9 @@ class TestLoadSentenceTransformerWithFallback:
         mock_st_instance = MagicMock()
         mock_st_cls = MagicMock(return_value=mock_st_instance)
 
-        with patch.object(pyseekdb_default, "_is_model_cached", return_value=False), \
-             patch.object(pyseekdb_default, "_detect_country", return_value=""), \
-             patch.object(pyseekdb_default, "_download_via_modelscope") as mock_dl, \
+        with patch.object(_model_cache, "is_model_cached", return_value=False), \
+             patch.object(_model_cache, "detect_country", return_value=""), \
+             patch.object(_model_cache, "download_via_modelscope") as mock_dl, \
              patch.dict("sys.modules", {"sentence_transformers": MagicMock(
                  SentenceTransformer=mock_st_cls)}):
             pyseekdb_default._load_sentence_transformer_with_fallback(self.MODEL, self.REPO)
@@ -329,9 +329,9 @@ class TestLoadSentenceTransformerWithFallback:
         mock_dl.assert_not_called()
 
     def test_cn_modelscope_failure_raises_runtime_error(self):
-        with patch.object(pyseekdb_default, "_is_model_cached", return_value=False), \
-             patch.object(pyseekdb_default, "_detect_country", return_value="CN"), \
-             patch.object(pyseekdb_default, "_download_via_modelscope",
+        with patch.object(_model_cache, "is_model_cached", return_value=False), \
+             patch.object(_model_cache, "detect_country", return_value="CN"), \
+             patch.object(_model_cache, "download_via_modelscope",
                           side_effect=RuntimeError("uvx failed")):
             with pytest.raises(RuntimeError, match="uvx failed"):
                 pyseekdb_default._load_sentence_transformer_with_fallback(self.MODEL, self.REPO)
@@ -347,8 +347,8 @@ class TestLoadSentenceTransformerWithFallback:
                 return  # return immediately, result[0] stays None
             return original_join(self_thread, timeout)
 
-        with patch.object(pyseekdb_default, "_is_model_cached", return_value=False), \
-             patch.object(pyseekdb_default, "_detect_country", return_value="US"), \
+        with patch.object(_model_cache, "is_model_cached", return_value=False), \
+             patch.object(_model_cache, "detect_country", return_value="US"), \
              patch.dict("sys.modules", {"sentence_transformers": MagicMock(
                  SentenceTransformer=MagicMock(side_effect=lambda _: None))}), \
              patch.object(_threading.Thread, "join", slow_join):
@@ -357,10 +357,10 @@ class TestLoadSentenceTransformerWithFallback:
 
     def test_sentence_transformers_absent_cn_still_downloads(self):
         """CN download must run even when sentence_transformers is not installed."""
-        with patch.object(pyseekdb_default, "_is_model_cached", return_value=False), \
-             patch.object(pyseekdb_default, "_detect_country", return_value="CN"), \
-             patch.object(pyseekdb_default, "_download_via_modelscope") as mock_dl, \
-             patch.object(pyseekdb_default, "_bridge_modelscope_to_hf_cache"), \
+        with patch.object(_model_cache, "is_model_cached", return_value=False), \
+             patch.object(_model_cache, "detect_country", return_value="CN"), \
+             patch.object(_model_cache, "download_via_modelscope") as mock_dl, \
+             patch.object(_model_cache, "bridge_modelscope_to_hf_cache"), \
              patch.dict("sys.modules", {"sentence_transformers": None}):
             result = pyseekdb_default._load_sentence_transformer_with_fallback(
                 self.MODEL, self.REPO
@@ -370,8 +370,8 @@ class TestLoadSentenceTransformerWithFallback:
         assert result is None  # no ST, but download happened
 
     def test_sentence_transformers_absent_non_cn_returns_none(self):
-        with patch.object(pyseekdb_default, "_is_model_cached", return_value=False), \
-             patch.object(pyseekdb_default, "_detect_country", return_value="US"), \
+        with patch.object(_model_cache, "is_model_cached", return_value=False), \
+             patch.object(_model_cache, "detect_country", return_value="US"), \
              patch.dict("sys.modules", {"sentence_transformers": None}):
             result = pyseekdb_default._load_sentence_transformer_with_fallback(
                 self.MODEL, self.REPO
