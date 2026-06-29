@@ -1467,6 +1467,9 @@ class Memory(MemoryBase):
                         "id": memory_id,
                         "memory": action_text,
                         "event": event_type,
+                        "user_id": user_id,
+                        "agent_id": agent_id,
+                        "run_id": run_id,
                         "metadata": metadata or {}
                     })
                     action_counts["ADD"] += 1
@@ -1475,20 +1478,29 @@ class Memory(MemoryBase):
                     # Use ID mapping to get the real memory ID (Snowflake ID - integer)
                     real_memory_id = temp_uuid_mapping.get(str(action_id))
                     if real_memory_id:
-                        self._update_memory(
+                        updated_memory = self._update_memory(
                             memory_id=real_memory_id,
                             content=action_text,
                             user_id=user_id,
                             agent_id=agent_id,
                             existing_embeddings=fact_embeddings
                         )
-                        results.append({
-                            "id": real_memory_id,
-                            "memory": action_text,
-                            "event": event_type,
-                            "previous_memory": action.get("old_memory")
-                        })
-                        action_counts["UPDATE"] += 1
+                        if updated_memory:
+                            results.append({
+                                "id": real_memory_id,
+                                "memory": action_text,
+                                "event": event_type,
+                                "user_id": user_id,
+                                "agent_id": agent_id,
+                                "run_id": run_id,
+                                "previous_memory": action.get("old_memory")
+                            })
+                            action_counts["UPDATE"] += 1
+                        else:
+                            logger.warning(
+                                "Skipped UPDATE for memory %s because it is outside the requested scope",
+                                real_memory_id,
+                            )
                     else:
                         logger.warning(f"Could not find real memory ID for action ID: {action_id}")
                         
@@ -1496,13 +1508,22 @@ class Memory(MemoryBase):
                     # Use ID mapping to get the real memory ID (Snowflake ID - integer)
                     real_memory_id = temp_uuid_mapping.get(str(action_id))
                     if real_memory_id:
-                        self.delete(real_memory_id, user_id, agent_id)
-                        results.append({
-                            "id": real_memory_id,
-                            "memory": action_text,
-                            "event": event_type
-                        })
-                        action_counts["DELETE"] += 1
+                        deleted = self.delete(real_memory_id, user_id, agent_id)
+                        if deleted:
+                            results.append({
+                                "id": real_memory_id,
+                                "memory": action_text,
+                                "event": event_type,
+                                "user_id": user_id,
+                                "agent_id": agent_id,
+                                "run_id": run_id,
+                            })
+                            action_counts["DELETE"] += 1
+                        else:
+                            logger.warning(
+                                "Skipped DELETE for memory %s because it is outside the requested scope",
+                                real_memory_id,
+                            )
                     else:
                         logger.warning(f"Could not find real memory ID for action ID: {action_id}")
                         
@@ -1677,7 +1698,7 @@ class Memory(MemoryBase):
         agent_id: Optional[str] = None,
         existing_embeddings: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> Optional[Dict[str, Any]]:
         """Update a memory with optional embeddings."""
         # Use self.agent_id as fallback if agent_id is not provided
         agent_id = agent_id or self.agent_id
@@ -1713,7 +1734,7 @@ class Memory(MemoryBase):
         
         logger.debug(f"Updating memory {memory_id} with content: '{content[:50]}...'")
         
-        self.storage.update_memory(memory_id, update_data, user_id, agent_id)
+        return self.storage.update_memory(memory_id, update_data, user_id, agent_id)
     
     def search(
         self,

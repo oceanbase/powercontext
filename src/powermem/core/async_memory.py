@@ -806,7 +806,10 @@ class AsyncMemory(MemoryBase):
                     results.append({
                         "id": memory_id,
                         "memory": action_text,
-                        "event": event_type
+                        "event": event_type,
+                        "user_id": user_id,
+                        "agent_id": agent_id,
+                        "run_id": run_id,
                     })
                     action_counts["ADD"] += 1
                     
@@ -814,7 +817,7 @@ class AsyncMemory(MemoryBase):
                     # Use ID mapping to get the real memory ID (Snowflake ID - integer)
                     real_memory_id = temp_uuid_mapping.get(str(action_id))
                     if real_memory_id:
-                        await self._update_memory_async(
+                        updated_memory = await self._update_memory_async(
                             memory_id=real_memory_id,
                             content=action_text,
                             user_id=user_id,
@@ -822,13 +825,22 @@ class AsyncMemory(MemoryBase):
                             existing_embeddings=fact_embeddings,
                             metadata=metadata
                         )
-                        results.append({
-                            "id": real_memory_id,
-                            "memory": action_text,
-                            "event": event_type,
-                            "previous_memory": action.get("old_memory")
-                        })
-                        action_counts["UPDATE"] += 1
+                        if updated_memory:
+                            results.append({
+                                "id": real_memory_id,
+                                "memory": action_text,
+                                "event": event_type,
+                                "user_id": user_id,
+                                "agent_id": agent_id,
+                                "run_id": run_id,
+                                "previous_memory": action.get("old_memory")
+                            })
+                            action_counts["UPDATE"] += 1
+                        else:
+                            logger.warning(
+                                "Skipped UPDATE for memory %s because it is outside the requested scope",
+                                real_memory_id,
+                            )
                     else:
                         logger.warning(f"Could not find real memory ID for action ID: {action_id}")
                         
@@ -836,13 +848,22 @@ class AsyncMemory(MemoryBase):
                     # Use ID mapping to get the real memory ID (Snowflake ID - integer)
                     real_memory_id = temp_uuid_mapping.get(str(action_id))
                     if real_memory_id:
-                        await self.delete(real_memory_id, user_id, agent_id)
-                        results.append({
-                            "id": real_memory_id,
-                            "memory": action_text,
-                            "event": event_type
-                        })
-                        action_counts["DELETE"] += 1
+                        deleted = await self.delete(real_memory_id, user_id, agent_id)
+                        if deleted:
+                            results.append({
+                                "id": real_memory_id,
+                                "memory": action_text,
+                                "event": event_type,
+                                "user_id": user_id,
+                                "agent_id": agent_id,
+                                "run_id": run_id,
+                            })
+                            action_counts["DELETE"] += 1
+                        else:
+                            logger.warning(
+                                "Skipped DELETE for memory %s because it is outside the requested scope",
+                                real_memory_id,
+                            )
                     else:
                         logger.warning(f"Could not find real memory ID for action ID: {action_id}")
                         
@@ -1011,7 +1032,7 @@ class AsyncMemory(MemoryBase):
         agent_id: Optional[str] = None,
         existing_embeddings: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> Optional[Dict[str, Any]]:
         """Update a memory asynchronously with optional embeddings."""
         # Use self.agent_id as fallback if agent_id is not provided
         agent_id = agent_id or self.agent_id
@@ -1047,7 +1068,7 @@ class AsyncMemory(MemoryBase):
         
         logger.debug(f"Updating memory {memory_id} with content: '{content[:50]}...'")
         
-        await self.storage.update_memory_async(memory_id, update_data, user_id, agent_id)
+        return await self.storage.update_memory_async(memory_id, update_data, user_id, agent_id)
     
     async def search(
         self,
