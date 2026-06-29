@@ -162,7 +162,25 @@ case "${ARCHIVE_FORMAT}" in
     ;;
   zip)
     ARCHIVE_FILE="${DIST}/${PACKAGE_BASENAME}-binaries.zip"
-    ( cd "${DIST}" && "${PYTHON_CMD[@]}" -m zipfile -c "${PACKAGE_BASENAME}-binaries.zip" "${PACKAGE_BASENAME}" )
+    "${PYTHON_CMD[@]}" - "${ARCHIVE_FILE}" "${PACKAGE_DIR}" "${PACKAGE_BASENAME}" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+archive_file = pathlib.Path(sys.argv[1])
+package_dir = pathlib.Path(sys.argv[2])
+package_basename = sys.argv[3]
+
+with zipfile.ZipFile(archive_file, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    for path in sorted(package_dir.rglob("*")):
+        if path.is_file():
+            archive.write(
+                path,
+                pathlib.PurePosixPath(
+                    package_basename, path.relative_to(package_dir).as_posix()
+                ),
+            )
+PY
     ;;
   *)
     echo "error: unsupported POWERMEM_BINARY_FORMAT=${ARCHIVE_FORMAT}" >&2

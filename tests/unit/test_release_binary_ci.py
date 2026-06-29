@@ -58,6 +58,17 @@ def test_release_binary_builder_accepts_platform_and_arch_targets() -> None:
     assert ".sha256" in builder
 
 
+def test_release_binary_zip_packaging_keeps_uv_in_project_root() -> None:
+    builder = (ROOT / "scripts" / "build_binary_package.sh").read_text()
+
+    assert '( cd "${DIST}" && "${PYTHON_CMD[@]}" -m zipfile' not in builder
+    assert (
+        'zipfile.ZipFile(archive_file, "w", compression=zipfile.ZIP_DEFLATED)'
+        in builder
+    )
+    assert "path.relative_to(package_dir).as_posix()" in builder
+
+
 def test_release_binary_matrix_includes_supported_macos_and_windows_arches() -> None:
     workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text()
 
