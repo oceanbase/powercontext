@@ -549,7 +549,7 @@ def test_init_uses_uvx_launcher_instead_of_plugin_venv_install() -> None:
     assert 'export_env_file_vars "$ENV_FILE"' in script
     assert 'tool run \\' in script
     assert "--from \"$PACKAGE\"" in script
-    assert "powermem-server --host 127.0.0.1 --port \"$port\"" in script
+    assert "powermem-server --host \"${POWERMEM_SERVER_HOST:-127.0.0.1}\" --port \"$port\"" in script
     assert "uv_pip_install" not in script
     assert "venv_powermem_server" not in script
 

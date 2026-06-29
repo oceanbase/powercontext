@@ -374,7 +374,7 @@ if embedding_provider not in {"none", "default", "huggingface", "ollama", "lmstu
     sys.exit(2)
 
 server_port = env_first("POWERMEM_SERVER_PORT", "POWERMEM_INIT_PORT") or "8848"
-server_host = env_first("POWERMEM_SERVER_HOST") or "0.0.0.0"
+server_host = env_first("POWERMEM_SERVER_HOST") or "127.0.0.1"
 server_workers = env_first("POWERMEM_SERVER_WORKERS") or "1"
 server_log_file = env_first("POWERMEM_SERVER_LOG_FILE") or path_value("powermem-server.log")
 logging_level = env_first("LOGGING_LEVEL") or "INFO"
@@ -783,13 +783,13 @@ if [ -n "${POWERMEM_UV_INDEX_URL:-}" ]; then
     --default-index "$POWERMEM_UV_INDEX_URL" \
     --from "$PACKAGE" \
     $UVX_WITH_ARGS \
-    powermem-server --host "${POWERMEM_SERVER_HOST:-0.0.0.0}" --port "$port" >> "$LOG_FILE" 2>&1 &
+    powermem-server --host "${POWERMEM_SERVER_HOST:-127.0.0.1}" --port "$port" >> "$LOG_FILE" 2>&1 &
 else
   POWERMEM_ENV_FILE="$ENV_FILE" nohup "$UV_BIN" tool run \
     --python "$BOOTSTRAP_PYTHON" \
     --from "$PACKAGE" \
     $UVX_WITH_ARGS \
-    powermem-server --host "${POWERMEM_SERVER_HOST:-0.0.0.0}" --port "$port" >> "$LOG_FILE" 2>&1 &
+    powermem-server --host "${POWERMEM_SERVER_HOST:-127.0.0.1}" --port "$port" >> "$LOG_FILE" 2>&1 &
 fi
 pid=$!
 write_managed_pid "$pid"

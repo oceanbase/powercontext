@@ -121,13 +121,25 @@ is already set. Skipped entirely in remote mode.
 - **header**: "Server"
 - **question**: "Run a local PowerMem server, or connect to an existing remote one?（运行本地 PowerMem 服务，还是连接已有的远程服务？）"
 - **options**:
-  - "Local (本地)" — Start a local server on 127.0.0.1:8848. Storage,
-    LLM, and Embedding configuration applies to this local instance.
-    （在 127.0.0.1:8848 启动本地服务，Storage/LLM/Embedding 配置作用于该本地实例。）
+  - "Local — loopback (本地 - 仅本地访问)" — Start a local server bound to
+    `127.0.0.1:8848`. Only this machine can reach it. Recommended for
+    single-user / laptop setups.
+    （在 127.0.0.1:8848 启动本地服务，仅本机可访问。适合单用户/笔记本环境。）
+  - "Local — all interfaces (本地 - 允许其他机器访问)" — Start a local server
+    bound to `0.0.0.0:8848`. Other machines / containers on the network can
+    reach it. Use when Claude Code runs in a different container or host than
+    the server. Exposes the dashboard on all network interfaces — only choose
+    this on a trusted network.
+    （在 0.0.0.0:8848 启动本地服务，允许同网络其他机器/容器访问。适用于 Claude Code 与服务分处不同容器/主机的场景。会在所有网络接口暴露 dashboard，仅在可信网络下选择。）
   - "Remote (远程)" — Connect to an existing PowerMem server. You'll provide the URL
     (and an optional API key). Storage/LLM/Embedding are determined by the
     remote server; the remaining questions are skipped.
     （连接已有的 PowerMem 服务，需要提供 URL（可选 API key）。Storage/LLM/Embedding 由远程服务决定，后续问题跳过。）
+
+Map the first two answers → `POWERMEM_SERVER_HOST=127.0.0.1` (loopback) or
+`POWERMEM_SERVER_HOST=0.0.0.0` (all interfaces). Pass this env var to
+`init.sh` so the generated `.env` and launch command use the chosen host.
+Loopback is the script default; all-interface binding is an explicit opt-in.
 
 If the user picks **Remote**, make a **follow-up AskUserQuestion call** with
 3 questions in one round:
