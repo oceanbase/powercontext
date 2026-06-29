@@ -197,10 +197,10 @@ The options depend on the Storage choice from Question 1.
 - **question**: "Which embedding provider should PowerMem use?（PowerMem 使用哪个嵌入提供方？）"
 - **options** (vary by storage choice):
   - **If SQLite**: "None (无)", "Local HuggingFace (本地 HuggingFace)" — `all-MiniLM-L6-v2`, 384-dim, downloads automatically, no API key needed（all-MiniLM-L6-v2，384 维，自动下载，无需 API key）, "Cloud (<provider>) (云端 <provider>)" (only if cloud API key detected).
-  - **If OceanBase**: "None (无)", "Built-in seekdb (内置 seekdb)" — Local embedding through seekdb, no extra dependencies（通过 seekdb 本地嵌入，无额外依赖）, "Cloud (<provider>) (云端 <provider>)" (only if cloud API key detected).
+  - **If OceanBase**: "Built-in seekdb (内置 seekdb)" — Local embedding through seekdb, no extra dependencies（通过 seekdb 本地嵌入，无额外依赖）, "Cloud (<provider>) (云端 <provider>)" (only if cloud API key detected). **Do not offer "None" for OceanBase** — OceanBase requires a vector embedding field to store memories, so embeddings are mandatory.
 
-Map answer → `POWERMEM_INIT_EMBEDDING_PROVIDER=none` (or `huggingface` for SQLite,
-`default` for OceanBase, or the detected cloud provider name).
+Map answer → `POWERMEM_INIT_EMBEDDING_PROVIDER=none` (SQLite only,
+`huggingface` for SQLite, `default` for OceanBase, or the detected cloud provider name).
 
 ## Dev-mode detection (local source override)
 
