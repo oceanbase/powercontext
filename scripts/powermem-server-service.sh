@@ -11,6 +11,9 @@ LOG_OUT="/tmp/powermem-server.launchd.log"
 LOG_ERR="/tmp/powermem-server.launchd.err"
 PID_FILE="/tmp/powermem-server.pid"
 INSTALLED_LAUNCH_SCRIPT="$HOME/bin/powermem-server-launch.sh"
+UV="${UV:-uv}"
+UV_PYTHON="${UV_PYTHON:-3.11}"
+PYTHON_CMD=("${UV}" run --no-project --python "${UV_PYTHON}" python)
 
 resolve_repo_root() {
   local script_dir
@@ -50,7 +53,7 @@ ensure_launch_script() {
 install_launchagent() {
   ensure_launch_script
   mkdir -p "$HOME/Library/LaunchAgents"
-  python3 - "$PLIST_PATH" "$REPO_ROOT" "$INSTALLED_LAUNCH_SCRIPT" "$LOG_OUT" "$LOG_ERR" "$LABEL" <<'PY'
+  "${PYTHON_CMD[@]}" - "$PLIST_PATH" "$REPO_ROOT" "$INSTALLED_LAUNCH_SCRIPT" "$LOG_OUT" "$LOG_ERR" "$LABEL" <<'PY'
 import plistlib, sys
 path, repo_root, launch_script, log_out, log_err, label = sys.argv[1:7]
 data = {

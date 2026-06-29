@@ -22,11 +22,13 @@ RUN curl -fsSL "https://repo.anaconda.com/miniconda/${MINICONDA_SH}" -o /tmp/min
     && sh /tmp/miniconda.sh -p /opt/miniconda3 -b \
     && rm -f /tmp/miniconda.sh
 
+RUN curl -fsSL https://astral.sh/uv/install.sh -o /tmp/uv-install.sh \
+    && env UV_INSTALL_DIR=/usr/local/bin sh /tmp/uv-install.sh \
+    && rm -f /tmp/uv-install.sh
+
 WORKDIR /powermem
 COPY ./ ./
 
 RUN /opt/miniconda3/bin/conda create --name powermem python=3.11 -y \
-    && /opt/miniconda3/envs/powermem/bin/python -m pip install --upgrade pip "setuptools<81" wheel \
-    && /opt/miniconda3/envs/powermem/bin/pip install ".[cli,server,mcp,seekdb]" pyinstaller \
-    && /opt/miniconda3/envs/powermem/bin/python scripts/check_package_versions.py \
-    && PATH="/opt/miniconda3/envs/powermem/bin:${PATH}" bash scripts/build_linux_binaries.sh
+    && uv run --no-project --python /opt/miniconda3/envs/powermem/bin/python python scripts/check_package_versions.py \
+    && PATH="/opt/miniconda3/envs/powermem/bin:${PATH}" UV_PYTHON=/opt/miniconda3/envs/powermem/bin/python bash scripts/build_linux_binaries.sh

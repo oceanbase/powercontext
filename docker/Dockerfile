@@ -1,4 +1,7 @@
 # Multi-stage build for PowerMem Server
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.9.28
+FROM ${UV_IMAGE} as uv
+
 FROM node:20-slim as frontend-builder
 WORKDIR /dashboard-build
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
@@ -8,8 +11,9 @@ COPY dashboard/ ./
 RUN pnpm build
 
 FROM python:3.11-slim as builder
+COPY --from=uv /uv /uvx /usr/local/bin/
 
-# Build argument for pip index URL (optional, for using mirror sources)
+# Build argument for Python package index URL (optional, for using mirror sources)
 # Usage: docker build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG PIP_INDEX_URL=""
 ARG PIP_TRUSTED_HOST=""
@@ -40,21 +44,19 @@ COPY pyproject.toml ./
 COPY README.md ./
 COPY src/ ./src/
 
-# Inject frontend assets before pip install
+# Inject frontend assets before Python package install
 COPY --from=frontend-builder /dashboard-build/dist/ ./src/server/dashboard/
 
 # Install the package in build stage
 # Increase timeout to handle slow network connections
-# Configure pip with longer timeout and optional mirror source
-RUN pip config set global.timeout 300 && \
-    if [ -n "$PIP_INDEX_URL" ]; then \
-        pip config set global.index-url "$PIP_INDEX_URL" && \
-        if [ -n "$PIP_TRUSTED_HOST" ]; then \
-            pip config set global.trusted-host "$PIP_TRUSTED_HOST"; \
-        fi; \
+# Configure uv with optional mirror source
+RUN if [ -n "$PIP_INDEX_URL" ]; then \
+        export UV_DEFAULT_INDEX="$PIP_INDEX_URL"; \
     fi && \
-    pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir '.[server,seekdb]'
+    if [ -n "$PIP_TRUSTED_HOST" ]; then \
+        export UV_INSECURE_HOST="$PIP_TRUSTED_HOST"; \
+    fi && \
+    uv pip install --system --no-cache '.[server,seekdb]'
 
 # Final stage
 FROM python:3.11-slim
