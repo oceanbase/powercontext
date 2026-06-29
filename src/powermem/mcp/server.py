@@ -96,9 +96,46 @@ class _DateTimeEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+_ID_KEYS = frozenset({"id", "memory_id"})
+
+
+def _stringify_ids(obj: Any) -> Any:
+    """Recursively convert ``id``/``memory_id`` int values to strings.
+
+    Snowflake IDs are 64-bit integers that exceed JavaScript's
+    ``Number.MAX_SAFE_INTEGER`` (2^53 - 1); serializing them as JSON numbers
+    causes MCP clients running on V8 to round them, breaking subsequent
+    update/delete round-trips. ``metadata`` sub-dicts are passed through
+    unchanged so user-provided numeric fields are not silently rewritten.
+    """
+    if isinstance(obj, dict):
+        result: Dict[str, Any] = {}
+        for k, v in obj.items():
+            if k in _ID_KEYS and isinstance(v, int) and not isinstance(v, bool):
+                result[k] = str(v)
+            elif k == "metadata":
+                result[k] = v
+            else:
+                result[k] = _stringify_ids(v)
+        return result
+    if isinstance(obj, list):
+        return [_stringify_ids(i) for i in obj]
+    if isinstance(obj, tuple):
+        return tuple(_stringify_ids(i) for i in obj)
+    return obj
+
+
 def _fmt(data: Any) -> str:
     """Serialize memory result to a JSON string safe for LLM consumption."""
-    return json.dumps(_convert_datetime(data), ensure_ascii=False, indent=2, cls=_DateTimeEncoder)
+    return json.dumps(_stringify_ids(_convert_datetime(data)), ensure_ascii=False, indent=2, cls=_DateTimeEncoder)
+
+
+def _coerce_memory_id(memory_id: str) -> int:
+    """Convert a string-encoded memory_id to int, raising ValueError on failure."""
+    try:
+        return int(memory_id)
+    except (TypeError, ValueError):
+        raise ValueError("memory_id must be a numeric string")
 
 
 def _normalise_messages(messages: Union[str, Dict, List[Dict]]) -> Union[str, List[Dict], None]:
@@ -212,7 +249,7 @@ def search_memories(
 
 @mcp.tool()
 def get_memory_by_id(
-    memory_id: int,
+    memory_id: str,
     user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
 ) -> str:
@@ -220,14 +257,18 @@ def get_memory_by_id(
     Retrieve a single memory by its ID.
 
     Args:
-        memory_id: Numeric memory ID.
+        memory_id: Memory ID (string-encoded to preserve Snowflake precision).
         user_id: User identifier.
         agent_id: Agent identifier.
 
     Returns:
         JSON string with the memory record, or an error if not found.
     """
-    result = get_memory().get(memory_id=memory_id, user_id=user_id, agent_id=agent_id)
+    try:
+        mid = _coerce_memory_id(memory_id)
+    except ValueError as exc:
+        return _fmt({"success": False, "error": str(exc)})
+    result = get_memory().get(memory_id=mid, user_id=user_id, agent_id=agent_id)
     if result is None:
         return _fmt({"error": f"Memory {memory_id} not found"})
     return _fmt(result)
@@ -235,7 +276,7 @@ def get_memory_by_id(
 
 @mcp.tool()
 def update_memory(
-    memory_id: int,
+    memory_id: str,
     content: str,
     user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
@@ -245,7 +286,7 @@ def update_memory(
     Update the content of an existing memory.
 
     Args:
-        memory_id: Numeric memory ID.
+        memory_id: Memory ID (string-encoded to preserve Snowflake precision).
         content: New content string.
         user_id: User identifier.
         agent_id: Agent identifier.
@@ -254,8 +295,12 @@ def update_memory(
     Returns:
         JSON string with the update result.
     """
+    try:
+        mid = _coerce_memory_id(memory_id)
+    except ValueError as exc:
+        return _fmt({"success": False, "error": str(exc)})
     result = get_memory().update(
-        memory_id=memory_id,
+        memory_id=mid,
         content=content,
         user_id=user_id,
         agent_id=agent_id,
@@ -266,7 +311,7 @@ def update_memory(
 
 @mcp.tool()
 def delete_memory(
-    memory_id: int,
+    memory_id: str,
     user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
 ) -> str:
@@ -274,15 +319,19 @@ def delete_memory(
     Delete a single memory by ID.
 
     Args:
-        memory_id: Numeric memory ID.
+        memory_id: Memory ID (string-encoded to preserve Snowflake precision).
         user_id: User identifier.
         agent_id: Agent identifier.
 
     Returns:
-        JSON string with ``{"success": bool, "memory_id": int}``.
+        JSON string with ``{"success": bool, "memory_id": str}``.
     """
-    success = get_memory().delete(memory_id=memory_id, user_id=user_id, agent_id=agent_id)
-    return _fmt({"success": success, "memory_id": memory_id})
+    try:
+        mid = _coerce_memory_id(memory_id)
+    except ValueError as exc:
+        return _fmt({"success": False, "error": str(exc)})
+    success = get_memory().delete(memory_id=mid, user_id=user_id, agent_id=agent_id)
+    return _fmt({"success": success, "memory_id": mid})
 
 
 @mcp.tool()
@@ -514,7 +563,7 @@ def delete_user_profile(user_id: str) -> str:
 
 @mcp.tool()
 def delete_memory_with_profile(
-    memory_id: int,
+    memory_id: str,
     user_id: str,
     agent_id: Optional[str] = None,
     delete_profile: bool = False,
@@ -523,7 +572,7 @@ def delete_memory_with_profile(
     Delete a memory and optionally the user's profile.
 
     Args:
-        memory_id: Numeric memory ID.
+        memory_id: Memory ID (string-encoded to preserve Snowflake precision).
         user_id: User identifier (required).
         agent_id: Agent identifier.
         delete_profile: Also delete the user's profile when True (default False).
@@ -531,13 +580,17 @@ def delete_memory_with_profile(
     Returns:
         JSON string with success status.
     """
+    try:
+        mid = _coerce_memory_id(memory_id)
+    except ValueError as exc:
+        return _fmt({"success": False, "error": str(exc)})
     success = get_user_memory().delete(
-        memory_id=memory_id,
+        memory_id=mid,
         user_id=user_id,
         agent_id=agent_id,
         delete_profile=delete_profile,
     )
-    result: Dict[str, Any] = {"success": success, "memory_id": memory_id, "user_id": user_id}
+    result: Dict[str, Any] = {"success": success, "memory_id": mid, "user_id": user_id}
     if delete_profile:
         result["profile_deleted"] = True
     return _fmt(result)
