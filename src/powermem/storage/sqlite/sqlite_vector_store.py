@@ -41,8 +41,6 @@ def _json_path_for_key(key: str) -> str:
     return path
 
 
-_FTS5_MAX_QUERY_TOKENS = 64
-
 # Word fragments aligned with unicode61-style token characters.
 _FTS5_TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
 
@@ -67,9 +65,6 @@ def _sanitize_fts5_input(query: str) -> str:
     ]
     if not tokens:
         return ""
-
-    if len(tokens) > _FTS5_MAX_QUERY_TOKENS:
-        tokens = tokens[:_FTS5_MAX_QUERY_TOKENS]
 
     return " ".join('"' + token.replace('"', '""') + '"' for token in tokens)
 
