@@ -5,10 +5,14 @@ and hybrid search (vector + fulltext, RRF fusion) in SQLiteVectorStore.
 """
 
 import json
+import logging
 import math
 import pytest
 
-from powermem.storage.sqlite.sqlite_vector_store import SQLiteVectorStore
+from powermem.storage.sqlite.sqlite_vector_store import (
+    SQLiteVectorStore,
+    _sanitize_fts5_input,
+)
 from powermem.storage.base import OutputData
 
 
@@ -363,3 +367,216 @@ class TestUpdateFTSAtomic:
         # New content must be found
         new_results = store.search(query="bbb222", vectors=None, limit=5)
         assert any(r.id == doc_id for r in new_results)
+
+
+# ---------------------------------------------------------------------------
+# 12. FTS5 query sanitization for technical tokens (Fixes #1119)
+# ---------------------------------------------------------------------------
+class TestFTS5QuerySanitization:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            (None, ""),
+            (
+                "oceanbase-blue-116 add search",
+                '"oceanbase" "blue" "116" "add" "search"',
+            ),
+            ("powermem-mcp", '"powermem" "mcp"'),
+            ("v1.1.6", '"v1" "1" "6"'),
+            ("fix/release-dispatch-repo", '"fix" "release" "dispatch" "repo"'),
+            ("#1119", '"1119"'),
+            ("fix: dispatch", '"fix" "dispatch"'),
+            ("@user", '"user"'),
+            ("hello!world", '"hello" "world"'),
+            ("foo|bar", '"foo" "bar"'),
+            ("a&b", '"a" "b"'),
+            ("^hello", '"hello"'),
+            ("100%", '"100"'),
+            ("$5 item", '"5" "item"'),
+            ("---", ""),
+            ("#@!", ""),
+            ("//", ""),
+            ("!!!", ""),
+            ("<>;", ""),
+            ("don't", '"don" "t"'),
+            ("~1.2.3", '"1" "2" "3"'),
+            ("key=value", '"key" "value"'),
+            ("my_var", '"my_var"'),
+            ('he said "hello"', '"he" "said" "hello"'),
+            ("fix-NOT-working", '"fix" "NOT" "working"'),
+            ("std::vector<int>", '"std" "vector" "int"'),
+            ("foo;bar", '"foo" "bar"'),
+            ("`foo`", '"foo"'),
+            ("neural AND network", '"neural" "AND" "network"'),
+            ("AND OR NOT", '"AND" "OR" "NOT"'),
+            ("中文测试", '"中文测试"'),
+        ],
+    )
+    def test_sanitize_fts5_input(self, raw, expected):
+        assert _sanitize_fts5_input(raw) == expected
+
+    def test_sanitize_quotes_simple_tokens_as_literals(self):
+        assert _sanitize_fts5_input("fox") == '"fox"'
+        assert _sanitize_fts5_input("  neural network  ") == '"neural" "network"'
+
+    @pytest.mark.parametrize(
+        "query,content,expect_results",
+        [
+            ("---", "some searchable content", False),
+            (
+                "oceanbase-blue-116 add search",
+                (
+                    "PowerMem marker oceanbase-blue-116 supports add search "
+                    "verification"
+                ),
+                True,
+            ),
+            ("@username", "notify @username about deployment", True),
+            ("foo|bar", "config key foo|bar enabled", True),
+            ("fix-NOT-working", "status fix-NOT-working retry path", True),
+            ("std::vector<int>", "uses std::vector<int> in cpp module", True),
+            ("foo;bar", "config foo;bar enabled here", True),
+            ("`foo`", "backtick `foo` identifier", True),
+            ("AND OR NOT", "some searchable content", False),
+            ("//", "some searchable content", False),
+        ],
+    )
+    def test_sanitized_queries_do_not_log_fts5_warning(
+        self, store, caplog, query, content, expect_results
+    ):
+        _insert_docs(store, [{"content": content}])
+        with caplog.at_level(logging.WARNING):
+            results = store.search(query=query, vectors=None, limit=5)
+
+        if expect_results:
+            assert len(results) >= 1, query
+        else:
+            assert results == [], query
+        assert not any(
+            "FTS5 search failed" in record.message for record in caplog.records
+        ), query
+
+    def test_boolean_keywords_quoted_as_literal_tokens_no_warning(self, store, mocker):
+        _insert_docs(store, [{"content": "ham AND eggs breakfast"}])
+        assert _sanitize_fts5_input("AND OR NOT") == '"AND" "OR" "NOT"'
+        assert _sanitize_fts5_input("ham AND eggs") == '"ham" "AND" "eggs"'
+        assert _sanitize_fts5_input("fix-NOT-working") == '"fix" "NOT" "working"'
+
+        warn = mocker.patch(
+            "powermem.storage.sqlite.sqlite_vector_store.logger.warning"
+        )
+        results = store.search(query="ham AND eggs", vectors=None, limit=5)
+        assert len(results) >= 1
+        assert "ham" in results[0].payload.get("data", "").lower()
+        warn.assert_not_called()
+
+        results = store.search(query="AND", vectors=None, limit=5)
+        assert len(results) >= 1
+        assert "AND" in results[0].payload.get("data", "")
+        warn.assert_not_called()
+
+        results = store.search(query="AND OR NOT", vectors=None, limit=5)
+        assert results == []
+        warn.assert_not_called()
+
+    @pytest.fixture
+    def technical_doc_store(self, store):
+        _insert_docs(store, [{
+            "content": (
+                "PowerMem release verification: the marker phrase is oceanbase-blue-116 "
+                "and it supports powermem-mcp v1.1.6 fix/release-dispatch-repo add search."
+            ),
+        }])
+        return store
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "oceanbase-blue-116 add search",
+            "powermem-mcp",
+            "v1.1.6",
+            "fix/release-dispatch-repo",
+        ],
+    )
+    def test_technical_token_pure_text_search(self, technical_doc_store, query):
+        results = technical_doc_store.search(query=query, vectors=None, limit=5)
+        assert len(results) >= 1
+        content = results[0].payload.get("data", "").lower()
+        assert "powermem" in content
+
+    def test_technical_token_hybrid_search(self, technical_doc_store):
+        query_vec = _make_vector(seed=0.5)
+        results = technical_doc_store.search(
+            query="oceanbase-blue-116 add search",
+            vectors=[query_vec],
+            limit=5,
+        )
+        assert len(results) >= 1
+        assert any(
+            "oceanbase-blue-116" in r.payload.get("data", "").lower()
+            for r in results
+        )
+
+    def test_hybrid_tech_token_with_boolean(self, store):
+        _insert_docs(store, [{
+            "content": (
+                "oceanbase-blue-116 deployment rollout completed for production"
+            ),
+        }])
+        query_vec = _make_vector(seed=0.5)
+        results = store.search(
+            query="oceanbase-blue-116 AND deployment",
+            vectors=[query_vec],
+            limit=5,
+        )
+        assert len(results) >= 1
+        content = results[0].payload.get("data", "").lower()
+        assert "oceanbase-blue-116" in content
+        assert "deployment" in content
+
+    def test_technical_token_with_user_id_filter(self, store):
+        """Sanitized FTS query should still respect payload filters."""
+        _insert_docs(store, [
+            {
+                "content": "marker oceanbase-blue-116 release notes",
+                "user_id": "alice",
+            },
+            {
+                "content": "marker oceanbase-blue-116 release notes",
+                "user_id": "bob",
+            },
+        ])
+        results = store.search(
+            query="oceanbase-blue-116",
+            vectors=None,
+            limit=5,
+            filters={"user_id": "alice"},
+        )
+        assert len(results) >= 1
+        for result in results:
+            assert result.payload["user_id"] == "alice"
+
+    def test_sanitized_query_no_match_returns_empty_without_warning(
+        self, store, caplog
+    ):
+        _insert_docs(store, [{"content": "unrelated content only"}])
+        with caplog.at_level(logging.WARNING):
+            results = store.search(
+                query="oceanbase-blue-116",
+                vectors=None,
+                limit=5,
+            )
+        assert results == []
+        assert not any("FTS5 search failed" in record.message for record in caplog.records)
+
+    def test_simple_english_query_regression(self, store):
+        _insert_docs(store, [{"content": "the quick brown fox jumps over the lazy dog"}])
+        results = store.search(query="fox", vectors=None, limit=5)
+        assert len(results) >= 1
+        assert "fox" in results[0].payload.get("data", "").lower()
+
+    def test_underscore_identifier_pure_text_search(self, store):
+        _insert_docs(store, [{"content": "define my_var here"}])
+        results = store.search(query="my_var", vectors=None, limit=5)
+        assert len(results) >= 1
+        assert "my_var" in results[0].payload.get("data", "")
