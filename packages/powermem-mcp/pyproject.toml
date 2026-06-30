@@ -21,7 +21,7 @@ Homepage = "https://github.com/oceanbase/powermem"
 Repository = "https://github.com/oceanbase/powermem.git"
 
 [project.scripts]
-powermem-mcp = "powermem.mcp.server:main"
+powermem-mcp = "powermem.mcp.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

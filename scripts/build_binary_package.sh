@@ -86,7 +86,7 @@ if __name__ == "__main__":
 PY
 
 cat > "${ENTRYPOINTS}/powermem_mcp_entry.py" <<'PY'
-from powermem.mcp.server import main
+from powermem.mcp.cli import main
 
 if __name__ == "__main__":
     main()

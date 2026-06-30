@@ -351,6 +351,7 @@ def main() -> None:
 
         _run_help(binaries[f"powermem{exe_suffix}"])
         _run_help(binaries[f"powermem-server{exe_suffix}"])
+        _run_help(binaries[f"powermem-mcp{exe_suffix}"])
         _smoke_server(binaries[f"powermem-server{exe_suffix}"], args.port)
         _smoke_mcp(binaries[f"powermem-mcp{exe_suffix}"])
 

@@ -28,6 +28,14 @@ def test_release_binary_help_smokes_are_bounded() -> None:
     assert '[str(binary), "--help"]' in smoke_script
     assert "timeout=60" in smoke_script
     assert "_run_checked(" in smoke_script
+    assert '_run_help(binaries[f"powermem-mcp{exe_suffix}"])' in smoke_script
+
+
+def test_release_binary_mcp_entrypoint_uses_lightweight_cli() -> None:
+    builder = (ROOT / "scripts" / "build_binary_package.sh").read_text()
+
+    assert "from powermem.mcp.cli import main" in builder
+    assert "from powermem.mcp.server import main" not in builder
 
 
 def test_release_binary_tarball_bin_contents_are_exact() -> None:

@@ -116,7 +116,7 @@ server = ["dashboard/**"]
 powermem-server = "server.cli.server:server"
 pmem            = "powermem.cli.main:cli"
 powermem-cli    = "powermem.cli.main:cli"
-powermem-mcp    = "powermem.mcp.server:main"
+powermem-mcp    = "powermem.mcp.cli:main"
 
 [tool.black]
 line-length = 88

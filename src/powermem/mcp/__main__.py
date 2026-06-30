@@ -1,4 +1,4 @@
 """Allow ``python -m powermem.mcp`` as an alias for ``powermem-mcp``."""
-from powermem.mcp.server import main
+from powermem.mcp.cli import main
 
 main()

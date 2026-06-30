@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 from fastmcp import FastMCP
 
 from powermem import auto_config, create_memory
+from powermem.mcp.args import build_arg_parser
 from powermem.user_memory import UserMemory
 
 # ============================================================================
@@ -600,7 +601,7 @@ def delete_memory_with_profile(
 # Entry point
 # ============================================================================
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     """
     Start the PowerMem MCP server.
 
@@ -615,13 +616,14 @@ def main() -> None:
         powermem-mcp stdio                    # stdio / JSON-RPC
         powermem-mcp streamable-http 9000
     """
-    transport = sys.argv[1] if len(sys.argv) > 1 else "streamable-http"
+    args = build_arg_parser().parse_args(argv)
+    transport = args.transport
     port = 8848
-    if len(sys.argv) > 2:
+    if args.port:
         try:
-            port = int(sys.argv[2])
+            port = int(args.port)
         except ValueError:
-            print(f"Invalid port '{sys.argv[2]}', using 8848", file=sys.stderr)
+            print(f"Invalid port '{args.port}', using 8848", file=sys.stderr)
 
     path = "/mcp"
 
