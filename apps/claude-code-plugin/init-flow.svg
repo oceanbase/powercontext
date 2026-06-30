@@ -212,7 +212,7 @@
 
   <rect x="160" y="4685" width="455" height="102" class="box"/>
   <text x="388" y="4726" text-anchor="middle" class="text">1. Claude Code 触发 hook</text>
-  <text x="388" y="4756" text-anchor="middle" class="small">UserPromptSubmit / SessionEnd / PostCompact</text>
+  <text x="388" y="4756" text-anchor="middle" class="small">UserPromptSubmit / hook write events</text>
 
   <rect x="725" y="4675" width="505" height="126" class="runtime"/>
   <text x="978" y="4715" text-anchor="middle" class="text">2. run-hook.sh 读取地址配置</text>

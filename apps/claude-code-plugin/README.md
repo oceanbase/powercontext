@@ -18,6 +18,12 @@ This directory still contains the plugin itself (`.claude-plugin/`, `hooks/`,
 claude --plugin-dir /path/to/powermem/apps/claude-code-plugin
 ```
 
+Git/marketplace installs and release plugin zips include prebuilt native hook
+binaries under `hooks/bin/`. Developers can refresh them with
+`make build-claude-hook` from the repository root, or
+`bash apps/claude-code-plugin/scripts/package-plugin.sh` before loading a local
+source directory directly.
+
 ## Marketplace install
 
 Once the PowerMem marketplace entry is available, install the Claude Code plugin

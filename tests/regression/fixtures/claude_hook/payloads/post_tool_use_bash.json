@@ -1,0 +1,16 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "session-tool-1041",
+  "cwd": "/workspace/project",
+  "tool_name": "Bash",
+  "tool_use_id": "tool-bash-1",
+  "duration_ms": 1234,
+  "tool_input": {
+    "command": "pytest tests/regression/test_claude_hook_no_llm.py --token Bearer sentinelsecret1049"
+  },
+  "tool_response": {
+    "exit_code": 0,
+    "stdout": "all tests passed with Bearer redactme1049",
+    "stderr": ""
+  }
+}

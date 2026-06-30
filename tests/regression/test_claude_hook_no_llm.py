@@ -204,7 +204,6 @@ class ClaudeHookNoLLMRegressionTest(unittest.TestCase):
             "POWERMEM_INFER_COMPACT": "0",
             "POWERMEM_INFER_FILE": "0",
             "POWERMEM_PROMPT_SEARCH": "1",
-            "POWERMEM_HOOK_SCRUB": "1",
             "POWERMEM_DATA_DIR": str(tmp_path / "powermem-data"),
             "POWERMEM_USER_ID": "hook-user",
             "POWERMEM_AGENT_ID": "hook-agent",
@@ -325,6 +324,42 @@ class ClaudeHookNoLLMRegressionTest(unittest.TestCase):
         self.assert_no_request("/api/v1/memories/search")
         self.assert_no_sentinel(result.stdout, result.stderr)
 
+    def test_session_start_searches_and_injects_context(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            payload = load_fixture_json("payloads/session_start.json")
+            result = self.run_hook(payload, Path(raw_tmp))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        request = self.wait_for_request("/api/v1/memories/search")
+
+        self.assertEqual(request.headers.get("x-api-key"), "hook-api-key")
+        self.assertEqual(request.body["user_id"], "hook-user")
+        self.assertEqual(request.body["agent_id"], "hook-agent")
+        self.assertEqual(request.body["limit"], 6)
+        self.assertIn("session_title: Hook session bootstrap", request.body["query"])
+        self.assertIn("cwd: powermem", request.body["query"])
+        self.assertNotIn("/workspace/powermem", request.body["query"])
+
+        output = json.loads(result.stdout)
+        hook_output = output["hookSpecificOutput"]
+        self.assertEqual(hook_output["hookEventName"], "SessionStart")
+        self.assertIn("isolated hook regression suite", hook_output["additionalContext"])
+        self.assert_no_sentinel(request.body, result.stdout, result.stderr)
+
+    def test_session_start_can_disable_search(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            payload = load_fixture_json("payloads/session_start.json")
+            result = self.run_hook(
+                payload,
+                Path(raw_tmp),
+                POWERMEM_SESSION_START_SEARCH="0",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assert_no_request("/api/v1/memories/search")
+        self.assert_no_sentinel(result.stdout, result.stderr)
+
     def test_session_end_posts_transcript_and_ignores_bad_transcripts(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp_path = Path(raw_tmp)
@@ -415,6 +450,307 @@ class ClaudeHookNoLLMRegressionTest(unittest.TestCase):
             self.assertNotEqual(request.body["run_id"], payload["session_id"])
             self.assertNotEqual(request.body["user_id"], f"user-{FAKE_TOKEN}")
             self.assertNotEqual(request.body["agent_id"], f"agent-{SENTINEL}")
+
+    def test_post_tool_use_bash_posts_structured_scrubbed_event(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            payload = load_fixture_json("payloads/post_tool_use_bash.json")
+            result = self.run_hook(payload, tmp_path)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request = self.wait_for_request("/api/v1/memories", kind="post-tool-use")
+            self.wait_for_no_hook_workers()
+
+            metadata = request.body["metadata"]
+            self.assertFalse(request.body["infer"])
+            self.assertEqual(request.body["run_id"], "session-tool-1041")
+            self.assertEqual(metadata["event_name"], "PostToolUse")
+            self.assertEqual(metadata["event_id"], "claude-code:session-tool-1041:tool-bash-1")
+            self.assertEqual(metadata["tool_name"], "Bash")
+            self.assertEqual(metadata["tool_use_id"], "tool-bash-1")
+            self.assertEqual(metadata["command_class"], "test")
+            self.assertEqual(metadata["exit_code"], 0)
+            self.assertIn("Input summary", request.body["content"])
+            self.assertIn("Response summary", request.body["content"])
+            self.assert_no_sentinel(request.body, result.stdout, result.stderr)
+
+    def test_post_tool_use_agent_preserves_response_agent_link(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            payload = load_fixture_json("payloads/post_tool_use_agent.json")
+            result = self.run_hook(payload, tmp_path)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request = self.wait_for_request("/api/v1/memories", kind="post-tool-use")
+            self.wait_for_no_hook_workers()
+
+            metadata = request.body["metadata"]
+            self.assertFalse(request.body["infer"])
+            self.assertEqual(metadata["tool_name"], "Agent")
+            self.assertEqual(metadata["tool_use_id"], "tool-agent-1")
+            self.assertEqual(metadata["agent_id"], "agent-response-1045")
+            self.assertEqual(metadata["agent_type"], "reviewer")
+            self.assertEqual(metadata["agent_status"], "completed")
+            self.assertIn("Review completed", metadata["response_summary"])
+            self.assertIn("Review completed", request.body["content"])
+            self.assert_no_sentinel(request.body, result.stdout, result.stderr)
+
+    def test_post_tool_use_write_summarizes_paths_without_content_leak(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            payload = load_fixture_json("payloads/post_tool_use_write.json")
+            result = self.run_hook(payload, tmp_path)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request = self.wait_for_request("/api/v1/memories", kind="post-tool-use")
+            self.wait_for_no_hook_workers()
+
+            metadata = request.body["metadata"]
+            self.assertEqual(metadata["tool_name"], "Write")
+            self.assertEqual(metadata["affected_paths"], ["src/new_feature.py"])
+            self.assertIn("content_chars=", metadata["input_summary"])
+            self.assertNotIn("def leaked_token", request.body["content"])
+            self.assert_no_sentinel(request.body, result.stdout, result.stderr)
+
+    def test_post_tool_use_wildcard_unknown_tool_records_shape_only(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            payload = {
+                "hook_event_name": "PostToolUse",
+                "session_id": "session-tool-unknown",
+                "cwd": "/workspace/project",
+                "tool_name": "UnlistedTool",
+                "tool_use_id": "tool-unknown-1",
+                "tool_input": ["unexpected", {"token": SENTINEL}],
+                "tool_response": ["ok", FAKE_TOKEN],
+            }
+            result = self.run_hook(
+                payload,
+                tmp_path,
+                POWERMEM_TOOL_SUCCESS_INCLUDE="*",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request = self.wait_for_request("/api/v1/memories", kind="post-tool-use")
+            self.wait_for_no_hook_workers()
+
+            metadata = request.body["metadata"]
+            self.assertEqual(metadata["tool_name"], "UnlistedTool")
+            self.assertEqual(metadata["input_summary"], "shape=array[2]")
+            self.assertEqual(metadata["response_summary"], "shape=array[2]")
+            self.assert_no_sentinel(request.body, result.stdout, result.stderr)
+
+    def test_post_tool_use_exclude_wins_and_capture_can_disable(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            payload = load_fixture_json("payloads/post_tool_use_bash.json")
+
+            result = self.run_hook(
+                payload,
+                tmp_path,
+                POWERMEM_TOOL_SUCCESS_INCLUDE="Bash,Write",
+                POWERMEM_TOOL_SUCCESS_EXCLUDE="Bash",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.wait_for_no_hook_workers()
+            self.assert_no_request("/api/v1/memories")
+
+            result = self.run_hook(
+                payload,
+                tmp_path,
+                POWERMEM_CAPTURE_TOOL_SUCCESS="0",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.wait_for_no_hook_workers()
+            self.assert_no_request("/api/v1/memories")
+            self.assert_no_sentinel(result.stdout, result.stderr)
+
+    def test_post_tool_use_failure_posts_structured_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            payload = load_fixture_json("payloads/post_tool_use_failure_bash.json")
+            result = self.run_hook(payload, tmp_path)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request = self.wait_for_request(
+                "/api/v1/memories",
+                kind="post-tool-use-failure",
+            )
+            self.wait_for_no_hook_workers()
+
+            metadata = request.body["metadata"]
+            self.assertFalse(request.body["infer"])
+            self.assertEqual(request.body["run_id"], "session-failure-1042")
+            self.assertEqual(metadata["event_name"], "PostToolUseFailure")
+            self.assertEqual(metadata["tool_name"], "Bash")
+            self.assertEqual(metadata["tool_use_id"], "tool-failure-1042")
+            self.assertEqual(metadata["success"], False)
+            self.assertEqual(metadata["is_interrupt"], False)
+            self.assertEqual(metadata["error_type"], "non_zero_exit")
+            self.assertEqual(metadata["command_class"], "test")
+            self.assertEqual(metadata["exit_code"], 2)
+            self.assertIn("Error summary", request.body["content"])
+            self.assert_no_sentinel(request.body, result.stdout, result.stderr)
+
+            self.server.clear()
+            interrupt_payload = load_fixture_json("payloads/post_tool_use_failure_bash.json")
+            interrupt_payload["is_interrupt"] = True
+            interrupt_result = self.run_hook(interrupt_payload, tmp_path)
+            self.assertEqual(interrupt_result.returncode, 0, interrupt_result.stderr)
+            self.wait_for_no_hook_workers()
+            self.assert_no_request("/api/v1/memories")
+
+    def test_stop_rollup_posts_when_enabled_and_skips_recursion(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            payload = load_fixture_json("payloads/stop_rollup.json")
+
+            disabled_result = self.run_hook(payload, tmp_path)
+            self.assertEqual(disabled_result.returncode, 0, disabled_result.stderr)
+            self.wait_for_no_hook_workers()
+            self.assert_no_request("/api/v1/memories")
+
+            enabled_result = self.run_hook(
+                payload,
+                tmp_path,
+                POWERMEM_CAPTURE_STOP_ROLLUP="1",
+            )
+            self.assertEqual(enabled_result.returncode, 0, enabled_result.stderr)
+            request = self.wait_for_request("/api/v1/memories", kind="stop-rollup")
+            self.wait_for_no_hook_workers()
+
+            metadata = request.body["metadata"]
+            self.assertFalse(request.body["infer"])
+            self.assertEqual(request.body["run_id"], "session-stop-1043")
+            self.assertEqual(metadata["event_name"], "Stop")
+            self.assertEqual(metadata["session_id"], "session-stop-1043")
+            self.assertIn("Final assistant message preview", request.body["content"])
+            self.assert_no_sentinel(request.body, enabled_result.stdout, enabled_result.stderr)
+
+            self.server.clear()
+            recursive_payload = load_fixture_json("payloads/stop_rollup.json")
+            recursive_payload["stop_hook_active"] = True
+            recursive_result = self.run_hook(
+                recursive_payload,
+                tmp_path,
+                POWERMEM_CAPTURE_STOP_ROLLUP="1",
+            )
+            self.assertEqual(recursive_result.returncode, 0, recursive_result.stderr)
+            self.wait_for_no_hook_workers()
+            self.assert_no_request("/api/v1/memories")
+
+    def test_pre_compact_posts_tail_snapshot_with_offsets(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            transcript = tmp_path / "transcript.jsonl"
+            transcript.write_text(
+                "\n".join(
+                    [
+                        json.JSONEncoder().encode(
+                            {"type": "user", "message": {"content": "old context"}}
+                        ),
+                        json.JSONEncoder().encode(
+                            {
+                                "type": "assistant",
+                                "message": {
+                                    "content": f"recent implementation plan {SENTINEL}"
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            payload = load_fixture_json("payloads/pre_compact.json")
+            payload["transcript_path"] = str(transcript)
+
+            result = self.run_hook(
+                payload,
+                tmp_path,
+                POWERMEM_PRECOMPACT_MAX_CHARS="500",
+                POWERMEM_PRECOMPACT_TAIL_LINES="1",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request = self.wait_for_request(
+                "/api/v1/memories",
+                kind="pre-compact-snapshot",
+            )
+            self.wait_for_no_hook_workers()
+
+            metadata = request.body["metadata"]
+            self.assertFalse(request.body["infer"])
+            self.assertEqual(request.body["run_id"], "session-precompact-1044")
+            self.assertEqual(metadata["event_name"], "PreCompact")
+            self.assertEqual(metadata["compact_trigger"], "auto")
+            self.assertIn("transcript_path_fingerprint", metadata)
+            self.assertGreater(metadata["end_byte_offset"], metadata["start_byte_offset"])
+            self.assertEqual(metadata["max_chars"], 500)
+            self.assertEqual(metadata["max_lines"], 1)
+            self.assertIn("recent implementation plan", request.body["content"])
+            self.assertNotIn("old context", request.body["content"])
+            self.assert_no_sentinel(request.body, result.stdout, result.stderr)
+
+    def test_lifecycle_event_uses_event_name_as_kind_source(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            payload = load_fixture_json("payloads/subagent_stop.json")
+            result = self.run_hook(payload, tmp_path)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request = self.wait_for_request("/api/v1/memories", kind="subagent-stop")
+            self.wait_for_no_hook_workers()
+
+            metadata = request.body["metadata"]
+            self.assertFalse(request.body["infer"])
+            self.assertEqual(request.body["run_id"], "session-lifecycle-1045")
+            self.assertEqual(metadata["kind"], "subagent-stop")
+            self.assertEqual(metadata["event_name"], "SubagentStop")
+            self.assertEqual(metadata["agent_id"], "agent-1045")
+            self.assertEqual(metadata["agent_type"], "reviewer")
+            self.assertNotIn("tool_use_id", metadata)
+            self.assertNotIn("raw_payload", metadata)
+            self.assertNotIn("payload_fields", metadata)
+            self.assertNotIn("payload_summary", metadata)
+            self.assertEqual(
+                metadata["agent_transcript_path"],
+                Path(payload["agent_transcript_path"]).name,
+            )
+            self.assertNotIn("/workspace/project", metadata["agent_transcript_path"])
+            self.assertIn("SubagentStop", request.body["content"])
+            self.assert_no_sentinel(request.body, result.stdout, result.stderr)
+
+    def test_task_lifecycle_records_task_schema_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp_path = Path(raw_tmp)
+            payload = load_fixture_json("payloads/task_completed.json")
+            result = self.run_hook(payload, tmp_path)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request = self.wait_for_request("/api/v1/memories", kind="task-completed")
+            self.wait_for_no_hook_workers()
+
+            metadata = request.body["metadata"]
+            self.assertFalse(request.body["infer"])
+            self.assertEqual(request.body["run_id"], "session-task-1045")
+            self.assertEqual(metadata["kind"], "task-completed")
+            self.assertEqual(metadata["event_name"], "TaskCompleted")
+            self.assertEqual(metadata["task_id"], "task-1045")
+            self.assertEqual(
+                metadata["task_subject"],
+                "Review Claude hook lifecycle capture",
+            )
+            self.assertIn("Verify task lifecycle fields", metadata["task_description"])
+            self.assertEqual(metadata["teammate_name"], "implementer")
+            self.assertIn("task_subject", request.body["content"])
+            self.assertIn("Review Claude hook lifecycle capture", request.body["content"])
+            self.assertIn("task_description", request.body["content"])
+            self.assertIn("Verify task lifecycle fields", request.body["content"])
+            self.assertNotIn("raw_payload", metadata)
+            self.assertNotIn("payload_fields", metadata)
+            self.assertNotIn("payload_summary", metadata)
+            self.assertNotIn("/workspace/project", str(metadata))
+            self.assert_no_sentinel(request.body, result.stdout, result.stderr)
 
 
 if __name__ == "__main__":

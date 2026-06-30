@@ -127,7 +127,7 @@
   <rect class="hook" x="1145" y="1495" width="350" height="118"/>
   <text x="1320" y="1532" text-anchor="middle" class="node-title">hooks 自动生效</text>
   <text x="1320" y="1559" text-anchor="middle" class="node-text">UserPromptSubmit：自动 recall</text>
-  <text x="1320" y="1584" text-anchor="middle" class="node-text">SessionEnd/PostCompact：自动 save</text>
+  <text x="1320" y="1584" text-anchor="middle" class="node-text">hook write events：自动 save</text>
 
   <rect class="end" x="1180" y="1660" width="280" height="76"/>
   <text x="1320" y="1694" text-anchor="middle" class="node-title">完成</text>

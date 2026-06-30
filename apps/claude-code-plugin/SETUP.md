@@ -181,8 +181,9 @@ state and either skip, reuse, or refresh it instead of failing or duplicating wo
 1. DETECT CONTEXT. The current directory is the PowerMem source tree if a
    pyproject.toml here has name = "powermem" (or src/powermem/ and
    apps/claude-code-plugin/ both exist). Tell me which path you will take:
-     - SOURCE  -> build & deploy from this checkout and install the Claude Code
-                  plugin GLOBALLY in HTTP mode (hooks -> REST; needs Go 1.22+).
+    - SOURCE  -> deploy from this checkout and install the Claude Code plugin
+                 GLOBALLY in HTTP mode (hooks -> REST; rebuild hook binaries
+                 only when refreshing them from source changes).
      - PYPI/MCP -> install PowerMem from PyPI with uv and connect via the
                    powermem-mcp server (the plugin itself is NOT on PyPI).
 
@@ -424,10 +425,12 @@ writing. Never silently patch `.env`.**
       immediately (do NOT wait for it — model download starts in parallel too):
         make build-dashboard >> /tmp/powermem-dashboard-build.log 2>&1 &
         DASHBOARD_BUILD_PID=$!
-    - Build the hook binaries FIRST — they get copied into Claude's plugin cache at
-      install time, so they must exist on disk before step "install":
-        if Go 1.22+ is present:  make build-claude-hook
-        else tell me, and offer to install Go or fall back to the PYPI/MCP path below.
+    - Confirm the hook binaries are present before install, because they get copied
+      into Claude's plugin cache at install time:
+        normal Git/marketplace install: use the committed hooks/bin/ binaries.
+        if hook source changed and Go 1.22+ is present:  make build-claude-hook
+        if refreshed binaries are needed but Go is absent: offer to install Go or
+        fall back to the PYPI/MCP path below.
     - Ensure the plugin's root .mcp.json stays empty ({}) — default HTTP mode.
     - STAGE the plugin into a stable, Claude-owned location so the marketplace does
       NOT depend on this checkout — you can move or delete the repo afterwards and
@@ -437,8 +440,8 @@ writing. Never silently patch `.env`.**
         mkdir -p "$DEST"
         rsync -a --delete "<ABS_PATH>/apps/claude-code-plugin/" "$DEST/"
           # no rsync? rm -rf "$DEST" && cp -a "<ABS_PATH>/apps/claude-code-plugin/." "$DEST/"
-      The binaries from `make build-claude-hook` must already be on disk before this
-      copy. Re-copy on every re-run so the staged dir tracks your latest build.
+      The committed `hooks/bin/` binaries are already on disk before this copy.
+      Re-copy on every re-run so the staged dir tracks your latest build.
     - Register the marketplace from the STAGED dir (it ships
       .claude-plugin/marketplace.json) — never from the repo:
         claude plugin marketplace add "$DEST"
@@ -610,7 +613,7 @@ writing. Never silently patch `.env`.**
    (~/.claude/marketplaces/powermem — independent of this repo), the server URL,
    how memory is wired
    (HTTP hooks vs MCP tools — recall is auto-injected on UserPromptSubmit, not a
-   tool the model calls; writes happen on SessionEnd/PostCompact), confirmation that
+   tool the model calls; writes happen on configured hook events), confirmation that
    it is enabled globally, and the fact that I just run `claude` (or `claude -p`)
    with nothing extra. Note: the background server does not survive a reboot — offer
    to set up a systemd user service for autostart.
@@ -685,14 +688,17 @@ make build-claude-hook
 
 #### [E005] Storage Backend Initialization
 **Problem**: 503 errors on API calls despite server health
-**Fix**: the Claude Code plugin defaults to embedded OceanBase/seekdb. Stop the
-managed server, remove stale seekdb data only if you accept deleting local memories, and
+**Fix**: the Claude Code plugin defaults to local SQLite. Stop the managed
+server, remove stale SQLite data only if you accept deleting local memories, and
 restart init:
 ```bash
 sh "$CLAUDE_PLUGIN_ROOT/scripts/stop.sh"
-rm -rf "$HOME/.powermem/seekdb_data"
+rm -f "$HOME/.powermem/powermem.db" "$HOME/.powermem/powermem.db-"*
 sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
 ```
+If you explicitly set `POWERMEM_INIT_DATABASE_PROVIDER=oceanbase`, use the
+OceanBase/seekdb troubleshooting path instead and remove `seekdb_data` only when
+data loss is acceptable.
 
 #### [E006] Model Download Timeout
 **Problem**: Server hangs or reports "timed out thrown while requesting HEAD" on startup.
@@ -861,8 +867,9 @@ python -c "import pyseekdb" 2>&1    # should produce no output
 ## PRE-CHECK & PREREQUISITES
 
 1. **Verify Python version**: `python3 --version` (must be >= 3.11, see [E011])
-2. **Verify Go version**: `go version` (must be 1.22+)
-3. **Verify uv**: `uv --version` (install it with [E012] if missing)
+2. **Verify uv**: `uv --version` (install it with [E012] if missing)
+3. **Verify hook binaries**: committed `hooks/bin/` binaries should already be present;
+   Go 1.22+ is only needed when refreshing them from hook source changes.
 4. **Check mirror access**: if using an internal mirror, verify
    it has `pyobvector`, `pyseekdb`, and `onnxruntime`; see [E013] if not.
 
@@ -880,8 +887,9 @@ POWERMEM_PYTHON="$VIRTUAL_ENV/bin/python"
 # Install everything with ALL required extras
 uv pip install --python "$POWERMEM_PYTHON" -e '.[server,seekdb]'
 
-# Build and stage Claude hooks
-make build-claude-hook
+# Git/marketplace installs use committed hook binaries.
+# Optional after hook source changes:
+# make build-claude-hook
 
 # Register marketplace
 DEST="$HOME/.claude/marketplaces/powermem"

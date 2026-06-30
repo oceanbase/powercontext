@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "TaskCompleted",
+  "session_id": "session-task-1045",
+  "cwd": "/workspace/project",
+  "transcript_path": "/workspace/project/parent-transcript.jsonl",
+  "task_id": "task-1045",
+  "task_subject": "Review Claude hook lifecycle capture",
+  "task_description": "Verify task lifecycle fields without leaking Bearer sentinelsecret1049.",
+  "teammate_name": "implementer",
+  "team_name": "session-team-1045",
+  "status": "completed"
+}

@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "PreCompact",
+  "session_id": "session-precompact-1044",
+  "cwd": "/workspace/project",
+  "trigger": "auto",
+  "custom_instructions": "Preserve the latest implementation plan.",
+  "transcript_path": "__TRANSCRIPT_PATH__"
+}

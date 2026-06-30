@@ -1,6 +1,9 @@
 # Workspace file watcher (optional)
 
 The poller lives in the same **native binary** as the Claude hooks (no Python).
+Git/marketplace installs and release plugin zips include this binary under
+`hooks/bin/`. Run `make build-claude-hook` from the repository root only when
+refreshing the binary from hook source changes.
 
 From the plugin root. `POWERMEM_BASE_URL` defaults to `http://localhost:8848` if unset (optional `POWERMEM_API_KEY`):
 

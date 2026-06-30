@@ -1,0 +1,17 @@
+{
+  "hook_event_name": "PostToolUseFailure",
+  "session_id": "session-failure-1042",
+  "cwd": "/workspace/powermem",
+  "tool_name": "Bash",
+  "tool_use_id": "tool-failure-1042",
+  "duration_ms": 912,
+  "tool_input": {
+    "command": "pytest tests/unit --token Bearer sentinelsecret1049"
+  },
+  "tool_response": {
+    "exit_code": 2,
+    "stderr": "pytest failed with Bearer sentinelsecret1049"
+  },
+  "error_type": "non_zero_exit",
+  "error_message": "pytest failed with Bearer sentinelsecret1049"
+}

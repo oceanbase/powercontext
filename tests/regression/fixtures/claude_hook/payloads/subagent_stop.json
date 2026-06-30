@@ -1,0 +1,15 @@
+{
+  "hook_event_name": "SubagentStop",
+  "session_id": "session-lifecycle-1045",
+  "cwd": "/workspace/project",
+  "transcript_path": "/workspace/project/parent-transcript.jsonl",
+  "agent_transcript_path": "/workspace/project/agent-transcript.jsonl",
+  "agent_id": "agent-1045",
+  "agent_type": "reviewer",
+  "status": "completed",
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 42
+  },
+  "result": "Subagent completed without leaking Bearer sentinelsecret1049."
+}

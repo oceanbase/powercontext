@@ -33,14 +33,14 @@ Prefer to wire it by hand? The full plugin reference below covers every option.
 |--------|----------------|-------|
 | Claude Code | No | |
 | MCP tools | No | **Off by default** (HTTP mode). Run `apply-connection-mode.sh mcp` to enable. |
-| **Hooks** (transcript / compact → HTTP API) | **No** | Native binaries under `hooks/bin/` + `run-hook.sh` (macOS/Linux) or PowerShell on Windows. **`POWERMEM_BASE_URL` defaults to `http://localhost:8848`.** |
+| **Hooks** (event-driven writes/search → HTTP API) | **No** | Git/marketplace installs and release plugin zips include native binaries under `hooks/bin/` + `run-hook.sh` (macOS/Linux) or PowerShell on Windows. **`POWERMEM_BASE_URL` defaults to `http://localhost:8848`.** |
 | Optional **file poller** | No | Same binary: `sh hooks/run-hook.sh poll` — see [watcher/README.md](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/watcher/README.md). |
 
 **macOS / Linux:** default `hooks/hooks.json` runs `sh …/run-hook.sh`. POSIX `sh` is always present.
 
-**Windows (native, no Git Bash):** if `sh` is missing, merge the commands from [`hooks/hooks.windows.example.json`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/hooks/hooks.windows.example.json) into your Claude `settings.json` so hooks call `powershell.exe -File …/run-hook.ps1`. The zip includes `hooks/bin/powermem-hook-windows-amd64.exe` (add `windows/arm64` to the build script if you need it).
+**Windows (native, no Git Bash):** if `sh` is missing, merge the commands from [`hooks/hooks.windows.example.json`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/hooks/hooks.windows.example.json) into your Claude `settings.json` so hooks call `powershell.exe -File …/run-hook.ps1`. Git/marketplace installs and release zips include `hooks/bin/powermem-hook-windows-amd64.exe` (add `windows/arm64` to the build script if you need it).
 
-**Rebuilding binaries** (developers / CI): Go **1.22+**, then `bash scripts/build-hook-binaries.sh` or `make build-claude-hook` from the repo root. `make package-claude-plugin` builds them automatically before zipping.
+**Rebuilding binaries** (developers / CI): Go **1.22+**, then `make build-claude-hook` or `bash apps/claude-code-plugin/scripts/build-hook-binaries.sh` from the repo root. Commit refreshed `hooks/bin/powermem-hook-*` binaries when hook code changes so Git/marketplace installs remain runnable. `make package-claude-plugin` also rebuilds them automatically before zipping.
 
 ## Prerequisites
 
@@ -50,7 +50,7 @@ Prefer to wire it by hand? The full plugin reference below covers every option.
 
 ## Manual Installation
 
-Set up the integration **from source** — this is **HTTP mode** (the default): hooks push transcripts to the REST API and inject search results per turn, with no in-chat tools.
+Set up the integration **from source** — this is **HTTP mode** (the default): hooks send event-driven writes/search to the REST API and inject search results per turn, with no in-chat tools.
 
 ### Step 1 — Download the source
 
@@ -63,10 +63,11 @@ cd powermem
 
 Copy the template and set your Anthropic credential. For direct Anthropic API
 access use `LLM_API_KEY`; for a Claude Code-style bearer-token gateway use
-`LLM_AUTH_TOKEN` together with `ANTHROPIC_LLM_BASE_URL`. Storage defaults to the
-embedded **seekdb** database (no separate database), and the embedder to a local
+`LLM_AUTH_TOKEN` together with `ANTHROPIC_LLM_BASE_URL`. Storage defaults to a
+local **SQLite** database (no separate service), and the embedder to a local
 `sentence-transformers/all-MiniLM-L6-v2` model (no API key, auto-downloaded on
-first use).
+first use). Set `DATABASE_PROVIDER=oceanbase` / the OceanBase settings when you
+want the embedded seekdb path instead.
 
 ```bash
 cp .env.example .env
@@ -101,18 +102,20 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 uv --version
 ```
 
-### Step 4 — Install PowerMem and build the hook binaries
+### Step 4 — Install PowerMem
 
-`uv pip install -e '.[server,seekdb]'` provides the `powermem-server` and
-`pmem` commands plus the zero-config local seekdb path and local embedder.
-`make build-claude-hook` compiles the native Go hook binaries (requires
-**Go 1.22+**):
+`uv pip install -e '.[server,extras]'` provides the `powermem-server` and
+`pmem` commands plus the zero-config local SQLite path and local embedder.
+Git/marketplace installs include native hook binaries under
+`apps/claude-code-plugin/hooks/bin/`, so Go is only needed when refreshing those
+binaries from hook source changes:
 
 ```bash
 uv venv venv --python python3.11
 source venv/bin/activate
-uv pip install --python "$VIRTUAL_ENV/bin/python" -e '.[server,seekdb]'
-make build-claude-hook        # outputs apps/claude-code-plugin/hooks/bin/
+uv pip install --python "$VIRTUAL_ENV/bin/python" -e '.[server,extras]'
+# Optional after hook source changes:
+# make build-claude-hook      # refreshes apps/claude-code-plugin/hooks/bin/
 ```
 
 ### Step 5 — Start the HTTP API server
@@ -156,8 +159,10 @@ When the PowerMem marketplace entry is available, install it with:
 
 The marketplace step installs the Claude Code plugin connector. The
 `/memory-powermem:init` step prepares the PowerMem backend by ensuring `uv`, then
-starts it with the uvx-style launcher
-`uvx --from 'powermem[server,seekdb]' powermem-server`. The PyPI release must
+starts it with the uvx-style launcher. The package spec depends on the storage
+backend: the default SQLite path uses `powermem[server,extras]` (pulls
+`sentence-transformers` for the local `huggingface` embedder), while the
+OceanBase/seekdb path uses `powermem[server,seekdb]`. The PyPI release must
 include the backend features required by the plugin, including the default local
 embedding dependencies. If `uv` is missing, init installs it automatically:
 non-CN networks use the official Astral installer, while CN networks use the USTC
@@ -175,7 +180,12 @@ passes it to `uvx --from`:
 ```
 
 ```bash
+# Default SQLite path
+POWERMEM_INIT_PACKAGE='powermem[server,extras] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
+  sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
+# OceanBase/seekdb path
 POWERMEM_INIT_PACKAGE='powermem[server,seekdb] @ git+https://github.com/oceanbase/powermem.git@<branch-or-sha>' \
+  POWERMEM_INIT_DATABASE_PROVIDER=oceanbase \
   sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
 ```
 
@@ -222,7 +232,7 @@ How you remove the plugin depends on how you enabled it:
 | **Zip / copied folder** | Delete the unzipped directory. Stop using `--plugin-dir` pointing at it. |
 | **Git clone / repo path** | Stop using `--plugin-dir` for that path; remove the clone if you no longer need it. |
 | **Marketplace / built-in plugin UI** | Run `/plugin uninstall memory-powermem@powermem`, then `/reload-plugins`. To remove the marketplace entry as well, run `/plugin marketplace remove powermem`. |
-| **You merged [`hooks/hooks.windows.example.json`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/hooks/hooks.windows.example.json) into `settings.json`** | Edit `~/.claude/settings.json` or `.claude/settings.json` in the project and remove the `UserPromptSubmit` / `SessionEnd` / `PostCompact` hook entries that call `run-hook.ps1` (or restore a backup). Otherwise hooks keep running even after the plugin folder is deleted. |
+| **You merged [`hooks/hooks.windows.example.json`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/hooks/hooks.windows.example.json) into `settings.json`** | Edit `~/.claude/settings.json` or `.claude/settings.json` in the project and remove every PowerMem hook entry that calls `run-hook.ps1` (or restore a backup). Otherwise hooks keep running even after the plugin folder is deleted. |
 
 The hook binary only **writes** to your PowerMem server; it does not install a system daemon. No separate “service uninstall” is required.
 
@@ -231,7 +241,7 @@ The hook binary only **writes** to your PowerMem server; it does not install a s
 | Install style | Update steps |
 |---------------|--------------|
 | **Zip** | Download the new `.zip`, replace the old folder (delete the previous `powermem-claude-code-plugin` tree, unzip the new one to the same or a new path), then start Claude with `--plugin-dir` pointing at the new folder. |
-| **Repo / `git`** | `git pull` (or fetch the release you want), run `make package-claude-plugin` or `bash scripts/package-plugin.sh` if you need a fresh zip, then restart Claude Code. |
+| **Repo / `git`** | `git pull` (or fetch the release you want), run `make package-claude-plugin` or `bash apps/claude-code-plugin/scripts/package-plugin.sh` if you need a fresh zip, then restart Claude Code. |
 | **Marketplace** | Run `/plugin uninstall memory-powermem@powermem`, reinstall from the marketplace, then run `/reload-plugins`. If the backend package changed, re-run `/memory-powermem:init` so uvx resolves the new PyPI release. |
 
 After updating, restart the Claude Code session (or the whole app) so MCP config, skills, and hooks reload.
@@ -291,19 +301,26 @@ Ensure PowerMem is installed (`uv pip install --python "$VIRTUAL_ENV/bin/python"
 
 ### HTTP mode: REST only (standard)
 
-This is the **default** root `.mcp.json`. Claude has **no** PowerMem MCP tools; skills that reference those tools have nothing to call. **Hooks** still send transcripts / compact summaries to `POST /api/v1/memories`. To reset after trying MCP: `bash scripts/apply-connection-mode.sh http`.
+This is the **default** root `.mcp.json`. Claude has **no** PowerMem MCP tools; skills that reference those tools have nothing to call. **Hooks** still send event-driven writes such as session transcripts, compact snapshots, tool outcomes, and lifecycle events to `POST /api/v1/memories`. To reset after trying MCP: `bash scripts/apply-connection-mode.sh http`.
 
 ### Seamless recording (hooks + HTTP API)
 
-The plugin ships [`hooks/hooks.json`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/hooks/hooks.json), [`hooks/run-hook.sh`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/hooks/run-hook.sh), and **native** `hooks/bin/powermem-hook-*` (built from [`cmd/powermem-hook`](https://github.com/oceanbase/powermem/tree/main/apps/claude-code-plugin/cmd/powermem-hook/)). When the plugin is enabled, Claude Code merges these hooks:
+The plugin ships [`hooks/hooks.json`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/hooks/hooks.json), [`hooks/run-hook.sh`](https://github.com/oceanbase/powermem/blob/main/apps/claude-code-plugin/hooks/run-hook.sh), and **native** `hooks/bin/powermem-hook-*` binaries built from [`cmd/powermem-hook`](https://github.com/oceanbase/powermem/tree/main/apps/claude-code-plugin/cmd/powermem-hook/). When the plugin is enabled, Claude Code merges these hooks:
 
 | Hook | What happens |
 |------|----------------|
+| `SessionStart` | By default, **`POST …/api/v1/memories/search`** with bounded session metadata such as `cwd`, `session_title`, `source`, and `agent_type`; hits are injected as **additional context** before the first turn. Set **`POWERMEM_SESSION_START_SEARCH=0`** to disable. |
 | `UserPromptSubmit` | By default, **`POST …/api/v1/memories/search`** with the submitted `prompt`; top results are injected as **additional context** for that turn ([Claude Code hooks](https://code.claude.com/docs/en/hooks#userpromptsubmit)). Set **`POWERMEM_PROMPT_SEARCH=0`** (or `false` / `no` / `off`) to skip search (hook still registered; overhead is small when disabled). |
 | `SessionEnd` | Full **transcript** from `transcript_path` (parsed JSONL: user/assistant/summary lines) → **`POST …/api/v1/memories`**. |
 | `PostCompact` | The **`compact_summary`** field after `/compact` or auto-compact → **`POST …/api/v1/memories`**. |
+| `PreCompact` | Bounded tail snapshot from `transcript_path` before compaction → **`POST …/api/v1/memories`**, with transcript fingerprint and byte offsets for auditability. |
+| `PostToolUse` | Structured summaries for high-signal successful tools (`Write`, `Edit`, `MultiEdit`, `Bash`, `Agent`, `ExitPlanMode` by default) → **`POST …/api/v1/memories`**. Content and metadata are scrubbed, and deterministic event IDs are included when `session_id` and `tool_use_id` are available. |
+| `PostToolUseFailure` | Structured summaries for failed tools → **`POST …/api/v1/memories`** with `success=false`, error metadata, bounded scrubbed summaries, and interrupts skipped by default. |
+| `Stop` | Optional lightweight per-turn rollup after the main agent finishes responding → **`POST …/api/v1/memories`**. Disabled by default because it can run frequently; set **`POWERMEM_CAPTURE_STOP_ROLLUP=1`** to enable. |
+| `SubagentStart` / `SubagentStop` | Lifecycle observations keyed by the hook event name, not by `transcript_path`; metadata keeps bounded allowlisted link fields, not the full raw lifecycle payload. |
+| `TaskCreated` / `TaskCompleted` | Task lifecycle observations keyed by the hook event name, with link fields such as `session_id`, `task_id`, and `tool_use_id` when present. |
 
-**Write** hooks use `POST {POWERMEM_BASE_URL}/api/v1/memories`. **Prompt search** uses `POST {POWERMEM_BASE_URL}/api/v1/memories/search`. Neither path requires MCP.
+**Write** hooks use `POST {POWERMEM_BASE_URL}/api/v1/memories`. **Prompt and session-start search** use `POST {POWERMEM_BASE_URL}/api/v1/memories/search`. Neither path requires MCP.
 
 Optional environment variables (where you launch Claude Code):
 
@@ -324,8 +341,32 @@ Optional environment variables (where you launch Claude Code):
 | `POWERMEM_PROMPT_SEARCH` | No | **Default: on** — injects semantic search results on every user prompt via `UserPromptSubmit`. Set **`0`** / **`false`** / **`no`** / **`off`** to disable. |
 | `POWERMEM_PROMPT_SEARCH_LIMIT` | No | Max memories returned per prompt (default **8**, cap **30**). |
 | `POWERMEM_PROMPT_SEARCH_MAX_CHARS` | No | Cap on injected context string (default **24000**). |
+| `POWERMEM_SESSION_START_SEARCH` | No | **Default: on** — injects semantic search results at `SessionStart` using bounded session metadata. Set **`0`** / **`false`** / **`no`** / **`off`** to disable. |
+| `POWERMEM_SESSION_START_LIMIT` | No | Max memories returned for `SessionStart` search (default **6**, cap **30**). |
+| `POWERMEM_SESSION_START_MAX_CHARS` | No | Cap on `SessionStart` injected context string (default **16000**). |
+| `POWERMEM_CAPTURE_PRECOMPACT` | No | Set `0` / `false` / `no` / `off` to disable `PreCompact` snapshots (default on). |
+| `POWERMEM_PRECOMPACT_MAX_CHARS` | No | Max transcript tail characters for `PreCompact` snapshots (default **120000**). |
+| `POWERMEM_PRECOMPACT_TAIL_LINES` | No | Max transcript tail lines for `PreCompact` snapshots (default **200**). |
+| `POWERMEM_INFER_PRECOMPACT` | No | Set `1` to enable server-side infer for `PreCompact` snapshots (default off). |
+| `POWERMEM_CAPTURE_TOOL_SUCCESS` | No | Set `0` / `false` / `no` / `off` to disable `PostToolUse` capture (default on). |
+| `POWERMEM_TOOL_SUCCESS_INCLUDE` | No | Comma-separated allowed tool names. Defaults to `Write,Edit,MultiEdit,Bash,Agent,ExitPlanMode`; `*` allows all tools. |
+| `POWERMEM_TOOL_SUCCESS_EXCLUDE` | No | Comma-separated denied tool names. Exclude wins over include; `*` disables all tool success capture. |
+| `POWERMEM_TOOL_EVENT_MAX_CHARS` | No | Max characters for a structured tool event memory (default **6000**). |
+| `POWERMEM_INFER_TOOL_EVENTS` | No | Set `1` to enable server-side infer for tool event memories (default off). |
+| `POWERMEM_CAPTURE_TOOL_FAILURES` | No | Set `0` / `false` / `no` / `off` to disable `PostToolUseFailure` capture (default on). |
+| `POWERMEM_CAPTURE_INTERRUPTS` | No | Set `1` to capture interrupted tool events; interrupts are skipped by default. |
+| `POWERMEM_TOOL_FAILURE_MAX_CHARS` | No | Max characters for a structured tool failure memory (default **6000**). |
+| `POWERMEM_INFER_TOOL_FAILURES` | No | Set `1` to enable server-side infer for failed tool memories (default off). |
+| `POWERMEM_CAPTURE_STOP_ROLLUP` | No | Set `1` to enable lightweight `Stop` rollup capture (default off). |
+| `POWERMEM_STOP_MAX_CHARS` | No | Max characters for the `Stop` final-message preview (default **3000**). |
+| `POWERMEM_INFER_STOP` | No | Set `1` to enable server-side infer for `Stop` rollups (default off). |
+| `POWERMEM_CAPTURE_SUBAGENTS` | No | Set `0` / `false` / `no` / `off` to disable subagent lifecycle capture (default on). |
+| `POWERMEM_CAPTURE_TASKS` | No | Set `0` / `false` / `no` / `off` to disable task lifecycle capture (default on). |
+| `POWERMEM_INFER_LIFECYCLE_EVENTS` | No | Set `1` to enable server-side infer for all lifecycle events (default off). |
+| `POWERMEM_INFER_SUBAGENT_STOP` | No | Set `1` to enable infer for `SubagentStop` when the generic lifecycle infer flag is off. |
+| `POWERMEM_INFER_TASK_COMPLETED` | No | Set `1` to enable infer for `TaskCompleted` when the generic lifecycle infer flag is off. |
 
-The hook scrubber runs before `SessionEnd`, `PostCompact`, workspace-file writes, prompt search, and the `PostCompact` detached-worker environment handoff. Write metadata includes a `privacy` object with the active level, path mode, action, and redaction counts; original matched values are not recorded there.
+The hook scrubber runs before hook writes/searches, including session, compact, tool, stop, lifecycle, prompt-search, workspace-file, and detached-worker handoff paths. Write metadata includes a `privacy` object with the active level, path mode, action, and redaction counts; original matched values are not recorded there.
 
 **SessionEnd timeout:** Claude Code defaults to a short timeout for `SessionEnd` hooks. The hook **returns immediately** and uploads in a **detached worker process**, so large transcripts still upload without blocking exit. If you ever switch to a synchronous upload inside the hook, raise `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` (see [Claude Code hooks – SessionEnd](https://code.claude.com/docs/en/hooks#sessionend)).
 
@@ -333,15 +374,16 @@ The hook scrubber runs before `SessionEnd`, `PostCompact`, workspace-file writes
 
 What you see is often **expected**:
 
-1. **Default HTTP mode** — There are **no** PowerMem MCP tools during chat, so Claude does **not** call `/mcp` on each message. **`POST /api/v1/memories`** (writes) still come from **`SessionEnd`** / **`PostCompact`**, not every reply. By default, **`POST /api/v1/memories/search`** runs **on each user message** via `UserPromptSubmit`; set **`POWERMEM_PROMPT_SEARCH=0`** to turn that off.
-2. **Not every hook is per-turn** — `SessionEnd` runs when the **session ends** (quit, `/clear`, `/resume` switch, etc.). `PostCompact` runs after **manual or auto compact**, not after every reply.
+1. **Default HTTP mode** — There are **no** PowerMem MCP tools during chat, so Claude does **not** call `/mcp` on each message. **`POST /api/v1/memories/search`** runs on each user message via `UserPromptSubmit` by default; set **`POWERMEM_PROMPT_SEARCH=0`** to turn that off.
+2. **Write hooks are event-driven** — **`POST /api/v1/memories`** writes can come from `SessionEnd`, `PostCompact`, `PreCompact`, default-on tool success/failure captures, and default-on subagent/task lifecycle events. They still do not run after every assistant reply unless you opt into `Stop` rollups with **`POWERMEM_CAPTURE_STOP_ROLLUP=1`**.
 3. **Those GETs** (`/system/status`, `/memories/stats`, …) usually come from another client (e.g. **PowerMem VS Code extension** dashboard), not from Claude Code hooks.
 
 **How to verify hooks:**
 
-- **End the Claude Code session** (exit the CLI session that used `--plugin-dir`), then check server logs for **`POST /api/v1/memories`** (the worker runs shortly after exit).
-- Or trigger **`/compact`** (or wait for auto-compact) and look for a compact-summary write.
-- In Claude Code, type **`/hooks`** and confirm `UserPromptSubmit` (if present) / `SessionEnd` / `PostCompact` list this plugin’s command (see [hooks menu](https://code.claude.com/docs/en/hooks#the-hooks-menu)).
+- **End the Claude Code session** (exit the CLI session that used `--plugin-dir`), then check server logs for a `SessionEnd` **`POST /api/v1/memories`** write (the worker runs shortly after exit).
+- Or trigger **`/compact`** (or wait for auto-compact) and look for `PreCompact` / `PostCompact` writes.
+- Run a high-signal tool such as `Bash`, `Write`, or `Edit` and look for `PostToolUse` or `PostToolUseFailure` writes.
+- In Claude Code, type **`/hooks`** and confirm the hook events in the table above list this plugin’s command (see [hooks menu](https://code.claude.com/docs/en/hooks#the-hooks-menu)).
 
 **If you want traffic during the conversation:**
 
@@ -366,7 +408,7 @@ See [watcher/README.md](https://github.com/oceanbase/powermem/blob/main/apps/cla
 
 - **Default (HTTP mode):** Hooks capture to REST automatically; no PowerMem tools in chat. **Per-prompt semantic retrieval is on by default** (see [Seamless recording](#seamless-recording-hooks--http-api)); set **`POWERMEM_PROMPT_SEARCH=0`** to disable.
 - **MCP mode:** Run `apply-connection-mode.sh mcp`, then PowerMem tools appear; use **/memory-powermem:remember** / **recall** with real tool backing. Per-prompt injection stays **on by default**; set **`POWERMEM_PROMPT_SEARCH=0`** if you only want explicit MCP tool use.
-- In **both** modes, transcript/compact hooks write to REST (`POWERMEM_BASE_URL`, default `http://localhost:8848`) without the model calling tools.
+- In **both** modes, event-driven write hooks send session, compact, tool, and lifecycle memories to REST (`POWERMEM_BASE_URL`, default `http://localhost:8848`) without the model calling tools.
 
 ## Links
 

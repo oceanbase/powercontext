@@ -1,0 +1,27 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "session-agent-1041",
+  "cwd": "/workspace/project",
+  "tool_name": "Agent",
+  "tool_use_id": "tool-agent-1",
+  "tool_input": {
+    "agent_type": "reviewer",
+    "description": "Review the Claude Code hook event capture.",
+    "prompt": "Check Agent and SubagentStop payloads without leaking Bearer sentinelsecret1049."
+  },
+  "tool_response": {
+    "agentId": "agent-response-1045",
+    "agentType": "reviewer",
+    "status": "completed",
+    "content": [
+      {
+        "type": "text",
+        "text": "Review completed with no blockers and Bearer redactme1049 scrubbed."
+      }
+    ],
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 42
+    }
+  }
+}
