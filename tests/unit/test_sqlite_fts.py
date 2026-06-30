@@ -395,10 +395,14 @@ class TestFTS5QuerySanitization:
             ("$5 item", '"5" "item"'),
             ("---", ""),
             ("#@!", ""),
+            ("//", ""),
+            ("!!!", ""),
+            ("<>;", ""),
             ("don't", '"don" "t"'),
             ("~1.2.3", '"1" "2" "3"'),
             ("key=value", '"key" "value"'),
             ("my_var", '"my_var"'),
+            ('he said "hello"', '"he" "said" "hello"'),
             ("fix-NOT-working", '"fix" "NOT" "working"'),
             ("std::vector<int>", '"std" "vector" "int"'),
             ("foo;bar", '"foo" "bar"'),
@@ -433,6 +437,7 @@ class TestFTS5QuerySanitization:
             ("foo;bar", "config foo;bar enabled here", True),
             ("`foo`", "backtick `foo` identifier", True),
             ("AND OR NOT", "some searchable content", False),
+            ("//", "some searchable content", False),
         ],
     )
     def test_sanitized_queries_do_not_log_fts5_warning(
@@ -450,7 +455,7 @@ class TestFTS5QuerySanitization:
             "FTS5 search failed" in record.message for record in caplog.records
         ), query
 
-    def test_operator_only_query_returns_empty_without_warning(self, store, mocker):
+    def test_operator_keywords_quoted_as_literal_phrases_no_warning(self, store, mocker):
         _insert_docs(store, [{"content": "hello world"}])
         assert _sanitize_fts5_input("AND OR NOT") == '"AND" "OR" "NOT"'
 
@@ -557,3 +562,9 @@ class TestFTS5QuerySanitization:
         results = store.search(query="fox", vectors=None, limit=5)
         assert len(results) >= 1
         assert "fox" in results[0].payload.get("data", "").lower()
+
+    def test_underscore_identifier_pure_text_search(self, store):
+        _insert_docs(store, [{"content": "my_var_function definition here"}])
+        results = store.search(query="my_var", vectors=None, limit=5)
+        assert len(results) >= 1
+        assert "my_var_function" in results[0].payload.get("data", "")

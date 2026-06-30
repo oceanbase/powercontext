@@ -182,30 +182,52 @@ class TestFTS5MemoryAPIIntegration:
     # Technical tokens with hyphens/slashes (Fixes #1119)
     def test_search_technical_tokens(self, caplog):
         self._add(
-            "PowerMem release verification: the marker phrase is oceanbase-blue-116 "
-            "powermem-mcp v1.1.6 fix/release-dispatch-repo fix-NOT-working "
-            "std::vector<int> foo;bar `foo` neural AND network add search."
+            "PowerMem release verification: oceanbase-blue-116 powermem-mcp "
+            "v1.1.6 fix/release-dispatch-repo fix-NOT-working std::vector<int> "
+            "foo;bar `foo` neural AND network add search."
         )
-
-        queries = [
+        composite_queries = [
             "oceanbase-blue-116 add search",
             "powermem-mcp add search",
             "v1.1.6 add search",
             "fix/release-dispatch-repo add search",
-            "fix-NOT-working add search",
-            "std::vector<int> add search",
-            "foo;bar add search",
-            "`foo` add search",
-            "neural AND network add search",
         ]
-
-        for query in queries:
+        for query in composite_queries:
             with caplog.at_level(logging.WARNING):
                 results = self._search(query)
                 assert len(results["results"]) >= 1, query
                 assert not any(
                     "FTS5 search failed" in record.message for record in caplog.records
                 ), query
+
+        isolated_cases = [
+            ("marker oceanbase-blue-116 marker", "oceanbase-blue-116"),
+            ("uses powermem-mcp module", "powermem-mcp"),
+            ("release v1.1.6 shipped", "v1.1.6"),
+            ("path fix/release-dispatch-repo here", "fix/release-dispatch-repo"),
+            ("status fix-NOT-working retry", "fix-NOT-working"),
+            ("uses std::vector<int> in cpp", "std::vector<int>"),
+            ("config foo;bar enabled", "foo;bar"),
+            ("backtick `foo` identifier", "`foo`"),
+            ("neural AND network layer", "neural AND network"),
+        ]
+        for content, query in isolated_cases:
+            self._add(content)
+            with caplog.at_level(logging.WARNING):
+                results = self._search(query)
+                assert len(results["results"]) >= 1, query
+                assert not any(
+                    "FTS5 search failed" in record.message for record in caplog.records
+                ), query
+
+        with caplog.at_level(logging.WARNING):
+            fts_store = self.memory.storage.vector_store
+            assert isinstance(fts_store, SQLiteVectorStore)
+            slash_results = fts_store.search(query="//", vectors=None, limit=5)
+            assert slash_results == []
+            assert not any(
+                "FTS5 search failed" in record.message for record in caplog.records
+            )
 
     # Update syncs FTS content (via Memory API)
     def test_update_syncs_fts(self):

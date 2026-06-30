@@ -41,10 +41,8 @@ def _json_path_for_key(key: str) -> str:
     return path
 
 
-# FTS5 query metacharacters and selected ASCII separator characters stripped before MATCH.
-_FTS5_QUERY_CLEANUP_RE = re.compile(
-    r"""[-/.#:+!&*"()^$%,@|'~{}\[\]=\\?<>;`]+"""
-)
+# ASCII word fragments aligned with unicode61 token characters.
+_FTS5_TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
 
 
 def _quote_fts5_literal_token(token: str) -> str:
@@ -54,37 +52,15 @@ def _quote_fts5_literal_token(token: str) -> str:
 
 
 def _sanitize_fts5_input(query: str) -> str:
-    """Sanitize user search text for safe SQLite FTS5 MATCH queries.
+    """Build a literal FTS5 MATCH string from user search text.
 
-    PowerMem callers pass natural-language or technical tokens, not raw FTS5
-    syntax. Separator characters and code punctuation (aligned with common
-    unicode61 tokenization) are converted to spaces, then each remaining token
-    is wrapped in FTS5 double quotes so ``AND``/``OR``/``NOT`` and other
-    reserved words are matched literally rather than as query operators.
-
-    Returns an empty string when the input contains only punctuation or
-    whitespace after cleanup (for example ``---`` or ``#@!``). Purely
-    sanitized punctuation queries therefore return ``[]`` without attempting
-    MATCH.
-
-    Numeric-only tokens (for example ``1119`` from ``#1119``) are quoted but
-    FTS5 typically does not index bare digits; matches still rely on
-    co-occurring word tokens such as ``oceanbase`` or ``blue``.
-
-    FTS5 advanced syntax (phrase quotes, prefix ``*``, column ``:`` filters,
-    boolean operators) is not available on user input. There is no public API
-    to bypass this sanitization.
+    Keeps ASCII alphanumerics and underscore, quotes each token, and drops
+    non-ASCII characters. Returns empty when nothing remains after extraction.
     """
     if not query or not query.strip():
         return ""
 
-    tokens: List[str] = []
-    for raw_token in query.split():
-        token = _FTS5_QUERY_CLEANUP_RE.sub(" ", raw_token)
-        for part in token.split():
-            if part:
-                tokens.append(part)
-
+    tokens = _FTS5_TOKEN_RE.findall(query)
     if not tokens:
         return ""
 
@@ -338,6 +314,9 @@ class SQLiteVectorStore(VectorStoreBase):
 
         fts_query = _sanitize_fts5_input(query)
         if not fts_query:
+            logger.debug(
+                "FTS5 query sanitized to empty, skipping fulltext search"
+            )
             return []
 
         fts_table = f"{self.collection_name}_fts"
