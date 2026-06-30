@@ -44,25 +44,19 @@ def _json_path_for_key(key: str) -> str:
 # Word fragments aligned with unicode61-style token characters.
 _FTS5_TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
 
-_FTS5_RESERVED = frozenset({"AND", "OR", "NOT"})
-
-
 def _sanitize_fts5_input(query: str) -> str:
     """Build a literal FTS5 MATCH string from user search text.
 
-    Extracts Unicode word tokens, drops FTS5 boolean keywords, and wraps each
-    remaining token in double quotes. Punctuation-separated forms such as
-    ``v1.1.6`` become independent token matches (``"v1" "1" "6"``) without
-    preserving original spacing. Returns empty when nothing remains.
+    Extracts Unicode word tokens and wraps each in double quotes so FTS5 treats
+    them as literal terms (including ``AND``/``OR``/``NOT``), not query syntax.
+    Punctuation-separated forms such as ``v1.1.6`` become independent token
+    matches (``"v1" "1" "6"``) without preserving original spacing. Returns empty
+    when nothing remains.
     """
     if not query or not query.strip():
         return ""
 
-    tokens = [
-        token
-        for token in _FTS5_TOKEN_RE.findall(query)
-        if token.upper() not in _FTS5_RESERVED
-    ]
+    tokens = _FTS5_TOKEN_RE.findall(query)
     if not tokens:
         return ""
 

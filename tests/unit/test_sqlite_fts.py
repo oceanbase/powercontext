@@ -403,12 +403,12 @@ class TestFTS5QuerySanitization:
             ("key=value", '"key" "value"'),
             ("my_var", '"my_var"'),
             ('he said "hello"', '"he" "said" "hello"'),
-            ("fix-NOT-working", '"fix" "working"'),
+            ("fix-NOT-working", '"fix" "NOT" "working"'),
             ("std::vector<int>", '"std" "vector" "int"'),
             ("foo;bar", '"foo" "bar"'),
             ("`foo`", '"foo"'),
-            ("neural AND network", '"neural" "network"'),
-            ("AND OR NOT", ""),
+            ("neural AND network", '"neural" "AND" "network"'),
+            ("AND OR NOT", '"AND" "OR" "NOT"'),
             ("中文测试", '"中文测试"'),
         ],
     )
@@ -456,10 +456,11 @@ class TestFTS5QuerySanitization:
             "FTS5 search failed" in record.message for record in caplog.records
         ), query
 
-    def test_reserved_operators_stripped_and_queries_still_match(self, store, mocker):
+    def test_boolean_keywords_quoted_as_literal_tokens_no_warning(self, store, mocker):
         _insert_docs(store, [{"content": "ham AND eggs breakfast"}])
-        assert _sanitize_fts5_input("AND OR NOT") == ""
-        assert _sanitize_fts5_input("ham AND eggs") == '"ham" "eggs"'
+        assert _sanitize_fts5_input("AND OR NOT") == '"AND" "OR" "NOT"'
+        assert _sanitize_fts5_input("ham AND eggs") == '"ham" "AND" "eggs"'
+        assert _sanitize_fts5_input("fix-NOT-working") == '"fix" "NOT" "working"'
 
         warn = mocker.patch(
             "powermem.storage.sqlite.sqlite_vector_store.logger.warning"
@@ -467,6 +468,11 @@ class TestFTS5QuerySanitization:
         results = store.search(query="ham AND eggs", vectors=None, limit=5)
         assert len(results) >= 1
         assert "ham" in results[0].payload.get("data", "").lower()
+        warn.assert_not_called()
+
+        results = store.search(query="AND", vectors=None, limit=5)
+        assert len(results) >= 1
+        assert "AND" in results[0].payload.get("data", "")
         warn.assert_not_called()
 
         results = store.search(query="AND OR NOT", vectors=None, limit=5)
