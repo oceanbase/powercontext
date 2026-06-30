@@ -183,7 +183,8 @@ class TestFTS5MemoryAPIIntegration:
     def test_search_technical_tokens(self, caplog):
         self._add(
             "PowerMem release verification: the marker phrase is oceanbase-blue-116 "
-            "powermem-mcp v1.1.6 fix/release-dispatch-repo add search."
+            "powermem-mcp v1.1.6 fix/release-dispatch-repo fix-NOT-working "
+            "std::vector<int> foo;bar `foo` neural AND network add search."
         )
 
         queries = [
@@ -191,6 +192,11 @@ class TestFTS5MemoryAPIIntegration:
             "powermem-mcp add search",
             "v1.1.6 add search",
             "fix/release-dispatch-repo add search",
+            "fix-NOT-working add search",
+            "std::vector<int> add search",
+            "foo;bar add search",
+            "`foo` add search",
+            "neural AND network add search",
         ]
 
         for query in queries:

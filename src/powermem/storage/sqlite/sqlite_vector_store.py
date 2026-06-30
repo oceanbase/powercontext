@@ -43,39 +43,40 @@ def _json_path_for_key(key: str) -> str:
 
 # FTS5 query metacharacters and selected ASCII separator characters stripped before MATCH.
 _FTS5_QUERY_CLEANUP_RE = re.compile(
-    r"""[-/.#:+!&*"()^$%,@|'~{}\[\]=\\?]+"""
+    r"""[-/.#:+!&*"()^$%,@|'~{}\[\]=\\?<>;`]+"""
 )
+
+
+def _quote_fts5_literal_token(token: str) -> str:
+    """Wrap a single token in FTS5 double quotes for literal (non-syntax) matching."""
+    escaped = token.replace('"', '""')
+    return f'"{escaped}"'
 
 
 def _sanitize_fts5_input(query: str) -> str:
     """Sanitize user search text for safe SQLite FTS5 MATCH queries.
 
     PowerMem callers pass natural-language or technical tokens, not raw FTS5
-    syntax. FTS5 query metacharacters and selected ASCII separator characters
-    (aligned with common unicode61 tokenization) are converted to spaces.
+    syntax. Separator characters and code punctuation (aligned with common
+    unicode61 tokenization) are converted to spaces, then each remaining token
+    is wrapped in FTS5 double quotes so ``AND``/``OR``/``NOT`` and other
+    reserved words are matched literally rather than as query operators.
 
     Returns an empty string when the input contains only punctuation or
     whitespace after cleanup (for example ``---`` or ``#@!``). Purely
     sanitized punctuation queries therefore return ``[]`` without attempting
-    MATCH, whereas the pre-fix path logged an FTS5 warning first.
+    MATCH.
 
-    Numeric-only tokens (for example ``1119`` from ``#1119``) are passed
-    through but FTS5 typically does not index bare digits; matches still rely
-    on co-occurring word tokens such as ``oceanbase`` or ``blue``.
+    Numeric-only tokens (for example ``1119`` from ``#1119``) are quoted but
+    FTS5 typically does not index bare digits; matches still rely on
+    co-occurring word tokens such as ``oceanbase`` or ``blue``.
 
-    FTS5 advanced syntax (phrase quotes, prefix ``*``, column ``:`` filters)
-    is not available on user input because the characters that enable it are
-    stripped. There is no public API to bypass this sanitization.
-
-    FTS5 boolean operators (AND/OR/NOT) are not escaped; they remain query
-    syntax when present as standalone tokens.
+    FTS5 advanced syntax (phrase quotes, prefix ``*``, column ``:`` filters,
+    boolean operators) is not available on user input. There is no public API
+    to bypass this sanitization.
     """
     if not query or not query.strip():
         return ""
-
-    stripped = query.strip()
-    if _FTS5_QUERY_CLEANUP_RE.search(stripped) is None:
-        return stripped
 
     tokens: List[str] = []
     for raw_token in query.split():
@@ -84,7 +85,10 @@ def _sanitize_fts5_input(query: str) -> str:
             if part:
                 tokens.append(part)
 
-    return " ".join(tokens)
+    if not tokens:
+        return ""
+
+    return " ".join(_quote_fts5_literal_token(token) for token in tokens)
 
 
 def _check_sqlite_features(conn) -> None:

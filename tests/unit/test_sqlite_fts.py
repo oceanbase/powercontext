@@ -377,38 +377,42 @@ class TestFTS5QuerySanitization:
         "raw,expected",
         [
             (None, ""),
-            ("oceanbase-blue-116 add search", "oceanbase blue 116 add search"),
-            ("powermem-mcp", "powermem mcp"),
-            ("v1.1.6", "v1 1 6"),
-            ("fix/release-dispatch-repo", "fix release dispatch repo"),
-            ("#1119", "1119"),
-            ("fix: dispatch", "fix dispatch"),
-            ("@user", "user"),
-            ("hello!world", "hello world"),
-            ("foo|bar", "foo bar"),
-            ("a&b", "a b"),
-            ("^hello", "hello"),
-            ("100%", "100"),
-            ("$5 item", "5 item"),
+            (
+                "oceanbase-blue-116 add search",
+                '"oceanbase" "blue" "116" "add" "search"',
+            ),
+            ("powermem-mcp", '"powermem" "mcp"'),
+            ("v1.1.6", '"v1" "1" "6"'),
+            ("fix/release-dispatch-repo", '"fix" "release" "dispatch" "repo"'),
+            ("#1119", '"1119"'),
+            ("fix: dispatch", '"fix" "dispatch"'),
+            ("@user", '"user"'),
+            ("hello!world", '"hello" "world"'),
+            ("foo|bar", '"foo" "bar"'),
+            ("a&b", '"a" "b"'),
+            ("^hello", '"hello"'),
+            ("100%", '"100"'),
+            ("$5 item", '"5" "item"'),
             ("---", ""),
             ("#@!", ""),
-            ("don't", "don t"),
-            ("~1.2.3", "1 2 3"),
-            ("key=value", "key value"),
-            ("my_var", "my_var"),
+            ("don't", '"don" "t"'),
+            ("~1.2.3", '"1" "2" "3"'),
+            ("key=value", '"key" "value"'),
+            ("my_var", '"my_var"'),
+            ("fix-NOT-working", '"fix" "NOT" "working"'),
+            ("std::vector<int>", '"std" "vector" "int"'),
+            ("foo;bar", '"foo" "bar"'),
+            ("`foo`", '"foo"'),
+            ("neural AND network", '"neural" "AND" "network"'),
+            ("AND OR NOT", '"AND" "OR" "NOT"'),
         ],
     )
     def test_sanitize_fts5_input(self, raw, expected):
         assert _sanitize_fts5_input(raw) == expected
 
-    def test_sanitize_preserves_boolean_operators(self):
-        assert _sanitize_fts5_input("neural AND network") == "neural AND network"
-        assert _sanitize_fts5_input("foo OR bar") == "foo OR bar"
-        assert _sanitize_fts5_input("NOT working") == "NOT working"
-
-    def test_sanitize_fast_path_returns_original_query(self):
-        assert _sanitize_fts5_input("fox") == "fox"
-        assert _sanitize_fts5_input("  neural network  ") == "neural network"
+    def test_sanitize_quotes_simple_tokens_as_literals(self):
+        assert _sanitize_fts5_input("fox") == '"fox"'
+        assert _sanitize_fts5_input("  neural network  ") == '"neural" "network"'
 
     @pytest.mark.parametrize(
         "query,content,expect_results",
@@ -424,6 +428,11 @@ class TestFTS5QuerySanitization:
             ),
             ("@username", "notify @username about deployment", True),
             ("foo|bar", "config key foo|bar enabled", True),
+            ("fix-NOT-working", "status fix-NOT-working retry path", True),
+            ("std::vector<int>", "uses std::vector<int> in cpp module", True),
+            ("foo;bar", "config foo;bar enabled here", True),
+            ("`foo`", "backtick `foo` identifier", True),
+            ("AND OR NOT", "some searchable content", False),
         ],
     )
     def test_sanitized_queries_do_not_log_fts5_warning(
@@ -441,9 +450,9 @@ class TestFTS5QuerySanitization:
             "FTS5 search failed" in record.message for record in caplog.records
         ), query
 
-    def test_operator_only_query_returns_empty_with_warning(self, store, mocker):
+    def test_operator_only_query_returns_empty_without_warning(self, store, mocker):
         _insert_docs(store, [{"content": "hello world"}])
-        assert _sanitize_fts5_input("AND OR NOT") == "AND OR NOT"
+        assert _sanitize_fts5_input("AND OR NOT") == '"AND" "OR" "NOT"'
 
         warn = mocker.patch(
             "powermem.storage.sqlite.sqlite_vector_store.logger.warning"
@@ -451,8 +460,7 @@ class TestFTS5QuerySanitization:
         results = store.search(query="AND OR NOT", vectors=None, limit=5)
 
         assert results == []
-        warn.assert_called_once()
-        assert "FTS5 search failed" in warn.call_args[0][0]
+        warn.assert_not_called()
 
     @pytest.fixture
     def technical_doc_store(self, store):
