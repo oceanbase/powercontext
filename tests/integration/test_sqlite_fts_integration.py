@@ -7,6 +7,7 @@ SQLiteVectorStore), with SQLite provider + mock embedder + mock LLM.
 Written by the tester per coordinator assignment (brief.l3=required).
 """
 
+import logging
 import uuid
 import pytest
 from unittest.mock import MagicMock, patch
@@ -178,9 +179,29 @@ class TestFTS5MemoryAPIIntegration:
         found_ids = [r.get("id") for r in after["results"]]
         assert memory_id not in found_ids, "Deleted doc should not appear in search"
 
-    # ------------------------------------------------------------------ #
-    # 7. Update syncs FTS content (via Memory API)
-    # ------------------------------------------------------------------ #
+    # Technical tokens with hyphens/slashes (Fixes #1119)
+    def test_search_technical_tokens(self, caplog):
+        self._add(
+            "PowerMem release verification: the marker phrase is oceanbase-blue-116 "
+            "powermem-mcp v1.1.6 fix/release-dispatch-repo add search."
+        )
+
+        queries = [
+            "oceanbase-blue-116 add search",
+            "powermem-mcp add search",
+            "v1.1.6 add search",
+            "fix/release-dispatch-repo add search",
+        ]
+
+        for query in queries:
+            with caplog.at_level(logging.WARNING):
+                results = self._search(query)
+                assert len(results["results"]) >= 1, query
+                assert not any(
+                    "FTS5 search failed" in record.message for record in caplog.records
+                ), query
+
+    # Update syncs FTS content (via Memory API)
     def test_update_syncs_fts(self):
         """After Memory.update(), FTS should find the new content, not the old."""
         add_result = self._add("original content phrase oldxyz")
@@ -200,9 +221,7 @@ class TestFTS5MemoryAPIIntegration:
         found_ids = [r.get("id") for r in after["results"]]
         assert memory_id in found_ids, "Updated content should appear in FTS search"
 
-    # ------------------------------------------------------------------ #
-    # 8. Filters work with hybrid search
-    # ------------------------------------------------------------------ #
+    # Filters work with hybrid search
     def test_filters_with_hybrid_search(self):
         """User filters should be respected in hybrid search results."""
         self._add("python data science tutorial", user_id="alice")
@@ -216,9 +235,7 @@ class TestFTS5MemoryAPIIntegration:
             if uid is not None:
                 assert uid == "alice", f"Filter should restrict to alice, got {uid}"
 
-    # ------------------------------------------------------------------ #
-    # 9. Multiple adds + search returns correct ranking
-    # ------------------------------------------------------------------ #
+    # Multiple adds + search returns correct ranking
     def test_multiple_adds_correct_ranking(self):
         """After multiple adds, FTS-matching doc should rank top in hybrid."""
         self._add("neural network deep learning transformer architecture")

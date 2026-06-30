@@ -8,6 +8,7 @@ Supports FTS5 fulltext search and hybrid search (vector + FTS5, RRF fusion).
 import json
 import logging
 import os
+import re
 import threading
 
 try:
@@ -38,6 +39,52 @@ def _json_path_for_key(key: str) -> str:
     for segment in segments:
         path += f".{json.dumps(segment)}"
     return path
+
+
+# FTS5 query metacharacters and selected ASCII separator characters stripped before MATCH.
+_FTS5_QUERY_CLEANUP_RE = re.compile(
+    r"""[-/.#:+!&*"()^$%,@|'~{}\[\]=\\?]+"""
+)
+
+
+def _sanitize_fts5_input(query: str) -> str:
+    """Sanitize user search text for safe SQLite FTS5 MATCH queries.
+
+    PowerMem callers pass natural-language or technical tokens, not raw FTS5
+    syntax. FTS5 query metacharacters and selected ASCII separator characters
+    (aligned with common unicode61 tokenization) are converted to spaces.
+
+    Returns an empty string when the input contains only punctuation or
+    whitespace after cleanup (for example ``---`` or ``#@!``). Purely
+    sanitized punctuation queries therefore return ``[]`` without attempting
+    MATCH, whereas the pre-fix path logged an FTS5 warning first.
+
+    Numeric-only tokens (for example ``1119`` from ``#1119``) are passed
+    through but FTS5 typically does not index bare digits; matches still rely
+    on co-occurring word tokens such as ``oceanbase`` or ``blue``.
+
+    FTS5 advanced syntax (phrase quotes, prefix ``*``, column ``:`` filters)
+    is not available on user input because the characters that enable it are
+    stripped. There is no public API to bypass this sanitization.
+
+    FTS5 boolean operators (AND/OR/NOT) are not escaped; they remain query
+    syntax when present as standalone tokens.
+    """
+    if not query or not query.strip():
+        return ""
+
+    stripped = query.strip()
+    if _FTS5_QUERY_CLEANUP_RE.search(stripped) is None:
+        return stripped
+
+    tokens: List[str] = []
+    for raw_token in query.split():
+        token = _FTS5_QUERY_CLEANUP_RE.sub(" ", raw_token)
+        for part in token.split():
+            if part:
+                tokens.append(part)
+
+    return " ".join(tokens)
 
 
 def _check_sqlite_features(conn) -> None:
@@ -285,6 +332,10 @@ class SQLiteVectorStore(VectorStoreBase):
         if not query or not query.strip():
             return []
 
+        fts_query = _sanitize_fts5_input(query)
+        if not fts_query:
+            return []
+
         fts_table = f"{self.collection_name}_fts"
         main_table = self.collection_name
 
@@ -295,18 +346,17 @@ class SQLiteVectorStore(VectorStoreBase):
             f"JOIN {main_table} m ON m.id = f.rowid "
             f"WHERE {fts_table} MATCH ? "
         )
-        params: list = [query]
 
-        # Apply payload filters
+        filter_params: List = []
         if filters:
             for key, value in filters.items():
                 sql += " AND (json_extract(m.payload, ?) = ?) "
-                params.extend([_json_path_for_key(key), value])
+                filter_params.extend([_json_path_for_key(key), value])
 
         sql += " ORDER BY rank LIMIT ?"
-        params.append(limit)
 
-        results = []
+        params: List = [fts_query, *filter_params, limit]
+        results: List[OutputData] = []
         with self._lock:
             try:
                 cursor = self.connection.execute(sql, params)
@@ -320,9 +370,9 @@ class SQLiteVectorStore(VectorStoreBase):
                         score=float(fts_score),
                         payload=payload,
                     ))
-            except sqlite3.OperationalError as e:
-                logger.warning(f"FTS5 search failed, returning empty: {e}")
-                return []
+            except sqlite3.OperationalError as exc:
+                logger.warning(f"FTS5 search failed, returning empty: {exc}")
+                results = []
 
         return results
 
