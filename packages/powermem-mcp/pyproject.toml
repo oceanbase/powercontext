@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "powermem-mcp"
-version = "1.1.6"
+version = "1.1.7"
 description = "PowerMem MCP server - thin wrapper that installs powermem[server,seekdb] and exposes the powermem-mcp command."
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "powermem[server,seekdb]==1.1.6",
+    "powermem[server,seekdb]==1.1.7",
 ]
 
 [project.urls]
