@@ -441,17 +441,18 @@ class TestFTS5QuerySanitization:
             "FTS5 search failed" in record.message for record in caplog.records
         ), query
 
-    def test_operator_only_query_returns_empty_with_warning(self, store, caplog):
+    def test_operator_only_query_returns_empty_with_warning(self, store, mocker):
         _insert_docs(store, [{"content": "hello world"}])
         assert _sanitize_fts5_input("AND OR NOT") == "AND OR NOT"
 
-        with caplog.at_level(logging.WARNING):
-            results = store.search(query="AND OR NOT", vectors=None, limit=5)
+        warn = mocker.patch(
+            "powermem.storage.sqlite.sqlite_vector_store.logger.warning"
+        )
+        results = store.search(query="AND OR NOT", vectors=None, limit=5)
 
         assert results == []
-        assert any(
-            "FTS5 search failed" in record.message for record in caplog.records
-        )
+        warn.assert_called_once()
+        assert "FTS5 search failed" in warn.call_args[0][0]
 
     @pytest.fixture
     def technical_doc_store(self, store):
