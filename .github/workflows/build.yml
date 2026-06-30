@@ -370,6 +370,24 @@ jobs:
           path: binary-artifacts
           merge-multiple: true
 
+      - name: Inspect existing release notes
+        id: release-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if body_length="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '(.body // "") | length' 2>/dev/null)"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            if [ "${body_length:-0}" -gt 0 ]; then
+              echo "has_body=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "has_body=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "has_body=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
@@ -379,7 +397,7 @@ jobs:
             binary-artifacts/*
           draft: false
           prerelease: false
-          generate_release_notes: true
+          generate_release_notes: ${{ steps.release-notes.outputs.exists != 'true' || steps.release-notes.outputs.has_body != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
