@@ -41,30 +41,37 @@ def _json_path_for_key(key: str) -> str:
     return path
 
 
-# ASCII word fragments aligned with unicode61 token characters.
-_FTS5_TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
+_FTS5_MAX_QUERY_TOKENS = 64
 
+# Word fragments aligned with unicode61-style token characters.
+_FTS5_TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
 
-def _quote_fts5_literal_token(token: str) -> str:
-    """Wrap a single token in FTS5 double quotes for literal (non-syntax) matching."""
-    escaped = token.replace('"', '""')
-    return f'"{escaped}"'
+_FTS5_RESERVED = frozenset({"AND", "OR", "NOT"})
 
 
 def _sanitize_fts5_input(query: str) -> str:
     """Build a literal FTS5 MATCH string from user search text.
 
-    Keeps ASCII alphanumerics and underscore, quotes each token, and drops
-    non-ASCII characters. Returns empty when nothing remains after extraction.
+    Extracts Unicode word tokens, drops FTS5 boolean keywords, and wraps each
+    remaining token in double quotes. Punctuation-separated forms such as
+    ``v1.1.6`` become independent token matches (``"v1" "1" "6"``) without
+    preserving original spacing. Returns empty when nothing remains.
     """
     if not query or not query.strip():
         return ""
 
-    tokens = _FTS5_TOKEN_RE.findall(query)
+    tokens = [
+        token
+        for token in _FTS5_TOKEN_RE.findall(query)
+        if token.upper() not in _FTS5_RESERVED
+    ]
     if not tokens:
         return ""
 
-    return " ".join(_quote_fts5_literal_token(token) for token in tokens)
+    if len(tokens) > _FTS5_MAX_QUERY_TOKENS:
+        tokens = tokens[:_FTS5_MAX_QUERY_TOKENS]
+
+    return " ".join('"' + token.replace('"', '""') + '"' for token in tokens)
 
 
 def _check_sqlite_features(conn) -> None:
