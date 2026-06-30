@@ -376,16 +376,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          if body_length="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '(.body // "") | length' 2>/dev/null)"; then
+          release_error="$(mktemp)"
+          trap 'rm -f "$release_error"' EXIT
+
+          if body_length="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '(.body // "") | length' 2>"$release_error")"; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             if [ "${body_length:-0}" -gt 0 ]; then
               echo "has_body=true" >> "$GITHUB_OUTPUT"
             else
               echo "has_body=false" >> "$GITHUB_OUTPUT"
             fi
-          else
+          elif grep -qi "release not found" "$release_error"; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "has_body=false" >> "$GITHUB_OUTPUT"
+          else
+            cat "$release_error" >&2
+            exit 1
           fi
 
       - name: Create Release
