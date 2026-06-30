@@ -305,6 +305,7 @@ write_runtime_base_url() {
   {
     printf 'POWERMEM_BASE_URL=%s\n' "$base_url"
     printf 'POWERMEM_ENV_FILE=%s\n' "$ENV_FILE"
+    printf 'POWERMEM_INFER_TRANSCRIPT=true\n'
   } > "$tmp"
   mv "$tmp" "$RUNTIME_FILE"
 }
