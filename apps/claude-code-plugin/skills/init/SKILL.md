@@ -135,6 +135,13 @@ is already set. Skipped entirely in remote mode.
     (and an optional API key). Storage/LLM/Embedding are determined by the
     remote server; the remaining questions are skipped.
     （连接已有的 PowerMem 服务，需要提供 URL（可选 API key）。Storage/LLM/Embedding 由远程服务决定，后续问题跳过。）
+  - "Remote + local fallback (优先远端，本地备选)" — Remote primary with a
+    local server as fallback. When the remote is unreachable (network error,
+    timeout, or HTTP 5xx), the hook transparently retries the local server.
+    Agent starts the local fallback server (running the same Question 1-3
+    flow as a standalone local server), then writes a dual runtime.env. The
+    MCP transport is **not** covered by fallback — see Connection below.
+    （远端为主 + 本地备选。远端不可用（网络/超时/5xx）时，hook 自动重试本地服务器。Agent 先按 Question 1-3 在本地起一个 fallback server，再写 dual runtime.env。dual 模式下 MCP 不生效，见下文 Connection。）
 
 Map the first two answers → `POWERMEM_SERVER_HOST=127.0.0.1` (loopback) or
 `POWERMEM_SERVER_HOST=0.0.0.0` (all interfaces). Pass this env var to
@@ -163,7 +170,91 @@ jump to "Running init.sh" with these env vars. Do NOT pass any
 `POWERMEM_INIT_DATABASE_PROVIDER` / `POWERMEM_INIT_LLM_*` /
 `POWERMEM_INIT_EMBEDDING_*` — they are ignored in remote mode.
 
-### Question 1 — Storage backend (ask only if `DATABASE_PROVIDER` not in `.env` AND `POWERMEM_INIT_DATABASE_PROVIDER` unset AND not remote mode)
+If the user picks **Remote + local fallback**, run the **dual flow** below
+instead of the Remote follow-up above.
+
+#### Dual flow — Remote + local fallback
+
+**Round 2-dual** — AskUserQuestion with 4 questions in one round:
+- **header**: "Server URL" — question: "PowerMem remote server URL (e.g. http://host:port)（PowerMem 远端服务地址，例如 http://host:port）"
+  - Same two protocol-hint options as Remote mode above. User types the
+    actual URL via "Other".
+- **header**: "API Key" — question: "API key for the remote server (optional, leave blank if none)（远端 API key，可选，没有则留空）"
+  - "No API key (无 key)" / "Enter key (输入 key)" — same as Remote mode.
+- **header**: "Connection" — question: "How should Claude Code connect? Dual mode disables MCP — fallback only applies to the hook's REST calls, not the MCP transport.（Claude Code 应该如何连接？dual 模式不支持 MCP——fallback 只作用于 hook 的 REST 调用，不覆盖 MCP transport。）"
+  - "Hook (REST) (Hook REST)" — Use REST API only. Fallback applies to all hook REST calls.（仅用 REST API。所有 hook REST 调用都走 fallback。）
+  - "Both (两路并存)" — Enable both. MCP keeps working when remote is up; the hook's REST calls fall back to local when remote is down.（同时启用。远端可用时 MCP 正常；远端不可用时 hook 的 REST 调用回退到本地，MCP 自身不兜底。）
+  - **Do NOT offer "MCP"** — fallback has no effect when hooks are disabled. (dual 模式下不提供 MCP 选项。)
+- **header**: "Fallback URL" — question: "Local fallback server URL (default http://localhost:8848)（本地备选服务地址，默认 http://localhost:8848）"
+  - "http://localhost:8848 (默认)" — Default loopback 8848. Reuse the same port as a standalone local server.（默认环回 8848，与单后端本地服务共用端口。）
+  - "http://localhost:8849" — Alternative port if 8848 is already taken by another process you don't want to disturb.（8848 已被其他进程占用时改用。）
+  - "Enter custom URL (自定义 URL)" — Type a custom URL via "Other" (local or another remote).（通过 Other 输入自定义 URL，本地或另一个远端均可。）
+
+**Round 3-dual / 4-dual / 5-dual** — Configure the **fallback server** using
+the **same questions as Question 1 (Storage), Question 2 (LLM), and Question 3
+(Embedding)** below, with the same option sets, detection rules, and env-var
+mappings. The only difference is these answers go into the fallback server's
+`.env` (started in step 2 of "Running init.sh — dual mode" below), not the
+primary's.
+
+**Port-conflict handling**: before starting the fallback server, run
+`sh "$CLAUDE_PLUGIN_ROOT/scripts/status.sh"` and check whether a healthy
+PowerMem server is already listening on the chosen Fallback URL. If yes,
+**state the conflict plainly** — tell the user an existing server is already
+on that URL, show its current config (Storage/LLM/Embedding from its `.env`
+if available), and ask whether to reuse it as-is or pick a different fallback
+URL. Do NOT silently restart or kill the existing server — the port is the
+user's decision. If no healthy server is there, proceed to start the fallback
+server.
+
+**Running init.sh — dual mode**: agent runs two init invocations in sequence:
+
+1. **Start the fallback server** (skip if a healthy server is already on the
+   Fallback URL):
+   ```sh
+   POWERMEM_INIT_BASE_URL=<fallback_url> \
+     POWERMEM_INIT_DATABASE_PROVIDER=<sqlite|oceanbase> \
+     POWERMEM_INIT_LLM_PROVIDER=<noop|anthropic|openai|deepseek|qwen|siliconflow> \
+     [POWERMEM_INIT_LLM_API_KEY=<key>] \
+     [POWERMEM_INIT_LLM_MODEL=<model>] \
+     [POWERMEM_INIT_LLM_BASE_URL=<url>] \
+     POWERMEM_INIT_EMBEDDING_PROVIDER=<provider> \
+     [POWERMEM_INIT_PACKAGE=<value-from-dev-mode-file>] \
+     bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh"
+   ```
+
+2. **Write the dual runtime.env**:
+   ```sh
+   POWERMEM_INIT_BASE_URL=<remote_url> \
+     POWERMEM_INIT_API_KEY=<key-or-blank> \
+     POWERMEM_INIT_CONNECTION_MODE=<hook|both> \
+     POWERMEM_INIT_FALLBACK_BASE_URL=<fallback_url> \
+     [POWERMEM_INIT_PACKAGE=<value-from-dev-mode-file>] \
+     bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh"
+   ```
+
+   `POWERMEM_INIT_CONNECTION_MODE` defaults to `both` when unset. init.sh
+   remote branch verifies primary health, then writes `runtime.env` with
+   `POWERMEM_BASE_URL=<remote>` and `POWERMEM_FALLBACK_BASE_URL=<fallback>`.
+   If the Fallback URL is local and not healthy at this point, init prints a
+   reminder to start one — that is why step 1 runs first.
+
+**After init** — run `status.sh` and report:
+- Hook base URL = `<remote_url>`
+- Fallback URL = `<fallback_url>` (show state file `~/.powermem/fallback-state.json`
+  only if it exists; otherwise mention it will be created on the first
+  fallback event)
+- Briefly note the known v1 limitations: no replication (fallback writes stay
+  local during outage), stale reads during fallback, no conflict resolution,
+  MCP not covered. Set `POWERMEM_FALLBACK_DISABLED=1` as a runtime kill switch.
+
+**Removing fallback later** — re-run `/memory-powermem:init` and pick "Remote"
+(single backend). init.sh will overwrite `runtime.env` with
+`write_runtime_remote`, clearing `POWERMEM_FALLBACK_BASE_URL`. The previously
+started local fallback server keeps running until you stop it with
+`scripts/stop.sh` or disable it via `claude plugin disable`.
+
+### Question 1 — Storage backend (ask only if `DATABASE_PROVIDER` not in `.env` AND `POWERMEM_INIT_DATABASE_PROVIDER` unset AND not remote mode — dual flow asks this for the fallback server)
 - **header**: "Storage"
 - **question**: "Which storage backend should PowerMem use?（PowerMem 使用哪个存储后端？）"
 - **options**:
