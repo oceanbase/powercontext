@@ -36,6 +36,13 @@ class SearchService:
         filters: Optional[Dict[str, Any]] = None,
         limit: int = 30,
         threshold: Optional[float] = None,
+        retrieval_mode: str = "auto",
+        fusion: str = "rrf",
+        vector_weight: Optional[float] = None,
+        fts_weight: Optional[float] = None,
+        rrf_k: int = 60,
+        candidate_limit: Optional[int] = None,
+        include_explanation: bool = False,
     ) -> Dict[str, Any]:
         """
         Search memories.
@@ -71,6 +78,13 @@ class SearchService:
                 filters=filters,
                 limit=limit,
                 threshold=threshold,
+                retrieval_mode=retrieval_mode,
+                fusion=fusion,
+                vector_weight=vector_weight,
+                fts_weight=fts_weight,
+                rrf_k=rrf_k,
+                candidate_limit=candidate_limit,
+                include_explanation=include_explanation,
             )
             
             logger.info(f"Search completed: {len(results.get('results', []))} results")

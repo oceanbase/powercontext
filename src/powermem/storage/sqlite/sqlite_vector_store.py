@@ -228,32 +228,96 @@ class SQLiteVectorStore(VectorStoreBase):
 
         return generated_ids
 
-    def search(self, query: str, vectors: List[List[float]] = None, limit: int = 5, filters=None) -> List[OutputData]:
+    def search(
+        self,
+        query: str,
+        vectors: List[List[float]] = None,
+        limit: int = 5,
+        filters=None,
+        retrieval_mode: str = "auto",
+        fusion: str = "rrf",
+        vector_weight: Optional[float] = None,
+        fts_weight: Optional[float] = None,
+        rrf_k: int = 60,
+        candidate_limit: Optional[int] = None,
+        include_explanation: bool = False,
+    ) -> List[OutputData]:
         """Search using vector similarity, fulltext, or hybrid (RRF fusion).
 
-        - Both ``query`` and ``vectors`` provided: hybrid search (vector + FTS5, RRF fusion)
+        - Both ``query`` and ``vectors`` provided: hybrid search
+          (vector + FTS5, RRF fusion)
         - Only ``vectors``: pure vector cosine similarity
         - Only ``query`` (non-empty string): pure FTS5 fulltext search
         - Neither: returns empty list
         """
+        del include_explanation
+        mode = (retrieval_mode or "auto").lower()
+        if mode not in {"auto", "fts", "vector", "hybrid"}:
+            raise ValueError(f"Invalid retrieval mode: {retrieval_mode}")
+        fusion = (fusion or "rrf").lower()
+        if fusion not in {"rrf", "weighted"}:
+            raise ValueError(f"Invalid fusion method: {fusion}")
+        vector_weight = 0.5 if vector_weight is None else vector_weight
+        fts_weight = 0.5 if fts_weight is None else fts_weight
+
+        if not 0.0 <= vector_weight <= 1.0:
+            raise ValueError("vector_weight must be between 0.0 and 1.0")
+        if not 0.0 <= fts_weight <= 1.0:
+            raise ValueError("fts_weight must be between 0.0 and 1.0")
+        if rrf_k < 1:
+            raise ValueError("rrf_k must be >= 1")
+        if candidate_limit is not None and candidate_limit < 1:
+            raise ValueError("candidate_limit must be >= 1")
+
+        search_limit = candidate_limit if candidate_limit is not None else limit
         has_vectors = vectors is not None and len(vectors) > 0
         has_query = isinstance(query, str) and query.strip() != ""
+        query_vector = None
+
+        if has_vectors:
+            if isinstance(vectors[0], (int, float)):
+                query_vector = vectors
+            else:
+                query_vector = vectors[0]
+
+        if mode == "fts":
+            query_vector = None
+            has_vectors = False
+        elif mode == "vector":
+            has_query = False
+        elif mode == "hybrid" and query_vector is None:
+            has_vectors = False
 
         if has_vectors and has_query:
             # Hybrid search: vector + FTS5, combined with RRF
-            vector_results = self._vector_search(vectors[0], limit, filters)
-            fts_results = self._fulltext_search(query, limit, filters)
-            return self._rrf_fusion(vector_results, fts_results, limit)
+            vector_results = self._vector_search(query_vector, search_limit, filters)
+            fts_results = self._fulltext_search(query, search_limit, filters)
+            if fusion == "weighted":
+                return self._weighted_fusion(
+                    vector_results,
+                    fts_results,
+                    limit,
+                    vector_weight=vector_weight,
+                    fts_weight=fts_weight,
+                )
+            return self._rrf_fusion(
+                vector_results,
+                fts_results,
+                limit,
+                k=rrf_k,
+                vector_weight=vector_weight,
+                fts_weight=fts_weight,
+            )
         elif has_vectors:
             # Pure vector search (backward compatible)
-            return self._vector_search(vectors[0], limit, filters)
+            return self._vector_search(query_vector, search_limit, filters)[:limit]
         elif has_query:
             # Pure fulltext search
-            return self._fulltext_search(query, limit, filters)
+            return self._fulltext_search(query, search_limit, filters)[:limit]
         else:
             # Fallback: if query is a list (legacy), use as vector
             if isinstance(query, list):
-                return self._vector_search(query, limit, filters)
+                return self._vector_search(query, search_limit, filters)[:limit]
             return []
 
     def _vector_search(self, query_vector: List[float], limit: int = 5,
@@ -343,6 +407,7 @@ class SQLiteVectorStore(VectorStoreBase):
                     doc_id, payload_str, fts_score = row
                     payload = json.loads(payload_str)
                     payload['_fts_score'] = float(fts_score)
+                    payload['_quality_score'] = 1.0
 
                     results.append(OutputData(
                         id=doc_id,
@@ -358,13 +423,16 @@ class SQLiteVectorStore(VectorStoreBase):
     def _rrf_fusion(self, vector_results: List[OutputData],
                     fts_results: List[OutputData], limit: int,
                     k: int = 60,
-                    vector_weight: float = 0.5,
-                    fts_weight: float = 0.5) -> List[OutputData]:
+                    vector_weight: Optional[float] = None,
+                    fts_weight: Optional[float] = None) -> List[OutputData]:
         """Reciprocal Rank Fusion combining vector and FTS5 results.
 
         Simplified 2-way RRF (no sparse path) modeled after
         ``OceanBaseVectorStore._rrf_fusion``.
         """
+        vector_weight = 0.5 if vector_weight is None else vector_weight
+        fts_weight = 0.5 if fts_weight is None else fts_weight
+
         all_docs: Dict[int, dict] = {}
 
         # Process vector results
@@ -385,7 +453,9 @@ class SQLiteVectorStore(VectorStoreBase):
                 all_docs[result.id]['fts_rank'] = rank
                 all_docs[result.id]['rrf_score'] += fts_rrf
                 # Merge FTS score into payload
-                all_docs[result.id]['result'].payload['_fts_score'] = result.payload.get('_fts_score')
+                all_docs[result.id]['result'].payload['_fts_score'] = (
+                    result.payload.get('_fts_score')
+                )
             else:
                 all_docs[result.id] = {
                     'result': result,
@@ -395,15 +465,23 @@ class SQLiteVectorStore(VectorStoreBase):
                 }
 
         # Sort by RRF score descending, take top ``limit``
-        sorted_docs = sorted(all_docs.values(), key=lambda d: d['rrf_score'], reverse=True)
+        sorted_docs = sorted(
+            all_docs.values(), key=lambda d: d['rrf_score'], reverse=True
+        )
 
         final_results = []
         for doc_data in sorted_docs[:limit]:
             result = doc_data['result']
             score = doc_data['rrf_score']
+            quality_score = (
+                1.0
+                if doc_data['fts_rank'] is not None
+                else result.payload.get('_vector_similarity', score)
+            )
 
             result.score = score
             result.payload['_fusion_score'] = score
+            result.payload['_quality_score'] = quality_score
             result.payload['_fusion_info'] = {
                 'vector_rank': doc_data['vector_rank'],
                 'fts_rank': doc_data['fts_rank'],
@@ -411,6 +489,90 @@ class SQLiteVectorStore(VectorStoreBase):
                 'fusion_method': 'rrf',
                 'vector_weight': vector_weight,
                 'fts_weight': fts_weight,
+                'rrf_k': k,
+            }
+            final_results.append(result)
+
+        return final_results
+
+    def _weighted_fusion(
+        self,
+        vector_results: List[OutputData],
+        fts_results: List[OutputData],
+        limit: int,
+        vector_weight: Optional[float] = None,
+        fts_weight: Optional[float] = None,
+    ) -> List[OutputData]:
+        """Weighted fusion using per-path min-max normalized scores."""
+        vector_weight = 0.5 if vector_weight is None else vector_weight
+        fts_weight = 0.5 if fts_weight is None else fts_weight
+
+        def normalized_scores(results: List[OutputData]) -> Dict[int, float]:
+            if not results:
+                return {}
+            scores = [float(r.score or 0.0) for r in results]
+            min_score = min(scores)
+            max_score = max(scores)
+            if max_score == min_score:
+                return {r.id: 1.0 for r in results}
+            return {
+                r.id: (float(r.score or 0.0) - min_score) / (max_score - min_score)
+                for r in results
+            }
+
+        vector_scores = normalized_scores(vector_results)
+        fts_scores = normalized_scores(fts_results)
+        all_docs: Dict[int, dict] = {}
+
+        for rank, result in enumerate(vector_results, 1):
+            all_docs[result.id] = {
+                "result": result,
+                "vector_rank": rank,
+                "fts_rank": None,
+                "weighted_score": (
+                    vector_weight * vector_scores.get(result.id, 0.0)
+                ),
+            }
+
+        for rank, result in enumerate(fts_results, 1):
+            weighted_score = fts_weight * fts_scores.get(result.id, 0.0)
+            if result.id in all_docs:
+                all_docs[result.id]["fts_rank"] = rank
+                all_docs[result.id]["weighted_score"] += weighted_score
+                all_docs[result.id]["result"].payload["_fts_score"] = (
+                    result.payload.get("_fts_score")
+                )
+            else:
+                all_docs[result.id] = {
+                    "result": result,
+                    "vector_rank": None,
+                    "fts_rank": rank,
+                    "weighted_score": weighted_score,
+                }
+
+        sorted_docs = sorted(
+            all_docs.values(), key=lambda d: d["weighted_score"], reverse=True
+        )
+
+        final_results = []
+        for doc_data in sorted_docs[:limit]:
+            result = doc_data["result"]
+            score = doc_data["weighted_score"]
+            quality_score = (
+                1.0
+                if doc_data["fts_rank"] is not None
+                else result.payload.get("_vector_similarity", score)
+            )
+            result.score = score
+            result.payload["_fusion_score"] = score
+            result.payload["_quality_score"] = quality_score
+            result.payload["_fusion_info"] = {
+                "vector_rank": doc_data["vector_rank"],
+                "fts_rank": doc_data["fts_rank"],
+                "weighted_score": score,
+                "fusion_method": "weighted",
+                "vector_weight": vector_weight,
+                "fts_weight": fts_weight,
             }
             final_results.append(result)
 

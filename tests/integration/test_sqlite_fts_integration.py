@@ -134,6 +134,21 @@ class TestFTS5MemoryAPIIntegration:
         # so cosine sim = 1.0 for everything)
         assert len(hits) >= 1, "Vector results should still appear even when FTS has no match"
 
+    def test_embedding_failure_falls_back_to_fts_with_threshold(self):
+        """Threshold filtering should not discard valid FTS fallback results."""
+        self._add("offline threshold fallback phrase")
+        self.memory.embedding.embed = MagicMock(side_effect=RuntimeError("offline"))
+
+        results = self.memory.search(
+            "threshold fallback",
+            user_id="integ_user",
+            threshold=0.3,
+        )
+
+        hits = results["results"]
+        assert len(hits) >= 1
+        assert "threshold fallback" in hits[0]["memory"]
+
     # ------------------------------------------------------------------ #
     # 5. FTS table is populated after add (verify via raw store)
     # ------------------------------------------------------------------ #

@@ -9,6 +9,7 @@ import logging
 import math
 import pytest
 
+from powermem.storage.adapter import StorageAdapter
 from powermem.storage.sqlite.sqlite_vector_store import (
     SQLiteVectorStore,
     _sanitize_fts5_input,
@@ -49,7 +50,81 @@ def _insert_docs(store, docs: list[dict]) -> list[int]:
             "fulltext_content": doc["content"],
             "user_id": doc.get("user_id", "u1"),
         })
+        if "metadata" in doc:
+            payloads[-1]["metadata"] = doc["metadata"]
+        if "category" in doc:
+            payloads[-1]["category"] = doc["category"]
     return store.insert(vectors, payloads)
+
+
+class FlatVectorStore:
+    """Minimal pgvector-like store that expects a flat query vector."""
+
+    collection_name = "flat_vectors"
+
+    def __init__(self):
+        self.seen_vectors = None
+        self.called = False
+
+    def search(self, query, vectors, limit=5, filters=None):
+        self.called = True
+        self.seen_vectors = vectors
+        return [
+            OutputData(
+                id=1,
+                score=0.9,
+                payload={"data": "flat vector result"},
+            )
+        ]
+
+
+class OceanBaseLikeHybridStore:
+    """Minimal OceanBase-like store exposing the public hybrid search controls."""
+
+    __module__ = "powermem.storage.oceanbase.oceanbase"
+    collection_name = "oceanbase_like"
+    hybrid_search = True
+
+    def __init__(self):
+        self.seen_kwargs = None
+
+    def search(
+        self,
+        query,
+        vectors,
+        limit=5,
+        filters=None,
+        sparse_embedding=None,
+        threshold=None,
+        retrieval_mode="auto",
+        fusion="rrf",
+        vector_weight=0.5,
+        fts_weight=0.5,
+        rrf_k=60,
+        candidate_limit=None,
+        include_explanation=False,
+    ):
+        self.seen_kwargs = {
+            "query": query,
+            "vectors": vectors,
+            "limit": limit,
+            "filters": filters,
+            "threshold": threshold,
+            "retrieval_mode": retrieval_mode,
+            "fusion": fusion,
+            "vector_weight": vector_weight,
+            "fts_weight": fts_weight,
+            "rrf_k": rrf_k,
+            "candidate_limit": candidate_limit,
+            "include_explanation": include_explanation,
+        }
+        return [
+            OutputData(
+                id=1,
+                score=0.9,
+                payload={"data": "oceanbase hybrid result", "metadata": {}},
+            )
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +214,23 @@ class TestPureTextSearch:
         for r in results:
             assert r.score > 0
 
+    def test_pure_text_search_handles_file_paths(self, store):
+        """FTS-only search should safely handle punctuation-heavy file paths."""
+        _insert_docs(store, [
+            {"content": "look in src/powermem/core/memory.py for search logic"},
+            {"content": "unrelated release notes"},
+        ])
+
+        results = store.search(
+            query="src/powermem/core/memory.py",
+            vectors=None,
+            limit=5,
+            retrieval_mode="fts",
+        )
+
+        assert len(results) == 1
+        assert "memory.py" in results[0].payload["data"]
+
 
 # ---------------------------------------------------------------------------
 # 4. Hybrid search (vector + FTS, RRF fusion)
@@ -166,6 +258,24 @@ class TestHybridSearch:
         r = results[0]
         assert "_fusion_score" in r.payload
         assert "_fusion_info" in r.payload
+
+    def test_hybrid_weighted_fusion(self, store):
+        """Hybrid search can use weighted fusion when explicitly requested."""
+        _insert_docs(store, [
+            {"content": "database search fallback", "vector_seed": 0.5},
+            {"content": "unrelated cooking note", "vector_seed": 0.2},
+        ])
+        query_vec = _make_vector(seed=0.5)
+
+        results = store.search(
+            query="database",
+            vectors=[query_vec],
+            limit=5,
+            fusion="weighted",
+        )
+
+        assert len(results) >= 1
+        assert results[0].payload["_fusion_info"]["fusion_method"] == "weighted"
 
     def test_hybrid_doc_in_both_paths_ranks_higher(self, store):
         """A doc matching both vector and text should rank above one matching only one."""
@@ -242,6 +352,149 @@ class TestFiltersWithFTS:
             filters={"user_id": "nonexistent"},
         )
         assert results == []
+
+    def test_adapter_allows_query_embedding_none_for_fts(self, store):
+        """StorageAdapter.search_memories(query_embedding=None) should run FTS-only."""
+        _insert_docs(store, [
+            {"content": "offline fallback should find this", "user_id": "alice"},
+            {"content": "different user offline fallback", "user_id": "bob"},
+        ])
+        adapter = StorageAdapter(store)
+
+        results = adapter.search_memories(
+            query_embedding=None,
+            query="offline",
+            user_id="alice",
+            limit=5,
+            include_explanation=True,
+        )
+
+        assert len(results) == 1
+        assert results[0]["user_id"] == "alice"
+        explanation = results[0]["metadata"]["search_explanation"]
+        assert explanation["retrieval_mode"] == "auto"
+        assert explanation["fts_score"] > 0
+
+    def test_adapter_fts_maps_user_metadata_filters(self, store):
+        """Logical metadata filters should apply to nested payload metadata."""
+        _insert_docs(store, [
+            {
+                "content": "metadata fallback should find this",
+                "user_id": "alice",
+                "metadata": {"scope": "personal"},
+            },
+            {
+                "content": "metadata fallback should not match",
+                "user_id": "alice",
+                "metadata": {"scope": "group"},
+            },
+        ])
+        adapter = StorageAdapter(store)
+
+        results = adapter.search_memories(
+            query_embedding=None,
+            query="metadata",
+            user_id="alice",
+            filters={"scope": "personal"},
+            limit=5,
+        )
+
+        assert len(results) == 1
+        assert results[0]["metadata"] == {"scope": "personal"}
+        assert "_fts_score" not in results[0]["metadata"]
+        assert "_quality_score" not in results[0]["metadata"]
+
+    def test_adapter_forwards_retrieval_controls_to_oceanbase_like_store(self):
+        """OceanBase-capable stores should receive per-query retrieval controls."""
+        store = OceanBaseLikeHybridStore()
+        adapter = StorageAdapter(store)
+
+        adapter.search_memories(
+            query_embedding=[0.1, 0.2, 0.3],
+            query="hybrid",
+            filters={"scope": "personal"},
+            limit=5,
+        )
+
+        assert store.seen_kwargs["vector_weight"] is None
+        assert store.seen_kwargs["fts_weight"] is None
+
+        adapter.search_memories(
+            query_embedding=[0.1, 0.2, 0.3],
+            query="hybrid",
+            filters={"scope": "personal"},
+            limit=5,
+            threshold=0.2,
+            retrieval_mode="hybrid",
+            fusion="weighted",
+            vector_weight=0.25,
+            fts_weight=0.75,
+            rrf_k=24,
+            candidate_limit=40,
+            include_explanation=True,
+        )
+
+        assert store.seen_kwargs["retrieval_mode"] == "hybrid"
+        assert store.seen_kwargs["fusion"] == "weighted"
+        assert store.seen_kwargs["vector_weight"] == 0.25
+        assert store.seen_kwargs["fts_weight"] == 0.75
+        assert store.seen_kwargs["rrf_k"] == 24
+        assert store.seen_kwargs["candidate_limit"] == 40
+        assert store.seen_kwargs["include_explanation"] is True
+        assert store.seen_kwargs["filters"] == {"scope": "personal"}
+
+    def test_adapter_preserves_flat_vector_shape_for_pgvector_like_store(self):
+        """Non-SQLite stores should still receive a flat query vector."""
+        store = FlatVectorStore()
+        adapter = StorageAdapter(store)
+        query_embedding = [0.1, 0.2, 0.3]
+
+        adapter.search_memories(
+            query_embedding=query_embedding,
+            query="flat vector",
+            limit=5,
+        )
+
+        assert store.seen_vectors == query_embedding
+
+    def test_adapter_returns_empty_for_vector_only_store_without_embedding(self):
+        """Vector-only stores should not receive vectors=None after embed failure."""
+        store = FlatVectorStore()
+        adapter = StorageAdapter(store)
+
+        results = adapter.search_memories(
+            query_embedding=None,
+            query="flat vector",
+            limit=5,
+        )
+
+        assert results == []
+        assert store.called is False
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"retrieval_mode": "semantic"},
+            {"fusion": "sum"},
+            {"vector_weight": 1.1},
+            {"fts_weight": -0.1},
+            {"rrf_k": 0},
+            {"candidate_limit": 0},
+        ],
+    )
+    def test_search_rejects_invalid_direct_retrieval_parameters(self, store, kwargs):
+        with pytest.raises(ValueError):
+            store.search(query="python", vectors=None, **kwargs)
+
+    def test_adapter_rejects_invalid_direct_retrieval_parameters(self, store):
+        adapter = StorageAdapter(store)
+
+        with pytest.raises(ValueError):
+            adapter.search_memories(
+                query_embedding=None,
+                query="python",
+                rrf_k=0,
+            )
 
 
 # ---------------------------------------------------------------------------

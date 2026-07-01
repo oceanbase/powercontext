@@ -2,7 +2,7 @@
 Request models for PowerMem API
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -138,6 +138,42 @@ class SearchRequest(BaseModel):
         ge=0.0,
         le=1.0,
         description="Minimum similarity score threshold",
+    )
+    retrieval_mode: Literal["auto", "fts", "vector", "hybrid"] = Field(
+        default="auto",
+        description="Retrieval mode: auto, fts, vector, or hybrid",
+    )
+    fusion: Literal["rrf", "weighted"] = Field(
+        default="rrf",
+        description="Fusion method for hybrid retrieval",
+    )
+    vector_weight: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Vector path weight for hybrid retrieval; omitted uses backend configuration",
+    )
+    fts_weight: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Full-text path weight for hybrid retrieval; omitted uses backend configuration",
+    )
+    rrf_k: int = Field(
+        default=60,
+        ge=1,
+        le=1000,
+        description="RRF rank constant",
+    )
+    candidate_limit: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=1000,
+        description="Candidate count to retrieve before final limiting",
+    )
+    include_explanation: bool = Field(
+        default=False,
+        description="Include retrieval path and fusion metadata in result metadata",
     )
     time_range: Optional[str] = Field(
         default=None,

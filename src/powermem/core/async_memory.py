@@ -253,6 +253,13 @@ class AsyncMemory(MemoryBase):
         """Return True when PowerMem is running without LLM-backed features."""
         return self.llm_provider == "noop" or getattr(self.llm, "is_noop", False) is True
 
+    def _is_embedding_disabled(self) -> bool:
+        """Return True when embedding is explicitly disabled (EMBEDDING_PROVIDER=none)."""
+        return (
+            getattr(self, "embedding_provider", None) == "none"
+            or getattr(getattr(self, "embedding", None), "is_noop", False) is True
+        )
+
     def _get_component_config(self, component: str) -> Dict[str, Any]:
         """
         Helper method to get component configuration uniformly.
@@ -1046,6 +1053,13 @@ class AsyncMemory(MemoryBase):
         filters: Optional[Dict[str, Any]] = None,
         limit: int = 30,
         threshold: Optional[float] = None,
+        retrieval_mode: str = "auto",
+        fusion: str = "rrf",
+        vector_weight: Optional[float] = None,
+        fts_weight: Optional[float] = None,
+        rrf_k: int = 60,
+        candidate_limit: Optional[int] = None,
+        include_explanation: bool = False,
     ) -> Dict[str, Any]:
         """Search for memories asynchronously.
         
@@ -1073,8 +1087,23 @@ class AsyncMemory(MemoryBase):
             # Select embedding service based on filters (for sub-store routing)
             embedding_service = self._get_embedding_service(filters)
 
-            # Generate query embedding asynchronously
-            query_embedding = await asyncio.to_thread(embedding_service.embed, query, memory_action="search")
+            query_embedding = None
+            if retrieval_mode != "fts":
+                if self._is_embedding_disabled():
+                    return {
+                        "results": [],
+                        "relations": []
+                    }
+                try:
+                    query_embedding = await asyncio.to_thread(
+                        embedding_service.embed, query, memory_action="search"
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Search embedding failed; falling back to text search "
+                        "when available: %s",
+                        exc,
+                    )
             
 
             # Search in storage asynchronously - pass query text to enable hybrid search
@@ -1085,7 +1114,15 @@ class AsyncMemory(MemoryBase):
                 run_id=run_id,
                 filters=filters,
                 limit=limit,
-                query=query  # Pass query text for hybrid search (vector + full-text)
+                query=query,  # Pass query text for hybrid search (vector + full-text)
+                threshold=threshold,
+                retrieval_mode=retrieval_mode,
+                fusion=fusion,
+                vector_weight=vector_weight,
+                fts_weight=fts_weight,
+                rrf_k=rrf_k,
+                candidate_limit=candidate_limit,
+                include_explanation=include_explanation,
             )
             
             # Process results with intelligence manager (only if enabled to avoid unnecessary calls)
@@ -1125,7 +1162,9 @@ class AsyncMemory(MemoryBase):
                 # Quality score represents absolute similarity quality (0-1 range)
                 # It's calculated from weighted average of all search paths' similarity scores
                 metadata = result.get("metadata", {})
-                quality_score = metadata.get("_quality_score")
+                quality_score = result.get("_quality_score")
+                if quality_score is None:
+                    quality_score = metadata.get("_quality_score")
                 
                 # If quality_score is not available (e.g., from older data or non-hybrid search),
                 # fall back to using the ranking score
@@ -1139,7 +1178,7 @@ class AsyncMemory(MemoryBase):
                 
                 transformed_result = {
                     "memory": result.get("memory", ""), 
-                    "metadata": metadata,  # Keep metadata as-is from storage (includes debug info like _quality_score)
+                    "metadata": metadata,
                     "score": score,
                 }
                 # Preserve other fields if needed
