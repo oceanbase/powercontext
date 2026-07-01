@@ -8,6 +8,8 @@ on:
       - 'tests/**'
       - 'pyproject.toml'
       - 'Makefile'
+      - '.github/workflows/regression.yml'
+      - '.github/scripts/**'
   pull_request_target:
     branches: [main]
     paths:
@@ -15,6 +17,8 @@ on:
       - 'tests/**'
       - 'pyproject.toml'
       - 'Makefile'
+      - '.github/workflows/regression.yml'
+      - '.github/scripts/**'
   workflow_dispatch:
     inputs:
       pr_number:
@@ -30,6 +34,7 @@ on:
 
 jobs:
   test1:
+    name: scenarios / ${{ matrix.group }}
     runs-on: ubuntu-latest
     # Skip on forks: schedule/push only run in the upstream repo (secrets are unavailable in forks).
     # External PRs (from forks) require manual trigger via workflow_dispatch.
@@ -39,9 +44,26 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'oceanbase/powermem') ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
-      matrix:
-        python-version: ["3.11"]
       fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - python-version: "3.11"
+            group: scenario-shard-1
+            shard-index: 0
+            shard-total: 4
+          - python-version: "3.11"
+            group: scenario-shard-2
+            shard-index: 1
+            shard-total: 4
+          - python-version: "3.11"
+            group: scenario-shard-3
+            shard-index: 2
+            shard-total: 4
+          - python-version: "3.11"
+            group: scenario-shard-4
+            shard-index: 3
+            shard-total: 4
 
     steps:
       - name: Get PR SHA (if PR number provided)
@@ -145,6 +167,14 @@ jobs:
           set_env_var POWERMEM_SERVER_API_KEYS key1,key2,key3
           set_env_var POWERMEM_SERVER_WORKERS 1
 
+      - name: Select regression shard
+        id: select_tests
+        run: |
+          uv run --no-project --python "${{ matrix.python-version }}" python .github/scripts/select_regression_shard.py \
+            --mode scenarios \
+            --shard-index "${{ matrix.shard-index }}" \
+            --shard-total "${{ matrix.shard-total }}"
+
       - name: Run regression tests
         id: run_tests
         env:
@@ -153,12 +183,16 @@ jobs:
           SILICONFLOW_COM_API_KEY: "${{ secrets.SILICONFLOW_COM_API_KEY }}"
         run: |
           mkdir -p report
-          uv run --no-project --python "${{ matrix.python-version }}" --with-editable ".[dev,test,server,seekdb]" pytest tests/regression/test_scenario*.py -vs --junitxml=report/test1.xml
+          if [ "${{ steps.select_tests.outputs.has_tests }}" != "true" ]; then
+            echo "No regression tests selected for ${{ matrix.group }}."
+            exit 0
+          fi
+          uv run --no-project --python "${{ matrix.python-version }}" --with-editable ".[dev,test,server,seekdb]" pytest $(cat selected-tests.txt) -vs --junitxml=report/${{ matrix.group }}.xml
       - name: Upload JUnit report
         if: always() && (steps.run_tests.outcome == 'success' || steps.run_tests.outcome == 'failure')
         uses: actions/upload-artifact@v7
         with:
-          name: junit-test1
+          name: junit-${{ matrix.group }}
           path: report/
       - name: Cleanup Docker
         if: always()
@@ -167,7 +201,9 @@ jobs:
           sudo docker rm -f seekdb 2>/dev/null || true
           sudo docker ps
           echo "✓ 清理完成"
+
   test2:
+    name: non-scenarios / ${{ matrix.group }}
     runs-on: ubuntu-latest
     # Skip on forks: schedule/push only run in the upstream repo (secrets are unavailable in forks).
     # External PRs (from forks) require manual trigger via workflow_dispatch.
@@ -177,9 +213,34 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'oceanbase/powermem') ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
-      matrix:
-        python-version: ["3.11"]
       fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - python-version: "3.11"
+            group: non-scenario-shard-1
+            shard-index: 0
+            shard-total: 6
+          - python-version: "3.11"
+            group: non-scenario-shard-2
+            shard-index: 1
+            shard-total: 6
+          - python-version: "3.11"
+            group: non-scenario-shard-3
+            shard-index: 2
+            shard-total: 6
+          - python-version: "3.11"
+            group: non-scenario-shard-4
+            shard-index: 3
+            shard-total: 6
+          - python-version: "3.11"
+            group: non-scenario-shard-5
+            shard-index: 4
+            shard-total: 6
+          - python-version: "3.11"
+            group: non-scenario-shard-6
+            shard-index: 5
+            shard-total: 6
 
     steps:
       - name: Get PR SHA (if PR number provided)
@@ -283,6 +344,14 @@ jobs:
           set_env_var POWERMEM_SERVER_API_KEYS key1,key2,key3
           set_env_var POWERMEM_SERVER_WORKERS 1
 
+      - name: Select regression shard
+        id: select_tests
+        run: |
+          uv run --no-project --python "${{ matrix.python-version }}" python .github/scripts/select_regression_shard.py \
+            --mode non-scenarios \
+            --shard-index "${{ matrix.shard-index }}" \
+            --shard-total "${{ matrix.shard-total }}"
+
       - name: Run regression tests
         id: run_tests
         env:
@@ -291,12 +360,16 @@ jobs:
           SILICONFLOW_COM_API_KEY: "${{ secrets.SILICONFLOW_COM_API_KEY }}"
         run: |
           mkdir -p report
-          uv run --no-project --python "${{ matrix.python-version }}" --with-editable ".[dev,test,server,seekdb]" pytest tests/regression/ --ignore-glob='*test_scenario*.py' -vs --junitxml=report/test2.xml
+          if [ "${{ steps.select_tests.outputs.has_tests }}" != "true" ]; then
+            echo "No regression tests selected for ${{ matrix.group }}."
+            exit 0
+          fi
+          uv run --no-project --python "${{ matrix.python-version }}" --with-editable ".[dev,test,server,seekdb]" pytest $(cat selected-tests.txt) -vs --junitxml=report/${{ matrix.group }}.xml
       - name: Upload JUnit report
         if: always() && (steps.run_tests.outcome == 'success' || steps.run_tests.outcome == 'failure')
         uses: actions/upload-artifact@v7
         with:
-          name: junit-test2
+          name: junit-${{ matrix.group }}
           path: report/
       - name: Cleanup Docker
         if: always()
