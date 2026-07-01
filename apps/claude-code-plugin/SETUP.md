@@ -795,42 +795,17 @@ data loss is acceptable.
 #### [E006] Model Download Timeout
 **Problem**: Server hangs or reports "timed out thrown while requesting HEAD" on startup.
 **Cause**: The embedding model is not cached and the network is unreachable.
-**Fix**: Follow the model pre-download step in Step 3a (branch on region detected in
-Step 1a). Quick reference:
-
-**CN region** (ModelScope → HF hub bridge):
+**Fix**: Run the preloader script, which auto-detects region (CN → ModelScope with
+HuggingFace hub-cache bridge; non-CN → HuggingFace direct) and uses the same
+interpreter `powermem-server` runs under:
 ```bash
-# Detect the correct interpreter first (same one powermem uses):
-POWERMEM_PYTHON=$(head -1 "$(command -v powermem-server)" | sed 's|#!||;s| .*||')
-uv pip install --python "$POWERMEM_PYTHON" modelscope
-$POWERMEM_PYTHON -c "from modelscope import snapshot_download; \
-                     snapshot_download('AI-ModelScope/all-MiniLM-L6-v2')"
-# Verify (note: models/ subdirectory is required):
-ls ~/.cache/modelscope/hub/models/AI-ModelScope/all-MiniLM-L6-v2/
+sh "$CLAUDE_PLUGIN_ROOT/scripts/preload-model.sh"
 ```
+The script reads `POWERMEM_MODELSCOPE_PACKAGE` (defaults to `modelscope`) if you
+need to override it. Do NOT use `sentence_transformers.SentenceTransformer(...)`
+to download — it can hang on networks where HuggingFace is unreachable.
 
-**Non-CN region** (HuggingFace direct):
-```bash
-POWERMEM_PYTHON=$(head -1 "$(command -v powermem-server)" | sed 's|#!||;s| .*||')
-uv pip install --python "$POWERMEM_PYTHON" huggingface_hub
-$POWERMEM_PYTHON -c "from huggingface_hub import snapshot_download; \
-                     snapshot_download('sentence-transformers/all-MiniLM-L6-v2')"
-# Verify:
-ls ~/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/
-```
-⚠️ Do NOT use bare `python` here — on many systems the default `python` version is below 3.11.
-Using the shebang from `powermem-server` guarantees all three steps (uv install, download,
-bridge) run in the same environment.
-Then run the bridge script from Step 3a to populate the HuggingFace hub cache
-structure — the embedder's cache-detection function checks `~/.cache/huggingface/hub/`,
-not the ModelScope layout.
-
-⚠️ **DO NOT** use `sentence_transformers.SentenceTransformer(...)` to download — it can
-hang on networks where HuggingFace is unreachable. On CN region, use ModelScope +
-HF hub bridge. On non-CN region, use `huggingface_hub.snapshot_download`. Always
-check region first (Step 1a).
-
-To confirm which sources are reachable:
+To confirm which sources are reachable before running the preloader:
 ```bash
 curl -s -m 10 -o /dev/null -w "ModelScope: HTTP %{http_code}\n" \
   https://www.modelscope.cn/api/v1/models/AI-ModelScope/all-MiniLM-L6-v2
@@ -956,86 +931,6 @@ python -c "import pyobvector" 2>&1   # should produce no output
 python -c "import pyseekdb" 2>&1    # should produce no output
 ```
 
-## PRE-CHECK & PREREQUISITES
-
-1. **Verify Python version**: `python3 --version` (must be >= 3.11, see [E011])
-2. **Verify uv**: `uv --version` (install it with [E012] if missing)
-3. **Verify hook binaries**: committed `hooks/bin/` binaries should already be present;
-   Go 1.22+ is only needed when refreshing them from hook source changes.
-4. **Check mirror access**: if using an internal mirror, verify
-   it has `pyobvector`, `pyseekdb`, and `onnxruntime`; see [E013] if not.
-
-## STEP BY STEP PROVEN PATH
-
-Given the encountered errors, here are the tested workarounds for each approach:
-
-### Method A: SOURCE Path (Current Directory Build)
-```bash
-# Create virtual environment to avoid PEP 668 issues.
-uv venv venv --python python3.11
-source venv/bin/activate
-POWERMEM_PYTHON="$VIRTUAL_ENV/bin/python"
-
-# Install everything with ALL required extras
-uv pip install --python "$POWERMEM_PYTHON" -e '.[server,seekdb]'
-
-# Git/marketplace installs use committed hook binaries.
-# Optional after hook source changes:
-# make build-claude-hook
-
-# Register marketplace
-DEST="$HOME/.claude/marketplaces/powermem"
-mkdir -p "$DEST"
-rsync -a --delete "$(pwd)/apps/claude-code-plugin/" "$DEST/"
-claude plugin marketplace add "$DEST"
-claude plugin install memory-powermem@powermem --scope user
-
-# Start server (logs go to server.log automatically)
-powermem-server --host 0.0.0.0 --port 8848 &
-```
-
-### Method B: PYPI/MCP Path (Recommended for Stability)
-```bash
-# Clean virtual environment approach
-uv venv venv --python python3.11
-source venv/bin/activate
-POWERMEM_PYTHON="$VIRTUAL_ENV/bin/python"
-uv pip install --python "$POWERMEM_PYTHON" 'powermem[server,seekdb]'
-claude mcp remove powermem 2>/dev/null
-claude mcp add powermem -- powermem-mcp stdio
-```
-
-### Method C: Troubleshooting Installation
-```bash
-# Common troubleshooting commands
-lsof -i :8848    # Check if port is in use
-pkill -f powermem-server  # Kill any running server
-rm -rf seekdb_data  # Reset SeekDB if corrupted and data loss is acceptable
-
-# Check logs
-tail -f server.log                    # PowerMem server errors
-tail -f seekdb_data/log/seekdb.log    # SeekDB engine errors
-```
-
-## FINAL VALIDATION STEPS
-
-After setup, verify the complete round-trip:
-
-```bash
-# 1. Health check
-curl -s http://localhost:8848/api/v1/system/health
-
-# 2. Write test memory
-curl -s -X POST http://localhost:8848/api/v1/memories \
-  -H 'Content-Type: application/json' \
-  -d '{"content":"PowerMem setup verification complete","user_id":"setup_test"}'
-
-# 3. Search test
-curl -s -X POST http://localhost:8848/api/v1/memories/search \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"setup verification","user_id":"setup_test","limit":1}'
-```
-
 ## SYSTEMD AUTOSTART (Optional)
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -1059,29 +954,3 @@ systemctl --user daemon-reload
 systemctl --user enable powermem.service
 systemctl --user start powermem.service
 ```
-
-## SUMMARY
-
-**Path taken**: **[Based on observed errors, recommend PYPI/MCP approach for stability]**
-- **.env location**: $(pwd)/.env
-- **Virtual environment**: $(pwd)/venv  
-- **Plugin marketplace**: ~/.claude/marketplaces/powermem
-- **Server URL**: http://localhost:8848
-- **Memory system**: seekdb storage with HTTP hooks
-- **Global enablement**: Complete via `claude plugin install`
-- **Usage**: Run `claude` command with no extra flags needed
-
-**Quick commands for daily use**:
-```bash
-# Start server
-source venv/bin/activate
-powermem-server --host 0.0.0.0 --port 8848
-
-# Check status
-systemctl --user status powermem.service
-
-# Quick restart
-ps aux | grep powrmem
-```
-
-Your Claude Code is now configured with automatic memory recall and persistence worldwide.
