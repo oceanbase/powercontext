@@ -639,7 +639,6 @@ func searchMemoriesForPrompt(query string) (string, error) {
 }
 
 func searchMemories(query string, limit int) (string, error) {
-	base := baseURL()
 	body := map[string]any{
 		"query": query,
 		"limit": limit,
@@ -668,26 +667,13 @@ func searchMemories(query string, limit int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/memories/search", bytes.NewReader(b))
+	resp, err := doRequestWithFallback(http.MethodPost, "/api/v1/memories/search", b, "application/json; charset=utf-8", 90*time.Second)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	if k := strings.TrimSpace(os.Getenv("POWERMEM_API_KEY")); k != "" {
-		req.Header.Set("X-API-Key", k)
-	}
-	c := &http.Client{Timeout: 90 * time.Second}
-	resp, err := c.Do(req)
+	respBody, err := drainBody(resp)
 	if err != nil {
 		return "", err
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("search http %d", resp.StatusCode)
 	}
 	return formatSearchResults(respBody)
 }
@@ -782,7 +768,6 @@ func memoryUserID() string {
 }
 
 func postMemoryRaw(content string, meta map[string]any, userID string, agentID string, runID string, infer bool) error {
-	base := baseURL()
 	body := map[string]any{
 		"content":  content,
 		"infer":    infer,
@@ -801,24 +786,11 @@ func postMemoryRaw(content string, meta map[string]any, userID string, agentID s
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/memories", bytes.NewReader(b))
+	resp, err := doRequestWithFallback(http.MethodPost, "/api/v1/memories", b, "application/json; charset=utf-8", 120*time.Second)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	if k := strings.TrimSpace(os.Getenv("POWERMEM_API_KEY")); k != "" {
-		req.Header.Set("X-API-Key", k)
-	}
-	c := &http.Client{Timeout: 120 * time.Second}
-	resp, err := c.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("http %d", resp.StatusCode)
-	}
+	_, _ = drainBody(resp)
 	return nil
 }
 

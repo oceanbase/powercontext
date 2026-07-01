@@ -638,6 +638,95 @@ injection, set POWERMEM_PROMPT_SEARCH=0. The hook talks to POWERMEM_BASE_URL
 
 For the full manual reference, see ../../docs/integrations/claude_code.md
 
+## Remote primary + local fallback (dual backend)
+
+When you configure a remote PowerMem server as the primary, the hook can
+transparently fall back to a local server when the remote is unreachable
+(network error, timeout, or HTTP 5xx). This keeps memory writes and
+searches working during remote outages.
+
+### Configuration
+
+| Env var | Purpose | Default |
+|---|---|---|
+| `POWERMEM_BASE_URL` | Primary (remote) backend URL | `http://localhost:8848` |
+| `POWERMEM_API_KEY` | Primary API key | empty |
+| `POWERMEM_FALLBACK_BASE_URL` | Fallback backend URL. Empty = single-backend mode (today's behaviour) | empty |
+| `POWERMEM_FALLBACK_API_KEY` | Fallback API key | empty |
+| `POWERMEM_FALLBACK_DISABLED` | `1`/`true` runtime kill switch — decays to primary-only without rewriting runtime.env | `0` |
+| `POWERMEM_FALLBACK_DOWN_TTL_SECONDS` | How long to trust "primary down" state and skip probing (5–300) | `30` |
+| `POWERMEM_FALLBACK_UP_TTL_SECONDS` | How long to trust "primary up" state and skip probing (5–300) | `30` |
+| `POWERMEM_FALLBACK_TRIGGER_5XX` | `1` (default) treats HTTP 5xx as a fallback trigger; `0` only falls back on network/timeout | `1` |
+| `POWERMEM_FALLBACK_LOG_FILE` | Where fallback events are logged (JSON lines) | `$DATA_DIR/powermem-hook.log` |
+| `POWERMEM_INIT_FALLBACK_BASE_URL` | init.sh non-interactive flag to configure fallback at setup time | empty |
+
+### Setup
+
+Non-interactive — set both before running init:
+
+```bash
+POWERMEM_INIT_BASE_URL=https://remote.example.com:8848 \
+POWERMEM_INIT_FALLBACK_BASE_URL=http://localhost:8849 \
+sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
+```
+
+If the fallback URL is local and no healthy server is listening there,
+init prints a reminder to start one separately:
+
+```bash
+POWERMEM_INIT_BASE_URL=http://localhost:8849 sh "$CLAUDE_PLUGIN_ROOT/scripts/init.sh"
+```
+
+Interactive — when stdin is a TTY and `POWERMEM_INIT_FALLBACK_BASE_URL` is
+unset, init asks `Enable local fallback server for remote outages? [y/N]`.
+Answering `y` defaults the fallback to `http://localhost:8849`.
+
+### Fallback trigger criteria
+
+| Failure mode | Triggers fallback? |
+|---|---|
+| Connection refused / DNS / TLS / connection reset | Yes |
+| Client timeout (`context.DeadlineExceeded`) | Yes |
+| HTTP 5xx (when `POWERMEM_FALLBACK_TRIGGER_5XX=1`, default) | Yes |
+| HTTP 5xx (when `POWERMEM_FALLBACK_TRIGGER_5XX=0`) | No — error surfaces as-is |
+| HTTP 4xx | No — a different backend won't fix auth/validation errors |
+| HTTP 2xx | No — success |
+
+### State file
+
+The hook is a fresh process per event, so circuit-breaker state is persisted
+to `~/.powermem/fallback-state.json`:
+
+```json
+{"primary_down": true, "last_probe_at": "2026-07-01T12:00:00Z"}
+```
+
+When `primary_down=true` and the last probe is within
+`POWERMEM_FALLBACK_DOWN_TTL_SECONDS`, the hook skips the primary probe and
+goes straight to fallback. When `primary_down=false` and within
+`POWERMEM_FALLBACK_UP_TTL_SECONDS`, it goes straight to primary. Otherwise
+it probes primary and updates state.
+
+### Known limitations (v1)
+
+- **No replication.** Memories written to the fallback during an outage are
+  **not** automatically replayed to the primary after recovery. The two
+  backends diverge until you manually reconcile. Replay is planned for a
+  follow-up.
+- **Stale reads.** Searches during fallback read from the local backend,
+  which may lag behind the remote.
+- **No conflict resolution.** If both backends receive writes independently
+  (e.g. primary was up but a transient error caused one fallback write),
+  there is no automatic deduplication.
+- **MCP transport not covered.** Fallback applies to the hook's REST calls
+  only, not to MCP server transport.
+
+### Kill switch
+
+If fallback is misbehaving, set `POWERMEM_FALLBACK_DISABLED=1` in the
+environment (or in Claude Code's `env` field) to instantly decay to
+single-backend primary-only mode without editing `runtime.env`.
+
 
 ## 🚨 COMPREHENSIVE ERROR HANDLING GUIDE
 

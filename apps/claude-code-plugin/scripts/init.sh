@@ -39,10 +39,33 @@ if [ -n "$remote_init_url" ] && is_remote_url "$remote_init_url"; then
   fi
   echo "Remote server healthy: $remote_init_url"
 
+  # Dual-backend: remote primary + local fallback.
+  # Triggered by POWERMEM_INIT_FALLBACK_BASE_URL (non-interactive) or a TTY
+  # prompt defaulting to http://localhost:8849.
+  fallback_url="${POWERMEM_INIT_FALLBACK_BASE_URL:-}"
+  if [ -z "$fallback_url" ] && [ -t 0 ]; then
+    printf "Enable local fallback server for remote outages? [y/N] "
+    read -r ans
+    case "$ans" in
+      y|Y|yes|YES) fallback_url="http://localhost:8849" ;;
+    esac
+  fi
+  if [ -n "$fallback_url" ]; then
+    if ! is_remote_url "$fallback_url" && ! is_healthy "$fallback_url"; then
+      echo "Note: fallback URL $fallback_url is local and no healthy server is listening there."
+      echo "      Start one separately, e.g.: POWERMEM_INIT_BASE_URL=$fallback_url sh \"$SCRIPT_DIR/init.sh\""
+    fi
+  fi
+
   case "$remote_mode" in
     hook|both)
-      write_runtime_remote "$remote_init_url" "$remote_api_key"
-      echo "Wrote $RUNTIME_FILE"
+      if [ -n "$fallback_url" ]; then
+        write_runtime_dual "$remote_init_url" "$remote_api_key" "$fallback_url" ""
+        echo "Wrote $RUNTIME_FILE (remote primary + fallback at $fallback_url)"
+      else
+        write_runtime_remote "$remote_init_url" "$remote_api_key"
+        echo "Wrote $RUNTIME_FILE"
+      fi
       ;;
   esac
 

@@ -330,6 +330,34 @@ write_runtime_remote() {
   mv "$tmp" "$RUNTIME_FILE"
 }
 
+# Write runtime.env for dual-backend mode: remote primary + local fallback.
+# Args: remote_url [remote_key] fallback_url [fallback_key]
+# Falls back to POWERMEM_INFER_TRANSCRIPT=true so the hook runs LLM fact
+# extraction on session transcripts by default.
+write_runtime_dual() {
+  remote_url=$1
+  remote_key=${2:-}
+  fallback_url=$3
+  fallback_key=${4:-}
+  sq_r=$(printf '%s' "$remote_url"  | sed "s/'/'\\\\''/g")
+  sq_f=$(printf '%s' "$fallback_url" | sed "s/'/'\\\\''/g")
+  tmp="$RUNTIME_FILE.tmp"
+  {
+    printf "POWERMEM_BASE_URL='%s'\n" "$sq_r"
+    if [ -n "$remote_key" ]; then
+      sq_rk=$(printf '%s' "$remote_key" | sed "s/'/'\\\\''/g")
+      printf "POWERMEM_API_KEY='%s'\n" "$sq_rk"
+    fi
+    printf "POWERMEM_FALLBACK_BASE_URL='%s'\n" "$sq_f"
+    if [ -n "$fallback_key" ]; then
+      sq_fk=$(printf '%s' "$fallback_key" | sed "s/'/'\\\\''/g")
+      printf "POWERMEM_FALLBACK_API_KEY='%s'\n" "$sq_fk"
+    fi
+    printf 'POWERMEM_INFER_TRANSCRIPT=true\n'
+  } > "$tmp"
+  mv "$tmp" "$RUNTIME_FILE"
+}
+
 # Write runtime.env for MCP-only mode: no base URL, hooks disabled.
 # Overwrites any stale POWERMEM_BASE_URL so run-hook.sh exits early instead
 # of hitting the previous remote/local URL that no longer applies.
