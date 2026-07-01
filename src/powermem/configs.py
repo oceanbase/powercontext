@@ -38,6 +38,33 @@ def _default_vector_store_config() -> BaseVectorStoreConfig:
     return OceanBaseConfig()
 
 
+def _is_disabled_graph_store_flag(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value is False
+    if isinstance(value, str):
+        return value.strip().lower() in {"false", "0", "no", "off", "disabled"}
+    if isinstance(value, int):
+        return value == 0
+    return False
+
+
+_GRAPH_STORE_WRAPPER_KEYS = {
+    "enabled",
+    "provider",
+    "config",
+}
+
+_GRAPH_STORE_METADATA_KEYS = {
+    "llm",
+    "custom_prompt",
+    "custom_extract_relations_prompt",
+    "custom_update_graph_prompt",
+    "custom_delete_relations_prompt",
+}
+
+
 class IntelligentMemoryConfig(BaseModel):
     """Configuration for intelligent memory management with Ebbinghaus algorithm."""
 
@@ -347,6 +374,31 @@ class MemoryConfig(BaseModel):
         description="Configuration for source store / fact-source linking (None means disabled)",
         default=None,
     )
+
+    @field_validator('graph_store', mode='before')
+    @classmethod
+    def resolve_graph_store(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, dict):
+            if not v:
+                return None
+            if _is_disabled_graph_store_flag(v.get('enabled')):
+                return None
+            if _GRAPH_STORE_WRAPPER_KEYS.intersection(v):
+                provider = str(v.get('provider') or 'oceanbase').lower()
+                config_dict = dict(v.get('config') or {})
+                for key in _GRAPH_STORE_METADATA_KEYS:
+                    if key in v and v[key] is not None:
+                        config_dict[key] = v[key]
+                config_cls = (
+                    BaseGraphStoreConfig.get_provider_config_cls(provider)
+                    or BaseGraphStoreConfig
+                )
+                return config_cls(**config_dict)
+        if _is_disabled_graph_store_flag(getattr(v, 'enabled', None)):
+            return None
+        return v
 
     @field_validator('sparse_embedder', mode='before')
     @classmethod

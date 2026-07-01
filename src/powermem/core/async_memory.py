@@ -15,7 +15,7 @@ from powermem.utils.utils import get_current_datetime
 from copy import deepcopy
 
 from .base import MemoryBase
-from ..configs import MemoryConfig
+from ..configs import MemoryConfig, _is_disabled_graph_store_flag
 from ..platform_defaults import default_database_provider
 from ..storage.factory import VectorStoreFactory, GraphStoreFactory
 from ..storage.adapter import StorageAdapter, SubStorageAdapter
@@ -284,10 +284,14 @@ class AsyncMemory(MemoryBase):
         Returns:
             Boolean indicating whether graph store is enabled
         """
+        graph_store_config = self.config.get('graph_store', {})
+        if isinstance(graph_store_config, dict) and 'enabled' in graph_store_config:
+            enabled_value = graph_store_config.get('enabled')
+            return bool(enabled_value) and not _is_disabled_graph_store_flag(enabled_value)
+
         if self.memory_config:
-            return self.memory_config.graph_store.enabled if self.memory_config.graph_store else False
+            return self.memory_config.graph_store is not None
         else:
-            graph_store_config = self.config.get('graph_store', {})
             return graph_store_config.get('enabled', False) if graph_store_config else False
 
     def _get_intelligent_memory_config(self) -> Dict[str, Any]:
