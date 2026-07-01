@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow test-claude-hook-docker check-python-version lint lint-full lint-pylint format clean build build-package build-check build-mcp-package build-mcp-check build-all-python-packages build-dashboard build-claude-hook package-claude-plugin publish-pypi publish-mcp-pypi publish-all-pypi publish-testpypi install-build-tools upload docs bump-version check-package-versions server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
+.PHONY: help install install-dev test test-unit test-integration test-e2e test-coverage test-fast test-slow test-claude-hook-docker test-claude-hook-dual check-python-version lint lint-full lint-pylint format clean build build-package build-check build-mcp-package build-mcp-check build-all-python-packages build-dashboard build-claude-hook package-claude-plugin publish-pypi publish-mcp-pypi publish-all-pypi publish-testpypi install-build-tools upload docs bump-version check-package-versions server-start server-stop server-restart server-status server-logs server-dashboard-start docker-build docker-run docker-up docker-down docker-logs docker-stop docker-restart docker-clean docker-ps
 
 UV ?= uv
 UV_PYTHON ?= 3.11
@@ -85,6 +85,20 @@ test-claude-hook-docker: ## Run isolated no-LLM Claude Code hook regression test
 		-e POWERMEM_HOOK_SCRUB=1 \
 		-e POWERMEM_DATA_DIR=/tmp/powermem-data \
 		$(CLAUDE_HOOK_REGRESSION_IMAGE)
+
+CLAUDE_HOOK_DUAL_IMAGE ?= powermem-claude-hook-dual:local
+
+test-claude-hook-dual: ## Run isolated dual-backend fallback regression tests in Docker
+	docker build -t $(CLAUDE_HOOK_DUAL_IMAGE) -f docker/Dockerfile.claude-hook-dual .
+	docker run --rm --network none \
+		-e POWERMEM_INFER_TRANSCRIPT=0 \
+		-e POWERMEM_INFER_COMPACT=0 \
+		-e POWERMEM_INFER_FILE=0 \
+		-e POWERMEM_PROMPT_SEARCH=1 \
+		-e POWERMEM_HOOK_SCRUB=1 \
+		-e POWERMEM_DATA_DIR=/tmp/powermem-data \
+		$(CLAUDE_HOOK_DUAL_IMAGE)
+
 
 # Code quality
 check-python-version: ## Check Python version compatibility
