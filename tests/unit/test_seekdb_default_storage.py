@@ -10,12 +10,22 @@ behaves in embedded mode.
 from __future__ import annotations
 
 
-def test_memory_config_default_storage_is_oceanbase_in_embedded_mode(monkeypatch):
-    """`MemoryConfig()` with no env vars defaults to the OceanBase provider
-    with an empty host — i.e. embedded seekdb on disk.
-    """
+def test_memory_config_default_storage_is_oceanbase_when_embedded_seekdb_available(monkeypatch):
+    """Linux with embedded SeekDB capability keeps the OceanBase embedded default."""
     monkeypatch.delenv("DATABASE_PROVIDER", raising=False)
     monkeypatch.delenv("OCEANBASE_HOST", raising=False)
+
+    import powermem.platform_defaults as platform_defaults
+
+    monkeypatch.setattr(platform_defaults, "_configured_env_files", lambda: [])
+    monkeypatch.setattr(platform_defaults.sys, "platform", "linux")
+    monkeypatch.setattr(
+        platform_defaults.importlib.util,
+        "find_spec",
+        lambda name: object()
+        if name in {"pyobvector", "pyseekdb", "pylibseekdb"}
+        else None,
+    )
 
     from powermem.configs import MemoryConfig
     from powermem.storage.config.oceanbase import OceanBaseConfig
@@ -27,12 +37,19 @@ def test_memory_config_default_storage_is_oceanbase_in_embedded_mode(monkeypatch
     assert cfg.vector_store.ob_path == "./seekdb_data"
 
 
-def test_database_settings_default_provider_is_oceanbase(monkeypatch):
+def test_database_settings_default_provider_matches_platform_helper(monkeypatch):
     monkeypatch.delenv("DATABASE_PROVIDER", raising=False)
+    monkeypatch.delenv("OCEANBASE_HOST", raising=False)
 
+    import powermem.platform_defaults as platform_defaults
     from powermem.config_loader import DatabaseSettings
 
-    assert DatabaseSettings().provider == "oceanbase"
+    monkeypatch.setattr(platform_defaults, "_configured_env_files", lambda: [])
+    model_config = dict(DatabaseSettings.model_config)
+    model_config["env_file"] = None
+    monkeypatch.setattr(DatabaseSettings, "model_config", model_config)
+
+    assert DatabaseSettings().provider == platform_defaults.default_database_provider()
 
 
 def test_oceanbase_provider_picks_up_remote_host(monkeypatch):

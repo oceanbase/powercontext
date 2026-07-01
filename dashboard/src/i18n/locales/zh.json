@@ -48,7 +48,9 @@
       "statusDown": "故障",
       "latency": "延迟",
       "noStatus": "暂无状态信息",
-      "loading": "加载系统状态中..."
+      "loading": "加载系统状态中...",
+      "sqliteWarningTitle": "SQLite 基础模式",
+      "sqliteWarningDescription": "PowerMem 当前使用 SQLite。基础记忆 CRUD 与搜索可用，完整能力栈需要切换到 OceanBase 或嵌入式 SeekDB。"
     },
     "charts": {
       "growthTrend": "增长趋势",

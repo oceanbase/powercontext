@@ -23,6 +23,13 @@ from ..utils.output import (
     print_warning,
     print_info,
 )
+from powermem.platform_defaults import (
+    database_provider_explicitly_configured,
+    default_database_provider,
+    embedded_seekdb_available,
+    embedded_seekdb_unavailable_message,
+    sqlite_capability_warning,
+)
 
 logger = logging.getLogger(__name__)
 from ..utils.envfile import read_env_file, update_env_file
@@ -295,11 +302,22 @@ def _validate_loaded_config(config: Dict[str, Any], strict: bool) -> Dict[str, A
         provider = vector_store_config.get("provider", "")
         inner_config = vector_store_config.get("config", {})
         if provider == "oceanbase":
-            required_fields = ["host", "port", "user", "db_name"]
             conn_args = inner_config.get("connection_args", {})
-            for field in required_fields:
-                if not conn_args.get(field):
-                    errors.append(f"OceanBase connection missing: {field}")
+            host = conn_args.get("host") or inner_config.get("host")
+            if host:
+                required_fields = ["port", "user", "db_name"]
+                for field in required_fields:
+                    if not (conn_args.get(field) or inner_config.get(field)):
+                        errors.append(f"OceanBase connection missing: {field}")
+            elif not embedded_seekdb_available():
+                errors.append(embedded_seekdb_unavailable_message())
+        elif provider == "sqlite":
+            warning = sqlite_capability_warning(
+                provider,
+                defaulted=not database_provider_explicitly_configured(),
+            )
+            if warning:
+                warnings.append(warning)
         elif provider in ("postgres", "pgvector"):
             required_fields = ["host", "port", "user", "dbname"]
             for field in required_fields:
@@ -795,7 +813,7 @@ def _discover_env_example(start_dir: Path, max_parent_levels: int = 8) -> Option
 
 def _wizard_database(existing: Dict[str, str]) -> Dict[str, str]:
     updates: Dict[str, str] = {}
-    provider_default = existing.get("DATABASE_PROVIDER") or "sqlite"
+    provider_default = existing.get("DATABASE_PROVIDER") or default_database_provider()
     provider = click.prompt(
         "Database provider",
         type=click.Choice(["oceanbase", "postgres", "sqlite"], case_sensitive=False),
@@ -909,7 +927,7 @@ def _wizard_database_quickstart(existing: Dict[str, str]) -> Dict[str, str]:
     This intentionally avoids optional knobs (WAL/timeout/collection/etc.).
     """
     updates: Dict[str, str] = {}
-    provider_default = existing.get("DATABASE_PROVIDER") or "sqlite"
+    provider_default = existing.get("DATABASE_PROVIDER") or default_database_provider()
     provider = click.prompt(
         "Database provider",
         type=click.Choice(["sqlite", "oceanbase", "postgres"], case_sensitive=False),
@@ -1278,7 +1296,7 @@ def init_cmd(ctx: CLIContext, env_file: Optional[str], dry_run: bool, test: bool
             emb_updates = _wizard_embedder_quickstart(existing, llm_updates=llm_updates)
             updates.update(emb_updates)
 
-            db_provider = updates.get("DATABASE_PROVIDER") or existing.get("DATABASE_PROVIDER") or "sqlite"
+            db_provider = updates.get("DATABASE_PROVIDER") or existing.get("DATABASE_PROVIDER") or default_database_provider()
             dims = emb_updates.get("EMBEDDING_DIMS")
             if dims:
                 updates.update(_sync_vector_dims_quickstart(db_provider=db_provider, dims=dims))
@@ -1293,7 +1311,7 @@ def init_cmd(ctx: CLIContext, env_file: Optional[str], dry_run: bool, test: bool
                 emb_updates = _wizard_embedder(existing, llm_updates=llm_updates)
                 updates.update(emb_updates)
 
-                db_provider = updates.get("DATABASE_PROVIDER") or existing.get("DATABASE_PROVIDER") or "sqlite"
+                db_provider = updates.get("DATABASE_PROVIDER") or existing.get("DATABASE_PROVIDER") or default_database_provider()
                 dims = emb_updates.get("EMBEDDING_DIMS")
                 if dims:
                     updates.update(_maybe_sync_vector_dims(db_provider=db_provider, dims=dims))

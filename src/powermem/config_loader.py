@@ -7,6 +7,7 @@ or other sources. It simplifies the configuration setup process.
 
 import os
 import warnings
+import logging
 from typing import Any, Dict, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
@@ -17,8 +18,16 @@ from powermem.integrations.embeddings.config.providers import CustomEmbeddingCon
 from powermem.integrations.embeddings.config.sparse_base import BaseSparseEmbedderConfig
 from powermem.integrations.llm.config.base import BaseLLMConfig
 from powermem.integrations.llm.config.noop import NoopConfig  # noqa: F401 - register noop provider
+from powermem.platform_defaults import (
+    choose_default_database_provider,
+    default_database_provider,
+    sqlite_capability_warning,
+)
 from powermem.settings import _DEFAULT_ENV_FILE, settings_config
 from powermem.utils.utils import detect_system_timezone
+
+
+logger = logging.getLogger(__name__)
 
 
 def _load_dotenv_if_available() -> None:
@@ -125,7 +134,7 @@ class DatabaseSettings(_BasePowermemSettings):
     model_config = settings_config()
 
     provider: str = Field(
-        default="oceanbase",
+        default_factory=default_database_provider,
         validation_alias=AliasChoices("DATABASE_PROVIDER"),
     )
 
@@ -139,10 +148,15 @@ class DatabaseSettings(_BasePowermemSettings):
         from powermem.storage.config.base import BaseVectorStoreConfig
 
         db_provider = self.provider.lower()
+        decision = choose_default_database_provider()
 
         # Handle postgres alias
         if db_provider == "postgres":
             db_provider = "pgvector"
+
+        warning = sqlite_capability_warning(db_provider, defaulted=decision.defaulted)
+        if warning and decision.defaulted:
+            logger.warning("Defaulting storage provider to SQLite: %s", warning)
 
         # 1. Get provider config class from registry
         config_cls = (
@@ -729,7 +743,7 @@ def load_config_from_env() -> Dict[str, Any]:
 class CreateConfigOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    database_provider: str = "oceanbase"
+    database_provider: str = Field(default_factory=default_database_provider)
     llm_provider: str = "qwen"
     embedding_provider: str = "qwen"
     database_config: Dict[str, Any] = Field(default_factory=dict)
@@ -749,7 +763,7 @@ class CreateConfigOptions(BaseModel):
 
 
 def create_config(
-    database_provider: str = "oceanbase",
+    database_provider: Optional[str] = None,
     llm_provider: str = "qwen",
     embedding_provider: str = "qwen",
     database_config: Optional[Dict[str, Any]] = None,
@@ -812,7 +826,7 @@ def create_config(
         stacklevel=2,
     )
     options = CreateConfigOptions(
-        database_provider=database_provider,
+        database_provider=database_provider or default_database_provider(),
         llm_provider=llm_provider,
         embedding_provider=embedding_provider,
         database_config=database_config or {},

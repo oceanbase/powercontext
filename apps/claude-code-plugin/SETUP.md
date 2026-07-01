@@ -258,8 +258,9 @@ writing. Never silently patch `.env`.**
    with LLM_PROVIDER / LLM_API_KEY or LLM_AUTH_TOKEN / LLM_MODEL set to real
    values (not placeholders
    like `your_api_key_here`), REUSE it — skip directly to step 3a/3b. Only collect
-   what is missing. Use zero-config defaults for everything else (storage = embedded
-   seekdb, embedder = local all-MiniLM-L6-v2) unless I say otherwise.
+   what is missing. Use zero-config defaults for everything else (storage =
+   platform-aware: embedded SeekDB on supported Linux installs, otherwise SQLite
+   basic mode; embedder = local all-MiniLM-L6-v2) unless I say otherwise.
 
    **2a. Auto-detect or manual?** Use AskUserQuestion (single-select):
 
@@ -363,7 +364,9 @@ writing. Never silently patch `.env`.**
       ```
       ⚠️ Both extras are required: `[server]` adds fastapi/uvicorn and
       fastmcp for the HTTP API plus MCP transports;
-      `[seekdb]` adds the embedded seekdb storage backend (default).
+      `[seekdb]` adds the embedded seekdb storage backend. Platforms where
+      embedded SeekDB is unavailable default to SQLite basic mode; use
+      OceanBase/SeekDB for the full capability stack.
     - Immediately after `uv pip install`, detect which Python interpreter was used. Read
       the shebang from the freshly-installed `powermem-server` entry point — this is
       the only reliable way to guarantee that the model-download script, the uv call

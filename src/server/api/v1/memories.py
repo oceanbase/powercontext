@@ -28,6 +28,7 @@ from ...services.memory_service import MemoryService
 from ...middleware.auth import verify_api_key
 from ...middleware.rate_limit import limiter, get_rate_limit_string
 from ...utils.converters import memory_dict_to_response
+from ...utils.service_errors import service_unavailable_message
 
 logger = logging.getLogger("server")
 
@@ -58,7 +59,7 @@ def get_memory_service(request: Request) -> MemoryService:
         from ...models.errors import ErrorCode, APIError
         raise APIError(
             code=ErrorCode.INTERNAL_ERROR,
-            message="Memory service unavailable: storage backend initialization failed",
+            message=service_unavailable_message(request, "Memory"),
             status_code=503,
         )
     return service

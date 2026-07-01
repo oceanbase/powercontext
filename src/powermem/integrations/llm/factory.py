@@ -49,7 +49,7 @@ class LLMFactory:
         # 1. Get class_path from registry
         class_path = BaseLLMConfig.get_provider_class_path(provider_name)
         if not class_path:
-            raise ValueError(f"Unsupported Llm provider: {provider_name}")
+            raise ValueError(f"Unsupported LLM provider: {provider_name}")
 
         # 2. Get config_cls from registry
         config_cls = BaseLLMConfig.get_provider_config_cls(provider_name) or BaseLLMConfig

@@ -280,6 +280,8 @@ class HealthResponse(BaseModel):
     """Response model for health check"""
     
     status: str = Field(..., description="Health status")
+    memory_service_ready: Optional[bool] = Field(None, description="Whether the memory service initialized successfully")
+    storage_type: Optional[str] = Field(None, description="Storage backend type")
     timestamp: datetime = Field(default_factory=get_current_datetime, description="Check timestamp")
     
     @field_serializer('timestamp')
@@ -319,6 +321,16 @@ class DependencyStatus(BaseModel):
         return utc_value.replace(tzinfo=None).isoformat() + "Z"
 
 
+class StorageCapabilities(BaseModel):
+    """Storage capability summary for the active backend."""
+
+    provider: Optional[str] = Field(None, description="Storage provider")
+    defaulted: bool = Field(False, description="Whether provider was selected by default")
+    full_stack_available: bool = Field(False, description="Whether the full PowerMem feature stack is available")
+    limitations: List[str] = Field(default_factory=list, description="Known limitations for the active backend")
+    recommendation: Optional[str] = Field(None, description="Recommendation to unlock full capabilities")
+
+
 class StatusResponse(BaseModel):
     """Response model for system status"""
     
@@ -326,6 +338,9 @@ class StatusResponse(BaseModel):
     version: str = Field(..., description="API version")
     storage_type: Optional[str] = Field(None, description="Storage backend type")
     llm_provider: Optional[str] = Field(None, description="LLM provider")
+    memory_service_ready: Optional[bool] = Field(None, description="Whether the memory service initialized successfully")
+    startup_error: Optional[str] = Field(None, description="Startup error if service initialization failed")
+    storage_capabilities: Optional[StorageCapabilities] = Field(None, description="Storage backend capability summary")
     uptime_seconds: Optional[float] = Field(None, description="Service uptime in seconds")
     started_at: Optional[datetime] = Field(None, description="Service start time")
     dependencies: Optional[Dict[str, Dict[str, Any]]] = Field(None, description="Dependency health status")

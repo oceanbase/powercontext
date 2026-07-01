@@ -16,6 +16,7 @@ from copy import deepcopy
 
 from .base import MemoryBase
 from ..configs import MemoryConfig
+from ..platform_defaults import default_database_provider
 from ..storage.factory import VectorStoreFactory, GraphStoreFactory
 from ..storage.adapter import StorageAdapter, SubStorageAdapter
 from ..intelligence.manager import IntelligenceManager
@@ -83,13 +84,13 @@ def _auto_convert_config(config: Dict[str, Any]) -> Dict[str, Any]:
         if "database" in config:
             db_config = config["database"]
             converted["vector_store"] = {
-                "provider": db_config.get("provider", "oceanbase"),
+                "provider": db_config.get("provider", default_database_provider()),
                 "config": db_config.get("config", {})
             }
             converted.pop("database", None)
         elif "vector_store" not in converted:
             converted["vector_store"] = {
-                "provider": "oceanbase",
+                "provider": default_database_provider(),
                 "config": {}
             }
         
@@ -145,7 +146,7 @@ class AsyncMemory(MemoryBase):
         self.agent_id = agent_id
         
         # Extract providers from config with fallbacks
-        self.storage_type = storage_type or self._get_provider('vector_store', 'oceanbase')
+        self.storage_type = storage_type or self._get_provider('vector_store', default_database_provider())
         self.llm_provider = llm_provider or self._get_provider('llm', 'mock')
         self.embedding_provider = embedding_provider or self._get_provider('embedder', 'mock')
         

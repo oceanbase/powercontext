@@ -48,7 +48,9 @@
       "statusDown": "Down",
       "latency": "latency",
       "noStatus": "No status available",
-      "loading": "Loading system status..."
+      "loading": "Loading system status...",
+      "sqliteWarningTitle": "SQLite basic mode",
+      "sqliteWarningDescription": "PowerMem is running on SQLite. Basic memory CRUD and search are available, but the full capability stack requires OceanBase or embedded SeekDB."
     },
     "charts": {
       "growthTrend": "Growth Trend",

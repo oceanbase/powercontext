@@ -14,6 +14,7 @@ from ...services.search_service import SearchService
 from ...middleware.auth import verify_api_key
 from ...middleware.rate_limit import limiter, get_rate_limit_string
 from ...utils.converters import search_result_to_response
+from ...utils.service_errors import service_unavailable_message
 from .memories import parse_time_range_cutoff
 
 router = APIRouter(prefix="/memories", tags=["search"])
@@ -69,7 +70,7 @@ def get_search_service(request: Request) -> SearchService:
         from ...models.errors import ErrorCode, APIError
         raise APIError(
             code=ErrorCode.INTERNAL_ERROR,
-            message="Search service unavailable: storage backend initialization failed",
+            message=service_unavailable_message(request, "Search"),
             status_code=503,
         )
     return service
