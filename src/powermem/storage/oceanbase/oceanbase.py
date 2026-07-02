@@ -921,6 +921,18 @@ class OceanBaseVectorStore(VectorStoreBase):
                 ]
             return results
 
+        if vectors is None and query:
+            logger.info(
+                "OceanBase search: no query embedding; falling back to FTS"
+            )
+            results = self._fulltext_search(query, search_limit, filters)
+            if threshold is not None:
+                results = [
+                    result for result in results
+                    if result.payload.get("_quality_score", result.score) >= threshold
+                ]
+            return results
+
         if mode == "vector" or not self.hybrid_search or not query:
             return self._vector_search(query, vectors, search_limit, filters)
 

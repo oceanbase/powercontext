@@ -81,7 +81,7 @@ class StorageAdapter:
         if store_module.endswith("sqlite.sqlite_vector_store"):
             return True
         if ".oceanbase." in store_module:
-            return bool(getattr(target_store, "hybrid_search", False))
+            return True
         return False
 
     def _metadata_filter_key_for_store(

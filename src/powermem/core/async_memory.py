@@ -1095,20 +1095,20 @@ class AsyncMemory(MemoryBase):
             query_embedding = None
             if retrieval_mode != "fts":
                 if self._is_embedding_disabled():
-                    return {
-                        "results": [],
-                        "relations": []
-                    }
-                try:
-                    query_embedding = await asyncio.to_thread(
-                        embedding_service.embed, query, memory_action="search"
+                    logger.info(
+                        "Embedding disabled; falling back to FTS for query"
                     )
-                except Exception as exc:
-                    logger.warning(
-                        "Search embedding failed; falling back to text search "
-                        "when available: %s",
-                        exc,
-                    )
+                else:
+                    try:
+                        query_embedding = await asyncio.to_thread(
+                            embedding_service.embed, query, memory_action="search"
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Search embedding failed; falling back to text search "
+                            "when available: %s",
+                            exc,
+                        )
             
 
             # Search in storage asynchronously - pass query text to enable hybrid search

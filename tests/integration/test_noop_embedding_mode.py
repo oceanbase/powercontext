@@ -102,11 +102,13 @@ async def test_noop_embedding_async_crud(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_noop_embedding_async_search_returns_empty(tmp_path):
-    """Async vector search must return empty results when embedding is disabled."""
+async def test_noop_embedding_async_search_returns_fts_hits(tmp_path):
+    """Async search falls back to FTS5 keyword search when embedding is disabled."""
     memory = AsyncMemory(config=_sqlite_noop_embedding_config(tmp_path))
 
     await memory.add("Async user loves hiking", user_id="async_search_noop")
 
     results = await memory.search("hiking", user_id="async_search_noop")
-    assert results["results"] == []
+    assert len(results["results"]) == 1
+    hit = results["results"][0]
+    assert "hiking" in hit.get("memory", "") or "hiking" in hit.get("content", "")
