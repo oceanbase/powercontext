@@ -18,6 +18,10 @@ else
     --with pyinstaller
     --with "setuptools<81"
     --with wheel
+    # Pillow 12.2.1+ stopped publishing manylinux_2_17 wheels, so the CentOS 7
+    # binary build (glibc 2.17) falls back to a source build that fails without
+    # libjpeg/zlib headers. Pin to the last release with a manylinux_2_17 wheel.
+    --with "pillow<12.2.1"
     python
   )
 fi

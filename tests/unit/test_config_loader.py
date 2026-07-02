@@ -95,6 +95,26 @@ def test_load_config_from_env_graph_store_fallback(monkeypatch):
     assert graph_store["config"]["max_hops"] == 3
 
 
+def test_load_config_from_env_graph_store_disabled_is_omitted(monkeypatch):
+    _reset_env(
+        monkeypatch,
+        [
+            "GRAPH_STORE_ENABLED",
+            "GRAPH_STORE_HOST",
+            "OCEANBASE_HOST",
+            "OCEANBASE_PORT",
+        ],
+    )
+    _disable_env_file(monkeypatch)
+    monkeypatch.setenv("GRAPH_STORE_ENABLED", "false")
+    monkeypatch.setenv("OCEANBASE_HOST", "127.0.0.2")
+    monkeypatch.setenv("OCEANBASE_PORT", "2881")
+
+    config = config_loader.load_config_from_env()
+
+    assert "graph_store" not in config
+
+
 def test_load_config_from_env_loads_internal_settings(monkeypatch):
     _reset_env(
         monkeypatch,
