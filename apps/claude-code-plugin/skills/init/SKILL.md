@@ -56,7 +56,9 @@ Before running `scripts/init.sh`, check what the user already has configured:
    - **`POWERMEM_BASE_URL` is set to a remote URL** (not `localhost` / `127.0.0.1`)
      → remote mode. **Skip ALL AskUserQuestion rounds** (Server, Storage, LLM,
      Embedding). Run init.sh directly; it will detect the URL and write
-     `runtime.env`.
+     `runtime.env`. If `status.sh` reports the remote server healthy, ask the
+     Reconfigure question (see "When the server is already healthy" below)
+     before running init.sh.
    - **`POWERMEM_BASE_URL` is set to a local URL** (`localhost` / `127.0.0.1`)
      → local mode with a known port. **Skip the Server question.** Then:
      - If `status.sh` reports the server healthy → report current backend, no
@@ -86,14 +88,33 @@ Before running `scripts/init.sh`, check what the user already has configured:
 
 ### When the server is already healthy
 
-If `status.sh` reports the server is healthy AND `.env` exists with
-`DATABASE_PROVIDER` set, **do not ask the Storage question**. Instead:
+If `status.sh` reports the server is healthy (local or remote), do **not**
+re-ask Storage/LLM/Embedding questions. Instead:
 
-- Tell the user: "PowerMem is running with **<current_backend>** storage backend."
-- Only re-run `init.sh` if the user explicitly wants to change the storage
-  backend — in that case, ask Question 1 and pass `POWERMEM_INIT_DATABASE_PROVIDER`
-  to `init.sh`.
-- For LLM credentials and embedding: still ask if those values are unset.
+- Tell the user: "PowerMem is running with **<current_backend>** storage
+  backend at **<base_url>**."
+- Ask via AskUserQuestion whether to reconfigure:
+
+  **Question — Reconfigure?** (ask in every mode when server is healthy)
+  - Keep current setup (Recommended) — no change, exit
+  - Reconfigure — re-run onboarding to change backend settings
+
+  If the user picks **Keep current setup**: do nothing further, the run is
+  complete.
+  If the user picks **Reconfigure**:
+  - **Local managed server mode**: run `init.sh` with
+    `POWERMEM_INIT_RECONFIGURE=1` plus the `POWERMEM_INIT_*` vars collected
+    from the full onboarding flow (Server / Storage / LLM / Embedding).
+    init.sh will stop the managed server, remove `.env`, recreate it from
+    the new `POWERMEM_INIT_*` vars, and start a fresh server.
+  - **Remote mode**: re-ask the Server URL / API key / Connection mode
+    questions (and Fallback URL for dual mode), then run `init.sh` with the
+    new `POWERMEM_INIT_BASE_URL` / `POWERMEM_INIT_API_KEY` /
+    `POWERMEM_INIT_CONNECTION_MODE` / `POWERMEM_INIT_FALLBACK_BASE_URL`
+    vars. init.sh overwrites `runtime.env` — no `RECONFIGURE` flag needed
+    because the remote server is not managed by this plugin.
+- For LLM credentials and embedding (local mode only): when reconfigure is
+  chosen, still ask if those values are unset.
 
 ### When config is missing (server not healthy, or `.env` missing, or values unset)
 

@@ -704,14 +704,24 @@ else
       echo "Managed powermem-server URL: $base_url"
     fi
     if is_healthy "$base_url"; then
-      write_runtime_base_url "$base_url"
-      echo "Managed PowerMem backend is healthy: $base_url"
-      announce_dashboard_url "$base_url"
-      echo "Hook will use this backend through $RUNTIME_FILE."
-      exit 0
+      if [ "${POWERMEM_INIT_RECONFIGURE:-0}" = "1" ]; then
+        echo "Reconfigure requested; stopping managed powermem-server PID $(managed_pid)."
+        stop_unhealthy_managed_server
+        rm -f "$ENV_FILE"
+        echo "Removed $ENV_FILE; recreating from current POWERMEM_INIT_* env."
+        create_env_file
+      else
+        write_runtime_base_url "$base_url"
+        echo "Managed PowerMem backend is healthy: $base_url"
+        announce_dashboard_url "$base_url"
+        echo "Hook will use this backend through $RUNTIME_FILE."
+        echo "Set POWERMEM_INIT_RECONFIGURE=1 to force reconfigure."
+        exit 0
+      fi
+    else
+      echo "Managed powermem-server exists, but health check failed at $base_url; init will stop it and continue."
+      stop_unhealthy_managed_server
     fi
-    echo "Managed powermem-server exists, but health check failed at $base_url; init will stop it and continue."
-    stop_unhealthy_managed_server
   else
     echo "No matching managed powermem-server is recorded for $ENV_FILE; init will start one if no healthy backend is found."
     remove_managed_pid_files
