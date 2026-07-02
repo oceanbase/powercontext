@@ -221,6 +221,7 @@ def test_linux_binary_dockerfile_pins_pyinstaller_setuptools_runtime_api() -> No
     assert "--with pyinstaller" in builder
     assert '--with "setuptools<81"' in builder
     assert "--with wheel" in builder
+    assert '--with "pillow<12.2.1"' in builder
 
 
 def test_release_uploads_arch_named_binary_assets() -> None:

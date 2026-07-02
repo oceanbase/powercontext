@@ -62,6 +62,10 @@ class OutputFormatter:
             return self._format_config_plain(data)
         elif data_type == "search_results":
             return self._format_search_results_plain(data)
+        elif data_type == "profile":
+            return self._format_profile_plain(data)
+        elif data_type == "profiles":
+            return self._format_profiles_plain(data)
         else:
             return str(data)
     
@@ -77,6 +81,10 @@ class OutputFormatter:
             return self._format_config_table(data)
         elif data_type == "search_results":
             return self._format_search_results_table(data)
+        elif data_type == "profile":
+            return self._format_profile_table(data)
+        elif data_type == "profiles":
+            return self._format_profiles_table(data)
         else:
             return self._format_json(data)
     
@@ -225,6 +233,84 @@ class OutputFormatter:
         
         return "\n".join(lines)
     
+    # Profile formatting
+    def _format_profile_plain(self, profile: Dict[str, Any]) -> str:
+        """Format a single user profile as plain text."""
+        if not profile:
+            return "Profile not found."
+        lines = []
+        lines.append(f"User ID: {profile.get('user_id', 'N/A')}")
+        lines.append(f"Profile ID: {profile.get('id', 'N/A')}")
+        profile_content = profile.get("profile_content")
+        if profile_content:
+            lines.append(f"Profile Content: {profile_content}")
+        topics = profile.get("topics")
+        if topics:
+            lines.append(f"Topics: {json.dumps(topics, default=str, ensure_ascii=False)}")
+        lines.append(f"Created: {profile.get('created_at', 'N/A')}")
+        lines.append(f"Updated: {profile.get('updated_at', 'N/A')}")
+        return "\n".join(lines)
+
+    def _format_profile_table(self, profile: Dict[str, Any]) -> str:
+        """Format a single user profile as a table."""
+        if not profile:
+            return "Profile not found."
+        lines = []
+        lines.append("=" * 60)
+        lines.append("User Profile")
+        lines.append("=" * 60)
+        lines.append(f"{'User ID:':<15} {profile.get('user_id', 'N/A')}")
+        lines.append(f"{'Profile ID:':<15} {profile.get('id', 'N/A')}")
+        profile_content = profile.get("profile_content")
+        if profile_content:
+            lines.append(f"{'Content:':<15} {profile_content}")
+        topics = profile.get("topics")
+        if topics:
+            lines.append(f"{'Topics:':<15}")
+            for main_topic, sub_topics in topics.items():
+                if isinstance(sub_topics, dict):
+                    lines.append(f"  {main_topic}:")
+                    for sub_key, sub_val in sub_topics.items():
+                        lines.append(f"    {sub_key}: {sub_val}")
+                else:
+                    lines.append(f"  {main_topic}: {sub_topics}")
+        lines.append(f"{'Created:':<15} {profile.get('created_at', 'N/A')}")
+        lines.append(f"{'Updated:':<15} {profile.get('updated_at', 'N/A')}")
+        lines.append("=" * 60)
+        return "\n".join(lines)
+
+    def _format_profiles_plain(self, profiles: List[Dict[str, Any]]) -> str:
+        """Format multiple profiles as plain text."""
+        if not profiles:
+            return "No profiles found."
+        lines = []
+        for i, profile in enumerate(profiles, 1):
+            user_id = profile.get("user_id", "N/A")
+            content = profile.get("profile_content", "")
+            content_preview = self._truncate(content, 50) if content else "(no content)"
+            lines.append(f"{i}. [{user_id}] {content_preview}")
+        return "\n".join(lines)
+
+    def _format_profiles_table(self, profiles: List[Dict[str, Any]]) -> str:
+        """Format multiple profiles as a table."""
+        if not profiles:
+            return "No profiles found."
+        lines = []
+        header = f"{'User ID':<22} {'Profile ID':<12} {'Content':<40}"
+        lines.append("=" * len(header))
+        lines.append(f"Found {len(profiles)} profiles")
+        lines.append("=" * len(header))
+        lines.append(header)
+        lines.append("-" * len(header))
+        for profile in profiles:
+            user_id = self._truncate(str(profile.get("user_id", "N/A")), 20)
+            profile_id = str(profile.get("id", "N/A"))[:10]
+            content = profile.get("profile_content", "")
+            content = self._truncate(content, 38) if content else "(no content)"
+            lines.append(f"{user_id:<22} {profile_id:<12} {content:<40}")
+        lines.append("=" * len(header))
+        return "\n".join(lines)
+
     # Stats formatting
     def _format_stats_plain(self, stats: Dict[str, Any]) -> str:
         """Format statistics as plain text."""

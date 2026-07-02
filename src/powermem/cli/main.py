@@ -40,6 +40,7 @@ class CLIContext:
         self.json_output: bool = False
         self.verbose: bool = False
         self._memory = None
+        self._user_memory = None
         self._config = None
     
     @property
@@ -58,6 +59,24 @@ class CLIContext:
                 click.echo(f"Error: Failed to initialize PowerMem: {e}", err=True)
                 sys.exit(1)
         return self._memory
+    
+    @property
+    def user_memory(self):
+        """Lazy-load UserMemory instance (profile-aware)."""
+        if self._user_memory is None:
+            from powermem import auto_config
+            from powermem.user_memory import UserMemory
+            
+            if self.env_file:
+                os.environ["POWERMEM_ENV_FILE"] = self.env_file
+            
+            try:
+                config = auto_config()
+                self._user_memory = UserMemory(config=config)
+            except Exception as e:
+                click.echo(f"Error: Failed to initialize UserMemory: {e}", err=True)
+                sys.exit(1)
+        return self._user_memory
     
     @property
     def config(self):
@@ -92,12 +111,16 @@ def json_option(f):
 # Static command tree for fast shell completion (no Python process on TAB).
 # Keep in sync with cli.add_command / group.add_command below.
 _COMPLETION_COMMANDS = [
-    "config", "manage", "memory", "shell", "stats",
+    "config", "manage", "memory", "profile", "shell", "stats",
 ]
 _COMPLETION_SUBCOMMANDS = {
     "config": ["init", "show", "test", "validate"],
     "manage": ["backup", "cleanup", "migrate", "restore"],
-    "memory": ["add", "delete", "delete-all", "get", "list", "search", "update"],
+    "memory": [
+        "add", "delete", "delete-all", "export", "get",
+        "import", "list", "optimize", "quality", "search", "update",
+    ],
+    "profile": ["delete", "get", "list"],
 }
 
 
@@ -212,7 +235,8 @@ _pmem_completion() {{
     case ${{words[2]}} in
       config) compadd init show test validate ;;
       manage) compadd backup cleanup migrate restore ;;
-      memory) compadd add delete delete-all get list search update ;;
+      memory) compadd add delete delete-all export get import list optimize quality search update ;;
+      profile) compadd delete get list ;;
       *) ;;
     esac
   fi
@@ -333,9 +357,13 @@ from .commands.config import config_group
 from .commands.stats import stats_cmd
 from .commands.manage import manage_group
 from .commands.interactive import shell_cmd
+from .commands.profile import profile_group
 
-# Memory commands under "memory": pmem memory add/search/get/update/delete/list/delete-all
+# Memory commands under "memory": pmem memory add/search/get/update/delete/list/delete-all/export/import/quality/optimize
 cli.add_command(memory_group)
+
+# Profile commands under "profile": pmem profile get/list/delete
+cli.add_command(profile_group)
 
 # Register other command groups
 cli.add_command(config_group)
