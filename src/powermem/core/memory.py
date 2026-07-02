@@ -2795,6 +2795,7 @@ class Memory(MemoryBase):
                     messages=memory['content'],
                     user_id=mem_user_id,
                     agent_id=mem_agent_id,
+                    run_id=memory.get('run_id'),
                     metadata=memory.get('metadata', {}),
                 )
                 success += 1

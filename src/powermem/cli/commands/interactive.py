@@ -46,11 +46,11 @@ PowerMem Interactive Mode
 =========================
 
 Available commands (you can also use "memory <cmd> ..." e.g. memory add "..."):
-  add <content> [--user-id <id>] [--agent-id <id>] [--with-profile]
-      Add a new memory (--with-profile: also extract user profile)
-      
-  search <query> [--user-id <id>] [--limit <n>] [--threshold <t>] [--add-profile]
-      Search for memories (--add-profile: include user profile in results)
+  add <content> [--user-id <id>] [--agent-id <id>] [--run-id <id>] [--with-profile]
+      Add a new memory (--run-id tags the memory with a session scope; --with-profile: also extract user profile)
+
+  search <query> [--user-id <id>] [--run-id <id>] [--limit <n>] [--threshold <t>] [--add-profile]
+      Search for memories (--run-id restricts to a session scope; --add-profile: include user profile in results)
       
   get <memory_id> [--user-id <id>]
       Get a specific memory
@@ -61,11 +61,11 @@ Available commands (you can also use "memory <cmd> ..." e.g. memory add "..."):
   delete <memory_id> [--user-id <id>]
       Delete a memory
       
-  list [--user-id <id>] [--limit <n>] [-j|--json]
-      List memories (-j/--json for JSON output)
+  list [--user-id <id>] [--run-id <id>] [--limit <n>] [-j|--json]
+      List memories (--run-id restricts to a session scope; -j/--json for JSON output)
       
-  export [--format json|csv] [--user-id <id>] [--output <file>]
-      Export memories to file or stdout
+  export [--format json|csv] [--user-id <id>] [--agent-id <id>] [--run-id <id>] [--limit <n>] [--output <file>]
+      Export memories to file or stdout (--run-id restricts to a session scope)
       
   import <file> [--format json|csv] [--user-id <id>]
       Import memories from a file
@@ -279,14 +279,17 @@ Examples:
     def _cmd_add(self, args: List[str]):
         """Handle add command."""
         positional, options = self._parse_options(args)
-        
+
         if not positional:
-            print_error("Usage: add <content> [--user-id <id>] [--agent-id <id>] [--with-profile]")
+            print_error("Usage: add <content> [--user-id <id>] [--agent-id <id>] [--run-id <id>] [--with-profile]")
             return
-        
+
         content = " ".join(positional)
         with_profile = options.get("with_profile", False)
-        
+        run_id = options.get("run_id")
+        if run_id is True:
+            run_id = None
+
         try:
             user_id = self._get_user_id(options)
             agent_id = self._get_agent_id(options)
@@ -308,6 +311,7 @@ Examples:
                     messages=content,
                     user_id=user_id,
                     agent_id=agent_id,
+                    run_id=run_id,
                     infer=not options.get("no_infer", False),
                 )
             
@@ -329,11 +333,11 @@ Examples:
     def _cmd_search(self, args: List[str]):
         """Handle search command."""
         positional, options = self._parse_options(args)
-        
+
         if not positional:
-            print_error("Usage: search <query> [--user-id <id>] [--limit <n>] [--threshold <t>] [--add-profile]")
+            print_error("Usage: search <query> [--user-id <id>] [--run-id <id>] [--limit <n>] [--threshold <t>] [--add-profile]")
             return
-        
+
         query = " ".join(positional)
         limit = int(options.get("limit", 10))
         threshold = options.get("threshold")
@@ -344,7 +348,10 @@ Examples:
                 threshold = None
 
         add_profile = options.get("add_profile", False)
-        
+        run_id = options.get("run_id")
+        if run_id is True:
+            run_id = None
+
         try:
             user_id = self._get_user_id(options)
             agent_id = self._get_agent_id(options)
@@ -366,6 +373,7 @@ Examples:
                     query=query,
                     user_id=user_id,
                     agent_id=agent_id,
+                    run_id=run_id,
                     limit=limit,
                     threshold=threshold,
                 )
@@ -506,15 +514,19 @@ Examples:
     def _cmd_list(self, args: List[str]):
         """Handle list command."""
         _, options = self._parse_options(args)
-        
+
         limit = int(options.get("limit", 20))
         offset = int(options.get("offset", 0))
         use_json = options.get("json") or self.json_output
-        
+        run_id = options.get("run_id")
+        if run_id is True:
+            run_id = None
+
         try:
             result = self.ctx.memory.get_all(
                 user_id=self._get_user_id(options),
                 agent_id=self._get_agent_id(options),
+                run_id=run_id,
                 limit=limit,
                 offset=offset,
             )
@@ -569,12 +581,16 @@ Examples:
         fmt = options.get("format", "json")
         output_file = options.get("output")
         limit = int(options.get("limit", 1000))
+        run_id = options.get("run_id")
+        if run_id is True:
+            run_id = None
 
         try:
             content = self.ctx.memory.export_memories(
                 format=fmt,
                 user_id=self._get_user_id(options),
                 agent_id=self._get_agent_id(options),
+                run_id=run_id,
                 limit=limit,
             )
             if output_file:

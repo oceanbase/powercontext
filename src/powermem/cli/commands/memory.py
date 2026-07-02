@@ -30,6 +30,27 @@ from ..utils.output import (
 logger = logging.getLogger(__name__)
 
 
+def _parse_json_dict(raw: str, field_name: str) -> Dict[str, Any]:
+    """Parse a JSON string and require a dict top-level shape.
+
+    Errors out with a clear message when the decoded value is not a dict, so
+    invalid input (e.g. '[]' or '"str"') fails fast instead of flowing
+    downstream as the wrong type.
+    """
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print_error(f"Invalid {field_name} JSON: {e}")
+        sys.exit(1)
+    if not isinstance(parsed, dict):
+        print_error(
+            f"Invalid {field_name}: expected JSON object, got "
+            f"{type(parsed).__name__}"
+        )
+        sys.exit(1)
+    return parsed
+
+
 @click.group(name="memory")
 def memory_group():
     """Memory operations (add, search, get, update, delete, list)."""
@@ -100,13 +121,7 @@ def add_cmd(ctx: CLIContext, content, user_id, agent_id, run_id, metadata,
         sys.exit(1)
 
     try:
-        meta_dict = None
-        if metadata:
-            try:
-                meta_dict = json.loads(metadata)
-            except json.JSONDecodeError as e:
-                print_error(f"Invalid metadata JSON: {e}")
-                sys.exit(1)
+        meta_dict = _parse_json_dict(metadata, "metadata") if metadata else None
 
         if with_profile:
             if not user_id:
@@ -270,13 +285,7 @@ def search_cmd(ctx: CLIContext, query, user_id, agent_id, run_id, limit,
     """
     ctx.json_output = ctx.json_output or json_output
     try:
-        filter_dict = None
-        if filters:
-            try:
-                filter_dict = json.loads(filters)
-            except json.JSONDecodeError as e:
-                print_error(f"Invalid filters JSON: {e}")
-                sys.exit(1)
+        filter_dict = _parse_json_dict(filters, "filters") if filters else None
 
         if add_profile:
             if not user_id:
@@ -394,15 +403,8 @@ def update_cmd(ctx: CLIContext, memory_id, content, user_id, agent_id, metadata,
     """
     ctx.json_output = ctx.json_output or json_output
     try:
-        # Parse metadata if provided
-        meta_dict = None
-        if metadata:
-            try:
-                meta_dict = json.loads(metadata)
-            except json.JSONDecodeError as e:
-                print_error(f"Invalid metadata JSON: {e}")
-                sys.exit(1)
-        
+        meta_dict = _parse_json_dict(metadata, "metadata") if metadata else None
+
         result = ctx.memory.update(
             memory_id=memory_id,
             content=content,
@@ -509,14 +511,7 @@ def list_cmd(ctx: CLIContext, user_id, agent_id, run_id, limit, offset,
     """
     ctx.json_output = ctx.json_output or json_output
     try:
-        # Parse filters if provided
-        filter_dict = None
-        if filters:
-            try:
-                filter_dict = json.loads(filters)
-            except json.JSONDecodeError as e:
-                print_error(f"Invalid filters JSON: {e}")
-                sys.exit(1)
+        filter_dict = _parse_json_dict(filters, "filters") if filters else None
 
         # Negative limit (e.g. -1, -2) means no limit; pass None so backend does not add LIMIT (MySQL/OceanBase reject negative LIMIT)
         effective_limit = None if limit < 0 else limit
@@ -745,15 +740,19 @@ def quality_cmd(ctx: CLIContext, user_id, agent_id, json_output):
 
         total = len(memories)
         empty_count = sum(1 for m in memories if not (m.get("memory") or m.get("content", "")).strip())
-        short_count = sum(1 for m in memories if len((m.get("memory") or m.get("content", "")).strip()) < 10)
+        short_count = sum(
+            1 for m in memories
+            if 0 < len((m.get("memory") or m.get("content", "")).strip()) < 10
+        )
         no_metadata = sum(1 for m in memories if not m.get("metadata"))
 
+        quality_score = max(0.0, 1.0 - (empty_count + short_count) / max(total, 1))
         quality_data = {
             "total_memories": total,
             "empty_content": empty_count,
             "short_content_lt10": short_count,
             "no_metadata": no_metadata,
-            "quality_score": round(1.0 - (empty_count + short_count) / max(total, 1), 4),
+            "quality_score": round(quality_score, 4),
         }
 
         if ctx.json_output:

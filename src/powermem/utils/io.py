@@ -63,8 +63,18 @@ def export_to_csv(memories: List[Dict[str, Any]]) -> str:
 
 
 def import_from_json(json_str: str) -> List[Dict[str, Any]]:
-    """Import memories from JSON format."""
+    """Import memories from JSON format.
+
+    Top-level JSON value must be an array of memory objects. A dict or other
+    shape is rejected with a ValueError so callers fail fast instead of
+    silently importing zero rows.
+    """
     memories = json.loads(json_str)
+    if not isinstance(memories, list):
+        raise ValueError(
+            f"Invalid JSON top-level shape for import: expected array, got "
+            f"{type(memories).__name__}"
+        )
     result = []
     for memory in memories:
         if isinstance(memory, dict):

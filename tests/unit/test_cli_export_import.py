@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 from click.testing import CliRunner
 
 from powermem.core.memory import Memory
+from powermem.cli.commands.interactive import InteractiveSession
 from powermem.cli.main import cli
 
 
@@ -218,6 +219,20 @@ class TestImport:
         assert "0 succeeded" in result.output
         assert "1 failed" in result.output
 
+    def test_import_dict_top_level_fails(self, runner, mock_memory, tmp_path):
+        in_file = str(tmp_path / "dict.json")
+        with open(in_file, "w", encoding="utf-8") as f:
+            json.dump({"content": "one"}, f)
+        mock_memory.import_memories.side_effect = ValueError(
+            "Invalid JSON top-level shape for import: expected array, got dict"
+        )
+
+        with patch("powermem.cli.commands.memory.CLIContext.memory",
+                   new_callable=PropertyMock, return_value=mock_memory):
+            result = runner.invoke(cli, ["memory", "import", in_file])
+        assert result.exit_code != 0
+        assert "error" in result.output.lower()
+
 
 class TestExportImportRoundTrip:
 
@@ -247,6 +262,64 @@ class TestExportImportRoundTrip:
         assert kwargs["user_id"] == "u1"
         assert kwargs["agent_id"] == "a1"
         assert kwargs["metadata"] == {"source": "test"}
+
+    def test_json_export_preserves_and_imports_run_id(self):
+        source = Memory.__new__(Memory)
+        source.get_all = MagicMock(return_value={
+            "results": [
+                {
+                    "id": 1,
+                    "memory": "Session-scoped memory",
+                    "user_id": "u1",
+                    "agent_id": "a1",
+                    "run_id": "run-abc",
+                    "metadata": {"source": "test"},
+                },
+            ],
+        })
+        exported = Memory.export_memories(source, format="json")
+        exported_rows = json.loads(exported)
+        assert exported_rows[0]["run_id"] == "run-abc"
+
+        target = Memory.__new__(Memory)
+        target.add = MagicMock()
+        result = Memory.import_memories(target, exported, format="json")
+
+        assert result == {"success": 1, "failed": 0}
+        kwargs = target.add.call_args.kwargs
+        assert kwargs["run_id"] == "run-abc"
+
+    def test_csv_export_preserves_and_imports_run_id(self):
+        source = Memory.__new__(Memory)
+        source.get_all = MagicMock(return_value={
+            "results": [
+                {
+                    "id": 1,
+                    "memory": "Session-scoped memory",
+                    "user_id": "u1",
+                    "agent_id": "a1",
+                    "run_id": "run-xyz",
+                    "metadata": {"source": "test"},
+                },
+            ],
+        })
+        exported = Memory.export_memories(source, format="csv")
+        assert "run-xyz" in exported
+
+        target = Memory.__new__(Memory)
+        target.add = MagicMock()
+        result = Memory.import_memories(target, exported, format="csv")
+
+        assert result == {"success": 1, "failed": 0}
+        kwargs = target.add.call_args.kwargs
+        assert kwargs["run_id"] == "run-xyz"
+
+    def test_import_json_dict_top_level_rejected(self):
+        target = Memory.__new__(Memory)
+        target.add = MagicMock()
+        with pytest.raises(ValueError):
+            Memory.import_memories(target, '{"content": "one"}', format="json")
+        target.add.assert_not_called()
 
     def test_csv_exported_memory_field_imports_as_content(self):
         source = Memory.__new__(Memory)
@@ -417,6 +490,20 @@ class TestQuality:
         assert result.exit_code != 0
         assert "error" in result.output.lower()
 
+    def test_quality_score_non_negative_for_empty_only(self, runner, mock_memory):
+        mock_memory.get_all.return_value = {
+            "results": [{"id": 1, "memory": "", "metadata": None}],
+        }
+        with patch("powermem.cli.commands.memory.CLIContext.memory",
+                   new_callable=PropertyMock, return_value=mock_memory):
+            result = runner.invoke(cli, ["memory", "quality", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["total_memories"] == 1
+        assert data["empty_content"] == 1
+        assert data["short_content_lt10"] == 0
+        assert 0.0 <= data["quality_score"] <= 1.0
+
 
 # ==================== Optimize ====================
 
@@ -479,3 +566,158 @@ class TestOptimize:
     def test_optimize_invalid_strategy(self, runner, mock_memory):
         result = runner.invoke(cli, ["memory", "optimize", "--strategy", "invalid"])
         assert result.exit_code != 0
+
+
+# ==================== Interactive shell ====================
+
+class TestInteractiveExportRunId:
+    """Regression for: interactive shell export ignored --run-id."""
+
+    def _make_session(self, mock_memory):
+        ctx = MagicMock()
+        ctx.memory = mock_memory
+        ctx.default_user_id = None
+        ctx.default_agent_id = None
+        return InteractiveSession(ctx)
+
+    def test_export_forwards_long_run_id(self, mock_memory):
+        session = self._make_session(mock_memory)
+        session._cmd_export(["--run-id", "run-1"])
+        mock_memory.export_memories.assert_called_once_with(
+            format="json",
+            user_id=None,
+            agent_id=None,
+            run_id="run-1",
+            limit=1000,
+        )
+
+    def test_export_forwards_short_run_id(self, mock_memory):
+        session = self._make_session(mock_memory)
+        session._cmd_export(["-r", "run-2"])
+        mock_memory.export_memories.assert_called_once_with(
+            format="json",
+            user_id=None,
+            agent_id=None,
+            run_id="run-2",
+            limit=1000,
+        )
+
+    def test_export_without_run_id_passes_none(self, mock_memory):
+        session = self._make_session(mock_memory)
+        session._cmd_export([])
+        mock_memory.export_memories.assert_called_once_with(
+            format="json",
+            user_id=None,
+            agent_id=None,
+            run_id=None,
+            limit=1000,
+        )
+
+
+class TestInteractiveAddSearchListRunId:
+    """Regression for: interactive shell add/search/list dropped --run-id."""
+
+    def _make_session(self, mock_memory):
+        ctx = MagicMock()
+        ctx.memory = mock_memory
+        ctx.default_user_id = None
+        ctx.default_agent_id = None
+        return InteractiveSession(ctx)
+
+    def test_add_forwards_long_run_id(self, mock_memory):
+        session = self._make_session(mock_memory)
+        session._cmd_add(["hello", "--run-id", "run-1"])
+        kwargs = mock_memory.add.call_args.kwargs
+        assert kwargs["run_id"] == "run-1"
+        assert kwargs["messages"] == "hello"
+
+    def test_add_forwards_short_run_id(self, mock_memory):
+        session = self._make_session(mock_memory)
+        session._cmd_add(["hello", "-r", "run-2"])
+        kwargs = mock_memory.add.call_args.kwargs
+        assert kwargs["run_id"] == "run-2"
+
+    def test_add_without_run_id_passes_none(self, mock_memory):
+        session = self._make_session(mock_memory)
+        session._cmd_add(["hello"])
+        kwargs = mock_memory.add.call_args.kwargs
+        assert kwargs["run_id"] is None
+
+    def test_search_forwards_run_id(self, mock_memory):
+        session = self._make_session(mock_memory)
+        mock_memory.search.return_value = {"results": []}
+        session._cmd_search(["query", "--run-id", "run-3"])
+        kwargs = mock_memory.search.call_args.kwargs
+        assert kwargs["run_id"] == "run-3"
+
+    def test_search_without_run_id_passes_none(self, mock_memory):
+        session = self._make_session(mock_memory)
+        mock_memory.search.return_value = {"results": []}
+        session._cmd_search(["query"])
+        kwargs = mock_memory.search.call_args.kwargs
+        assert kwargs["run_id"] is None
+
+    def test_list_forwards_run_id(self, mock_memory):
+        session = self._make_session(mock_memory)
+        mock_memory.get_all.return_value = {"results": []}
+        session._cmd_list(["--run-id", "run-4"])
+        kwargs = mock_memory.get_all.call_args.kwargs
+        assert kwargs["run_id"] == "run-4"
+
+    def test_list_without_run_id_passes_none(self, mock_memory):
+        session = self._make_session(mock_memory)
+        mock_memory.get_all.return_value = {"results": []}
+        session._cmd_list([])
+        kwargs = mock_memory.get_all.call_args.kwargs
+        assert kwargs["run_id"] is None
+
+
+class TestMetadataFiltersShapeValidation:
+    """Regression for: CLI --metadata/--filters accepted any JSON shape."""
+
+    def test_add_rejects_metadata_array(self, runner, mock_memory, tmp_path):
+        with patch("powermem.cli.commands.memory.CLIContext.memory",
+                   new_callable=PropertyMock, return_value=mock_memory):
+            result = runner.invoke(cli, [
+                "memory", "add", "content", "--metadata", "[]",
+            ])
+        assert result.exit_code != 0
+        assert "expected JSON object" in result.output
+        mock_memory.add.assert_not_called()
+
+    def test_add_rejects_metadata_string(self, runner, mock_memory, tmp_path):
+        with patch("powermem.cli.commands.memory.CLIContext.memory",
+                   new_callable=PropertyMock, return_value=mock_memory):
+            result = runner.invoke(cli, [
+                "memory", "add", "content", "--metadata", '"oops"',
+            ])
+        assert result.exit_code != 0
+        assert "expected JSON object" in result.output
+
+    def test_add_accepts_metadata_dict(self, runner, mock_memory, tmp_path):
+        with patch("powermem.cli.commands.memory.CLIContext.memory",
+                   new_callable=PropertyMock, return_value=mock_memory):
+            result = runner.invoke(cli, [
+                "memory", "add", "content", "--metadata", '{"k": "v"}',
+            ])
+        assert result.exit_code == 0
+        kwargs = mock_memory.add.call_args.kwargs
+        assert kwargs["metadata"] == {"k": "v"}
+
+    def test_search_rejects_filters_array(self, runner, mock_memory, tmp_path):
+        with patch("powermem.cli.commands.memory.CLIContext.memory",
+                   new_callable=PropertyMock, return_value=mock_memory):
+            result = runner.invoke(cli, [
+                "memory", "search", "q", "--filters", "[]",
+            ])
+        assert result.exit_code != 0
+        assert "expected JSON object" in result.output
+
+    def test_list_rejects_filters_array(self, runner, mock_memory, tmp_path):
+        with patch("powermem.cli.commands.memory.CLIContext.memory",
+                   new_callable=PropertyMock, return_value=mock_memory):
+            result = runner.invoke(cli, [
+                "memory", "list", "--filters", "[]",
+            ])
+        assert result.exit_code != 0
+        assert "expected JSON object" in result.output
