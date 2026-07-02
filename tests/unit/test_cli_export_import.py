@@ -356,6 +356,28 @@ class TestBatchAdd:
         assert "1 succeeded" in result.output or "success" in result.output.lower()
         assert "2 failed" in result.output
 
+    def test_batch_add_json_output_stays_parseable_with_skipped_items(
+            self, runner, mock_memory, tmp_path):
+        batch_file = str(tmp_path / "batch.json")
+        data = [
+            {"content": "memory one"},
+            {"content": ""},
+            42,
+        ]
+        with open(batch_file, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+        with patch("powermem.cli.commands.memory.CLIContext.memory",
+                   new_callable=PropertyMock, return_value=mock_memory):
+            result = runner.invoke(cli, [
+                "memory", "add", "--batch", batch_file, "--json",
+            ])
+
+        assert result.exit_code == 0
+        output = json.loads(result.output)
+        assert output == {"success": 1, "failed": 2, "total": 3}
+        assert "warning" not in result.output.lower()
+
 
 # ==================== Quality ====================
 

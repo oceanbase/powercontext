@@ -178,7 +178,10 @@ def _add_batch(ctx: CLIContext, batch_file, user_id, agent_id, run_id, no_infer)
         sys.exit(1)
 
     if not data:
-        print_warning("Batch file is empty, nothing to add")
+        if ctx.json_output:
+            _print_batch_result(success=0, failed=0, total=0)
+        else:
+            print_warning("Batch file is empty, nothing to add")
         return
 
     success = 0
@@ -192,12 +195,12 @@ def _add_batch(ctx: CLIContext, batch_file, user_id, agent_id, run_id, no_infer)
                 messages = item.get("content") or item.get("messages") or item.get("memory", "")
                 meta = item.get("metadata")
             else:
-                print_warning(f"Skipping item {i}: unsupported type {type(item).__name__}")
+                _print_batch_warning(ctx, f"Skipping item {i}: unsupported type {type(item).__name__}")
                 failed += 1
                 continue
 
             if not messages:
-                print_warning(f"Skipping item {i}: empty content")
+                _print_batch_warning(ctx, f"Skipping item {i}: empty content")
                 failed += 1
                 continue
 
@@ -215,17 +218,27 @@ def _add_batch(ctx: CLIContext, batch_file, user_id, agent_id, run_id, no_infer)
             )
             success += 1
         except Exception as e:
-            print_warning(f"Item {i} failed: {e}")
+            _print_batch_warning(ctx, f"Item {i} failed: {e}")
             failed += 1
 
     if ctx.json_output:
-        click.echo(format_output(
-            {"success": success, "failed": failed, "total": len(data)},
-            "generic",
-            json_output=True,
-        ))
+        _print_batch_result(success=success, failed=failed, total=len(data))
     else:
         print_success(f"Batch add complete: {success} succeeded, {failed} failed (total: {len(data)})")
+
+
+def _print_batch_warning(ctx: CLIContext, message: str) -> None:
+    """Keep stdout parseable when callers request JSON output."""
+    if not ctx.json_output:
+        print_warning(message)
+
+
+def _print_batch_result(success: int, failed: int, total: int) -> None:
+    click.echo(format_output(
+        {"success": success, "failed": failed, "total": total},
+        "generic",
+        json_output=True,
+    ))
 
 
 @click.command(name="search")
