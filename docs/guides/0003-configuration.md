@@ -91,17 +91,17 @@ memory = Memory(config=config)
 
 ## 1. Database Configuration (Required)
 
-PowerMem requires a database provider to store memories and vectors. Choose one of the supported providers: SQLite (development), OceanBase (production), or PostgreSQL.
+PowerMem requires a database provider to store memories and vectors. The zero-config default is platform-aware: Linux with embedded SeekDB available uses the OceanBase provider in embedded mode; other platforms fall back to SQLite for basic local memory CRUD/search. Choose OceanBase/SeekDB for the full capability stack, or PostgreSQL/pgvector when your deployment already runs PostgreSQL.
 
 ### Common Database Settings
 
 | Configuration | Type | Required | Default | Description |
 |--------------|------|----------|---------|-------------|
-| `DATABASE_PROVIDER` | string | Yes | `sqlite` | Database provider to use. Options: `sqlite`, `oceanbase`, `postgres` |
+| `DATABASE_PROVIDER` | string | No | platform-aware | Database provider to use. Options: `sqlite`, `oceanbase`, `postgres` |
 
 ### SQLite Configuration
 
-SQLite is the default database provider, recommended for development and single-user applications.
+SQLite is the fallback default when embedded SeekDB is unavailable. It is recommended for development and single-user basic memory CRUD/search. Graph Store, sub_stores, sparse vector search, and SkillStore require OceanBase or embedded SeekDB.
 
 | Configuration | Type | Required | Default | Description |
 |--------------|------|----------|---------|-------------|
@@ -163,15 +163,15 @@ config = {
 
 ### OceanBase Configuration
 
-OceanBase is recommended for production deployments and enterprise applications with high-scale requirements.
+OceanBase is recommended for production deployments and for the full PowerMem capability stack. With `OCEANBASE_HOST` empty, the OceanBase provider uses embedded SeekDB when the native dependency is available. Set `OCEANBASE_HOST` for a remote OceanBase cluster.
 
 | Configuration | Type | Required | Default | Description |
 |--------------|------|----------|---------|-------------|
-| `OCEANBASE_HOST` | string | Yes* | `127.0.0.1` | OceanBase server hostname or IP address. Required when `DATABASE_PROVIDER=oceanbase` |
-| `OCEANBASE_PORT` | integer | Yes* | `2881` | OceanBase server port. Required when `DATABASE_PROVIDER=oceanbase` |
-| `OCEANBASE_USER` | string | Yes* | `root` | Database username. Required when `DATABASE_PROVIDER=oceanbase` |
-| `OCEANBASE_PASSWORD` | string | Yes* | - | Database password. Required when `DATABASE_PROVIDER=oceanbase` |
-| `OCEANBASE_DATABASE` | string | Yes* | `powermem` | Database name. Required when `DATABASE_PROVIDER=oceanbase` |
+| `OCEANBASE_HOST` | string | No* | empty | OceanBase server hostname or IP address. Empty means embedded SeekDB mode; remote mode requires a host |
+| `OCEANBASE_PORT` | integer | Yes* | `2881` | OceanBase server port. Required in remote mode |
+| `OCEANBASE_USER` | string | Yes* | `root@test` | Database username. Required in remote mode |
+| `OCEANBASE_PASSWORD` | string | No | - | Database password. Required if your remote cluster needs one |
+| `OCEANBASE_DATABASE` | string | Yes* | `test` | Database name |
 | `OCEANBASE_COLLECTION` | string | No | `memories` | Collection/table name for storing memories |
 | `OCEANBASE_INDEX_TYPE` | string | No | `IVF_FLAT` | Vector index type. Options: `IVF_FLAT`, `HNSW`, etc. |
 | `OCEANBASE_VECTOR_METRIC_TYPE` | string | No | `cosine` | Vector similarity metric. Options: `cosine`, `euclidean`, `dot_product` |

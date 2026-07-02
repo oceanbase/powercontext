@@ -4,7 +4,7 @@ Thin wrapper package for launching the PowerMem MCP server with `uvx`.
 
 This package intentionally uses the same version as the main
 [`powermem`](https://pypi.org/project/powermem/) package. For example,
-`powermem-mcp==1.1.5` depends on `powermem[server,seekdb]==1.1.5`.
+`powermem-mcp==1.1.6` depends on `powermem[server,seekdb]==1.1.6`.
 
 Use this package when an MCP client needs a zero-install command such as:
 

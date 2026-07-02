@@ -12,6 +12,12 @@ load_env_file() {
 }
 load_env_file "$DATA_DIR/runtime.env"
 load_env_file "$PLUGIN_ROOT/config/runtime.env"
+# MCP-only mode: runtime.env sets POWERMEM_HOOK_DISABLED=1 so the native
+# binary never runs (and never falls back to a stale POWERMEM_BASE_URL).
+# Must be checked AFTER loading runtime.env so the marker takes effect.
+if [ "${POWERMEM_HOOK_DISABLED:-0}" = "1" ]; then
+  exit 0
+fi
 case "$(uname -s 2>/dev/null)" in
   Darwin) GOOS=darwin ;;
   Linux) GOOS=linux ;;

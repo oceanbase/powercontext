@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "Stop",
+  "session_id": "session-stop-1043",
+  "cwd": "/workspace/powermem",
+  "last_assistant_message": "Implemented hook coverage and ran tests with Bearer sentinelsecret1049",
+  "changed_files": [
+    "apps/claude-code-plugin/cmd/powermem-hook/main.go"
+  ],
+  "background_tasks": [
+    "none"
+  ],
+  "stop_hook_active": false
+}

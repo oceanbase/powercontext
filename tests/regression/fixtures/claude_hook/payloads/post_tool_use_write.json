@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "session-write-1041",
+  "cwd": "/workspace/project",
+  "tool_name": "Write",
+  "tool_use_id": "tool-write-1",
+  "tool_input": {
+    "file_path": "src/new_feature.py",
+    "content": "def leaked_token():\n    return 'Bearer sentinelsecret1049'\n"
+  },
+  "tool_response": {
+    "message": "Updated src/new_feature.py with Bearer redactme1049 scrubbed."
+  }
+}

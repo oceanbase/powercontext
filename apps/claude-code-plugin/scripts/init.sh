@@ -8,11 +8,77 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 echo "PowerMem Claude Code plugin init"
 echo "Data dir: $DATA_DIR"
 
+# --- Remote mode short-circuit ---
+# Triggered when the user provides a remote PowerMem server URL via
+# POWERMEM_INIT_BASE_URL (AskUserQuestion) or POWERMEM_BASE_URL (env, non-localhost).
+# Skips .env creation, uvx launch, PID management.
+# Connection mode (POWERMEM_INIT_CONNECTION_MODE=hook|mcp|both, default both)
+# decides which files get written:
+#   hook → runtime.env with URL + key; remove powermem from user-level mcpServers
+#   mcp  → user-level mcpServers only; runtime.env gets POWERMEM_HOOK_DISABLED=1
+#          so the hook launcher exits early instead of falling back to a stale URL
+#   both → both sources populated, hook enabled
+# MCP config is written to the user-scope config (~/.claude.json top-level
+# mcpServers) so it survives plugin reinstalls and applies to all projects.
+remote_init_url="${POWERMEM_INIT_BASE_URL:-${POWERMEM_BASE_URL:-}}"
+if [ -n "$remote_init_url" ] && is_remote_url "$remote_init_url"; then
+  remote_api_key="${POWERMEM_INIT_API_KEY:-${POWERMEM_API_KEY:-}}"
+  remote_mode="${POWERMEM_INIT_CONNECTION_MODE:-both}"
+  case "$remote_mode" in
+    hook|mcp|both) ;;
+    *) echo "ERROR: POWERMEM_INIT_CONNECTION_MODE must be hook, mcp, or both (got: $remote_mode)" >&2; exit 1 ;;
+  esac
+  echo "Remote server mode: $remote_init_url (connection: $remote_mode)"
+  mkdir -p "$DATA_DIR"
+
+  echo "Verifying connectivity..."
+  if ! is_healthy "$remote_init_url"; then
+    echo "ERROR: remote server at $remote_init_url is not healthy." >&2
+    echo "Check the URL and any required API key." >&2
+    exit 1
+  fi
+  echo "Remote server healthy: $remote_init_url"
+
+  case "$remote_mode" in
+    hook|both)
+      write_runtime_remote "$remote_init_url" "$remote_api_key"
+      echo "Wrote $RUNTIME_FILE"
+      ;;
+  esac
+
+  case "$remote_mode" in
+    mcp|both)
+      mcp_url=$(printf '%s' "$remote_init_url" | sed 's:/*$::')"/mcp"
+      write_user_mcp_config "$mcp_url" "$remote_api_key"
+      echo "Wrote powermem MCP server to user-scope config (url=$mcp_url)"
+      ;;
+  esac
+
+  case "$remote_mode" in
+    hook)
+      # Remove powermem from user-level mcpServers so MCP is disabled in
+      # hook-only mode. Other MCP servers are preserved.
+      remove_user_mcp_config
+      echo "Removed powermem from user-scope config (MCP disabled)"
+      ;;
+    mcp)
+      # Write a marker runtime.env so run-hook.sh exits early instead of
+      # falling back to a stale POWERMEM_BASE_URL. Without this, the hook
+      # binary would run with whatever URL was last configured.
+      write_runtime_hook_disabled
+      echo "Wrote $RUNTIME_FILE (hook disabled; MCP-only mode)"
+      ;;
+  esac
+
+  exit 0
+fi
+
 base_url=$(runtime_base_url)
 
 ensure_bootstrap_python || exit 1
 echo "Bootstrap Python: $BOOTSTRAP_PYTHON ($(python_version "$BOOTSTRAP_PYTHON"))"
 
+# Interactive configuration prompts.
 create_env_file() {
   "$BOOTSTRAP_PYTHON" - "$ENV_FILE" "$DATA_DIR" <<'PY'
 import json
@@ -264,6 +330,7 @@ embedding_provider = env_first("POWERMEM_INIT_EMBEDDING_PROVIDER", "EMBEDDING_PR
 embedding_provider = embedding_provider.lower()
 
 embedding_model_defaults = {
+    "none": "none",
     "default": "all-MiniLM-L6-v2",
     "huggingface": "all-MiniLM-L6-v2",
     "qwen": "text-embedding-v4",
@@ -273,6 +340,7 @@ embedding_model_defaults = {
     "lmstudio": "text-embedding-nomic-embed-text-v1.5",
 }
 embedding_dim_defaults = {
+    "none": "0",
     "default": "384",
     "huggingface": "384",
     "qwen": "1536",
@@ -298,7 +366,7 @@ if not embedding_api_key:
     elif embedding_provider == "siliconflow":
         embedding_api_key = env_first("SILICONFLOW_API_KEY") or settings_first(settings_env, "SILICONFLOW_API_KEY")
 
-if embedding_provider not in {"default", "huggingface", "ollama", "lmstudio"} and not embedding_api_key:
+if embedding_provider not in {"none", "default", "huggingface", "ollama", "lmstudio"} and not embedding_api_key:
     print(
         "Missing configuration: POWERMEM_INIT_EMBEDDING_API_KEY "
         f"for EMBEDDING_PROVIDER={embedding_provider}",
@@ -716,13 +784,13 @@ if [ -n "${POWERMEM_UV_INDEX_URL:-}" ]; then
     --default-index "$POWERMEM_UV_INDEX_URL" \
     --from "$PACKAGE" \
     $UVX_WITH_ARGS \
-    powermem-server --host 127.0.0.1 --port "$port" >> "$LOG_FILE" 2>&1 &
+    powermem-server --host "${POWERMEM_SERVER_HOST:-127.0.0.1}" --port "$port" >> "$LOG_FILE" 2>&1 &
 else
   POWERMEM_ENV_FILE="$ENV_FILE" nohup "$UV_BIN" tool run \
     --python "$BOOTSTRAP_PYTHON" \
     --from "$PACKAGE" \
     $UVX_WITH_ARGS \
-    powermem-server --host 127.0.0.1 --port "$port" >> "$LOG_FILE" 2>&1 &
+    powermem-server --host "${POWERMEM_SERVER_HOST:-127.0.0.1}" --port "$port" >> "$LOG_FILE" 2>&1 &
 fi
 pid=$!
 write_managed_pid "$pid"

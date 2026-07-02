@@ -37,32 +37,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+      - name: Set up uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Upgrade pip
-        run: |
-          python -m pip install --upgrade pip
-          pip install --upgrade setuptools wheel
-
-      - name: Cache pip dependencies
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[dev,test,server]"
+          enable-cache: true
 
       - name: Run tests (unit + integration, excluding all e2e tests and regression tests)
         run: |
-          pytest --ignore=tests/regression -m "not e2e and not e2e_config"
+          uv run --no-project --python "${{ matrix.python-version }}" --with-editable ".[dev,test,server]" pytest --ignore=tests/regression -m "not e2e and not e2e_config"
 
   verify-benchmark-dependencies:
     runs-on: ubuntu-latest
@@ -75,22 +58,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+      - name: Set up uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Upgrade pip
-        run: |
-          python -m pip install --upgrade pip
-          pip install --upgrade setuptools wheel
+          enable-cache: true
 
       - name: Install and verify dependencies
         working-directory: benchmark/locomo
         run: |
-          pip install -r requirements.txt
-          pip check
+          uv venv --python "${{ matrix.python-version }}"
+          uv pip install --python .venv/bin/python -r requirements.txt
+          uv pip check --python .venv/bin/python
 
   claude-hook-regression:
     runs-on: ubuntu-latest

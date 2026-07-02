@@ -1,6 +1,17 @@
 {
-  "description": "Push Claude Code session transcripts (SessionEnd) and compact summaries (PostCompact) to PowerMem via HTTP. UserPromptSubmit: semantic search injects context by default; set POWERMEM_PROMPT_SEARCH=0 (or false/no/off) to disable. Uses native binaries under hooks/bin. macOS/Linux: sh launcher. Windows without sh: merge hooks/hooks.windows.example.json. POWERMEM_BASE_URL defaults to http://localhost:8848 if unset.",
+  "description": "Push Claude Code prompt, transcript, compact, tool, subagent, and task events to PowerMem via HTTP. UserPromptSubmit: semantic search injects context by default; set POWERMEM_PROMPT_SEARCH=0 (or false/no/off) to disable. Uses native binaries under hooks/bin. macOS/Linux: sh launcher. Windows without sh: merge hooks/hooks.windows.example.json. POWERMEM_BASE_URL defaults to http://localhost:8848 if unset.",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
@@ -25,6 +36,87 @@
     "PostCompact": [
       {
         "matcher": "auto|manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\""
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\""
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\""
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\""
+          }
+        ]
+      }
+    ],
+    "TaskCreated": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.sh\""
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
         "hooks": [
           {
             "type": "command",

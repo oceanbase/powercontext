@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import {localizedPath} from '../utils/localizedPath';
 import styles from './benchmark.module.css';
 
 const translations: Record<string, Record<string, string>> = {
@@ -75,7 +76,7 @@ const translations: Record<string, Record<string, string>> = {
     'benchmark.scores.description': '描述',
     'benchmark.scores.viewDetails': '了解如何运行压测',
     'benchmark.tokens.title': '评估期间 Token 使用情况',
-    'benchmark.tokens.prompt': '提示词 Token',
+    'benchmark.tokens.prompt': 'Prompt Token',
     'benchmark.tokens.completion': '完成 Token',
     'benchmark.tokens.total': '总 Token',
     'benchmark.tokens.cached': '缓存 Token',
@@ -88,7 +89,7 @@ const translations: Record<string, Record<string, string>> = {
     'category.4.name': '开放 (Open-Domain)',
     'category.4.desc': '可以通过整合说话者提供的信息与外部知识（如常识或世界事实）来回答的问题。',
     'category.5.name': '对抗性',
-    'category.5.desc': '这些问题旨在诱使代理提供错误答案，期望代理能正确识别它们为无法回答的问题。',
+    'category.5.desc': '这些问题旨在诱使 Agent 提供错误答案，期望 Agent 能正确识别它们为无法回答的问题。',
   },
 };
 
@@ -157,7 +158,7 @@ export default function BenchmarkPage() {
   const t = (key: string) => translations[isZh ? 'zh' : 'en'][key] || key;
 
   return (
-    <Layout title="Benchmark" description="PowerMem Performance Benchmarks">
+    <Layout title={t('benchmark.title')} description={t('benchmark.subtitle')}>
       <div className={styles.benchmarkPage}>
         <div className="container margin-vert--lg">
           <div className={styles.header}>
@@ -198,6 +199,12 @@ export default function BenchmarkPage() {
             </Heading>
             <div className={styles.tableContainer}>
               <table className={styles.scoresTable}>
+                <colgroup>
+                  <col className={styles.categoryColumn} />
+                  <col className={styles.descriptionColumn} />
+                  <col className={styles.scoreColumn} />
+                  <col className={styles.countColumn} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>{t('benchmark.scores.category')}</th>
@@ -225,7 +232,7 @@ export default function BenchmarkPage() {
             </div>
             <div className={styles.sectionFooter}>
               <Link
-                to="/docs/benchmark/overview"
+                to={localizedPath('/docs/benchmark/overview', isZh)}
                 className={styles.viewDetailsButton}
               >
                 {t('benchmark.scores.viewDetails')} →

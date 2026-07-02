@@ -24,13 +24,20 @@ class StorageAdapter:
         "actor_id",
         "category",
         "created_at",
-        "data",
-        "fulltext_content",
-        "hash",
         "role",
         "sparse_embedding",
         "type",
         "updated_at",
+    }
+    _INTERNAL_SEARCH_PAYLOAD_KEYS = {
+        "_vector_similarity",
+        "_fts_score",
+        "_fts_quality_score",
+        "_sparse_similarity",
+        "_quality_score",
+        "_fusion_score",
+        "_fusion_info",
+        "_rerank_score",
     }
     
     def __init__(self, vector_store: VectorStoreBase, embedding_service=None, sparse_embedder_service=None):
@@ -68,15 +75,34 @@ class StorageAdapter:
             logger.warning(f"Failed to generate sparse embedding ({memory_action}): {e}")
             return None
 
-    def _metadata_filter_key_for_store(self, key: str) -> str:
+    def _supports_text_search_without_vector(self, target_store: VectorStoreBase) -> bool:
+        """Return whether a backend can search by text when embeddings are absent."""
+        store_module = target_store.__class__.__module__
+        if store_module.endswith("sqlite.sqlite_vector_store"):
+            return True
+        if ".oceanbase." in store_module:
+            return bool(getattr(target_store, "hybrid_search", False))
+        return False
+
+    def _metadata_filter_key_for_store(
+        self,
+        key: str,
+        target_store: Optional[VectorStoreBase] = None,
+    ) -> str:
         """Translate logical metadata filters to backend-specific payload paths."""
-        if key in self._PAYLOAD_FILTER_KEYS:
-            return key
-        store_module = self.vector_store.__class__.__module__
+        store = target_store or self.vector_store
+        store_module = store.__class__.__module__
         payload_nested_store = (
             store_module.endswith("sqlite.sqlite_vector_store")
             or ".pgvector." in store_module
         )
+
+        if key in self._SYSTEM_FILTER_KEYS:
+            return key
+        if key.startswith("payload."):
+            return key[len("payload."):]
+        if key in self._PAYLOAD_FILTER_KEYS:
+            return key
         if key.startswith("metadata."):
             return key if payload_nested_store else key[len("metadata."):]
         if payload_nested_store:
@@ -89,6 +115,7 @@ class StorageAdapter:
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
+        target_store: Optional[VectorStoreBase] = None,
     ) -> Dict[str, Any]:
         """Build filters that can be executed by the vector store."""
         db_filters: Dict[str, Any] = {}
@@ -100,15 +127,15 @@ class StorageAdapter:
             db_filters["run_id"] = run_id
         if filters:
             for key, value in filters.items():
-                if key in self._SYSTEM_FILTER_KEYS:
-                    if key not in db_filters:
-                        db_filters[key] = value
-                else:
-                    db_filters[self._metadata_filter_key_for_store(key)] = value
+                db_key = self._metadata_filter_key_for_store(key, target_store)
+                if db_key not in db_filters:
+                    db_filters[db_key] = value
         return db_filters
 
     def _memory_matches_filter(self, memory: Dict[str, Any], key: str, expected: Any) -> bool:
         """Match logical filters against normalized memory payloads."""
+        if key.startswith("payload."):
+            key = key[len("payload."):]
         actual = memory.get(key)
         metadata = memory.get("metadata")
         if actual is None and isinstance(metadata, dict):
@@ -193,7 +220,7 @@ class StorageAdapter:
     
     def search_memories(
         self,
-        query_embedding: List[float],
+        query_embedding: Optional[List[float]],
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -201,38 +228,93 @@ class StorageAdapter:
         limit: int = 30,
         query: Optional[str] = None,
         threshold: Optional[float] = None,
+        retrieval_mode: str = "auto",
+        fusion: str = "rrf",
+        vector_weight: Optional[float] = None,
+        fts_weight: Optional[float] = None,
+        rrf_k: int = 60,
+        candidate_limit: Optional[int] = None,
+        include_explanation: bool = False,
     ) -> List[Dict[str, Any]]:
         """Search for memories."""
-        # Use the provided query embedding or generate one
-        if query_embedding:
-            query_vector = query_embedding
-        else:
-            # If no query embedding provided, we can't search meaningfully
-            logger.warning("No query embedding provided for search")
+        mode = (retrieval_mode or "auto").lower()
+        search_query = query if query else ""
+        has_query = bool(search_query.strip())
+        query_vector = query_embedding if query_embedding else None
+
+        if mode not in {"auto", "fts", "vector", "hybrid"}:
+            raise ValueError(f"Invalid retrieval mode: {retrieval_mode}")
+        fusion = (fusion or "rrf").lower()
+        if fusion not in {"rrf", "weighted"}:
+            raise ValueError(f"Invalid fusion method: {fusion}")
+        if vector_weight is not None and not 0.0 <= vector_weight <= 1.0:
+            raise ValueError("vector_weight must be between 0.0 and 1.0")
+        if fts_weight is not None and not 0.0 <= fts_weight <= 1.0:
+            raise ValueError("fts_weight must be between 0.0 and 1.0")
+        if rrf_k < 1:
+            raise ValueError("rrf_k must be >= 1")
+        if candidate_limit is not None and candidate_limit < 1:
+            raise ValueError("candidate_limit must be >= 1")
+
+        if mode == "fts":
+            query_vector = None
+        elif mode == "vector":
+            search_query = ""
+            has_query = False
+            if query_vector is None:
+                logger.warning("Vector retrieval requested without query embedding")
+                return []
+        elif mode == "hybrid" and query_vector is None:
+            if has_query:
+                logger.warning("Hybrid retrieval missing query embedding; falling back to FTS")
+            else:
+                logger.warning("Hybrid retrieval requested without query or query embedding")
+                return []
+        elif mode == "auto" and query_vector is None and not has_query:
+            logger.warning("No query embedding or text query provided for search")
             return []
         
         # Generate sparse embedding if sparse embedder service is available and query is provided
-        sparse_embedding = self._generate_sparse_embedding(query, "search") if query else None
+        sparse_embedding = (
+            self._generate_sparse_embedding(search_query, "search")
+            if has_query
+            else None
+        )
 
-        # Merge user_id/agent_id/run_id into logical filters for sub-store routing,
-        # then translate metadata filters into backend-specific payload paths for search.
-        effective_filters = filters.copy() if filters else {}
+        # Route with logical filters, then translate them for the selected store.
+        routing_filters = filters.copy() if filters else {}
         if user_id is not None:
-            effective_filters["user_id"] = user_id
+            routing_filters["user_id"] = user_id
         if agent_id is not None:
-            effective_filters["agent_id"] = agent_id
+            routing_filters["agent_id"] = agent_id
         if run_id is not None:
-            effective_filters["run_id"] = run_id
-        db_filters = self._build_db_filters(user_id, agent_id, run_id, filters)
-        
-        # Route to target store (main or sub store)
-        target_store = self._route_to_store(effective_filters)
+            routing_filters["run_id"] = run_id
+
+        target_store = self._route_to_store(routing_filters)
+        effective_filters = self._build_db_filters(
+            user_id,
+            agent_id,
+            run_id,
+            filters,
+            target_store=target_store,
+        )
+        if (
+            query_vector is None
+            and has_query
+            and not self._supports_text_search_without_vector(target_store)
+        ):
+            logger.warning(
+                "No query embedding provided and target store does not support "
+                "text-only search fallback"
+            )
+            return []
 
         # Unified search method - try OceanBase format first, fallback to SQLite
         # Pass query text to enable hybrid search (vector + full-text search)
+        search_limit = candidate_limit if candidate_limit is not None else limit
+        search_vectors = query_vector
         try:
             # Try OceanBase format first - pass query text for hybrid search
-            search_query = query if query else ""
             # Check if target_store.search supports sparse_embedding and threshold parameters
             import inspect
             search_sig = inspect.signature(target_store.search)
@@ -241,24 +323,36 @@ class StorageAdapter:
             # Build search kwargs based on supported parameters
             search_kwargs = {
                 "query": search_query,
-                "vectors": query_vector,
-                "limit": limit,
-                "filters": db_filters if db_filters else None,
+                "vectors": search_vectors,
+                "limit": search_limit,
+                "filters": effective_filters or None,
             }
             if 'sparse_embedding' in search_params:
                 search_kwargs["sparse_embedding"] = sparse_embedding
             if 'threshold' in search_params:
                 search_kwargs["threshold"] = threshold
+            optional_search_kwargs = {
+                "retrieval_mode": mode,
+                "fusion": fusion,
+                "vector_weight": vector_weight,
+                "fts_weight": fts_weight,
+                "rrf_k": rrf_k,
+                "candidate_limit": search_limit,
+                "include_explanation": include_explanation,
+            }
+            for key, value in optional_search_kwargs.items():
+                if key in search_params:
+                    search_kwargs[key] = value
 
             results = target_store.search(**search_kwargs)
         except TypeError:
             # Fallback to SQLite format (doesn't support query text parameter)
             # Pass filters to ensure filtering works correctly
             results = target_store.search(
-                search_query if query else "",
-                vectors=[query_vector],
-                limit=limit,
-                filters=db_filters if db_filters else None,
+                search_query,
+                vectors=search_vectors,
+                limit=search_limit,
+                filters=effective_filters or None,
             )
         
         # Convert results to unified format
@@ -298,8 +392,24 @@ class StorageAdapter:
             
             # Extract unified fields
             # Core and promoted keys that should not be in metadata
-            promoted_payload_keys = ["user_id", "agent_id", "run_id", "actor_id", "role"]
-            core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "metadata", *promoted_payload_keys}
+            promoted_payload_keys = [
+                "user_id",
+                "agent_id",
+                "run_id",
+                "actor_id",
+                "role",
+            ]
+            core_and_promoted_keys = {
+                "data",
+                "hash",
+                "created_at",
+                "updated_at",
+                "fulltext_content",
+                "sparse_embedding",
+                "id",
+                "metadata",
+                *promoted_payload_keys,
+            }
             
             # Extract core fields
             content = payload.get("data", "")
@@ -319,13 +429,26 @@ class StorageAdapter:
                 user_metadata = payload["metadata"].copy() if payload["metadata"] else {}
             else:
                 # Extract additional metadata (all fields not in core_and_promoted_keys)
-                user_metadata = {k: v for k, v in payload.items() if k not in core_and_promoted_keys}
+                user_metadata = {
+                    k: v
+                    for k, v in payload.items()
+                    if (
+                        k not in core_and_promoted_keys
+                        and k not in self._INTERNAL_SEARCH_PAYLOAD_KEYS
+                        and not k.startswith("_")
+                    )
+                }
             
             # Merge any user-defined fields from payload top-level into metadata
             # These fields (like "category") were extracted from metadata for filtering purposes
             # but should still be visible in the returned metadata
             for key, value in payload.items():
-                if key not in core_and_promoted_keys and key not in user_metadata:
+                if (
+                    key not in core_and_promoted_keys
+                    and key not in user_metadata
+                    and key not in self._INTERNAL_SEARCH_PAYLOAD_KEYS
+                    and not key.startswith("_")
+                ):
                     if value is not None and (value or value == 0 or value == 0.0):
                         user_metadata[key] = value
             
@@ -338,13 +461,33 @@ class StorageAdapter:
                 **promoted_fields,  # Add promoted fields at top level
                 "metadata": user_metadata if user_metadata else {},  # Add user metadata
             }
+            if "_quality_score" in payload:
+                memory["_quality_score"] = payload.get("_quality_score")
+            if include_explanation:
+                explanation = {
+                    "ranking_score": score,
+                    "fusion_method": fusion,
+                    "retrieval_mode": mode,
+                    "vector_weight": vector_weight
+                    if vector_weight is not None
+                    else 0.5,
+                    "fts_weight": fts_weight if fts_weight is not None else 0.5,
+                    "rrf_k": rrf_k,
+                }
+                fusion_info = payload.get("_fusion_info")
+                if isinstance(fusion_info, dict):
+                    explanation.update(fusion_info)
+                if "_vector_similarity" in payload:
+                    explanation["vector_similarity"] = payload.get("_vector_similarity")
+                if "_fts_score" in payload:
+                    explanation["fts_score"] = payload.get("_fts_score")
+                memory["metadata"]["search_explanation"] = explanation
             
             # No need to apply filters here - filters are already applied at the database level
             # in vector_store.search(), so all returned results should already match the filters
             memories.append(memory)
         
-        # Vector store already applied limit, no need to slice again
-        return memories
+        return memories[:limit]
     
     def get_memory(
         self,
@@ -739,17 +882,42 @@ class StorageAdapter:
     
     async def search_memories_async(
         self,
-        query_embedding: List[float],
+        query_embedding: Optional[List[float]],
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
         limit: int = 30,
         query: Optional[str] = None,
+        threshold: Optional[float] = None,
+        retrieval_mode: str = "auto",
+        fusion: str = "rrf",
+        vector_weight: Optional[float] = None,
+        fts_weight: Optional[float] = None,
+        rrf_k: int = 60,
+        candidate_limit: Optional[int] = None,
+        include_explanation: bool = False,
     ) -> List[Dict[str, Any]]:
         """Search for memories asynchronously."""
         import asyncio
-        return await asyncio.to_thread(self.search_memories, query_embedding, user_id, agent_id, run_id, filters, limit, query)
+        return await asyncio.to_thread(
+            self.search_memories,
+            query_embedding=query_embedding,
+            user_id=user_id,
+            agent_id=agent_id,
+            run_id=run_id,
+            filters=filters,
+            limit=limit,
+            query=query,
+            threshold=threshold,
+            retrieval_mode=retrieval_mode,
+            fusion=fusion,
+            vector_weight=vector_weight,
+            fts_weight=fts_weight,
+            rrf_k=rrf_k,
+            candidate_limit=candidate_limit,
+            include_explanation=include_explanation,
+        )
     
     async def get_memory_async(
         self,

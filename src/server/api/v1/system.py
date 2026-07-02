@@ -7,7 +7,12 @@ from slowapi import Limiter
 from typing import Optional
 from datetime import datetime, timezone
 
-from ...models.response import APIResponse, HealthResponse, StatusResponse
+from ...models.response import (
+    APIResponse,
+    DependencyStatus,
+    HealthResponse,
+    StatusResponse,
+)
 from ...middleware.auth import verify_api_key
 from ...middleware.rate_limit import limiter, get_rate_limit_string
 from ...config import config
@@ -28,14 +33,19 @@ router = APIRouter(prefix="/system", tags=["system"])
     summary="Health check",
     description="Check if the API server is healthy (public endpoint, no authentication required)",
 )
-async def health_check():
+async def health_check(request: Request):
     """Health check endpoint"""
-    health = HealthResponse(status="healthy")
+    ready = bool(getattr(request.app.state, "service_ready", False))
+    health = HealthResponse(
+        status="healthy" if ready else "degraded",
+        memory_service_ready=ready,
+        storage_type=getattr(request.app.state, "storage_type", None),
+    )
     
     return APIResponse(
         success=True,
         data=health.model_dump(mode='json'),
-        message="Service is healthy",
+        message="Service is healthy" if ready else "HTTP server is running but memory service is unavailable",
     )
 
 
@@ -55,20 +65,23 @@ async def get_status(
         # Get PowerMem config
         powermem_config = auto_config()
         
-        storage_type = None
+        storage_type = getattr(request.app.state, "storage_type", None)
         llm_provider = None
+        storage_capabilities = getattr(request.app.state, "storage_capabilities", None)
+        memory_service_ready = bool(getattr(request.app.state, "service_ready", False))
+        startup_error = getattr(request.app.state, "service_startup_error", None)
         
         if isinstance(powermem_config, dict):
             # Extract from dict config
             vector_store = powermem_config.get("vector_store") or powermem_config.get("database", {})
-            storage_type = vector_store.get("provider") if isinstance(vector_store, dict) else None
+            storage_type = storage_type or (vector_store.get("provider") if isinstance(vector_store, dict) else None)
             
             llm = powermem_config.get("llm", {})
             llm_provider = llm.get("provider") if isinstance(llm, dict) else None
         else:
             # Extract from config object
             if hasattr(powermem_config, "vector_store") and powermem_config.vector_store:
-                storage_type = powermem_config.vector_store.provider
+                storage_type = storage_type or powermem_config.vector_store.provider
             if hasattr(powermem_config, "llm") and powermem_config.llm:
                 llm_provider = powermem_config.llm.provider
         
@@ -78,6 +91,17 @@ async def get_status(
         
         # Check dependencies
         dependencies = await check_all_dependencies()
+        dependencies["memory_service"] = DependencyStatus(
+            name="memory_service",
+            status="healthy" if memory_service_ready else "unavailable",
+            error_message=(str(startup_error)[:200] if startup_error else None),
+            last_checked=datetime.utcnow(),
+        )
+
+        if storage_capabilities is None:
+            from powermem.platform_defaults import storage_capabilities as build_storage_capabilities
+
+            storage_capabilities = build_storage_capabilities(storage_type or "")
         
         # Determine overall system status based on dependencies
         system_status = "operational"
@@ -100,6 +124,9 @@ async def get_status(
             version=powermem_version,
             storage_type=storage_type,
             llm_provider=llm_provider,
+            memory_service_ready=memory_service_ready,
+            startup_error=(str(startup_error)[:200] if startup_error else None),
+            storage_capabilities=storage_capabilities,
             uptime_seconds=uptime_seconds,
             started_at=SERVER_START_TIME,
             dependencies=dependencies_dict,
@@ -120,6 +147,9 @@ async def get_status(
             version=powermem_version,
             storage_type=None,
             llm_provider=None,
+            memory_service_ready=bool(getattr(request.app.state, "service_ready", False)),
+            startup_error=str(getattr(request.app.state, "service_startup_error", "") or e)[:200],
+            storage_capabilities=getattr(request.app.state, "storage_capabilities", None),
             uptime_seconds=uptime_seconds,
             started_at=SERVER_START_TIME,
             dependencies={},

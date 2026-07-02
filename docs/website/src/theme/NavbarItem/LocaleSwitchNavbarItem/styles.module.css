@@ -1,0 +1,131 @@
+.localeDropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-left: 0.5rem;
+}
+
+.localeSwitch {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  min-width: 2.5rem !important;
+  padding: 0 !important;
+  background: rgba(59, 130, 246, 0.1) !important;
+  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  border-radius: 8px !important;
+  color: #e5e7eb;
+  cursor: pointer;
+  transition: all 0.3s ease !important;
+}
+
+.localeSwitch:hover,
+.localeSwitchOpen {
+  background: rgba(59, 130, 246, 0.2) !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+  transform: translateY(-2px) !important;
+}
+
+.localeSwitch:focus-visible,
+.localeMenuLink:focus-visible,
+.mobileToggle:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+.icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #e5e7eb;
+  flex-shrink: 0;
+  transition: color 0.3s ease;
+}
+
+.localeSwitch:hover .icon,
+.localeSwitchOpen .icon {
+  color: #60a5fa;
+}
+
+.localeMenu {
+  position: absolute;
+  top: calc(100% + 0.625rem);
+  right: 0;
+  z-index: var(--ifm-z-index-dropdown);
+  min-width: 10rem;
+  padding: 0.35rem 0;
+  margin: 0;
+  list-style: none;
+  background: rgba(17, 24, 39, 0.98);
+  border: 1px solid rgba(75, 85, 99, 0.75);
+  border-radius: 2px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.localeMenuItem {
+  list-style: none;
+}
+
+.localeMenuLink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.75rem 1rem;
+  color: rgba(229, 231, 235, 0.92);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.localeMenuLink:hover,
+.localeMenuLinkActive {
+  color: #fff;
+  text-decoration: none;
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.checkMark {
+  color: #a78bfa;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.mobileLocaleItem {
+  margin: 0.25rem 0;
+}
+
+.mobileToggle {
+  display: flex !important;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  color: var(--ifm-menu-color);
+}
+
+.mobileMenu {
+  padding-left: 1rem;
+  margin: 0.25rem 0 0;
+  list-style: none;
+}
+
+.mobileMenu .checkMark {
+  margin-left: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .localeSwitch {
+    width: 2.25rem !important;
+    height: 2.25rem !important;
+    min-width: 2.25rem !important;
+  }
+
+  .icon {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+}

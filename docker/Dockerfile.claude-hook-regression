@@ -1,3 +1,5 @@
+FROM ghcr.io/astral-sh/uv:0.9.28 AS uv
+
 FROM golang:1.24-alpine AS hook-builder
 
 ARG TARGETOS=linux
@@ -10,6 +12,7 @@ RUN CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH:-amd64}" \
     go build -trimpath -ldflags="-s -w" -o /out/powermem-hook ./cmd/powermem-hook
 
 FROM python:3.11-slim
+COPY --from=uv /uv /uvx /usr/local/bin/
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -23,4 +26,4 @@ COPY --from=hook-builder /out/powermem-hook apps/claude-code-plugin/hooks/bin/po
 
 RUN chmod +x apps/claude-code-plugin/hooks/bin/powermem-hook-linux-amd64
 
-CMD ["python", "tests/regression/test_claude_hook_no_llm.py"]
+CMD ["uv", "run", "--no-project", "--python", "3.11", "python", "tests/regression/test_claude_hook_no_llm.py"]

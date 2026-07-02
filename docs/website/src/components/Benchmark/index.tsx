@@ -3,6 +3,7 @@ import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Heading from '@theme/Heading';
 import ZapIcon from './icons/ZapIcon';
+import {localizedPath} from '../../utils/localizedPath';
 import styles from './styles.module.css';
 
 const overallScores = {
@@ -86,7 +87,7 @@ export default function Benchmark() {
       <div className={styles.footer}>
         <div className="container">
           <Link
-            to="/benchmark"
+            to={localizedPath('/benchmark', isZh)}
             className="button button--secondary"
           >
             {t('benchmark.viewDetails')} →

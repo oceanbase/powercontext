@@ -5,6 +5,7 @@ import Heading from '@theme/Heading';
 import AgileIcon from './icons/AgileIcon';
 import AffordableIcon from './icons/AffordableIcon';
 import AccurateIcon from './icons/AccurateIcon';
+import {localizedPath} from '../../utils/localizedPath';
 import styles from './styles.module.css';
 
 // Order: accurate, agile, affordable
@@ -69,7 +70,7 @@ const translations: Record<string, Record<string, string>> = {
   },
   zh: {
     'valueProps.title': '为什么选择 PowerMem？',
-    'valueProps.subtitle': '更快、更省、更准 - 最佳的 AI 内存管理体验',
+    'valueProps.subtitle': '更快、更省、更准 - 更好的 AI 记忆管理体验',
     'valueProps.benchmarkDesc': '基于 LOCOMO 数据集的真实性能指标',
     'valueProps.viewBenchmark': '查看完整压测数据',
     'valueProps.agile.title': '更快',
@@ -80,9 +81,9 @@ const translations: Record<string, Record<string, string>> = {
     'valueProps.agile.feature3': '智能缓存优化',
     'valueProps.affordable.title': '更省',
     'valueProps.affordable.en': 'Affordable',
-    'valueProps.affordable.desc': '降低存储成本，智能内存管理，资源高效利用',
+    'valueProps.affordable.desc': '降低存储成本，智能记忆管理，资源高效利用',
     'valueProps.affordable.feature1': '降低存储成本',
-    'valueProps.affordable.feature2': '智能内存管理',
+    'valueProps.affordable.feature2': '智能记忆管理',
     'valueProps.affordable.feature3': '资源高效利用',
     'valueProps.accurate.title': '更准',
     'valueProps.accurate.en': 'Accurate',
@@ -172,7 +173,7 @@ export default function ValueProps() {
                       <span className={styles.comparisonUnit}>{activeComparison.unit}</span>
                     </div>
                     <div className={styles.improvement}>
-                    <span className={styles.improvementText}>{activeComparison.improvement}</span>
+                      <span className={styles.improvementText}>{activeComparison.improvement}</span>
                     </div>
                   </div>
                   
@@ -199,7 +200,7 @@ export default function ValueProps() {
 
         <div className={styles.footer}>
           <Link
-            to="/benchmark"
+            to={localizedPath('/benchmark', isZh)}
             className="button button--secondary"
           >
             {t('valueProps.viewBenchmark')} →

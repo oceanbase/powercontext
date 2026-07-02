@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import useBaseUrl from '@docusaurus/useBaseUrl';
 import Heading from '@theme/Heading';
 import CodeIcon from './icons/CodeIcon';
 import {Highlight, themes} from 'prism-react-renderer';
+import {localizedPath} from '../../utils/localizedPath';
 import styles from './styles.module.css';
 
 // GitHub Stars Hook
@@ -95,14 +95,14 @@ memories = memory.search("user preferences", user_id="user123")`;
           </Heading>
 
           <p className={styles.heroSubtitle}>
-            {isZh ? '几分钟上手，轻松扩展到百万级' : 'Get started in minutes, scale to millions'}
+            {isZh ? '几分钟上手，轻松扩展到百万级记忆' : 'Get started in minutes, scale to millions'}
           </p>
 
           {/* CTA Buttons */}
           <div className={styles.heroButtons}>
             <Link
               className="button button--primary button--lg"
-              to="/docs/guides/getting_started"
+              to={localizedPath('/docs/guides/getting_started', isZh)}
             >
               {isZh ? '开始使用' : 'Get Started'}
               <span className={styles.buttonArrow}>→</span>

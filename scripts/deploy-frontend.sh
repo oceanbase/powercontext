@@ -36,53 +36,29 @@ echo ""
 
 # Step 1: Clean cache
 echo "Step 1: Cleaning cache..."
-cd docs/website
+cd "$PROJECT_ROOT/docs/website"
 rm -rf .docusaurus node_modules build || true
 echo "✓ Cache cleaned"
 echo ""
 
 # Step 2: Sync documentation files
 echo "Step 2: Syncing documentation files..."
-cd "$PROJECT_ROOT"
-
-# Delete all files in docs/website/docs directory
-echo "  Cleaning docs/website/docs directory..."
-rm -rf docs/website/docs/*
-find docs/website/docs -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} + 2>/dev/null || true
-
-# Copy all files from docs/ to docs/website/docs/ (excluding website and images folders)
-echo "  Copying documentation files from docs/ to docs/website/docs/..."
-cd docs
-# List all directories and copy them (excluding website and images folders)
-for dirname in $(ls -d */ 2>/dev/null | grep -vE "^(website|images)/$"); do
-    dirname="${dirname%/}"  # Remove trailing slash
-    echo "dirname: $dirname"
-    if [ -d "$dirname" ]; then
-        echo "    Copying directory: $dirname"
-        cp -r "$dirname" website/docs/
-    fi
-done
-rm -rf website/docs/*.md
-mkdir -p website/docs/api/
-cp -r api/* website/docs/api/
-
-
-cd "$PROJECT_ROOT"
+"$PROJECT_ROOT/scripts/sync-website-docs.sh"
 
 # List copied files for verification
 echo ""
 echo "  Copied documentation files:"
-ls -la docs/website/docs/
+ls -la "$PROJECT_ROOT/docs/website/docs/"
 echo ""
 echo "  Verifying copied directories:"
-find docs/website/docs -type d -maxdepth 1 | sort
+find "$PROJECT_ROOT/docs/website/docs" -maxdepth 1 -type d | sort
 echo "✓ Documentation files synced"
 echo "  Note: File renaming will be handled by docusaurus-plugin-rename-docs during build"
 echo ""
 
 # Step 3: Install dependencies
 echo "Step 3: Installing dependencies..."
-cd docs/website
+cd "$PROJECT_ROOT/docs/website"
 if [ ! -f "package-lock.json" ]; then
     echo "  Warning: package-lock.json not found, running npm install..."
     npm install
@@ -115,4 +91,3 @@ echo "  1. Push changes to the main branch"
 echo "  2. GitHub Actions will automatically deploy"
 echo "  Or manually trigger the workflow from GitHub Actions"
 echo "=========================================="
-

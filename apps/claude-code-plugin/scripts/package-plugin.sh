@@ -6,8 +6,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DIST="${PLUGIN_ROOT}/dist"
+UV="${UV:-uv}"
+UV_PYTHON="${UV_PYTHON:-3.11}"
 
-VERSION="$(python3 -c "import json; print(json.load(open('${PLUGIN_ROOT}/.claude-plugin/plugin.json'))['version'])")"
+VERSION="$("${UV}" run --no-project --python "${UV_PYTHON}" python -c "import json; print(json.load(open('${PLUGIN_ROOT}/.claude-plugin/plugin.json'))['version'])")"
 ZIP_NAME="powermem-claude-code-plugin-${VERSION}.zip"
 ZIP_PATH="${DIST}/${ZIP_NAME}"
 

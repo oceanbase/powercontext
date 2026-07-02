@@ -5,6 +5,7 @@ import Heading from '@theme/Heading';
 import GitHubIcon from './icons/GitHubIcon';
 import DiscordIcon from './icons/DiscordIcon';
 import XIcon from './icons/XIcon';
+import {localizedPath} from '../../utils/localizedPath';
 import styles from './styles.module.css';
 
 const communityLinks = [
@@ -43,7 +44,7 @@ const translations: Record<string, Record<string, string>> = {
   },
   zh: {
     'community.title': '加入社区',
-    'community.subtitle': '与开发者社区一起构建更好的 AI 内存管理系统',
+    'community.subtitle': '与开发者社区一起构建更好的 AI 记忆管理系统',
     'community.contribute': '我们欢迎所有形式的贡献！',
     'community.learnMore': '了解更多 →',
     'community.github.desc': '查看源代码、提交 Issue 和贡献代码',
@@ -100,7 +101,7 @@ export default function Community() {
             {t('community.contribute')}
           </p>
           <Link
-            to="/community"
+            to={localizedPath('/community', isZh)}
             className={styles.footerLink}
           >
             {t('community.learnMore')}

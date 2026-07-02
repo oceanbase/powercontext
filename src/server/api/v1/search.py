@@ -14,6 +14,7 @@ from ...services.search_service import SearchService
 from ...middleware.auth import verify_api_key
 from ...middleware.rate_limit import limiter, get_rate_limit_string
 from ...utils.converters import search_result_to_response
+from ...utils.service_errors import service_unavailable_message
 from .memories import parse_time_range_cutoff
 
 router = APIRouter(prefix="/memories", tags=["search"])
@@ -69,7 +70,7 @@ def get_search_service(request: Request) -> SearchService:
         from ...models.errors import ErrorCode, APIError
         raise APIError(
             code=ErrorCode.INTERNAL_ERROR,
-            message="Search service unavailable: storage backend initialization failed",
+            message=service_unavailable_message(request, "Search"),
             status_code=503,
         )
     return service
@@ -102,6 +103,13 @@ async def search_memories_post(
         filters=body.filters,
         limit=fetch_limit,
         threshold=body.threshold,
+        retrieval_mode=body.retrieval_mode,
+        fusion=body.fusion,
+        vector_weight=body.vector_weight,
+        fts_weight=body.fts_weight,
+        rrf_k=body.rrf_k,
+        candidate_limit=body.candidate_limit,
+        include_explanation=body.include_explanation,
     )
 
     raw_items = results.get("results", [])
@@ -144,6 +152,39 @@ async def search_memories_get(
         le=1.0,
         description="Minimum similarity score threshold",
     ),
+    retrieval_mode: str = Query(
+        "auto",
+        pattern="^(auto|fts|vector|hybrid)$",
+        description="Retrieval mode",
+    ),
+    fusion: str = Query(
+        "rrf",
+        pattern="^(rrf|weighted)$",
+        description="Hybrid fusion method",
+    ),
+    vector_weight: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Vector path weight for hybrid retrieval; omitted uses backend configuration",
+    ),
+    fts_weight: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Full-text path weight for hybrid retrieval; omitted uses backend configuration",
+    ),
+    rrf_k: int = Query(60, ge=1, le=1000, description="RRF rank constant"),
+    candidate_limit: Optional[int] = Query(
+        None,
+        ge=1,
+        le=1000,
+        description="Candidate count to retrieve before final limiting",
+    ),
+    include_explanation: bool = Query(
+        False,
+        description="Include retrieval path and fusion metadata in result metadata",
+    ),
     api_key: str = Depends(verify_api_key),
     service: SearchService = Depends(get_search_service),
 ):
@@ -156,6 +197,13 @@ async def search_memories_get(
         filters=None,  # GET method doesn't support complex filters
         limit=limit,
         threshold=threshold,
+        retrieval_mode=retrieval_mode,
+        fusion=fusion,
+        vector_weight=vector_weight,
+        fts_weight=fts_weight,
+        rrf_k=rrf_k,
+        candidate_limit=candidate_limit,
+        include_explanation=include_explanation,
     )
     
     search_results = [

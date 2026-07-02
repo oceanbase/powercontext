@@ -97,6 +97,10 @@ const config: Config = {
           position: 'left',
         },
         {
+          type: 'custom-localeSwitch',
+          position: 'right',
+        },
+        {
           href: 'https://github.com/oceanbase/powermem',
           label: 'GitHub',
           position: 'right',

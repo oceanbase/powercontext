@@ -549,7 +549,7 @@ def test_init_uses_uvx_launcher_instead_of_plugin_venv_install() -> None:
     assert 'export_env_file_vars "$ENV_FILE"' in script
     assert 'tool run \\' in script
     assert "--from \"$PACKAGE\"" in script
-    assert "powermem-server --host 127.0.0.1 --port \"$port\"" in script
+    assert "powermem-server --host \"${POWERMEM_SERVER_HOST:-127.0.0.1}\" --port \"$port\"" in script
     assert "uv_pip_install" not in script
     assert "venv_powermem_server" not in script
 
@@ -614,3 +614,122 @@ def test_init_preload_model_is_deprecated_no_op() -> None:
     )
     assert 'sh "$SCRIPT_DIR/preload-model.sh"' not in script
     assert 'POWERMEM_INIT_PRELOAD_MODEL is deprecated' in script
+
+
+def test_write_runtime_remote_quotes_metacharacters(tmp_path: Path) -> None:
+    """runtime.env is sourced by run-hook.sh and status.sh. URLs / API keys
+    may contain shell metacharacters ($, ;, spaces, backticks, single quotes).
+    Values must be single-quoted with embedded ' escaped via the standard
+    '\'' trick so sourcing round-trips the exact bytes. Regression guard for
+    PR #1101 review: previously values were written bare, so a URL like
+    'http://host:8001/path?x=1;y=2' was split on ';' and 'y=2' was lost.
+    """
+    tricky_url = "http://host:8001/path?a=1;b=2 c=3$VAR`echo hi`"
+    tricky_key = "sk-abc'\"def $XYZ"
+
+    env = os.environ.copy()
+    env["TRICKY_URL"] = tricky_url
+    env["TRICKY_KEY"] = tricky_key
+    env["HOME"] = str(tmp_path)
+    env["PATH"] = f"{tmp_path / 'bin'}:/usr/bin:/bin"
+    env["POWERMEM_DATA_DIR"] = str(tmp_path / ".powermem")
+    command = textwrap.dedent(
+        f"""
+        set -eu
+        . "{COMMON_SH}"
+        write_runtime_remote "$TRICKY_URL" "$TRICKY_KEY"
+        cat "$RUNTIME_FILE"
+        echo "---"
+        . "$RUNTIME_FILE"
+        printf 'URL=%s\\n' "$POWERMEM_BASE_URL"
+        printf 'KEY=%s\\n' "$POWERMEM_API_KEY"
+        """
+    )
+    result = subprocess.run(
+        ["sh", "-c", command, str(SCRIPT_ARG0)],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "POWERMEM_BASE_URL=" in result.stdout
+    assert f"URL={tricky_url}" in result.stdout
+    assert f"KEY={tricky_key}" in result.stdout
+
+
+def test_write_runtime_hook_disabled_writes_marker(tmp_path: Path) -> None:
+    """MCP-only mode must write POWERMEM_HOOK_DISABLED=1 to runtime.env so
+    run-hook.sh exits early instead of falling back to a stale base URL.
+    Regression guard for PR #1101 review issue: mcp mode previously wrote
+    nothing, leaving stale runtime.env from a prior hook/both init.
+    """
+    result = run_common(
+        """
+        write_runtime_hook_disabled
+        cat "$RUNTIME_FILE"
+        """,
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "POWERMEM_HOOK_DISABLED=1"
+
+
+def test_run_hook_exits_early_when_hook_disabled(tmp_path: Path) -> None:
+    """When runtime.env sets POWERMEM_HOOK_DISABLED=1, run-hook.sh must exit 0
+    without exec'ing the native binary — so a stale POWERMEM_BASE_URL never
+    gets hit. Regression guard for PR #1101 review.
+    """
+    plugin_root = tmp_path / "plugin"
+    hooks_dir = plugin_root / "hooks"
+    bin_dir = hooks_dir / "bin"
+    hooks_dir.mkdir(parents=True)
+    run_hook = hooks_dir / "run-hook.sh"
+    run_hook.write_text(RUN_HOOK_SH.read_text(encoding="utf-8"), encoding="utf-8")
+    run_hook.chmod(0o755)
+    # Plant a binary that would fail the test if exec'd.
+    write_executable(
+        bin_dir / "powermem-hook-linux-amd64",
+        """
+        #!/usr/bin/env sh
+        echo "BINARY-RAN"
+        exit 99
+        """,
+    )
+    data_dir = tmp_path / ".powermem"
+    data_dir.mkdir()
+    (data_dir / "runtime.env").write_text(
+        "POWERMEM_HOOK_DISABLED=1\nPOWERMEM_BASE_URL=http://stale.example:8848\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["sh", str(run_hook)],
+        cwd=tmp_path,
+        env={**os.environ, "HOME": str(tmp_path), "POWERMEM_DATA_DIR": str(data_dir)},
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "BINARY-RAN" not in result.stdout
+
+
+def test_init_mcp_branch_writes_hook_disabled_marker() -> None:
+    """init.sh's mcp connection-mode branch must call write_runtime_hook_disabled
+    so stale runtime.env state doesn't linger. Regression guard for PR #1101
+    review.
+    """
+    script = INIT_SH.read_text(encoding="utf-8")
+
+    assert "write_runtime_hook_disabled" in script
+    # The mcp case must be inside the connection-mode case block, not the
+    # hook|both block.
+    assert "mcp)\n      write_runtime_hook_disabled" in script or \
+           "mcp)\n      # Write a marker" in script

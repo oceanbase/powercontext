@@ -173,14 +173,10 @@ class IntelligentMemoryManager:
             Processed and ranked results
         """
         try:
-            # Apply Ebbinghaus decay to results
             processed_results = []
             for result in results:
-                # Apply decay based on age and memory type
-                decay_rate = self.ebbinghaus_algorithm._resolve_decay_rate(result)
-                decay_factor = self.ebbinghaus_algorithm.calculate_decay(
-                    result.get("created_at", get_current_datetime()),
-                    decay_rate=decay_rate,
+                effective_retention = (
+                    self.ebbinghaus_algorithm.calculate_current_retention(result)
                 )
 
                 processed_result = result.copy()
@@ -193,12 +189,12 @@ class IntelligentMemoryManager:
                 )
                 if original_score is not None:
                     processed_result["original_score"] = original_score
-                processed_result["decay_factor"] = decay_factor
+                processed_result["effective_retention"] = effective_retention
                 processed_result["forgotten_score_multiplier"] = (
                     forgotten_score_multiplier
                 )
                 processed_result["final_score"] = (
-                    base_score * decay_factor * forgotten_score_multiplier
+                    base_score * effective_retention * forgotten_score_multiplier
                 )
                 processed_result["score"] = processed_result["final_score"]
                 

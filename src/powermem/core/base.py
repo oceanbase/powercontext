@@ -51,6 +51,14 @@ class MemoryBase(ABC):
         run_id: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
         limit: int = 30,
+        threshold: Optional[float] = None,
+        retrieval_mode: str = "auto",
+        fusion: str = "rrf",
+        vector_weight: Optional[float] = None,
+        fts_weight: Optional[float] = None,
+        rrf_k: int = 60,
+        candidate_limit: Optional[int] = None,
+        include_explanation: bool = False,
     ) -> Dict[str, Any]:
         """
         Search for memories.

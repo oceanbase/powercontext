@@ -60,6 +60,7 @@ const translations: Record<string, Record<string, string>> = {
     'common.back': 'Back',
     'communityPage.title': 'Community',
     'communityPage.subtitle': 'Build better AI memory management systems with the developer community',
+    'communityPage.description': 'Join the PowerMem Community',
     'communityPage.github.action': 'Star Us',
     'communityPage.discord.action': 'Join Discord',
     'communityPage.x.action': 'Follow Us',
@@ -83,7 +84,8 @@ const translations: Record<string, Record<string, string>> = {
   zh: {
     'common.back': '返回',
     'communityPage.title': '社区',
-    'communityPage.subtitle': '与开发者社区一起构建更好的 AI 内存管理系统',
+    'communityPage.subtitle': '与开发者社区一起构建更好的 AI 记忆管理系统',
+    'communityPage.description': '加入 PowerMem 社区',
     'communityPage.github.action': 'Star 我们',
     'communityPage.discord.action': '加入 Discord',
     'communityPage.x.action': '关注我们',
@@ -113,7 +115,7 @@ export default function CommunityPage() {
   const stars = useGitHubStars();
 
   return (
-    <Layout title="Community" description="Join the PowerMem Community">
+    <Layout title={t('communityPage.title')} description={t('communityPage.description')}>
       <div className={styles.communityPage}>
         <div className="container margin-vert--lg">
           {/* Header */}

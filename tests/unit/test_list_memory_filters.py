@@ -95,6 +95,25 @@ def test_storage_adapter_preserves_sqlite_payload_and_dotted_filter_keys():
     }
 
 
+def test_storage_adapter_sqlite_collision_keys_default_to_metadata():
+    store = SQLiteVectorStore(database_path=":memory:")
+    adapter = StorageAdapter(store)
+
+    assert adapter._build_db_filters(
+        filters={
+            "hash": "metadata-hash",
+            "data": "metadata-data",
+            "payload.hash": "payload-hash",
+            "payload.data": "payload-data",
+        },
+    ) == {
+        "metadata.hash": "metadata-hash",
+        "metadata.data": "metadata-data",
+        "hash": "payload-hash",
+        "data": "payload-data",
+    }
+
+
 def test_storage_adapter_sqlite_filters_payload_and_metadata_keys():
     store = SQLiteVectorStore(database_path=":memory:")
     adapter = StorageAdapter(store)
@@ -119,6 +138,39 @@ def test_storage_adapter_sqlite_filters_payload_and_metadata_keys():
     assert [memory["memory"] for memory in listed_results] == ["python"]
     assert [memory["memory"] for memory in category_results] == ["python"]
     assert [memory["memory"] for memory in priority_results] == ["python"]
+
+
+def test_storage_adapter_sqlite_search_filters_collision_metadata_keys():
+    store = SQLiteVectorStore(database_path=":memory:")
+    adapter = StorageAdapter(store)
+
+    adapter.add_memory(
+        {
+            "content": "alpha collision content",
+            "user_id": "u01",
+            "metadata": {"hash": "user-hash", "data": "user-data"},
+        }
+    )
+    adapter.add_memory(
+        {
+            "content": "alpha other content",
+            "user_id": "u01",
+            "metadata": {"hash": "other-hash", "data": "other-data"},
+        }
+    )
+
+    assert adapter.count_all_memories(filters={"hash": "user-hash"}) == 1
+    assert adapter.count_all_memories(filters={"data": "user-data"}) == 1
+    assert adapter.count_all_memories(filters={"payload.data": "alpha collision content"}) == 1
+
+    results = adapter.search_memories(
+        query_embedding=None,
+        query="alpha",
+        retrieval_mode="fts",
+        filters={"hash": "user-hash", "data": "user-data"},
+    )
+
+    assert [memory["memory"] for memory in results] == ["alpha collision content"]
 
 
 def test_storage_adapter_keeps_oceanbase_metadata_filter_key():

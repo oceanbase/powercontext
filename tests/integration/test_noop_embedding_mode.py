@@ -94,3 +94,14 @@ async def test_noop_embedding_async_crud(tmp_path):
 
     assert await memory.delete(memory_id, user_id="async_noop") is True
     assert await memory.get(memory_id, user_id="async_noop") is None
+
+
+@pytest.mark.asyncio
+async def test_noop_embedding_async_search_returns_empty(tmp_path):
+    """Async vector search must return empty results when embedding is disabled."""
+    memory = AsyncMemory(config=_sqlite_noop_embedding_config(tmp_path))
+
+    await memory.add("Async user loves hiking", user_id="async_search_noop")
+
+    results = await memory.search("hiking", user_id="async_search_noop")
+    assert results["results"] == []

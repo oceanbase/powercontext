@@ -187,24 +187,24 @@ class ImportanceEvaluator:
                 {"role": "system", "content": self.prompts.get_system_prompt()},
                 {"role": "user", "content": prompt}
             ]
-            
+
             # Call LLM for evaluation
             response = self.llm.generate_response(messages)
-            
+
             # Parse the response to extract importance score
             importance_score = self._parse_importance_response(response)
-            
+
             if importance_score is None:
                 logger.warning(
                     "LLM response could not be parsed reliably, "
                     "falling back to rule-based evaluation"
                 )
                 return self._rule_based_evaluation(content, metadata, context)
-            
+
             logger.debug(f"LLM evaluated importance: {importance_score}")
-            
+
             return importance_score
-            
+
         except Exception as e:
             logger.error(f"LLM-based evaluation failed: {e}, falling back to rule-based")
             return self._rule_based_evaluation(content, metadata, context)

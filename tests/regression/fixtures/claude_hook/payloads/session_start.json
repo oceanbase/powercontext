@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "SessionStart",
+  "session_id": "session-start-1040",
+  "cwd": "/workspace/powermem",
+  "session_title": "Hook session bootstrap",
+  "source": "startup",
+  "agent_type": "coding-agent"
+}

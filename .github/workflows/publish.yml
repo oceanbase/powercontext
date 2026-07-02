@@ -42,30 +42,27 @@ jobs:
           pnpm build
           # static files: ./dashboard/dist
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           python-version: "3.11"
+          enable-cache: true
 
       - name: Inject Frontend and Build Package
         run: |
-          python -m pip install --upgrade pip
-          pip install build
-
           mkdir -p src/server/dashboard
           cp -r dashboard/dist/* src/server/dashboard/
 
-          python scripts/check_package_versions.py
+          uv run --no-project --python "3.11" python scripts/check_package_versions.py
 
           rm -rf dist
           mkdir -p dist
-          python -m build -o dist
+          uv build --python "3.11" --out-dir dist
 
           rm -rf dist-mcp packages/powermem-mcp/dist packages/powermem-mcp/build
           rm -rf packages/powermem-mcp/*.egg-info packages/powermem-mcp/src/*.egg-info
           mkdir -p dist-mcp
-          cd packages/powermem-mcp
-          python -m build -o ../../dist-mcp
+          uv build --python "3.11" --out-dir dist-mcp packages/powermem-mcp
 
       - name: Upload powermem dists
         uses: actions/upload-artifact@v7

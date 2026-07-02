@@ -57,6 +57,12 @@ class ServerSettings(BaseSettings):
     rate_limit_enabled: bool = Field(default=True)
     rate_limit_per_minute: int = Field(default=100)
 
+    # Dependency status checks are used by the dashboard-facing /system/status
+    # endpoint. Keep them bounded so slow external services cannot block a
+    # single-worker server and starve readiness/liveness probes.
+    dependency_check_timeout_seconds: float = Field(default=2.0, gt=0)
+    dependency_status_cache_ttl_seconds: float = Field(default=10.0, gt=0)
+
     # Logging settings
     log_level: str = Field(default="INFO")
     # Default follows .env.example.full (LOG_FORMAT=json): machine-parseable,
