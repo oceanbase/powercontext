@@ -18,6 +18,10 @@ from ...middleware.rate_limit import limiter, get_rate_limit_string
 from ...config import config
 from ...utils.metrics import get_metrics_collector
 from ...utils.health_check import check_all_dependencies
+from ...utils.service_errors import (
+    public_startup_error_message,
+    public_startup_error_with_recommendation,
+)
 from powermem import auto_config
 from powermem.version import __version__ as powermem_version
 
@@ -94,7 +98,9 @@ async def get_status(
         dependencies["memory_service"] = DependencyStatus(
             name="memory_service",
             status="healthy" if memory_service_ready else "unavailable",
-            error_message=(str(startup_error)[:200] if startup_error else None),
+            error_message=(
+                public_startup_error_with_recommendation() if startup_error else None
+            ),
             last_checked=datetime.utcnow(),
         )
 
@@ -125,7 +131,7 @@ async def get_status(
             storage_type=storage_type,
             llm_provider=llm_provider,
             memory_service_ready=memory_service_ready,
-            startup_error=(str(startup_error)[:200] if startup_error else None),
+            startup_error=(public_startup_error_message() if startup_error else None),
             storage_capabilities=storage_capabilities,
             uptime_seconds=uptime_seconds,
             started_at=SERVER_START_TIME,
@@ -137,7 +143,7 @@ async def get_status(
             data=status_data.model_dump(mode='json'),
             message="System status retrieved successfully",
         )
-    except Exception as e:
+    except Exception:
         # Fallback: return basic status even if dependencies check fails
         now = datetime.now(timezone.utc)
         uptime_seconds = (now - SERVER_START_TIME).total_seconds()
@@ -148,7 +154,11 @@ async def get_status(
             storage_type=None,
             llm_provider=None,
             memory_service_ready=bool(getattr(request.app.state, "service_ready", False)),
-            startup_error=str(getattr(request.app.state, "service_startup_error", "") or e)[:200],
+            startup_error=(
+                public_startup_error_message()
+                if getattr(request.app.state, "service_startup_error", None)
+                else None
+            ),
             storage_capabilities=getattr(request.app.state, "storage_capabilities", None),
             uptime_seconds=uptime_seconds,
             started_at=SERVER_START_TIME,
@@ -158,7 +168,7 @@ async def get_status(
         return APIResponse(
             success=True,
             data=status_data.model_dump(mode='json'),
-            message=f"System status retrieved with errors: {str(e)[:100]}",
+            message="System status retrieved with limited dependency details",
         )
 
 
