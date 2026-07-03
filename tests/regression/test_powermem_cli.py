@@ -363,9 +363,12 @@ class TestMemoryAdd:
         assert_contains(rc, out, err, ["[SUCCESS]", "Memory ADD", "ID="])
     
     def test_memory_add_empty_content(self, cli_runner):
-        """memory add with empty content should show warning"""
+        """memory add with empty content should fail with a clear validation error"""
         rc, out, err = cli_runner.pmem('memory add ""')
-        assert_contains(rc, out, err, ["WARNING", "No memory"])
+        assert rc != 0, (
+            f"Expected non-zero exit code for empty content\nstdout: {out}\nstderr: {err}"
+        )
+        assert_contains(rc, out, err, ["ERROR", "Missing argument 'CONTENT'"])
     
     def test_memory_add_with_scope_and_type(self, cli_runner, test_data):
         """memory add --scope --memory-type should succeed, output format [SUCCESS] Memory ADD: ID=xxx"""
