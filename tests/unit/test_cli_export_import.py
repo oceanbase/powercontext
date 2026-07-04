@@ -58,6 +58,17 @@ def mock_memory():
     return _make_mock_memory()
 
 
+class TestMemoryAddValidation:
+
+    def test_add_empty_content_fails_before_backend(self, runner, mock_memory):
+        with patch("powermem.cli.commands.memory.CLIContext.memory",
+                   new_callable=PropertyMock, return_value=mock_memory):
+            result = runner.invoke(cli, ["memory", "add", ""])
+        assert result.exit_code != 0
+        assert "Missing argument 'CONTENT'" in result.output
+        mock_memory.add.assert_not_called()
+
+
 # ==================== Export ====================
 
 class TestExport:
