@@ -1087,7 +1087,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             if isinstance(permission, AccessPermission):
                 permission_enum = permission
             else:
-                permission_enum = AccessPermission(permission.upper())
+                permission_enum = AccessPermission(str(permission).lower())
             return self.permission_controller.check_permission(agent_id, memory_id, permission_enum)
         except (ValueError, Exception):
             return False

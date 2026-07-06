@@ -10,11 +10,30 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
-from typing import Any, Dict
+from powermem.agent.utils.memory_id import memory_key_variants
 from powermem.agent.types import AccessPermission
 from powermem.agent.abstract.permission import AgentPermissionManagerBase
 
 logger = logging.getLogger(__name__)
+
+
+def _permission_value(permission: AccessPermission) -> str:
+    """Normalize permission to lowercase string value for role list comparison."""
+    if isinstance(permission, AccessPermission):
+        return permission.value
+    return str(permission).lower()
+
+
+def _memory_id_keys(memory_id: Any) -> List[Any]:
+    """Return memory id lookup keys while preserving non-numeric legacy ids."""
+    keys = [memory_id]
+    try:
+        for key in memory_key_variants(memory_id):
+            if key not in keys:
+                keys.append(key)
+    except ValueError:
+        pass
+    return keys
 
 
 class PermissionController(AgentPermissionManagerBase):
@@ -103,23 +122,25 @@ class PermissionController(AgentPermissionManagerBase):
         """
         try:
             # Check direct memory permissions
-            if memory_id in self.memory_permissions:
-                if agent_id in self.memory_permissions[memory_id]:
-                    if permission in self.memory_permissions[memory_id][agent_id]:
-                        self._log_access(agent_id, memory_id, permission, "granted")
-                        return True
+            for memory_key in _memory_id_keys(memory_id):
+                if memory_key in self.memory_permissions:
+                    if agent_id in self.memory_permissions[memory_key]:
+                        if permission in self.memory_permissions[memory_key][agent_id]:
+                            self._log_access(agent_id, memory_id, permission, "granted")
+                            return True
             
             # Check role-based permissions
+            perm_value = _permission_value(permission)
             if agent_id in self.agent_roles:
                 for role in self.agent_roles[agent_id]:
                     if role in self.role_permissions:
-                        if permission in self.role_permissions[role]:
+                        if perm_value in self.role_permissions[role]:
                             self._log_access(agent_id, memory_id, permission, "granted_by_role")
                             return True
             
             # Check default permissions
             if "public" in self.role_permissions:
-                if permission in self.role_permissions["public"]:
+                if perm_value in self.role_permissions["public"]:
                     self._log_access(agent_id, memory_id, permission, "granted_by_default")
                     return True
             
@@ -191,6 +212,12 @@ class PermissionController(AgentPermissionManagerBase):
                 'agent_id': agent_id,
             }
     
+    def revoke_all_for_memory(self, memory_id: str) -> None:
+        """Remove all permission records for a memory."""
+        for memory_key in _memory_id_keys(memory_id):
+            if memory_key in self.memory_permissions:
+                del self.memory_permissions[memory_key]
+
     def revoke_permission(
         self,
         memory_id: str,
@@ -511,25 +538,27 @@ class PermissionController(AgentPermissionManagerBase):
             }
             
             # Check direct memory permissions
-            if memory_id in self.memory_permissions:
-                if agent_id in self.memory_permissions[memory_id]:
-                    if permission in self.memory_permissions[memory_id][agent_id]:
-                        validation_result['valid'] = True
-                        validation_result['validation_path'].append('direct_memory_permission')
-                        return validation_result
+            for memory_key in _memory_id_keys(memory_id):
+                if memory_key in self.memory_permissions:
+                    if agent_id in self.memory_permissions[memory_key]:
+                        if permission in self.memory_permissions[memory_key][agent_id]:
+                            validation_result['valid'] = True
+                            validation_result['validation_path'].append('direct_memory_permission')
+                            return validation_result
             
             # Check role-based permissions
+            perm_value = _permission_value(permission)
             if agent_id in self.agent_roles:
                 for role in self.agent_roles[agent_id]:
                     if role in self.role_permissions:
-                        if permission in self.role_permissions[role]:
+                        if perm_value in self.role_permissions[role]:
                             validation_result['valid'] = True
                             validation_result['validation_path'].append(f'role_permission:{role}')
                             return validation_result
             
             # Check default permissions
             if "public" in self.role_permissions:
-                if permission in self.role_permissions["public"]:
+                if perm_value in self.role_permissions["public"]:
                     validation_result['valid'] = True
                     validation_result['validation_path'].append('default_permission')
                     return validation_result
