@@ -22,6 +22,7 @@ from powermem.agent.components.permission_controller import PermissionController
 from powermem.agent.components.collaboration_coordinator import CollaborationCoordinator
 from powermem.agent.components.privacy_protector import PrivacyProtector
 from powermem.agent.filters import matches_memory_filters
+from powermem.agent.utils.memory_id import memory_key_variants, normalize_memory_id
 
 logger = logging.getLogger(__name__)
 
@@ -311,6 +312,19 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             logger.error(f"Failed to process memory for agent {agent_id}: {e}", exc_info=True)
             raise
     
+    def _get_or_create_memory_instance(self):
+        """Lazy-init and return the underlying Memory instance."""
+        if not hasattr(self, '_memory_instance'):
+            from powermem.core.memory import Memory
+            if hasattr(self.config, '_data'):
+                config_dict = self.config._data
+            elif hasattr(self.config, 'to_dict'):
+                config_dict = self.config.to_dict()
+            else:
+                config_dict = self.config
+            self._memory_instance = Memory(config_dict)
+        return self._memory_instance
+
     def _persist_memory_to_storage(self, memory_data: Dict[str, Any]) -> int:
         """
         Persist memory data to database and vector store.
@@ -322,23 +336,12 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             Snowflake ID (int) from database
         """
         try:
-            # Use existing Memory infrastructure
-            if not hasattr(self, '_memory_instance'):
-                from powermem.core.memory import Memory
-                # Convert ConfigObject back to dict for Memory class
-                if hasattr(self.config, '_data'):
-                    config_dict = self.config._data
-                elif hasattr(self.config, 'to_dict'):
-                    config_dict = self.config.to_dict()
-                else:
-                    config_dict = self.config
-                
-                self._memory_instance = Memory(config_dict)
-            
+            memory_instance = self._get_or_create_memory_instance()
+
             # Use the existing Memory.add() method
             # Get the Snowflake ID returned from database to ensure consistency
             # Use infer=False to use simple mode since intelligent processing is already done at agent layer
-            add_result = self._memory_instance.add(
+            add_result = memory_instance.add(
                 messages=memory_data['content'],
                 user_id=memory_data.get('user_id'),
                 agent_id=memory_data.get('agent_id'),
@@ -663,7 +666,7 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
     
     def update_memory(
         self,
-        memory_id: str,
+        memory_id: Union[str, int],
         agent_id: str,
         updates: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -679,48 +682,65 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             Dictionary containing the updated memory information
         """
         try:
-            # Find the memory
-            memory_data = self._find_memory(memory_id)
-            if not memory_data:
+            location = self._locate_memory(memory_id)
+            if not location:
                 raise ValueError(f"Memory {memory_id} not found")
-            
-            # Check permissions
+
+            normalized_id = location['memory_id']
+            memory_data = location['memory_data']
+
             if not self.permission_controller.check_permission(
-                agent_id, memory_id, AccessPermission.WRITE
+                agent_id, normalized_id, AccessPermission.WRITE
             ):
-                raise PermissionError(f"Agent {agent_id} does not have write permission for memory {memory_id}")
-            
-            # Apply updates
-            for key, value in updates.items():
-                if key in memory_data:
-                    memory_data[key] = value
-            
-            memory_data['updated_at'] = datetime.now().isoformat()
-            
-            # Update intelligent memory manager if content changed
-            if 'content' in updates:
-                self.intelligent_manager.update_memory(
-                    memory_id=memory_id,
-                    content=updates['content'],
-                    metadata=memory_data.get('metadata', {})
+                raise PermissionError(
+                    f"Agent {agent_id} does not have write permission for memory {normalized_id}"
                 )
-            
-            logger.info(f"Updated memory {memory_id} by agent {agent_id}")
-            
+
+            merged_metadata = None
+            if 'content' in updates or 'metadata' in updates:
+                merged_metadata = dict(memory_data.get('metadata') or {})
+                if 'metadata' in updates and updates['metadata']:
+                    merged_metadata.update(updates['metadata'])
+                content = updates.get('content', memory_data.get('content'))
+                memory_instance = self._get_or_create_memory_instance()
+                memory_instance.update(
+                    memory_id=normalized_id,
+                    content=content,
+                    user_id=memory_data.get('user_id'),
+                    agent_id=memory_data.get('agent_id'),
+                    metadata=merged_metadata,
+                )
+
+            for key, value in updates.items():
+                if key in memory_data and key != 'metadata':
+                    memory_data[key] = value
+
+            if merged_metadata is not None and 'metadata' in updates:
+                memory_data['metadata'] = merged_metadata
+            memory_data['updated_at'] = datetime.now().isoformat()
+            self._sync_scope_storage_entry(
+                location['scope'],
+                location['memory_type'],
+                normalized_id,
+                memory_data,
+            )
+
+            logger.info(f"Updated memory {normalized_id} by agent {agent_id}")
+
             return {
-                'id': memory_id,
+                'id': normalized_id,
                 'memory': memory_data['content'],
                 'updated_at': memory_data['updated_at'],
                 'agent_id': agent_id,
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to update memory {memory_id}: {e}", exc_info=True)
             raise
-    
+
     def delete_memory(
         self,
-        memory_id: str,
+        memory_id: Union[str, int],
         agent_id: str
     ) -> Dict[str, Any]:
         """
@@ -734,49 +754,49 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             Dictionary containing the deletion result
         """
         try:
-            # Find the memory
-            memory_data = self._find_memory(memory_id)
-            if not memory_data:
+            location = self._locate_memory(memory_id)
+            if not location:
                 raise ValueError(f"Memory {memory_id} not found")
-            
-            # Check permissions
+
+            normalized_id = location['memory_id']
+            memory_data = location['memory_data']
+
             if not self.permission_controller.check_permission(
-                agent_id, memory_id, AccessPermission.DELETE
+                agent_id, normalized_id, AccessPermission.DELETE
             ):
-                raise PermissionError(f"Agent {agent_id} does not have delete permission for memory {memory_id}")
-            
-            # Remove from scope-based storage
-            scope = memory_data['scope']
-            memory_type = memory_data['memory_type']
-            del self.scope_memories[scope][memory_type][memory_id]
-            
-            # Clean up permissions
-            self.permission_controller.revoke_permission(
-                memory_id=memory_id,
-                agent_id=agent_id,
-                permission=AccessPermission.DELETE,
-                revoked_by=agent_id
+                raise PermissionError(
+                    f"Agent {agent_id} does not have delete permission for memory {normalized_id}"
+                )
+
+            memory_instance = self._get_or_create_memory_instance()
+            memory_instance.delete(
+                memory_id=normalized_id,
+                user_id=memory_data.get('user_id'),
+                agent_id=memory_data.get('agent_id'),
             )
-            
-            # Clean up collaboration if applicable
-            if memory_id in self.collaboration_memories:
-                del self.collaboration_memories[memory_id]
-            
-            logger.info(f"Deleted memory {memory_id} by agent {agent_id}")
-            
+
+            self._remove_memory_from_cache(location)
+            self._revoke_memory_permissions(normalized_id)
+
+            for key in memory_key_variants(normalized_id):
+                if key in self.collaboration_memories:
+                    del self.collaboration_memories[key]
+
+            logger.info(f"Deleted memory {normalized_id} by agent {agent_id}")
+
             return {
                 'success': True,
-                'deleted_id': memory_id,
+                'deleted_id': normalized_id,
                 'deleted_by': agent_id,
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to delete memory {memory_id}: {e}", exc_info=True)
             raise
-    
+
     def share_memory(
         self,
-        memory_id: str,
+        memory_id: Union[str, int],
         from_agent: str,
         to_agents: List[str],
         permissions: Optional[List[str]] = None
@@ -794,65 +814,63 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             Dictionary containing the sharing result
         """
         try:
-            # Find the memory
-            memory_data = self._find_memory(memory_id)
-            if not memory_data:
+            location = self._locate_memory(memory_id)
+            if not location:
                 raise ValueError(f"Memory {memory_id} not found")
-            
-            # Check if sharing agent has share permission
+
+            normalized_id = location['memory_id']
+            memory_data = location['memory_data']
+
             if not self.permission_controller.check_permission(
-                from_agent, memory_id, AccessPermission.SHARE
+                from_agent, normalized_id, AccessPermission.SHARE
             ):
-                raise PermissionError(f"Agent {from_agent} does not have share permission for memory {memory_id}")
-            
-            # Grant permissions to target agents
+                raise PermissionError(
+                    f"Agent {from_agent} does not have share permission for memory {normalized_id}"
+                )
+
             shared_with = []
             default_permissions = permissions or ['read']
-            
-            for agent_id in to_agents:
+
+            for target_agent in to_agents:
                 for perm in default_permissions:
                     try:
-                        # Handle both string and AccessPermission enum inputs
                         if isinstance(perm, AccessPermission):
                             permission = perm
                         else:
-                            # Convert to AccessPermission enum (case insensitive)
                             permission = AccessPermission(perm.lower())
                         self.permission_controller.grant_permission(
-                            memory_id=memory_id,
-                            agent_id=agent_id,
+                            memory_id=normalized_id,
+                            agent_id=target_agent,
                             permission=permission,
                             granted_by=from_agent
                         )
-                        shared_with.append(agent_id)
+                        if target_agent not in shared_with:
+                            shared_with.append(target_agent)
                     except ValueError:
                         logger.warning(f"Invalid permission: {perm}")
-            
-            # Update memory data to include shared_with list for scope access
-            memory_data = self._find_memory(memory_id)
-            if memory_data:
-                if 'shared_with' not in memory_data:
-                    memory_data['shared_with'] = []
-                memory_data['shared_with'].extend(shared_with)
-                
-                # Also update in scope controller's storage
-                if self.scope_controller:
-                    for scope in MemoryScope:
-                        for memory_type in MemoryType:
-                            if memory_id in self.scope_controller.scope_storage[scope][memory_type]:
-                                self.scope_controller.scope_storage[scope][memory_type][memory_id] = memory_data
-                                break
-            
-            logger.info(f"Shared memory {memory_id} from {from_agent} to {len(shared_with)} agents")
-            
+
+            if 'shared_with' not in memory_data:
+                memory_data['shared_with'] = []
+            memory_data['shared_with'].extend(shared_with)
+            self._sync_scope_storage_entry(
+                location['scope'],
+                location['memory_type'],
+                normalized_id,
+                memory_data,
+            )
+
+            logger.info(
+                f"Shared memory {normalized_id} from {from_agent} to {len(shared_with)} agents"
+            )
+
             return {
                 'success': True,
-                'memory_id': memory_id,
+                'memory_id': normalized_id,
                 'shared_from': from_agent,
                 'shared_with': shared_with,
                 'permissions': default_permissions,
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to share memory {memory_id}: {e}", exc_info=True)
             raise
@@ -915,14 +933,6 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
             for scope in MemoryScope:
                 for memory_type in MemoryType:
                     for memory_id, memory_data in self.scope_memories[scope][memory_type].items():
-                        # Update decay using intelligent memory manager
-                        # Note: IntelligentMemoryManager.update_memory_decay() updates all memories
-                        # We'll call it once and then process individual results
-                        if not hasattr(self, '_decay_updated'):
-                            self.intelligent_manager.update_memory_decay()
-                            self._decay_updated = True
-                        
-                        # For individual memory processing, we'll use a simplified approach
                         current_score = memory_data.get('retention_score', 1.0)
                         access_count = memory_data.get('access_count', 0)
                         last_accessed = memory_data.get('last_accessed')
@@ -980,30 +990,60 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
                 'cleaned_memories': 0,
                 'archived_memories': 0,
                 'deleted_memories': 0,
+                'cleaned_memory_ids': [],
             }
-            
-            # Clean up forgotten memories
+            memory_instance = self._get_or_create_memory_instance()
+
             for scope in MemoryScope:
                 for memory_type in MemoryType:
                     memories_to_remove = []
-                    
-                    for memory_id, memory_data in self.scope_memories[scope][memory_type].items():
+                    processed_ids = set()
+
+                    for cache_key, memory_data in list(
+                        self.scope_memories[scope][memory_type].items()
+                    ):
                         retention_score = memory_data.get('retention_score', 1.0)
-                        
-                        # Check if memory should be cleaned up
-                        if retention_score < 0.1:  # Forgotten threshold
-                            memories_to_remove.append(memory_id)
+                        normalized_id = normalize_memory_id(
+                            memory_data.get('id', cache_key)
+                        )
+                        if normalized_id in processed_ids:
+                            continue
+                        processed_ids.add(normalized_id)
+
+                        if retention_score < 0.1:
+                            memories_to_remove.append((cache_key, normalized_id, memory_data))
                             cleanup_results['deleted_memories'] += 1
-                        elif retention_score < 0.3:  # Archive threshold
-                            # Archive memory instead of deleting
+                        elif retention_score < 0.3:
                             memory_data['archived'] = True
+                            metadata = dict(memory_data.get('metadata') or {})
+                            metadata['archived'] = True
+                            memory_instance.update(
+                                memory_id=normalized_id,
+                                content=memory_data.get('content', ''),
+                                user_id=memory_data.get('user_id'),
+                                agent_id=memory_data.get('agent_id'),
+                                metadata=metadata,
+                            )
+                            memory_data['metadata'] = metadata
                             cleanup_results['archived_memories'] += 1
-                    
-                    # Remove forgotten memories
-                    for memory_id in memories_to_remove:
-                        del self.scope_memories[scope][memory_type][memory_id]
+
+                    for cache_key, normalized_id, memory_data in memories_to_remove:
+                        memory_instance.delete(
+                            memory_id=normalized_id,
+                            user_id=memory_data.get('user_id'),
+                            agent_id=memory_data.get('agent_id'),
+                        )
+                        location = {
+                            'scope': scope,
+                            'memory_type': memory_type,
+                            'cache_key': cache_key,
+                            'memory_id': normalized_id,
+                        }
+                        self._remove_memory_from_cache(location)
+                        self._revoke_memory_permissions(normalized_id)
                         cleanup_results['cleaned_memories'] += 1
-            
+                        cleanup_results['cleaned_memory_ids'].append(normalized_id)
+
             logger.info(f"Cleaned up forgotten memories: {cleanup_results}")
             return cleanup_results
             
@@ -1092,14 +1132,66 @@ class MultiAgentMemoryManager(AgentMemoryManagerBase):
         except (ValueError, Exception):
             return False
     
-    def _find_memory(self, memory_id: str) -> Optional[Dict[str, Any]]:
+    def _find_memory(self, memory_id: Union[str, int]) -> Optional[Dict[str, Any]]:
         """Find a memory by ID across all scopes and types."""
+        location = self._locate_memory(memory_id)
+        if location:
+            return location['memory_data']
+        return None
+
+    def _locate_memory(self, memory_id: Union[str, int]) -> Optional[Dict[str, Any]]:
+        """Locate memory data and cache coordinates by id."""
+        normalized_id = normalize_memory_id(memory_id)
         for scope in MemoryScope:
             for memory_type in MemoryType:
-                if memory_id in self.scope_memories[scope][memory_type]:
-                    return self.scope_memories[scope][memory_type][memory_id]
+                storage = self.scope_memories[scope][memory_type]
+                for key in memory_key_variants(normalized_id):
+                    if key in storage:
+                        return {
+                            'memory_data': storage[key],
+                            'scope': scope,
+                            'memory_type': memory_type,
+                            'cache_key': key,
+                            'memory_id': normalized_id,
+                        }
         return None
-    
+
+    def _remove_memory_from_cache(self, location: Dict[str, Any]) -> None:
+        """Remove a memory entry from scope and scope-controller caches."""
+        scope = location['scope']
+        memory_type = location['memory_type']
+        normalized_id = location['memory_id']
+
+        for key in memory_key_variants(normalized_id):
+            if key in self.scope_memories[scope][memory_type]:
+                del self.scope_memories[scope][memory_type][key]
+
+        if self.scope_controller:
+            for key in memory_key_variants(normalized_id):
+                if key in self.scope_controller.scope_storage[scope][memory_type]:
+                    del self.scope_controller.scope_storage[scope][memory_type][key]
+
+    def _sync_scope_storage_entry(
+        self,
+        scope: MemoryScope,
+        memory_type: MemoryType,
+        memory_id: int,
+        memory_data: Dict[str, Any],
+    ) -> None:
+        """Keep scope_memories and scope_controller storage in sync."""
+        for key in memory_key_variants(memory_id):
+            self.scope_memories[scope][memory_type].pop(key, None)
+        self.scope_memories[scope][memory_type][memory_id] = memory_data
+        if self.scope_controller:
+            for key in memory_key_variants(memory_id):
+                self.scope_controller.scope_storage[scope][memory_type].pop(key, None)
+            self.scope_controller.scope_storage[scope][memory_type][memory_id] = memory_data
+
+    def _revoke_memory_permissions(self, memory_id: Union[str, int]) -> None:
+        """Clear permission records for all id key variants."""
+        for key in memory_key_variants(memory_id):
+            self.permission_controller.revoke_all_for_memory(key)
+
     def create_group(self, group_name: str, agent_ids: List[str], permissions: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
         """
         Create an agent group.

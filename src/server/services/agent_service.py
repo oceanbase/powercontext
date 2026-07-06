@@ -256,7 +256,7 @@ class AgentService:
                     if use_share_method:
                         try:
                             share_result = self.agent_memory.share_memory(
-                                memory_id=str(mem_id),
+                                memory_id=mem_id,
                                 from_agent=agent_id,
                                 to_agents=[target_agent_id],
                             )

@@ -538,7 +538,7 @@ class AgentMemory:
         Update an existing memory.
         
         Args:
-            memory_id: ID of the memory to update
+            memory_id: ID of the memory to update (str or int)
             content: New content for the memory
             user_id: Optional user ID
             agent_id: Optional agent ID
@@ -587,7 +587,7 @@ class AgentMemory:
         Delete a memory.
         
         Args:
-            memory_id: ID of the memory to delete
+            memory_id: ID of the memory to delete (str or int)
             user_id: Optional user ID
             agent_id: Optional agent ID
             

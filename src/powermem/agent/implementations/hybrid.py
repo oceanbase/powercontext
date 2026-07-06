@@ -7,13 +7,13 @@ which dynamically switches between multi-agent and multi-user modes based on con
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from typing import Any, Dict
 from powermem.intelligence.intelligent_memory_manager import IntelligentMemoryManager
 from powermem.agent.abstract.manager import AgentMemoryManagerBase
 from powermem.agent.implementations.multi_agent import MultiAgentMemoryManager
 from powermem.agent.implementations.multi_user import MultiUserMemoryManager
+from powermem.agent.utils.memory_id import memory_key_variants, normalize_memory_id
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +396,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
     
     def update_memory(
         self,
-        memory_id: str,
+        memory_id: Union[str, int],
         agent_id: str,
         updates: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -412,22 +412,23 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             Dictionary containing the updated memory information
         """
         try:
-            # Find which mode the memory belongs to
-            memory_mode = self._get_memory_mode(memory_id)
+            normalized_id = normalize_memory_id(memory_id)
+            memory_mode = self._get_memory_mode(normalized_id)
             
             if not memory_mode:
                 raise ValueError(f"Memory {memory_id} not found in any mode")
             
             # Update with appropriate manager
             if memory_mode == "multi_agent":
-                result = self.multi_agent_manager.update_memory(memory_id, agent_id, updates)
+                result = self.multi_agent_manager.update_memory(normalized_id, agent_id, updates)
             else:
-                result = self.multi_user_manager.update_memory(memory_id, agent_id, updates)
-            
-            # Update unified index
-            if memory_id in self.unified_memory_index:
-                self.unified_memory_index[memory_id]['updated_at'] = datetime.now().isoformat()
-                self.unified_memory_index[memory_id]['updated_by'] = agent_id
+                result = self.multi_user_manager.update_memory(normalized_id, agent_id, updates)
+
+            for key in memory_key_variants(normalized_id):
+                if key in self.unified_memory_index:
+                    self.unified_memory_index[key]['updated_at'] = datetime.now().isoformat()
+                    self.unified_memory_index[key]['updated_by'] = agent_id
+                    break
             
             result['updated_in_mode'] = memory_mode
             logger.info(f"Updated memory {memory_id} in {memory_mode} mode")
@@ -439,7 +440,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
     
     def delete_memory(
         self,
-        memory_id: str,
+        memory_id: Union[str, int],
         agent_id: str
     ) -> Dict[str, Any]:
         """
@@ -453,26 +454,24 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             Dictionary containing the deletion result
         """
         try:
-            # Find which mode the memory belongs to
-            memory_mode = self._get_memory_mode(memory_id)
+            normalized_id = normalize_memory_id(memory_id)
+            memory_mode = self._get_memory_mode(normalized_id)
             
             if not memory_mode:
                 raise ValueError(f"Memory {memory_id} not found in any mode")
             
             # Delete with appropriate manager
             if memory_mode == "multi_agent":
-                result = self.multi_agent_manager.delete_memory(memory_id, agent_id)
+                result = self.multi_agent_manager.delete_memory(normalized_id, agent_id)
             else:
-                result = self.multi_user_manager.delete_memory(memory_id, agent_id)
-            
-            # Clean up unified index
-            if memory_id in self.unified_memory_index:
-                del self.unified_memory_index[memory_id]
-            
-            # Clean up mode-specific storage
-            if memory_mode in self.mode_specific_memories:
-                if memory_id in self.mode_specific_memories[memory_mode]:
-                    del self.mode_specific_memories[memory_mode][memory_id]
+                result = self.multi_user_manager.delete_memory(normalized_id, agent_id)
+
+            for key in memory_key_variants(normalized_id):
+                if key in self.unified_memory_index:
+                    del self.unified_memory_index[key]
+                if memory_mode in self.mode_specific_memories:
+                    if key in self.mode_specific_memories[memory_mode]:
+                        del self.mode_specific_memories[memory_mode][key]
             
             result['deleted_from_mode'] = memory_mode
             logger.info(f"Deleted memory {memory_id} from {memory_mode} mode")
@@ -484,7 +483,7 @@ class HybridMemoryManager(AgentMemoryManagerBase):
     
     def share_memory(
         self,
-        memory_id: str,
+        memory_id: Union[str, int],
         from_agent: str,
         to_agents: List[str],
         permissions: Optional[List[str]] = None
@@ -502,17 +501,21 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             Dictionary containing the sharing result
         """
         try:
-            # Find which mode the memory belongs to
-            memory_mode = self._get_memory_mode(memory_id)
+            normalized_id = normalize_memory_id(memory_id)
+            memory_mode = self._get_memory_mode(normalized_id)
             
             if not memory_mode:
                 raise ValueError(f"Memory {memory_id} not found in any mode")
             
             # Share with appropriate manager
             if memory_mode == "multi_agent":
-                result = self.multi_agent_manager.share_memory(memory_id, from_agent, to_agents, permissions)
+                result = self.multi_agent_manager.share_memory(
+                    normalized_id, from_agent, to_agents, permissions
+                )
             else:
-                result = self.multi_user_manager.share_memory(memory_id, from_agent, to_agents, permissions)
+                result = self.multi_user_manager.share_memory(
+                    normalized_id, from_agent, to_agents, permissions
+                )
             
             result['shared_from_mode'] = memory_mode
             logger.info(f"Shared memory {memory_id} from {memory_mode} mode")
@@ -616,8 +619,12 @@ class HybridMemoryManager(AgentMemoryManagerBase):
                     cleaned_memory_ids.update(cleanup_result['cleaned_memory_ids'])
             
             for memory_id in cleaned_memory_ids:
-                if memory_id in self.unified_memory_index:
-                    del self.unified_memory_index[memory_id]
+                for key in memory_key_variants(memory_id):
+                    if key in self.unified_memory_index:
+                        del self.unified_memory_index[key]
+                    for mode in self.mode_specific_memories:
+                        if key in self.mode_specific_memories[mode]:
+                            del self.mode_specific_memories[mode][key]
             
             logger.info(f"Cleaned up forgotten memories from both modes: {combined_cleanup}")
             return combined_cleanup
@@ -679,32 +686,40 @@ class HybridMemoryManager(AgentMemoryManagerBase):
             True if the agent/user has the permission, False otherwise
         """
         try:
-            # Find which mode the memory belongs to
-            memory_mode = self._get_memory_mode(memory_id)
-            
+            normalized_id = normalize_memory_id(memory_id)
+            memory_mode = self._get_memory_mode(normalized_id)
+
             if not memory_mode:
                 return False
-            
-            # Check permission with appropriate manager
+
             if memory_mode == "multi_agent":
-                return self.multi_agent_manager.check_permission(agent_id, memory_id, permission)
-            else:
-                return self.multi_user_manager.check_permission(agent_id, memory_id, permission)
+                return self.multi_agent_manager.check_permission(
+                    agent_id, normalized_id, permission
+                )
+            return self.multi_user_manager.check_permission(
+                agent_id, normalized_id, permission
+            )
                 
         except Exception:
             return False
     
-    def _get_memory_mode(self, memory_id: str) -> Optional[str]:
+    def _get_memory_mode(self, memory_id: Union[str, int]) -> Optional[str]:
         """Get the mode that a memory belongs to."""
-        # Check unified index first
-        if memory_id in self.unified_memory_index:
-            return self.unified_memory_index[memory_id]['mode']
-        
-        # Check mode-specific storage
+        normalized_id = normalize_memory_id(memory_id)
+        for key in memory_key_variants(normalized_id):
+            if key in self.unified_memory_index:
+                return self.unified_memory_index[key]['mode']
+
         for mode, memories in self.mode_specific_memories.items():
-            if memory_id in memories:
-                return mode
-        
+            for key in memory_key_variants(normalized_id):
+                if key in memories:
+                    return mode
+
+        if self.multi_agent_manager._find_memory(normalized_id):
+            return "multi_agent"
+        if self.multi_user_manager._find_memory(normalized_id):
+            return "multi_user"
+
         return None
     
     def get_mode_info(self) -> Dict[str, Any]:

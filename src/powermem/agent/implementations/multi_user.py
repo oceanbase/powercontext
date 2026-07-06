@@ -16,6 +16,7 @@ from powermem.agent.types import (
     AccessPermission
 )
 from powermem.agent.filters import matches_memory_filters
+from powermem.agent.utils.memory_id import memory_key_variants, normalize_memory_id
 from powermem.intelligence.intelligent_memory_manager import IntelligentMemoryManager
 from powermem.agent.abstract.manager import AgentMemoryManagerBase
 
@@ -237,6 +238,14 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             logger.error(f"Failed to process memory for user {agent_id}: {e}", exc_info=True)
             raise
     
+    def _get_or_create_memory_instance(self):
+        """Lazy-init and return the underlying Memory instance."""
+        if not hasattr(self, '_memory_instance'):
+            from powermem.core.memory import Memory
+            config_dict = self.config._data if hasattr(self.config, '_data') else self.config
+            self._memory_instance = Memory(config_dict)
+        return self._memory_instance
+
     def _persist_memory_to_storage(self, memory_data: Dict[str, Any]) -> int:
         """
         Persist memory data to database and vector store.
@@ -248,17 +257,9 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             Snowflake ID (int) from database
         """
         try:
-            # Use existing Memory infrastructure
-            if not hasattr(self, '_memory_instance'):
-                from powermem.core.memory import Memory
-                # Convert ConfigObject back to dict for Memory class
-                config_dict = self.config._data if hasattr(self.config, '_data') else self.config
-                self._memory_instance = Memory(config_dict)
-            
-            # Use the existing Memory.add() method
-            # Get the Snowflake ID returned from database to ensure consistency
-            # Use infer=False to use simple mode since intelligent processing is already done at agent layer
-            add_result = self._memory_instance.add(
+            memory_instance = self._get_or_create_memory_instance()
+
+            add_result = memory_instance.add(
                 messages=memory_data['content'],
                 user_id=memory_data.get('user_id'),
                 agent_id=memory_data.get('agent_id'),
@@ -668,7 +669,7 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
     
     def update_memory(
         self,
-        memory_id: str,
+        memory_id: Union[str, int],
         agent_id: str,
         updates: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -684,59 +685,71 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             Dictionary containing the updated memory information
         """
         try:
-            # Find the memory
-            memory_data = self._find_memory(memory_id)
-            if not memory_data:
+            location = self._locate_memory(memory_id)
+            if not location:
                 raise ValueError(f"Memory {memory_id} not found")
-            
+
+            normalized_id = location['memory_id']
+            memory_data = location['memory_data']
             user_id = self._extract_user_id(agent_id, None, None)
-            
-            # Check if user owns the memory or has write permission
+
             if memory_data['user_id'] != user_id:
-                # Check shared access
-                if memory_id not in self.shared_memories:
-                    raise PermissionError(f"User {user_id} does not have permission to update memory {memory_id}")
-                
-                sharing_data = self.shared_memories[memory_id]
+                sharing_key = self._shared_memory_key(normalized_id)
+                if sharing_key not in self.shared_memories:
+                    raise PermissionError(
+                        f"User {user_id} does not have permission to update memory {normalized_id}"
+                    )
+                sharing_data = self.shared_memories[sharing_key]
                 if user_id not in sharing_data['shared_with']:
-                    raise PermissionError(f"User {user_id} does not have permission to update memory {memory_id}")
-                
+                    raise PermissionError(
+                        f"User {user_id} does not have permission to update memory {normalized_id}"
+                    )
                 user_permissions = sharing_data['permissions'].get(user_id, [])
                 if 'write' not in user_permissions:
-                    raise PermissionError(f"User {user_id} does not have write permission for memory {memory_id}")
-            
-            # Apply updates
-            for key, value in updates.items():
-                if key in memory_data:
-                    memory_data[key] = value
-            
-            memory_data['updated_at'] = datetime.now().isoformat()
-            
-            # Update intelligent memory manager if content changed
-            if 'content' in updates:
-                self.intelligent_manager.update_memory(
-                    memory_id=memory_id,
-                    content=updates['content'],
-                    metadata=memory_data.get('metadata', {})
+                    raise PermissionError(
+                        f"User {user_id} does not have write permission for memory {normalized_id}"
+                    )
+
+            merged_metadata = None
+            if 'content' in updates or 'metadata' in updates:
+                merged_metadata = dict(memory_data.get('metadata') or {})
+                if 'metadata' in updates and updates['metadata']:
+                    merged_metadata.update(updates['metadata'])
+                content = updates.get('content', memory_data.get('content'))
+                memory_instance = self._get_or_create_memory_instance()
+                memory_instance.update(
+                    memory_id=normalized_id,
+                    content=content,
+                    user_id=memory_data.get('user_id'),
+                    agent_id=memory_data.get('agent_id'),
+                    metadata=merged_metadata,
                 )
-            
-            logger.info(f"Updated memory {memory_id} by user {user_id}")
-            
+
+            for key, value in updates.items():
+                if key in memory_data and key != 'metadata':
+                    memory_data[key] = value
+
+            if merged_metadata is not None and 'metadata' in updates:
+                memory_data['metadata'] = merged_metadata
+            memory_data['updated_at'] = datetime.now().isoformat()
+
+            logger.info(f"Updated memory {normalized_id} by user {user_id}")
+
             return {
-                'id': memory_id,
+                'id': normalized_id,
                 'memory': memory_data['content'],
                 'updated_at': memory_data['updated_at'],
                 'user_id': user_id,
                 'agent_id': agent_id,
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to update memory {memory_id}: {e}", exc_info=True)
             raise
-    
+
     def delete_memory(
         self,
-        memory_id: str,
+        memory_id: Union[str, int],
         agent_id: str
     ) -> Dict[str, Any]:
         """
@@ -750,49 +763,44 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             Dictionary containing the deletion result
         """
         try:
-            # Find the memory
-            memory_data = self._find_memory(memory_id)
-            if not memory_data:
+            location = self._locate_memory(memory_id)
+            if not location:
                 raise ValueError(f"Memory {memory_id} not found")
-            
+
+            normalized_id = location['memory_id']
+            memory_data = location['memory_data']
             user_id = self._extract_user_id(agent_id, None, None)
-            
-            # Check if user owns the memory
+
             if memory_data['user_id'] != user_id:
-                raise PermissionError(f"User {user_id} does not have permission to delete memory {memory_id}")
-            
-            # Remove from user storage
-            user_id = memory_data['user_id']
-            memory_type = memory_data['memory_type']
-            
-            if user_id in self.user_memories and memory_type in self.user_memories[user_id]:
-                if memory_id in self.user_memories[user_id][memory_type]:
-                    del self.user_memories[user_id][memory_type][memory_id]
-            
-            # Clean up sharing data
-            if memory_id in self.shared_memories:
-                del self.shared_memories[memory_id]
-            
-            # Clean up consent records
-            for user_consents in self.consent_records.values():
-                if memory_id in user_consents:
-                    del user_consents[memory_id]
-            
-            logger.info(f"Deleted memory {memory_id} by user {user_id}")
-            
+                raise PermissionError(
+                    f"User {user_id} does not have permission to delete memory {normalized_id}"
+                )
+
+            memory_instance = self._get_or_create_memory_instance()
+            memory_instance.delete(
+                memory_id=normalized_id,
+                user_id=memory_data.get('user_id'),
+                agent_id=memory_data.get('agent_id'),
+            )
+
+            self._remove_memory_from_cache(location)
+            self._clear_shared_records(normalized_id)
+
+            logger.info(f"Deleted memory {normalized_id} by user {user_id}")
+
             return {
                 'success': True,
-                'deleted_id': memory_id,
+                'deleted_id': normalized_id,
                 'deleted_by': user_id,
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to delete memory {memory_id}: {e}", exc_info=True)
             raise
-    
+
     def share_memory(
         self,
-        memory_id: str,
+        memory_id: Union[str, int],
         from_agent: str,
         to_agents: List[str],
         permissions: Optional[List[str]] = None
@@ -810,39 +818,42 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             Dictionary containing the sharing result
         """
         try:
-            # Find the memory
-            memory_data = self._find_memory(memory_id)
-            if not memory_data:
+            location = self._locate_memory(memory_id)
+            if not location:
                 raise ValueError(f"Memory {memory_id} not found")
-            
+
+            normalized_id = location['memory_id']
+            memory_data = location['memory_data']
             from_user_id = self._extract_user_id(from_agent, None, None)
-            
-            # Check if user owns the memory
+
             if memory_data['user_id'] != from_user_id:
-                raise PermissionError(f"User {from_user_id} does not own memory {memory_id}")
-            
-            # Grant shared access
+                raise PermissionError(
+                    f"User {from_user_id} does not own memory {normalized_id}"
+                )
+
             shared_with = []
             default_permissions = permissions or ['read']
-            
-            self._grant_shared_access(memory_id, from_user_id, to_agents)
-            
-            # Update sharing data with permissions
-            if memory_id in self.shared_memories:
-                for user_id in to_agents:
-                    self.shared_memories[memory_id]['permissions'][user_id] = default_permissions
-                    shared_with.append(user_id)
-            
-            logger.info(f"Shared memory {memory_id} from {from_user_id} to {len(shared_with)} users")
-            
+
+            self._grant_shared_access(normalized_id, from_user_id, to_agents)
+
+            sharing_key = self._shared_memory_key(normalized_id)
+            if sharing_key in self.shared_memories:
+                for target_user in to_agents:
+                    self.shared_memories[sharing_key]['permissions'][target_user] = default_permissions
+                    shared_with.append(target_user)
+
+            logger.info(
+                f"Shared memory {normalized_id} from {from_user_id} to {len(shared_with)} users"
+            )
+
             return {
                 'success': True,
-                'memory_id': memory_id,
+                'memory_id': normalized_id,
                 'shared_from': from_user_id,
                 'shared_with': shared_with,
                 'permissions': default_permissions,
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to share memory {memory_id}: {e}", exc_info=True)
             raise
@@ -905,14 +916,6 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             for user_id, user_memory_types in self.user_memories.items():
                 for memory_type in MemoryType:
                     for memory_id, memory_data in user_memory_types[memory_type].items():
-                        # Update decay using intelligent memory manager
-                        # Note: IntelligentMemoryManager.update_memory_decay() updates all memories
-                        # We'll call it once and then process individual results
-                        if not hasattr(self, '_decay_updated'):
-                            self.intelligent_manager.update_memory_decay()
-                            self._decay_updated = True
-                        
-                        # For individual memory processing, we'll use a simplified approach
                         current_score = memory_data.get('retention_score', 1.0)
                         access_count = memory_data.get('access_count', 0)
                         last_accessed = memory_data.get('last_accessed')
@@ -970,30 +973,58 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
                 'cleaned_memories': 0,
                 'archived_memories': 0,
                 'deleted_memories': 0,
+                'cleaned_memory_ids': [],
             }
-            
-            # Clean up forgotten memories for all users
+            memory_instance = self._get_or_create_memory_instance()
+
             for user_id, user_memory_types in self.user_memories.items():
                 for memory_type in MemoryType:
                     memories_to_remove = []
-                    
-                    for memory_id, memory_data in user_memory_types[memory_type].items():
+                    processed_ids = set()
+
+                    for cache_key, memory_data in list(user_memory_types[memory_type].items()):
                         retention_score = memory_data.get('retention_score', 1.0)
-                        
-                        # Check if memory should be cleaned up
-                        if retention_score < 0.1:  # Forgotten threshold
-                            memories_to_remove.append(memory_id)
+                        normalized_id = normalize_memory_id(
+                            memory_data.get('id', cache_key)
+                        )
+                        if normalized_id in processed_ids:
+                            continue
+                        processed_ids.add(normalized_id)
+
+                        if retention_score < 0.1:
+                            memories_to_remove.append((cache_key, normalized_id, memory_data))
                             cleanup_results['deleted_memories'] += 1
-                        elif retention_score < 0.3:  # Archive threshold
-                            # Archive memory instead of deleting
+                        elif retention_score < 0.3:
                             memory_data['archived'] = True
+                            metadata = dict(memory_data.get('metadata') or {})
+                            metadata['archived'] = True
+                            memory_instance.update(
+                                memory_id=normalized_id,
+                                content=memory_data.get('content', ''),
+                                user_id=memory_data.get('user_id'),
+                                agent_id=memory_data.get('agent_id'),
+                                metadata=metadata,
+                            )
+                            memory_data['metadata'] = metadata
                             cleanup_results['archived_memories'] += 1
-                    
-                    # Remove forgotten memories
-                    for memory_id in memories_to_remove:
-                        del user_memory_types[memory_type][memory_id]
+
+                    for cache_key, normalized_id, memory_data in memories_to_remove:
+                        memory_instance.delete(
+                            memory_id=normalized_id,
+                            user_id=memory_data.get('user_id'),
+                            agent_id=memory_data.get('agent_id'),
+                        )
+                        location = {
+                            'user_id': user_id,
+                            'memory_type': memory_type,
+                            'cache_key': cache_key,
+                            'memory_id': normalized_id,
+                        }
+                        self._remove_memory_from_cache(location)
+                        self._clear_shared_records(normalized_id)
                         cleanup_results['cleaned_memories'] += 1
-            
+                        cleanup_results['cleaned_memory_ids'].append(normalized_id)
+
             logger.info(f"Cleaned up forgotten memories: {cleanup_results}")
             return cleanup_results
             
@@ -1067,22 +1098,30 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
         try:
             user_id = self._extract_user_id(agent_id, None, None)
             
-            # Find the memory
-            memory_data = self._find_memory(memory_id)
-            if not memory_data:
+            location = self._locate_memory(memory_id)
+            if not location:
                 return False
-            
-            # Check if user owns the memory
+
+            normalized_id = location['memory_id']
+            memory_data = location['memory_data']
+            user_id = self._extract_user_id(agent_id, None, None)
+
             if memory_data['user_id'] == user_id:
                 return True
-            
-            # Check shared access
-            if memory_id in self.shared_memories:
-                sharing_data = self.shared_memories[memory_id]
+
+            perm_value = (
+                permission.value
+                if isinstance(permission, AccessPermission)
+                else str(permission).lower()
+            )
+
+            sharing_key = self._shared_memory_key(normalized_id)
+            if sharing_key in self.shared_memories:
+                sharing_data = self.shared_memories[sharing_key]
                 if user_id in sharing_data['shared_with']:
                     user_permissions = sharing_data['permissions'].get(user_id, [])
-                    return permission.lower() in user_permissions
-            
+                    return perm_value in user_permissions
+
             return False
             
         except Exception:
@@ -1124,10 +1163,53 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             memory_id, memory_type, _ = all_memories[i]
             del self.user_memories[user_id][memory_type][memory_id]
     
-    def _find_memory(self, memory_id: str) -> Optional[Dict[str, Any]]:
+    def _find_memory(self, memory_id: Union[str, int]) -> Optional[Dict[str, Any]]:
         """Find a memory by ID across all users and types."""
+        location = self._locate_memory(memory_id)
+        if location:
+            return location['memory_data']
+        return None
+
+    def _locate_memory(self, memory_id: Union[str, int]) -> Optional[Dict[str, Any]]:
+        """Locate memory data and cache coordinates by id."""
+        normalized_id = normalize_memory_id(memory_id)
         for user_id, user_memory_types in self.user_memories.items():
             for memory_type in MemoryType:
-                if memory_id in user_memory_types[memory_type]:
-                    return user_memory_types[memory_type][memory_id]
+                storage = user_memory_types[memory_type]
+                for key in memory_key_variants(normalized_id):
+                    if key in storage:
+                        return {
+                            'memory_data': storage[key],
+                            'user_id': user_id,
+                            'memory_type': memory_type,
+                            'cache_key': key,
+                            'memory_id': normalized_id,
+                        }
         return None
+
+    def _shared_memory_key(self, memory_id: Union[str, int]) -> Union[int, str]:
+        """Return the canonical shared-memory dict key if present."""
+        for key in memory_key_variants(memory_id):
+            if key in self.shared_memories:
+                return key
+        return normalize_memory_id(memory_id)
+
+    def _remove_memory_from_cache(self, location: Dict[str, Any]) -> None:
+        """Remove a memory entry from user cache."""
+        user_id = location['user_id']
+        memory_type = location['memory_type']
+        if (
+            user_id in self.user_memories
+            and memory_type in self.user_memories[user_id]
+        ):
+            for key in memory_key_variants(location['memory_id']):
+                self.user_memories[user_id][memory_type].pop(key, None)
+
+    def _clear_shared_records(self, memory_id: Union[str, int]) -> None:
+        """Remove sharing and consent records for all id variants."""
+        for key in memory_key_variants(memory_id):
+            if key in self.shared_memories:
+                del self.shared_memories[key]
+            for user_consents in self.consent_records.values():
+                if key in user_consents:
+                    del user_consents[key]
