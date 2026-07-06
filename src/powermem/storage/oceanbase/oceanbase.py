@@ -562,11 +562,13 @@ class OceanBaseVectorStore(VectorStoreBase):
 
         def get_column(key) -> ColumnElement:
             """Get the appropriate column element for a field."""
+            if key.startswith("metadata."):
+                nested_key = key[len("metadata."):]
+                return table.c[self.metadata_field].op("->>")(f"$.{nested_key}")
             if key in table.c:
                 return table.c[key]
-            else:
-                # Use ->> operator for unquoted JSON extract (MySQL/PostgreSQL)
-                return table.c[self.metadata_field].op("->>")(f"$.{key}")
+            # Use ->> operator for unquoted JSON extract (MySQL/PostgreSQL)
+            return table.c[self.metadata_field].op("->>")(f"$.{key}")
 
         def build_condition(key, value):
             """Build a single condition."""

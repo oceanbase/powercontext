@@ -201,8 +201,8 @@ def test_storage_adapter_strips_oceanbase_dotted_metadata_prefix():
     assert adapter._build_db_filters(
         filters={"metadata.scope": "personal", "metadata.priority": "high"},
     ) == {
-        "scope": "personal",
-        "priority": "high",
+        "metadata.scope": "personal",
+        "metadata.priority": "high",
     }
 
 
@@ -247,7 +247,7 @@ def test_storage_adapter_list_matches_oceanbase_dotted_metadata_filter():
 
     memories = adapter.get_all_memories(filters={"metadata.scope": "personal"})
 
-    assert store.list_kwargs["filters"] == {"scope": "personal"}
+    assert store.list_kwargs["filters"] == {"metadata.scope": "personal"}
     assert [memory["memory"] for memory in memories] == ["personal"]
 
 
@@ -323,7 +323,7 @@ def test_storage_adapter_search_keeps_oceanbase_metadata_filter_key():
     }
 
 
-def test_storage_adapter_search_strips_oceanbase_dotted_metadata_filter_key():
+def test_storage_adapter_search_keeps_oceanbase_dotted_metadata_filter_key():
     class OceanBaseLikeSearchStore:
         collection_name = "memories"
 
@@ -349,7 +349,7 @@ def test_storage_adapter_search_strips_oceanbase_dotted_metadata_filter_key():
         query="pytest",
     )
 
-    assert store.search_kwargs["filters"] == {"scope": "coding_agent"}
+    assert store.search_kwargs["filters"] == {"metadata.scope": "coding_agent"}
 
 
 def test_storage_adapter_count_uses_db_filters_without_fetching_all():
