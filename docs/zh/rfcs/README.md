@@ -2,6 +2,10 @@
 
 RFC 支撑 PowerContext 的设计流程。
 
+## 有效 RFC
+
+- [0001 - 产品定义与构想](0001_product_definition_and_vision.md)
+
 RFC（request for comments）流程为重大变更提供一致路径，使维护者和贡献者可以在实现开始前形成共识。
 
 许多变更，包括错误修复、文档改进和小规模内部重构，都可以通过常规 GitHub pull request 流程完成评审。

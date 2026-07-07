@@ -2,6 +2,10 @@
 
 RFCs power PowerContext's design process.
 
+## Active RFCs
+
+- [0001 - Product Definition and Vision](0001_product_definition_and_vision.md)
+
 The "RFC" (request for comments) process provides a consistent path for substantial changes so maintainers and contributors can build consensus before implementation work starts.
 
 Many changes, including bug fixes, documentation improvements, and small internal refactors, can be implemented and reviewed through the normal GitHub pull request workflow.
