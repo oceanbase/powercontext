@@ -23,18 +23,10 @@ The PowerMem HTTP API Server is built with FastAPI and provides:
 pip install powermem
 powermem-server --host 0.0.0.0 --port 8848
 
-# Method 2: Using Docker
-# Build and run with Docker
-docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .
-docker run -d \
-  --name powermem-server \
-  -p 8848:8848 \
-  -v $(pwd)/.env:/app/.env:ro \
-  --env-file .env \
-  oceanbase/powermem-server:latest
-
-# Or use Docker Compose (recommended)
-docker-compose -f docker/docker-compose.yml up -d
+# Method 2: Using Docker Compose (recommended)
+cp .env.example docker/.env
+# Edit docker/.env and set your LLM provider/key before starting the server.
+docker compose -f docker/docker-compose.yml up -d --build
 
 # Method 3: From source code, use Makefile
 git clone git@github.com:oceanbase/powermem.git
@@ -58,6 +50,75 @@ make server-stop
 make server-restart
 
 ```
+
+### Deploy with Docker
+
+Use Docker when you want a reusable `powermem-server` HTTP API without installing Python dependencies on the host. Run the following commands from the project root directory.
+
+#### 1. Prepare configuration
+
+```bash
+cp .env.example .env
+cp .env.example docker/.env
+```
+
+Edit `docker/.env` and set at least the LLM provider, model, API key, and base URL required by your provider. The Compose file loads `docker/.env` through `env_file` for application settings. It intentionally overrides `DATABASE_PROVIDER` and `OCEANBASE_*` so the server uses the bundled seekdb container. Keep the project-root `.env` when you also run the SDK or single-container deployment locally.
+
+#### 2. Start PowerMem Server with seekdb
+
+The recommended local deployment starts both `powermem-server` and a `seekdb` container:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d --build
+```
+
+If your `.env` points to an existing database service, use the [single-container deployment](#single-container-deployment) or a custom Compose override instead.
+
+To protect the bundled seekdb instance with a root password, pass `SEEKDB_ROOT_PASSWORD` when starting the stack:
+
+```bash
+SEEKDB_ROOT_PASSWORD=change-me docker compose -f docker/docker-compose.yml up -d --build
+```
+
+The stack exposes:
+
+| Service | URL / port | Notes |
+| --- | --- | --- |
+| PowerMem API | `http://localhost:8848` | REST API and Dashboard |
+| Health check | `http://localhost:8848/api/v1/system/health` | Public endpoint |
+| Dashboard | `http://localhost:8848/dashboard/` | Memory inspection and monitoring |
+| seekdb MySQL | `localhost:2881` | Root password is `SEEKDB_ROOT_PASSWORD` if set |
+| seekdb console | `http://localhost:2886` | seekdb web dashboard |
+
+#### 3. Verify, inspect, and stop
+
+```bash
+curl http://localhost:8848/api/v1/system/health
+docker compose -f docker/docker-compose.yml logs -f powermem-server
+docker compose -f docker/docker-compose.yml down
+```
+
+Add `-v` to `down` only when you also want to delete the persisted `docker_seekdb_data` Docker volume:
+
+```bash
+docker compose -f docker/docker-compose.yml down -v
+```
+
+#### Single-container deployment
+
+If your `.env` points to an existing database service and you do not want to start the bundled seekdb container, build and run only the server image:
+
+```bash
+docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .
+docker run -d \
+  --name powermem-server \
+  -p 8848:8848 \
+  -v "$(pwd)/.env:/app/.env:ro" \
+  --env-file .env \
+  oceanbase/powermem-server:latest
+```
+
+For complete image build options, mirror settings, and production notes, see the [Docker deployment guide](https://github.com/oceanbase/powermem/blob/main/docker/DOCKER.md).
 
 ### Dashboard browser behavior
 

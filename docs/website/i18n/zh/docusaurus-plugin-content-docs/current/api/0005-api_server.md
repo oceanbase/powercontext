@@ -22,18 +22,10 @@ PowerMem HTTP API 服务器基于 FastAPI 构建，提供以下功能：
 pip install powermem
 powermem-server --host 0.0.0.0 --port 8848
 
-# 方法 2：使用 Docker
-# 使用 Docker 构建并运行
-docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .
-docker run -d \
-  --name powermem-server \
-  -p 8848:8848 \
-  -v $(pwd)/.env:/app/.env:ro \
-  --env-file .env \
-  oceanbase/powermem-server:latest
-
-# 或使用 Docker Compose（推荐）
-docker-compose -f docker/docker-compose.yml up -d
+# 方法 2：使用 Docker Compose（推荐）
+cp .env.example docker/.env
+# 启动服务前，先编辑 docker/.env 并配置 LLM provider/key。
+docker compose -f docker/docker-compose.yml up -d --build
 
 # 方法 3：从源码使用 Makefile
 git clone git@github.com:oceanbase/powermem.git
@@ -57,6 +49,75 @@ make server-stop
 make server-restart
 
 ```
+### 使用 Docker 部署 {#deploy-with-docker}
+
+如果希望复用 `powermem-server` HTTP API，但不想在宿主机上安装 Python 依赖，可以使用 Docker。以下命令都在项目根目录执行。
+
+#### 1. 准备配置 {#prepare-configuration}
+
+```bash
+cp .env.example .env
+cp .env.example docker/.env
+```
+
+编辑 `docker/.env`，至少配置所选 LLM provider 需要的模型、API key 和 base URL。Compose 文件会通过 `env_file` 读取 `docker/.env`，用于加载应用侧配置。它会有意覆盖 `DATABASE_PROVIDER` 和 `OCEANBASE_*`，让 Server 使用内置的 seekdb 容器。如果还需要在本地运行 SDK 或单容器部署，可以继续保留项目根目录的 `.env`。
+
+#### 2. 启动 PowerMem Server 与 seekdb {#start-powermem-server-with-seekdb}
+
+推荐的本地部署方式会同时启动 `powermem-server` 和 `seekdb`：
+
+```bash
+docker compose -f docker/docker-compose.yml up -d --build
+```
+
+如果 `.env` 已经指向现有数据库服务，请使用[单容器部署](#single-container-deployment)或自定义 Compose override。
+
+如果需要为内置的 seekdb 设置 root 密码，启动时传入 `SEEKDB_ROOT_PASSWORD`：
+
+```bash
+SEEKDB_ROOT_PASSWORD=change-me docker compose -f docker/docker-compose.yml up -d --build
+```
+
+该部署会暴露以下入口：
+
+| 服务 | 地址 / 端口 | 说明 |
+| --- | --- | --- |
+| PowerMem API | `http://localhost:8848` | REST API 与 Dashboard |
+| 健康检查 | `http://localhost:8848/api/v1/system/health` | 公开端点 |
+| Dashboard | `http://localhost:8848/dashboard/` | 记忆检查与监控 |
+| seekdb MySQL | `localhost:2881` | 如设置了 `SEEKDB_ROOT_PASSWORD`，则 root 使用该密码 |
+| seekdb 控制台 | `http://localhost:2886` | seekdb Web Dashboard |
+
+#### 3. 验证、查看日志与停止 {#verify-inspect-and-stop}
+
+```bash
+curl http://localhost:8848/api/v1/system/health
+docker compose -f docker/docker-compose.yml logs -f powermem-server
+docker compose -f docker/docker-compose.yml down
+```
+
+只有在同时想删除持久化的 `docker_seekdb_data` Docker volume 时，才为 `down` 添加 `-v`：
+
+```bash
+docker compose -f docker/docker-compose.yml down -v
+```
+
+#### 单容器部署 {#single-container-deployment}
+
+如果 `.env` 已经指向现有数据库服务，并且不希望启动内置 `seekdb` 容器，也可以只构建并运行 Server 镜像：
+
+```bash
+docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .
+docker run -d \
+  --name powermem-server \
+  -p 8848:8848 \
+  -v "$(pwd)/.env:/app/.env:ro" \
+  --env-file .env \
+  oceanbase/powermem-server:latest
+```
+
+中文快速部署说明见 [Docker 目录中文说明](https://github.com/oceanbase/powermem/blob/main/docker/README_CN.md)，完整镜像构建参数、镜像源配置和生产环境注意事项见 [Docker 部署说明](https://github.com/oceanbase/powermem/blob/main/docker/DOCKER.md)。
+
 ### Dashboard 浏览器行为 {#dashboard-browser-behavior}
 
 当 `powermem-server` 从交互式本地终端启动且已构建的 Dashboard 资源可用时，它会等待 `/dashboard/` 可访问，并在默认浏览器中打开该页面。
