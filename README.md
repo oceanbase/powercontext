@@ -35,6 +35,15 @@ make install
 
 This will also generate your `uv.lock` file
 
+### 2.1 Install Recommended Agent Skills
+
+This repository records a set of recommended agent skills in `skills-lock.json`.
+The materialized skill files are not committed as source and can be restored locally:
+
+```bash
+make skills-install
+```
+
 ### 3. Run the prek hooks
 
 Initially, the CI/CD pipeline might be failing due to formatting issues. To resolve those run:

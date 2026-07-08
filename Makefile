@@ -4,6 +4,12 @@ install: ## Install the virtual environment and install the prek hooks
 	@uv sync
 	@uv run prek install
 
+.PHONY: skills-install
+skills-install: ## Install recommended agent skills from skills-lock.json
+	@echo "🚀 Installing recommended agent skills"
+	@npx skills experimental_install
+	@echo "Restart Codex to pick up new skills."
+
 .PHONY: check
 check: ## Run code quality tools.
 	@echo "🚀 Checking lock file consistency with 'pyproject.toml'"

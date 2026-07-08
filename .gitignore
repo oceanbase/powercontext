@@ -1,5 +1,8 @@
 docs/source
 
+# Agent skills are restored from skills-lock.json.
+.agents/skills/
+
 # From https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
 
 # Byte-compiled / optimized / DLL files

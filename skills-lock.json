@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "skills": {
+    "documentation-writer": {
+      "source": "github/awesome-copilot",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/documentation-writer/SKILL.md",
+      "computedHash": "ee53d65b163cd7eb953a930c95841cfe398cc2c0bd24c06508bbaa07c432be35"
+    },
+    "friendly-python": {
+      "source": "PsiACE/skills",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/friendly-python/SKILL.md",
+      "computedHash": "6b704bc506de14dcb2fe5bced97101a722b72a6d8142166cf07b8b3e56ae12f4"
+    },
+    "piglet": {
+      "source": "PsiACE/skills",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/piglet/SKILL.md",
+      "computedHash": "a7adc8efc1fb003644573b886f7405e97e5d8c94a11bb2d607693f93e7cc6a86"
+    }
+  }
+}
