@@ -12,6 +12,13 @@ This directory contains all Docker-related files for PowerMem Server.
 
 ## Quick Start
 
+Prepare a local configuration file first:
+
+```bash
+cp .env.example .env
+# Edit .env and set the LLM provider, model, API key, and base URL you use.
+```
+
 ### Build Docker Image
 
 From the project root directory:
@@ -26,15 +33,24 @@ From the project root directory:
 
 ```bash
 # Without password (default)
-docker-compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml up -d --build
 
 # With password (set via command line)
-SEEKDB_ROOT_PASSWORD=your_password docker-compose -f docker/docker-compose.yml up -d
+SEEKDB_ROOT_PASSWORD=your_password docker compose -f docker/docker-compose.yml up -d --build
 
 # Alternatively, export the variable first
 export SEEKDB_ROOT_PASSWORD=your_password
-docker-compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml up -d --build
+
+# Verify the API server
+curl http://localhost:8848/api/v1/system/health
+
+# View logs and stop the stack
+docker compose -f docker/docker-compose.yml logs -f powermem-server
+docker compose -f docker/docker-compose.yml down
 ```
+
+Compose uses the project-root `.env` for LLM, embedding, server, and other application settings. It intentionally sets `DATABASE_PROVIDER` and `OCEANBASE_*` to the bundled seekdb container; use single-container deployment or a custom Compose override when connecting to an existing database service.
 
 ### Run with Docker
 
@@ -59,7 +75,7 @@ docker run -d \
 ### seekdb Database
 - MySQL Port: 2881
 - seekdb Web Dashboard: 2886
-- Data persistence: Docker volume `seekdb_data`
+- Data persistence: Docker volume `powermem_seekdb_data`
 - Default database: `powermem`
 - Password: Controlled by `SEEKDB_ROOT_PASSWORD` environment variable
   - Not set (default): No password
@@ -109,10 +125,10 @@ For detailed documentation, see [DOCKER.md](./DOCKER.md).
 
 - All Docker commands should be run from the **project root directory**, not from the `docker/` directory
 - The build context is the project root, so paths in Dockerfile are relative to the project root
-- The `.env` file should be in the project root directory and will be mounted into the container
-- seekdb data is persisted in a Docker volume named `seekdb_data`
+- The `.env` file should be in the project root directory; Docker Compose reads it and mounts it into the PowerMem container at `/app/.env`
+- seekdb data is persisted in a Docker volume named `powermem_seekdb_data`
 - On macOS with Docker version > 4.9.0, there are known issues with seekdb. Consider using an older Docker version if needed.
 - **Password Management**: 
   - Default: No password (`SEEKDB_ROOT_PASSWORD` not set)
-  - To set a password: Use command line: `SEEKDB_ROOT_PASSWORD=your_password docker-compose -f docker/docker-compose.yml up -d`
+  - To set a password: Use command line: `SEEKDB_ROOT_PASSWORD=your_password docker compose -f docker/docker-compose.yml up -d --build`
   - Password change: Stop services, set new password via command line, restart services

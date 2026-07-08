@@ -1,4 +1,4 @@
-version: '3.8'
+name: powermem
 
 networks:
   powermem-network:
@@ -37,8 +37,9 @@ services:
       - OCEANBASE_DATABASE=powermem
       - OCEANBASE_COLLECTION=memories
     env_file:
-      - .env
+      - ../.env
     volumes:
+      - ../.env:/app/.env:ro
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
@@ -94,4 +95,3 @@ services:
 
 volumes:
   seekdb_data:
-

@@ -17,7 +17,8 @@ This guide provides instructions for building and running PowerMem Server using 
 ## Prerequisites
 
 - Docker 20.10 or later
-- Docker Compose 2.0 or later (optional, for docker-compose setup)
+- Docker Compose 2.0 or later (optional, for Compose setup)
+- A project-root `.env` file. Start with `cp .env.example .env`, then set the LLM provider, model, API key, and base URL required by your provider.
 
 ## Quick Start
 
@@ -43,23 +44,24 @@ The server will be available at `http://localhost:8848`.
 
 ### Using Docker Compose
 
-The `docker/docker-compose.yml` file is pre-configured to:
-- Automatically load environment variables from `.env` file
-- Mount the `.env` file as a read-only volume at `/app/.env`
-- Enable both SDK and Server to use the same configuration
+The `docker/docker-compose.yml` file is the recommended local stack when you want PowerMem Server and a bundled seekdb database to start together. It is pre-configured to:
+- Load environment variables from the project-root `.env` file
+- Mount the project-root `.env` file as a read-only volume at `/app/.env`
+- Reuse the same LLM, embedding, server, and other application settings as the local SDK
+- Connect `powermem-server` to the `seekdb` service on the internal Compose network
 
 ```bash
-# Start the server (from project root)
-docker-compose -f docker/docker-compose.yml up -d
+# Start PowerMem Server and seekdb (from project root)
+docker compose -f docker/docker-compose.yml up -d --build
 
 # View logs
-docker-compose -f docker/docker-compose.yml logs -f
+docker compose -f docker/docker-compose.yml logs -f
 
 # Stop the server
-docker-compose -f docker/docker-compose.yml down
+docker compose -f docker/docker-compose.yml down
 ```
 
-**Note**: The Docker Compose setup automatically handles the shared `.env` file configuration, so both your local SDK and the containerized Server will use the same configuration values.
+**Note**: The Docker Compose setup automatically handles the shared `.env` file configuration for application settings, but intentionally overrides `DATABASE_PROVIDER` and `OCEANBASE_*` so the server uses the bundled seekdb container. If your `.env` points to an existing database service, use the single-container deployment or a custom Compose override instead.
 
 ## Building the Docker Image
 
@@ -242,7 +244,7 @@ docker run -d \
   oceanbase/powermem-server:latest
 ```
 
-**Note**: With Docker Compose, the `.env` file is automatically mounted and loaded. See the `docker/docker-compose.yml` file for details.
+**Note**: With Docker Compose, the project-root `.env` file is automatically mounted and loaded. See the `docker/docker-compose.yml` file for details.
 
 
 ## Environment Variables
@@ -309,10 +311,10 @@ For complete SDK configuration options, refer to the [Configuration Guide](../do
 
 ## Docker Compose
 
-A `docker/docker-compose.yml` file is provided for easier deployment:
+A `docker/docker-compose.yml` file is provided for easier deployment. The excerpt below shows the PowerMem Server service; the checked-in Compose file also includes a `seekdb` service that stores data in the `powermem_seekdb_data` Docker volume and is wired to the server through `OCEANBASE_HOST=seekdb`.
 
 ```yaml
-version: '3.8'
+name: powermem
 
 services:
   powermem-server:
@@ -332,8 +334,9 @@ services:
       - POWERMEM_SERVER_CORS_ENABLED=${POWERMEM_SERVER_CORS_ENABLED:-true}
       - POWERMEM_DATABASE_URL=${POWERMEM_DATABASE_URL:-}
     env_file:
-      - .env
+      - ../.env
     volumes:
+      - ../.env:/app/.env:ro
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
@@ -348,16 +351,16 @@ services:
 
 ```bash
 # Start services (from project root)
-docker-compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml up -d --build
 
 # View logs
-docker-compose -f docker/docker-compose.yml logs -f powermem-server
+docker compose -f docker/docker-compose.yml logs -f powermem-server
 
 # Stop services
-docker-compose -f docker/docker-compose.yml down
+docker compose -f docker/docker-compose.yml down
 
 # Rebuild and restart
-docker-compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 ## Production Deployment
@@ -391,8 +394,6 @@ docker inspect --format='{{.State.Health.Status}}' powermem-server
 ### Production Docker Compose Example
 
 ```yaml
-version: '3.8'
-
 services:
   powermem-server:
     build:
@@ -547,4 +548,3 @@ docker run -d \
 ```
 
 **Note**: When using `--env-file`, the Server will read from environment variables, but the SDK running locally will still read from the `.env` file. This is fine as long as both have the same values.
-
