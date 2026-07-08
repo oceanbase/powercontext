@@ -18,7 +18,7 @@ This guide provides instructions for building and running PowerMem Server using 
 
 - Docker 20.10 or later
 - Docker Compose 2.0 or later (optional, for Compose setup)
-- A project-root `.env` file. Start with `cp .env.example .env`, then set the LLM provider, model, API key, and base URL required by your provider.
+- A project-root `.env` file for single-container deployment. Start with `cp .env.example .env`, then set the LLM provider, model, API key, and base URL required by your provider. For Docker Compose, copy the same settings to `docker/.env`.
 
 ## Quick Start
 
@@ -44,10 +44,16 @@ The server will be available at `http://localhost:8848`.
 
 ### Using Docker Compose
 
-The `docker/docker-compose.yml` file is the recommended local stack when you want PowerMem Server and a bundled seekdb database to start together. It is pre-configured to:
-- Load environment variables from the project-root `.env` file
-- Mount the project-root `.env` file as a read-only volume at `/app/.env`
-- Reuse the same LLM, embedding, server, and other application settings as the local SDK
+The `docker/docker-compose.yml` file is the recommended local stack when you want PowerMem Server and a bundled seekdb database to start together. Prepare `docker/.env` before starting the stack:
+
+```bash
+cp .env.example docker/.env
+# Edit docker/.env with your LLM provider, model, API key, and base URL.
+```
+
+It is pre-configured to:
+- Load environment variables from `docker/.env`
+- Reuse the same LLM, embedding, server, and other application settings through container environment variables
 - Connect `powermem-server` to the `seekdb` service on the internal Compose network
 
 ```bash
@@ -61,7 +67,7 @@ docker compose -f docker/docker-compose.yml logs -f
 docker compose -f docker/docker-compose.yml down
 ```
 
-**Note**: The Docker Compose setup automatically handles the shared `.env` file configuration for application settings, but intentionally overrides `DATABASE_PROVIDER` and `OCEANBASE_*` so the server uses the bundled seekdb container. If your `.env` points to an existing database service, use the single-container deployment or a custom Compose override instead.
+**Note**: The Docker Compose setup intentionally overrides `DATABASE_PROVIDER` and `OCEANBASE_*` so the server uses the bundled seekdb container. If your `.env` points to an existing database service, use the single-container deployment or a custom Compose override instead.
 
 ## Building the Docker Image
 
@@ -244,7 +250,7 @@ docker run -d \
   oceanbase/powermem-server:latest
 ```
 
-**Note**: With Docker Compose, the project-root `.env` file is automatically mounted and loaded. See the `docker/docker-compose.yml` file for details.
+**Note**: With Docker Compose, `docker/.env` is loaded through `env_file`. See the `docker/docker-compose.yml` file for details.
 
 
 ## Environment Variables
@@ -311,10 +317,10 @@ For complete SDK configuration options, refer to the [Configuration Guide](../do
 
 ## Docker Compose
 
-A `docker/docker-compose.yml` file is provided for easier deployment. The excerpt below shows the PowerMem Server service; the checked-in Compose file also includes a `seekdb` service that stores data in the `powermem_seekdb_data` Docker volume and is wired to the server through `OCEANBASE_HOST=seekdb`.
+A `docker/docker-compose.yml` file is provided for easier deployment. The excerpt below shows the PowerMem Server service; the checked-in Compose file also includes a `seekdb` service that stores data in the `docker_seekdb_data` Docker volume and is wired to the server through `OCEANBASE_HOST=seekdb`.
 
 ```yaml
-name: powermem
+version: '3.8'
 
 services:
   powermem-server:
@@ -334,9 +340,8 @@ services:
       - POWERMEM_SERVER_CORS_ENABLED=${POWERMEM_SERVER_CORS_ENABLED:-true}
       - POWERMEM_DATABASE_URL=${POWERMEM_DATABASE_URL:-}
     env_file:
-      - ../.env
+      - .env
     volumes:
-      - ../.env:/app/.env:ro
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:

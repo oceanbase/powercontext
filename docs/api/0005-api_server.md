@@ -24,8 +24,8 @@ pip install powermem
 powermem-server --host 0.0.0.0 --port 8848
 
 # Method 2: Using Docker Compose (recommended)
-cp .env.example .env
-# Edit .env and set your LLM provider/key before starting the server.
+cp .env.example docker/.env
+# Edit docker/.env and set your LLM provider/key before starting the server.
 docker compose -f docker/docker-compose.yml up -d --build
 
 # Method 3: From source code, use Makefile
@@ -59,9 +59,10 @@ Use Docker when you want a reusable `powermem-server` HTTP API without installin
 
 ```bash
 cp .env.example .env
+cp .env.example docker/.env
 ```
 
-Edit `.env` and set at least the LLM provider, model, API key, and base URL required by your provider. The Compose file reads this root `.env` file and mounts it into the server container at `/app/.env` for application settings. It intentionally overrides `DATABASE_PROVIDER` and `OCEANBASE_*` so the server uses the bundled seekdb container.
+Edit `docker/.env` and set at least the LLM provider, model, API key, and base URL required by your provider. The Compose file loads `docker/.env` through `env_file` for application settings. It intentionally overrides `DATABASE_PROVIDER` and `OCEANBASE_*` so the server uses the bundled seekdb container. Keep the project-root `.env` when you also run the SDK or single-container deployment locally.
 
 #### 2. Start PowerMem Server with seekdb
 
@@ -97,7 +98,7 @@ docker compose -f docker/docker-compose.yml logs -f powermem-server
 docker compose -f docker/docker-compose.yml down
 ```
 
-Add `-v` to `down` only when you also want to delete the persisted `powermem_seekdb_data` Docker volume:
+Add `-v` to `down` only when you also want to delete the persisted `docker_seekdb_data` Docker volume:
 
 ```bash
 docker compose -f docker/docker-compose.yml down -v
@@ -105,7 +106,7 @@ docker compose -f docker/docker-compose.yml down -v
 
 #### Single-container deployment
 
-If your `.env` points to an existing database service, or if you intentionally want the server container to manage its own local storage, build and run only the server image:
+If your `.env` points to an existing database service and you do not want to start the bundled seekdb container, build and run only the server image:
 
 ```bash
 docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .

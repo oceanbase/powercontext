@@ -23,8 +23,8 @@ pip install powermem
 powermem-server --host 0.0.0.0 --port 8848
 
 # 方法 2：使用 Docker Compose（推荐）
-cp .env.example .env
-# 启动服务前，先编辑 .env 并配置 LLM provider/key。
+cp .env.example docker/.env
+# 启动服务前，先编辑 docker/.env 并配置 LLM provider/key。
 docker compose -f docker/docker-compose.yml up -d --build
 
 # 方法 3：从源码使用 Makefile
@@ -57,9 +57,10 @@ make server-restart
 
 ```bash
 cp .env.example .env
+cp .env.example docker/.env
 ```
 
-编辑 `.env`，至少配置所选 LLM provider 需要的模型、API key 和 base URL。Compose 文件会读取项目根目录的 `.env`，并将它只读挂载到服务容器的 `/app/.env`，用于加载应用侧配置。它会有意覆盖 `DATABASE_PROVIDER` 和 `OCEANBASE_*`，让 Server 使用内置的 seekdb 容器。
+编辑 `docker/.env`，至少配置所选 LLM provider 需要的模型、API key 和 base URL。Compose 文件会通过 `env_file` 读取 `docker/.env`，用于加载应用侧配置。它会有意覆盖 `DATABASE_PROVIDER` 和 `OCEANBASE_*`，让 Server 使用内置的 seekdb 容器。如果还需要在本地运行 SDK 或单容器部署，可以继续保留项目根目录的 `.env`。
 
 #### 2. 启动 PowerMem Server 与 seekdb {#start-powermem-server-with-seekdb}
 
@@ -95,7 +96,7 @@ docker compose -f docker/docker-compose.yml logs -f powermem-server
 docker compose -f docker/docker-compose.yml down
 ```
 
-只有在同时想删除持久化的 `powermem_seekdb_data` Docker volume 时，才为 `down` 添加 `-v`：
+只有在同时想删除持久化的 `docker_seekdb_data` Docker volume 时，才为 `down` 添加 `-v`：
 
 ```bash
 docker compose -f docker/docker-compose.yml down -v
@@ -103,7 +104,7 @@ docker compose -f docker/docker-compose.yml down -v
 
 #### 单容器部署 {#single-container-deployment}
 
-如果 `.env` 已经指向现有数据库服务，或者明确希望 Server 容器自己管理本地存储，也可以只构建并运行 Server 镜像：
+如果 `.env` 已经指向现有数据库服务，并且不希望启动内置 `seekdb` 容器，也可以只构建并运行 Server 镜像：
 
 ```bash
 docker build -t oceanbase/powermem-server:latest -f docker/Dockerfile .
@@ -115,7 +116,7 @@ docker run -d \
   oceanbase/powermem-server:latest
 ```
 
-完整镜像构建参数、镜像源配置和生产环境注意事项见 [Docker 部署说明](https://github.com/oceanbase/powermem/blob/main/docker/DOCKER.md)。
+中文快速部署说明见 [Docker 目录中文说明](https://github.com/oceanbase/powermem/blob/main/docker/README_CN.md)，完整镜像构建参数、镜像源配置和生产环境注意事项见 [Docker 部署说明](https://github.com/oceanbase/powermem/blob/main/docker/DOCKER.md)。
 
 ### Dashboard 浏览器行为 {#dashboard-browser-behavior}
 
