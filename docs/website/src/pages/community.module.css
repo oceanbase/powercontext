@@ -4,6 +4,7 @@
   --community-accent: #0074e8;
   --community-button: #006fd6;
   --community-button-hover: #005ab0;
+  --community-panel-radius: 12px;
   min-height: 100vh;
   overflow: hidden;
   background: var(--pm-bg);
@@ -30,11 +31,7 @@
 .hero::before,
 .hero::after,
 .channelsSection::before,
-.channelsSection::after,
-.contributeSection::before,
-.contributeSection::after,
-.conductSection::before,
-.conductSection::after {
+.channelsSection::after {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -45,23 +42,17 @@
 }
 
 .hero::before,
-.channelsSection::before,
-.contributeSection::before,
-.conductSection::before {
+.channelsSection::before {
   left: max(0px, calc((100vw - var(--community-shell-width)) / 2));
 }
 
 .hero::after,
-.channelsSection::after,
-.contributeSection::after,
-.conductSection::after {
+.channelsSection::after {
   right: max(0px, calc((100vw - var(--community-shell-width)) / 2));
 }
 
 .hero,
-.channelsSection,
-.contributeSection,
-.conductSection {
+.channelsSection {
   border-bottom: 1px solid var(--pm-border);
 }
 
@@ -70,8 +61,8 @@
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: clamp(1rem, 2vw, 1.5rem);
   align-items: end;
-  min-height: clamp(360px, 39vw, 500px);
-  padding-block: clamp(5rem, 10vw, 8.5rem) clamp(3.25rem, 6vw, 5rem);
+  min-height: 0;
+  padding-block: clamp(4.5rem, 6vw, 5.5rem) clamp(2.75rem, 4vw, 3.75rem);
 }
 
 .title {
@@ -211,14 +202,24 @@
 
 .contributeGrid,
 .conductGrid {
+  position: relative;
   display: grid;
+  min-width: 0;
+  overflow: hidden;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: clamp(1rem, 2vw, 1.5rem);
-  padding-block: clamp(5rem, 9vw, 8rem);
+  padding: clamp(2rem, 4vw, 3.5rem);
+  border: 1px solid color-mix(in srgb, var(--community-accent) 22%, var(--pm-border));
+  border-radius: var(--community-panel-radius);
+  background: color-mix(in srgb, var(--pm-raised) 96%, var(--community-accent));
+}
+
+.contributeGrid {
+  box-shadow: inset 3px 0 0 var(--community-accent);
 }
 
 .contributeIntro {
-  grid-column: 1 / span 4;
+  grid-column: 1 / span 5;
   align-self: start;
 }
 
@@ -226,10 +227,10 @@
 .conductTitle {
   margin: 0;
   color: var(--pm-text);
-  font-size: clamp(3rem, 5vw, 4.75rem);
+  font-size: clamp(2rem, 3vw, 2.75rem);
   font-weight: 710;
-  line-height: 0.94;
-  letter-spacing: -0.04em;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
 }
 
 .sectionDesc,
@@ -277,42 +278,56 @@
 }
 
 .contributionMatrix {
-  grid-column: 6 / -1;
+  grid-column: 7 / -1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 0;
   margin: 0;
   border-top: 1px solid var(--pm-border);
-  border-left: 1px solid var(--pm-border);
   list-style: none;
 }
 
 .contributionMatrix li {
-  display: flex;
+  display: grid;
   min-width: 0;
-  min-height: 168px;
-  padding: clamp(1.35rem, 2.5vw, 1.8rem);
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 1.75rem;
-  border-right: 1px solid var(--pm-border);
+  min-height: 104px;
+  padding: 1.25rem 1.5rem 1.25rem 0;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: start;
   border-bottom: 1px solid var(--pm-border);
   color: var(--pm-text);
-  font-size: clamp(1rem, 1.4vw, 1.08rem);
+  font-size: clamp(0.96rem, 1.3vw, 1.04rem);
   font-weight: 560;
   line-height: 1.55;
 }
 
+.contributionMatrix li:nth-child(even) {
+  padding-right: 0;
+  padding-left: 1.5rem;
+  border-left: 1px solid var(--pm-border);
+}
+
 .itemIndex {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--community-accent) 35%, var(--pm-border));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--community-accent) 8%, var(--pm-raised));
   color: var(--community-accent);
+  font-size: 0.68rem;
+}
+
+.contributeSection {
+  padding-top: clamp(3rem, 5vw, 4.5rem);
 }
 
 .conductSection {
-  background: var(--pm-surface);
-}
-
-.conductGrid {
-  padding-block: clamp(4.75rem, 8vw, 7rem);
+  padding: clamp(1.25rem, 2vw, 1.75rem) 0 clamp(4rem, 7vw, 6rem);
+  background: var(--pm-bg);
 }
 
 .conductIntro {
@@ -320,7 +335,7 @@
 }
 
 .conductTitle {
-  font-size: clamp(2.75rem, 4.5vw, 4.25rem);
+  font-size: clamp(2rem, 3vw, 2.75rem);
 }
 
 .conductList {
@@ -352,9 +367,10 @@
 }
 
 .conductMark {
-  width: 12px;
-  height: 1px;
-  margin-top: 0.75rem;
+  width: 6px;
+  height: 6px;
+  margin-top: 0.58rem;
+  border-radius: 50%;
   background: var(--community-accent);
 }
 
@@ -404,19 +420,15 @@
   .hero::before,
   .hero::after,
   .channelsSection::before,
-  .channelsSection::after,
-  .contributeSection::before,
-  .contributeSection::after,
-  .conductSection::before,
-  .conductSection::after {
+  .channelsSection::after {
     display: none;
   }
 
   .heroGrid {
     grid-template-columns: 1fr;
-    gap: 1.5rem;
+    gap: 1.25rem;
     min-height: 0;
-    padding-block: 5rem 3rem;
+    padding-block: 3.5rem 2.5rem;
   }
 
   .title,
@@ -426,6 +438,8 @@
 
   .title {
     font-size: clamp(3.5rem, 16vw, 5rem);
+    white-space: normal;
+    text-wrap: balance;
   }
 
   .subtitle {
@@ -489,7 +503,7 @@
 
   .contributeGrid,
   .conductGrid {
-    padding-block: 4.5rem;
+    padding: 2rem 1.5rem;
   }
 
   .contributionMatrix,
@@ -498,7 +512,12 @@
   }
 
   .contributionMatrix li {
-    min-height: 130px;
+    min-height: 92px;
+    padding-inline: 0;
+  }
+
+  .contributionMatrix li:nth-child(even) {
+    border-left: 0;
   }
 
   .conductList li:nth-last-child(-n + 2) {
@@ -511,18 +530,23 @@
 }
 
 @media (max-width: 480px) {
+  .heroGrid {
+    padding-block: 3rem 2.25rem;
+  }
+
   .title {
     font-size: clamp(3.25rem, 17vw, 4.25rem);
   }
 
   .sectionTitle,
   .conductTitle {
-    font-size: clamp(2.65rem, 14vw, 3.5rem);
+    font-size: clamp(2rem, 10vw, 2.35rem);
   }
 
   .contributeGrid,
   .conductGrid {
-    gap: 2.5rem;
+    gap: 2rem;
+    padding: 1.5rem 1.25rem;
   }
 
   .guideLink {

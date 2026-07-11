@@ -153,62 +153,62 @@ export default function CommunityPage() {
         </nav>
 
         <section className={styles.contributeSection}>
-          <div
-            className={`container ${styles.pageContainer} ${styles.contributeGrid}`}
-          >
-            <div className={styles.contributeIntro}>
-              <Heading as="h2" className={styles.sectionTitle}>
-                {t('communityPage.contributing.title')}
-              </Heading>
-              <p className={styles.sectionDesc}>
-                {t('communityPage.contributing.desc')}
-              </p>
-              <Link
-                href="https://github.com/oceanbase/powermem"
-                className={styles.guideLink}
-              >
-                <GitHubIcon className={styles.buttonIcon} />
-                <span>{t('communityPage.contributing.viewGuide')}</span>
-                <span className={styles.guideArrow} aria-hidden="true">
-                  →
-                </span>
-              </Link>
-            </div>
-
-            <ul className={styles.contributionMatrix}>
-              {[1, 2, 3, 4].map((number) => (
-                <li key={number}>
-                  <span className={styles.itemIndex} aria-hidden="true">
-                    {String(number).padStart(2, '0')}
+          <div className={`container ${styles.pageContainer}`}>
+            <div className={styles.contributeGrid}>
+              <div className={styles.contributeIntro}>
+                <Heading as="h2" className={styles.sectionTitle}>
+                  {t('communityPage.contributing.title')}
+                </Heading>
+                <p className={styles.sectionDesc}>
+                  {t('communityPage.contributing.desc')}
+                </p>
+                <Link
+                  href="https://github.com/oceanbase/powermem"
+                  className={styles.guideLink}
+                >
+                  <GitHubIcon className={styles.buttonIcon} />
+                  <span>{t('communityPage.contributing.viewGuide')}</span>
+                  <span className={styles.guideArrow} aria-hidden="true">
+                    →
                   </span>
-                  <span>{t(`communityPage.contributing.item${number}`)}</span>
-                </li>
-              ))}
-            </ul>
+                </Link>
+              </div>
+
+              <ul className={styles.contributionMatrix}>
+                {[1, 2, 3, 4].map((number) => (
+                  <li key={number}>
+                    <span className={styles.itemIndex} aria-hidden="true">
+                      {String(number).padStart(2, '0')}
+                    </span>
+                    <span>{t(`communityPage.contributing.item${number}`)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </section>
 
         <section className={styles.conductSection}>
-          <div
-            className={`container ${styles.pageContainer} ${styles.conductGrid}`}
-          >
-            <div className={styles.conductIntro}>
-              <Heading as="h2" className={styles.conductTitle}>
-                {t('communityPage.codeOfConduct.title')}
-              </Heading>
-              <p className={styles.conductDesc}>
-                {t('communityPage.codeOfConduct.desc')}
-              </p>
-            </div>
+          <div className={`container ${styles.pageContainer}`}>
+            <div className={styles.conductGrid}>
+              <div className={styles.conductIntro}>
+                <Heading as="h2" className={styles.conductTitle}>
+                  {t('communityPage.codeOfConduct.title')}
+                </Heading>
+                <p className={styles.conductDesc}>
+                  {t('communityPage.codeOfConduct.desc')}
+                </p>
+              </div>
 
-            <ul className={styles.conductList}>
-              {[1, 2, 3, 4].map((number) => (
-                <li key={number}>
-                  <span className={styles.conductMark} aria-hidden="true" />
-                  <span>{t(`communityPage.codeOfConduct.item${number}`)}</span>
-                </li>
-              ))}
-            </ul>
+              <ul className={styles.conductList}>
+                {[1, 2, 3, 4].map((number) => (
+                  <li key={number}>
+                    <span className={styles.conductMark} aria-hidden="true" />
+                    <span>{t(`communityPage.codeOfConduct.item${number}`)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </section>
       </main>
