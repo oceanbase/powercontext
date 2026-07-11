@@ -157,7 +157,7 @@ export default function BenchmarkPage() {
   return (
     <Layout title={t('benchmark.title')} description={t('benchmark.subtitle')}>
       <div className={styles.benchmarkPage}>
-        <div className="container margin-vert--lg">
+        <div className="container">
           <div className={styles.header}>
             <Heading as="h1" className={styles.title}>
               {t('benchmark.title')}
@@ -178,7 +178,10 @@ export default function BenchmarkPage() {
             <div className={styles.performanceGrid}>
               {comparisonMetrics.map((metric) => (
                 <article key={metric.labelKey} className={styles.metricCard}>
-                  <div className={styles.metricLabel}>{t(metric.labelKey)} {t(metric.detailKey)}</div>
+                  <div className={styles.metricLabel}>
+                    <span>{t(metric.labelKey)}</span>
+                    <span className={styles.metricQualifier}>{t(metric.detailKey)}</span>
+                  </div>
                   <div className={styles.metricValue}>{metric.value}</div>
                   <div className={styles.metricDetail}>{t(metric.baselineKey)}</div>
                 </article>
@@ -210,15 +213,39 @@ export default function BenchmarkPage() {
                 <tbody>
                   {categoryScores.map((score) => (
                     <tr key={score.category}>
-                      <td className={styles.categoryCell}>
+                      <td
+                        className={styles.categoryCell}
+                        data-label={t('benchmark.scores.category')}
+                      >
                         <div className={styles.categoryName}>
                           <span className={styles.categoryNumber}>{score.category}</span>
                           <span className={styles.categoryTitle}>{t(score.nameKey)}</span>
                         </div>
                       </td>
-                      <td className={styles.descriptionCell}>{t(score.descKey)}</td>
-                      <td className={styles.llmCell}>{formatScore(score.llm_score)}</td>
-                      <td className={styles.countCell}>{score.count}</td>
+                      <td
+                        className={styles.descriptionCell}
+                        data-label={t('benchmark.scores.description')}
+                      >
+                        {t(score.descKey)}
+                      </td>
+                      <td
+                        className={styles.llmCell}
+                        data-label={t('benchmark.scores.llm')}
+                      >
+                        <span className={styles.scoreValue}>{formatScore(score.llm_score)}</span>
+                        <span className={styles.scoreTrack} aria-hidden="true">
+                          <span
+                            className={styles.scoreFill}
+                            style={{width: formatScore(score.llm_score)}}
+                          />
+                        </span>
+                      </td>
+                      <td
+                        className={styles.countCell}
+                        data-label={t('benchmark.scores.count')}
+                      >
+                        {score.count}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
