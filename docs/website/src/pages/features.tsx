@@ -34,24 +34,24 @@ const features = [
 
 const translations: Record<string, Record<string, string>> = {
   en: {
-    'features.title': 'What’s Next',
-    'features.subtitle': 'Planned work across sync, observability, security, edge deployment, and federated learning',
+    'features.title': 'Upcoming Features',
+    'features.subtitle': 'Exciting features we\'re planning for PowerMem\'s future',
     'features.more.title': 'And More...',
     'features.more.desc': 'We\'re continuously working on new features and improvements. Stay tuned for more exciting updates!',
     'feature.realtime.title': 'Real-time Sync & Collaboration',
-    'feature.realtime.desc': 'Keep memory state consistent across devices and users, including concurrent edits, conflicts, and offline changes.',
+    'feature.realtime.desc': 'Enable seamless memory synchronization across multiple devices and users, with real-time collaboration capabilities for team-based AI applications.',
     'feature.realtime.detail1': 'Multi-device synchronization',
     'feature.realtime.detail2': 'Real-time collaboration',
     'feature.realtime.detail3': 'Conflict resolution',
     'feature.realtime.detail4': 'Offline-first architecture',
     'feature.analytics.title': 'Advanced Analytics & Insights',
-    'feature.analytics.desc': 'Inspect memory usage, retrieval performance, and operational trends from one dashboard.',
+    'feature.analytics.desc': 'Comprehensive analytics dashboard for memory usage patterns, performance metrics, and intelligent recommendations for optimization.',
     'feature.analytics.detail1': 'Memory usage analytics',
     'feature.analytics.detail2': 'Performance monitoring',
     'feature.analytics.detail3': 'Intelligent recommendations',
     'feature.analytics.detail4': 'Customizable dashboards',
     'feature.security.title': 'Enterprise Security & Compliance',
-    'feature.security.desc': 'Protect memory data with encryption, audit trails, policy controls, and scoped access management.',
+    'feature.security.desc': 'Enterprise-grade security features including end-to-end encryption, audit logs, compliance controls, and advanced access management.',
     'feature.security.detail1': 'End-to-end encryption',
     'feature.security.detail2': 'Audit logging',
     'feature.security.detail3': 'Compliance controls',
@@ -70,25 +70,25 @@ const translations: Record<string, Record<string, string>> = {
     'feature.federated.detail4': 'Secure aggregation protocols',
   },
   zh: {
-    'features.title': '接下来做什么',
-    'features.subtitle': '围绕同步、可观测性、安全、边缘部署和联邦学习的规划能力',
+    'features.title': '即将推出的特性',
+    'features.subtitle': '我们为 PowerMem 未来规划的前沿功能',
     'features.description': 'PowerMem 即将推出的特性',
     'features.more.title': '还有更多...',
     'features.more.desc': '我们正在持续开发新功能和改进。敬请期待更多令人兴奋的更新！',
     'feature.realtime.title': '实时同步与协作',
-    'feature.realtime.desc': '在多设备和多用户之间保持记忆状态一致，处理并发修改、冲突和离线变更。',
+    'feature.realtime.desc': '支持多设备、多用户的无缝记忆同步，为团队协作的 AI 应用提供实时协作能力。',
     'feature.realtime.detail1': '多设备同步',
     'feature.realtime.detail2': '实时协作',
     'feature.realtime.detail3': '冲突解决',
     'feature.realtime.detail4': '离线优先架构',
     'feature.analytics.title': '高级分析与洞察',
-    'feature.analytics.desc': '在一个仪表板中检查记忆使用、检索性能和运行趋势。',
+    'feature.analytics.desc': '全面的分析仪表板，提供记忆使用模式、性能指标分析，以及智能优化建议。',
     'feature.analytics.detail1': '记忆使用分析',
     'feature.analytics.detail2': '性能监控',
     'feature.analytics.detail3': '智能推荐',
     'feature.analytics.detail4': '可定制仪表板',
     'feature.security.title': '企业级安全与合规',
-    'feature.security.desc': '通过加密、审计记录、策略控制和分范围访问管理保护记忆数据。',
+    'feature.security.desc': '企业级安全功能，包括端到端加密、审计日志、合规控制和高级访问管理。',
     'feature.security.detail1': '端到端加密',
     'feature.security.detail2': '审计日志',
     'feature.security.detail3': '合规控制',
@@ -114,7 +114,7 @@ export default function FeaturesPage() {
   const t = (key: string) => translations[isZh ? 'zh' : 'en'][key] || key;
 
   return (
-    <Layout title={t('features.title')} description={isZh ? t('features.description') : 'PowerMem product roadmap'}>
+    <Layout title={t('features.title')} description={isZh ? t('features.description') : 'PowerMem Upcoming Features'}>
       <div className={styles.featuresPage}>
         <div className="container margin-vert--lg">
           <div className={styles.header}>
@@ -155,6 +155,17 @@ export default function FeaturesPage() {
                 </article>
               );
             })}
+            <article className={`${styles.card} ${styles.cardMore}`}>
+              <div className={styles.moreIcon} aria-hidden="true">•••</div>
+              <div className={styles.headingGroup}>
+                <Heading as="h2" className={styles.cardTitle}>
+                  {t('features.more.title')}
+                </Heading>
+              </div>
+              <p className={styles.cardDesc}>
+                {t('features.more.desc')}
+              </p>
+            </article>
           </div>
         </div>
       </div>

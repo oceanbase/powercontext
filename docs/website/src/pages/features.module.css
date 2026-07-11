@@ -1,83 +1,138 @@
 .featuresPage {
   min-height: 100vh;
-  padding: clamp(4.5rem, 8vw, 7rem) 0;
+  padding: clamp(4.5rem, 8vw, 7rem) 0 clamp(5rem, 9vw, 8rem);
 }
 
 .header {
-  max-width: 760px;
-  margin: 0 auto clamp(3.5rem, 7vw, 6rem);
-  text-align: center;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
+  gap: clamp(2rem, 6vw, 6rem);
+  align-items: end;
+  max-width: 1120px;
+  margin: 0 auto clamp(2.5rem, 5vw, 4.5rem);
+  padding-bottom: clamp(2rem, 4vw, 3rem);
+  border-bottom: 1px solid var(--pm-border);
+  text-align: left;
 }
 
 .title {
-  margin-bottom: 1rem;
-  font-size: clamp(2.7rem, 5.4vw, 4.6rem);
+  max-width: 8ch;
+  margin: 0;
+  font-size: clamp(3.25rem, 6vw, 5.25rem);
+  line-height: 0.96;
   letter-spacing: -0.04em;
 }
 
 .subtitle {
-  margin: 0;
+  max-width: 560px;
+  margin: 0 0 0.4rem;
   color: var(--pm-muted);
-  font-size: 1.05rem;
+  font-size: clamp(1.05rem, 1.5vw, 1.2rem);
+  line-height: 1.65;
 }
 
 .grid {
-  max-width: 1080px;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 1rem;
+  max-width: 1120px;
   margin: 0 auto;
-  border-top: 1px solid var(--pm-border);
 }
 
 .card {
-  display: grid;
-  grid-template-columns: 48px minmax(220px, 0.72fr) minmax(0, 1.28fr);
-  gap: 0 1.5rem;
-  padding: 2rem 0;
-  border-bottom: 1px solid var(--pm-border);
+  display: flex;
+  grid-column: span 4;
+  flex-direction: column;
+  min-height: 330px;
+  padding: clamp(1.4rem, 2.5vw, 2rem);
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-md);
+  background: var(--pm-raised);
 }
 
-.iconContainer {
+.card:nth-child(-n + 2) {
+  grid-column: span 6;
+  min-height: 310px;
+}
+
+.iconContainer,
+.moreIcon {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 1.5rem;
   border-radius: 9px;
-  background: color-mix(in srgb, #0083ff 10%, transparent);
+  background: color-mix(in srgb, #0083ff 10%, var(--pm-surface));
   color: #0083ff;
 }
 
 .icon {
-  width: 21px;
-  height: 21px;
+  width: 20px;
+  height: 20px;
+}
+
+.moreIcon {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
 }
 
 .cardTitle {
-  margin: 0.55rem 0 0;
-  font-size: 1.1rem;
-  letter-spacing: -0.02em;
+  max-width: 24ch;
+  margin: 0 0 0.85rem;
+  font-size: 1.2rem;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
 }
 
 .cardDesc {
   max-width: 62ch;
-  margin: 0 0 1rem;
+  margin: 0 0 1.5rem;
   color: var(--pm-muted);
   line-height: 1.7;
 }
 
 .details {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1.2rem;
-  margin: 0;
-  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1rem;
+  margin: auto 0 0;
+  padding: 1.25rem 0 0;
+  border-top: 1px solid var(--pm-border);
   list-style: none;
   color: var(--pm-text);
   font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.details li {
+  position: relative;
+  padding-left: 0.8rem;
 }
 
 .details li::before {
-  margin-right: 0.45rem;
+  position: absolute;
+  top: 0;
+  left: 0;
   color: #0083ff;
   content: "•";
+}
+
+.cardMore {
+  display: grid;
+  grid-template-columns: 42px minmax(160px, 0.35fr) minmax(0, 1fr);
+  grid-column: span 12;
+  gap: 1.5rem;
+  align-items: center;
+  min-height: 0;
+  background: var(--pm-surface);
+}
+
+.cardMore .moreIcon,
+.cardMore .cardTitle,
+.cardMore .cardDesc {
+  margin: 0;
 }
 
 @media (max-width: 900px) {
@@ -85,36 +140,55 @@
     padding-inline: 1.25rem;
   }
 
-  .card {
-    grid-template-columns: 44px 1fr;
-    gap: 0 1rem;
-  }
-
-  .cardContent {
-    grid-column: 2;
-    margin-top: 0.8rem;
-  }
-}
-
-@media (max-width: 520px) {
   .header {
-    text-align: left;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
   }
 
   .title {
-    font-size: 2.7rem;
+    max-width: none;
   }
 
-  .card {
-    display: block;
+  .card,
+  .card:nth-child(-n + 2) {
+    grid-column: span 6;
   }
 
-  .iconContainer {
-    margin-bottom: 1rem;
-  }
-
-  .cardTitle {
-    margin-bottom: 0.75rem;
+  .cardMore {
+    grid-column: span 12;
   }
 }
 
+@media (max-width: 620px) {
+  .title {
+    font-size: 3rem;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card,
+  .card:nth-child(-n + 2),
+  .cardMore {
+    grid-column: 1;
+  }
+
+  .card {
+    min-height: 0;
+  }
+
+  .details {
+    grid-template-columns: 1fr;
+  }
+
+  .cardMore {
+    display: flex;
+    align-items: flex-start;
+  }
+
+  .cardMore .headingGroup,
+  .cardMore .cardDesc {
+    width: 100%;
+  }
+}
