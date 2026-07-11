@@ -112,6 +112,7 @@ p {
 .navbar__logo img {
   width: 259px;
   height: 32px;
+  max-width: none;
 }
 
 .navbar__title {
