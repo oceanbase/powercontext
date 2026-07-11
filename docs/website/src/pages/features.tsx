@@ -10,7 +10,6 @@ import NetworkIcon from './icons/NetworkIcon';
 import styles from './features.module.css';
 
 type FeatureKey = 'realtime' | 'analytics' | 'security' | 'edge' | 'federated';
-type PreviewVariant = 'A' | 'B' | 'C';
 type Translate = (key: string) => string;
 
 type FeatureDefinition = {
@@ -19,36 +18,11 @@ type FeatureDefinition = {
 };
 
 const features: FeatureDefinition[] = [
-  {
-    icon: SyncIcon,
-    key: 'realtime',
-  },
-  {
-    icon: AnalyticsIcon,
-    key: 'analytics',
-  },
-  {
-    icon: ShieldIcon,
-    key: 'security',
-  },
-  {
-    icon: CloudIcon,
-    key: 'edge',
-  },
-  {
-    icon: NetworkIcon,
-    key: 'federated',
-  },
-];
-
-const previewVariants: Array<{
-  id: PreviewVariant;
-  label: string;
-  note?: string;
-}> = [
-  { id: 'A', label: 'Roadmap ledger' },
-  { id: 'B', label: 'Chapter index', note: 'Recommended' },
-  { id: 'C', label: 'Capability explorer' },
+  { icon: SyncIcon, key: 'realtime' },
+  { icon: AnalyticsIcon, key: 'analytics' },
+  { icon: ShieldIcon, key: 'security' },
+  { icon: CloudIcon, key: 'edge' },
+  { icon: NetworkIcon, key: 'federated' },
 ];
 
 const translations: Record<string, Record<string, string>> = {
@@ -127,168 +101,127 @@ const translations: Record<string, Record<string, string>> = {
   },
 };
 
-function FeatureDetails({ featureKey, t, className }: {
-  featureKey: FeatureKey;
-  t: Translate;
-  className?: string;
-}) {
+function SyncDiagram() {
   return (
-    <ul className={`${styles.details}${className ? ` ${className}` : ''}`}>
-      {[1, 2, 3, 4].map((num) => (
-        <li key={num}>{t(`feature.${featureKey}.detail${num}`)}</li>
+    <svg className={styles.diagram} viewBox="0 0 560 320" role="presentation">
+      <path className={styles.diagramLine} d="M151 95H241M319 95H409M280 133V218" />
+      <path className={styles.diagramLineStrong} d="m225 86 16 9-16 9M335 86l-16 9 16 9M271 202l9 16 9-16" />
+      <rect className={styles.diagramSurface} x="47" y="58" width="104" height="74" rx="4" />
+      <rect className={styles.diagramSurface} x="409" y="58" width="104" height="74" rx="4" />
+      <rect className={styles.diagramSurface} x="228" y="218" width="104" height="54" rx="4" />
+      <circle className={styles.diagramAccentSoft} cx="280" cy="95" r="39" />
+      <path className={styles.diagramAccentLine} d="M260 91a22 22 0 0 1 34-13l5 5M300 99a22 22 0 0 1-34 13l-5-5" />
+      <path className={styles.diagramAccent} d="m299 75 1 11-11-1M261 115l-1-11 11 1" />
+      <circle className={styles.diagramAccent} cx="99" cy="95" r="5" />
+      <circle className={styles.diagramAccent} cx="461" cy="95" r="5" />
+      <circle className={styles.diagramAccent} cx="280" cy="245" r="5" />
+      <path className={styles.diagramMutedLine} d="M70 148h58M432 148h58M250 288h60" />
+    </svg>
+  );
+}
+
+function AnalyticsDiagram() {
+  return (
+    <svg className={styles.diagram} viewBox="0 0 560 320" role="presentation">
+      <path className={styles.diagramLine} d="M74 56v208h420M74 108h420M74 160h420M74 212h420" />
+      <rect className={styles.diagramSurface} x="112" y="183" width="38" height="81" rx="2" />
+      <rect className={styles.diagramSurface} x="172" y="139" width="38" height="125" rx="2" />
+      <rect className={styles.diagramAccentSoft} x="232" y="100" width="38" height="164" rx="2" />
+      <rect className={styles.diagramSurface} x="292" y="155" width="38" height="109" rx="2" />
+      <rect className={styles.diagramSurface} x="352" y="123" width="38" height="141" rx="2" />
+      <rect className={styles.diagramSurface} x="412" y="76" width="38" height="188" rx="2" />
+      <path className={styles.diagramAccentLine} d="m95 198 78-54 75 21 74-69 64 22 83-61" />
+      <circle className={styles.diagramAccent} cx="95" cy="198" r="5" />
+      <circle className={styles.diagramAccent} cx="173" cy="144" r="5" />
+      <circle className={styles.diagramAccent} cx="248" cy="165" r="5" />
+      <circle className={styles.diagramAccent} cx="322" cy="96" r="5" />
+      <circle className={styles.diagramAccent} cx="386" cy="118" r="5" />
+      <circle className={styles.diagramAccent} cx="469" cy="57" r="5" />
+    </svg>
+  );
+}
+
+function SecurityDiagram() {
+  return (
+    <svg className={styles.diagram} viewBox="0 0 560 320" role="presentation">
+      <circle className={styles.diagramLine} cx="280" cy="160" r="118" />
+      <circle className={styles.diagramMutedLine} cx="280" cy="160" r="84" strokeDasharray="5 8" />
+      <path className={styles.diagramLine} d="M280 42V20M398 160h35M280 278v22M162 160h-35" />
+      <circle className={styles.diagramSurface} cx="280" cy="160" r="58" />
+      <path className={styles.diagramAccentSoft} d="M280 104l42 18v31c0 31-17 56-42 67-25-11-42-36-42-67v-31l42-18Z" />
+      <path className={styles.diagramAccentLine} d="M280 104l42 18v31c0 31-17 56-42 67-25-11-42-36-42-67v-31l42-18Z" />
+      <path className={styles.diagramAccentLine} d="m261 159 13 13 27-31" />
+      <circle className={styles.diagramAccent} cx="280" cy="20" r="5" />
+      <circle className={styles.diagramAccent} cx="433" cy="160" r="5" />
+      <circle className={styles.diagramAccent} cx="280" cy="300" r="5" />
+      <circle className={styles.diagramAccent} cx="127" cy="160" r="5" />
+    </svg>
+  );
+}
+
+function EdgeDiagram() {
+  return (
+    <svg className={styles.diagram} viewBox="0 0 560 320" role="presentation">
+      <path className={styles.diagramLine} d="M162 78 245 137M398 78l-83 59M162 242l83-59M398 242l-83-59" />
+      <rect className={styles.diagramSurface} x="82" y="46" width="80" height="64" rx="4" />
+      <rect className={styles.diagramSurface} x="398" y="46" width="80" height="64" rx="4" />
+      <rect className={styles.diagramSurface} x="82" y="210" width="80" height="64" rx="4" />
+      <rect className={styles.diagramSurface} x="398" y="210" width="80" height="64" rx="4" />
+      <rect className={styles.diagramAccentSoft} x="226" y="118" width="108" height="84" rx="6" />
+      <path className={styles.diagramAccentLine} d="M244 172h73c12 0 21-9 21-20s-9-20-21-20h-4c-5-13-18-22-33-22-18 0-33 12-36 29h-2c-10 0-18 7-18 17s8 16 20 16Z" />
+      <circle className={styles.diagramAccent} cx="122" cy="78" r="5" />
+      <circle className={styles.diagramAccent} cx="438" cy="78" r="5" />
+      <circle className={styles.diagramAccent} cx="122" cy="242" r="5" />
+      <circle className={styles.diagramAccent} cx="438" cy="242" r="5" />
+      <path className={styles.diagramMutedLine} d="M101 93h42M417 93h42M101 257h42M417 257h42" />
+    </svg>
+  );
+}
+
+function FederatedDiagram() {
+  return (
+    <svg className={styles.diagram} viewBox="0 0 560 320" role="presentation">
+      <path className={styles.diagramMutedLine} d="M280 160 138 73M280 160l142-87M280 160 111 235M280 160l169 75M280 160v132" strokeDasharray="5 8" />
+      <circle className={styles.diagramLine} cx="280" cy="160" r="67" />
+      <circle className={styles.diagramAccentSoft} cx="280" cy="160" r="40" />
+      <path className={styles.diagramAccentLine} d="m280 124 31 18v36l-31 18-31-18v-36l31-18Z" />
+      <circle className={styles.diagramSurface} cx="138" cy="73" r="31" />
+      <circle className={styles.diagramSurface} cx="422" cy="73" r="31" />
+      <circle className={styles.diagramSurface} cx="111" cy="235" r="31" />
+      <circle className={styles.diagramSurface} cx="449" cy="235" r="31" />
+      <circle className={styles.diagramSurface} cx="280" cy="292" r="20" />
+      <circle className={styles.diagramAccent} cx="138" cy="73" r="5" />
+      <circle className={styles.diagramAccent} cx="422" cy="73" r="5" />
+      <circle className={styles.diagramAccent} cx="111" cy="235" r="5" />
+      <circle className={styles.diagramAccent} cx="449" cy="235" r="5" />
+      <circle className={styles.diagramAccent} cx="280" cy="292" r="5" />
+      <circle className={styles.diagramAccent} cx="280" cy="160" r="5" />
+    </svg>
+  );
+}
+
+function FeatureDiagram({ featureKey }: { featureKey: FeatureKey }) {
+  switch (featureKey) {
+    case 'realtime':
+      return <SyncDiagram />;
+    case 'analytics':
+      return <AnalyticsDiagram />;
+    case 'security':
+      return <SecurityDiagram />;
+    case 'edge':
+      return <EdgeDiagram />;
+    case 'federated':
+      return <FederatedDiagram />;
+  }
+}
+
+function FeatureDetails({ featureKey, t }: { featureKey: FeatureKey; t: Translate }) {
+  return (
+    <ul className={styles.featureDetails}>
+      {[1, 2, 3, 4].map((number) => (
+        <li key={number}>{t(`feature.${featureKey}.detail${number}`)}</li>
       ))}
     </ul>
-  );
-}
-
-function MoreStatement({ t, className }: { t: Translate; className?: string }) {
-  return (
-    <aside className={`${styles.moreStatement}${className ? ` ${className}` : ''}`}>
-      <span className={styles.moreMark} aria-hidden="true">•••</span>
-      <div>
-        <Heading as="h2" className={styles.moreTitle}>
-          {t('features.more.title')}
-        </Heading>
-        <p className={styles.moreDesc}>{t('features.more.desc')}</p>
-      </div>
-    </aside>
-  );
-}
-
-function RoadmapLedger({ t }: { t: Translate }) {
-  return (
-    <div className={styles.ledger}>
-      {features.map((feature) => {
-        const Icon = feature.icon;
-        return (
-          <article className={styles.ledgerRow} key={feature.key}>
-            <div className={styles.ledgerIdentity}>
-              <Icon className={styles.ledgerIcon} />
-              <Heading as="h2" className={styles.ledgerTitle}>
-                {t(`feature.${feature.key}.title`)}
-              </Heading>
-            </div>
-            <div className={styles.ledgerBody}>
-              <p className={styles.featureDesc}>{t(`feature.${feature.key}.desc`)}</p>
-              <FeatureDetails featureKey={feature.key} t={t} />
-            </div>
-          </article>
-        );
-      })}
-      <MoreStatement t={t} className={styles.ledgerMore} />
-    </div>
-  );
-}
-
-function ChapterIndex({ t }: { t: Translate }) {
-  return (
-    <div className={styles.chapterLayout}>
-      <aside className={styles.chapterRail}>
-        <nav className={styles.chapterNav} aria-label="Feature chapters">
-          {features.map((feature) => (
-            <a className={styles.chapterLink} href={`#feature-${feature.key}`} key={feature.key}>
-              {t(`feature.${feature.key}.title`)}
-            </a>
-          ))}
-        </nav>
-      </aside>
-
-      <div className={styles.chapterStream}>
-        {features.map((feature) => {
-          const Icon = feature.icon;
-          return (
-            <article className={styles.chapter} id={`feature-${feature.key}`} key={feature.key}>
-              <header className={styles.chapterHeading}>
-                <Icon className={styles.chapterIcon} />
-                <Heading as="h2" className={styles.chapterTitle}>
-                  {t(`feature.${feature.key}.title`)}
-                </Heading>
-              </header>
-              <p className={styles.chapterDesc}>{t(`feature.${feature.key}.desc`)}</p>
-              <FeatureDetails featureKey={feature.key} t={t} className={styles.chapterDetails} />
-            </article>
-          );
-        })}
-        <MoreStatement t={t} className={styles.chapterMore} />
-      </div>
-    </div>
-  );
-}
-
-function CapabilityExplorer({ t }: { t: Translate }) {
-  const [selectedFeature, setSelectedFeature] = React.useState<FeatureKey>('realtime');
-
-  return (
-    <>
-      <div className={styles.explorerDesktop}>
-        <div className={styles.explorerSelector} role="group" aria-label="Feature capabilities">
-          {features.map((feature) => {
-            const Icon = feature.icon;
-            const isSelected = selectedFeature === feature.key;
-            return (
-              <button
-                aria-controls={`capability-panel-${feature.key}`}
-                aria-pressed={isSelected}
-                className={styles.explorerOption}
-                id={`capability-tab-${feature.key}`}
-                key={feature.key}
-                onClick={() => setSelectedFeature(feature.key)}
-                type="button"
-              >
-                <Icon className={styles.explorerOptionIcon} />
-                <span>{t(`feature.${feature.key}.title`)}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className={styles.explorerPanels}>
-          {features.map((feature) => {
-            const Icon = feature.icon;
-            const isSelected = selectedFeature === feature.key;
-            return (
-              <article
-                aria-labelledby={`capability-tab-${feature.key}`}
-                className={styles.explorerPanel}
-                hidden={!isSelected}
-                id={`capability-panel-${feature.key}`}
-                key={feature.key}
-                role="region"
-                tabIndex={0}
-              >
-                <div className={styles.explorerPanelHeading}>
-                  <Icon className={styles.explorerPanelIcon} />
-                </div>
-                <Heading as="h2" className={styles.explorerTitle}>
-                  {t(`feature.${feature.key}.title`)}
-                </Heading>
-                <p className={styles.explorerDesc}>{t(`feature.${feature.key}.desc`)}</p>
-                <FeatureDetails featureKey={feature.key} t={t} className={styles.explorerDetails} />
-              </article>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className={styles.explorerMobile}>
-        {features.map((feature, index) => {
-          const Icon = feature.icon;
-          return (
-            <details className={styles.explorerDisclosure} key={feature.key} open={index === 0}>
-              <summary className={styles.explorerSummary}>
-                <Icon className={styles.explorerOptionIcon} />
-                <span>{t(`feature.${feature.key}.title`)}</span>
-              </summary>
-              <div className={styles.explorerDisclosureBody}>
-                <p className={styles.featureDesc}>{t(`feature.${feature.key}.desc`)}</p>
-                <FeatureDetails featureKey={feature.key} t={t} />
-              </div>
-            </details>
-          );
-        })}
-      </div>
-      <MoreStatement t={t} className={styles.explorerMore} />
-    </>
   );
 }
 
@@ -296,44 +229,70 @@ export default function FeaturesPage() {
   const { i18n } = useDocusaurusContext();
   const isZh = i18n.currentLocale === 'zh';
   const t: Translate = (key) => translations[isZh ? 'zh' : 'en'][key] || key;
-  const [variant, setVariant] = React.useState<PreviewVariant>('B');
 
   return (
     <Layout title={t('features.title')} description={isZh ? t('features.description') : 'PowerMem Upcoming Features'}>
       <main className={styles.featuresPage}>
-        <div className={`container ${styles.pageContainer}`}>
-          <section className={styles.previewControl} aria-label="Feature page design preview">
-            <span className={styles.previewLabel}>Design preview</span>
-            <div className={styles.previewTabs} role="group" aria-label="Choose a feature page layout">
-              {previewVariants.map((option) => (
-                <button
-                  aria-pressed={variant === option.id}
-                  className={styles.previewTab}
-                  key={option.id}
-                  onClick={() => setVariant(option.id)}
-                  type="button"
-                >
-                  <span className={styles.previewLetter}>{option.id}</span>
-                  <span className={styles.previewName}>{option.label}</span>
-                  {option.note && <span className={styles.previewNote}>{option.note}</span>}
-                </button>
-              ))}
+        <header className={styles.hero}>
+          <div className={`container ${styles.pageContainer}`}>
+            <div className={styles.heroGrid}>
+              <Heading as="h1" className={styles.title}>
+                {t('features.title')}
+              </Heading>
+              <p className={styles.subtitle}>{t('features.subtitle')}</p>
             </div>
-          </section>
 
-          <header className={styles.header}>
-            <Heading as="h1" className={styles.title}>
-              {t('features.title')}
-            </Heading>
-            <p className={styles.subtitle}>{t('features.subtitle')}</p>
-          </header>
-
-          <div className={styles.variantStage}>
-            {variant === 'A' && <RoadmapLedger t={t} />}
-            {variant === 'B' && <ChapterIndex t={t} />}
-            {variant === 'C' && <CapabilityExplorer t={t} />}
+            <div className={styles.featureMap} aria-hidden="true">
+              {features.map((feature) => {
+                const Icon = feature.icon;
+                return (
+                  <span className={styles.mapPoint} key={feature.key}>
+                    <Icon className={styles.mapIcon} />
+                  </span>
+                );
+              })}
+            </div>
           </div>
+        </header>
+
+        <div className={styles.featureAtlas}>
+          {features.map((feature, index) => {
+            const Icon = feature.icon;
+            return (
+              <article
+                className={`${styles.featureChapter} ${index % 2 === 1 ? styles.featureChapterReverse : ''}`}
+                key={feature.key}
+              >
+                <div className={`container ${styles.pageContainer} ${styles.chapterGrid}`}>
+                  <header className={styles.featureCopy}>
+                    <span className={styles.featureIconFrame} aria-hidden="true">
+                      <Icon className={styles.featureIcon} />
+                    </span>
+                    <Heading as="h2" className={styles.featureTitle}>
+                      {t(`feature.${feature.key}.title`)}
+                    </Heading>
+                    <p className={styles.featureDesc}>{t(`feature.${feature.key}.desc`)}</p>
+                  </header>
+
+                  <div className={styles.diagramFrame} aria-hidden="true">
+                    <FeatureDiagram featureKey={feature.key} />
+                  </div>
+
+                  <FeatureDetails featureKey={feature.key} t={t} />
+                </div>
+              </article>
+            );
+          })}
         </div>
+
+        <aside className={styles.moreSection}>
+          <div className={`container ${styles.pageContainer} ${styles.moreGrid}`}>
+            <Heading as="h2" className={styles.moreTitle}>
+              {t('features.more.title')}
+            </Heading>
+            <p className={styles.moreDesc}>{t('features.more.desc')}</p>
+          </div>
+        </aside>
       </main>
     </Layout>
   );

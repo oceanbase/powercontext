@@ -378,6 +378,10 @@ table td {
 }
 
 @media (max-width: 996px) {
+  .navbar {
+    backdrop-filter: none;
+  }
+
   .theme-doc-markdown h1 {
     font-size: 2rem;
   }
