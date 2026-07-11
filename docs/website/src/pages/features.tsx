@@ -29,8 +29,6 @@ const translations: Record<string, Record<string, string>> = {
   en: {
     'features.title': 'Upcoming Features',
     'features.subtitle': 'Exciting features we\'re planning for PowerMem\'s future',
-    'features.more.title': 'And More...',
-    'features.more.desc': 'We\'re continuously working on new features and improvements. Stay tuned for more exciting updates!',
     'feature.realtime.title': 'Real-time Sync & Collaboration',
     'feature.realtime.desc': 'Enable seamless memory synchronization across multiple devices and users, with real-time collaboration capabilities for team-based AI applications.',
     'feature.realtime.detail1': 'Multi-device synchronization',
@@ -66,8 +64,6 @@ const translations: Record<string, Record<string, string>> = {
     'features.title': '即将推出的特性',
     'features.subtitle': '我们为 PowerMem 未来规划的前沿功能',
     'features.description': 'PowerMem 即将推出的特性',
-    'features.more.title': '还有更多...',
-    'features.more.desc': '我们正在持续开发新功能和改进。敬请期待更多令人兴奋的更新！',
     'feature.realtime.title': '实时同步与协作',
     'feature.realtime.desc': '支持多设备、多用户的无缝记忆同步，为团队协作的 AI 应用提供实时协作能力。',
     'feature.realtime.detail1': '多设备同步',
@@ -285,14 +281,6 @@ export default function FeaturesPage() {
           })}
         </div>
 
-        <aside className={styles.moreSection}>
-          <div className={`container ${styles.pageContainer} ${styles.moreGrid}`}>
-            <Heading as="h2" className={styles.moreTitle}>
-              {t('features.more.title')}
-            </Heading>
-            <p className={styles.moreDesc}>{t('features.more.desc')}</p>
-          </div>
-        </aside>
       </main>
     </Layout>
   );
