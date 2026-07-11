@@ -89,84 +89,129 @@ export default function CommunityPage() {
   const { i18n } = useDocusaurusContext();
   const isZh = i18n.currentLocale === 'zh';
   const t = (key: string) => translations[isZh ? 'zh' : 'en'][key] || key;
+  const newTabLabel = isZh
+    ? '（在新标签页中打开）'
+    : ' (opens in a new tab)';
 
   return (
-    <Layout title={t('communityPage.title')} description={t('communityPage.description')}>
-      <div className={styles.communityPage}>
-        <div className="container margin-vert--lg">
-          {/* Header */}
-          <div className={styles.header}>
+    <Layout
+      title={t('communityPage.title')}
+      description={t('communityPage.description')}
+    >
+      <main className={styles.communityPage}>
+        <header className={styles.hero}>
+          <div
+            className={`container ${styles.pageContainer} ${styles.heroGrid}`}
+          >
             <Heading as="h1" className={styles.title}>
               {t('communityPage.title')}
             </Heading>
-            <p className={styles.subtitle}>
-              {t('communityPage.subtitle')}
-            </p>
+            <p className={styles.subtitle}>{t('communityPage.subtitle')}</p>
           </div>
+        </header>
 
-          {/* Community Links */}
-          <div className={styles.communityGrid}>
-            {communityLinks.map((link) => {
-              const Icon = link.icon;
-              return (
-                <a
-                  key={link.name}
-                  href={link.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={styles.communityCard}
-                >
-                  <Icon className={styles.cardIcon} />
-                  <h2 className={styles.cardTitle}>{link.name}</h2>
-                  <p className={styles.cardDesc}>{t(link.descKey)}</p>
-                  <span className={styles.cardAction}>{t(link.actionKey)} →</span>
-                </a>
-              );
-            })}
+        <nav
+          className={styles.channelsSection}
+          aria-label={t('communityPage.title')}
+        >
+          <div className={`container ${styles.pageContainer}`}>
+            <div className={styles.communityGrid}>
+              {communityLinks.map((link, index) => {
+                const Icon = link.icon;
+                return (
+                  <a
+                    key={link.name}
+                    href={link.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.communityCard}
+                  >
+                    <div className={styles.cardMeta} aria-hidden="true">
+                      <span className={styles.cardIndex}>
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      <Icon className={styles.cardIcon} />
+                    </div>
+                    <div className={styles.cardBody}>
+                      <Heading as="h2" className={styles.cardTitle}>
+                        {link.name}
+                      </Heading>
+                      <p className={styles.cardDesc}>{t(link.descKey)}</p>
+                    </div>
+                    <span className={styles.cardAction}>
+                      {t(link.actionKey)}
+                      <span className={styles.cardArrow} aria-hidden="true">
+                        ↗
+                      </span>
+                      <span className={styles.srOnly}>{newTabLabel}</span>
+                    </span>
+                  </a>
+                );
+              })}
+            </div>
           </div>
+        </nav>
 
-          {/* Contributing */}
-          <div className={styles.section}>
-            <div className={styles.sectionText}>
+        <section className={styles.contributeSection}>
+          <div
+            className={`container ${styles.pageContainer} ${styles.contributeGrid}`}
+          >
+            <div className={styles.contributeIntro}>
               <Heading as="h2" className={styles.sectionTitle}>
                 {t('communityPage.contributing.title')}
               </Heading>
               <p className={styles.sectionDesc}>
                 {t('communityPage.contributing.desc')}
               </p>
-              <ul className={styles.list}>
-                <li>{t('communityPage.contributing.item1')}</li>
-                <li>{t('communityPage.contributing.item2')}</li>
-                <li>{t('communityPage.contributing.item3')}</li>
-                <li>{t('communityPage.contributing.item4')}</li>
-              </ul>
               <Link
                 href="https://github.com/oceanbase/powermem"
-                className={styles.ctaButton}
+                className={styles.guideLink}
               >
                 <GitHubIcon className={styles.buttonIcon} />
-                {t('communityPage.contributing.viewGuide')}
+                <span>{t('communityPage.contributing.viewGuide')}</span>
+                <span className={styles.guideArrow} aria-hidden="true">
+                  →
+                </span>
               </Link>
             </div>
-          </div>
 
-          {/* Code of Conduct */}
-          <div className={`${styles.section} ${styles.conduct}`}>
-            <Heading as="h2" className={styles.sectionTitle}>
-              {t('communityPage.codeOfConduct.title')}
-            </Heading>
-            <p className={styles.sectionDesc}>
-              {t('communityPage.codeOfConduct.desc')}
-            </p>
-            <ul className={styles.list}>
-              <li>{t('communityPage.codeOfConduct.item1')}</li>
-              <li>{t('communityPage.codeOfConduct.item2')}</li>
-              <li>{t('communityPage.codeOfConduct.item3')}</li>
-              <li>{t('communityPage.codeOfConduct.item4')}</li>
+            <ul className={styles.contributionMatrix}>
+              {[1, 2, 3, 4].map((number) => (
+                <li key={number}>
+                  <span className={styles.itemIndex} aria-hidden="true">
+                    {String(number).padStart(2, '0')}
+                  </span>
+                  <span>{t(`communityPage.contributing.item${number}`)}</span>
+                </li>
+              ))}
             </ul>
           </div>
-        </div>
-      </div>
+        </section>
+
+        <section className={styles.conductSection}>
+          <div
+            className={`container ${styles.pageContainer} ${styles.conductGrid}`}
+          >
+            <div className={styles.conductIntro}>
+              <Heading as="h2" className={styles.conductTitle}>
+                {t('communityPage.codeOfConduct.title')}
+              </Heading>
+              <p className={styles.conductDesc}>
+                {t('communityPage.codeOfConduct.desc')}
+              </p>
+            </div>
+
+            <ul className={styles.conductList}>
+              {[1, 2, 3, 4].map((number) => (
+                <li key={number}>
+                  <span className={styles.conductMark} aria-hidden="true" />
+                  <span>{t(`communityPage.codeOfConduct.item${number}`)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      </main>
     </Layout>
   );
 }
