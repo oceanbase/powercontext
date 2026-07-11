@@ -9,7 +9,16 @@ import CloudIcon from './icons/CloudIcon';
 import NetworkIcon from './icons/NetworkIcon';
 import styles from './features.module.css';
 
-const features = [
+type FeatureKey = 'realtime' | 'analytics' | 'security' | 'edge' | 'federated';
+type PreviewVariant = 'A' | 'B' | 'C';
+type Translate = (key: string) => string;
+
+type FeatureDefinition = {
+  icon: React.ComponentType<{ className?: string }>;
+  key: FeatureKey;
+};
+
+const features: FeatureDefinition[] = [
   {
     icon: SyncIcon,
     key: 'realtime',
@@ -30,6 +39,16 @@ const features = [
     icon: NetworkIcon,
     key: 'federated',
   },
+];
+
+const previewVariants: Array<{
+  id: PreviewVariant;
+  label: string;
+  note?: string;
+}> = [
+  { id: 'A', label: 'Roadmap ledger' },
+  { id: 'B', label: 'Chapter index', note: 'Recommended' },
+  { id: 'C', label: 'Capability explorer' },
 ];
 
 const translations: Record<string, Record<string, string>> = {
@@ -108,67 +127,214 @@ const translations: Record<string, Record<string, string>> = {
   },
 };
 
+function FeatureDetails({ featureKey, t, className }: {
+  featureKey: FeatureKey;
+  t: Translate;
+  className?: string;
+}) {
+  return (
+    <ul className={`${styles.details}${className ? ` ${className}` : ''}`}>
+      {[1, 2, 3, 4].map((num) => (
+        <li key={num}>{t(`feature.${featureKey}.detail${num}`)}</li>
+      ))}
+    </ul>
+  );
+}
+
+function MoreStatement({ t, className }: { t: Translate; className?: string }) {
+  return (
+    <aside className={`${styles.moreStatement}${className ? ` ${className}` : ''}`}>
+      <span className={styles.moreMark} aria-hidden="true">•••</span>
+      <div>
+        <Heading as="h2" className={styles.moreTitle}>
+          {t('features.more.title')}
+        </Heading>
+        <p className={styles.moreDesc}>{t('features.more.desc')}</p>
+      </div>
+    </aside>
+  );
+}
+
+function RoadmapLedger({ t }: { t: Translate }) {
+  return (
+    <div className={styles.ledger}>
+      {features.map((feature) => {
+        const Icon = feature.icon;
+        return (
+          <article className={styles.ledgerRow} key={feature.key}>
+            <div className={styles.ledgerIdentity}>
+              <Icon className={styles.ledgerIcon} />
+              <Heading as="h2" className={styles.ledgerTitle}>
+                {t(`feature.${feature.key}.title`)}
+              </Heading>
+            </div>
+            <div className={styles.ledgerBody}>
+              <p className={styles.featureDesc}>{t(`feature.${feature.key}.desc`)}</p>
+              <FeatureDetails featureKey={feature.key} t={t} />
+            </div>
+          </article>
+        );
+      })}
+      <MoreStatement t={t} className={styles.ledgerMore} />
+    </div>
+  );
+}
+
+function ChapterIndex({ t }: { t: Translate }) {
+  return (
+    <div className={styles.chapterLayout}>
+      <aside className={styles.chapterRail}>
+        <nav className={styles.chapterNav} aria-label="Feature chapters">
+          {features.map((feature) => (
+            <a className={styles.chapterLink} href={`#feature-${feature.key}`} key={feature.key}>
+              {t(`feature.${feature.key}.title`)}
+            </a>
+          ))}
+        </nav>
+      </aside>
+
+      <div className={styles.chapterStream}>
+        {features.map((feature) => {
+          const Icon = feature.icon;
+          return (
+            <article className={styles.chapter} id={`feature-${feature.key}`} key={feature.key}>
+              <header className={styles.chapterHeading}>
+                <Icon className={styles.chapterIcon} />
+                <Heading as="h2" className={styles.chapterTitle}>
+                  {t(`feature.${feature.key}.title`)}
+                </Heading>
+              </header>
+              <p className={styles.chapterDesc}>{t(`feature.${feature.key}.desc`)}</p>
+              <FeatureDetails featureKey={feature.key} t={t} className={styles.chapterDetails} />
+            </article>
+          );
+        })}
+        <MoreStatement t={t} className={styles.chapterMore} />
+      </div>
+    </div>
+  );
+}
+
+function CapabilityExplorer({ t }: { t: Translate }) {
+  const [selectedFeature, setSelectedFeature] = React.useState<FeatureKey>('realtime');
+
+  return (
+    <>
+      <div className={styles.explorerDesktop}>
+        <div className={styles.explorerSelector} role="group" aria-label="Feature capabilities">
+          {features.map((feature) => {
+            const Icon = feature.icon;
+            const isSelected = selectedFeature === feature.key;
+            return (
+              <button
+                aria-controls={`capability-panel-${feature.key}`}
+                aria-pressed={isSelected}
+                className={styles.explorerOption}
+                id={`capability-tab-${feature.key}`}
+                key={feature.key}
+                onClick={() => setSelectedFeature(feature.key)}
+                type="button"
+              >
+                <Icon className={styles.explorerOptionIcon} />
+                <span>{t(`feature.${feature.key}.title`)}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className={styles.explorerPanels}>
+          {features.map((feature) => {
+            const Icon = feature.icon;
+            const isSelected = selectedFeature === feature.key;
+            return (
+              <article
+                aria-labelledby={`capability-tab-${feature.key}`}
+                className={styles.explorerPanel}
+                hidden={!isSelected}
+                id={`capability-panel-${feature.key}`}
+                key={feature.key}
+                role="region"
+                tabIndex={0}
+              >
+                <div className={styles.explorerPanelHeading}>
+                  <Icon className={styles.explorerPanelIcon} />
+                </div>
+                <Heading as="h2" className={styles.explorerTitle}>
+                  {t(`feature.${feature.key}.title`)}
+                </Heading>
+                <p className={styles.explorerDesc}>{t(`feature.${feature.key}.desc`)}</p>
+                <FeatureDetails featureKey={feature.key} t={t} className={styles.explorerDetails} />
+              </article>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className={styles.explorerMobile}>
+        {features.map((feature, index) => {
+          const Icon = feature.icon;
+          return (
+            <details className={styles.explorerDisclosure} key={feature.key} open={index === 0}>
+              <summary className={styles.explorerSummary}>
+                <Icon className={styles.explorerOptionIcon} />
+                <span>{t(`feature.${feature.key}.title`)}</span>
+              </summary>
+              <div className={styles.explorerDisclosureBody}>
+                <p className={styles.featureDesc}>{t(`feature.${feature.key}.desc`)}</p>
+                <FeatureDetails featureKey={feature.key} t={t} />
+              </div>
+            </details>
+          );
+        })}
+      </div>
+      <MoreStatement t={t} className={styles.explorerMore} />
+    </>
+  );
+}
+
 export default function FeaturesPage() {
   const { i18n } = useDocusaurusContext();
   const isZh = i18n.currentLocale === 'zh';
-  const t = (key: string) => translations[isZh ? 'zh' : 'en'][key] || key;
+  const t: Translate = (key) => translations[isZh ? 'zh' : 'en'][key] || key;
+  const [variant, setVariant] = React.useState<PreviewVariant>('B');
 
   return (
     <Layout title={t('features.title')} description={isZh ? t('features.description') : 'PowerMem Upcoming Features'}>
-      <div className={styles.featuresPage}>
-        <div className="container margin-vert--lg">
-          <div className={styles.header}>
+      <main className={styles.featuresPage}>
+        <div className={`container ${styles.pageContainer}`}>
+          <section className={styles.previewControl} aria-label="Feature page design preview">
+            <span className={styles.previewLabel}>Design preview</span>
+            <div className={styles.previewTabs} role="group" aria-label="Choose a feature page layout">
+              {previewVariants.map((option) => (
+                <button
+                  aria-pressed={variant === option.id}
+                  className={styles.previewTab}
+                  key={option.id}
+                  onClick={() => setVariant(option.id)}
+                  type="button"
+                >
+                  <span className={styles.previewLetter}>{option.id}</span>
+                  <span className={styles.previewName}>{option.label}</span>
+                  {option.note && <span className={styles.previewNote}>{option.note}</span>}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <header className={styles.header}>
             <Heading as="h1" className={styles.title}>
               {t('features.title')}
             </Heading>
-            <p className={styles.subtitle}>
-              {t('features.subtitle')}
-            </p>
-          </div>
+            <p className={styles.subtitle}>{t('features.subtitle')}</p>
+          </header>
 
-          <div className={styles.grid}>
-            {features.map((feature) => {
-              const Icon = feature.icon;
-              return (
-                <article
-                  key={feature.key}
-                  className={styles.card}
-                >
-                  <div className={styles.iconContainer}>
-                    <Icon className={styles.icon} />
-                  </div>
-                  <div className={styles.headingGroup}>
-                    <Heading as="h2" className={styles.cardTitle}>
-                      {t(`feature.${feature.key}.title`)}
-                    </Heading>
-                  </div>
-                  <div className={styles.cardContent}>
-                    <p className={styles.cardDesc}>
-                      {t(`feature.${feature.key}.desc`)}
-                    </p>
-                    <ul className={styles.details}>
-                      {[1, 2, 3, 4].map((num) => (
-                        <li key={num}>{t(`feature.${feature.key}.detail${num}`)}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </article>
-              );
-            })}
-            <article className={`${styles.card} ${styles.cardMore}`}>
-              <div className={styles.moreIcon} aria-hidden="true">•••</div>
-              <div className={styles.headingGroup}>
-                <Heading as="h2" className={styles.cardTitle}>
-                  {t('features.more.title')}
-                </Heading>
-              </div>
-              <p className={styles.cardDesc}>
-                {t('features.more.desc')}
-              </p>
-            </article>
+          <div className={styles.variantStage}>
+            {variant === 'A' && <RoadmapLedger t={t} />}
+            {variant === 'B' && <ChapterIndex t={t} />}
+            {variant === 'C' && <CapabilityExplorer t={t} />}
           </div>
         </div>
-      </div>
+      </main>
     </Layout>
   );
 }

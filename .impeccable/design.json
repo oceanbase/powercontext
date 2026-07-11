@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-11T02:14:41Z",
+  "title": "Design System: PowerMem",
+  "extensions": {
+    "colorMeta": {
+      "ocean-blue": {
+        "role": "primary",
+        "displayName": "OceanBase Signal Blue",
+        "canonical": "#0083ff",
+        "tonalRamp": ["#003464", "#004c91", "#0065bf", "#0083ff", "#2997ff", "#5aafff", "#94ccff", "#d7edff"]
+      },
+      "light-surface": {
+        "role": "neutral",
+        "displayName": "Cloud Surface",
+        "canonical": "#f7f9fc",
+        "tonalRamp": ["#202329", "#3b4049", "#59616e", "#7c8696", "#a4adba", "#c9d0d9", "#e5e9ef", "#f7f9fc"]
+      },
+      "light-ink": {
+        "role": "neutral",
+        "displayName": "Carbon Ink",
+        "canonical": "#171a1f",
+        "tonalRamp": ["#171a1f", "#30353d", "#4d545f", "#707986", "#98a0ac", "#bec4cc", "#dfe3e8", "#f5f6f8"]
+      },
+      "dark-background": {
+        "role": "neutral",
+        "displayName": "Night Black",
+        "canonical": "#0c0f13",
+        "tonalRamp": ["#0c0f13", "#171c22", "#29313a", "#414b57", "#64707f", "#909aa7", "#c0c6ce", "#f2f5f8"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Technical Display",
+        "purpose": "Page-level ideas with compact line-height and restrained tracking."
+      },
+      "body": {
+        "displayName": "Technical Body",
+        "purpose": "Long-form product explanation and documentation at a 65-75 character measure."
+      },
+      "label": {
+        "displayName": "Interface Label",
+        "purpose": "Controls, metadata, and table headers in normal case."
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating-menu-only",
+        "value": "0 8px 24px color-mix(in srgb, var(--pm-text) 12%, transparent)",
+        "purpose": "Dropdowns and popovers only; never ordinary cards."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-ease",
+        "value": "180ms cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Hover, focus, and selection state transitions."
+      }
+    ],
+    "breakpoints": [
+      {"name": "compact", "value": "620px"},
+      {"name": "tablet", "value": "900px"},
+      {"name": "navbar-collapse", "value": "996px"}
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single high-emphasis action on a surface.",
+      "html": "<button class=\"ds-btn-primary\">Get Started <span aria-hidden=\"true\">→</span></button>",
+      "css": ".ds-btn-primary { min-height: 44px; border: 1px solid #0083ff; border-radius: 8px; padding: 12px 24px; background: #0083ff; color: #fff; font: 650 16px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: background 180ms cubic-bezier(0.25,1,0.5,1), border-color 180ms cubic-bezier(0.25,1,0.5,1); } .ds-btn-primary:hover { border-color: #0074e3; background: #0074e3; } .ds-btn-primary:focus-visible { outline: 2px solid #0083ff; outline-offset: 3px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A quiet outlined action paired with one primary button.",
+      "html": "<button class=\"ds-btn-secondary\">View Code</button>",
+      "css": ".ds-btn-secondary { min-height: 44px; border: 1px solid var(--pm-border, #dde3eb); border-radius: 8px; padding: 12px 24px; background: transparent; color: var(--pm-text, #171a1f); font: 650 16px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: background 180ms cubic-bezier(0.25,1,0.5,1), border-color 180ms cubic-bezier(0.25,1,0.5,1); } .ds-btn-secondary:hover { background: var(--pm-surface, #f7f9fc); } .ds-btn-secondary:focus-visible { outline: 2px solid #0083ff; outline-offset: 3px; }"
+    },
+    {
+      "name": "Navbar Action Toolbar",
+      "kind": "nav",
+      "refersTo": "navbar-action",
+      "description": "Grouped utility controls with equal 44px targets.",
+      "html": "<nav class=\"ds-nav-tools\" aria-label=\"Site utilities\"><button aria-label=\"Language\">◎</button><button aria-label=\"GitHub\">GH</button><button aria-label=\"Theme\">◐</button></nav>",
+      "css": ".ds-nav-tools { display: inline-flex; gap: 0; padding: 3px; border: 1px solid var(--pm-border, #dde3eb); border-radius: 11px; background: var(--pm-surface, #f7f9fc); } .ds-nav-tools button { width: 44px; height: 44px; border: 0; border-radius: 7px; background: transparent; color: var(--pm-muted, #596475); font-weight: 650; } .ds-nav-tools button:hover { background: color-mix(in srgb, #0083ff 10%, var(--pm-surface, #f7f9fc)); color: #0083ff; } .ds-nav-tools button:focus-visible { outline: 2px solid #0083ff; outline-offset: 1px; }"
+    },
+    {
+      "name": "Code Preview",
+      "kind": "custom",
+      "description": "Theme-aware technical evidence with a quiet file header.",
+      "html": "<section class=\"ds-code-frame\"><header><span>Python</span><span>powermem.py</span></header><pre><code><span class=\"ds-code-keyword\">from</span> powermem <span class=\"ds-code-keyword\">import</span> Memory\n\nmemory = Memory()</code></pre></section>",
+      "css": ".ds-code-frame { overflow: hidden; border: 1px solid var(--pm-code-border, #d7e2f0); border-radius: 12px; background: var(--pm-code, #f7faff); color: var(--pm-text, #171a1f); } .ds-code-frame header { display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--pm-code-border, #d7e2f0); color: var(--pm-muted, #596475); font: 650 12px/1.4 ui-sans-serif, sans-serif; } .ds-code-frame pre { margin: 0; padding: 20px; background: transparent; font: 14px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; } .ds-code-keyword { color: var(--pm-code-keyword, #005cc5); }"
+    },
+    {
+      "name": "Measurement Band",
+      "kind": "custom",
+      "description": "A connected technical readout that avoids floating metric cards.",
+      "html": "<section class=\"ds-measure-band\"><div><strong>87.79%</strong><span>LLM Score</span></div><div><strong>1.44s</strong><span>Retrieval P95</span></div><div><strong>~0.9k</strong><span>Token Usage</span></div></section>",
+      "css": ".ds-measure-band { display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; border: 1px solid var(--pm-border, #dde3eb); border-radius: 12px; background: var(--pm-raised, #fff); } .ds-measure-band div { display: flex; min-height: 140px; padding: 24px; flex-direction: column; justify-content: space-between; border-right: 1px solid var(--pm-border, #dde3eb); } .ds-measure-band div:last-child { border-right: 0; } .ds-measure-band strong { color: #0083ff; font: 750 44px/1 ui-sans-serif, sans-serif; letter-spacing: -0.04em; } .ds-measure-band span { color: var(--pm-muted, #596475); font: 650 13px/1.4 ui-sans-serif, sans-serif; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Calibrated Memory Console",
+    "overview": "PowerMem should feel like a calibrated memory console: exact enough for engineers to trust, quiet enough for code and evidence to remain primary, and unmistakably connected to OceanBase. The interface uses open structure, disciplined rules, clear numeric alignment, and a small amount of OceanBase blue to guide attention. The system is precise, confident, and restrained. It does not imitate an AI launch template and it does not decorate uncertainty. Light and dark modes are equal expressions of the same hierarchy rather than a primary theme with an automatic inversion.",
+    "keyCharacteristics": [
+      "Open layouts organized by alignment and 1px rules before containers.",
+      "OceanBase blue used as a deliberate signal on actions, active states, and key data.",
+      "Technical copy, code, and benchmark evidence carry more visual weight than ornament.",
+      "Comfortable 4px-based spacing with tight groups and generous section separation.",
+      "Responsive structure that reflows without horizontal overflow."
+    ],
+    "rules": [
+      {"name": "Signal, Not Atmosphere", "body": "OceanBase blue must occupy less than roughly 10% of a screen and must communicate action, state, or evidence. It is never ambient decoration.", "section": "colors"},
+      {"name": "Paired Theme", "body": "Every new surface must define an intentional light and dark treatment at the same time.", "section": "colors"},
+      {"name": "Unbroken Thought", "body": "Desktop headings must not be forced into decorative multi-line fragments. Wrapping follows meaning and viewport constraints.", "section": "typography"},
+      {"name": "Structural Depth", "body": "If alignment, spacing, a rule, or a tonal surface can establish grouping, adding a shadow is forbidden.", "section": "elevation"}
+    ],
+    "dos": [
+      "Do use OceanBase blue only for actions, active states, and technically meaningful emphasis.",
+      "Do prefer open chapters, ledgers, and aligned bands over repeated containers.",
+      "Do preserve WCAG AA contrast for body text, muted text, code, and controls in both themes.",
+      "Do keep touch targets at least 44px and provide visible keyboard focus.",
+      "Do use 8px and 12px radii consistently; ordinary surfaces must not exceed 16px.",
+      "Do respect reduced motion and use short ease-out transitions only when they clarify state."
+    ],
+    "donts": [
+      "Don't use neon-heavy AI landing pages.",
+      "Don't use oversized headlines that fragment into many lines.",
+      "Don't use decorative glow.",
+      "Don't build generic SaaS card walls.",
+      "Don't ship low-contrast syntax themes.",
+      "Don't add visual effects that compete with technical content.",
+      "Don't use gradient text, glassmorphism, colored side stripes, or repeated large rounded icons above headings.",
+      "Don't add a card when spacing, alignment, and one hairline rule communicate the same grouping more clearly."
+    ]
+  }
+}

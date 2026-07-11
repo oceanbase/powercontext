@@ -237,3 +237,6 @@ docs/website/node_modules/
 
 .codefuse/
 apps/vscode-extension/package-lock.json
+
+# Impeccable live preview runtime
+.impeccable/live/sessions/
