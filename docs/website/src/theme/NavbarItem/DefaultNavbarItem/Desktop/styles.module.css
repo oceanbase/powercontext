@@ -2,15 +2,15 @@
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 2.5rem !important;
-  height: 2.5rem !important;
+  width: 44px !important;
+  height: 44px !important;
   padding: 0 !important;
-  margin-left: 0.5rem;
-  background: var(--pm-surface) !important;
-  border: 1px solid var(--pm-border) !important;
-  border-radius: 8px !important;
+  margin-left: 0;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 7px !important;
   transition: background 160ms ease, border-color 160ms ease, color 160ms ease !important;
-  min-width: 2.5rem !important;
+  min-width: 44px !important;
   font-size: 0 !important;
   gap: 0.375rem;
 }
@@ -24,12 +24,11 @@
 
 .iconNavbarLink:hover {
   background: color-mix(in srgb, #0083ff 10%, var(--pm-surface)) !important;
-  border-color: color-mix(in srgb, #0083ff 48%, var(--pm-border)) !important;
 }
 
 .icon {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 18px;
+  height: 18px;
   color: var(--pm-muted);
   transition: color 160ms ease;
   flex-shrink: 0;

@@ -130,19 +130,49 @@ p {
   color: var(--pm-text);
 }
 
-.navbar button[aria-label^='Switch between dark and light mode'] {
-  width: 2.5rem;
-  height: 2.5rem;
+.navbar__items--right {
+  gap: 0;
+  min-height: 52px;
+  padding: 3px;
   border: 1px solid var(--pm-border);
-  border-radius: var(--pm-radius-sm);
-  background: var(--pm-surface);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--pm-surface) 72%, transparent);
+}
+
+.navbar button[aria-label^='Switch between dark and light mode'] {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
   color: var(--pm-muted);
+  transition: background 160ms ease, color 160ms ease;
 }
 
 .navbar button[aria-label^='Switch between dark and light mode']:hover {
-  border-color: color-mix(in srgb, #0083ff 48%, var(--pm-border));
   background: color-mix(in srgb, #0083ff 10%, var(--pm-surface));
   color: #0083ff;
+}
+
+.navbar button[aria-label^='Switch between dark and light mode'] svg {
+  width: 18px;
+  height: 18px;
+}
+
+.navbar__items--right > a[href*='x.com'] {
+  position: relative;
+  margin-right: 14px !important;
+}
+
+.navbar__items--right > a[href*='x.com']::after {
+  position: absolute;
+  top: 12px;
+  right: -8px;
+  width: 1px;
+  height: 20px;
+  background: var(--pm-border);
+  content: '';
+  pointer-events: none;
 }
 
 .button {

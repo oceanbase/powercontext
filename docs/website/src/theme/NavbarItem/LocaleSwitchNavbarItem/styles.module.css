@@ -2,20 +2,33 @@
   position: relative;
   display: flex;
   align-items: center;
-  margin-left: 0.5rem;
+  padding-right: 14px;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.localeDropdown::after {
+  position: absolute;
+  top: 12px;
+  right: 7px;
+  width: 1px;
+  height: 20px;
+  background: var(--pm-border);
+  content: '';
+  pointer-events: none;
 }
 
 .localeSwitch {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 2.5rem !important;
-  height: 2.5rem !important;
-  min-width: 2.5rem !important;
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
   padding: 0 !important;
-  background: var(--pm-surface) !important;
-  border: 1px solid var(--pm-border) !important;
-  border-radius: 8px !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 7px !important;
   color: var(--pm-muted);
   cursor: pointer;
   transition: background 160ms ease, border-color 160ms ease, color 160ms ease !important;
@@ -24,7 +37,6 @@
 .localeSwitch:hover,
 .localeSwitchOpen {
   background: color-mix(in srgb, #0083ff 10%, var(--pm-surface)) !important;
-  border-color: color-mix(in srgb, #0083ff 48%, var(--pm-border)) !important;
 }
 
 .localeSwitch:focus-visible,
@@ -35,8 +47,8 @@
 }
 
 .icon {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 18px;
+  height: 18px;
   color: var(--pm-muted);
   flex-shrink: 0;
   transition: color 160ms ease;
