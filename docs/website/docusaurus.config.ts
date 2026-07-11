@@ -64,7 +64,7 @@ const config: Config = {
   themeConfig: {
     image: 'img/powermem-social-card.jpg',
     colorMode: {
-      respectPrefersColorScheme: true,
+      respectPrefersColorScheme: false,
       defaultMode: 'light',
       disableSwitch: false,
     },
@@ -98,10 +98,6 @@ const config: Config = {
           position: 'left',
         },
         {
-          type: 'custom-localeSwitch',
-          position: 'right',
-        },
-        {
           href: 'https://github.com/oceanbase/powermem',
           label: 'GitHub',
           position: 'right',
@@ -114,6 +110,10 @@ const config: Config = {
         {
           href: 'https://x.com/OceanBaseDB',
           label: 'X',
+          position: 'right',
+        },
+        {
+          type: 'custom-localeSwitch',
           position: 'right',
         },
       ],

@@ -56,6 +56,7 @@ export default function DefaultNavbarItemMobile({
                 <use href="#social-twitter" />
               </svg>
             )}
+            <span className={styles.label}>{label}</span>
           </>
         ) : null}
       </NavbarNavLink>

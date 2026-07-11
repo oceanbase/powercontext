@@ -8,22 +8,20 @@
   margin-left: 0;
   background: transparent !important;
   border: 0 !important;
-  border-radius: 7px !important;
-  transition: background 160ms ease, border-color 160ms ease, color 160ms ease !important;
+  border-radius: 8px !important;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 180ms ease, color 180ms ease !important;
   min-width: 44px !important;
   font-size: 0 !important;
-  gap: 0.375rem;
-}
-
-.iconNavbarLinkWithStars {
-  width: auto !important;
-  min-width: auto !important;
-  padding: 0 0.75rem !important;
-  font-size: 0.875rem !important;
 }
 
 .iconNavbarLink:hover {
-  background: color-mix(in srgb, #0083ff 10%, var(--pm-surface)) !important;
+  background: color-mix(in srgb, #0083ff 9%, var(--pm-surface)) !important;
+}
+
+.iconNavbarLink:active {
+  background: color-mix(in srgb, #0083ff 15%, var(--pm-surface)) !important;
 }
 
 .icon {
@@ -42,18 +40,6 @@
 }
 
 .iconNavbarLink:hover .icon {
-  color: #0083ff;
-}
-
-.stars {
-  color: var(--pm-muted);
-  font-size: 0.875rem;
-  font-weight: 500;
-  white-space: nowrap;
-  line-height: 1;
-}
-
-.iconNavbarLink:hover .stars {
   color: #0083ff;
 }
 

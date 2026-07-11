@@ -2,15 +2,16 @@
   position: relative;
   display: flex;
   align-items: center;
-  padding-right: 14px;
-  margin-left: 0;
+  padding-left: 13px;
+  padding-right: 0;
+  margin-left: 4px;
   margin-right: 0;
 }
 
-.localeDropdown::after {
+.localeDropdown::before {
   position: absolute;
   top: 12px;
-  right: 7px;
+  left: 0;
   width: 1px;
   height: 20px;
   background: var(--pm-border);
@@ -28,15 +29,20 @@
   padding: 0 !important;
   background: transparent !important;
   border: 0 !important;
-  border-radius: 7px !important;
+  border-radius: 8px !important;
   color: var(--pm-muted);
   cursor: pointer;
-  transition: background 160ms ease, border-color 160ms ease, color 160ms ease !important;
+  touch-action: manipulation;
+  transition: background 180ms ease, color 180ms ease !important;
 }
 
 .localeSwitch:hover,
 .localeSwitchOpen {
-  background: color-mix(in srgb, #0083ff 10%, var(--pm-surface)) !important;
+  background: color-mix(in srgb, #0083ff 9%, var(--pm-surface)) !important;
+}
+
+.localeSwitch:active {
+  background: color-mix(in srgb, #0083ff 15%, var(--pm-surface)) !important;
 }
 
 .localeSwitch:focus-visible,
@@ -100,7 +106,7 @@
 }
 
 .checkMark {
-  color: #a78bfa;
+  color: #0083ff;
   font-size: 1rem;
   line-height: 1;
 }

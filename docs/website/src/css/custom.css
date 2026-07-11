@@ -132,48 +132,42 @@ p {
 }
 
 .navbar__items--right {
-  gap: 0;
-  min-height: 52px;
-  padding: 3px;
-  border: 1px solid var(--pm-border);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--pm-surface) 72%, transparent);
+  gap: 8px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.navbar__items--right > div:has(> button[aria-label^='Switch between dark and light mode']) {
+  width: 44px;
+  height: 44px;
 }
 
 .navbar button[aria-label^='Switch between dark and light mode'] {
   width: 44px;
   height: 44px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--pm-muted);
-  transition: background 160ms ease, color 160ms ease;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 180ms ease, color 180ms ease;
 }
 
 .navbar button[aria-label^='Switch between dark and light mode']:hover {
-  background: color-mix(in srgb, #0083ff 10%, var(--pm-surface));
+  background: color-mix(in srgb, #0083ff 9%, var(--pm-surface));
   color: #0083ff;
+}
+
+.navbar button[aria-label^='Switch between dark and light mode']:active {
+  background: color-mix(in srgb, #0083ff 15%, var(--pm-surface));
 }
 
 .navbar button[aria-label^='Switch between dark and light mode'] svg {
   width: 18px;
   height: 18px;
-}
-
-.navbar__items--right > a[href*='x.com'] {
-  position: relative;
-  margin-right: 14px !important;
-}
-
-.navbar__items--right > a[href*='x.com']::after {
-  position: absolute;
-  top: 12px;
-  right: -8px;
-  width: 1px;
-  height: 20px;
-  background: var(--pm-border);
-  content: '';
-  pointer-events: none;
 }
 
 .button {
@@ -382,6 +376,40 @@ table td {
     backdrop-filter: none;
   }
 
+  .navbar__toggle,
+  .navbar-sidebar__close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 8px;
+    color: var(--pm-muted);
+    touch-action: manipulation;
+    transition: background 180ms ease, color 180ms ease;
+  }
+
+  .navbar__toggle:hover,
+  .navbar-sidebar__close:hover {
+    background: color-mix(in srgb, #0083ff 9%, var(--pm-surface));
+    color: #0083ff;
+  }
+
+  .navbar__toggle svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .navbar-sidebar__close {
+    flex: 0 0 44px;
+  }
+
+  .navbar-sidebar__close svg {
+    width: 20px;
+    height: 20px;
+  }
+
   .theme-doc-markdown h1 {
     font-size: 2rem;
   }
@@ -412,6 +440,12 @@ table td {
 
   .navbar__items--right {
     display: none;
+  }
+}
+
+@media (min-width: 997px) and (max-width: 1024px) {
+  .navbar__brand {
+    margin-right: 0;
   }
 }
 

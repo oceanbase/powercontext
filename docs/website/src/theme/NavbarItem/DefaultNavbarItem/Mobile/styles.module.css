@@ -1,28 +1,28 @@
 .iconNavbarLink {
   display: flex !important;
   align-items: center !important;
-  justify-content: center !important;
-  width: 2.25rem !important;
-  height: 2.25rem !important;
-  padding: 0 !important;
-  background: rgba(59, 130, 246, 0.1) !important;
-  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  justify-content: flex-start !important;
+  gap: 0.75rem;
+  width: 100% !important;
+  min-height: 44px !important;
+  padding: 0.65rem 0.75rem !important;
+  background: transparent !important;
+  border: 0 !important;
   border-radius: 8px !important;
-  transition: all 0.3s ease !important;
-  min-width: 2.25rem !important;
-  font-size: 0 !important;
+  color: var(--ifm-menu-color) !important;
+  touch-action: manipulation;
+  transition: background 180ms ease, color 180ms ease !important;
 }
 
 .iconNavbarLink:hover {
-  background: rgba(59, 130, 246, 0.2) !important;
-  border-color: rgba(59, 130, 246, 0.5) !important;
+  background: var(--ifm-menu-color-background-hover) !important;
 }
 
 .icon {
   width: 1.125rem;
   height: 1.125rem;
-  color: #e5e7eb;
-  transition: color 0.3s ease;
+  color: currentColor;
+  transition: color 180ms ease;
   flex-shrink: 0;
   display: block;
 }
@@ -34,6 +34,11 @@
 }
 
 .iconNavbarLink:hover .icon {
-  color: #60a5fa;
+  color: #0083ff;
 }
 
+.label {
+  color: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
