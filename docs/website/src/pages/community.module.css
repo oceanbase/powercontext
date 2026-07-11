@@ -1,321 +1,188 @@
 .communityPage {
-  min-height: 100vh;
-  background: #000000;
-  padding: 2rem 0;
-  position: relative;
-  overflow: hidden;
-}
-
-.communityPage::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: 
-    radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.1), transparent 50%),
-    radial-gradient(circle at 80% 70%, rgba(147, 51, 234, 0.1), transparent 50%);
-  pointer-events: none;
-  z-index: 0;
+  padding: clamp(4.5rem, 8vw, 7rem) 0;
 }
 
 .header {
-  margin-bottom: 3rem;
-  position: relative;
-  z-index: 1;
-}
-
-.backLink {
-  display: inline-flex;
-  align-items: center;
-  color: #60a5fa;
-  text-decoration: none;
-  margin-bottom: 1.5rem;
-  font-size: 0.9375rem;
-  transition: color 0.2s ease;
-}
-
-.backLink:hover {
-  color: #93c5fd;
-  text-decoration: none;
+  max-width: 740px;
+  margin: 0 auto clamp(3.5rem, 7vw, 5rem);
+  text-align: center;
 }
 
 .title {
-  font-size: 3rem;
-  font-weight: 700;
-  color: #ffffff;
   margin-bottom: 1rem;
-  background: linear-gradient(135deg, #60a5fa, #a78bfa, #f472b6);
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: gradientText 3s ease-in-out infinite;
-  text-shadow: 0 0 30px rgba(96, 165, 250, 0.5);
-}
-
-@keyframes gradientText {
-  0%, 100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
+  font-size: clamp(2.7rem, 5.2vw, 4.5rem);
+  letter-spacing: -0.04em;
 }
 
 .subtitle {
-  font-size: 1.25rem;
-  color: #d1d5db;
-  max-width: 700px;
-}
-
-.navIcons {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 3rem;
-  position: relative;
-  z-index: 1;
-}
-
-.githubButton {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: linear-gradient(135deg, #2563eb, #9333ea);
-  color: white;
-  border-radius: 0.5rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.githubButton:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 12px rgba(37, 99, 235, 0.4);
-  text-decoration: none;
-  color: white;
-}
-
-.githubIcon {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-.stars {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.5rem;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 9999px;
-  font-size: 0.875rem;
-  backdrop-filter: blur(4px);
+  margin: 0;
+  color: var(--pm-muted);
+  font-size: 1.05rem;
 }
 
 .communityGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 2rem;
-  margin-bottom: 3rem;
-  position: relative;
-  z-index: 1;
+  grid-template-columns: repeat(3, 1fr);
+  max-width: 1200px;
+  margin: 0 auto clamp(4.5rem, 8vw, 7rem);
+  border-top: 1px solid var(--pm-border);
+  border-bottom: 1px solid var(--pm-border);
 }
 
 .communityCard {
-  background: linear-gradient(135deg, #1f2937, #111827);
-  border-radius: 1rem;
+  min-height: 250px;
   padding: 2rem;
+  border-right: 1px solid var(--pm-border);
+  color: var(--pm-text);
   text-decoration: none;
-  color: white;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  flex-direction: column;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  position: relative;
-  overflow: hidden;
-  backdrop-filter: blur(10px);
+  transition: background 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.communityCard::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  transition: left 0.5s ease;
-}
-
-.communityCard:hover::before {
-  left: 100%;
+.communityCard:last-child {
+  border-right: 0;
 }
 
 .communityCard:hover {
-  transform: translateY(-8px) scale(1.05);
-  box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.6),
-    0 0 40px rgba(59, 130, 246, 0.4);
+  background: var(--pm-surface);
+  color: var(--pm-text);
   text-decoration: none;
-  color: white;
-  border-color: rgba(59, 130, 246, 0.5);
-}
-
-.card-gray {
-  background: linear-gradient(135deg, #1f2937, #111827);
-}
-
-.card-indigo {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-}
-
-.card-sky {
-  background: linear-gradient(135deg, #38bdf8, #0ea5e9);
-}
-
-.card-black {
-  background: linear-gradient(135deg, #000000, #1a1a1a);
-}
-
-.card-black .cardIcon {
-  color: #ffffff;
-  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
-}
-
-.card-black:hover .cardIcon {
-  filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.5));
 }
 
 .cardIcon {
-  width: 3rem;
-  height: 3rem;
-  margin-bottom: 1rem;
-  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
-  transition: all 0.3s ease;
-}
-
-.communityCard:hover .cardIcon {
-  transform: scale(1.1) rotate(5deg);
-  filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.5));
+  width: 36px;
+  height: 36px;
+  margin-bottom: 2.4rem;
+  color: #0083ff;
 }
 
 .cardTitle {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: white;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.65rem;
+  font-size: 1.1rem;
 }
 
 .cardDesc {
-  color: rgba(255, 255, 255, 0.8);
-  margin-bottom: 1rem;
-  flex-grow: 1;
+  min-height: 3.4em;
+  color: var(--pm-muted);
+  line-height: 1.65;
 }
 
 .cardAction {
-  color: rgba(255, 255, 255, 0.9);
-  font-weight: 600;
-  font-size: 0.9375rem;
+  color: #0083ff;
+  font-size: 0.86rem;
+  font-weight: 650;
 }
 
 .section {
-  background: rgba(17, 17, 17, 0.9);
-  border-radius: 1rem;
-  padding: 2rem;
-  margin-bottom: 2rem;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  backdrop-filter: blur(10px);
-  position: relative;
-  z-index: 1;
-}
-
-.sectionContent {
-  display: flex;
-  align-items: flex-start;
-  gap: 1rem;
-}
-
-.heartIcon {
-  font-size: 2rem;
-  flex-shrink: 0;
-  margin-top: 0.25rem;
+  max-width: 1080px;
+  margin: 0 auto clamp(4.5rem, 8vw, 7rem);
 }
 
 .sectionText {
-  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.25fr);
+  gap: 0.6rem 5rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--pm-border);
 }
 
 .sectionTitle {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #ffffff;
-  margin-bottom: 1rem;
+  margin: 0;
+  font-size: 1.75rem;
+  letter-spacing: -0.025em;
 }
 
 .sectionDesc {
-  color: #d1d5db;
-  margin-bottom: 1rem;
-  line-height: 1.6;
+  max-width: 52ch;
+  margin: 0;
+  color: var(--pm-muted);
+  line-height: 1.7;
+}
+
+.sectionText .list {
+  grid-column: 2;
+  grid-row: 1 / span 3;
 }
 
 .list {
-  list-style: disc;
-  list-style-position: inside;
-  color: #9ca3af;
-  margin-bottom: 1.5rem;
-  line-height: 1.8;
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--pm-muted);
 }
 
 .list li {
-  margin-bottom: 0.5rem;
+  margin: 0.65rem 0;
+  line-height: 1.55;
 }
 
 .ctaButton {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #2563eb, #9333ea);
-  color: white;
-  border-radius: 0.5rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.ctaButton:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 12px rgba(37, 99, 235, 0.4);
-  text-decoration: none;
-  color: white;
+  gap: 0.55rem;
+  margin-top: 1rem;
+  font-weight: 650;
 }
 
 .buttonIcon {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 18px;
+  height: 18px;
 }
 
-@media (max-width: 768px) {
-  .title {
-    font-size: 2rem;
-  }
+.conduct {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.25fr);
+  gap: 0.75rem 5rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--pm-border);
+}
 
-  .subtitle {
-    font-size: 1.125rem;
+.conduct .list {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+@media (max-width: 900px) {
+  .communityPage {
+    padding-inline: 1.25rem;
   }
 
   .communityGrid {
     grid-template-columns: 1fr;
   }
 
-  .sectionContent {
-    flex-direction: column;
+  .communityCard {
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--pm-border);
   }
 
-  .heartIcon {
-    margin-top: 0;
+  .communityCard:last-child {
+    border-bottom: 0;
+  }
+
+  .cardIcon {
+    margin-bottom: 1.25rem;
+  }
+
+  .sectionText,
+  .conduct {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .sectionText .list,
+  .conduct .list {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .header {
+    text-align: left;
+  }
+
+  .communityCard {
+    padding-inline: 0;
   }
 }
 

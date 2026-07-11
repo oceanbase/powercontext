@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 266.55 32.95" role="img" aria-label="OceanBase">
+  <path fill="#0083ff" d="M0 11.03c18.57 2.56 27.53-8.96 50.58-6.4v17.29C32.01 19.36 23.05 30.88 0 28.4V11.03Z"/>
+  <path fill="#ff9a00" d="M23.08 0C12.94 3.15 8.11 4.48 0 3.33V9.1l.2.03c8.6 1.19 15.16-.79 22.1-2.89.84-.25 1.69-.51 2.55-.76L23.07 0h.01Z"/>
+  <path fill="#00cc29" d="M50.36 23.81c-8.61-1.19-15.18.81-22.14 2.92-.82.25-1.66.5-2.51.76l1.78 5.46c10.14-3.15 14.98-4.48 23.09-3.33v-5.77l-.21-.03h-.01Z"/>
+  <text x="59" y="24.2" fill="#171b24" font-family="Arial, Helvetica, sans-serif" font-size="20.5" font-style="italic" font-weight="800" letter-spacing="-1.1" transform="translate(-41.3 0) scale(1.7 1)">OCEANBASE</text>
+</svg>

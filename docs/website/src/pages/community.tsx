@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 import Link from '@docusaurus/Link';
@@ -8,26 +8,6 @@ import DiscordIcon from '../components/Community/icons/DiscordIcon';
 import XIcon from '../components/Community/icons/XIcon';
 import styles from './community.module.css';
 
-// GitHub Stars Hook
-function useGitHubStars() {
-  const [stars, setStars] = useState<number | null>(null);
-
-  useEffect(() => {
-    fetch('https://api.github.com/repos/oceanbase/powermem')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.stargazers_count) {
-          setStars(data.stargazers_count);
-        }
-      })
-      .catch(() => {
-        // Silently fail
-      });
-  }, []);
-
-  return stars;
-}
-
 const communityLinks = [
   {
     icon: GitHubIcon,
@@ -35,7 +15,6 @@ const communityLinks = [
     descKey: 'community.github.desc',
     actionKey: 'communityPage.github.action',
     href: 'https://github.com/oceanbase/powermem',
-    color: 'from-gray-800 to-gray-900',
   },
   {
     icon: DiscordIcon,
@@ -43,7 +22,6 @@ const communityLinks = [
     descKey: 'community.discord.desc',
     actionKey: 'communityPage.discord.action',
     href: 'https://discord.com/invite/74cF8vbNEs',
-    color: 'from-indigo-500 to-indigo-600',
   },
   {
     icon: XIcon,
@@ -51,7 +29,6 @@ const communityLinks = [
     descKey: 'community.x.desc',
     actionKey: 'communityPage.x.action',
     href: 'https://x.com/OceanBaseDB',
-    color: 'from-black to-gray-900',
   },
 ];
 
@@ -59,7 +36,7 @@ const translations: Record<string, Record<string, string>> = {
   en: {
     'common.back': 'Back',
     'communityPage.title': 'Community',
-    'communityPage.subtitle': 'Build better AI memory management systems with the developer community',
+    'communityPage.subtitle': 'Discuss implementation, report issues, and contribute to PowerMem',
     'communityPage.description': 'Join the PowerMem Community',
     'communityPage.github.action': 'Star Us',
     'communityPage.discord.action': 'Join Discord',
@@ -84,7 +61,7 @@ const translations: Record<string, Record<string, string>> = {
   zh: {
     'common.back': '返回',
     'communityPage.title': '社区',
-    'communityPage.subtitle': '与开发者社区一起构建更好的 AI 记忆管理系统',
+    'communityPage.subtitle': '讨论实现、反馈问题，并参与 PowerMem 开发',
     'communityPage.description': '加入 PowerMem 社区',
     'communityPage.github.action': 'Star 我们',
     'communityPage.discord.action': '加入 Discord',
@@ -112,7 +89,6 @@ export default function CommunityPage() {
   const { i18n } = useDocusaurusContext();
   const isZh = i18n.currentLocale === 'zh';
   const t = (key: string) => translations[isZh ? 'zh' : 'en'][key] || key;
-  const stars = useGitHubStars();
 
   return (
     <Layout title={t('communityPage.title')} description={t('communityPage.description')}>
@@ -138,7 +114,7 @@ export default function CommunityPage() {
                   href={link.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`${styles.communityCard} ${link.color.includes('gray') ? styles['card-gray'] : link.color.includes('indigo') ? styles['card-indigo'] : link.color.includes('black') ? styles['card-black'] : styles['card-sky']}`}
+                  className={styles.communityCard}
                 >
                   <Icon className={styles.cardIcon} />
                   <h2 className={styles.cardTitle}>{link.name}</h2>
@@ -175,7 +151,7 @@ export default function CommunityPage() {
           </div>
 
           {/* Code of Conduct */}
-          <div className={styles.section}>
+          <div className={`${styles.section} ${styles.conduct}`}>
             <Heading as="h2" className={styles.sectionTitle}>
               {t('communityPage.codeOfConduct.title')}
             </Heading>

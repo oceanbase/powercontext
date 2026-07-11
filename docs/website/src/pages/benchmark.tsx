@@ -99,21 +99,18 @@ const comparisonMetrics = [
     detailKey: 'benchmark.metrics.accuracy',
     value: '87.79%',
     baselineKey: 'benchmark.metrics.llmScore.baseline',
-    cardClass: 'metricCardBlue',
   },
   {
     labelKey: 'benchmark.metrics.retrievalP95',
     detailKey: 'benchmark.metrics.latency',
     value: '1.44s',
     baselineKey: 'benchmark.metrics.retrievalP95.baseline',
-    cardClass: 'metricCardGreen',
   },
   {
     labelKey: 'benchmark.metrics.tokenUsage',
     detailKey: 'benchmark.metrics.consumption',
     value: '~0.9k',
     baselineKey: 'benchmark.metrics.tokenUsage.baseline',
-    cardClass: 'metricCardPurple',
   },
 ];
 
@@ -180,14 +177,11 @@ export default function BenchmarkPage() {
             </Heading>
             <div className={styles.performanceGrid}>
               {comparisonMetrics.map((metric) => (
-                <div
-                  key={metric.labelKey}
-                  className={`${styles.metricCard} ${styles[metric.cardClass]}`}
-                >
+                <article key={metric.labelKey} className={styles.metricCard}>
                   <div className={styles.metricLabel}>{t(metric.labelKey)} {t(metric.detailKey)}</div>
                   <div className={styles.metricValue}>{metric.value}</div>
                   <div className={styles.metricDetail}>{t(metric.baselineKey)}</div>
-                </div>
+                </article>
               ))}
             </div>
           </section>

@@ -1,287 +1,120 @@
 .featuresPage {
   min-height: 100vh;
-  background: #000000;
-  padding: 2rem 0;
-  position: relative;
-  overflow: hidden;
-}
-
-.featuresPage::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: 
-    radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.1), transparent 50%),
-    radial-gradient(circle at 80% 70%, rgba(147, 51, 234, 0.1), transparent 50%);
-  pointer-events: none;
-  z-index: 0;
+  padding: clamp(4.5rem, 8vw, 7rem) 0;
 }
 
 .header {
+  max-width: 760px;
+  margin: 0 auto clamp(3.5rem, 7vw, 6rem);
   text-align: center;
-  margin-bottom: 4rem;
-  position: relative;
-  z-index: 1;
 }
 
 .title {
-  font-size: 3rem;
-  font-weight: 700;
-  color: #ffffff;
   margin-bottom: 1rem;
-  background: linear-gradient(135deg, #60a5fa, #a78bfa, #f472b6);
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: gradientText 3s ease-in-out infinite;
-  text-shadow: 0 0 30px rgba(96, 165, 250, 0.5);
-}
-
-@keyframes gradientText {
-  0%, 100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
+  font-size: clamp(2.7rem, 5.4vw, 4.6rem);
+  letter-spacing: -0.04em;
 }
 
 .subtitle {
-  font-size: 1.25rem;
-  color: #d1d5db;
-  max-width: 700px;
-  margin: 0 auto;
+  margin: 0;
+  color: var(--pm-muted);
+  font-size: 1.05rem;
 }
 
 .grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 2rem;
-  position: relative;
-  z-index: 1;
+  max-width: 1080px;
+  margin: 0 auto;
+  border-top: 1px solid var(--pm-border);
 }
 
 .card {
-  background: rgba(17, 17, 17, 0.9);
-  border-radius: 1rem;
-  padding: 2rem;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(10px);
-  position: relative;
-  overflow: hidden;
-}
-
-.card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  transition: left 0.5s ease;
-}
-
-.card:hover::before {
-  left: 100%;
-}
-
-.card:hover {
-  transform: translateY(-8px);
-  box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.6),
-    0 0 40px rgba(59, 130, 246, 0.4);
-  border-color: rgba(59, 130, 246, 0.5);
-}
-
-.card-blue {
-  border-left: 4px solid #3b82f6;
-}
-
-.card-blue:hover {
-  box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.6),
-    0 0 40px rgba(59, 130, 246, 0.4);
-}
-
-.card-purple {
-  border-left: 4px solid #9333ea;
-}
-
-.card-purple:hover {
-  box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.6),
-    0 0 40px rgba(147, 51, 234, 0.4);
-}
-
-.card-green {
-  border-left: 4px solid #22c55e;
-}
-
-.card-green:hover {
-  box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.6),
-    0 0 40px rgba(34, 197, 94, 0.4);
-}
-
-.card-orange {
-  border-left: 4px solid #f97316;
-}
-
-.card-orange:hover {
-  box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.6),
-    0 0 40px rgba(249, 115, 22, 0.4);
-}
-
-.card-pink {
-  border-left: 4px solid #ec4899;
-}
-
-.card-pink:hover {
-  box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.6),
-    0 0 40px rgba(236, 72, 153, 0.4);
-}
-
-.card-more {
-  border-left: 4px solid rgba(59, 130, 246, 0.3);
-  opacity: 0.7;
-  border-style: dashed;
-}
-
-.card-more:hover {
-  opacity: 1;
-  transform: translateY(-8px);
-  box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.6),
-    0 0 40px rgba(59, 130, 246, 0.2);
-  border-color: rgba(59, 130, 246, 0.5);
-}
-
-.moreIcon {
-  font-size: 3rem;
-  font-weight: 300;
-  color: #9ca3af;
-  line-height: 1;
-  letter-spacing: 0.5rem;
-}
-
-.card-more:hover .moreIcon {
-  color: #60a5fa;
+  display: grid;
+  grid-template-columns: 48px minmax(220px, 0.72fr) minmax(0, 1.28fr);
+  gap: 0 1.5rem;
+  padding: 2rem 0;
+  border-bottom: 1px solid var(--pm-border);
 }
 
 .iconContainer {
-  width: 4rem;
-  height: 4rem;
-  margin-bottom: 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  background: rgba(59, 130, 246, 0.1);
-  transition: all 0.3s ease;
-}
-
-.card:hover .iconContainer {
-  background: rgba(59, 130, 246, 0.2);
-  transform: scale(1.1);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 9px;
+  background: color-mix(in srgb, #0083ff 10%, transparent);
+  color: #0083ff;
 }
 
 .icon {
-  width: 2.5rem;
-  height: 2.5rem;
-  color: #60a5fa;
-  transition: all 0.3s ease;
-}
-
-.card-blue .icon {
-  color: #60a5fa;
-}
-
-.card-purple .icon {
-  color: #a78bfa;
-}
-
-.card-green .icon {
-  color: #86efac;
-}
-
-.card-orange .icon {
-  color: #fb923c;
-}
-
-.card-pink .icon {
-  color: #f472b6;
-}
-
-.card-pink .bullet {
-  color: #f472b6;
+  width: 21px;
+  height: 21px;
 }
 
 .cardTitle {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #ffffff;
-  margin-bottom: 1rem;
+  margin: 0.55rem 0 0;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
 }
 
 .cardDesc {
-  color: #d1d5db;
-  margin-bottom: 1.5rem;
-  line-height: 1.6;
+  max-width: 62ch;
+  margin: 0 0 1rem;
+  color: var(--pm-muted);
+  line-height: 1.7;
 }
 
 .details {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.details li {
-  color: #9ca3af;
-  margin-bottom: 0.75rem;
   display: flex;
-  align-items: flex-start;
-  line-height: 1.6;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--pm-text);
+  font-size: 0.8rem;
 }
 
-.bullet {
-  color: #60a5fa;
-  margin-right: 0.75rem;
-  font-weight: bold;
-  flex-shrink: 0;
+.details li::before {
+  margin-right: 0.45rem;
+  color: #0083ff;
+  content: "•";
 }
 
-.card-blue .bullet {
-  color: #60a5fa;
+@media (max-width: 900px) {
+  .featuresPage {
+    padding-inline: 1.25rem;
+  }
+
+  .card {
+    grid-template-columns: 44px 1fr;
+    gap: 0 1rem;
+  }
+
+  .cardContent {
+    grid-column: 2;
+    margin-top: 0.8rem;
+  }
 }
 
-.card-purple .bullet {
-  color: #a78bfa;
-}
+@media (max-width: 520px) {
+  .header {
+    text-align: left;
+  }
 
-.card-green .bullet {
-  color: #86efac;
-}
-
-.card-orange .bullet {
-  color: #fb923c;
-}
-
-@media (max-width: 768px) {
   .title {
-    font-size: 2rem;
+    font-size: 2.7rem;
   }
 
-  .subtitle {
-    font-size: 1.125rem;
+  .card {
+    display: block;
   }
 
-  .grid {
-    grid-template-columns: 1fr;
+  .iconContainer {
+    margin-bottom: 1rem;
+  }
+
+  .cardTitle {
+    margin-bottom: 0.75rem;
   }
 }
 

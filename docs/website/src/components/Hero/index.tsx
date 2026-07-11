@@ -1,104 +1,46 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import {useColorMode} from '@docusaurus/theme-common';
 import Heading from '@theme/Heading';
-import CodeIcon from './icons/CodeIcon';
 import {Highlight, themes} from 'prism-react-renderer';
+import CodeIcon from './icons/CodeIcon';
 import {localizedPath} from '../../utils/localizedPath';
 import styles from './styles.module.css';
 
-// GitHub Stars Hook
-function useGitHubStars() {
-  const [stars, setStars] = useState<number | null>(null);
-
-  useEffect(() => {
-    fetch('https://api.github.com/repos/oceanbase/powermem')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.stargazers_count && data.stargazers_count > 1000) {
-          setStars(data.stargazers_count);
-        }
-      })
-      .catch(() => {
-        // Silently fail
-      });
-  }, []);
-
-  return stars;
-}
-
 export default function Hero() {
-  const { siteConfig, i18n } = useDocusaurusContext();
-  const stars = useGitHubStars();
+  const {i18n} = useDocusaurusContext();
+  const {colorMode} = useColorMode();
   const isZh = i18n.currentLocale === 'zh';
 
   const codeExample = isZh
     ? `from powermem import Memory, auto_config
 
-# 自动从 .env 加载配置
-config = auto_config()
-memory = Memory(config=config)
+memory = Memory(config=auto_config())
+memory.add("用户喜欢咖啡", user_id="u123")
 
-# 添加记忆
-memory.add("用户喜欢咖啡", user_id="user123")
-
-# 搜索记忆
-memories = memory.search("用户偏好", user_id="user123")`
+results = memory.search("咖啡", user_id="u123")`
     : `from powermem import Memory, auto_config
 
-# Auto-load from .env
-config = auto_config()
-memory = Memory(config=config)
+memory = Memory(config=auto_config())
+memory.add("User likes coffee", user_id="u123")
 
-# Add memory
-memory.add("User likes coffee", user_id="user123")
-
-# Search memories
-memories = memory.search("user preferences", user_id="user123")`;
+results = memory.search("coffee", user_id="u123")`;
 
   return (
     <section className={styles.hero}>
-      {/* Background Gradient */}
-      <div className={styles.heroBackground} />
-
-      {/* Grid Background */}
-      <div className={styles.gridBackground} />
-
-      {/* Animated Background Blobs */}
-      <div className={styles.blobContainer}>
-        <div className={`${styles.blob} ${styles.blob1}`} />
-        <div className={`${styles.blob} ${styles.blob2}`} />
-        <div className={`${styles.blob} ${styles.blob3}`} />
-      </div>
-
-      {/* Content */}
       <div className={styles.heroContent}>
-        <div className={`${styles.heroText} fade-in`}>
+        <div className={styles.heroText}>
           <Heading as="h1" className={styles.heroTitle}>
             {isZh ? (
-              <>
-                为 AI 应用构建
-                <br />
-                <span className={styles.heroTitleHighlight}>
-                  持久<span className={styles.heroTitleMemory}>记忆层</span>
-                </span>
-              </>
+              <>为 AI 应用构建<span className={styles.heroTitleMemory}>持久记忆</span></>
             ) : (
-              <>
-                Build Persistent <span className={styles.heroTitleMemory}>Memory</span>
-                <br />
-                <span className={styles.heroTitleHighlight}>
-                  for AI Applications
-                </span>
-              </>
+              <>Persistent <span className={styles.heroTitleMemory}>memory</span> for AI applications.</>
             )}
           </Heading>
-
           <p className={styles.heroSubtitle}>
             {isZh ? '几分钟上手，轻松扩展到百万级记忆' : 'Get started in minutes, scale to millions'}
           </p>
-
-          {/* CTA Buttons */}
           <div className={styles.heroButtons}>
             <Link
               className="button button--primary button--lg"
@@ -113,28 +55,18 @@ memories = memory.search("user preferences", user_id="user123")`;
             >
               <CodeIcon className={styles.buttonIcon} />
               {isZh ? '查看代码' : 'View Code'}
-              {stars !== null && stars > 1000 && (
-                <span className={styles.stars}>
-                  ⭐ {stars.toLocaleString()}
-                </span>
-              )}
             </Link>
           </div>
         </div>
 
-        {/* Code Preview */}
-        <div className={`${styles.codePreview} fade-in-delay-3`}>
+        <div className={styles.codePreview}>
           <div className={styles.codeHeader}>
-            <div className={styles.codeDots}>
-              <span className={styles.codeDot} />
-              <span className={styles.codeDot} />
-              <span className={styles.codeDot} />
-            </div>
-            <span className={styles.codeLanguage}>Python</span>
+            <span>Python</span>
+            <span>powermem.py</span>
           </div>
           <div className={styles.codeBlock}>
             <Highlight
-              theme={themes.vsDark}
+              theme={colorMode === 'dark' ? themes.vsDark : themes.github}
               code={codeExample}
               language="python"
             >
@@ -159,3 +91,4 @@ memories = memory.search("user preferences", user_id="user123")`;
     </section>
   );
 }
+

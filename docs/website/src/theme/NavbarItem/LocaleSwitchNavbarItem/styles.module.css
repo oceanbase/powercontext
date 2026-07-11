@@ -13,20 +13,18 @@
   height: 2.5rem !important;
   min-width: 2.5rem !important;
   padding: 0 !important;
-  background: rgba(59, 130, 246, 0.1) !important;
-  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  background: var(--pm-surface) !important;
+  border: 1px solid var(--pm-border) !important;
   border-radius: 8px !important;
-  color: #e5e7eb;
+  color: var(--pm-muted);
   cursor: pointer;
-  transition: all 0.3s ease !important;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease !important;
 }
 
 .localeSwitch:hover,
 .localeSwitchOpen {
-  background: rgba(59, 130, 246, 0.2) !important;
-  border-color: rgba(59, 130, 246, 0.5) !important;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
-  transform: translateY(-2px) !important;
+  background: color-mix(in srgb, #0083ff 10%, var(--pm-surface)) !important;
+  border-color: color-mix(in srgb, #0083ff 48%, var(--pm-border)) !important;
 }
 
 .localeSwitch:focus-visible,
@@ -39,14 +37,14 @@
 .icon {
   width: 1.25rem;
   height: 1.25rem;
-  color: #e5e7eb;
+  color: var(--pm-muted);
   flex-shrink: 0;
-  transition: color 0.3s ease;
+  transition: color 160ms ease;
 }
 
 .localeSwitch:hover .icon,
 .localeSwitchOpen .icon {
-  color: #60a5fa;
+  color: #0083ff;
 }
 
 .localeMenu {
@@ -58,10 +56,10 @@
   padding: 0.35rem 0;
   margin: 0;
   list-style: none;
-  background: rgba(17, 24, 39, 0.98);
-  border: 1px solid rgba(75, 85, 99, 0.75);
-  border-radius: 2px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  background: var(--pm-raised);
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-sm);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--pm-text) 12%, transparent);
 }
 
 .localeMenuItem {
@@ -76,7 +74,7 @@
   width: 100%;
   min-height: 2.75rem;
   padding: 0.75rem 1rem;
-  color: rgba(229, 231, 235, 0.92);
+  color: var(--pm-text);
   font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
@@ -84,9 +82,9 @@
 
 .localeMenuLink:hover,
 .localeMenuLinkActive {
-  color: #fff;
+  color: var(--pm-text);
   text-decoration: none;
-  background: rgba(59, 130, 246, 0.18);
+  background: color-mix(in srgb, #0083ff 10%, var(--pm-surface));
 }
 
 .checkMark {
