@@ -1,4 +1,6 @@
 .featuresPage {
+  --feature-shell-width: 1320px;
+  --feature-gutter: clamp(1.25rem, 4vw, 3rem);
   --feature-accent: #0074e8;
   --feature-accent-strong: #005fc4;
   --feature-accent-soft: #e8f3ff;
@@ -7,7 +9,6 @@
   --feature-diagram-line: #c9d5e5;
   --feature-diagram-line-muted: #dce4ee;
   min-height: 100vh;
-  overflow: hidden;
   background: var(--pm-bg);
   color: var(--pm-text);
 }
@@ -24,8 +25,8 @@
 
 .pageContainer {
   width: 100%;
-  max-width: 1320px;
-  padding-inline: clamp(1.25rem, 4vw, 3rem);
+  max-width: var(--feature-shell-width);
+  padding-inline: var(--feature-gutter);
 }
 
 .hero {
@@ -35,15 +36,29 @@
 
 .hero::before,
 .featureChapter::before,
-.moreSection::before {
+.moreSection::before,
+.hero::after,
+.featureChapter::after,
+.moreSection::after {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: max(1.25rem, calc((100vw - 1320px) / 2 + 3rem));
   width: 1px;
   background: var(--pm-border);
   content: '';
   pointer-events: none;
+}
+
+.hero::before,
+.featureChapter::before,
+.moreSection::before {
+  left: max(0px, calc((100vw - var(--feature-shell-width)) / 2));
+}
+
+.hero::after,
+.featureChapter::after,
+.moreSection::after {
+  right: max(0px, calc((100vw - var(--feature-shell-width)) / 2));
 }
 
 .heroGrid {
@@ -59,10 +74,10 @@
   grid-column: 1 / span 9;
   margin: 0;
   color: var(--pm-text);
-  font-size: clamp(4rem, 7.4vw, 7rem);
+  font-size: clamp(4rem, 7.4vw, 6rem);
   font-weight: 720;
   line-height: 0.9;
-  letter-spacing: -0.065em;
+  letter-spacing: -0.035em;
   text-wrap: nowrap;
   white-space: nowrap;
 }
@@ -87,8 +102,8 @@
 
 .featureMap::before {
   position: absolute;
-  right: 0;
-  left: 0;
+  right: calc(var(--feature-gutter) * -1);
+  left: calc(var(--feature-gutter) * -1);
   height: 1px;
   background: var(--pm-border);
   content: '';
@@ -167,7 +182,7 @@
   font-size: clamp(2rem, 3.15vw, 3.15rem);
   font-weight: 690;
   line-height: 1.02;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.035em;
 }
 
 .featureDesc {
@@ -324,7 +339,8 @@
   color: #fff;
 }
 
-.moreSection::before {
+.moreSection::before,
+.moreSection::after {
   background: color-mix(in srgb, #fff 24%, transparent);
 }
 
@@ -344,7 +360,7 @@
   font-size: clamp(3.25rem, 6vw, 5.75rem);
   font-weight: 710;
   line-height: 0.94;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.035em;
 }
 
 .moreDesc {
@@ -400,7 +416,10 @@
 @media (max-width: 760px) {
   .hero::before,
   .featureChapter::before,
-  .moreSection::before {
+  .moreSection::before,
+  .hero::after,
+  .featureChapter::after,
+  .moreSection::after {
     display: none;
   }
 
@@ -498,10 +517,6 @@
 @media (max-width: 480px) {
   .title {
     font-size: clamp(3rem, 14vw, 4rem);
-  }
-
-  .featureMap {
-    margin-inline: -0.25rem;
   }
 
   .mapPoint {
