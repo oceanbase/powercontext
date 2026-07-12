@@ -14,6 +14,7 @@ from powermem.integrations.rerank.config.providers import (
     JinaRerankConfig,
     ZaiRerankConfig,
     GenericRerankConfig,
+    NimRerankConfig,
 )
 
 
