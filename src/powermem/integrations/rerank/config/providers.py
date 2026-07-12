@@ -118,10 +118,46 @@ class ZaiRerankConfig(BaseRerankConfig):
 
 class GenericRerankConfig(BaseRerankConfig):
     """Configuration for generic rerank service"""
-    
+
     _provider_name = "generic"
     _class_path = "powermem.integrations.rerank.generic.GenericRerank"
-    
+
     model_config = settings_config("RERANKER_", extra="forbid", env_file=None)
-    
+
     # Generic uses base class default configuration
+
+
+class NimRerankConfig(BaseRerankConfig):
+    """Configuration for NVIDIA NIM (NeMo Retriever Reranking) `/v1/ranking` service"""
+
+    _provider_name = "nim"
+    _class_path = "powermem.integrations.rerank.nim.NimRerank"
+
+    model_config = settings_config("RERANKER_", extra="forbid", env_file=None)
+
+    api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "api_key",
+            "RERANKER_API_KEY",
+            "NIM_API_KEY",
+            "NGC_API_KEY",
+        ),
+        description="NGC / NIM API key for the NIM rerank service"
+    )
+
+    model: Optional[str] = Field(
+        default="baai/bge-reranker-v2-m3",
+        description="NIM rerank model name"
+    )
+
+    api_base_url: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "api_base_url",
+            "RERANKER_API_BASE_URL",
+            "NIM_RERANK_BASE_URL",
+            "NIM_BASE_URL",
+        ),
+        description="Base URL for the NIM rerank service, e.g. http://host:8002/v1"
+    )
