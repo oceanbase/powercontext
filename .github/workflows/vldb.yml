@@ -1,0 +1,117 @@
+name: VLDB 2026 LangChain Package Tests
+
+on:
+  pull_request:
+    branches: [vldb_2026]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - "packages/powermem-langchain/**"
+      - ".github/workflows/vldb.yml"
+      - ".github/workflows/vldb-comment.yml"
+      - "scripts/vldb_langchain_contract_score.py"
+  workflow_dispatch:
+
+jobs:
+  langchain-package:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Run package contract tests
+        run: |
+          uv run --no-project \
+            --python "${{ matrix.python-version }}" \
+            --with-editable "." \
+            --with-editable "packages/powermem-langchain[test]" \
+            pytest \
+              packages/powermem-langchain/tests \
+              -q \
+              --junitxml="${{ runner.temp }}/pytest-${{ matrix.python-version }}.xml"
+
+      - name: Upload contract test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: vldb-langchain-junit-${{ matrix.python-version }}
+          path: ${{ runner.temp }}/pytest-${{ matrix.python-version }}.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  langchain-contract-score:
+    name: langchain-contract-score
+    if: ${{ always() }}
+    needs: langchain-package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download Python 3.11 JUnit report
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: vldb-langchain-junit-3.11
+          path: ${{ runner.temp }}/vldb-langchain-junit/py311
+
+      - name: Download Python 3.12 JUnit report
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: vldb-langchain-junit-3.12
+          path: ${{ runner.temp }}/vldb-langchain-junit/py312
+
+      - name: Generate contract score
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTIFACT_DIR="${{ runner.temp }}/vldb-langchain-contract"
+          mkdir -p "$ARTIFACT_DIR"
+
+          python3 scripts/vldb_langchain_contract_score.py \
+            --suite "py311=${{ runner.temp }}/vldb-langchain-junit/py311/pytest-3.11.xml" \
+            --suite "py312=${{ runner.temp }}/vldb-langchain-junit/py312/pytest-3.12.xml" \
+            --score-output "$ARTIFACT_DIR/score.txt" \
+            --report-output "$ARTIFACT_DIR/report.txt" \
+            --json-output "$ARTIFACT_DIR/score.json"
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "${{ github.event.pull_request.number }}" > "$ARTIFACT_DIR/pr_number"
+          fi
+          echo "${{ github.run_id }}" > "$ARTIFACT_DIR/source_run_id"
+          echo "${{ github.run_attempt }}" > "$ARTIFACT_DIR/source_run_attempt"
+
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            {
+              echo "### LangChain Contract Score"
+              echo '```'
+              cat "$ARTIFACT_DIR/score.txt"
+              echo '```'
+              echo
+              echo "### LangChain Contract Report"
+              echo '```'
+              cat "$ARTIFACT_DIR/report.txt"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload contract score artifact
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: vldb-langchain-contract-score
+          path: ${{ runner.temp }}/vldb-langchain-contract/
+          if-no-files-found: ignore
+          retention-days: 7
