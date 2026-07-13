@@ -183,3 +183,28 @@ async def test_async_agent_uses_powermem_memory(tmp_path: Path):
     await agent.ainvoke({"messages": [HumanMessage(content="Use my async profile.")]})
 
     assert "User prefers async examples." in _message_text(model.calls[0])
+
+
+@pytest.mark.asyncio
+async def test_async_agent_persists_interaction(tmp_path: Path):
+    memory = _sqlite_memory(tmp_path)
+    model = CapturingChatModel(responses=["Async stored response"])
+    agent = create_agent(
+        model=model,
+        tools=[],
+        middleware=[
+            PowerMemMiddleware(
+                memory=memory,
+                user_id="async-user",
+                save_interactions=True,
+            )
+        ],
+    )
+
+    await agent.ainvoke(
+        {"messages": [HumanMessage(content="Remember this async note.")]}
+    )
+
+    memory_text = _stored_memory_text(memory, "async-user")
+    assert "Remember this async note." in memory_text
+    assert "Async stored response" in memory_text

@@ -1,9 +1,8 @@
 # powermem-langchain
 
 This package is the LangChain middleware exercise for the VLDB 2026 summer
-school branch. It provides a package skeleton, a no-op middleware scaffold,
-contract tests, and a runnable OpenAI example. It does not provide a complete
-PowerMem middleware implementation.
+school branch. It provides a PowerMem middleware implementation, contract
+tests, and a runnable OpenAI example.
 
 The goal is to integrate PowerMem as a long-term memory layer for LangChain v1
 agents. The provided scaffold is intentionally small; you may adjust it as your
@@ -112,6 +111,5 @@ uv run --no-project \
     --user-id summer-school-demo
 ```
 
-With the placeholder middleware, the command can run but will not show the expected
-memory injection or write-back behavior. After implementation, the output should
-show seeded memories before the agent call and updated memories afterward.
+The output should show seeded memories before the agent call and updated memories
+afterward.
