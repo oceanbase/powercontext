@@ -51,12 +51,11 @@
 }
 
 .card:nth-child(n + 4) .icon {
-  grid-row: 1 / span 3;
+  grid-row: 1 / span 2;
 }
 
 .card:nth-child(n + 4) .cardTitle,
-.card:nth-child(n + 4) .cardDesc,
-.card:nth-child(n + 4) .details {
+.card:nth-child(n + 4) .cardDesc {
   grid-column: 2;
 }
 
@@ -89,22 +88,6 @@
   line-height: 1.68;
 }
 
-.details {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.8rem;
-  margin: 1rem 0 0;
-  padding: 0;
-  list-style: none;
-  color: var(--pm-muted);
-  font-size: 0.76rem;
-}
-
-.bullet {
-  margin-right: 0.35rem;
-  color: #0083ff;
-}
-
 @media (max-width: 800px) {
   .features {
     padding-inline: 1.25rem;
@@ -128,4 +111,3 @@
     padding-inline: 0;
   }
 }
-
