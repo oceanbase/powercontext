@@ -49,6 +49,26 @@ function GlobeIcon() {
   );
 }
 
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className={styles.checkIcon}
+      viewBox="0 0 20 20"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="m4.75 10.25 3.35 3.35 7.15-7.2"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
 function getLocaleLabel(locale: string, fallbackLabel?: string) {
   if (locale === 'en') {
     return 'English';
@@ -59,6 +79,16 @@ function getLocaleLabel(locale: string, fallbackLabel?: string) {
   return fallbackLabel ?? locale;
 }
 
+function getLocaleCode(locale: string) {
+  if (locale === 'en') {
+    return 'EN';
+  }
+  if (locale === 'zh') {
+    return '中';
+  }
+  return locale.slice(0, 2).toUpperCase();
+}
+
 export default function LocaleSwitchNavbarItem({
   className,
   mobile = false,
@@ -66,6 +96,7 @@ export default function LocaleSwitchNavbarItem({
 }: Props): ReactNode {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const {
     siteConfig,
     i18n: {currentLocale, localeConfigs, locales},
@@ -145,6 +176,7 @@ export default function LocaleSwitchNavbarItem({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         closeDropdown();
+        triggerRef.current?.focus();
       }
     };
 
@@ -183,14 +215,16 @@ export default function LocaleSwitchNavbarItem({
             to={option.to}
             target="_self"
             autoAddBaseUrl={false}
+            aria-current={option.active ? 'page' : undefined}
             onClick={handleLocaleClick}
           >
-            <span>{option.label}</span>
-            {option.active && (
-              <span className={styles.checkMark} aria-hidden="true">
-                ✓
-              </span>
-            )}
+            <span className={styles.localeCode} aria-hidden="true">
+              {getLocaleCode(option.locale)}
+            </span>
+            <span className={styles.localeName}>{option.label}</span>
+            <span className={styles.checkMark} aria-hidden="true">
+              {option.active && <CheckIcon />}
+            </span>
           </Link>
         </li>
       ))}
@@ -204,6 +238,7 @@ export default function LocaleSwitchNavbarItem({
         className={clsx('menu__list-item', styles.mobileLocaleItem)}
       >
         <button
+          ref={triggerRef}
           type="button"
           className={clsx(
             'clean-btn menu__link',
@@ -228,6 +263,7 @@ export default function LocaleSwitchNavbarItem({
       className={clsx('navbar__item', styles.localeDropdown, className)}
     >
       <button
+        ref={triggerRef}
         type="button"
         aria-expanded={open}
         aria-label={languageButtonLabel}
