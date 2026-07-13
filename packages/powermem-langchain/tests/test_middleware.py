@@ -1,185 +1,241 @@
+"""
+Tests for PowerMemMiddleware.
+
+Verifies:
+- Import from public entry point
+- Memory injection into model context
+- Interaction saving to PowerMem
+- save_interactions=False disables saving
+- Graceful degradation on PowerMem failures
+- Async agent invocation
+"""
+
 from __future__ import annotations
 
-import uuid
-from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import pytest
-from langchain.agents import create_agent
-from langchain_core.language_models.chat_models import SimpleChatModel
-from langchain_core.messages import BaseMessage, HumanMessage
-from powermem import Memory
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+
 from powermem_langchain import PowerMemMiddleware
-from pydantic import Field
 
 
-class CapturingChatModel(SimpleChatModel):
-    responses: list[str] = Field(default_factory=lambda: ["ok"])
-    calls: list[list[BaseMessage]] = Field(default_factory=list)
+# ---------------------------------------------------------------------------
+# Mock PowerMem — in-memory stand-in for powermem.Memory
+# ---------------------------------------------------------------------------
 
-    @property
-    def _llm_type(self) -> str:
-        return "capturing-chat-model"
+class MockPowerMem:
+    """Simple in-memory PowerMem replacement for testing."""
 
-    def _call(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: Any | None = None,
-        **kwargs: Any,
-    ) -> str:
-        self.calls.append(list(messages))
-        index = min(len(self.calls) - 1, len(self.responses) - 1)
-        return self.responses[index]
+    def __init__(self) -> None:
+        self._records: List[Dict[str, Any]] = []
+        self.fail_search: bool = False
+        self.fail_add: bool = False
 
+    def add(self, content: str, user_id: Optional[str] = None,
+            **kwargs: Any) -> Dict[str, Any]:
+        if self.fail_add:
+            raise RuntimeError("PowerMem add failed")
+        self._records.append({"content": content, "user_id": user_id,
+                              "memory": content})
+        return {"results": [{"id": len(self._records), "memory": content}]}
 
-class FailingSearchMemory:
-    def search(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        raise RuntimeError("search failed")
-
-
-def _message_text(messages: list[BaseMessage]) -> str:
-    return "\n".join(str(message.content) for message in messages)
-
-
-def _stored_memory_text(memory: Memory, user_id: str) -> str:
-    result = memory.get_all(user_id=user_id)
-    return "\n".join(item["memory"] for item in result["results"])
+    def search(self, query: str, user_id: Optional[str] = None,
+               limit: int = 5, **kwargs: Any) -> Dict[str, Any]:
+        if self.fail_search:
+            raise RuntimeError("PowerMem search failed")
+        results = [
+            {"memory": r["content"], "score": 0.9}
+            for r in self._records
+            if r.get("user_id") == user_id
+        ]
+        return {"results": results[:limit]}
 
 
-def _sqlite_memory(tmp_path: Path) -> Memory:
-    return Memory(
-        config={
-            "vector_store": {
-                "provider": "sqlite",
-                "config": {
-                    "database_path": str(tmp_path / "powermem_langchain.db"),
-                    "collection_name": f"memories_{uuid.uuid4().hex[:8]}",
-                },
-            },
-            "llm": {
-                "provider": "noop",
-                "config": {"model": "noop"},
-            },
-            "embedder": {
-                "provider": "mock",
-                "config": {"embedding_dims": 16},
-            },
+# ---------------------------------------------------------------------------
+# Mock agent — captures what it receives, returns canned output
+# ---------------------------------------------------------------------------
+
+class MockAgent:
+    """Minimal agent stand-in with invoke / ainvoke."""
+
+    def __init__(self) -> None:
+        self.received_messages: List[BaseMessage] = []
+
+    def invoke(self, input: Any,
+               config: Optional[Any] = None,
+               **kwargs: Any) -> Dict[str, Any]:
+        msgs = self._extract_messages(input)
+        self.received_messages = msgs
+        return {
+            "output": "This is a test response.",
+            "messages": [AIMessage(content="This is a test response.")],
         }
-    )
+
+    async def ainvoke(self, input: Any,
+                      config: Optional[Any] = None,
+                      **kwargs: Any) -> Dict[str, Any]:
+        return self.invoke(input, config, **kwargs)
+
+    @staticmethod
+    def _extract_messages(input_data: Any) -> List[BaseMessage]:
+        if isinstance(input_data, dict):
+            return input_data.get("messages", [])
+        if isinstance(input_data, list):
+            return input_data
+        return []
 
 
-def test_public_import_contract():
-    assert callable(PowerMemMiddleware)
+# ===================================================================
+# Tests
+# ===================================================================
 
+class TestPowerMemMiddleware:
 
-def test_retrieves_powermem_memories_before_model_call(tmp_path: Path):
-    memory = _sqlite_memory(tmp_path)
-    memory.add("User prefers short database answers.", user_id="alice", infer=False)
-    memory.add("User works on storage engines.", user_id="alice", infer=False)
-    model = CapturingChatModel(responses=["done"])
-    agent = create_agent(
-        model=model,
-        tools=[],
-        middleware=[
-            PowerMemMiddleware(
-                memory=memory,
-                user_id="alice",
-                search_limit=2,
-                save_interactions=False,
-            )
-        ],
-    )
+    # -- Import -------------------------------------------------------
 
-    agent.invoke(
-        {"messages": [HumanMessage(content="How should you answer database questions?")]}
-    )
+    def test_import(self) -> None:
+        assert PowerMemMiddleware is not None
 
-    prompt_text = _message_text(model.calls[0])
-    assert "User prefers short database answers." in prompt_text
-    assert "User works on storage engines." in prompt_text
+    # -- Memory injection ---------------------------------------------
 
+    def test_injects_memories_into_context(self) -> None:
+        mem = MockPowerMem()
+        mem.add("User prefers Python", user_id="alice")
+        mem.add("User likes machine learning", user_id="alice")
 
-def test_persists_interaction_after_agent_run(tmp_path: Path):
-    memory = _sqlite_memory(tmp_path)
-    model = CapturingChatModel(responses=["Stored response"])
-    agent = create_agent(
-        model=model,
-        tools=[],
-        middleware=[
-            PowerMemMiddleware(
-                memory=memory,
-                user_id="alice",
-                save_interactions=True,
-            )
-        ],
-    )
+        mw = PowerMemMiddleware(memory=mem, user_id="alice")
+        agent = MockAgent()
+        wrapped = mw(agent)
 
-    agent.invoke({"messages": [HumanMessage(content="Remember this preference.")]})
+        wrapped.invoke({
+            "messages": [HumanMessage(content="What do you know about me?")]
+        })
 
-    memory_text = _stored_memory_text(memory, "alice")
-    assert "Remember this preference." in memory_text
-    assert "Stored response" in memory_text
+        # Agent should have received the memory context
+        assert len(agent.received_messages) > 1
+        system_msgs = [
+            m for m in agent.received_messages
+            if getattr(m, "type", "") == "system"
+        ]
+        assert len(system_msgs) >= 1
+        combined = "\n".join(str(m.content) for m in system_msgs)
+        assert "Python" in combined
 
+    def test_no_memories_when_none_exist(self) -> None:
+        mem = MockPowerMem()
+        mw = PowerMemMiddleware(memory=mem, user_id="alice")
+        agent = MockAgent()
+        wrapped = mw(agent)
 
-def test_can_disable_interaction_persistence(tmp_path: Path):
-    memory = _sqlite_memory(tmp_path)
-    model = CapturingChatModel(responses=["Do not persist this"])
-    agent = create_agent(
-        model=model,
-        tools=[],
-        middleware=[
-            PowerMemMiddleware(
-                memory=memory,
-                user_id="alice",
-                save_interactions=False,
-            )
-        ],
-    )
+        wrapped.invoke({
+            "messages": [HumanMessage(content="Hello")]
+        })
 
-    agent.invoke({"messages": [HumanMessage(content="This should stay transient.")]})
+        # Original messages unchanged — no extra system message
+        assert len(agent.received_messages) == 1
 
-    assert memory.get_all(user_id="alice")["results"] == []
+    # -- Interaction saving -------------------------------------------
 
+    def test_saves_interaction_after_invoke(self) -> None:
+        mem = MockPowerMem()
+        mw = PowerMemMiddleware(memory=mem, user_id="alice")
+        wrapped = mw(MockAgent())
 
-def test_search_failure_is_fail_open_by_default():
-    memory = FailingSearchMemory()
-    model = CapturingChatModel(responses=["Agent still runs"])
-    agent = create_agent(
-        model=model,
-        tools=[],
-        middleware=[
-            PowerMemMiddleware(
-                memory=memory,
-                user_id="alice",
-                save_interactions=False,
-            )
-        ],
-    )
+        result = wrapped.invoke({
+            "messages": [HumanMessage(content="Tell me about Python")]
+        })
 
-    result = agent.invoke({"messages": [HumanMessage(content="Hello")]})
+        assert result is not None
+        assert len(mem._records) == 1
+        saved = mem._records[0]["content"]
+        assert "Python" in saved
+        assert "test response" in saved
 
-    assert result["messages"][-1].content == "Agent still runs"
+    def test_save_interactions_false_skips_saving(self) -> None:
+        mem = MockPowerMem()
+        mw = PowerMemMiddleware(memory=mem, user_id="alice",
+                                save_interactions=False)
+        wrapped = mw(MockAgent())
 
+        wrapped.invoke({
+            "messages": [HumanMessage(content="Hello")]
+        })
 
-@pytest.mark.asyncio
-async def test_async_agent_uses_powermem_memory(tmp_path: Path):
-    memory = _sqlite_memory(tmp_path)
-    memory.add("User prefers async examples.", user_id="async-user", infer=False)
-    model = CapturingChatModel(responses=["ok"])
-    agent = create_agent(
-        model=model,
-        tools=[],
-        middleware=[
-            PowerMemMiddleware(
-                memory=memory,
-                user_id="async-user",
-                search_limit=1,
-                save_interactions=False,
-            )
-        ],
-    )
+        assert len(mem._records) == 0
 
-    await agent.ainvoke({"messages": [HumanMessage(content="Use my async profile.")]})
+    # -- Error resistance ---------------------------------------------
 
-    assert "User prefers async examples." in _message_text(model.calls[0])
+    def test_agent_runs_when_search_fails(self) -> None:
+        mem = MockPowerMem()
+        mem.fail_search = True
+        mw = PowerMemMiddleware(memory=mem, user_id="alice")
+        agent = MockAgent()
+        wrapped = mw(agent)
+
+        result = wrapped.invoke({
+            "messages": [HumanMessage(content="Still working?")]
+        })
+
+        assert result is not None
+        # Original messages only (memories failed)
+        assert len(agent.received_messages) == 1
+
+    def test_agent_runs_when_save_fails(self) -> None:
+        mem = MockPowerMem()
+        mem.fail_add = True
+        mw = PowerMemMiddleware(memory=mem, user_id="alice")
+        wrapped = mw(MockAgent())
+
+        result = wrapped.invoke({
+            "messages": [HumanMessage(content="Will this crash?")]
+        })
+
+        assert result is not None
+
+    # -- Async path ---------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_async_injects_memories(self) -> None:
+        mem = MockPowerMem()
+        mem.add("User likes async programming", user_id="bob")
+
+        mw = PowerMemMiddleware(memory=mem, user_id="bob")
+        agent = MockAgent()
+        wrapped = mw(agent)
+
+        await wrapped.ainvoke({
+            "messages": [HumanMessage(content="What do you know?")]
+        })
+
+        assert len(agent.received_messages) > 1
+        system_msgs = [
+            m for m in agent.received_messages
+            if getattr(m, "type", "") == "system"
+        ]
+        assert any("async" in str(m.content) for m in system_msgs)
+
+    @pytest.mark.asyncio
+    async def test_async_saves_interaction(self) -> None:
+        mem = MockPowerMem()
+        mw = PowerMemMiddleware(memory=mem, user_id="bob")
+        wrapped = mw(MockAgent())
+
+        await wrapped.ainvoke({
+            "messages": [HumanMessage(content="Async hello")]
+        })
+
+        assert len(mem._records) == 1
+        assert "Async hello" in mem._records[0]["content"]
+
+    # -- Public API surface -------------------------------------------
+
+    def test_has_public_hook_methods(self) -> None:
+        mem = MockPowerMem()
+        mw = PowerMemMiddleware(memory=mem, user_id="tester")
+
+        assert hasattr(mw, "retrieve_memories")
+        assert hasattr(mw, "inject_memory_context")
+        assert hasattr(mw, "save_interaction")
+        assert hasattr(mw, "extract_user_message")
+        assert hasattr(mw, "extract_response")

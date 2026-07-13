@@ -1,5 +1,7 @@
-"""PowerMem integration package for LangChain."""
+"""
+powermem-langchain — PowerMem long-term memory middleware for LangChain agents.
+"""
 
-from .middleware import PowerMemMiddleware
+from powermem_langchain.middleware import PowerMemMiddleware
 
 __all__ = ["PowerMemMiddleware"]
