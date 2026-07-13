@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, NotRequired, TypedDict
+from typing import Any, NotRequired
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -21,17 +21,12 @@ logger = logging.getLogger(__name__)
 class PowerMemState(AgentState):
     """State schema reserved for the PowerMem middleware implementation."""
 
-    powermem_context: NotRequired[str]
-
-
-class PowerMemStateUpdate(TypedDict):
-    """State update returned by memory-loading middleware hooks."""
-
-    powermem_context: str
+    powermem_memories: NotRequired[list[str]]
 
 
 class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
-    """Placeholder for the summer school implementation."""
+    """LangChain v1 middleware that injects PowerMem retrieval into the model
+    context and persists the interaction after the agent run completes."""
 
     state_schema = PowerMemState
 
