@@ -102,6 +102,29 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
                         return joined
         return None
 
+    @staticmethod
+    def _last_of_type(messages: list[Any] | None, message_type: type) -> Any | None:
+        if not messages:
+            return None
+        for message in reversed(messages):
+            if isinstance(message, message_type):
+                return message
+        return None
+
+    @staticmethod
+    def _message_text(message: Any) -> str:
+        content = getattr(message, "content", message)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = [
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict) and part.get("text")
+            ]
+            return "".join(parts)
+        return str(content)
+
     def before_agent(self, state: PowerMemState, runtime) -> dict[str, Any] | None:
         query = self._latest_user_text(state.get("messages"))
         if not query:
@@ -140,19 +163,16 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
         request = request.override(messages=[system_message, *request.messages])
         return await handler(request)
 
-    @staticmethod
-    def _last_of_type(messages: list[Any] | None, message_type: type) -> Any | None:
-        if not messages:
-            return None
-        for message in reversed(messages):
-            if isinstance(message, message_type):
-                return message
-        return None
-
     def _persist_interaction(self, user_message: Any, assistant_message: Any) -> None:
         try:
             self.memory.add(
-                messages=[user_message, assistant_message],
+                messages=[
+                    {"role": "user", "content": self._message_text(user_message)},
+                    {
+                        "role": "assistant",
+                        "content": self._message_text(assistant_message),
+                    },
+                ],
                 user_id=self.user_id,
                 infer=self.infer,
             )
