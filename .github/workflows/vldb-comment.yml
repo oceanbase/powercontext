@@ -49,17 +49,8 @@ jobs:
 
           PR_NUMBER="$PR_NUMBER_FROM_EVENT"
           if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
-            PR_NUMBER_PATH="$ARTIFACT_DIR/pr_number"
-            if [[ ! -f "$PR_NUMBER_PATH" ]]; then
-              echo "::warning::PR number missing from workflow_run event and artifact, skip PR comment"
-              exit 0
-            fi
-            PR_NUMBER="$(tr -d '[:space:]' < "$PR_NUMBER_PATH")"
-            echo "workflow_run event did not include PR number, using artifact PR number: $PR_NUMBER"
-          fi
-          if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
-            echo "invalid PR number: $PR_NUMBER"
-            exit 1
+            echo "::warning::PR number missing from workflow_run event, skip PR comment"
+            exit 0
           fi
 
           MARKER="<!-- powermem-vldb-langchain-contract-score -->"
@@ -95,13 +86,13 @@ jobs:
 
           pr_head_repo = (pr.get("head", {}).get("repo") or {}).get("full_name") or ""
           pr_head_sha = pr.get("head", {}).get("sha") or ""
-          if workflow_head_repo and pr_head_repo and workflow_head_repo != pr_head_repo:
+          if workflow_head_repo != pr_head_repo:
               raise SystemExit(
                   f"PR head repo mismatch: workflow_run={workflow_head_repo}, pr={pr_head_repo}"
               )
-          if workflow_head_sha and pr_head_sha and workflow_head_sha != pr_head_sha:
-              print(
-                  f"::warning::PR head sha differs from workflow_run head_sha: "
+          if workflow_head_sha != pr_head_sha:
+              raise SystemExit(
+                  f"PR head sha mismatch: "
                   f"workflow_run={workflow_head_sha}, pr={pr_head_sha}"
               )
           PY
