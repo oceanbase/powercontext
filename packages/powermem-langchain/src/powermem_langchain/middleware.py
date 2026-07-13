@@ -12,7 +12,7 @@ import logging
 from typing import Any, NotRequired, TypedDict
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 
 logger = logging.getLogger(__name__)
@@ -124,6 +124,26 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
             return None
         memories = await self._aretrieve(query)
         return {"powermem_memories": memories}
+
+    def _format_system_message(self, memories: list[str]) -> SystemMessage:
+        body = "\n".join(f"- {memory}" for memory in memories)
+        return SystemMessage(content=self.system_template.format(memories=body))
+
+    def wrap_model_call(self, request, handler):
+        memories = request.state.get("powermem_memories") or []
+        if not memories:
+            return handler(request)
+        system_message = self._format_system_message(memories)
+        request = request.override(messages=[system_message, *request.messages])
+        return handler(request)
+
+    async def awrap_model_call(self, request, handler):
+        memories = request.state.get("powermem_memories") or []
+        if not memories:
+            return await handler(request)
+        system_message = self._format_system_message(memories)
+        request = request.override(messages=[system_message, *request.messages])
+        return await handler(request)
 
     def after_agent(self, state: PowerMemState, runtime) -> None:
         pass
