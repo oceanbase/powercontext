@@ -12,6 +12,7 @@ import logging
 from typing import Any, NotRequired, TypedDict
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
+from langchain_core.messages import HumanMessage
 
 
 logger = logging.getLogger(__name__)
@@ -86,15 +87,43 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
     async def _aretrieve(self, query: str) -> list[str]:
         return await asyncio.to_thread(self._retrieve, query)
 
-    def before_agent(self, state: PowerMemState, runtime) -> PowerMemStateUpdate | None:
-        pass
+    @staticmethod
+    def _latest_user_text(messages: list[Any] | None) -> str | None:
+        if not messages:
+            return None
+        for message in reversed(messages):
+            if isinstance(message, HumanMessage):
+                content = message.content
+                if isinstance(content, str) and content.strip():
+                    return content
+                if isinstance(content, list):
+                    parts = [
+                        part.get("text", "")
+                        for part in content
+                        if isinstance(part, dict) and part.get("text")
+                    ]
+                    joined = "".join(parts).strip()
+                    if joined:
+                        return joined
+        return None
+
+    def before_agent(self, state: PowerMemState, runtime) -> dict[str, Any] | None:
+        query = self._latest_user_text(state.get("messages"))
+        if not query:
+            return None
+        memories = self._retrieve(query)
+        return {"powermem_memories": memories}
 
     async def abefore_agent(
         self,
         state: PowerMemState,
         runtime,
-    ) -> PowerMemStateUpdate | None:
-        pass
+    ) -> dict[str, Any] | None:
+        query = self._latest_user_text(state.get("messages"))
+        if not query:
+            return None
+        memories = await self._aretrieve(query)
+        return {"powermem_memories": memories}
 
     def after_agent(self, state: PowerMemState, runtime) -> None:
         pass
