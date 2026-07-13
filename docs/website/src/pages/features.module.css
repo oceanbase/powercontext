@@ -4,7 +4,6 @@
   --feature-accent: #0074e8;
   --feature-accent-strong: #005fc4;
   --feature-accent-soft: #e8f3ff;
-  --feature-banner: #005fc4;
   --feature-diagram-bg: #f7faff;
   --feature-diagram-line: #c9d5e5;
   --feature-diagram-line-muted: #dce4ee;
@@ -17,7 +16,6 @@
   --feature-accent: #4da6ff;
   --feature-accent-strong: #79bdff;
   --feature-accent-soft: #102d4a;
-  --feature-banner: #0756a6;
   --feature-diagram-bg: #0d141d;
   --feature-diagram-line: #314154;
   --feature-diagram-line-muted: #222f3e;
@@ -62,8 +60,8 @@
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: clamp(1rem, 2vw, 1.5rem);
   align-items: end;
-  min-height: clamp(370px, 42vw, 520px);
-  padding-block: clamp(5rem, 10vw, 8.75rem) clamp(3.25rem, 6vw, 5rem);
+  min-height: 0;
+  padding-block: clamp(4.5rem, 6vw, 5.5rem) clamp(2.75rem, 4vw, 3.75rem);
 }
 
 .title {
@@ -87,46 +85,6 @@
   line-height: 1.65;
 }
 
-.featureMap {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  min-height: 96px;
-  margin-left: 1px;
-  align-items: center;
-}
-
-.featureMap::before {
-  position: absolute;
-  right: calc(var(--feature-gutter) * -1);
-  left: calc(var(--feature-gutter) * -1);
-  height: 1px;
-  background: var(--pm-border);
-  content: '';
-}
-
-.mapPoint {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  width: 42px;
-  height: 42px;
-  border: 1px solid var(--pm-border);
-  background: var(--pm-bg);
-  place-items: center;
-}
-
-.mapPoint:first-child {
-  border-color: var(--feature-banner);
-  background: var(--feature-banner);
-  color: #fff;
-}
-
-.mapIcon {
-  width: 17px;
-  height: 17px;
-}
-
 .featureAtlas {
   position: relative;
 }
@@ -146,44 +104,28 @@
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: clamp(1rem, 2vw, 1.5rem);
   align-items: center;
-  min-height: 520px;
-  padding-block: clamp(4.5rem, 8vw, 7rem);
+  min-height: 0;
+  padding-block: clamp(4rem, 6.5vw, 5.75rem);
 }
 
 .featureCopy {
-  grid-column: 1 / span 4;
+  grid-column: 1 / span 5;
   align-self: center;
 }
 
-.featureIconFrame {
-  display: grid;
-  width: 46px;
-  height: 46px;
-  margin-bottom: 2rem;
-  border: 1px solid color-mix(in srgb, var(--feature-accent) 38%, var(--pm-border));
-  background: var(--feature-accent-soft);
-  color: var(--feature-accent-strong);
-  place-items: center;
-}
-
-.featureIcon {
-  width: 20px;
-  height: 20px;
-}
-
 .featureTitle {
-  max-width: 15ch;
+  max-width: 17ch;
   margin: 0;
   color: var(--pm-text);
-  font-size: clamp(2rem, 3.15vw, 3.15rem);
+  font-size: clamp(2.15rem, 3.15vw, 3.2rem);
   font-weight: 690;
   line-height: 1.02;
   letter-spacing: -0.035em;
 }
 
 .featureDesc {
-  max-width: 44ch;
-  margin: 1.5rem 0 0;
+  max-width: 48ch;
+  margin: 1.35rem 0 0;
   color: var(--pm-muted);
   font-size: 1rem;
   line-height: 1.72;
@@ -191,54 +133,26 @@
 
 .diagramFrame {
   position: relative;
-  grid-column: 6 / span 5;
-  min-height: 320px;
+  grid-column: 7 / -1;
+  aspect-ratio: 34 / 19;
   overflow: hidden;
   border: 1px solid var(--pm-border);
+  border-radius: 12px;
   background-color: var(--feature-diagram-bg);
-  background-image:
-    linear-gradient(var(--feature-diagram-line-muted) 1px, transparent 1px),
-    linear-gradient(90deg, var(--feature-diagram-line-muted) 1px, transparent 1px);
-  background-size: 32px 32px;
-}
-
-.diagramFrame::before,
-.diagramFrame::after {
-  position: absolute;
-  z-index: 2;
-  width: 12px;
-  height: 12px;
-  border-color: var(--feature-accent);
-  content: '';
-  pointer-events: none;
-}
-
-.diagramFrame::before {
-  top: 10px;
-  left: 10px;
-  border-top: 1px solid;
-  border-left: 1px solid;
-}
-
-.diagramFrame::after {
-  right: 10px;
-  bottom: 10px;
-  border-right: 1px solid;
-  border-bottom: 1px solid;
 }
 
 .diagram {
-  position: relative;
-  z-index: 1;
   display: block;
   width: 100%;
-  height: 320px;
+  height: 100%;
 }
 
 .diagramLine,
 .diagramLineStrong,
 .diagramMutedLine,
-.diagramAccentLine {
+.diagramAccentLine,
+.diagramCheck,
+.diagramSurfaceStroke {
   fill: none;
   vector-effect: non-scaling-stroke;
   stroke-linecap: round;
@@ -272,6 +186,20 @@
   vector-effect: non-scaling-stroke;
 }
 
+.diagramSurfaceStrong {
+  fill: var(--pm-raised);
+  stroke: color-mix(in srgb, var(--feature-diagram-line) 78%, var(--pm-text));
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.diagramSurfaceMuted {
+  fill: color-mix(in srgb, var(--feature-diagram-bg) 88%, var(--pm-raised));
+  stroke: var(--feature-diagram-line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
 .diagramAccentSoft {
   fill: var(--feature-accent-soft);
   stroke: color-mix(in srgb, var(--feature-accent) 32%, transparent);
@@ -279,54 +207,81 @@
   vector-effect: non-scaling-stroke;
 }
 
+.diagramAccentSoftFill {
+  fill: color-mix(in srgb, var(--feature-accent) 11%, transparent);
+  stroke: none;
+}
+
 .diagramAccent {
   fill: var(--feature-accent);
   stroke: none;
 }
 
+.diagramTechnicalLabel,
+.diagramTechnicalLabelAccent {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.035em;
+}
+
+.diagramTechnicalLabel {
+  fill: color-mix(in srgb, var(--pm-muted) 86%, var(--pm-text));
+}
+
+.diagramTechnicalLabelAccent {
+  fill: var(--feature-accent-strong);
+}
+
+.diagramCheck,
+.diagramSurfaceStroke {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
 .featureDetails {
-  grid-column: 11 / -1;
-  align-self: stretch;
-  display: flex;
-  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  max-width: 480px;
+  margin: 2rem 0 0;
   padding: 0;
   border-top: 1px solid var(--pm-border);
-  flex-direction: column;
-  justify-content: center;
+  border-left: 1px solid var(--pm-border);
   list-style: none;
 }
 
 .featureDetails li {
   position: relative;
-  padding: 1rem 0 1rem 1.25rem;
+  min-width: 0;
+  min-height: 64px;
+  padding: 1rem 0.8rem 1rem 1.55rem;
+  border-right: 1px solid var(--pm-border);
   border-bottom: 1px solid var(--pm-border);
   color: var(--pm-text);
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-weight: 560;
   line-height: 1.45;
 }
 
 .featureDetails li::before {
   position: absolute;
-  top: 1.55rem;
-  left: 0;
-  width: 6px;
-  height: 1px;
+  top: 1.35rem;
+  left: 0.75rem;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
   background: var(--feature-accent);
   content: '';
 }
 
 .featureChapterReverse .featureCopy {
-  grid-column: 7 / span 4;
+  grid-column: 8 / -1;
 }
 
 .featureChapterReverse .diagramFrame {
-  grid-column: 1 / span 5;
+  grid-column: 1 / span 6;
   grid-row: 1;
-}
-
-.featureChapterReverse .featureDetails {
-  grid-column: 11 / -1;
 }
 
 @media (max-width: 1100px) {
@@ -339,34 +294,45 @@
     grid-column: 1 / span 5;
     margin-top: 1.25rem;
   }
+}
 
+@media (max-width: 900px) {
   .chapterGrid {
-    min-height: 0;
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding-block: 3.75rem;
+  }
+
+  .featureCopy,
+  .featureChapterReverse .featureCopy,
+  .diagramFrame,
+  .featureChapterReverse .diagramFrame {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .featureCopy,
   .featureChapterReverse .featureCopy {
-    grid-column: 1 / span 5;
+    max-width: 680px;
+  }
+
+  .featureTitle {
+    max-width: 19ch;
+    font-size: clamp(2.25rem, 7vw, 3.1rem);
+  }
+
+  .featureDesc {
+    max-width: 62ch;
+  }
+
+  .featureDetails {
+    max-width: 620px;
   }
 
   .diagramFrame,
   .featureChapterReverse .diagramFrame {
-    grid-column: 6 / -1;
-    grid-row: auto;
-  }
-
-  .featureDetails,
-  .featureChapterReverse .featureDetails {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    margin-top: 2rem;
-    border-left: 1px solid var(--pm-border);
-  }
-
-  .featureDetails li {
-    padding-inline: 1.4rem 1rem;
-    border-right: 1px solid var(--pm-border);
+    width: 100%;
+    margin-top: 2.75rem;
   }
 }
 
@@ -380,112 +346,60 @@
 
   .heroGrid {
     grid-template-columns: 1fr;
+    gap: 1.25rem;
     min-height: 0;
-    padding-block: 5.25rem 3.25rem;
+    padding-block: 3.5rem 2.5rem;
+  }
+
+  .title,
+  .subtitle {
+    grid-column: 1;
   }
 
   .title {
-    grid-column: 1;
-    font-size: clamp(3.25rem, 15vw, 4.75rem);
+    font-size: clamp(3.5rem, 16vw, 5rem);
     line-height: 0.94;
     text-wrap: balance;
     white-space: normal;
   }
 
   .subtitle {
-    grid-column: 1;
-    max-width: 32ch;
-    margin-top: 1.25rem;
-  }
-
-  .featureMap {
-    min-height: 80px;
-  }
-
-  .mapPoint {
-    width: 36px;
-    height: 36px;
-  }
-
-  .mapIcon {
-    width: 15px;
-    height: 15px;
+    max-width: 46ch;
+    margin: 0;
+    font-size: 1rem;
   }
 
   .chapterGrid {
-    grid-template-columns: 1fr;
-    gap: 0;
-    padding-block: 4.5rem;
-  }
-
-  .featureCopy,
-  .featureChapterReverse .featureCopy,
-  .diagramFrame,
-  .featureChapterReverse .diagramFrame,
-  .featureDetails,
-  .featureChapterReverse .featureDetails {
-    grid-column: 1;
-  }
-
-  .featureIconFrame {
-    margin-bottom: 1.5rem;
-  }
-
-  .featureTitle {
-    max-width: 17ch;
-    font-size: clamp(2.25rem, 10vw, 3.25rem);
-  }
-
-  .featureDesc {
-    max-width: 60ch;
+    padding-block: 3.5rem;
   }
 
   .diagramFrame,
   .featureChapterReverse .diagramFrame {
-    grid-row: auto;
-    min-height: 260px;
-    margin-top: 2.5rem;
+    margin-top: 2.25rem;
   }
-
-  .diagram {
-    height: 260px;
-  }
-
-  .featureDetails,
-  .featureChapterReverse .featureDetails {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-top: 2rem;
-  }
-
 }
 
 @media (max-width: 480px) {
+  .heroGrid {
+    padding-block: 3rem 2.25rem;
+  }
+
   .title {
-    font-size: clamp(3rem, 14vw, 4rem);
+    font-size: clamp(3.25rem, 17vw, 4.25rem);
   }
 
-  .mapPoint {
-    width: 32px;
-    height: 32px;
-  }
-
-  .featureDetails,
-  .featureChapterReverse .featureDetails {
+  .featureDetails {
     grid-template-columns: 1fr;
   }
 
   .diagramFrame,
   .featureChapterReverse .diagramFrame {
-    min-height: 230px;
-    margin-inline: -0.5rem;
-  }
-
-  .diagram {
-    height: 230px;
+    margin-top: 2rem;
+    border-radius: 10px;
   }
 
   .featureDetails li {
-    min-height: 50px;
+    min-height: 54px;
   }
 }
 
