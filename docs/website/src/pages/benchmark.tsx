@@ -233,12 +233,6 @@ export default function BenchmarkPage() {
                         data-label={t('benchmark.scores.llm')}
                       >
                         <span className={styles.scoreValue}>{formatScore(score.llm_score)}</span>
-                        <span className={styles.scoreTrack} aria-hidden="true">
-                          <span
-                            className={styles.scoreFill}
-                            style={{width: formatScore(score.llm_score)}}
-                          />
-                        </span>
                       </td>
                       <td
                         className={styles.countCell}

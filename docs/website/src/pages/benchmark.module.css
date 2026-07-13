@@ -1,6 +1,5 @@
 .benchmarkPage {
   --benchmark-accent: #006fd6;
-  --benchmark-accent-soft: color-mix(in srgb, var(--benchmark-accent) 10%, var(--pm-raised));
   padding: clamp(4rem, 7vw, 6rem) 0 clamp(5rem, 8vw, 7rem);
   overflow: hidden;
   background: var(--pm-bg);
@@ -9,7 +8,6 @@
 
 :global([data-theme='dark']) .benchmarkPage {
   --benchmark-accent: #42a3ff;
-  --benchmark-accent-soft: color-mix(in srgb, var(--benchmark-accent) 12%, var(--pm-raised));
 }
 
 .benchmarkPage :global(.container) {
@@ -213,21 +211,6 @@
   color: var(--benchmark-accent);
 }
 
-.scoreTrack {
-  display: block;
-  width: 80px;
-  height: 2px;
-  margin-top: 0.5rem;
-  overflow: hidden;
-  background: var(--benchmark-accent-soft);
-}
-
-.scoreFill {
-  display: block;
-  height: 100%;
-  background: var(--benchmark-accent);
-}
-
 .countCell {
   color: var(--pm-muted);
 }
@@ -369,10 +352,6 @@
     content: attr(data-label);
     font-size: 0.7rem;
     font-weight: 500;
-  }
-
-  .scoreTrack {
-    display: none;
   }
 
   .sectionFooter {
