@@ -116,7 +116,7 @@ export default function CommunityPage() {
         >
           <div className={`container ${styles.pageContainer}`}>
             <div className={styles.communityGrid}>
-              {communityLinks.map((link, index) => {
+              {communityLinks.map((link) => {
                 const Icon = link.icon;
                 return (
                   <a
@@ -126,12 +126,9 @@ export default function CommunityPage() {
                     rel="noopener noreferrer"
                     className={styles.communityCard}
                   >
-                    <div className={styles.cardMeta} aria-hidden="true">
-                      <span className={styles.cardIndex}>
-                        {String(index + 1).padStart(2, '0')}
-                      </span>
+                    <span className={styles.cardIconSlot} aria-hidden="true">
                       <Icon className={styles.cardIcon} />
-                    </div>
+                    </span>
                     <div className={styles.cardBody}>
                       <Heading as="h2" className={styles.cardTitle}>
                         {link.name}
@@ -174,12 +171,10 @@ export default function CommunityPage() {
                 </Link>
               </div>
 
-              <ul className={styles.contributionMatrix}>
+              <ul className={styles.detailList}>
                 {[1, 2, 3, 4].map((number) => (
                   <li key={number}>
-                    <span className={styles.itemIndex} aria-hidden="true">
-                      {String(number).padStart(2, '0')}
-                    </span>
+                    <span className={styles.detailMark} aria-hidden="true" />
                     <span>{t(`communityPage.contributing.item${number}`)}</span>
                   </li>
                 ))}
@@ -200,10 +195,10 @@ export default function CommunityPage() {
                 </p>
               </div>
 
-              <ul className={styles.conductList}>
+              <ul className={styles.detailList}>
                 {[1, 2, 3, 4].map((number) => (
                   <li key={number}>
-                    <span className={styles.conductMark} aria-hidden="true" />
+                    <span className={styles.detailMark} aria-hidden="true" />
                     <span>{t(`communityPage.codeOfConduct.item${number}`)}</span>
                   </li>
                 ))}

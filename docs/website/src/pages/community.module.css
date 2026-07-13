@@ -93,11 +93,14 @@
 }
 
 .communityCard {
-  display: flex;
+  display: grid;
   min-width: 0;
-  min-height: 270px;
+  min-height: 250px;
   padding: clamp(1.75rem, 3vw, 2.5rem);
-  flex-direction: column;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 0.4rem 1.5rem;
+  align-content: center;
   border-right: 1px solid var(--pm-border);
   color: var(--pm-text);
   text-decoration: none;
@@ -121,31 +124,27 @@
   outline-offset: -3px;
 }
 
-.cardMeta {
+.cardIconSlot {
+  grid-column: 1;
+  grid-row: 1 / span 2;
   display: flex;
+  width: 52px;
+  height: 52px;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.cardIndex,
-.itemIndex {
-  color: var(--pm-muted);
-  font-family: var(--ifm-font-family-monospace);
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.06em;
-}
-
-.cardIcon {
-  width: 30px;
-  height: 30px;
+  justify-content: flex-start;
   color: var(--community-accent);
 }
 
+.cardIcon {
+  width: 48px;
+  height: 48px;
+}
+
 .cardBody {
-  margin-top: auto;
-  padding-top: 2.25rem;
+  grid-column: 2;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
 }
 
 .cardTitle {
@@ -167,12 +166,13 @@
 }
 
 .cardAction {
+  grid-column: 2;
   display: inline-flex;
   min-height: 44px;
   align-items: center;
   gap: 0.45rem;
   align-self: flex-start;
-  margin-top: 1.1rem;
+  margin-top: 0.65rem;
   color: var(--community-accent);
   font-size: 0.86rem;
   font-weight: 680;
@@ -212,10 +212,6 @@
   border: 1px solid color-mix(in srgb, var(--community-accent) 22%, var(--pm-border));
   border-radius: var(--community-panel-radius);
   background: color-mix(in srgb, var(--pm-raised) 96%, var(--community-accent));
-}
-
-.contributeGrid {
-  box-shadow: inset 3px 0 0 var(--community-accent);
 }
 
 .contributeIntro {
@@ -277,48 +273,40 @@
   flex: 0 0 auto;
 }
 
-.contributionMatrix {
+.detailList {
   grid-column: 7 / -1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 clamp(1.5rem, 3vw, 2.5rem);
   padding: 0;
   margin: 0;
-  border-top: 1px solid var(--pm-border);
   list-style: none;
 }
 
-.contributionMatrix li {
+.detailList li {
   display: grid;
   min-width: 0;
   min-height: 104px;
-  padding: 1.25rem 1.5rem 1.25rem 0;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 0.9rem;
-  align-items: start;
-  border-bottom: 1px solid var(--pm-border);
+  padding: 1.35rem 0;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-content: start;
+  border-top: 1px solid var(--pm-border);
   color: var(--pm-text);
-  font-size: clamp(0.96rem, 1.3vw, 1.04rem);
-  font-weight: 560;
-  line-height: 1.55;
+  font-size: 0.98rem;
+  line-height: 1.6;
 }
 
-.contributionMatrix li:nth-child(even) {
-  padding-right: 0;
-  padding-left: 1.5rem;
-  border-left: 1px solid var(--pm-border);
+.detailList li:nth-last-child(-n + 2) {
+  border-bottom: 1px solid var(--pm-border);
 }
 
-.itemIndex {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--community-accent) 35%, var(--pm-border));
+.detailMark {
+  width: 6px;
+  height: 6px;
+  margin-top: 0.58rem;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--community-accent) 8%, var(--pm-raised));
-  color: var(--community-accent);
-  font-size: 0.68rem;
+  background: var(--community-accent);
 }
 
 .contributeSection {
@@ -338,63 +326,67 @@
   font-size: clamp(2rem, 3vw, 2.75rem);
 }
 
-.conductList {
-  grid-column: 7 / -1;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 clamp(1.5rem, 3vw, 2.5rem);
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.conductList li {
-  display: grid;
-  min-width: 0;
-  min-height: 104px;
-  padding: 1.35rem 0;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 0.75rem;
-  align-content: start;
-  border-top: 1px solid var(--pm-border);
-  color: var(--pm-text);
-  font-size: 0.98rem;
-  line-height: 1.6;
-}
-
-.conductList li:nth-last-child(-n + 2) {
-  border-bottom: 1px solid var(--pm-border);
-}
-
-.conductMark {
-  width: 6px;
-  height: 6px;
-  margin-top: 0.58rem;
-  border-radius: 50%;
-  background: var(--community-accent);
-}
-
 @media (max-width: 1100px) {
   .contributeIntro {
     grid-column: 1 / span 5;
-  }
-
-  .contributionMatrix {
-    grid-column: 6 / -1;
   }
 
   .conductIntro {
     grid-column: 1 / span 5;
   }
 
-  .conductList {
+  .detailList {
     grid-column: 6 / -1;
   }
 }
 
 @media (max-width: 900px) {
+  .channelsSection {
+    padding-block: 1.25rem;
+  }
+
+  .communityGrid {
+    grid-template-columns: 1fr;
+    margin-inline: 0;
+    border: 1px solid var(--pm-border);
+    border-bottom: 0;
+  }
+
   .communityCard {
-    min-height: 245px;
+    min-height: 0;
+    padding: 1.5rem;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 0.35rem 1.1rem;
+    align-content: start;
+    border-right: 0;
+    border-bottom: 1px solid var(--pm-border);
+  }
+
+  .cardIconSlot {
+    width: 44px;
+    height: 44px;
+  }
+
+  .cardIcon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .cardBody {
+    min-height: 0;
+  }
+
+  .cardTitle {
+    font-size: 1.35rem;
+  }
+
+  .cardDesc {
+    min-height: 0;
+    font-size: 1rem;
+  }
+
+  .cardAction {
+    margin-top: 0.5rem;
   }
 
   .contributeGrid,
@@ -404,9 +396,8 @@
   }
 
   .contributeIntro,
-  .contributionMatrix,
   .conductIntro,
-  .conductList {
+  .detailList {
     grid-column: 1;
   }
 
@@ -448,83 +439,20 @@
     font-size: 1rem;
   }
 
-  .channelsSection {
-    padding-block: 1.25rem;
-  }
-
-  .communityGrid {
-    grid-template-columns: 1fr;
-    margin-inline: 0;
-    border: 1px solid var(--pm-border);
-    border-bottom: 0;
-  }
-
-  .communityCard {
-    display: grid;
-    min-height: 0;
-    padding: 1.5rem;
-    grid-template-columns: 34px minmax(0, 1fr);
-    gap: 0.35rem 1rem;
-    border-right: 0;
-    border-bottom: 1px solid var(--pm-border);
-  }
-
-  .cardMeta {
-    grid-column: 1;
-    grid-row: 1 / span 2;
-    flex-direction: column;
-    justify-content: flex-start;
-    gap: 1rem;
-  }
-
-  .cardBody,
-  .cardAction {
-    grid-column: 2;
-  }
-
-  .cardBody {
-    min-height: 0;
-    margin: 0;
-    padding: 0;
-  }
-
-  .cardTitle {
-    font-size: 1.35rem;
-  }
-
-  .cardDesc {
-    min-height: 0;
-    font-size: 1rem;
-  }
-
-  .cardAction {
-    margin-top: 0.5rem;
-  }
-
   .contributeGrid,
   .conductGrid {
     padding: 2rem 1.5rem;
   }
 
-  .contributionMatrix,
-  .conductList {
+  .detailList {
     grid-template-columns: 1fr;
   }
 
-  .contributionMatrix li {
-    min-height: 92px;
-    padding-inline: 0;
-  }
-
-  .contributionMatrix li:nth-child(even) {
-    border-left: 0;
-  }
-
-  .conductList li:nth-last-child(-n + 2) {
+  .detailList li:nth-last-child(-n + 2) {
     border-bottom: 0;
   }
 
-  .conductList li:last-child {
+  .detailList li:last-child {
     border-bottom: 1px solid var(--pm-border);
   }
 }
