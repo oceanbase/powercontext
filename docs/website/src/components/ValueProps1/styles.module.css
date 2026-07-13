@@ -15,16 +15,24 @@
 .intro h2 {
   margin: 0 0 1rem;
   font-size: clamp(2rem, 3.3vw, 3rem);
+  word-break: keep-all;
 }
 
 .intro p {
   max-width: 34rem;
-  margin-bottom: 1.25rem;
+  margin: 0;
   color: var(--pm-muted);
   line-height: 1.7;
 }
 
+.intro .benchmarkDesc {
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+}
+
 .intro a {
+  display: inline-block;
+  margin-top: 1.25rem;
   font-weight: 650;
 }
 
@@ -98,4 +106,3 @@
     border-bottom: 0;
   }
 }
-

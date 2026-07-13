@@ -13,8 +13,9 @@ const metrics = [
 
 const translations: Record<string, Record<string, string>> = {
   en: {
-    title: 'Measured performance, not promises.',
-    subtitle: 'PowerMem compared with full-context retrieval on the LOCOMO dataset.',
+    title: 'Why Choose PowerMem?',
+    subtitle: 'Accurate, Agile, Affordable - The best AI memory management experience',
+    benchmarkDesc: 'Real-world performance metrics based on LOCOMO dataset',
     view: 'Explore the benchmark',
     accurate: 'LLM score',
     agile: 'Retrieval P95',
@@ -22,8 +23,9 @@ const translations: Record<string, Record<string, string>> = {
     baseline: 'Full-context',
   },
   zh: {
-    title: '用真实数据验证性能。',
-    subtitle: '基于 LOCOMO 数据集，对比 PowerMem 与全上下文检索。',
+    title: '为什么选择 PowerMem？',
+    subtitle: '更快、更省、更准 - 更好的 AI 记忆管理体验',
+    benchmarkDesc: '基于 LOCOMO 数据集的真实性能指标',
     view: '查看完整压测数据',
     accurate: 'LLM 评分',
     agile: '检索 P95',
@@ -43,6 +45,7 @@ export default function ValueProps1() {
         <div className={styles.intro}>
           <Heading as="h2">{t.title}</Heading>
           <p>{t.subtitle}</p>
+          <p className={styles.benchmarkDesc}>{t.benchmarkDesc}</p>
           <Link to={localizedPath('/benchmark', isZh)}>{t.view} →</Link>
         </div>
         <div className={styles.metrics}>
@@ -61,4 +64,3 @@ export default function ValueProps1() {
     </section>
   );
 }
-
