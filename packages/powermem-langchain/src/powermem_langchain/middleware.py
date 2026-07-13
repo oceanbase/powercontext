@@ -36,9 +36,28 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
         user_id: str | None = None,
         search_limit: int = 5,
         save_interactions: bool = True,
+        system_template: str = (
+            "<system>\n"
+            "The following memories were retrieved from PowerMem and may be "
+            "relevant to the user's request. Use them when answering, but do "
+            "not mention them explicitly unless asked.\n"
+            "{memories}\n"
+            "</system>"
+        ),
+        infer: bool = False,
         **kwargs: Any,
     ) -> None:
-        pass
+        if user_id is None:
+            raise ValueError(
+                "PowerMemMiddleware requires an explicit user_id; "
+                "do not rely on global or runtime-inferred user identity."
+            )
+        self.memory = memory
+        self.user_id = user_id
+        self.search_limit = search_limit
+        self.save_interactions = save_interactions
+        self.system_template = system_template
+        self.infer = infer
 
     def before_agent(self, state: PowerMemState, runtime) -> PowerMemStateUpdate | None:
         pass
