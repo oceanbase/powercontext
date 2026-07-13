@@ -12,7 +12,7 @@ import logging
 from typing import Any, NotRequired, TypedDict
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 
 logger = logging.getLogger(__name__)
@@ -145,5 +145,45 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
         request = request.override(messages=[system_message, *request.messages])
         return await handler(request)
 
+    @staticmethod
+    def _last_of_type(messages: list[Any] | None, message_type: type) -> Any | None:
+        if not messages:
+            return None
+        for message in reversed(messages):
+            if isinstance(message, message_type):
+                return message
+        return None
+
+    def _persist_interaction(self, user_message: Any, assistant_message: Any) -> None:
+        try:
+            self.memory.add(
+                messages=[user_message, assistant_message],
+                user_id=self.user_id,
+                infer=self.infer,
+            )
+        except Exception as exc:
+            logger.warning(
+                "PowerMem add failed for user_id=%s: %s", self.user_id, exc
+            )
+
     def after_agent(self, state: PowerMemState, runtime) -> None:
-        pass
+        if not self.save_interactions:
+            return
+        messages = state.get("messages") or []
+        user_message = self._last_of_type(messages, HumanMessage)
+        assistant_message = self._last_of_type(messages, AIMessage)
+        if user_message is None or assistant_message is None:
+            return
+        self._persist_interaction(user_message, assistant_message)
+
+    async def aafter_agent(self, state: PowerMemState, runtime) -> None:
+        if not self.save_interactions:
+            return
+        messages = state.get("messages") or []
+        user_message = self._last_of_type(messages, HumanMessage)
+        assistant_message = self._last_of_type(messages, AIMessage)
+        if user_message is None or assistant_message is None:
+            return
+        await asyncio.to_thread(
+            self._persist_interaction, user_message, assistant_message
+        )
