@@ -7,9 +7,14 @@ middleware implementation that satisfies the package contract tests.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any, NotRequired, TypedDict
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
+
+
+logger = logging.getLogger(__name__)
 
 
 class PowerMemState(AgentState):
@@ -58,6 +63,28 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
         self.save_interactions = save_interactions
         self.system_template = system_template
         self.infer = infer
+
+    def _retrieve(self, query: str) -> list[str]:
+        try:
+            result = self.memory.search(
+                query,
+                user_id=self.user_id,
+                limit=self.search_limit,
+            )
+        except Exception as exc:
+            logger.warning(
+                "PowerMem search failed for user_id=%s: %s", self.user_id, exc
+            )
+            return []
+        memories = result.get("results", []) if isinstance(result, dict) else []
+        return [
+            item["memory"]
+            for item in memories
+            if isinstance(item, dict) and item.get("memory")
+        ]
+
+    async def _aretrieve(self, query: str) -> list[str]:
+        return await asyncio.to_thread(self._retrieve, query)
 
     def before_agent(self, state: PowerMemState, runtime) -> PowerMemStateUpdate | None:
         pass
