@@ -60,23 +60,12 @@
 }
 
 .sectionTitle {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
   margin: 0 0 1.5rem;
   color: var(--pm-text);
   font-size: clamp(1.45rem, 2.2vw, 1.75rem);
   letter-spacing: -0.025em;
   text-wrap: nowrap;
   white-space: nowrap;
-}
-
-.sectionTitle::after {
-  width: auto;
-  height: 1px;
-  flex: 1;
-  background: var(--pm-border);
-  content: '';
 }
 
 .performanceGrid {
@@ -292,14 +281,6 @@
 
   .subtitle {
     margin-inline: 0;
-  }
-
-  .sectionTitle {
-    gap: 1rem;
-  }
-
-  .sectionTitle::after {
-    min-width: 1.5rem;
   }
 
   .performanceGrid {
