@@ -9,6 +9,7 @@ information to verify memory retrieval and write-back behavior.
 from __future__ import annotations
 
 import argparse
+import traceback
 from typing import Any
 
 from langchain.agents import create_agent
@@ -123,6 +124,7 @@ def main() -> None:
     try:
         memory = create_memory()
     except Exception as exc:
+        traceback.print_exc()
         raise SystemExit(
             "Failed to create PowerMem memory. Configure PowerMem first, for "
             "example by setting LLM_PROVIDER, LLM_API_KEY, DATABASE_PROVIDER, "
