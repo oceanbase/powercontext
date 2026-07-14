@@ -1,9 +1,8 @@
-"""Run a PowerMem-backed LangChain agent with an OpenAI chat model.
+"""使用 OpenAI 聊天模型运行一个由 PowerMem 提供长期记忆的 LangChain agent。
 
-This example is intentionally written as an end-to-end CLI check. Once
-PowerMemMiddleware is implemented and the environment is configured, it should
-seed PowerMem, invoke a LangChain agent backed by OpenAI, and print enough
-information to verify memory retrieval and write-back behavior.
+这个示例是一个端到端的命令行检查程序。实现 PowerMemMiddleware 并配置好环境后，
+它会先向 PowerMem 写入一条种子记忆，再调用由 OpenAI 驱动的 LangChain agent，
+最后打印足够的信息，用来确认记忆检索、上下文注入和交互写回是否生效。
 """
 
 from __future__ import annotations
@@ -28,6 +27,10 @@ DEFAULT_SEED_MEMORY = (
 
 
 class DemoSettings(BaseSettings):
+    """从环境变量和可选的 .env 文件读取示例配置。"""
+
+    # 专用于本示例的变量可以使用 POWERMEM_LANGCHAIN_ 前缀；extra="ignore"
+    # 让 PowerMem 自己使用的其他环境变量不会触发 Pydantic 校验错误。
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -37,6 +40,7 @@ class DemoSettings(BaseSettings):
 
     openai_api_key: str | None = Field(
         default=None,
+        # 同时兼容 OpenAI 的标准变量和 PowerMem 示例中使用的 LLM_API_KEY。
         validation_alias=AliasChoices("OPENAI_API_KEY", "LLM_API_KEY"),
     )
     openai_base_url: str | None = Field(
@@ -54,6 +58,8 @@ class DemoSettings(BaseSettings):
 
 
 def parse_args(settings: DemoSettings) -> argparse.Namespace:
+    """解析命令行参数，并以环境配置作为默认值。"""
+
     parser = argparse.ArgumentParser(
         description="Run the PowerMem LangChain middleware OpenAI demo."
     )
@@ -77,6 +83,9 @@ def parse_args(settings: DemoSettings) -> argparse.Namespace:
 
 
 def create_openai_model(settings: DemoSettings, model: str, temperature: float):
+    """按需导入并创建 ChatOpenAI，缺少依赖或密钥时给出明确提示。"""
+
+    # 延迟导入使包的基础功能和测试不必安装示例专用的 langchain-openai。
     try:
         from langchain_openai import ChatOpenAI
     except ImportError as exc:
@@ -101,6 +110,8 @@ def create_openai_model(settings: DemoSettings, model: str, temperature: float):
 
 
 def print_search_results(title: str, result: dict[str, Any]) -> None:
+    """以便于人工核对的格式打印 PowerMem 检索结果。"""
+
     memories = result.get("results", [])
     print(title)
     if not memories:
@@ -113,6 +124,7 @@ def print_search_results(title: str, result: dict[str, Any]) -> None:
 
 
 def main() -> None:
+    # 配置优先来自命令行；未传入的参数使用环境变量或类中定义的默认值。
     settings = DemoSettings()
     args = parse_args(settings)
 
@@ -121,6 +133,7 @@ def main() -> None:
     print(f"model: {args.model}")
 
     try:
+        # create_memory() 会读取 PowerMem 自己的数据库、LLM 和嵌入模型配置。
         memory = create_memory()
     except Exception as exc:
         raise SystemExit(
@@ -130,9 +143,11 @@ def main() -> None:
         ) from exc
 
     if not args.skip_seed:
+        # infer=False 表示直接保存演示文本，不让 PowerMem 的 LLM 再做事实提取。
         memory.add(args.seed_memory, user_id=args.user_id, infer=False)
         print(f"seed_memory: {args.seed_memory}")
 
+    # 调用 agent 前先检索一次，用于确认种子记忆已经存在。
     before = memory.search(
         args.prompt,
         user_id=args.user_id,
@@ -147,6 +162,7 @@ def main() -> None:
         save_interactions=not args.no_save,
     )
 
+    # middleware 应在模型调用前注入相关记忆，并在 agent 结束后按需写回交互。
     agent = create_agent(
         model=create_openai_model(settings, args.model, args.temperature),
         tools=[],
@@ -159,6 +175,7 @@ def main() -> None:
     print("assistant:")
     print(answer)
 
+    # 再次检索同一主题，用于观察本轮用户消息和助手回复是否已被写回。
     after = memory.search(
         args.prompt,
         user_id=args.user_id,
