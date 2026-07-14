@@ -73,6 +73,12 @@ def parse_args(settings: DemoSettings) -> argparse.Namespace:
         action="store_true",
         help="Disable middleware write-back for the agent interaction.",
     )
+    parser.add_argument(
+        "--no-fail-open",
+        action="store_true",
+        help="Propagate PowerMem retrieval/write-back errors instead of "
+        "continuing (fail-hard). Default is fail-open.",
+    )
     return parser.parse_args()
 
 
@@ -145,6 +151,7 @@ def main() -> None:
         user_id=args.user_id,
         search_limit=args.search_limit,
         save_interactions=not args.no_save,
+        fail_open=not args.no_fail_open,
     )
 
     agent = create_agent(

@@ -1,17 +1,16 @@
 # powermem-langchain
 
 This package is the LangChain middleware exercise for the VLDB 2026 summer
-school branch. It provides a package skeleton, a no-op middleware scaffold,
-contract tests, and a runnable OpenAI example. It does not provide a complete
-PowerMem middleware implementation.
+school branch. It implements `PowerMemMiddleware`, the contract tests, and a
+runnable OpenAI example that exercise memory retrieval, context injection, and
+write-back through LangChain middleware hooks.
 
 The goal is to integrate PowerMem as a long-term memory layer for LangChain v1
-agents. The provided scaffold is intentionally small; you may adjust it as your
-implementation requires, but the memory retrieval, context injection, and
-write-back behavior should be implemented through LangChain middleware hooks.
-This is useful beyond a single `create_agent` example: LangChain middleware is
-the extension point for controlling agent execution, and related projects such
-as Deep Agents also compose capabilities through middleware.
+agents. The memory retrieval, context injection, and write-back behavior are
+implemented through LangChain middleware hooks. This is useful beyond a single
+`create_agent` example: LangChain middleware is the extension point for
+controlling agent execution, and related projects such as Deep Agents also
+compose capabilities through middleware.
 
 ## Task
 
@@ -51,7 +50,16 @@ At minimum, the implementation should:
 - Save the user and assistant interaction to PowerMem when enabled.
 - Skip write-back when `save_interactions=False`.
 - Use the explicit `user_id` constructor argument.
-- Keep the agent usable when PowerMem search fails.
+- Keep the agent usable when PowerMem search fails (fail-open by default).
+- Optionally re-raise memory-layer errors instead by setting `fail_open=False`.
+- Work with both synchronous and asynchronous agent invocation paths.
+
+The constructor validates its arguments up front: `user_id` must be a non-empty
+string (or `None` to defer identity to PowerMem), `search_limit` a positive
+integer, and unknown keyword arguments are rejected so typos such as `user_idd=`
+surface immediately rather than being silently ignored. `fail_open` (default
+`True`) keeps the agent running when PowerMem retrieval or write-back fails;
+set it to `False` to propagate those errors instead.
 
 ## Tests
 
@@ -112,6 +120,6 @@ uv run --no-project \
     --user-id summer-school-demo
 ```
 
-With the placeholder middleware, the command can run but will not show the expected
-memory injection or write-back behavior. After implementation, the output should
-show seeded memories before the agent call and updated memories afterward.
+After the agent runs, the output should show seeded memories before the agent
+call and updated memories afterward, reflecting the middleware's retrieval and
+write-back behavior.
