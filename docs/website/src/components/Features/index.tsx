@@ -34,7 +34,7 @@ const features = [
 const translations: Record<string, Record<string, string>> = {
   en: {
     'features.title': 'Core Features',
-    'features.subtitle': 'Store, retrieve, and share durable context across agents and modalities',
+    'features.subtitle': 'Complete intelligent memory management solution for AI applications',
     'feature.developer.title': 'Developer Friendly',
     'feature.developer.en': 'Developer Friendly',
     'feature.developer.desc': 'Provides a simple Python SDK, automatically loads configuration from .env files, enabling developers to quickly integrate into existing projects. Also supports MCP Server and HTTP API Server integration methods',
@@ -53,7 +53,7 @@ const translations: Record<string, Record<string, string>> = {
   },
   zh: {
     'features.title': '核心特性',
-    'features.subtitle': '跨智能体和多模态内容存储、检索与共享持久上下文',
+    'features.subtitle': '为 AI 应用提供完整的智能记忆管理解决方案',
     'feature.developer.title': '开发者友好',
     'feature.developer.en': 'Developer Friendly',
     'feature.developer.desc': '提供简单的 Python SDK，自动从 .env 文件加载配置，使开发者能够快速集成到现有项目中。还支持 MCP Server 和 HTTP API Server 两种接入方式',

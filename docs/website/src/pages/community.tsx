@@ -36,7 +36,7 @@ const translations: Record<string, Record<string, string>> = {
   en: {
     'common.back': 'Back',
     'communityPage.title': 'Community',
-    'communityPage.subtitle': 'Discuss implementation, report issues, and contribute to PowerMem',
+    'communityPage.subtitle': 'Build better AI memory management systems with the developer community',
     'communityPage.description': 'Join the PowerMem Community',
     'communityPage.github.action': 'Star Us',
     'communityPage.discord.action': 'Join Discord',
@@ -61,7 +61,7 @@ const translations: Record<string, Record<string, string>> = {
   zh: {
     'common.back': '返回',
     'communityPage.title': '社区',
-    'communityPage.subtitle': '讨论实现、反馈问题，并参与 PowerMem 开发',
+    'communityPage.subtitle': '与开发者社区一起构建更好的 AI 记忆管理系统',
     'communityPage.description': '加入 PowerMem 社区',
     'communityPage.github.action': 'Star 我们',
     'communityPage.discord.action': '加入 Discord',

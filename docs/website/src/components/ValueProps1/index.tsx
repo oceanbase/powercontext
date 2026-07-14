@@ -16,11 +16,11 @@ const translations: Record<string, Record<string, string>> = {
     title: 'Why Choose PowerMem?',
     subtitle: 'Accurate, Agile, Affordable - The best AI memory management experience',
     benchmarkDesc: 'Real-world performance metrics based on LOCOMO dataset',
-    view: 'Explore the benchmark',
-    accurate: 'LLM score',
+    view: 'View Full Benchmark Results',
+    accurate: 'LLM Score',
     agile: 'Retrieval P95',
-    affordable: 'Token usage',
-    baseline: 'Full-context',
+    affordable: 'Token Usage',
+    baseline: 'Full-Context',
   },
   zh: {
     title: '为什么选择 PowerMem？',
@@ -28,9 +28,9 @@ const translations: Record<string, Record<string, string>> = {
     benchmarkDesc: '基于 LOCOMO 数据集的真实性能指标',
     view: '查看完整压测数据',
     accurate: 'LLM 评分',
-    agile: '检索 P95',
+    agile: 'Retrieval P95',
     affordable: 'Token 使用量',
-    baseline: '全上下文',
+    baseline: 'Full-Context',
   },
 };
 

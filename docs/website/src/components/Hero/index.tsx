@@ -16,16 +16,26 @@ export default function Hero() {
   const codeExample = isZh
     ? `from powermem import Memory, auto_config
 
-memory = Memory(config=auto_config())
-memory.add("用户喜欢咖啡", user_id="u123")
+# 自动从 .env 加载配置
+config = auto_config()
+memory = Memory(config=config)
 
-results = memory.search("咖啡", user_id="u123")`
+# 添加记忆
+memory.add("用户喜欢咖啡", user_id="user123")
+
+# 搜索记忆
+memories = memory.search("用户偏好", user_id="user123")`
     : `from powermem import Memory, auto_config
 
-memory = Memory(config=auto_config())
-memory.add("User likes coffee", user_id="u123")
+# Auto-load from .env
+config = auto_config()
+memory = Memory(config=config)
 
-results = memory.search("coffee", user_id="u123")`;
+# Add memory
+memory.add("User likes coffee", user_id="user123")
+
+# Search memories
+memories = memory.search("user preferences", user_id="user123")`;
 
   return (
     <section className={styles.hero}>
@@ -33,9 +43,9 @@ results = memory.search("coffee", user_id="u123")`;
         <div className={styles.heroText}>
           <Heading as="h1" className={styles.heroTitle}>
             {isZh ? (
-              <>为 AI 应用构建<span className={styles.heroTitleMemory}>持久记忆</span></>
+              <>为 AI 应用构建<span className={styles.heroTitleMemory}>持久记忆层</span></>
             ) : (
-              <>Persistent <span className={styles.heroTitleMemory}>memory</span> for AI applications.</>
+              <>Build Persistent <span className={styles.heroTitleMemory}>Memory</span> for AI Applications</>
             )}
           </Heading>
           <p className={styles.heroSubtitle}>
@@ -91,4 +101,3 @@ results = memory.search("coffee", user_id="u123")`;
     </section>
   );
 }
-
