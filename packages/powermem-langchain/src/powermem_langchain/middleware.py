@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, NotRequired, TypedDict
 
 from langchain.agents.middleware import (
@@ -12,13 +10,6 @@ from langchain.agents.middleware import (
     AgentState,
 )
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-
-
-class _NonBlockingShutdownThreadPoolExecutor(ThreadPoolExecutor):
-    """Executor variant for environments where default shutdown can block."""
-
-    def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
-        super().shutdown(wait=False, cancel_futures=cancel_futures)
 
 
 class PowerMemState(AgentState):
@@ -92,7 +83,6 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
         state: PowerMemState,
         runtime: Any,
     ) -> dict[str, Any] | None:
-        self._ensure_asyncio_default_executor()
         return self._context_message_update(state)
 
     def after_agent(self, state: PowerMemState, runtime: Any) -> None:
@@ -128,18 +118,6 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
             "messages": [SystemMessage(content=context)],
             "powermem_context_injected": True,
         }
-
-    def _ensure_asyncio_default_executor(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-
-        if getattr(loop, "_default_executor", None) is not None:
-            return
-
-        # Install only before asyncio creates its process-blocking default executor.
-        loop.set_default_executor(_NonBlockingShutdownThreadPoolExecutor(max_workers=1))
 
     def _search_memories(self, query: str) -> list[Any]:
         try:
