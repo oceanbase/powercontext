@@ -23,6 +23,7 @@
 .grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   max-width: 1120px;
   margin: 0 auto;
   border-top: 1px solid var(--pm-border);
@@ -38,25 +39,15 @@
   border-right: 1px solid var(--pm-border);
 }
 
-.card:nth-child(n + 4) {
-  display: grid;
-  grid-column: span 3;
-  grid-template-columns: 44px 1fr;
-  gap: 0 1rem;
-  padding-block: 1.6rem;
-}
-
 .card:nth-child(4) {
+  grid-row: 2;
+  grid-column: 2 / span 2;
   border-right: 1px solid var(--pm-border);
 }
 
-.card:nth-child(n + 4) .icon {
-  grid-row: 1 / span 2;
-}
-
-.card:nth-child(n + 4) .cardTitle,
-.card:nth-child(n + 4) .cardDesc {
-  grid-column: 2;
+.card:nth-child(5) {
+  grid-row: 2;
+  grid-column: 4 / span 2;
 }
 
 .icon {
@@ -95,10 +86,12 @@
 
   .grid {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
   }
 
   .card,
   .card:nth-child(n + 4) {
+    grid-row: auto;
     grid-column: 1;
     border-right: 0;
   }

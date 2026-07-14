@@ -57,7 +57,7 @@
   overflow: hidden;
   border: 1px solid var(--pm-code-border);
   border-radius: var(--pm-radius-md);
-  background: var(--pm-code);
+  background: #fafbfd;
 }
 
 .codeHeader {
@@ -75,17 +75,24 @@
 
 .codeBlock {
   overflow: hidden;
-  background: var(--pm-code);
+  background: #fafbfd;
 }
 
 .codePre {
   margin: 0 !important;
   padding: 1.35rem 1.25rem 1.5rem !important;
+  border: 0 !important;
+  border-radius: 0 !important;
   overflow-x: auto;
   background: transparent !important;
   font-size: 0.84rem;
   line-height: 1.75;
   scrollbar-width: thin;
+}
+
+:global(html[data-theme='dark']) .codePreview,
+:global(html[data-theme='dark']) .codeBlock {
+  background: var(--pm-code);
 }
 
 .codeLine {
@@ -159,4 +166,3 @@
     white-space: pre-wrap;
   }
 }
-

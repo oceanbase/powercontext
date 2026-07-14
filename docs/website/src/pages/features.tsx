@@ -108,16 +108,13 @@ function SyncDiagram() {
       <rect className={styles.diagramSurfaceStrong} x="268" y="104" width="144" height="172" rx="12" />
       <path className={styles.diagramLine} d="M268 136h144" />
       <circle className={styles.diagramAccent} cx="287" cy="120" r="4" />
-      <text className={styles.diagramTechnicalLabel} x="300" y="124">LOG · v42</text>
+      <text className={styles.diagramTechnicalLabel} x="300" y="124">Memory sync</text>
       <rect className={styles.diagramSurfaceMuted} x="286" y="151" width="108" height="32" rx="6" />
       <circle className={styles.diagramAccentSoft} cx="302" cy="167" r="7" />
       <path className={styles.diagramMutedLine} d="M315 162h64M315 172h43" />
       <rect className={styles.diagramSurfaceMuted} x="286" y="192" width="108" height="32" rx="6" />
       <circle className={styles.diagramAccentSoft} cx="302" cy="208" r="7" />
       <path className={styles.diagramMutedLine} d="M315 203h64M315 213h50" />
-      <path className={styles.diagramAccentLine} d="M302 235h25l13 13 13-13h25" />
-      <circle className={styles.diagramAccent} cx="340" cy="248" r="5" />
-      <text className={styles.diagramTechnicalLabelAccent} x="352" y="252">v42</text>
 
       <rect className={styles.diagramSurfaceStrong} x="457" y="45" width="189" height="184" rx="12" />
       <path className={styles.diagramLine} d="M457 77h189" />
@@ -162,12 +159,11 @@ function AnalyticsDiagram() {
       <path className={styles.diagramAccentLine} d="M187 123h8M191 119v8" />
       <path className={styles.diagramMutedLine} d="M209 116h61M209 128h38" />
       <rect className={styles.diagramAccent} x="209" y="141" width="72" height="5" rx="2.5" />
-      <text className={styles.diagramTechnicalLabelAccent} x="267" y="126">P95</text>
 
       <rect className={styles.diagramSurfaceMuted} x="316" y="101" width="134" height="62" rx="8" />
       <path className={styles.diagramMutedLine} d="M337 116h74M337 128h49" />
       <path className={styles.diagramAccentLine} d="m337 145 19-12 17 7 20-18 21 5 18-13" />
-      <text className={styles.diagramTechnicalLabel} x="416" y="126">24h</text>
+      <text className={styles.diagramTechnicalLabel} x="411" y="152">24h</text>
 
       <rect className={styles.diagramSurfaceMuted} x="463" y="101" width="158" height="62" rx="8" />
       <circle className={styles.diagramAccent} cx="486" cy="126" r="12" />
@@ -212,7 +208,7 @@ function SecurityDiagram() {
       <circle className={styles.diagramAccent} cx="82" cy="266" r="4" />
       <rect className={styles.diagramSurfaceStrong} x="116" y="119" width="83" height="164" rx="9" />
       <path className={styles.diagramLine} d="M116 153h83" />
-      <text className={styles.diagramTechnicalLabelAccent} x="136" y="140">RBAC</text>
+      <text className={styles.diagramTechnicalLabelAccent} x="136" y="140">Access</text>
       <circle className={styles.diagramAccent} cx="135" cy="178" r="7" />
       <path className={styles.diagramCheck} d="m131 178 3 3 5-6" />
       <path className={styles.diagramMutedLine} d="M151 174h29M151 183h19" />
@@ -228,7 +224,7 @@ function SecurityDiagram() {
       <path className={styles.diagramLineStrong} d="M233.5 171v38c0 5 11 9 24 9s24-4 24-9v-38M233.5 190c0 5 11 9 24 9s24-4 24-9" />
       <rect className={styles.diagramAccent} x="247" y="224" width="21" height="23" rx="5" />
       <path className={styles.diagramSurfaceStroke} d="M252 224v-7a6 6 0 0 1 12 0v7" />
-      <text className={styles.diagramTechnicalLabelAccent} x="245" y="258">AES</text>
+      <text className={styles.diagramTechnicalLabelAccent} x="229" y="258">Encrypted</text>
 
       <rect className={styles.diagramSurfaceMuted} x="337" y="102" width="285" height="211" rx="10" />
       <path className={styles.diagramLine} d="M337 144h285" />
@@ -262,18 +258,20 @@ function EdgeDiagram() {
       <rect className={styles.diagramAccent} x="243" y="246" width="9" height="9" rx="2" />
       <rect className={styles.diagramAccent} x="428" y="246" width="9" height="9" rx="2" />
 
-      <rect className={styles.diagramSurfaceStrong} x="45" y="52" width="162" height="120" rx="12" />
+      <rect className={styles.diagramAccentSoft} x="45" y="52" width="162" height="120" rx="12" />
       <path className={styles.diagramLine} d="M45 82h162" />
       <circle className={styles.diagramAccent} cx="64" cy="67" r="4" />
+      <text className={styles.diagramTechnicalLabel} x="76" y="71">EDGE</text>
       <rect className={styles.diagramSurfaceMuted} x="66" y="101" width="47" height="43" rx="7" />
       <circle className={styles.diagramLineStrong} cx="89.5" cy="122.5" r="10" />
       <circle className={styles.diagramAccent} cx="89.5" cy="122.5" r="3" />
       <path className={styles.diagramMutedLine} d="M128 104h57M128 117h42M128 139h57" />
       <rect className={styles.diagramAccent} x="128" y="135" width="35" height="4" rx="2" />
 
-      <rect className={styles.diagramSurfaceStrong} x="473" y="52" width="162" height="120" rx="12" />
+      <rect className={styles.diagramAccentSoft} x="473" y="52" width="162" height="120" rx="12" />
       <path className={styles.diagramLine} d="M473 82h162" />
       <circle className={styles.diagramAccent} cx="492" cy="67" r="4" />
+      <text className={styles.diagramTechnicalLabel} x="504" y="71">EDGE</text>
       <rect className={styles.diagramSurfaceMuted} x="495" y="99" width="44" height="48" rx="6" />
       <path className={styles.diagramLineStrong} d="M506 111h22M506 122h22M506 133h22" />
       <circle className={styles.diagramAccent} cx="504" cy="111" r="2" />
@@ -282,27 +280,29 @@ function EdgeDiagram() {
       <path className={styles.diagramMutedLine} d="M554 104h57M554 117h42M554 139h57" />
       <rect className={styles.diagramAccent} x="554" y="135" width="45" height="4" rx="2" />
 
-      <rect className={styles.diagramAccentSoft} x="267" y="123" width="146" height="140" rx="18" />
+      <rect className={styles.diagramSurfaceMuted} x="267" y="123" width="146" height="140" rx="18" />
       <rect className={styles.diagramSurfaceStrong} x="287" y="142" width="106" height="102" rx="12" />
       <path className={styles.diagramLine} d="M287 174h106" />
       <circle className={styles.diagramAccent} cx="304" cy="158" r="4" />
-      <text className={styles.diagramTechnicalLabel} x="316" y="162">EDGE</text>
+      <text className={styles.diagramTechnicalLabel} x="316" y="162">CLOUD</text>
       <rect className={styles.diagramAccentSoft} x="303" y="187" width="74" height="27" rx="6" />
       <circle className={styles.diagramAccent} cx="317" cy="200.5" r="4" />
       <path className={styles.diagramMutedLine} d="M328 196h35M328 205h24" />
       <text className={styles.diagramTechnicalLabelAccent} x="319" y="232">12ms</text>
 
-      <rect className={styles.diagramSurfaceStrong} x="45" y="214" width="162" height="120" rx="12" />
+      <rect className={styles.diagramAccentSoft} x="45" y="214" width="162" height="120" rx="12" />
       <path className={styles.diagramLine} d="M45 244h162" />
       <circle className={styles.diagramAccent} cx="64" cy="229" r="4" />
+      <text className={styles.diagramTechnicalLabel} x="76" y="233">EDGE</text>
       <rect className={styles.diagramSurfaceMuted} x="70" y="263" width="31" height="48" rx="7" />
       <path className={styles.diagramLineStrong} d="M82 270h7M81 302h9" />
       <path className={styles.diagramMutedLine} d="M119 266h66M119 279h44M119 301h66" />
       <rect className={styles.diagramAccent} x="119" y="297" width="53" height="4" rx="2" />
 
-      <rect className={styles.diagramSurfaceStrong} x="473" y="214" width="162" height="120" rx="12" />
+      <rect className={styles.diagramAccentSoft} x="473" y="214" width="162" height="120" rx="12" />
       <path className={styles.diagramLine} d="M473 244h162" />
       <circle className={styles.diagramAccent} cx="492" cy="229" r="4" />
+      <text className={styles.diagramTechnicalLabel} x="504" y="233">EDGE</text>
       <circle className={styles.diagramSurfaceMuted} cx="517" cy="284" r="24" />
       <path className={styles.diagramAccentLine} d="M517 270v28M503 284h28" />
       <path className={styles.diagramMutedLine} d="M554 266h57M554 279h42M554 301h57" />
@@ -358,11 +358,6 @@ function FederatedDiagram() {
       <rect className={styles.diagramAccent} x="320" y="168" width="40" height="9" rx="4.5" />
       <rect className={styles.diagramAccentSoft} x="320" y="185" width="40" height="9" rx="4.5" />
       <rect className={styles.diagramAccentSoft} x="320" y="202" width="40" height="9" rx="4.5" />
-      <text className={styles.diagramTechnicalLabelAccent} x="326" y="224">ΣΔ</text>
-      <text className={styles.diagramTechnicalLabelAccent} x="235" y="119">Δ</text>
-      <text className={styles.diagramTechnicalLabelAccent} x="438" y="119">Δ</text>
-      <text className={styles.diagramTechnicalLabelAccent} x="235" y="273">Δ</text>
-      <text className={styles.diagramTechnicalLabelAccent} x="438" y="273">Δ</text>
     </svg>
   );
 }
