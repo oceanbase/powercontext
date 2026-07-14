@@ -65,14 +65,15 @@ const config: Config = {
     image: 'img/powermem-social-card.jpg',
     colorMode: {
       respectPrefersColorScheme: false,
-      defaultMode: 'dark',
-      disableSwitch: true,
+      defaultMode: 'light',
+      disableSwitch: false,
     },
     navbar: {
       title: 'PowerMem',
       logo: {
         alt: 'PowerMem Logo',
-        src: 'img/logo.svg',
+        src: 'img/logo-light.svg',
+        srcDark: 'img/logo.svg',
       },
       items: [
         {
@@ -97,10 +98,6 @@ const config: Config = {
           position: 'left',
         },
         {
-          type: 'custom-localeSwitch',
-          position: 'right',
-        },
-        {
           href: 'https://github.com/oceanbase/powermem',
           label: 'GitHub',
           position: 'right',
@@ -113,6 +110,10 @@ const config: Config = {
         {
           href: 'https://x.com/OceanBaseDB',
           label: 'X',
+          position: 'right',
+        },
+        {
+          type: 'custom-localeSwitch',
           position: 'right',
         },
       ],

@@ -2,31 +2,51 @@
   position: relative;
   display: flex;
   align-items: center;
-  margin-left: 0.5rem;
+  padding-left: 13px;
+  padding-right: 0;
+  margin-left: 4px;
+  margin-right: 0;
+}
+
+.localeDropdown::before {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  width: 1px;
+  height: 20px;
+  background: var(--pm-border);
+  content: '';
+  pointer-events: none;
 }
 
 .localeSwitch {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 2.5rem !important;
-  height: 2.5rem !important;
-  min-width: 2.5rem !important;
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
   padding: 0 !important;
-  background: rgba(59, 130, 246, 0.1) !important;
-  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  background: transparent !important;
+  border: 0 !important;
   border-radius: 8px !important;
-  color: #e5e7eb;
+  color: var(--pm-muted);
   cursor: pointer;
-  transition: all 0.3s ease !important;
+  touch-action: manipulation;
+  transition: background 180ms ease, color 180ms ease !important;
 }
 
 .localeSwitch:hover,
 .localeSwitchOpen {
-  background: rgba(59, 130, 246, 0.2) !important;
-  border-color: rgba(59, 130, 246, 0.5) !important;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
-  transform: translateY(-2px) !important;
+  background: color-mix(in srgb, #0083ff 9%, var(--pm-surface)) !important;
+}
+
+.localeSwitchOpen {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #0083ff 18%, var(--pm-border));
+}
+
+.localeSwitch:active {
+  background: color-mix(in srgb, #0083ff 15%, var(--pm-surface)) !important;
 }
 
 .localeSwitch:focus-visible,
@@ -37,62 +57,145 @@
 }
 
 .icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  color: #e5e7eb;
+  width: 18px;
+  height: 18px;
+  color: var(--pm-muted);
   flex-shrink: 0;
-  transition: color 0.3s ease;
+  transition: color 160ms ease;
 }
 
 .localeSwitch:hover .icon,
 .localeSwitchOpen .icon {
-  color: #60a5fa;
+  color: #0083ff;
 }
 
 .localeMenu {
   position: absolute;
-  top: calc(100% + 0.625rem);
-  right: 0;
+  top: calc(100% + 0.5rem);
+  right: -0.25rem;
   z-index: var(--ifm-z-index-dropdown);
-  min-width: 10rem;
-  padding: 0.35rem 0;
+  min-width: 12.5rem;
+  padding: 0.375rem;
   margin: 0;
   list-style: none;
-  background: rgba(17, 24, 39, 0.98);
-  border: 1px solid rgba(75, 85, 99, 0.75);
-  border-radius: 2px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  background: var(--pm-raised);
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-md);
+  box-shadow:
+    0 16px 40px rgb(28 45 70 / 14%),
+    0 3px 10px rgb(28 45 70 / 8%);
+  transform-origin: top right;
+  animation: locale-menu-enter 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .localeMenuItem {
   list-style: none;
 }
 
-.localeMenuLink {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  width: 100%;
-  min-height: 2.75rem;
-  padding: 0.75rem 1rem;
-  color: rgba(229, 231, 235, 0.92);
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
+.localeMenuItem + .localeMenuItem {
+  margin-top: 0.125rem;
 }
 
-.localeMenuLink:hover,
-.localeMenuLinkActive {
-  color: #fff;
+.localeMenuLink {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--pm-radius-sm);
+  color: var(--pm-text);
+  font-size: 0.875rem;
+  font-weight: 620;
+  line-height: 1.25;
   text-decoration: none;
-  background: rgba(59, 130, 246, 0.18);
+  white-space: nowrap;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.localeMenuLink:hover {
+  color: var(--pm-text);
+  text-decoration: none;
+  background: var(--pm-surface);
+}
+
+.localeMenuLinkActive,
+.localeMenuLinkActive:hover {
+  border-color: color-mix(in srgb, #0083ff 18%, var(--pm-border));
+  background: color-mix(in srgb, #0083ff 7%, var(--pm-raised));
+}
+
+.localeCode {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--pm-border);
+  border-radius: 7px;
+  background: var(--pm-surface);
+  color: var(--pm-muted);
+  font-size: 0.65rem;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.localeMenuLinkActive .localeCode {
+  border-color: #0083ff;
+  background: #0083ff;
+  color: #ffffff;
+}
+
+.localeName {
+  min-width: 0;
 }
 
 .checkMark {
-  color: #a78bfa;
-  font-size: 1rem;
-  line-height: 1;
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  color: #0083ff;
+}
+
+.checkIcon {
+  width: 16px;
+  height: 16px;
+}
+
+:global([data-theme='dark']) .localeMenu {
+  box-shadow:
+    0 18px 48px rgb(0 0 0 / 42%),
+    0 3px 12px rgb(0 0 0 / 28%);
+}
+
+:global([data-theme='dark']) .localeMenuLinkActive,
+:global([data-theme='dark']) .localeMenuLinkActive:hover {
+  border-color: color-mix(in srgb, #0083ff 28%, var(--pm-border));
+  background: color-mix(in srgb, #0083ff 12%, var(--pm-raised));
+}
+
+@keyframes locale-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .mobileLocaleItem {
@@ -101,6 +204,7 @@
 
 .mobileToggle {
   display: flex !important;
+  min-height: 44px;
   align-items: center;
   gap: 0.6rem;
   width: 100%;
@@ -108,13 +212,36 @@
 }
 
 .mobileMenu {
-  padding-left: 1rem;
-  margin: 0.25rem 0 0;
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.375rem;
+  margin: 0.375rem 0.5rem 0.5rem 2.1rem;
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-md);
+  background: var(--pm-raised);
   list-style: none;
 }
 
-.mobileMenu .checkMark {
-  margin-left: 0.5rem;
+.mobileMenu :global(.menu__link) {
+  display: grid;
+  min-height: 44px;
+  padding: 0.375rem 0.5rem;
+  grid-template-columns: 28px minmax(0, 1fr) 18px;
+  gap: 0.625rem;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--pm-radius-sm);
+}
+
+.mobileMenu :global(.menu__link--active) {
+  border-color: color-mix(in srgb, #0083ff 18%, var(--pm-border));
+  background: color-mix(in srgb, #0083ff 7%, var(--pm-raised));
+}
+
+.mobileMenu :global(.menu__link--active) .localeCode {
+  border-color: #0083ff;
+  background: #0083ff;
+  color: #ffffff;
 }
 
 @media (max-width: 768px) {

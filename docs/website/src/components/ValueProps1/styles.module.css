@@ -1,348 +1,108 @@
 .valueProps {
-  padding: 5rem 0;
-  background: linear-gradient(to bottom, #000000, #0a0a0a);
-  position: relative;
-  overflow: hidden;
+  padding: clamp(4.5rem, 8vw, 7rem) 0;
+  border-bottom: 1px solid var(--pm-border);
+  background: var(--pm-surface);
 }
 
-.valueProps::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: 
-    radial-gradient(circle at 30% 30%, rgba(59, 130, 246, 0.1), transparent 50%),
-    radial-gradient(circle at 70% 70%, rgba(147, 51, 234, 0.08), transparent 50%);
-  pointer-events: none;
-}
-
-.header {
-  text-align: center;
-  margin-bottom: 3rem;
-  position: relative;
-  z-index: 1;
-}
-
-.title {
-  font-size: 2.25rem;
-  font-weight: 700;
-  color: #ffffff;
-  margin-bottom: 0.75rem;
-  text-shadow: 0 0 20px rgba(96, 165, 250, 0.3);
-  letter-spacing: -0.02em;
-}
-
-.subtitle {
-  font-size: 1.125rem;
-  color: #9ca3af;
-  max-width: 600px;
-  margin: 0 auto 0.75rem;
-  line-height: 1.6;
-}
-
-.benchmarkDesc {
-  font-size: 0.9375rem;
-  color: #6b7280;
-  max-width: 600px;
-  margin: 0 auto;
-  line-height: 1.6;
-}
-
-.content {
+.inner {
   display: grid;
-  grid-template-columns: 0.5fr 1fr;
-  gap: 2.5rem;
-  max-width: 1200px;
+  grid-template-columns: minmax(260px, 0.7fr) minmax(0, 1.3fr);
+  gap: clamp(3rem, 7vw, 7rem);
+  width: min(1120px, calc(100% - 3rem));
   margin: 0 auto;
-  position: relative;
-  z-index: 1;
-  align-items: stretch;
 }
 
-.cardsContainer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.875rem;
-  align-self: stretch;
-  min-height: 100%;
+.intro h2 {
+  margin: 0 0 1rem;
+  font-size: clamp(2rem, 3.3vw, 3rem);
+  word-break: keep-all;
 }
 
-.card {
-  background: rgba(17, 17, 17, 0.85);
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  border: 1px solid rgba(59, 130, 246, 0.15);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(10px);
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.cardActive {
-  border-color: rgba(59, 130, 246, 0.5) !important;
-  background: rgba(17, 17, 17, 0.95) !important;
-  transform: translateX(6px) scale(1.02);
-  box-shadow: 
-    0 8px 24px rgba(0, 0, 0, 0.6),
-    0 0 30px rgba(59, 130, 246, 0.25),
-    0 0 50px rgba(147, 51, 234, 0.12);
-}
-
-.cardContent {
-  position: relative;
-  z-index: 1;
-}
-
-.cardHeader {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  margin-bottom: 0.5rem;
-}
-
-.cardTitleWrapper {
-  flex: 1;
-  min-width: 0;
-}
-
-.icon {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: linear-gradient(135deg, #3b82f6, #9333ea);
-  box-shadow: 
-    0 0 15px rgba(59, 130, 246, 0.3),
-    inset 0 0 10px rgba(59, 130, 246, 0.12);
-}
-
-.iconSvg {
-  width: 1rem;
-  height: 1rem;
-  color: white;
-  filter: drop-shadow(0 0 5px currentColor);
-}
-
-.cardTitle {
-  font-size: 0.9375rem;
-  font-weight: 700;
-  color: #ffffff;
+.intro p {
+  max-width: 34rem;
   margin: 0;
-  line-height: 1.3;
+  color: var(--pm-muted);
+  line-height: 1.7;
 }
 
-.cardEn {
-  font-size: 0.6875rem;
-  color: #6b7280;
-  margin: 0.2rem 0 0 0;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 500;
+.intro .benchmarkDesc {
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
 }
 
-.cardDesc {
-  color: #9ca3af;
-  margin: 0;
-  font-size: 0.8125rem;
-  line-height: 1.5;
-}
-
-.comparisonContainer {
-  display: flex;
-  align-items: stretch;
-  align-self: stretch;
-  min-height: 100%;
-}
-
-.comparison {
-  background: rgba(17, 17, 17, 0.95);
-  border-radius: 12px;
-  padding: 1.5rem;
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  backdrop-filter: blur(10px);
-  box-shadow: 
-    0 10px 20px rgba(0, 0, 0, 0.5),
-    0 0 25px rgba(59, 130, 246, 0.15);
-  width: 100%;
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.comparisonHeader {
-  margin-bottom: 1.5rem;
-  text-align: center;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(59, 130, 246, 0.15);
-}
-
-.comparisonTitle {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #ffffff;
-  margin: 0;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.comparisonData {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  flex: 1;
-  justify-content: center;
-}
-
-.progressItem {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.progressLabel {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.875rem;
-  color: #9ca3af;
-}
-
-.progressValue {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: #e5e7eb;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.progressBar {
-  width: 100%;
-  height: 12px;
-  background: rgba(0, 0, 0, 0.4);
-  border-radius: 6px;
-  overflow: hidden;
-  position: relative;
-}
-
-.progressFill {
-  height: 100%;
-  border-radius: 6px;
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-.progressFillPowerMem {
-  background: linear-gradient(90deg, #3b82f6, #9333ea);
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
-}
-
-.progressFillPowerMem::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  animation: shimmer 2s infinite;
-}
-
-.progressFillFullContext {
-  background: linear-gradient(90deg, #4b5563, #6b7280);
-  box-shadow: 0 0 5px rgba(107, 114, 128, 0.3);
-}
-
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
-}
-
-.vsDivider {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0.5rem 0;
-  position: relative;
-}
-
-.vsDivider::before,
-.vsDivider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.3), transparent);
-}
-
-.vsText {
-  padding: 0 0.625rem;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  color: #4b5563;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  background: rgba(17, 17, 17, 0.95);
-  position: relative;
-  z-index: 1;
-}
-
-.improvement {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(59, 130, 246, 0.2);
-  text-align: center;
-}
-
-.improvementText {
+.intro a {
   display: inline-block;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #86efac;
-  background: rgba(134, 239, 172, 0.12);
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  border: 1px solid rgba(134, 239, 172, 0.25);
-  text-shadow: 0 0 6px rgba(134, 239, 172, 0.4);
-  letter-spacing: 0.02em;
+  margin-top: 1.25rem;
+  font-weight: 650;
 }
 
-.footer {
-  text-align: center;
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--pm-border);
+  border-bottom: 1px solid var(--pm-border);
+}
+
+.metric {
   position: relative;
-  z-index: 1;
-  padding-top: 3rem;
-  margin-top: 2rem;
+  padding: 1.5rem 1.25rem;
+  border-right: 1px solid var(--pm-border);
 }
 
-@media (max-width: 1024px) {
-  .content {
+.metric:last-child {
+  border-right: 0;
+}
+
+.metricLabel,
+.metricBaseline,
+.metricChange {
+  display: block;
+}
+
+.metricLabel {
+  color: var(--pm-muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.metricValue {
+  display: block;
+  margin: 0.7rem 0 0.8rem;
+  color: #0083ff;
+  font-size: clamp(2rem, 3vw, 2.7rem);
+  letter-spacing: -0.04em;
+}
+
+.metricBaseline {
+  color: var(--pm-muted);
+  font-size: 0.76rem;
+}
+
+.metricChange {
+  margin-top: 0.25rem;
+  color: var(--pm-text);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+@media (max-width: 800px) {
+  .inner {
     grid-template-columns: 1fr;
-    gap: 2rem;
-  }
-
-  .comparisonContainer {
-    position: relative;
-    top: 0;
+    gap: 2.5rem;
   }
 }
 
-@media (max-width: 768px) {
-  .valueProps {
-    padding: 3rem 0;
+@media (max-width: 560px) {
+  .metrics {
+    grid-template-columns: 1fr;
   }
 
-  .title {
-    font-size: 1.875rem;
+  .metric {
+    border-right: 0;
+    border-bottom: 1px solid var(--pm-border);
   }
 
-  .subtitle {
-    font-size: 1rem;
+  .metric:last-child {
+    border-bottom: 0;
   }
 }
-

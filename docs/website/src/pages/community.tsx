@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 import Link from '@docusaurus/Link';
@@ -8,26 +8,6 @@ import DiscordIcon from '../components/Community/icons/DiscordIcon';
 import XIcon from '../components/Community/icons/XIcon';
 import styles from './community.module.css';
 
-// GitHub Stars Hook
-function useGitHubStars() {
-  const [stars, setStars] = useState<number | null>(null);
-
-  useEffect(() => {
-    fetch('https://api.github.com/repos/oceanbase/powermem')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.stargazers_count) {
-          setStars(data.stargazers_count);
-        }
-      })
-      .catch(() => {
-        // Silently fail
-      });
-  }, []);
-
-  return stars;
-}
-
 const communityLinks = [
   {
     icon: GitHubIcon,
@@ -35,7 +15,6 @@ const communityLinks = [
     descKey: 'community.github.desc',
     actionKey: 'communityPage.github.action',
     href: 'https://github.com/oceanbase/powermem',
-    color: 'from-gray-800 to-gray-900',
   },
   {
     icon: DiscordIcon,
@@ -43,7 +22,6 @@ const communityLinks = [
     descKey: 'community.discord.desc',
     actionKey: 'communityPage.discord.action',
     href: 'https://discord.com/invite/74cF8vbNEs',
-    color: 'from-indigo-500 to-indigo-600',
   },
   {
     icon: XIcon,
@@ -51,7 +29,6 @@ const communityLinks = [
     descKey: 'community.x.desc',
     actionKey: 'communityPage.x.action',
     href: 'https://x.com/OceanBaseDB',
-    color: 'from-black to-gray-900',
   },
 ];
 
@@ -112,85 +89,124 @@ export default function CommunityPage() {
   const { i18n } = useDocusaurusContext();
   const isZh = i18n.currentLocale === 'zh';
   const t = (key: string) => translations[isZh ? 'zh' : 'en'][key] || key;
-  const stars = useGitHubStars();
+  const newTabLabel = isZh
+    ? '（在新标签页中打开）'
+    : ' (opens in a new tab)';
 
   return (
-    <Layout title={t('communityPage.title')} description={t('communityPage.description')}>
-      <div className={styles.communityPage}>
-        <div className="container margin-vert--lg">
-          {/* Header */}
-          <div className={styles.header}>
+    <Layout
+      title={t('communityPage.title')}
+      description={t('communityPage.description')}
+    >
+      <main className={styles.communityPage}>
+        <header className={styles.hero}>
+          <div
+            className={`container ${styles.pageContainer} ${styles.heroGrid}`}
+          >
             <Heading as="h1" className={styles.title}>
               {t('communityPage.title')}
             </Heading>
-            <p className={styles.subtitle}>
-              {t('communityPage.subtitle')}
-            </p>
+            <p className={styles.subtitle}>{t('communityPage.subtitle')}</p>
           </div>
+        </header>
 
-          {/* Community Links */}
-          <div className={styles.communityGrid}>
-            {communityLinks.map((link) => {
-              const Icon = link.icon;
-              return (
-                <a
-                  key={link.name}
-                  href={link.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`${styles.communityCard} ${link.color.includes('gray') ? styles['card-gray'] : link.color.includes('indigo') ? styles['card-indigo'] : link.color.includes('black') ? styles['card-black'] : styles['card-sky']}`}
-                >
-                  <Icon className={styles.cardIcon} />
-                  <h2 className={styles.cardTitle}>{link.name}</h2>
-                  <p className={styles.cardDesc}>{t(link.descKey)}</p>
-                  <span className={styles.cardAction}>{t(link.actionKey)} →</span>
-                </a>
-              );
-            })}
-          </div>
-
-          {/* Contributing */}
-          <div className={styles.section}>
-            <div className={styles.sectionText}>
-              <Heading as="h2" className={styles.sectionTitle}>
-                {t('communityPage.contributing.title')}
-              </Heading>
-              <p className={styles.sectionDesc}>
-                {t('communityPage.contributing.desc')}
-              </p>
-              <ul className={styles.list}>
-                <li>{t('communityPage.contributing.item1')}</li>
-                <li>{t('communityPage.contributing.item2')}</li>
-                <li>{t('communityPage.contributing.item3')}</li>
-                <li>{t('communityPage.contributing.item4')}</li>
-              </ul>
-              <Link
-                href="https://github.com/oceanbase/powermem"
-                className={styles.ctaButton}
-              >
-                <GitHubIcon className={styles.buttonIcon} />
-                {t('communityPage.contributing.viewGuide')}
-              </Link>
+        <nav
+          className={styles.channelsSection}
+          aria-label={t('communityPage.title')}
+        >
+          <div className={`container ${styles.pageContainer}`}>
+            <div className={styles.communityGrid}>
+              {communityLinks.map((link) => {
+                const Icon = link.icon;
+                return (
+                  <a
+                    key={link.name}
+                    href={link.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.communityCard}
+                  >
+                    <span className={styles.cardIconSlot} aria-hidden="true">
+                      <Icon className={styles.cardIcon} />
+                    </span>
+                    <div className={styles.cardBody}>
+                      <Heading as="h2" className={styles.cardTitle}>
+                        {link.name}
+                      </Heading>
+                      <p className={styles.cardDesc}>{t(link.descKey)}</p>
+                    </div>
+                    <span className={styles.cardAction}>
+                      {t(link.actionKey)}
+                      <span className={styles.cardArrow} aria-hidden="true">
+                        ↗
+                      </span>
+                      <span className={styles.srOnly}>{newTabLabel}</span>
+                    </span>
+                  </a>
+                );
+              })}
             </div>
           </div>
+        </nav>
 
-          {/* Code of Conduct */}
-          <div className={styles.section}>
-            <Heading as="h2" className={styles.sectionTitle}>
-              {t('communityPage.codeOfConduct.title')}
-            </Heading>
-            <p className={styles.sectionDesc}>
-              {t('communityPage.codeOfConduct.desc')}
-            </p>
-            <ul className={styles.list}>
-              <li>{t('communityPage.codeOfConduct.item1')}</li>
-              <li>{t('communityPage.codeOfConduct.item2')}</li>
-              <li>{t('communityPage.codeOfConduct.item3')}</li>
-              <li>{t('communityPage.codeOfConduct.item4')}</li>
-            </ul>
+        <section className={styles.contributeSection}>
+          <div className={`container ${styles.pageContainer}`}>
+            <div className={styles.contributeGrid}>
+              <div className={styles.contributeIntro}>
+                <Heading as="h2" className={styles.sectionTitle}>
+                  {t('communityPage.contributing.title')}
+                </Heading>
+                <p className={styles.sectionDesc}>
+                  {t('communityPage.contributing.desc')}
+                </p>
+                <Link
+                  href="https://github.com/oceanbase/powermem"
+                  className={styles.guideLink}
+                >
+                  <GitHubIcon className={styles.buttonIcon} />
+                  <span>{t('communityPage.contributing.viewGuide')}</span>
+                  <span className={styles.guideArrow} aria-hidden="true">
+                    →
+                  </span>
+                </Link>
+              </div>
+
+              <ul className={styles.detailList}>
+                {[1, 2, 3, 4].map((number) => (
+                  <li key={number}>
+                    <span className={styles.detailMark} aria-hidden="true" />
+                    <span>{t(`communityPage.contributing.item${number}`)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
-        </div>
-      </div>
+        </section>
+
+        <section className={styles.conductSection}>
+          <div className={`container ${styles.pageContainer}`}>
+            <div className={styles.conductGrid}>
+              <div className={styles.conductIntro}>
+                <Heading as="h2" className={styles.conductTitle}>
+                  {t('communityPage.codeOfConduct.title')}
+                </Heading>
+                <p className={styles.conductDesc}>
+                  {t('communityPage.codeOfConduct.desc')}
+                </p>
+              </div>
+
+              <ul className={styles.detailList}>
+                {[1, 2, 3, 4].map((number) => (
+                  <li key={number}>
+                    <span className={styles.detailMark} aria-hidden="true" />
+                    <span>{t(`communityPage.codeOfConduct.item${number}`)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+      </main>
     </Layout>
   );
 }

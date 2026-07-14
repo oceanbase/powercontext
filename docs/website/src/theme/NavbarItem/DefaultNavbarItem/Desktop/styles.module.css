@@ -2,38 +2,33 @@
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 2.5rem !important;
-  height: 2.5rem !important;
+  width: 44px !important;
+  height: 44px !important;
   padding: 0 !important;
-  margin-left: 0.5rem;
-  background: rgba(59, 130, 246, 0.1) !important;
-  border: 1px solid rgba(59, 130, 246, 0.2) !important;
+  margin-left: 0;
+  background: transparent !important;
+  border: 0 !important;
   border-radius: 8px !important;
-  transition: all 0.3s ease !important;
-  min-width: 2.5rem !important;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 180ms ease, color 180ms ease !important;
+  min-width: 44px !important;
   font-size: 0 !important;
-  gap: 0.375rem;
-}
-
-.iconNavbarLinkWithStars {
-  width: auto !important;
-  min-width: auto !important;
-  padding: 0 0.75rem !important;
-  font-size: 0.875rem !important;
 }
 
 .iconNavbarLink:hover {
-  background: rgba(59, 130, 246, 0.2) !important;
-  border-color: rgba(59, 130, 246, 0.5) !important;
-  transform: translateY(-2px) !important;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+  background: color-mix(in srgb, #0083ff 9%, var(--pm-surface)) !important;
+}
+
+.iconNavbarLink:active {
+  background: color-mix(in srgb, #0083ff 15%, var(--pm-surface)) !important;
 }
 
 .icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  color: #e5e7eb;
-  transition: color 0.3s ease;
+  width: 18px;
+  height: 18px;
+  color: var(--pm-muted);
+  transition: color 160ms ease;
   flex-shrink: 0;
   display: block;
 }
@@ -45,19 +40,7 @@
 }
 
 .iconNavbarLink:hover .icon {
-  color: #60a5fa;
-}
-
-.stars {
-  color: #e5e7eb;
-  font-size: 0.875rem;
-  font-weight: 500;
-  white-space: nowrap;
-  line-height: 1;
-}
-
-.iconNavbarLink:hover .stars {
-  color: #60a5fa;
+  color: #0083ff;
 }
 
 @media (max-width: 768px) {
@@ -73,4 +56,3 @@
     height: 1.125rem;
   }
 }
-
