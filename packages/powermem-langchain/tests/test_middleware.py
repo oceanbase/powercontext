@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from langchain.agents import create_agent
 from langchain_core.language_models.chat_models import SimpleChatModel
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from powermem import Memory
 from powermem_langchain import PowerMemMiddleware
 from pydantic import Field
@@ -36,6 +36,21 @@ class CapturingChatModel(SimpleChatModel):
 class FailingSearchMemory:
     def search(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("search failed")
+
+
+class RecordingMemory:
+    def __init__(self, results: list[dict[str, Any]] | None = None) -> None:
+        self.results = results or []
+        self.search_calls: list[dict[str, Any]] = []
+        self.add_calls: list[dict[str, Any]] = []
+
+    def search(self, **kwargs: Any) -> dict[str, Any]:
+        self.search_calls.append(kwargs)
+        return {"results": self.results}
+
+    def add(self, **kwargs: Any) -> dict[str, Any]:
+        self.add_calls.append(kwargs)
+        return {"results": []}
 
 
 def _message_text(messages: list[BaseMessage]) -> str:
@@ -162,6 +177,67 @@ def test_search_failure_is_fail_open_by_default():
     assert result["messages"][-1].content == "Agent still runs"
 
 
+def test_uses_latest_user_message_and_explicit_user_id():
+    memory = RecordingMemory()
+    model = CapturingChatModel(responses=["ok"])
+    agent = create_agent(
+        model=model,
+        tools=[],
+        middleware=[
+            PowerMemMiddleware(
+                memory=memory,
+                user_id="explicit-user",
+                search_limit=3,
+            )
+        ],
+    )
+
+    agent.invoke(
+        {
+            "messages": [
+                HumanMessage(content="Older question"),
+                HumanMessage(content="Newest question"),
+            ]
+        }
+    )
+
+    assert memory.search_calls == [
+        {"query": "Newest question", "user_id": "explicit-user", "limit": 3}
+    ]
+    assert memory.add_calls[0]["user_id"] == "explicit-user"
+
+
+def test_preserves_existing_system_prompt_when_injecting_memory():
+    memory = RecordingMemory([{"memory": "PowerMem context"}])
+    model = CapturingChatModel(responses=["ok"])
+    agent = create_agent(
+        model=model,
+        tools=[],
+        system_prompt="Original system prompt",
+        middleware=[
+            PowerMemMiddleware(
+                memory=memory,
+                user_id="alice",
+                save_interactions=False,
+            )
+        ],
+    )
+
+    agent.invoke({"messages": [HumanMessage(content="Question")]})
+
+    system_messages = [
+        message for message in model.calls[0] if isinstance(message, SystemMessage)
+    ]
+    assert len(system_messages) == 1
+    assert "Original system prompt" in str(system_messages[0].content)
+    assert "PowerMem context" in str(system_messages[0].content)
+
+
+def test_rejects_missing_user_id():
+    with pytest.raises(ValueError, match="user_id"):
+        PowerMemMiddleware(memory=RecordingMemory())
+
+
 @pytest.mark.asyncio
 async def test_async_agent_uses_powermem_memory(tmp_path: Path):
     memory = _sqlite_memory(tmp_path)
@@ -183,3 +259,27 @@ async def test_async_agent_uses_powermem_memory(tmp_path: Path):
     await agent.ainvoke({"messages": [HumanMessage(content="Use my async profile.")]})
 
     assert "User prefers async examples." in _message_text(model.calls[0])
+
+
+@pytest.mark.asyncio
+async def test_async_agent_persists_interaction():
+    memory = RecordingMemory()
+    model = CapturingChatModel(responses=["Async response"])
+    agent = create_agent(
+        model=model,
+        tools=[],
+        middleware=[PowerMemMiddleware(memory=memory, user_id="async-user")],
+    )
+
+    await agent.ainvoke({"messages": [HumanMessage(content="Async request")]})
+
+    assert memory.add_calls == [
+        {
+            "messages": [
+                {"role": "user", "content": "Async request"},
+                {"role": "assistant", "content": "Async response"},
+            ],
+            "user_id": "async-user",
+            "infer": False,
+        }
+    ]

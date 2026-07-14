@@ -1,9 +1,9 @@
 # powermem-langchain
 
-This package is the LangChain middleware exercise for the VLDB 2026 summer
-school branch. It provides a package skeleton, a no-op middleware scaffold,
-contract tests, and a runnable OpenAI example. It does not provide a complete
-PowerMem middleware implementation.
+This package provides PowerMem long-term memory middleware for LangChain v1
+agents. It retrieves relevant memories before an agent run, injects them into
+model-visible context, and can save the final user/assistant interaction after
+the run.
 
 The goal is to integrate PowerMem as a long-term memory layer for LangChain v1
 agents. The provided scaffold is intentionally small; you may adjust it as your
@@ -13,7 +13,7 @@ This is useful beyond a single `create_agent` example: LangChain middleware is
 the extension point for controlling agent execution, and related projects such
 as Deep Agents also compose capabilities through middleware.
 
-## Task
+## Usage
 
 Implement:
 
@@ -44,7 +44,7 @@ agent = create_agent(
 )
 ```
 
-At minimum, the implementation should:
+The middleware:
 
 - Search PowerMem with the latest user message before the model call.
 - Add relevant memories to the model-visible context.
@@ -52,6 +52,13 @@ At minimum, the implementation should:
 - Skip write-back when `save_interactions=False`.
 - Use the explicit `user_id` constructor argument.
 - Keep the agent usable when PowerMem search fails.
+- Support both `invoke()` and `ainvoke()` agent execution.
+
+`user_id` is required and must be supplied explicitly. This keeps application
+identity separate from LangChain runtime or checkpoint state. Retrieved memory
+is added to the model request's system context without modifying the persisted
+conversation messages. Interaction write-back uses `infer=False`, preserving
+the final user and assistant messages as explicit PowerMem records.
 
 ## Tests
 
@@ -112,6 +119,5 @@ uv run --no-project \
     --user-id summer-school-demo
 ```
 
-With the placeholder middleware, the command can run but will not show the expected
-memory injection or write-back behavior. After implementation, the output should
-show seeded memories before the agent call and updated memories afterward.
+The output should show seeded memories before the agent call, an answer informed
+by those memories, and updated memories after the call.
