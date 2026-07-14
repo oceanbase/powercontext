@@ -1,9 +1,11 @@
 """Run a PowerMem-backed LangChain agent with an OpenAI chat model.
 
-This example is intentionally written as an end-to-end CLI check. Once
-PowerMemMiddleware is implemented and the environment is configured, it should
-seed PowerMem, invoke a LangChain agent backed by OpenAI, and print enough
-information to verify memory retrieval and write-back behavior.
+The synchronous example uses an explicit application user ID, seeds PowerMem,
+invokes a LangChain agent, and displays search results before and after the
+middleware writes back the interaction. The middleware also supports async
+agents. PowerMem search and write-back are best-effort: failures are logged and
+do not replace the model response. Retrieved memories are untrusted reference
+context and must not be treated as system instructions.
 """
 
 from __future__ import annotations
@@ -22,9 +24,7 @@ from powermem_langchain import PowerMemMiddleware
 DEFAULT_PROMPT = (
     "How should you answer my database engineering questions in future sessions?"
 )
-DEFAULT_SEED_MEMORY = (
-    "The user prefers concise answers with database-focused examples."
-)
+DEFAULT_SEED_MEMORY = "The user prefers concise answers with database-focused examples."
 
 
 class DemoSettings(BaseSettings):
@@ -126,7 +126,8 @@ def main() -> None:
         raise SystemExit(
             "Failed to create PowerMem memory. Configure PowerMem first, for "
             "example by setting LLM_PROVIDER, LLM_API_KEY, DATABASE_PROVIDER, "
-            "and embedding settings, or by using a valid .env file."
+            "EMBEDDING_PROVIDER, EMBEDDING_API_KEY, EMBEDDING_MODEL, and "
+            "EMBEDDING_DIMS, or by using a valid .env file."
         ) from exc
 
     if not args.skip_seed:

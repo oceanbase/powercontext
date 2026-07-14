@@ -1,21 +1,13 @@
 # powermem-langchain
 
-This package is the LangChain middleware exercise for the VLDB 2026 summer
-school branch. It provides a package skeleton, a no-op middleware scaffold,
-contract tests, and a runnable OpenAI example. It does not provide a complete
-PowerMem middleware implementation.
+`powermem-langchain` adds PowerMem long-term memory to LangChain v1 agents.
+The middleware retrieves relevant memories once per agent invocation, exposes
+them to each model call, and optionally writes the completed interaction back
+to PowerMem.
 
-The goal is to integrate PowerMem as a long-term memory layer for LangChain v1
-agents. The provided scaffold is intentionally small; you may adjust it as your
-implementation requires, but the memory retrieval, context injection, and
-write-back behavior should be implemented through LangChain middleware hooks.
-This is useful beyond a single `create_agent` example: LangChain middleware is
-the extension point for controlling agent execution, and related projects such
-as Deep Agents also compose capabilities through middleware.
+## Usage
 
-## Task
-
-Implement:
+The public entry point is:
 
 ```python
 from powermem_langchain import PowerMemMiddleware
@@ -44,14 +36,30 @@ agent = create_agent(
 )
 ```
 
-At minimum, the implementation should:
+`user_id` must be an explicit, non-empty application user identifier. It is
+used for both search and write-back; the middleware never derives identity from
+LangChain runtime configuration.
 
-- Search PowerMem with the latest user message before the model call.
-- Add relevant memories to the model-visible context.
-- Save the user and assistant interaction to PowerMem when enabled.
-- Skip write-back when `save_interactions=False`.
-- Use the explicit `user_id` constructor argument.
-- Keep the agent usable when PowerMem search fails.
+The middleware lifecycle is:
+
+- Before the agent runs, search PowerMem once using the latest non-empty user
+  message and the configured `search_limit`.
+- Before every model call, append the retrieved memories to the system context.
+  This context is transient: it is not added to the conversation history or
+  saved back to PowerMem.
+- After the agent finishes, save the latest user message and its final assistant
+  response when `save_interactions=True`.
+
+Retrieved memory is untrusted reference context, not a source of system
+instructions. Applications should still apply their normal prompt-injection
+and data-handling controls.
+
+Both synchronous and asynchronous agents are supported. Async hooks accept
+PowerMem clients whose methods are synchronous or awaitable; synchronous calls
+are moved off the event loop. Search and write-back are best-effort: failures
+are logged as warnings and do not replace or discard the agent response. A
+synchronous agent cannot execute an async-only PowerMem client, so that
+configuration is also logged and handled without failing the agent.
 
 ## Tests
 
@@ -67,9 +75,6 @@ uv run --no-project \
 
 The tests use a local SQLite PowerMem instance with the noop LLM provider and
 mock embedder. They do not require API keys or OceanBase.
-
-The tests are a baseline, not a complete design specification. If your solution
-adds state fields or edge-case handling, add focused tests for those choices.
 
 ## Example
 
@@ -88,6 +93,10 @@ export OPENAI_API_KEY="..."
 export LLM_PROVIDER=openai
 export LLM_API_KEY="$OPENAI_API_KEY"
 export LLM_MODEL=gpt-4o-mini
+export EMBEDDING_PROVIDER=openai
+export EMBEDDING_API_KEY="$OPENAI_API_KEY"
+export EMBEDDING_MODEL=text-embedding-3-small
+export EMBEDDING_DIMS=1536
 export DATABASE_PROVIDER=sqlite
 export SQLITE_PATH="./data/powermem_langchain_demo.db"
 ```
@@ -112,6 +121,6 @@ uv run --no-project \
     --user-id summer-school-demo
 ```
 
-With the placeholder middleware, the command can run but will not show the expected
-memory injection or write-back behavior. After implementation, the output should
-show seeded memories before the agent call and updated memories afterward.
+The output shows memories found before the agent call, the assistant response,
+and memories found after write-back. Use `--no-save` to disable write-back or
+`--skip-seed` to run without adding the demo memory first.
