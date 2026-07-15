@@ -1,9 +1,9 @@
 # powermem-langchain
 
-This package is the LangChain middleware exercise for the VLDB 2026 summer
-school branch. It provides a package skeleton, a no-op middleware scaffold,
-contract tests, and a runnable OpenAI example. It does not provide a complete
-PowerMem middleware implementation.
+This package integrates PowerMem with LangChain v1 agents through LangChain's
+middleware lifecycle. It retrieves user-specific long-term memories before an
+agent run, adds them to the model-visible system context, and optionally writes
+the completed user/assistant interaction back to PowerMem.
 
 The goal is to integrate PowerMem as a long-term memory layer for LangChain v1
 agents. The provided scaffold is intentionally small; you may adjust it as your
@@ -13,7 +13,7 @@ This is useful beyond a single `create_agent` example: LangChain middleware is
 the extension point for controlling agent execution, and related projects such
 as Deep Agents also compose capabilities through middleware.
 
-## Task
+## Usage
 
 Implement:
 
@@ -44,7 +44,7 @@ agent = create_agent(
 )
 ```
 
-At minimum, the implementation should:
+The middleware:
 
 - Search PowerMem with the latest user message before the model call.
 - Add relevant memories to the model-visible context.
@@ -112,6 +112,6 @@ uv run --no-project \
     --user-id summer-school-demo
 ```
 
-With the placeholder middleware, the command can run but will not show the expected
-memory injection or write-back behavior. After implementation, the output should
-show seeded memories before the agent call and updated memories afterward.
+The output shows seeded memories before the agent call and updated memories
+afterward. Search and write-back errors are fail-open and are logged, so a
+temporary PowerMem outage does not discard the agent result.
