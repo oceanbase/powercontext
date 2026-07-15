@@ -36,7 +36,6 @@ Agent 完成一次模型调用后，集成层将这一轮对话保存为 Source�
 
 ```python
 from dataclasses import dataclass
-from typing import ClassVar
 
 from powercontext import Source, SourceAdapter, SourceMaterialization
 
@@ -51,8 +50,6 @@ class AgentTurnInput:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AgentTurnSource(Source):
-    source_type: ClassVar[str] = "agent-turn"
-
     session_id: str
     round_number: int
     user: str
@@ -62,8 +59,8 @@ class AgentTurnSource(Source):
 class AgentTurnAdapter(
     SourceAdapter[AgentTurnInput, AgentTurnSource, AgentTurnInput]
 ):
-    input_type = AgentTurnInput
-    source_type = AgentTurnSource.source_type
+    input_class = AgentTurnInput
+    name = "agent-turn"
     source_class = AgentTurnSource
 
     async def resolve(self, value: AgentTurnInput, /) -> AgentTurnSource:
@@ -84,6 +81,10 @@ class AgentTurnAdapter(
             assistant=source.assistant,
         )
 ```
+
+`SourceAdapter.name` 标识一次 Adapter 注册，`Source.name` 标识具体 Source class 内的一个值。Core 按
+Adapter 声明的精确 `source_class` 路由读取；Adapter 名称不会复制到 Source 值上，也不作为它的持久化
+discriminator。
 
 这个 Adapter 选择 captured materialization。Source 中的数据是该轮完成时的快照。需要读取外部 trace store
 时，也可以改为 referenced materialization，并让 `read()` 临时物化内容。选择哪一种方式由 Adapter 决定。
@@ -307,8 +308,6 @@ class GitCommitInput:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GitCommitSource(Source):
-    source_type: ClassVar[str] = "git-commit"
-
     repository: str
     commit: str
     summary: str
@@ -317,8 +316,8 @@ class GitCommitSource(Source):
 class GitCommitAdapter(
     SourceAdapter[GitCommitInput, GitCommitSource, GitCommitInput]
 ):
-    input_type = GitCommitInput
-    source_type = GitCommitSource.source_type
+    input_class = GitCommitInput
+    name = "git-commit"
     source_class = GitCommitSource
 
     async def resolve(self, value: GitCommitInput, /) -> GitCommitSource: ...

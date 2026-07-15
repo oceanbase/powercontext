@@ -40,7 +40,6 @@ between the input, stored Source, and value returned by `read()`.
 
 ```python
 from dataclasses import dataclass
-from typing import ClassVar
 
 from powercontext import Source, SourceAdapter, SourceMaterialization
 
@@ -55,8 +54,6 @@ class AgentTurnInput:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AgentTurnSource(Source):
-    source_type: ClassVar[str] = "agent-turn"
-
     session_id: str
     round_number: int
     user: str
@@ -66,8 +63,8 @@ class AgentTurnSource(Source):
 class AgentTurnAdapter(
     SourceAdapter[AgentTurnInput, AgentTurnSource, AgentTurnInput]
 ):
-    input_type = AgentTurnInput
-    source_type = AgentTurnSource.source_type
+    input_class = AgentTurnInput
+    name = "agent-turn"
     source_class = AgentTurnSource
 
     async def resolve(self, value: AgentTurnInput, /) -> AgentTurnSource:
@@ -88,6 +85,10 @@ class AgentTurnAdapter(
             assistant=source.assistant,
         )
 ```
+
+`SourceAdapter.name` identifies one adapter registration; `Source.name` identifies one value within a concrete Source
+class. Core routes reads by the adapter's exact `source_class`. The adapter name is not copied onto Source values or
+used as their persistence discriminator.
 
 This adapter uses captured materialization, so the Source contains the turn as it existed when the call completed. An
 adapter backed by an external trace store could use referenced materialization and materialize the content in
@@ -317,8 +318,6 @@ class GitCommitInput:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GitCommitSource(Source):
-    source_type: ClassVar[str] = "git-commit"
-
     repository: str
     commit: str
     summary: str
@@ -327,8 +326,8 @@ class GitCommitSource(Source):
 class GitCommitAdapter(
     SourceAdapter[GitCommitInput, GitCommitSource, GitCommitInput]
 ):
-    input_type = GitCommitInput
-    source_type = GitCommitSource.source_type
+    input_class = GitCommitInput
+    name = "git-commit"
     source_class = GitCommitSource
 
     async def resolve(self, value: GitCommitInput, /) -> GitCommitSource: ...

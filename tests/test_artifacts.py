@@ -20,8 +20,6 @@ from powercontext.sources import Source, SourceMaterialization
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ConversationSource(Source):
-    source_type: ClassVar[str] = "conversation"
-
     session_id: str
 
 
@@ -89,17 +87,8 @@ class InMemoryArtifactRepository(
         return artifact
 
 
-def test_artifact_ref_identifies_one_positive_revision() -> None:
+def test_artifact_ref_identifies_one_revision() -> None:
     assert ArtifactRef("preference-memory", 1) == ArtifactRef("preference-memory", 1)
-
-    with pytest.raises(ValueError, match="artifact_id"):
-        ArtifactRef(" ", 1)
-    with pytest.raises(TypeError, match="string"):
-        ArtifactRef(1, 1)  # ty: ignore[invalid-argument-type]
-    with pytest.raises(ValueError, match="positive"):
-        ArtifactRef("preference-memory", 0)
-    with pytest.raises(TypeError, match="integer"):
-        ArtifactRef("preference-memory", True)
 
 
 def test_artifact_is_an_immutable_fixed_family_snapshot_with_direct_lineage() -> None:

@@ -34,15 +34,13 @@ class Conversation:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ConversationSource(Source):
-    source_type: ClassVar[str] = "conversation"
-
     session_id: str
     captured_value: Conversation
 
 
 class ConversationAdapter(SourceAdapter[ConversationCapture, ConversationSource, Conversation]):
-    input_type = ConversationCapture
-    source_type = ConversationSource.source_type
+    input_class = ConversationCapture
+    name = "conversation"
     source_class = ConversationSource
 
     async def resolve(self, value: ConversationCapture, /) -> ConversationSource:
@@ -214,7 +212,7 @@ def test_powercontext_supports_application_owned_composition() -> None:
             )
         )
         conversation_source = await pc.sources.add(resolved)
-        assert isinstance(conversation_source, ConversationSource)
+        assert type(conversation_source) is ConversationSource
         memory_trigger = pc.triggers.memory
         transition = memory_trigger.activate(
             ConversationStored(conversation_source),

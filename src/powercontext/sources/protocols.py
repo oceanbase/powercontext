@@ -13,7 +13,7 @@ class SourceStore(CatalogStore[SourceT, SourceT], Protocol[SourceT]):
 
 
 class SourceCatalogBackend(Catalog[Source], Protocol):
-    """Provide the Source-specific read operations used by SourceCatalog."""
+    """Provide the Source reads required by SourceCatalog."""
 
     async def list(self) -> tuple[Source, ...]:
         """Return the Sources visible in one backend view."""

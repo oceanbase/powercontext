@@ -58,8 +58,6 @@ class AgentTurnInput:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AgentTurnSource(Source):
-    source_type: ClassVar[str] = "agent-turn"
-
     owner_id: str
     session_id: str
     round_number: int
@@ -69,8 +67,8 @@ class AgentTurnSource(Source):
 
 
 class AgentTurnAdapter(SourceAdapter[AgentTurnInput, AgentTurnSource, AgentTurnInput]):
-    input_type = AgentTurnInput
-    source_type = AgentTurnSource.source_type
+    input_class = AgentTurnInput
+    name = "agent-turn"
     source_class = AgentTurnSource
 
     async def resolve(self, value: AgentTurnInput, /) -> AgentTurnSource:
@@ -107,8 +105,6 @@ class GitCommitInput:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GitCommitSource(Source):
-    source_type: ClassVar[str] = "git-commit"
-
     owner_id: str
     repository: str
     commit: str
@@ -117,8 +113,8 @@ class GitCommitSource(Source):
 
 
 class GitCommitAdapter(SourceAdapter[GitCommitInput, GitCommitSource, GitCommitInput]):
-    input_type = GitCommitInput
-    source_type = GitCommitSource.source_type
+    input_class = GitCommitInput
+    name = "git-commit"
     source_class = GitCommitSource
 
     async def resolve(self, value: GitCommitInput, /) -> GitCommitSource:
@@ -151,50 +147,60 @@ class SQLiteSourceRepository(SourceCatalogBackend, SourceStore[Source]):
         self._database.execute(
             """
             CREATE TABLE IF NOT EXISTS sources (
-                source_type TEXT NOT NULL,
+                source_class TEXT NOT NULL,
                 name TEXT NOT NULL,
                 payload TEXT NOT NULL,
-                PRIMARY KEY (source_type, name)
+                PRIMARY KEY (source_class, name)
             )
             """
         )
 
     async def add(self, source: StoredSourceT, /) -> StoredSourceT:
-        stored = self._find(source.source_type, source.name)
+        source_class = self._source_class_name(source)
+        stored = self._find(source_class, source.name)
         if stored is not None:
             if type(stored) is type(source) and stored == source:
                 return source
-            raise SourceConflictError("identity", (source.source_type, source.name))
+            raise SourceConflictError("identity", (source_class, source.name))
 
         with self._database:
             self._database.execute(
-                "INSERT INTO sources (source_type, name, payload) VALUES (?, ?, ?)",
-                (source.source_type, source.name, self._encode(source)),
+                "INSERT INTO sources (source_class, name, payload) VALUES (?, ?, ?)",
+                (source_class, source.name, self._encode(source)),
             )
         return source
 
     async def get(self, source: Source, /) -> Source:
-        stored = self._find(source.source_type, source.name)
+        stored = self._find(self._source_class_name(source), source.name)
         if stored is None or type(stored) is not type(source) or stored != source:
             raise SourceNotFoundError(source)
         return stored
 
     async def list(self) -> tuple[Source, ...]:
-        rows = self._database.execute("SELECT source_type, name, payload FROM sources ORDER BY rowid").fetchall()
-        return tuple(self._decode(row[0], row[2]) for row in rows)
+        rows = self._database.execute("SELECT source_class, payload FROM sources ORDER BY rowid").fetchall()
+        return tuple(self._decode(row[0], row[1]) for row in rows)
 
-    def load(self, source_type: str, name: str) -> Source:
-        stored = self._find(source_type, name)
+    def dump_reference(self, source: Source) -> dict[str, str]:
+        return {"source_class": self._source_class_name(source), "name": source.name}
+
+    def load_reference(self, value: object) -> Source:
+        if not isinstance(value, dict):
+            raise TypeError("Source reference must be an object")
+        source_class = value.get("source_class")
+        name = value.get("name")
+        if not isinstance(source_class, str) or not isinstance(name, str):
+            raise TypeError("Source reference must contain string source_class and name fields")
+        stored = self._find(source_class, name)
         if stored is None:
-            raise SourceNotFoundError((source_type, name))
+            raise SourceNotFoundError((source_class, name))
         return stored
 
-    def _find(self, source_type: str, name: str) -> Source | None:
+    def _find(self, source_class: str, name: str) -> Source | None:
         row = self._database.execute(
-            "SELECT payload FROM sources WHERE source_type = ? AND name = ?",
-            (source_type, name),
+            "SELECT payload FROM sources WHERE source_class = ? AND name = ?",
+            (source_class, name),
         ).fetchone()
-        return None if row is None else self._decode(source_type, row[0])
+        return None if row is None else self._decode(source_class, row[0])
 
     @staticmethod
     def _encode(source: Source) -> str:
@@ -203,7 +209,7 @@ class SQLiteSourceRepository(SourceCatalogBackend, SourceStore[Source]):
             "materialization": source.materialization.value,
             "description": source.description,
         }
-        if isinstance(source, AgentTurnSource):
+        if type(source) is AgentTurnSource:
             payload = base | {
                 "owner_id": source.owner_id,
                 "session_id": source.session_id,
@@ -212,7 +218,7 @@ class SQLiteSourceRepository(SourceCatalogBackend, SourceStore[Source]):
                 "user": source.user,
                 "assistant": source.assistant,
             }
-        elif isinstance(source, GitCommitSource):
+        elif type(source) is GitCommitSource:
             payload = base | {
                 "owner_id": source.owner_id,
                 "repository": source.repository,
@@ -225,14 +231,14 @@ class SQLiteSourceRepository(SourceCatalogBackend, SourceStore[Source]):
         return json.dumps(payload)
 
     @staticmethod
-    def _decode(source_type: str, payload: str) -> Source:
+    def _decode(source_class: str, payload: str) -> Source:
         value = json.loads(payload)
         common = {
             "name": value["name"],
             "materialization": SourceMaterialization(value["materialization"]),
             "description": value["description"],
         }
-        if source_type == AgentTurnSource.source_type:
+        if source_class == AgentTurnSource.__name__:
             return AgentTurnSource(
                 **common,
                 owner_id=value["owner_id"],
@@ -242,7 +248,7 @@ class SQLiteSourceRepository(SourceCatalogBackend, SourceStore[Source]):
                 user=value["user"],
                 assistant=value["assistant"],
             )
-        if source_type == GitCommitSource.source_type:
+        if source_class == GitCommitSource.__name__:
             return GitCommitSource(
                 **common,
                 owner_id=value["owner_id"],
@@ -251,7 +257,15 @@ class SQLiteSourceRepository(SourceCatalogBackend, SourceStore[Source]):
                 day=value["day"],
                 summary=value["summary"],
             )
-        raise TypeError(f"unsupported Source type: {source_type}")
+        raise TypeError(f"unsupported Source class: {source_class}")
+
+    @staticmethod
+    def _source_class_name(source: Source) -> str:
+        if type(source) is AgentTurnSource:
+            return AgentTurnSource.__name__
+        if type(source) is GitCommitSource:
+            return GitCommitSource.__name__
+        raise TypeError(f"unsupported Source type: {type(source).__name__}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,9 +409,7 @@ class SQLiteArtifactRepository(
         revision: int,
         draft: ArtifactDraft[object],
     ) -> Artifact[object]:
-        source_lineage = json.dumps([
-            {"source_type": source.source_type, "name": source.name} for source in draft.sources
-        ])
+        source_lineage = json.dumps([self._sources.dump_reference(source) for source in draft.sources])
         artifact_lineage = json.dumps([
             {"artifact_id": dependency.artifact_id, "revision": dependency.revision} for dependency in draft.artifacts
         ])
@@ -451,9 +463,7 @@ class SQLiteArtifactRepository(
 
     def _decode(self, row: tuple[object, ...]) -> Artifact[object]:
         artifact_id, revision, family, raw_content, raw_sources, raw_artifacts = row
-        source_lineage = tuple(
-            self._sources.load(item["source_type"], item["name"]) for item in json.loads(str(raw_sources))
-        )
+        source_lineage = tuple(self._sources.load_reference(reference) for reference in json.loads(str(raw_sources)))
         artifact_lineage = tuple(
             ArtifactRef(item["artifact_id"], item["revision"]) for item in json.loads(str(raw_artifacts))
         )
@@ -664,14 +674,14 @@ class SQLiteWorkflow:
         self._enqueue_signal(
             "agent_memory",
             f"{source.owner_id}:{source.session_id}",
-            {"source": self._source_ref(source)},
+            {"source": self._source_repository.dump_reference(source)},
         )
 
     async def enqueue_git_commit(self, source: GitCommitSource) -> None:
         self._enqueue_signal(
             "git_memory",
             f"{source.owner_id}:{source.repository}",
-            {"source": self._source_ref(source)},
+            {"source": self._source_repository.dump_reference(source)},
         )
 
     async def enqueue_daily_review(
@@ -752,15 +762,15 @@ class SQLiteWorkflow:
                 state = trigger.initial_state()
             else:
                 stored_sources = self._load_sources(state_payload["sources"])
-                if not all(isinstance(source, AgentTurnSource) for source in stored_sources):
+                if not all(type(source) is AgentTurnSource for source in stored_sources):
                     raise TypeError("agent_memory state requires AgentTurnSource values")
-                state = PendingTurns(tuple(source for source in stored_sources if isinstance(source, AgentTurnSource)))
+                state = PendingTurns(cast(tuple[AgentTurnSource, ...], stored_sources))
             source = self._load_source(payload["source"])
-            if not isinstance(source, AgentTurnSource):
+            if type(source) is not AgentTurnSource:
                 raise TypeError("agent_memory requires an AgentTurnSource")
             transition = trigger.activate(AgentTurnStored(source), state)
             return (
-                {"sources": [self._source_ref(item) for item in transition.state.sources]},
+                {"sources": [self._source_repository.dump_reference(item) for item in transition.state.sources]},
                 tuple(self._encode_action(action) for action in transition.actions),
             )
 
@@ -768,7 +778,7 @@ class SQLiteWorkflow:
             trigger = self._context.triggers.git_memory
             state = trigger.initial_state() if self._load_state(trigger_name, partition_key) is None else UnitState()
             source = self._load_source(payload["source"])
-            if not isinstance(source, GitCommitSource):
+            if type(source) is not GitCommitSource:
                 raise TypeError("git_memory requires a GitCommitSource")
             transition = trigger.activate(GitCommitStored(source), state)
             return ({}, tuple(self._encode_action(action) for action in transition.actions))
@@ -851,22 +861,12 @@ class SQLiteWorkflow:
         return None if row is None else json.loads(row[0])
 
     def _load_source(self, value: object) -> Source:
-        if not isinstance(value, dict):
-            raise TypeError("Source reference must be an object")
-        reference = cast(dict[str, object], value)
-        return self._source_repository.load(
-            str(reference["source_type"]),
-            str(reference["name"]),
-        )
+        return self._source_repository.load_reference(value)
 
     def _load_sources(self, value: object) -> tuple[Source, ...]:
         if not isinstance(value, list):
             raise TypeError("Source references must be a list")
         return tuple(self._load_source(item) for item in value)
-
-    @staticmethod
-    def _source_ref(source: Source) -> dict[str, object]:
-        return {"source_type": source.source_type, "name": source.name}
 
     def _encode_action(self, action: GenerateMemory | GenerateHandoff) -> tuple[str, dict[str, object]]:
         if isinstance(action, GenerateMemory):
@@ -874,7 +874,7 @@ class SQLiteWorkflow:
                 "generate_memory",
                 {
                     "day": action.day,
-                    "sources": [self._source_ref(source) for source in action.sources],
+                    "sources": [self._source_repository.dump_reference(source) for source in action.sources],
                 },
             )
         return (
@@ -966,7 +966,7 @@ async def run_agent_turn(
         )
     )
     source = await context.sources.add(resolved)
-    if not isinstance(source, AgentTurnSource):
+    if type(source) is not AgentTurnSource:
         raise TypeError("AgentTurnAdapter returned an unexpected Source")
     await workflow.enqueue_agent_turn(source)
     await workflow.process_signals()
@@ -1057,14 +1057,15 @@ def test_context_system_derives_scoped_memory_and_scheduled_handoff() -> None:
             await context.sources.resolve(
                 GitCommitInput(
                     owner_id=PROJECT,
-                    repository="powercontext",
-                    commit="abc123",
+                    repository="alice-session",
+                    commit="round-1",
                     day=DAY,
                     summary="Define the Core Protocol",
                 )
             )
         )
-        assert isinstance(git_source, GitCommitSource)
+        assert type(git_source) is GitCommitSource
+        assert git_source.name == first_source.name
         await workflow.enqueue_git_commit(git_source)
         await workflow.process_signals()
         await workflow.process_actions()
@@ -1090,7 +1091,7 @@ def test_context_system_derives_scoped_memory_and_scheduled_handoff() -> None:
             context_owner_ids=ALICE_CONTEXT,
             session_id="alice-session",
             round_number=4,
-            user_message="What did commit abc123 change?",
+            user_message="What did commit round-1 change?",
         )
 
         memories = await memory_queries.for_day(DAY, ALICE_CONTEXT)
@@ -1106,7 +1107,7 @@ def test_context_system_derives_scoped_memory_and_scheduled_handoff() -> None:
             (),
             (),
             ("Alice avoids overnight flights.",),
-            ("Commit abc123 Define the Core Protocol.",),
+            ("Commit round-1 Define the Core Protocol.",),
         ]
         assert bob_model.memory_snapshots == [(), ()]
 

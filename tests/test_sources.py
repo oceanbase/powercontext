@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.metadata
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import ClassVar, TypeVar
+from typing import TypeVar
 
 import pytest
 
@@ -15,7 +14,6 @@ from powercontext.errors import (
     InvalidSourceResultError,
     SourceAdapterNotFoundError,
     SourceConflictError,
-    SourceDiscoveryError,
     SourceNotFoundError,
 )
 from powercontext.sources import (
@@ -47,25 +45,23 @@ class TranscriptExportInput:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ConversationSource(Source):
-    source_type: ClassVar[str] = "conversation"
-
     session_id: str
     captured_value: Conversation | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TranscriptExportSource(Source):
-    source_type: ClassVar[str] = "transcript-export"
+    pass
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UnknownConversationSource(Source):
-    source_type: ClassVar[str] = "unknown"
+    pass
 
 
 class ConversationAdapter(SourceAdapter[ConversationCapture, ConversationSource, Conversation]):
-    input_type = ConversationCapture
-    source_type = ConversationSource.source_type
+    input_class = ConversationCapture
+    name = "conversation"
     source_class = ConversationSource
 
     def __init__(self, conversations: dict[str, Conversation]) -> None:
@@ -89,8 +85,8 @@ class ConversationAdapter(SourceAdapter[ConversationCapture, ConversationSource,
 
 
 class TranscriptExportAdapter(SourceAdapter[TranscriptExportInput, TranscriptExportSource, object]):
-    input_type = TranscriptExportInput
-    source_type = TranscriptExportSource.source_type
+    input_class = TranscriptExportInput
+    name = "transcript-export"
     source_class = TranscriptExportSource
 
     async def resolve(self, value: TranscriptExportInput) -> TranscriptExportSource:
@@ -150,7 +146,7 @@ def test_source_catalog_supports_the_read_only_usage_flow() -> None:
         captured_resolved = await sources.resolve(captured_input)
         assert await sources.list() == ()
         captured = await sources.add(captured_resolved)
-        assert isinstance(captured, ConversationSource)
+        assert type(captured) is ConversationSource
         referenced = await sources.add(await sources.resolve(ConversationCapture("session-42-current", "session-42")))
 
         assert captured == captured_resolved
@@ -187,23 +183,37 @@ def test_catalog_rejects_ambiguous_adapter_routes() -> None:
     adapter = ConversationAdapter({"session-42": Conversation(("Remember aisle seats.",))})
 
     class DuplicateInputAdapter(TranscriptExportAdapter):
-        input_type = ConversationCapture
+        input_class = ConversationCapture
 
-    with pytest.raises(SourceConflictError, match="input_type") as input_error:
+    with pytest.raises(SourceConflictError, match="input_class") as input_error:
         SourceCatalog(backend=InMemorySourceStore(), adapters=(adapter, DuplicateInputAdapter()))
     assert input_error.value.value is ConversationCapture
 
-    class DuplicateSourceTypeAdapter(TranscriptExportAdapter):
-        input_type = TranscriptExportInput
-        source_type = ConversationSource.source_type
+    class DuplicateNameAdapter(TranscriptExportAdapter):
+        input_class = TranscriptExportInput
+        name = "conversation"
+
+    with pytest.raises(SourceConflictError, match="name") as name_error:
+        SourceCatalog(backend=InMemorySourceStore(), adapters=(adapter, DuplicateNameAdapter()))
+    assert name_error.value.value == "conversation"
+
+    class DuplicateSourceClassAdapter(SourceAdapter[TranscriptExportInput, ConversationSource, object]):
+        input_class = TranscriptExportInput
+        name = "conversation-copy"
         source_class = ConversationSource
 
-    with pytest.raises(SourceConflictError, match="source_type") as source_type_error:
-        SourceCatalog(backend=InMemorySourceStore(), adapters=(adapter, DuplicateSourceTypeAdapter()))
-    assert source_type_error.value.value == "conversation"
+        async def resolve(self, value: TranscriptExportInput, /) -> ConversationSource:
+            raise NotImplementedError
+
+        async def read(self, source: ConversationSource, /) -> object:
+            return source
+
+    with pytest.raises(SourceConflictError, match="source_class") as source_class_error:
+        SourceCatalog(backend=InMemorySourceStore(), adapters=(adapter, DuplicateSourceClassAdapter()))
+    assert source_class_error.value.value is ConversationSource
 
 
-def test_catalog_routes_only_exact_input_and_source_types() -> None:
+def test_catalog_routes_only_exact_input_and_source_classes() -> None:
     @dataclass(frozen=True, slots=True)
     class SpecializedConversationCapture(ConversationCapture):
         pass
@@ -223,59 +233,18 @@ def test_catalog_routes_only_exact_input_and_source_types() -> None:
         assert source_error.value.route == "source"
         assert source_error.value.requested_type is UnknownConversationSource
 
+        base_source = Source(name="base", materialization=SourceMaterialization.REFERENCED)
+        with pytest.raises(SourceAdapterNotFoundError) as base_source_error:
+            await catalog.read(base_source)
+        assert base_source_error.value.requested_type is Source
+
     asyncio.run(scenario())
-
-
-def test_discovery_is_explicit_and_loads_zero_argument_factories(monkeypatch: pytest.MonkeyPatch) -> None:
-    adapter = ConversationAdapter({"session-42": Conversation(("Remember aisle seats.",))})
-
-    class EntryPoint:
-        name = "conversations"
-
-        def load(self):
-            return lambda: adapter
-
-    def entry_points(*, group: str):
-        return (EntryPoint(),)
-
-    backend = InMemorySourceStore()
-    monkeypatch.setattr(
-        importlib.metadata,
-        "entry_points",
-        lambda **kwargs: pytest.fail("regular catalog construction must not discover adapters"),
-    )
-    SourceCatalog(backend=backend, adapters=())
-
-    monkeypatch.setattr(importlib.metadata, "entry_points", entry_points)
-    discovered = SourceCatalog.discover(backend=backend, adapters=())
-    assert asyncio.run(discovered.resolve(ConversationCapture("session-42", "session-42"))).name == "session-42"
-
-
-def test_discovery_rejects_a_factory_that_requires_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
-    class EntryPoint:
-        name = "invalid"
-
-        def load(self):
-            def factory(required: object):
-                return required
-
-            return factory
-
-    monkeypatch.setattr(
-        importlib.metadata,
-        "entry_points",
-        lambda *, group: (EntryPoint(),),
-    )
-
-    with pytest.raises(SourceDiscoveryError) as error:
-        SourceCatalog.discover(backend=InMemorySourceStore(), adapters=())
-    assert error.value.entry_point == "invalid"
 
 
 def test_adapter_results_and_declarations_are_checked_at_the_boundary() -> None:
     class InvalidResultAdapter(SourceAdapter[ConversationCapture, ConversationSource, object]):
-        input_type = ConversationCapture
-        source_type = ConversationSource.source_type
+        input_class = ConversationCapture
+        name = "conversation"
         source_class = ConversationSource
 
         async def resolve(self, value: ConversationCapture, /) -> ConversationSource:
@@ -297,9 +266,9 @@ def test_adapter_results_and_declarations_are_checked_at_the_boundary() -> None:
 
     asyncio.run(scenario())
 
-    class MismatchedDeclarationAdapter(TranscriptExportAdapter):
-        source_type = "mismatched"
+    class InvalidNameAdapter(TranscriptExportAdapter):
+        name = ""
 
     with pytest.raises(InvalidSourceAdapterError) as error:
-        SourceCatalog(backend=InMemorySourceStore(), adapters=(MismatchedDeclarationAdapter(),))
-    assert error.value.field == "source_class"
+        SourceCatalog(backend=InMemorySourceStore(), adapters=(InvalidNameAdapter(),))
+    assert error.value.field == "name"

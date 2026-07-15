@@ -10,25 +10,16 @@ ValueT_co = TypeVar("ValueT_co", covariant=True)
 
 
 class SourceAdapter(Protocol[InputT, SourceT, ValueT_co]):
-    """Resolve one exact input type and read one concrete Source type."""
+    """Resolve one exact input class and read one concrete Source class."""
 
-    @property
-    def input_type(self) -> type[InputT]:
-        """Return the exact input type accepted by this adapter."""
+    input_class: type[InputT]
+    """The exact input class accepted by this adapter."""
 
-        ...
+    name: str
+    """The stable registration name for this adapter."""
 
-    @property
-    def source_type(self) -> str:
-        """Return the stable plugin and routing name owned by this adapter."""
-
-        ...
-
-    @property
-    def source_class(self) -> type[SourceT]:
-        """Return the exact Source class produced and read by this adapter."""
-
-        ...
+    source_class: type[SourceT]
+    """The exact Source class produced and read by this adapter."""
 
     async def resolve(self, value: InputT, /) -> SourceT:
         """Resolve an adapter-native value without changing a catalog."""

@@ -6,17 +6,7 @@ class PowerContextError(Exception):
 
 
 class SourceError(PowerContextError):
-    """Base exception for Source definition and access failures."""
-
-
-class SourceDefinitionError(SourceError, ValueError):
-    """Raised when a Source value violates the public model."""
-
-    def __init__(self, field: str, value: object, detail: str) -> None:
-        self.field = field
-        self.value = value
-        self.detail = detail
-        super().__init__(f"invalid Source {field}: {detail}")
+    """Base exception for Source adapter and access failures."""
 
 
 class SourceNotFoundError(SourceError, LookupError):
@@ -28,7 +18,7 @@ class SourceNotFoundError(SourceError, LookupError):
 
 
 class SourceAdapterNotFoundError(SourceError, LookupError):
-    """Raised when no adapter owns an exact input or Source type."""
+    """Raised when no adapter owns an exact input or Source class."""
 
     def __init__(self, route: str, requested_type: type[object]) -> None:
         self.route = route
@@ -69,28 +59,19 @@ class InvalidSourceResultError(SourceError, TypeError):
 
     def __init__(
         self,
-        source_type: str,
+        adapter_name: str,
         operation: str,
         expected_type: type[object],
         actual_type: type[object],
     ) -> None:
-        self.source_type = source_type
+        self.adapter_name = adapter_name
         self.operation = operation
         self.expected_type = expected_type
         self.actual_type = actual_type
         super().__init__(
-            f"Source adapter {source_type!r} returned {_type_name(actual_type)} from {operation}, "
+            f"Source adapter {adapter_name!r} returned {_type_name(actual_type)} from {operation}, "
             f"expected {_type_name(expected_type)}"
         )
-
-
-class SourceDiscoveryError(SourceError, RuntimeError):
-    """Raised when a Source adapter entry point cannot be loaded."""
-
-    def __init__(self, entry_point: str, detail: str) -> None:
-        self.entry_point = entry_point
-        self.detail = detail
-        super().__init__(f"could not load Source adapter entry point {entry_point!r}: {detail}")
 
 
 class ArtifactError(PowerContextError):

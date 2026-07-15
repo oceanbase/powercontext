@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar, TypeAlias
+from typing import TypeAlias
 
 from powercontext.sources import Source, SourceMaterialization
 from powercontext.triggers import PolicyTransition, Trigger
@@ -9,8 +9,6 @@ from powercontext.triggers import PolicyTransition, Trigger
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ConversationSource(Source):
-    source_type: ClassVar[str] = "conversation"
-
     session_id: str
 
 

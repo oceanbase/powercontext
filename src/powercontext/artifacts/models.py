@@ -17,16 +17,6 @@ class ArtifactRef:
     artifact_id: str
     revision: int
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.artifact_id, str):
-            raise TypeError("artifact_id must be a string")  # noqa: TRY003
-        if not self.artifact_id.strip():
-            raise ValueError("artifact_id must not be empty")  # noqa: TRY003
-        if type(self.revision) is not int:
-            raise TypeError("revision must be an integer")  # noqa: TRY003
-        if self.revision < 1:
-            raise ValueError("revision must be positive")  # noqa: TRY003
-
 
 @dataclass(frozen=True, slots=True)
 class ArtifactLineage:
@@ -46,9 +36,6 @@ class ArtifactDraft(Generic[ContentT]):
     sources: tuple[Source, ...] = ()
     artifacts: tuple[Artifact[object], ...] = ()
 
-    def __post_init__(self) -> None:
-        _validate_family(self.family)
-
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Artifact(Generic[ContentT]):
@@ -61,17 +48,8 @@ class Artifact(Generic[ContentT]):
     content: ContentT
     lineage: ArtifactLineage = field(default_factory=ArtifactLineage)
 
-    def __post_init__(self) -> None:
-        _validate_family(self.family)
-        ArtifactRef(self.artifact_id, self.revision)
-
     @property
     def ref(self) -> ArtifactRef:
         """Return an exact reference to this revision."""
 
         return ArtifactRef(self.artifact_id, self.revision)
-
-
-def _validate_family(family: object) -> None:
-    if not isinstance(family, str) or not family.strip():
-        raise ValueError("artifact family must not be empty")  # noqa: TRY003
