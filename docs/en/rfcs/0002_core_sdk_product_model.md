@@ -2,8 +2,7 @@
 - Start Date: 2026-07-07
 - RFC PR: [oceanbase/powercontext#2](https://github.com/oceanbase/powercontext/pull/2)
 - Tracking Issue: [oceanbase/powercontext#2](https://github.com/oceanbase/powercontext/issues/2)
-- Appendix I: [Types and Interfaces](0002_appendix_types_and_interfaces.md)
-- Appendix II: [Execution and Integration Guidelines](0002_appendix_advanced_execution_and_integration.md)
+- Last Amendment: 2026-07-16
 
 # Summary
 
@@ -21,8 +20,8 @@ RFC 0001 treats Trigger as a product concept. This RFC does not define its publi
 dispatch mechanisms used by the first implementation for background derivation are implementation policies, not a
 public Trigger contract.
 
-Only the parent document is normative. Appendix I records the current API sketch, and Appendix II gives integration
-guidance. Neither appendix is normative.
+This RFC is the accepted design record, not an implementation-status document. Current API availability belongs in the
+source tree and the [Core Protocol integration guide](../development/core-protocol.md).
 
 # Motivation
 
@@ -120,8 +119,8 @@ search behavior.
 | Memory | `remember`, `forget`, `organize`, `get`, `revisions`, `list`, `search` |
 | Handoff | `prepare`, `get`, `revisions`, `list`, `render` |
 
-Appendix I records the current prototype signatures. PMC review may still change those signatures before this RFC is
-accepted.
+This table records the accepted product actions. Current availability and exact signatures belong in source
+documentation rather than this RFC.
 
 ## Composition root and upstream objects
 
@@ -146,7 +145,7 @@ Memory extraction, Memory consolidation, and Handoff generation use fixed intern
 models, but the first version defines no public protocol for replacing those generation pipelines.
 
 Each Catalog backend owns the retrieval implementation that matches its capabilities. Search modes and ranking behavior
-in the current prototype are not yet a stable cross-backend contract.
+are not yet a stable cross-backend contract.
 
 ## Background processing and Trigger
 
@@ -187,3 +186,82 @@ and lifecycles are not stable enough to justify another Core abstraction yet.
 Later RFCs may define Artifact Families, Catalog backends, remote fsspec backends, and separate Trigger or durable
 processing designs. Each proposal must start from a concrete product action and explain why an upstream abstraction
 cannot carry it directly.
+
+# Post-acceptance amendments
+
+## 2026-07-16: Core Protocol implementation boundary
+
+This amendment narrows RFC 0002's implementation boundary. The product direction in RFC 0001 and the Guide-level
+`PowerContext` API proposed above remain unchanged. If the original RFC assigns a responsibility differently, this
+section takes precedence.
+
+The internal Core Protocol integration guide develops this boundary through an extended example.
+`tests/test_context_system_e2e.py` exercises the same design. Both provide implementation context, while this RFC
+remains the normative decision record.
+
+### Core Protocol contracts
+
+Core has three groups of domain contracts and one composition boundary:
+
+| Concept | Core contracts | Decision |
+| --- | --- | --- |
+| Source | `Source`, `SourceAdapter`, `SourceCatalog`, `SourceStore` | Resolve typed native inputs into readable evidence objects, then persist them explicitly |
+| Artifact | `ArtifactDraft`, `Artifact`, `ArtifactCatalog`, `ArtifactStore` | Commit immutable Revisions from complete content and direct evidence |
+| Trigger | `Trigger`, `PolicyTransition` | Map a Signal and State to the next State and zero or more Actions without I/O |
+| Composition | `Sources`, `Artifacts`, `PowerContext` | Bind explicitly selected components without owning their lifecycle |
+
+Each Source adapter owns one exact native input type, a stable `source_type`, and a concrete Source class. A Source
+declares whether its readable value is captured or referenced. Adapter routes must be unambiguous within a
+`SourceCatalog`. Source identity and deduplication are integration concerns; `(source_type, uri)` is not a universal
+Core key.
+
+Artifact stores persist complete Drafts. `add()` commits an initial Revision, while `revise()` uses an exact base
+Artifact for optimistic concurrency. Lineage records the Sources and exact upstream Artifact Revisions supplied by the
+caller. Retrieval, model calls, and downstream generation sit outside the store.
+
+Trigger covers the policy-evaluation part of the product Trigger from RFC 0001. It is sans-I/O and returns State and
+Actions as data. The integration runtime produces Signals, partitions and persists State, and executes Actions.
+
+### Product facade and Artifact Families
+
+The Guide-level `PowerContext.open()`, `pc.memory`, and `pc.handoff` calls remain the proposed high-level API. An
+integration may implement these convenience services on top of the minimal Core Protocol.
+
+Memory and Handoff use the shared Artifact lifecycle, but their content models, generation handlers, projections, and
+queries belong to their Artifact Families and the integration runtime. They may be exposed as built-in product services
+without adding Memory generation or Handoff queries to the generic `ArtifactCatalog`.
+
+The Public actions table above describes the target product facade. It does not define the exports of the minimal Core
+package or require every Catalog backend to implement those actions in the same way.
+
+### Execution and ownership
+
+The integration runtime is responsible for:
+
+- Memory and Handoff generation, including model calls;
+- family-specific scope, retrieval, ranking, and projection;
+- Trigger Signal production and application-defined State partitioning;
+- State persistence, Action execution, workers, and transaction boundaries;
+- scheduling, retry, recovery, approval, and observability.
+
+Concrete integrations retain ownership of databases, schedulers, filesystems, model clients, and Agent objects.
+SQLAlchemy, fsspec, Pydantic AI, SQLite, and APScheduler are available implementation choices, not required Core
+Protocol abstractions.
+
+`Sources.add()` and `Artifacts.add()` persist their inputs. They do not guarantee that an Artifact derived from a Source
+is immediately readable. The owning runtime starts scheduled or event-driven work, evaluates the configured Trigger,
+and executes the returned Actions.
+
+### Superseded implementation assumptions
+
+This amendment supersedes the following implementation assumptions in the original RFC:
+
+- `SourceInput` and `SourceProvider[T]` as the required low-level Source extension model;
+- `(source_type, uri)` idempotency as a universal Source contract;
+- generic Artifact `list` and `search` as mandatory cross-Family Core behavior;
+- fixed Core-owned Memory extraction, consolidation, and Handoff generation pipelines;
+- Core-owned background derivation after Source commits;
+- SQLAlchemy, fsspec, Pydantic AI, or a schema version as required Core composition contracts.
+
+A product runtime may still use any of these approaches. They are implementation choices rather than shared Core
+Protocol contracts.

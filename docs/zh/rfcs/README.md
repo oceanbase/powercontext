@@ -6,8 +6,6 @@ RFC 支撑 PowerContext 的设计流程。
 
 - [0001 - 产品定义与构想](0001_product_definition_and_vision.md)
 - [0002 - Core SDK 产品模型](0002_core_sdk_product_model.md)
-  - [附件一：类型与接口](0002_appendix_types_and_interfaces.md)
-  - [附件二：执行与集成指南](0002_appendix_advanced_execution_and_integration.md)
 
 RFC（request for comments）流程为重大变更提供一致路径，使维护者和贡献者可以在实现开始前形成共识。
 

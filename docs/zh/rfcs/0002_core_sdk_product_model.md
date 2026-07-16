@@ -2,8 +2,7 @@
 - Start Date: 2026-07-07
 - RFC PR: [oceanbase/powercontext#2](https://github.com/oceanbase/powercontext/pull/2)
 - Tracking Issue: [oceanbase/powercontext#2](https://github.com/oceanbase/powercontext/issues/2)
-- Appendix I: [类型与接口](0002_appendix_types_and_interfaces.md)
-- Appendix II: [执行与集成指南](0002_appendix_advanced_execution_and_integration.md)
+- Last Amendment: 2026-07-16
 
 # Summary
 
@@ -19,8 +18,8 @@ RFC 0001 将 PowerContext 定义为面向人和 Agent 的工作上下文层。�
 RFC 0001 仍将 Trigger 视为产品概念，本 RFC 不定义它的公共 SDK 形状。第一版中用于后台提炼的内部条件和
 调度机制是实现策略，不是公共 Trigger 契约。
 
-只有主文是规范性决策记录。附件一记录当前原型的 API sketch，附件二给出集成指南；两者都不具有
-规范性。
+本 RFC 是已接受的设计记录，不是实现状态文档。当前 API 可用性应记录在源码和
+[Core Protocol 集成导读](../development/core-protocol.md)中。
 
 # Motivation
 
@@ -113,7 +112,7 @@ Memory 和 Handoff 继承 Artifact 的 identity、Revision 和血缘语义。它
 | Memory | `remember`, `forget`, `organize`, `get`, `revisions`, `list`, `search` |
 | Handoff | `prepare`, `get`, `revisions`, `list`, `render` |
 
-附件一记录当前原型签名，但这些签名在 RFC 接受前仍可根据 PMC 评审调整。
+该表记录已接受的产品动作。当前可用性和精确签名应记录在源码文档中，而不是本 RFC。
 
 ## Composition root 与上游对象
 
@@ -136,7 +135,7 @@ Typed `SourceProvider[T]` 是第一版唯一开放的 Core 数据获取扩展点
 Memory extraction、Memory consolidation 和 Handoff generation 使用 Core 固定的内部 pipeline。调用方
 可以选择模型，但第一版不定义替换 generation pipeline 的公共协议。
 
-每个 Catalog backend 按自身能力实现检索。当前原型的 search mode 和排序行为不是已稳定的跨后端契约。
+每个 Catalog backend 按自身能力实现检索。Search mode 和排序行为不是已稳定的跨后端契约。
 
 ## 后台处理与 Trigger
 
@@ -172,3 +171,76 @@ Repository、Scheduler、Agent Protocol 和 generation graph 仍归对应上游�
 
 后续 RFC 可以定义新的 Artifact Family、Catalog backend、远程 fsspec backend，以及独立的 Trigger 或 durable
 processing 方案。每项新能力都需要对应明确的产品动作，并说明为什么上游抽象不足以直接承接。
+
+# Post-acceptance amendments
+
+## 2026-07-16：Core Protocol 实现边界
+
+本次修订收窄 RFC 0002 的实现边界。RFC 0001 的产品方向和前文 Guide-level 提议的 `PowerContext` 使用形式保持
+不变。若原 RFC 对职责的分配与本节冲突，以本节为准。
+
+面向内部开发者的 Core Protocol 集成导读通过一个扩展示例展开这些边界，
+`tests/test_context_system_e2e.py` 验证同一套设计。二者提供实现背景，本 RFC 仍是规范性决策记录。
+
+### Core Protocol 契约
+
+Core 包含三组领域契约和一个组合边界：
+
+| 概念 | Core contracts | 修订后的约束 |
+| --- | --- | --- |
+| Source | `Source`, `SourceAdapter`, `SourceCatalog`, `SourceStore` | 将 typed native input 解析为可读取的 evidence object，再显式持久化 |
+| Artifact | `ArtifactDraft`, `Artifact`, `ArtifactCatalog`, `ArtifactStore` | 从完整 content 和直接 evidence 提交不可变 Revision |
+| Trigger | `Trigger`, `PolicyTransition` | 将 Signal 和 State 映射为新 State 与零个或多个 Action，不执行 I/O |
+| Composition | `Sources`, `Artifacts`, `PowerContext` | 绑定显式选择的组件，不接管其生命周期 |
+
+每个 Source adapter 对应一个 exact native input type、一个稳定的 `source_type` 和一个 concrete Source class。
+Source 需要声明其可读取 value 是 captured 还是 referenced。一个 `SourceCatalog` 内的 adapter route 必须无歧义。
+Source identity 和 deduplication 由具体集成决定；`(source_type, uri)` 不是通用 Core key。
+
+Artifact store 持久化完整 Draft。`add()` 提交首个 Revision，`revise()` 使用精确 base Artifact 执行 optimistic
+concurrency。Lineage 记录调用方提供的 Source 和精确上游 Artifact Revision。上下文检索、模型调用和下游
+generation 都在 store 之外完成。
+
+Trigger 对应 RFC 0001 产品 Trigger 中的 policy evaluation。它保持 sans-I/O，并将 State 和 Action 作为数据返回。
+Integration runtime 负责生成 Signal、划分并持久化 State，以及执行 Action。
+
+### 产品 facade 与 Artifact Family
+
+Guide-level 中的 `PowerContext.open()`、`pc.memory` 和 `pc.handoff` 仍是提议的高层 API。具体集成可以基于最小
+Core Protocol 提供这些便捷 service。
+
+Memory 和 Handoff 复用 Artifact lifecycle，但其 content model、generation handler、projection 和 query 属于各自
+Artifact Family 与 integration runtime。具体集成可以将其作为 built-in product service，无需给通用
+`ArtifactCatalog` 增加 Memory generation 或 Handoff query。
+
+前文 Public actions 表描述目标产品 facade。它不定义最小 Core package 的导出项，也不要求所有 Catalog backend
+以相同方式实现这些 action。
+
+### 执行与所有权
+
+Integration runtime 负责：
+
+- Memory 和 Handoff generation，包括模型调用；
+- family-specific scope、retrieval、ranking 和 projection；
+- Trigger Signal production 与应用定义的 State partition；
+- State persistence、Action execution、worker 和 transaction boundary；
+- scheduling、retry、recovery、approval 和 observability。
+
+具体集成继续管理 database、scheduler、filesystem、model client 和 Agent object。SQLAlchemy、fsspec、
+Pydantic AI、SQLite 和 APScheduler 都是可选实现，不是 Core Protocol 要求的抽象。
+
+`Sources.add()` 和 `Artifacts.add()` 只负责持久化输入，不保证由 Source 派生的 Artifact 可以立即读取。集成
+runtime 发起定时或事件驱动的工作，评估已配置的 Trigger，并执行返回的 Action。
+
+### 被取代的实现假设
+
+本次修订取代原 RFC 中的以下实现假设：
+
+- 将 `SourceInput` 和 `SourceProvider[T]` 作为必需的底层 Source 扩展模型；
+- 将 `(source_type, uri)` 幂等性作为通用 Source contract；
+- 将通用 Artifact `list` 和 `search` 作为跨 Family 的必选 Core behavior；
+- 由 Core 固定拥有 Memory extraction、consolidation 和 Handoff generation pipeline；
+- Source 提交后由 Core 拥有后台派生；
+- 将 SQLAlchemy、fsspec、Pydantic AI 或 schema version 作为必需的 Core composition contract。
+
+产品 runtime 仍可采用其中任何一种方案，但这些方案属于实现选择，不是共享 Core Protocol contract。

@@ -15,7 +15,7 @@ PowerContext 的核心表达是：
 
 > PowerContext turns human-agent work into handoff-ready context.
 
-本 RFC 只定义产品对象、设计概念和前两个阶段需求，不展开具体实现方案、代码结构、宣发材料和远期案例规划。
+本 RFC 只定义产品对象、设计概念和前两个阶段需求，不展开具体实现方案、代码结构、宣发材料和远期案例规划。这里记录的是产品方向，不对应某个 Core revision 已提供的 API 或功能。
 
 # Motivation
 
@@ -177,7 +177,7 @@ Mount artifact 表示把制品以 MCP、skill、hook 或 context provider 的形
 
 # Reference-level explanation
 
-本 RFC 的 reference-level explanation 只定义产品语义和边界，不定义代码架构、数据表、服务拆分或具体实现方案。
+本 RFC 的 reference-level explanation 只定义产品语义和边界，不定义代码架构、数据表、服务拆分或具体实现方案。RFC 0002 记录对应的 SDK 产品模型和实现边界；源码和开发导读描述特定 revision 可用的实现。
 
 ## 术语契约
 

@@ -6,8 +6,6 @@ RFCs power PowerContext's design process.
 
 - [0001 - Product Definition and Vision](0001_product_definition_and_vision.md)
 - [0002 - Core SDK Product Model](0002_core_sdk_product_model.md)
-  - [Appendix I: Types and Interfaces](0002_appendix_types_and_interfaces.md)
-  - [Appendix II: Execution and Integration Guidelines](0002_appendix_advanced_execution_and_integration.md)
 
 The "RFC" (request for comments) process provides a consistent path for substantial changes so maintainers and contributors can build consensus before implementation work starts.
 

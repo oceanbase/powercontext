@@ -15,7 +15,7 @@ More specifically:
 
 > PowerContext turns human-agent work into handoff-ready context.
 
-This RFC only defines the product object, design concepts, and Phase 1 and Phase 2 requirements. It does not cover implementation details, code structure, launch materials, or long-term scenario planning.
+This RFC defines the product object, design concepts, and Phase 1 and Phase 2 requirements. Implementation details, code structure, launch materials, and long-term scenario planning remain outside its scope. It records the intended product direction rather than the APIs or features available in a particular Core revision.
 
 # Motivation
 
@@ -177,7 +177,7 @@ This lets the product naturally degrade to individual use. In multi-user setting
 
 # Reference-level explanation
 
-This reference-level explanation defines product semantics and boundaries. It does not define code architecture, database tables, service decomposition, or implementation details.
+This reference-level explanation defines product semantics and boundaries. It does not define code architecture, database tables, service decomposition, or implementation details. RFC 0002 records the corresponding SDK product model and implementation boundaries; the source tree and development guide describe the implementation available on a specific revision.
 
 ## Terminology contract
 
