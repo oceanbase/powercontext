@@ -1,9 +1,9 @@
 """Run a PowerMem-backed LangChain agent with an OpenAI chat model.
 
-This example is intentionally written as an end-to-end CLI check. Once
-PowerMemMiddleware is implemented and the environment is configured, it should
-seed PowerMem, invoke a LangChain agent backed by OpenAI, and print enough
-information to verify memory retrieval and write-back behavior.
+This example is intentionally written as an end-to-end CLI check. Once the
+environment is configured, it seeds PowerMem, invokes a LangChain agent backed
+by OpenAI, and prints enough information to verify memory retrieval and
+write-back behavior.
 """
 
 from __future__ import annotations

@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from langchain.agents import create_agent
 from langchain_core.language_models.chat_models import SimpleChatModel
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from powermem import Memory
 from powermem_langchain import PowerMemMiddleware
 from pydantic import Field
@@ -36,6 +36,33 @@ class CapturingChatModel(SimpleChatModel):
 class FailingSearchMemory:
     def search(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("search failed")
+
+
+class RecordingMemory:
+    def __init__(self, memories: list[str] | None = None) -> None:
+        self.memories = memories or []
+        self.search_calls: list[dict[str, Any]] = []
+        self.add_calls: list[dict[str, Any]] = []
+
+    def search(self, query: str, **kwargs: Any) -> dict[str, Any]:
+        self.search_calls.append({"query": query, **kwargs})
+        return {"results": [{"memory": item} for item in self.memories]}
+
+    def add(self, messages: list[dict[str, str]], **kwargs: Any) -> dict[str, Any]:
+        self.add_calls.append({"messages": messages, **kwargs})
+        return {"results": []}
+
+
+class AsyncRecordingMemory(RecordingMemory):
+    async def search(self, query: str, **kwargs: Any) -> dict[str, Any]:
+        self.search_calls.append({"query": query, **kwargs})
+        return {"results": [{"memory": item} for item in self.memories]}
+
+    async def add(
+        self, messages: list[dict[str, str]], **kwargs: Any
+    ) -> dict[str, Any]:
+        self.add_calls.append({"messages": messages, **kwargs})
+        return {"results": []}
 
 
 def _message_text(messages: list[BaseMessage]) -> str:
@@ -92,7 +119,11 @@ def test_retrieves_powermem_memories_before_model_call(tmp_path: Path):
     )
 
     agent.invoke(
-        {"messages": [HumanMessage(content="How should you answer database questions?")]}
+        {
+            "messages": [
+                HumanMessage(content="How should you answer database questions?")
+            ]
+        }
     )
 
     prompt_text = _message_text(model.calls[0])
@@ -183,3 +214,117 @@ async def test_async_agent_uses_powermem_memory(tmp_path: Path):
     await agent.ainvoke({"messages": [HumanMessage(content="Use my async profile.")]})
 
     assert "User prefers async examples." in _message_text(model.calls[0])
+
+
+def test_uses_latest_user_message_and_preserves_system_prompt():
+    memory = RecordingMemory(["User is working on query optimization."])
+    model = CapturingChatModel(responses=["Final answer"])
+    agent = create_agent(
+        model=model,
+        tools=[],
+        system_prompt="Keep the original system instruction.",
+        middleware=[
+            PowerMemMiddleware(
+                memory=memory,
+                user_id="explicit-user",
+                search_limit=3,
+            )
+        ],
+    )
+
+    result = agent.invoke(
+        {
+            "messages": [
+                HumanMessage(content="An earlier question"),
+                AIMessage(content="An earlier answer"),
+                HumanMessage(content="The current question"),
+            ]
+        }
+    )
+
+    assert memory.search_calls == [
+        {
+            "query": "The current question",
+            "user_id": "explicit-user",
+            "limit": 3,
+        }
+    ]
+    assert memory.add_calls == [
+        {
+            "messages": [
+                {"role": "user", "content": "The current question"},
+                {"role": "assistant", "content": "Final answer"},
+            ],
+            "user_id": "explicit-user",
+        }
+    ]
+    prompt_text = _message_text(model.calls[0])
+    assert "Keep the original system instruction." in prompt_text
+    assert "User is working on query optimization." in prompt_text
+    assert "powermem_context" not in result
+
+
+def test_search_failure_clears_previous_powermem_context():
+    middleware = PowerMemMiddleware(
+        memory=FailingSearchMemory(),
+        user_id="alice",
+        save_interactions=False,
+    )
+
+    update = middleware.before_agent(
+        {
+            "messages": [HumanMessage(content="A new request")],
+            "powermem_context": "stale memory context",
+        },
+        runtime=None,
+    )
+
+    assert update == {"powermem_context": ""}
+
+
+@pytest.mark.asyncio
+async def test_async_agent_supports_async_memory_and_writes_interaction():
+    memory = AsyncRecordingMemory(["User prefers non-blocking APIs."])
+    model = CapturingChatModel(responses=["Async response"])
+    agent = create_agent(
+        model=model,
+        tools=[],
+        middleware=[PowerMemMiddleware(memory=memory, user_id="async-user")],
+    )
+
+    await agent.ainvoke(
+        {"messages": [HumanMessage(content="Show me the async version.")]}
+    )
+
+    assert "User prefers non-blocking APIs." in _message_text(model.calls[0])
+    assert memory.search_calls == [
+        {
+            "query": "Show me the async version.",
+            "user_id": "async-user",
+            "limit": 5,
+        }
+    ]
+    assert memory.add_calls == [
+        {
+            "messages": [
+                {"role": "user", "content": "Show me the async version."},
+                {"role": "assistant", "content": "Async response"},
+            ],
+            "user_id": "async-user",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error_type"),
+    [
+        ({"user_id": ""}, ValueError),
+        ({"user_id": "alice", "search_limit": 0}, ValueError),
+        ({"user_id": "alice", "search_limit": True}, TypeError),
+    ],
+)
+def test_validates_constructor_arguments(
+    kwargs: dict[str, Any], error_type: type[Exception]
+):
+    with pytest.raises(error_type):
+        PowerMemMiddleware(memory=RecordingMemory(), **kwargs)

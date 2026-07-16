@@ -14,8 +14,8 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "powermem>=1.1.7",
-    "langchain>=1.1.0",
-    "langchain-core>=1.1.0",
+    "langchain>=1.1.0,<2.0.0",
+    "langchain-core>=1.1.0,<2.0.0",
 ]
 
 [project.optional-dependencies]
