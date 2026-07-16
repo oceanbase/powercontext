@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {{ super() }}
+  <link rel="stylesheet" href="{{ 'assets/stylesheets/powercontext.css' | url }}">
+  <link rel="stylesheet" href="{{ 'assets/stylesheets/pygments-github-dark.css' | url }}">
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ 'assets/javascripts/language-switcher.js' | url }}"></script>
+{% endblock %}

@@ -1,4 +1,7 @@
-# Modules
+# API Reference
+
+This reference is generated from the public modules in the current package. RFCs may describe planned behavior that is
+not part of this API.
 
 ## Catalogs
 

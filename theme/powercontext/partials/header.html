@@ -1,0 +1,51 @@
+{% set canonical = page.canonical_url | string %}
+{% set is_zh = "/zh/" in canonical %}
+{% set home_url = "zh/" if is_zh else "en/" %}
+{% set docs_active = "/docs/" in canonical or "/development/" in canonical or "/modules/" in canonical %}
+{% set blog_active = "/blog/" in canonical %}
+{% set changelog_active = "/changelog/" in canonical %}
+{% set rfcs_active = "/rfcs/" in canonical %}
+<header class="md-header pc-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="{{ lang.t('header') }}">
+    <label class="md-header__button md-icon" for="__drawer" aria-label="{{ lang.t('nav') }}">
+      {% set icon = config.theme.icon.menu or "material/menu" %}
+      {% include ".icons/" ~ icon ~ ".svg" %}
+    </label>
+    <a class="pc-wordmark" href="{{ home_url | url }}" aria-label="{{ 'OceanBase PowerContext 首页' if is_zh else 'OceanBase PowerContext home' }}">
+      <img class="pc-wordmark__mark" src="{{ 'assets/images/oceanbase-logo.svg' | url }}" alt="">
+      <span class="pc-brand__owner">OceanBase</span>
+      <span class="pc-brand__divider" aria-hidden="true">|</span>
+      <span class="pc-wordmark__name">PowerContext</span>
+    </a>
+    <div class="pc-header-nav" aria-label="{{ '主导航' if is_zh else 'Primary navigation' }}">
+      <a href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}"{% if docs_active %} aria-current="page"{% endif %}>{{ "文档" if is_zh else "Docs" }}</a>
+      <a href="{{ ('zh/blog/' if is_zh else 'en/blog/') | url }}"{% if blog_active %} aria-current="page"{% endif %}>{{ "博客" if is_zh else "Blog" }}</a>
+      <a href="{{ ('zh/changelog/' if is_zh else 'en/changelog/') | url }}"{% if changelog_active %} aria-current="page"{% endif %}>{{ "更新日志" if is_zh else "Changelog" }}</a>
+      <a href="{{ ('zh/rfcs/' if is_zh else 'en/rfcs/') | url }}"{% if rfcs_active %} aria-current="page"{% endif %}>{{ "RFC" if is_zh else "RFCs" }}</a>
+    </div>
+    <div class="pc-header-tools">
+      {% if config.theme.palette %}
+        {% if not config.theme.palette is mapping %}
+          {% include "partials/palette.html" %}
+        {% endif %}
+      {% endif %}
+      {% if not config.theme.palette is mapping %}
+        {% include "partials/javascripts/palette.html" %}
+      {% endif %}
+      <a class="pc-language-switcher" href="{{ ('en/' if is_zh else 'zh/') | url }}" hreflang="{{ 'en' if is_zh else 'zh' }}" aria-label="{{ 'Switch to English' if is_zh else '切换至中文' }}">{{ 'EN' if is_zh else '中文' }}</a>
+      {% if "search" in config.plugins %}
+        {% set search = config.plugins["search"] | attr("config") %}
+        {% if search.enabled %}
+          <label class="md-header__button md-icon" for="__search" aria-label="{{ lang.t('search') }}">
+            {% set icon = config.theme.icon.search or "material/magnify" %}
+            {% include ".icons/" ~ icon ~ ".svg" %}
+          </label>
+          {% include "partials/search.html" %}
+        {% endif %}
+      {% endif %}
+      {% if config.repo_url %}
+        <div class="md-header__source">{% include "partials/source.html" %}</div>
+      {% endif %}
+    </div>
+  </nav>
+</header>

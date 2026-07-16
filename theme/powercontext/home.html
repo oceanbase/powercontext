@@ -1,0 +1,62 @@
+{% extends "main.html" %}
+
+{% set canonical = page.canonical_url | string %}
+{% set is_zh = "/zh/" in canonical %}
+{% set is_root = not is_zh and "/en/" not in canonical %}
+{% if is_zh %}
+  {% set hero_title = "让上下文经得起交接。" %}
+  {% set hero_lead = "PowerContext 为 Source、Artifact 和 Trigger 定义清晰契约，让后来的人或 Agent 能够检查、接手并继续一段工作。" %}
+  {% set primary_label = "阅读文档" %}
+  {% set secondary_label = "查看 API 参考" %}
+{% else %}
+  {% set hero_title = "Context that survives the handoff." %}
+  {% set hero_lead = "PowerContext defines explicit Source, Artifact, and Trigger contracts so later humans and agents can inspect, take over, and continue a piece of work." %}
+  {% set primary_label = "Read the documentation" %}
+  {% set secondary_label = "View the API reference" %}
+{% endif %}
+
+{% block htmltitle %}<title>{{ config.site_name }}</title>{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ 'assets/javascripts/landing-visual.js' | url }}"></script>
+{% endblock %}
+
+{% block site_nav %}
+  <div class="md-sidebar md-sidebar--primary pc-mobile-sidebar" data-md-component="sidebar" data-md-type="navigation">
+    <div class="md-sidebar__scrollwrap">
+      <div class="md-sidebar__inner">{% include "partials/nav.html" %}</div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block container %}
+  <div class="md-content pc-home" data-md-component="content">
+    <article class="md-content__inner md-typeset">
+      <section class="pc-cover" aria-labelledby="pc-cover-title">
+        <div class="pc-cover__inner pc-home__inner">
+          <div class="pc-cover__statement">
+            <div class="pc-cover__copy">
+              <h1 id="pc-cover-title">{{ hero_title }}</h1>
+              <p>{{ hero_lead }}</p>
+              <div class="pc-cover__actions">
+                <a class="pc-action pc-action--primary" href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ primary_label }}</a>
+                {% if is_root %}
+                  <a class="pc-action pc-action--secondary" href="{{ 'zh/docs/' | url }}" lang="zh">阅读中文文档</a>
+                {% else %}
+                  <a class="pc-action pc-action--secondary" href="{{ ('zh/modules/' if is_zh else 'en/modules/') | url }}">{{ secondary_label }}</a>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="pc-context-field" data-pc-context-field aria-hidden="true">
+              <div class="pc-context-field__stage">
+                <canvas class="pc-context-field__canvas" data-pc-context-canvas></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </article>
+  </div>
+{% endblock %}

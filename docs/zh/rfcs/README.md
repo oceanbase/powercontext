@@ -2,6 +2,9 @@
 
 RFC 支撑 PowerContext 的设计流程。
 
+有效 RFC 记录的是已接受的设计方向，不代表已经发布的行为。已实现的公开契约以当前源码和
+[API 参考](../modules.md)为准。
+
 ## 有效 RFC
 
 - [0001 - 产品定义与构想](0001_product_definition_and_vision.md)
@@ -43,7 +46,7 @@ RFC（request for comments）流程为重大变更提供一致路径，使维护
 - Fork [PowerContext repo](https://github.com/oceanbase/powercontext)，并从 `main` 创建分支。
 - 将 [`0000_example.md`](0000_example.md) 复制为 `0000-my-feature.md`，其中 `my-feature` 应具有描述性。
 - 打开 pull request 前不要分配 RFC 编号。RFC 编号应与 pull request 编号一致。
-- 提交包含 RFC 文档的 pull request，文档位于 `docs/rfcs/` 下。
+- 提交包含 RFC 文档的 pull request，文档位于 `docs/en/rfcs/` 下，并同步维护 `docs/zh/rfcs/` 中的中文翻译。
 - pull request 打开后，将 `0000-` 前缀重命名为 pull request 编号。
 - 通过常规 pull request 评审建立共识并整合反馈。
 - 以追加 commit 的方式修改内容，便于评审者跟踪设计历史。

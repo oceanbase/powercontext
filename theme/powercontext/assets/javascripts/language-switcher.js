@@ -17,7 +17,7 @@
   }
 
   function updateLanguageLinks() {
-    document.querySelectorAll(".md-select__link[hreflang]").forEach((link) => {
+    document.querySelectorAll(".pc-language-switcher[hreflang]").forEach((link) => {
       const targetLanguage = link.getAttribute("hreflang");
       if (!languages.has(targetLanguage)) {
         return;
@@ -26,17 +26,13 @@
     });
   }
 
-  function updateI18nView() {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", updateLanguageLinks);
+  } else {
     updateLanguageLinks();
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", updateI18nView);
-  } else {
-    updateI18nView();
-  }
-
   if (typeof document$ !== "undefined") {
-    document$.subscribe(updateI18nView);
+    document$.subscribe(updateLanguageLinks);
   }
 })();

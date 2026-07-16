@@ -2,6 +2,9 @@
 
 RFCs power PowerContext's design process.
 
+An active RFC records accepted design direction, not released behavior. Use the current source and
+[API reference](../modules.md) for implemented public contracts.
+
 ## Active RFCs
 
 - [0001 - Product Definition and Vision](0001_product_definition_and_vision.md)
@@ -43,7 +46,7 @@ Useful preparatory steps include:
 - Fork the [PowerContext repo](https://github.com/oceanbase/powercontext) and create a branch from `main`.
 - Copy [`0000_example.md`](0000_example.md) to `0000-my-feature.md`, where `my-feature` is descriptive.
 - Do not assign an RFC number before opening the pull request. The RFC number should match the pull request number.
-- Submit a pull request containing the RFC document under `docs/rfcs/`.
+- Submit a pull request containing the RFC document under `docs/en/rfcs/` and keep its Chinese translation in sync.
 - After the pull request is open, rename the `0000-` prefix to the pull request number.
 - Build consensus and integrate feedback through normal pull request review.
 - Make revisions as additional commits so reviewers can follow the design history.
