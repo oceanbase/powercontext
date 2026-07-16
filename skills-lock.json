@@ -15,6 +15,18 @@
       "skillPath": "skills/friendly-python/SKILL.md",
       "computedHash": "6b704bc506de14dcb2fe5bced97101a722b72a6d8142166cf07b8b3e56ae12f4"
     },
+    "humanizer": {
+      "source": "blader/humanizer",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "71a65e340e413dc6828da29eff38d9e2c6868e93898303bd062a06bed9f95102"
+    },
+    "kill-ai-slop": {
+      "source": "yetone/kill-ai-slop",
+      "sourceType": "github",
+      "skillPath": "skill/SKILL.md",
+      "computedHash": "f78a09a7419257f667fb1fc072c40b7da1b2ee225749b606d68845e3abd56588"
+    },
     "piglet": {
       "source": "PsiACE/skills",
       "ref": "main",

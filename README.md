@@ -14,10 +14,10 @@ application. The repository has not published a tagged release yet.
 
 ## Documentation
 
-- [Project site](https://oceanbase.github.io/powercontext/)
-- [Core Protocol integration guide](https://oceanbase.github.io/powercontext/en/development/core-protocol/)
-- [API reference](https://oceanbase.github.io/powercontext/en/modules/)
-- [RFCs](https://oceanbase.github.io/powercontext/en/rfcs/)
+- [Project overview](docs/en/index.md)
+- [Core Protocol integration guide](docs/en/development/core-protocol.md)
+- [API reference](docs/en/modules.md)
+- [RFCs](docs/en/rfcs/README.md)
 
 ## Development
 
