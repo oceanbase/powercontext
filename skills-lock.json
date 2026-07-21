@@ -13,7 +13,7 @@
       "ref": "main",
       "sourceType": "github",
       "skillPath": "skills/friendly-python/SKILL.md",
-      "computedHash": "6b704bc506de14dcb2fe5bced97101a722b72a6d8142166cf07b8b3e56ae12f4"
+      "computedHash": "58c1a5576fc50e68a94a17ee9b4d43b9847826982dd74dc8c68e027a2de39751"
     },
     "humanizer": {
       "source": "blader/humanizer",
@@ -25,7 +25,7 @@
       "source": "yetone/kill-ai-slop",
       "sourceType": "github",
       "skillPath": "skill/SKILL.md",
-      "computedHash": "f78a09a7419257f667fb1fc072c40b7da1b2ee225749b606d68845e3abd56588"
+      "computedHash": "bece0e23b22176d36a1d07c9c01b448b8458affd5c17328fb780b88b08018939"
     },
     "piglet": {
       "source": "PsiACE/skills",
