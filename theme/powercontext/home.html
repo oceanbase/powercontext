@@ -2,7 +2,6 @@
 
 {% set canonical = page.canonical_url | string %}
 {% set is_zh = "/zh/" in canonical %}
-{% set is_root = not is_zh and "/en/" not in canonical %}
 {% if is_zh %}
   {% set hero_title = "让上下文经得起交接。" %}
   {% set hero_lead = "PowerContext 为 Source、Artifact 和 Trigger 定义清晰契约，让后来的人或 Agent 能够检查、接手并继续一段工作。" %}
@@ -41,11 +40,7 @@
               <p>{{ hero_lead }}</p>
               <div class="pc-cover__actions">
                 <a class="pc-action pc-action--primary" href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ primary_label }}</a>
-                {% if is_root %}
-                  <a class="pc-action pc-action--secondary" href="{{ 'zh/docs/' | url }}" lang="zh">阅读中文文档</a>
-                {% else %}
-                  <a class="pc-action pc-action--secondary" href="{{ ('zh/modules/' if is_zh else 'en/modules/') | url }}">{{ secondary_label }}</a>
-                {% endif %}
+                <a class="pc-action pc-action--secondary" href="{{ ('zh/modules/' if is_zh else 'en/modules/') | url }}">{{ secondary_label }}</a>
               </div>
             </div>
 
