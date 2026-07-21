@@ -24,6 +24,26 @@ test: ## Test the code with pytest
 	@echo "🚀 Testing code: Running pytest"
 	@uv run python -m pytest --doctest-modules
 
+.PHONY: unit-test
+unit-test: ## Run tests that do not cross the Server boundary end to end.
+	@uv run python -m pytest --doctest-modules --ignore=tests/e2e
+
+.PHONY: e2e-test
+e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
+	@uv run python -m pytest tests/e2e
+
+.PHONY: contract-test
+contract-test: api-generate-check ## Verify generated API code and contract bindings.
+	@uv run python -m pytest tests/test_api_contract.py
+
+.PHONY: api-generate
+api-generate: ## Generate API models and operations from OpenAPI.
+	@uv run python scripts/generate_api.py
+
+.PHONY: api-generate-check
+api-generate-check: ## Verify generated API code is current.
+	@uv run python scripts/generate_api.py --check
+
 .PHONY: build
 build: clean-build ## Build wheel file
 	@echo "🚀 Creating wheel file"

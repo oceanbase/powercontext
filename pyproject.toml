@@ -16,6 +16,34 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+dependencies = [
+    "pydantic>=2.10,<3",
+]
+
+[project.optional-dependencies]
+cli = [
+    "typer>=0.16,<1",
+]
+client = [
+    "httpx>=0.28,<1",
+    "powercontext[cli]",
+]
+server = [
+    "fastapi>=0.115,<1",
+    "pydantic-settings>=2.7,<3",
+    "uvicorn>=0.34,<1",
+]
+mcp = [
+    "fastmcp>=3.4,<4",
+    "powercontext[server]",
+]
+
+[project.scripts]
+powercontext = "powercontext.cli.entrypoint:main"
+
+[project.entry-points."powercontext.cli"]
+client = "powercontext.client.cli:app"
+server = "powercontext.server.cli:app"
 
 [project.urls]
 Homepage = "https://oceanbase.github.io/powercontext/"
@@ -25,7 +53,11 @@ Documentation = "https://oceanbase.github.io/powercontext/"
 [dependency-groups]
 dev = [
     "apscheduler>=3.11,<4",
+    "datamodel-code-generator==0.57.0",
+    "powercontext[client,mcp]",
     "pytest>=9.0.2",
+    "pytest-cov>=7,<8",
+    "pyyaml>=6,<7",
     "prek>=0.2.0",
     "tox-uv>=1.33.4",
 

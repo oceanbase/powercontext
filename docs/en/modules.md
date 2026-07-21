@@ -26,3 +26,15 @@ not part of this API.
 ## Errors
 
 ::: powercontext.errors
+
+## HTTP models
+
+::: powercontext.api
+
+## Python Client SDK
+
+::: powercontext.client.client
+
+## Python Client errors
+
+::: powercontext.client.errors

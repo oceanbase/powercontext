@@ -1,0 +1,118 @@
+openapi: 3.0.3
+info:
+  title: PowerContext API
+  description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
+  version: 0.0.1
+paths:
+  /health/live:
+    get:
+      tags: [health]
+      summary: Get process liveness
+      operationId: get_liveness
+      responses:
+        "200":
+          description: The API process is alive.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /health/ready:
+    get:
+      tags: [health]
+      summary: Get deployment readiness
+      operationId: get_readiness
+      responses:
+        "200":
+          description: Required Server bindings are ready.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+        "503":
+          description: Required Server bindings are not ready.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+  /v1/capabilities:
+    get:
+      tags: [capabilities]
+      summary: Get runtime capabilities
+      operationId: get_capabilities
+      responses:
+        "200":
+          description: Behavior enabled by the assembled runtime.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Capabilities"
+components:
+  headers:
+    RequestId:
+      description: Opaque identifier for correlating one request.
+      schema:
+        type: string
+  schemas:
+    CapabilityLimit:
+      type: object
+      additionalProperties: false
+      required: [name, value]
+      properties:
+        name:
+          type: string
+        value:
+          type: integer
+    Capabilities:
+      type: object
+      additionalProperties: false
+      required: [source_types, artifact_families, search_modes, limits]
+      properties:
+        source_types:
+          type: array
+          items:
+            type: string
+        artifact_families:
+          type: array
+          items:
+            type: string
+        search_modes:
+          type: array
+          items:
+            type: string
+        limits:
+          type: array
+          items:
+            $ref: "#/components/schemas/CapabilityLimit"
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+    ReadinessStatus:
+      type: string
+      enum: [ready, not_ready]
+    ReadinessResponse:
+      type: object
+      additionalProperties: false
+      required: [status, checks]
+      properties:
+        status:
+          $ref: "#/components/schemas/ReadinessStatus"
+        checks:
+          type: object
+          additionalProperties:
+            type: string
