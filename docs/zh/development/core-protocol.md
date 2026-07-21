@@ -6,7 +6,7 @@
 文中的类型和函数是设计示例，不是待发布的 builtin API。示例省略数据库表、codec、worker 和模型客户端的实现，
 因为这些细节会遮住协议本身。实现者需要关注的是对象如何流动，以及每一层负责什么。
 
-`tests/test_context_system_e2e.py` 是本文的可执行配套测试。它验证按 session 分区的 Trigger State、按 query 和
+`tests/e2e/test_context_system.py` 是本文的可执行配套测试。它验证按 session 分区的 Trigger State、按 query 和
 owner scope 检索 Memory、异构 Source、一次 Action 写入零到多个 Memory，以及定时生成 Handoff。测试以 SQLite
 作为本地数据库的例子，以 APScheduler 作为调度器的例子。修改本文的对象流、协议边界或推荐调用顺序时，应检查该
 测试，并在预期行为发生变化时一并更新。测试中的具体 codec 和 worker 只是夹具，不是拟议中的 Core API。

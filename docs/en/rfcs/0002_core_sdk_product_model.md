@@ -196,7 +196,7 @@ This amendment narrows RFC 0002's implementation boundary. The product direction
 section takes precedence.
 
 The internal Core Protocol integration guide develops this boundary through an extended example.
-`tests/test_context_system_e2e.py` exercises the same design. Both provide implementation context, while this RFC
+`tests/e2e/test_context_system.py` exercises the same design. Both provide implementation context, while this RFC
 remains the normative decision record.
 
 ### Core Protocol contracts

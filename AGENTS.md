@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`powercontext` is a Python package built with `uv` and Hatchling. Runtime code lives in `src/powercontext/`; keep public package exports in `src/powercontext/__init__.py` and place new modules beside related code. Tests live in `tests/` and should mirror the package behavior they validate. Documentation is split by locale under `docs/en/` and `docs/zh/`, with RFC material in each locale's `rfcs/` directory. Site configuration is in `zensical.toml`; generated output in `site/` is not source material.
+`powercontext` is a Python package built with `uv` and Hatchling. Runtime code lives in `src/powercontext/`; keep public package exports in `src/powercontext/__init__.py` and place new modules beside related code. Tests live in `tests/` and should mirror the package behavior they validate; keep end-to-end scenarios in `tests/e2e/`. Documentation is split by locale under `docs/en/` and `docs/zh/`, with RFC material in each locale's `rfcs/` directory. Site configuration is in `zensical.toml`; generated output in `site/` is not source material.
 
 ## Build, Test, and Development Commands
 
@@ -20,7 +20,7 @@ Target Python 3.11+. Use PEP 8 naming: modules and functions in `snake_case`, cl
 
 ## Testing Guidelines
 
-Use `pytest`; name test files `test_*.py` and test functions `test_*`. Put new behavioral coverage in `tests/`, and include doctests when public examples are useful. For changes that affect supported Python versions, prefer `tox` before opening a PR. Tests may use plain `assert`; Ruff allows `S101` under `tests/`.
+Use `pytest`; name test files `test_*.py` and test functions `test_*`. Put focused behavioral coverage in `tests/` and cross-component end-to-end scenarios in `tests/e2e/`; include doctests when public examples are useful. For changes that affect supported Python versions, prefer `tox` before opening a PR. Tests may use plain `assert`; Ruff allows `S101` under `tests/`.
 
 ## Commit & Pull Request Guidelines
 

@@ -7,7 +7,7 @@ The types and functions below illustrate the design. They are not a proposed bui
 workers, and model clients are omitted so that the protocol remains visible. Focus on how objects move through the
 system and which component owns each operation.
 
-`tests/test_context_system_e2e.py` is the executable companion to this guide. It covers session-partitioned Trigger
+`tests/e2e/test_context_system.py` is the executable companion to this guide. It covers session-partitioned Trigger
 State, query- and owner-scoped Memory retrieval, heterogeneous Sources, zero-to-many Memory writes from one Action,
 and scheduled Handoff generation. The test uses SQLite as its local database example and APScheduler as its scheduler
 example. Review changes to this guide's object flow, protocol boundaries, or recommended call order against that test.

@@ -180,7 +180,7 @@ processing 方案。每项新能力都需要对应明确的产品动作，并说
 不变。若原 RFC 对职责的分配与本节冲突，以本节为准。
 
 面向内部开发者的 Core Protocol 集成导读通过一个扩展示例展开这些边界，
-`tests/test_context_system_e2e.py` 验证同一套设计。二者提供实现背景，本 RFC 仍是规范性决策记录。
+`tests/e2e/test_context_system.py` 验证同一套设计。二者提供实现背景，本 RFC 仍是规范性决策记录。
 
 ### Core Protocol 契约
 
