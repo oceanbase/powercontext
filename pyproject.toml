@@ -6,6 +6,10 @@ authors = [{ name = "PowerContext Team", email = "open_oceanbase@oceanbase.com" 
 readme = "README.md"
 keywords = ['python']
 requires-python = ">=3.11,<4.0"
+dependencies = [
+    "pydantic>=2.10,<3",
+    "rfc8785>=0.1.4,<1",
+]
 classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python",
@@ -15,9 +19,6 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
-]
-dependencies = [
-    "pydantic>=2.10,<3",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +38,12 @@ mcp = [
     "fastmcp>=3.4,<4",
     "powercontext[server]",
 ]
+sqlite = [
+    "apsw>=3.50.0.0,<4",
+]
+oceanbase = [
+    "pymysql>=1.1.1,<2",
+]
 
 [project.scripts]
 powercontext = "powercontext.cli.entrypoint:main"
@@ -52,9 +59,11 @@ Documentation = "https://oceanbase.github.io/powercontext/"
 
 [dependency-groups]
 dev = [
+    "apsw>=3.50.0.0,<4",
     "apscheduler>=3.11,<4",
     "datamodel-code-generator==0.57.0",
     "powercontext[client,mcp]",
+    "pymysql>=1.1.1,<2",
     "pytest>=9.0.2",
     "pytest-cov>=7,<8",
     "pyyaml>=6,<7",

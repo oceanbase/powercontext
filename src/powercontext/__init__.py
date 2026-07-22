@@ -1,6 +1,6 @@
 """Stable domain contracts for PowerContext."""
 
-from powercontext.artifacts import Artifact, ArtifactCatalog, ArtifactDraft, ArtifactLineage, ArtifactStore
+from powercontext.artifacts import Artifact, ArtifactCatalog, ArtifactDraft, ArtifactLineage, ArtifactRef, ArtifactStore
 from powercontext.context import Artifacts, PowerContext, Sources
 from powercontext.errors import (
     ArtifactFamilyMismatchError,
@@ -10,6 +10,27 @@ from powercontext.errors import (
     SourceAdapterNotFoundError,
     SourceConflictError,
     SourceNotFoundError,
+)
+from powercontext.memory import (
+    CapabilityNotSupportedError,
+    EmbeddingProfile,
+    EmbeddingProviderUnavailableError,
+    Memory,
+    MemoryCapabilities,
+    MemoryChange,
+    MemoryCitation,
+    MemoryContent,
+    MemoryEntryInactiveError,
+    MemoryEntryInput,
+    MemoryEntryNotFoundError,
+    MemoryEntryVersion,
+    MemoryHit,
+    MemoryLayerError,
+    MemoryManifest,
+    MemoryManifestEntry,
+    MemoryRevisionChanges,
+    MemorySearchResult,
+    MemoryService,
 )
 from powercontext.sources import Source, SourceAdapter, SourceCatalog, SourceMaterialization, SourceStore
 from powercontext.triggers import Trigger
@@ -21,8 +42,28 @@ __all__ = [
     "ArtifactFamilyMismatchError",
     "ArtifactLineage",
     "ArtifactNotFoundError",
+    "ArtifactRef",
     "ArtifactStore",
     "Artifacts",
+    "CapabilityNotSupportedError",
+    "EmbeddingProfile",
+    "EmbeddingProviderUnavailableError",
+    "Memory",
+    "MemoryCapabilities",
+    "MemoryChange",
+    "MemoryCitation",
+    "MemoryContent",
+    "MemoryEntryInactiveError",
+    "MemoryEntryInput",
+    "MemoryEntryNotFoundError",
+    "MemoryEntryVersion",
+    "MemoryHit",
+    "MemoryLayerError",
+    "MemoryManifest",
+    "MemoryManifestEntry",
+    "MemoryRevisionChanges",
+    "MemorySearchResult",
+    "MemoryService",
     "PowerContext",
     "PowerContextError",
     "RevisionConflictError",

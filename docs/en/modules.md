@@ -19,6 +19,10 @@ not part of this API.
 
 ::: powercontext.artifacts
 
+## Memory
+
+::: powercontext.memory
+
 ## Triggers
 
 ::: powercontext.triggers

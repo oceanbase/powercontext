@@ -18,6 +18,10 @@
 
 ::: powercontext.artifacts
 
+## Memory
+
+::: powercontext.memory
+
 ## Triggers
 
 ::: powercontext.triggers

@@ -9,6 +9,7 @@ An active RFC records accepted design direction, not released behavior. Use the 
 
 - [0001 - Product Definition and Vision](0001_product_definition_and_vision.md)
 - [0002 - Core SDK Product Model](0002_core_sdk_product_model.md)
+- [0003 - Memory Layer Design](0003_memory_layer_design.md)
 
 The "RFC" (request for comments) process provides a consistent path for substantial changes so maintainers and contributors can build consensus before implementation work starts.
 
