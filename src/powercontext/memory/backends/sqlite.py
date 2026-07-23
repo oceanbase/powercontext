@@ -19,6 +19,7 @@ from powercontext.errors import (
     MemoryBackendConfigurationError,
     RevisionConflictError,
 )
+from powercontext.inference import EmbeddingModel
 from powercontext.memory.backends._sql import (
     decode_entry_version,
     encode_entry_refs,
@@ -41,7 +42,6 @@ from powercontext.memory.models import (
     MemoryRevisionChanges,
 )
 from powercontext.memory.protocols import (
-    EmbeddingProvider,
     MemoryCommit,
     MemoryEvidenceCodec,
     MemoryProjection,
@@ -251,26 +251,24 @@ class SQLiteMemoryBackend(DatabaseMemoryBackend):
             embedding_profile=profile,
         )
 
-    async def rebuild_projections(self, provider: EmbeddingProvider | None = None, /) -> None:
+    async def rebuild_projections(self, embedding_model: EmbeddingModel | None = None, /) -> None:
         """Offline-rebuild FTS and optional vectors from authoritative current heads."""
 
         async with self._lock:
             rows = await asyncio.to_thread(self._authoritative_projection_rows)
             vectors: tuple[tuple[float, ...] | None, ...] = tuple(None for _ in rows)
-            if provider is not None:
+            if embedding_model is not None:
                 profile = self._require_vector_profile()
-                if provider.profile != profile:
+                if embedding_model.profile != profile:
                     raise CapabilityNotSupportedError("embedding-profile")
-                provided = await provider.embed(tuple(row.entry_version.text for row in rows))
-                if len(provided) != len(rows):
-                    raise _SQLiteBackendStateError("projection-rebuild", "provider returned the wrong vector count")
-                vectors = tuple(validate_embedding(vector, dimension=profile.dimension) for vector in provided)
+                result = await embedding_model.embed(tuple(row.entry_version.text for row in rows))
+                if len(result.vectors) != len(rows):
+                    raise _SQLiteBackendStateError(
+                        "projection-rebuild",
+                        "embedding model returned the wrong vector count",
+                    )
+                vectors = tuple(validate_embedding(vector, dimension=profile.dimension) for vector in result.vectors)
             await asyncio.to_thread(self._rebuild_projections_sync, rows, vectors)
-
-    async def rebuild_vectors(self, provider: EmbeddingProvider, /) -> None:
-        """Offline-rebuild all projections with complete fixed-profile vectors."""
-
-        await self.rebuild_projections(provider)
 
     def _initialize_sync(self) -> None:
         found_version = apsw.sqlitelibversion()

@@ -48,7 +48,7 @@ Family. `memory_service.*` represents the target product facade and does not add
 - Target individuals and personal coding agents in the first version, with both an embedded SQLite backend and an
   OceanBase backend.
 - Support full-text, vector, and rank-fusion hybrid retrieval in both backends, while keeping full-text retrieval
-  available without an embedding provider.
+  available without an embedding model.
 
 # Non-goals
 
@@ -118,7 +118,7 @@ classDiagram
         <<Protocol>>
         +extract(evidence, current_entries)
     }
-    class EmbeddingProvider {
+    class EmbeddingModel {
         <<Protocol>>
         +profile
         +embed(texts)
@@ -151,7 +151,7 @@ classDiagram
     class MemoryEntryVersion
 
     MemoryService --> CandidatePipeline
-    MemoryService --> EmbeddingProvider : projection/query embedding
+    MemoryService --> EmbeddingModel : projection/query embedding
     MemoryService --> MemoryBackend
     MemoryBackend --> MemoryUnitOfWork
     DatabaseMemoryBackend ..|> MemoryBackend
@@ -180,6 +180,10 @@ EmbeddingProfile:
 
 EmbeddingVector = tuple[float, ...]
 
+EmbeddingResult:
+    vectors: tuple[EmbeddingVector, ...]
+    usage: InferenceUsage
+
 MemoryBackend(Protocol):
     async def capabilities() -> MemoryCapabilities: ...
     def begin() -> AsyncContextManager[MemoryUnitOfWork]: ...
@@ -187,13 +191,13 @@ MemoryBackend(Protocol):
     async def search(request: MemorySearchRequest) -> tuple[MemoryHit, ...]: ...
     async def expand(hits: tuple[MemoryHit, ...]) -> tuple[MemoryEntryVersion, ...]: ...
 
-EmbeddingProvider(Protocol):
+EmbeddingModel(Protocol):
     @property
     def profile() -> EmbeddingProfile: ...
-    async def embed(texts: tuple[str, ...]) -> tuple[EmbeddingVector, ...]: ...
+    async def embed(texts: tuple[str, ...]) -> EmbeddingResult: ...
 ```
 
-`MemoryService` owns domain validation and operation orchestration. `CandidatePipeline` and `EmbeddingProvider` run
+`MemoryService` owns domain validation and operation orchestration. `CandidatePipeline` and `EmbeddingModel` run
 outside the transaction. `MemoryBackend` owns capability discovery, exact reads, and retrieval. `MemoryUnitOfWork` owns
 the atomic boundary across the Artifact Revision, entry versions, head projections, and index updates. A concrete
 backend may compose an existing `ArtifactStore` and `SourceStore`, but it must ensure that those components share the
@@ -403,7 +407,7 @@ result = await memory_service.search(
 ```
 
 Because the query terms occur directly in the active entry content, full-text search can retrieve the build and
-verification conventions. With an embedding provider configured, vector or hybrid retrieval can also retrieve
+verification conventions. With an embedding model configured, vector or hybrid retrieval can also retrieve
 semantically related entries. After Revision 3 commits, the latest-head projection no longer contains the inactive
 `mem_ent_03C`; authoritative manifest filtering again ensures it cannot appear in the results. If a later call invokes
 `reactivate()`, a new Revision marks the same entry version active and restores its retrieval projection without
@@ -622,7 +626,7 @@ updated = await memory_service.reactivate(
 `reactivate()` creates a new Revision, marks the specified inactive manifest items `active` again, and records
 `op="reactivate"`. It continues to reference the `entry_version_id` and `entry_content_hash` used before deactivation
 and does not create a content version. The backend must restore the entry's full-text head projection. When an
-embedding provider is available, it also writes the vector for the fixed profile. When the provider is unavailable, no
+embedding model is available, it also writes the vector for the fixed profile. When the embedding model is unavailable, no
 vector is written and vector retrieval for that Memory remains unavailable until an offline rebuild fills the gap. A
 stale or unrelated entry object is rejected. An active entry is an idempotent no-op; if all selected entries are already
 active, the operation returns the original Revision. To change content after restoration, the caller must first commit
@@ -653,15 +657,15 @@ require the two databases to use identical SQL.
 sequenceDiagram
     participant Caller
     participant Service as MemoryService
-    participant Provider as Candidate/Embedding Provider
+    participant Capability as CandidatePipeline/EmbeddingModel
     participant Backend as MemoryBackend
     participant DB as SQLite or OceanBase
 
     Caller->>Service: remember / forget / reactivate / organize
     Service->>Backend: load canonical base and bounded current entries
     opt remember or enabled vector projection
-        Service->>Provider: extract candidates / embed changed texts
-        Provider-->>Service: untrusted candidates / vectors
+        Service->>Capability: extract candidates / embed changed texts
+        Capability-->>Service: untrusted candidates / vectors
     end
     Service->>Backend: begin()
     Backend->>DB: BEGIN IMMEDIATE (SQLite) / BEGIN (OceanBase)
@@ -706,7 +710,7 @@ RFC 0011 and are not duplicated in the Memory Runtime.
 
 `MemoryBackend.capabilities` declares at least `fts`, `vector`, `hybrid`, and `embedding_profile`.
 `embedding_profile` returns the deployment's single read-only profile when vector infrastructure is configured and
-otherwise returns `None`. `vector/hybrid` means that the database, adapter, and provider have the corresponding
+otherwise returns `None`. `vector/hybrid` means that the database, adapter, and embedding model have the corresponding
 capability; projection completeness for a particular Memory is still checked before every search. An MVP release must
 support:
 
@@ -717,13 +721,13 @@ support:
   [vector indexes](https://en.oceanbase.com/docs/common-oceanbase-database-10000000001976352).
 - A single `EmbeddingProfile` in deployment configuration containing at least a stable model ID, fixed dimension, L2
   distance, and normalization.
-- When vector or hybrid retrieval is enabled, an `EmbeddingProvider` whose profile exactly matches deployment
+- When vector or hybrid retrieval is enabled, an `EmbeddingModel` whose profile exactly matches deployment
   configuration.
 - Authoritative writes, full-text search, `changes()`, `expand()`, deactivation, and reactivation that continue to work
-  when there is no embedding provider or the provider is temporarily unavailable.
+  when there is no embedding model or the embedding model is temporarily unavailable.
 
 Backend initialization must probe the database version, mode, FTS and vector extensions, fixed dimension, and L2
-distance. Before every vector or hybrid search, the backend must also confirm that the provider profile matches
+distance. Before every vector or hybrid search, the backend must also confirm that the embedding model profile matches
 deployment configuration and that the fixed vector projection is complete for every Memory selected by the query. No
 separate persisted state table is created. An explicit request for an unavailable capability raises
 `CapabilityNotSupportedError` rather than silently returning an empty result. `mode="auto"` may fall back in the order
@@ -750,10 +754,10 @@ The MVP defines four modes:
 
 | Mode | Behavior |
 | --- | --- |
-| `fts` | Use the backend full-text index for deterministic term retrieval; no embedding provider is required |
+| `fts` | Use the backend full-text index for deterministic term retrieval; no embedding model is required |
 | `vector` | Embed the query with the deployment's fixed profile and perform ANN retrieval |
 | `hybrid` | Retrieve FTS and vector candidates separately, then combine them with RRF |
-| `auto` | Use hybrid when the provider is available, its profile matches, and all selected Memory Artifacts have complete vector projections; otherwise use FTS |
+| `auto` | Use hybrid when the embedding model is available, its profile matches, and all selected Memory Artifacts have complete vector projections; otherwise use FTS |
 
 The full-text and vector channels each retrieve `max(limit * 4, 32)` candidates first, preserving the backend's
 internal order within each channel, and then apply reciprocal rank fusion:
@@ -1077,7 +1081,7 @@ CREATE TABLE memory_entry_heads (
 `memory_entry_heads` contains only active entries in the current head; the row of an inactive entry must be deleted.
 The shared analyzer already inserts explicit token boundaries, so OceanBase uses the `SPACE` parser. FULLTEXT and HNSW
 are both built directly on the active-head table; no separate full-text or vector table is created. `embedding` and
-`embedding_content_hash` may be `NULL`: when the provider is unavailable, authoritative Memory and the full-text
+`embedding_content_hash` may be `NULL`: when the embedding model is unavailable, authoritative Memory and the full-text
 projection can still commit, but the row has no vector projection. The profile ID, model, dimension, L2 distance, and
 normalization belong to deployment and schema configuration and are not duplicated in every head row. Replacing the
 model or dimension requires stopping Memory writes and vector or hybrid queries, rebuilding
@@ -1094,7 +1098,7 @@ the corresponding capability unavailable. The distance or profile cannot be chan
 ## Vector integrity and offline rebuilds
 
 The MVP does not persist separate projection state. A full-text projection is required and must be updated
-synchronously by every Memory commit. When the embedding provider is available, the Memory commit must also
+synchronously by every Memory commit. When the embedding model is available, the Memory commit must also
 synchronously write the fixed-profile vector projection. Vector generation occurs outside the transaction; inside the
 transaction it is validated again using `entry_version_id + entry_content_hash + embedding_content_hash`. OceanBase
 updates `embedding_content_hash` and `embedding` directly on the head row. SQLite writes metadata and a Vec1 row with
@@ -1112,13 +1116,13 @@ Before vector or hybrid search, the adapter derives completeness from `NULL` and
 anti-join and hash predicates in SQLite. It does not depend on persisted projection state. The result may be cached in
 process by Artifact head Revision, but every head change must invalidate the corresponding cache. A multi-process
 implementation must reconfirm the selected Memory heads and projection completeness in the query transaction. If the
-provider is unavailable or a selected Memory has a missing or inconsistent projection, `mode="auto"` falls back to
+embedding model is unavailable or a selected Memory has a missing or inconsistent projection, `mode="auto"` falls back to
 FTS, while an explicit `vector` or `hybrid` request raises `CapabilityNotSupportedError`.
 
-When the provider is unavailable, authoritative Memory and the full-text projection still commit. For a new, revised,
+When the embedding model is unavailable, authoritative Memory and the full-text projection still commit. For a new, revised,
 or reactivated active head, OceanBase must set both `embedding` and `embedding_content_hash` to `NULL`; SQLite must
 delete any corresponding old metadata and Vec1 row. Neither backend may retain a stale vector or write a placeholder
-vector. Deactivating an entry deletes its entire head projection. After the provider is restored, an operations task
+vector. Deactivating an entry deletes its entire head projection. After the embedding model is restored, an operations task
 pauses writes, fills every vector from the current head, and restores vector or hybrid capability only after the
 completeness check passes. The same offline process applies when the model, dimension, or normalization changes: pause
 writes and vector or hybrid queries, migrate the corresponding fixed vector columns and indexes or SQLite virtual
@@ -1153,7 +1157,7 @@ prefixes and are not discarded by the Space parser's minimum-token-length rule. 
 migration that completely rebuilds `searchable_text` and the full-text index.
 
 The vector query and entry text must be processed by the same fixed embedding profile configured for the deployment.
-A mismatch in model, dimension, distance, or normalization rejects the request. A provider result containing NaN or
+A mismatch in model, dimension, distance, or normalization rejects the request. An embedding model result containing NaN or
 Infinity, the wrong dimension, or an empty vector is rejected and not written to a projection.
 
 # Drawbacks
@@ -1163,7 +1167,7 @@ Infinity, the wrong dimension, or an empty vector is rejected and not written to
 - Maintaining both SQLite and OceanBase adapters, FTS5 and Vec1, and FULLTEXT and HNSW expands the MVP implementation
   and conformance-test matrix.
 - Enabling vector retrieval requires additional embedding calculation and projection-completeness checks. While the
-  provider is unavailable, `auto` can fall back only to FTS.
+  embedding model is unavailable, `auto` can fall back only to FTS.
 - OceanBase version, tenant mode, and vector-memory configuration, as well as SQLite extension loading, affect runtime
   capabilities.
 - Hooks and task boundaries differ across Coding Agents, so an integration needs provider adapters and capability
@@ -1207,7 +1211,7 @@ extracted separately.
 - The MVP schema has neither a separate projection-state table nor a vector table with a version suffix. Each
   deployment has exactly one fixed embedding profile and dimension, which can be replaced only by a migration and
   rebuild after writes are paused.
-- Ownership of `MemoryBackend`, `MemoryUnitOfWork`, `CandidatePipeline`, and `EmbeddingProvider` matches the class
+- Ownership of `MemoryBackend`, `MemoryUnitOfWork`, `CandidatePipeline`, and `EmbeddingModel` matches the class
   diagram, and database or retrieval details are not added to the minimum Core Protocol.
 - `remember(memory=None, ...)` creates a new Memory Artifact only when there is content worth saving.
 - Later Memory updates are based on the exact current Revision and use head compare-and-swap.
@@ -1232,7 +1236,7 @@ extracted separately.
   `auto` falls back to FTS, while explicit vector or hybrid mode returns a capability error.
 - The runtime can trigger candidate generation explicitly from provider task events. Committing a Source does not
   bypass this flow and create Memory automatically.
-- Without an LLM or embedding provider, explicit inputs, deterministic adapters, and useful task outcomes can still
+- Without an LLM or embedding model, explicit inputs, deterministic adapters, and useful task outcomes can still
   generate candidates. Full-text search, organize, forget, reactivate, changes, expand, and citation validation remain
   available.
 - Without a semantic provider, the runtime may mechanically generate only a `working_note`; it cannot infer a fact,

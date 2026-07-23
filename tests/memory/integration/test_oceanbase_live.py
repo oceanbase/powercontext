@@ -14,10 +14,10 @@ import pytest
 
 from powercontext import RevisionConflictError
 from powercontext.errors import MemoryBackendConfigurationError
+from powercontext.inference import EmbeddingResult, EmbeddingVector
 from powercontext.memory import (
     CapabilityNotSupportedError,
     EmbeddingProfile,
-    EmbeddingVector,
     MemoryCapabilities,
     MemoryEntryInput,
     MemoryService,
@@ -44,13 +44,13 @@ class LiveConfig:
     database: str
 
 
-class KeywordEmbeddingProvider:
+class KeywordEmbeddingModel:
     @property
     def profile(self) -> EmbeddingProfile:
         return TEST_PROFILE
 
-    async def embed(self, texts: tuple[str, ...], /) -> tuple[EmbeddingVector, ...]:
-        return tuple(self._embed(text) for text in texts)
+    async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+        return EmbeddingResult(vectors=tuple(self._embed(text) for text in texts))
 
     @staticmethod
     def _embed(text: str) -> EmbeddingVector:
@@ -227,8 +227,8 @@ def test_live_fts_vector_hybrid_and_null_vector_fallback() -> None:
         backend = backend_for(config, prefix)
         try:
             await backend.initialize()
-            provider = KeywordEmbeddingProvider()
-            service = MemoryService(backend=backend, embedding_provider=provider, id_factory=ContractIds())
+            provider = KeywordEmbeddingModel()
+            service = MemoryService(backend=backend, embedding_model=provider, id_factory=ContractIds())
             memory = await service.remember(
                 memory=None,
                 entries=(

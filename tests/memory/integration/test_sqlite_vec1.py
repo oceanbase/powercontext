@@ -7,10 +7,10 @@ from pathlib import Path
 import apsw
 import pytest
 
+from powercontext.inference import EmbeddingResult, EmbeddingVector
 from powercontext.memory import (
     CapabilityNotSupportedError,
     EmbeddingProfile,
-    EmbeddingVector,
     MemoryCapabilities,
     MemoryEntryInput,
     MemoryService,
@@ -29,7 +29,7 @@ TEST_PROFILE = EmbeddingProfile(
 )
 
 
-class KeywordEmbeddingProvider:
+class KeywordEmbeddingModel:
     def __init__(self, profile: EmbeddingProfile = TEST_PROFILE) -> None:
         self._profile = profile
 
@@ -37,8 +37,8 @@ class KeywordEmbeddingProvider:
     def profile(self) -> EmbeddingProfile:
         return self._profile
 
-    async def embed(self, texts: tuple[str, ...], /) -> tuple[EmbeddingVector, ...]:
-        return tuple(self._embed(text) for text in texts)
+    async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+        return EmbeddingResult(vectors=tuple(self._embed(text) for text in texts))
 
     @staticmethod
     def _embed(text: str) -> EmbeddingVector:
@@ -76,8 +76,8 @@ def test_sqlite_vec1_probes_version_and_maintains_exact_projection_ids(tmp_path:
                 hybrid=True,
                 embedding_profile=TEST_PROFILE,
             )
-            provider = KeywordEmbeddingProvider()
-            service = MemoryService(backend=backend, embedding_provider=provider, id_factory=ContractIds())
+            provider = KeywordEmbeddingModel()
+            service = MemoryService(backend=backend, embedding_model=provider, id_factory=ContractIds())
             memory = await service.remember(
                 memory=None,
                 entries=(
@@ -132,8 +132,8 @@ def test_sqlite_vec1_removes_inactive_vectors_and_never_reuses_stale_embeddings(
         )
         await backend.initialize()
         try:
-            provider = KeywordEmbeddingProvider()
-            service = MemoryService(backend=backend, embedding_provider=provider, id_factory=ContractIds())
+            provider = KeywordEmbeddingModel()
+            service = MemoryService(backend=backend, embedding_model=provider, id_factory=ContractIds())
             memory = await service.remember(
                 memory=None,
                 entries=(
@@ -194,10 +194,10 @@ def test_sqlite_vec1_incomplete_heads_fall_back_then_offline_rebuild(tmp_path: P
             connection.execute("DELETE FROM memory_entry_heads")
             connection.close()
 
-            provider = KeywordEmbeddingProvider()
-            await backend.rebuild_vectors(provider)
+            provider = KeywordEmbeddingModel()
+            await backend.rebuild_projections(provider)
             assert await backend.vector_complete((memory.ref,), TEST_PROFILE)
-            vector_service = MemoryService(backend=backend, embedding_provider=provider)
+            vector_service = MemoryService(backend=backend, embedding_model=provider)
             result = await vector_service.search("alpha", memories=(memory,), mode="hybrid")
             assert result.mode == "hybrid"
             assert result.hits[0].matched_by == ("fts", "vector")
@@ -246,8 +246,8 @@ def test_sqlite_vec1_metadata_tampering_makes_the_head_incomplete(tmp_path: Path
         )
         await backend.initialize()
         try:
-            provider = KeywordEmbeddingProvider()
-            service = MemoryService(backend=backend, embedding_provider=provider, id_factory=ContractIds())
+            provider = KeywordEmbeddingModel()
+            service = MemoryService(backend=backend, embedding_model=provider, id_factory=ContractIds())
             memory = await service.remember(
                 memory=None,
                 entries=(MemoryEntryInput(kind="fact", text="Alpha integrity record."),),

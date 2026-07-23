@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from powercontext.artifacts import Artifact, ArtifactRef
+from powercontext.inference import EmbeddingVector
 from powercontext.memory.models import (
     EmbeddingProfile,
-    EmbeddingVector,
     Memory,
     MemoryCapabilities,
     MemoryChannelHit,
@@ -78,21 +78,6 @@ class CandidatePipeline(Protocol):
 
     async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
         """Return candidates that still require all service validations."""
-
-        ...
-
-
-class EmbeddingProvider(Protocol):
-    """Embed text with one deployment-fixed profile."""
-
-    @property
-    def profile(self) -> EmbeddingProfile:
-        """Return the immutable provider profile."""
-
-        ...
-
-    async def embed(self, texts: tuple[str, ...], /) -> tuple[EmbeddingVector, ...]:
-        """Embed texts, raising EmbeddingProviderUnavailableError for transient outages."""
 
         ...
 

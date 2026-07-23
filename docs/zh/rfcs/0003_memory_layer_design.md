@@ -37,7 +37,7 @@ Memory Family；`memory_service.*` 表示目标 product facade，不增加最小
 - Runtime 围绕用户纠正、任务结束、Handoff 和 Git change 等任务事件生成候选，不以全仓库扫描作为默认入口；
 - 无 LLM 时仍可从显式输入、确定性 adapter 和任务结果生成候选，模型只是可选的候选生成器；
 - 第一版面向个人和 personal coding agent，同时提供 SQLite embedded backend 与 OceanBase backend；
-- 两个 backend 都支持全文检索、向量检索和基于 rank fusion 的混合检索，全文检索在无 embedding provider 时仍可工作。
+- 两个 backend 都支持全文检索、向量检索和基于 rank fusion 的混合检索，全文检索在无 embedding model 时仍可工作。
 
 # 非目标
 
@@ -98,7 +98,7 @@ classDiagram
         <<Protocol>>
         +extract(evidence, current_entries)
     }
-    class EmbeddingProvider {
+    class EmbeddingModel {
         <<Protocol>>
         +profile
         +embed(texts)
@@ -131,7 +131,7 @@ classDiagram
     class MemoryEntryVersion
 
     MemoryService --> CandidatePipeline
-    MemoryService --> EmbeddingProvider : projection/query embedding
+    MemoryService --> EmbeddingModel : projection/query embedding
     MemoryService --> MemoryBackend
     MemoryBackend --> MemoryUnitOfWork
     DatabaseMemoryBackend ..|> MemoryBackend
@@ -160,6 +160,10 @@ EmbeddingProfile:
 
 EmbeddingVector = tuple[float, ...]
 
+EmbeddingResult:
+    vectors: tuple[EmbeddingVector, ...]
+    usage: InferenceUsage
+
 MemoryBackend(Protocol):
     async def capabilities() -> MemoryCapabilities: ...
     def begin() -> AsyncContextManager[MemoryUnitOfWork]: ...
@@ -167,13 +171,13 @@ MemoryBackend(Protocol):
     async def search(request: MemorySearchRequest) -> tuple[MemoryHit, ...]: ...
     async def expand(hits: tuple[MemoryHit, ...]) -> tuple[MemoryEntryVersion, ...]: ...
 
-EmbeddingProvider(Protocol):
+EmbeddingModel(Protocol):
     @property
     def profile() -> EmbeddingProfile: ...
-    async def embed(texts: tuple[str, ...]) -> tuple[EmbeddingVector, ...]: ...
+    async def embed(texts: tuple[str, ...]) -> EmbeddingResult: ...
 ```
 
-`MemoryService` 负责领域校验和 operation orchestration；`CandidatePipeline` 与 `EmbeddingProvider` 在事务外运行；
+`MemoryService` 负责领域校验和 operation orchestration；`CandidatePipeline` 与 `EmbeddingModel` 在事务外运行；
 `MemoryBackend` 负责能力发现、精确读取和检索；`MemoryUnitOfWork` 负责 Artifact Revision、entry version、head projection
 与索引更新的原子边界。具体 backend 可以组合已有 `ArtifactStore`/`SourceStore`，但必须确保这些组件共享同一事务管理器。
 MVP 的每个部署只配置一个 embedding profile，model、dimension、L2 distance 和 normalization 在建库时固定。运行时不提供
@@ -358,7 +362,7 @@ result = await memory_service.search(
 )
 ```
 
-查询词直接出现在 active entry 的正文中，因此全文检索可以召回构建和验证约定；配置 embedding provider 后，向量或
+查询词直接出现在 active entry 的正文中，因此全文检索可以召回构建和验证约定；配置 embedding model 后，向量或
 混合检索也可以召回语义相关条目。Revision 3 提交后，latest-head 投影不再包含 inactive 的 `mem_ent_03C`；权威
 manifest 过滤再次保证它不会出现在结果中。若后续调用 `reactivate()`，新 Revision 会将同一 entry version 重新设为
 active 并恢复其检索投影，不复制正文版本。
@@ -547,7 +551,7 @@ updated = await memory_service.reactivate(
 
 `reactivate()` 创建新 Revision，将指定 inactive manifest 项重新设为 `active` 并记录 `op="reactivate"`。它继续引用
 停用前的 `entry_version_id` 和 `entry_content_hash`，不创建正文版本；后端必须恢复该 entry 的全文 head projection。
-embedding provider 可用时同时写入固定 profile 的向量；provider 不可用时不写入向量，该 Memory 的向量检索保持不可用，
+embedding model 可用时同时写入固定 profile 的向量；embedding model 不可用时不写入向量，该 Memory 的向量检索保持不可用，
 直至离线 rebuild 补齐。过期或不相关的 entry 对象会被拒绝；active entry 是幂等 no-op，全部已 active 时返回原 Revision。
 如果恢复后需要修改正文，调用方必须先提交 `reactivate()`，再基于返回的新 head 调用 `remember()`，避免一个 operation
 同时表达状态恢复和内容修订。
@@ -622,7 +626,7 @@ Memory Runtime。
 ## Backend capabilities
 
 `MemoryBackend.capabilities` 至少声明 `fts`、`vector`、`hybrid` 和 `embedding_profile`。`embedding_profile` 在 vector
-基础设施已配置时返回本部署唯一且只读的 profile，否则为 `None`。`vector/hybrid` 表示数据库、adapter 和 provider
+基础设施已配置时返回本部署唯一且只读的 profile，否则为 `None`。`vector/hybrid` 表示数据库、adapter 和 embedding model
 具备该能力；具体 Memory 的投影完整性仍在每次搜索时判断。MVP 发布实现必须覆盖：
 
 - SQLite [3.38.0+](https://www.sqlite.org/releaselog/3_38_0.html)、[FTS5](https://www.sqlite.org/fts5.html)，以及
@@ -630,11 +634,11 @@ Memory Runtime。
 - OceanBase：OceanBase Database `4.3.5 BP3+` 的 MySQL 模式租户、全文索引和
   [向量索引](https://en.oceanbase.com/docs/common-oceanbase-database-10000000001976352)；
 - 部署配置中的唯一 `EmbeddingProfile`，至少包含稳定 model ID、固定 dimension、L2 distance 和 normalization；
-- 启用 vector/hybrid 时，一个 profile 与部署配置完全一致的 `EmbeddingProvider`；
-- 无 embedding provider 或 provider 暂时不可用时，权威写入、全文搜索、`changes()`、`expand()`、停用和恢复仍可工作。
+- 启用 vector/hybrid 时，一个 profile 与部署配置完全一致的 `EmbeddingModel`；
+- 未配置 embedding model 或 embedding model 暂时不可用时，权威写入、全文搜索、`changes()`、`expand()`、停用和恢复仍可工作。
 
 初始化 backend 时必须探测数据库版本、模式、FTS/vector extension、固定 dimension 和 L2 distance。每次 vector/hybrid
-搜索前还必须确认 provider profile 与部署配置一致，并确认本次选择的 Memory 的固定向量投影完整；不另建持久化状态表。
+搜索前还必须确认 embedding model profile 与部署配置一致，并确认本次选择的 Memory 的固定向量投影完整；不另建持久化状态表。
 显式请求不可用能力时抛出 `CapabilityNotSupportedError`，不能静默返回空结果。`mode="auto"` 可以按 `hybrid -> fts`
 降级，并在结果 metadata 中返回实际使用的 mode；显式 `vector` 或 `hybrid` 不降级。
 
@@ -657,10 +661,10 @@ MVP 定义四种 mode：
 
 | mode | 行为 |
 | --- | --- |
-| `fts` | 使用 backend 全文索引进行确定性词项召回，不需要 embedding provider |
+| `fts` | 使用 backend 全文索引进行确定性词项召回，不需要 embedding model |
 | `vector` | 对 query 生成与部署固定 profile 完全一致的向量并执行 ANN 检索 |
 | `hybrid` | 分别取得 FTS 与 vector 候选，再使用 RRF 合并 |
-| `auto` | provider 可用、profile 匹配且所选 Memory 的向量投影完整时使用 hybrid，否则使用 FTS |
+| `auto` | embedding model 可用、profile 匹配且所选 Memory 的向量投影完整时使用 hybrid，否则使用 FTS |
 
 全文和向量通道先各取 `max(limit * 4, 32)` 个候选，分别保持 backend 内部排序，再使用 reciprocal rank fusion：
 
@@ -959,7 +963,7 @@ CREATE TABLE memory_entry_heads (
 
 `memory_entry_heads` 只包含当前 head 的 active entries；inactive entry 必须删除对应 row。共同 analyzer 已经显式插入
 token 边界，因此 OceanBase 使用 `SPACE` parser。FULLTEXT 与 HNSW 都直接建立在 active-head 表上，不再创建独立全文表
-或向量表。`embedding` 与 `embedding_content_hash` 允许为 `NULL`：provider 不可用时仍可提交权威 Memory 和全文投影，
+或向量表。`embedding` 与 `embedding_content_hash` 允许为 `NULL`：embedding model 不可用时仍可提交权威 Memory 和全文投影，
 但该 row 不具备向量投影。profile ID、model、dimension、L2 distance 和 normalization 属于部署及 schema 配置，不在每个
 head row 中重复保存。更换模型或 dimension 时必须停止 Memory 写入和 vector/hybrid 查询，通过 migration 重建
 `memory_entry_heads.embedding` 及其 HNSW index，再回填当前全部 active heads，校验完成后恢复服务。
@@ -971,7 +975,7 @@ embedding dimension；任何不匹配都使对应 capability unavailable，不�
 
 ## 向量完整性与离线重建
 
-MVP 不保存独立的 projection 状态。全文 projection 是必需能力，Memory commit 必须同步更新。embedding provider 可用时，
+MVP 不保存独立的 projection 状态。全文 projection 是必需能力，Memory commit 必须同步更新。embedding model 可用时，
 Memory commit 还必须同步写入固定 profile 的向量投影；向量生成在事务外执行，事务内用
 `entry_version_id + entry_content_hash + embedding_content_hash` 再次校验。OceanBase 直接更新 head row 的
 `embedding_content_hash` 与 `embedding`；SQLite 写入 projection ID 相同的 metadata 和 Vec1 row。
@@ -985,12 +989,12 @@ Memory commit 还必须同步写入固定 profile 的向量投影；向量生成
 adapter 在 vector/hybrid 搜索前通过 `NULL`/hash 条件（OceanBase）或 anti-join/hash 条件（SQLite），从 active-head
 projection 派生完整性，不依赖持久化 projection 状态。可按 Artifact head revision 在进程内缓存检查结果，但任何 head
 变化都必须使对应缓存失效；
-多进程实现必须在查询事务中重新确认所选 Memory 的 head 和投影完整性。provider 不可用，或任一所选 Memory 的投影
+多进程实现必须在查询事务中重新确认所选 Memory 的 head 和投影完整性。embedding model 不可用，或任一所选 Memory 的投影
 缺失、不一致时，`mode="auto"` 回退到 FTS，显式 `vector/hybrid` 抛出 `CapabilityNotSupportedError`。
 
-provider 不可用时，权威 Memory 与全文 projection 仍可提交。OceanBase 对新增、修订或恢复的 active head 必须把
+embedding model 不可用时，权威 Memory 与全文 projection 仍可提交。OceanBase 对新增、修订或恢复的 active head 必须把
 `embedding` 和 `embedding_content_hash` 同时写为 `NULL`；SQLite 必须删除对应旧 metadata/Vec1 row，且两者都不得保留
-旧向量或写入占位向量。Inactive entry 直接删除整个 head projection。恢复 provider 后，由运维任务停写并基于当前 head
+旧向量或写入占位向量。Inactive entry 直接删除整个 head projection。恢复 embedding model 后，由运维任务停写并基于当前 head
 补齐全部向量，再通过完整性检查恢复 vector/hybrid 能力。更换 model、dimension 或 normalization 时也使用同一离线流程：
 停止写入及 vector/hybrid 查询，迁移相应固定向量列/索引或 SQLite 虚拟表，以新 profile 回填所有 active heads，完整校验
 后恢复服务。MVP 不支持双表并行、在线切换或同时维护多个 profile。
@@ -1019,13 +1023,13 @@ Entry hash 包含 kind、text 和 refs；排除 identity、version、前驱、`c
 `searchable_text` 和全文索引。
 
 向量 query 与 entry text 必须由部署固定的同一个 embedding profile 处理；model、dimension、distance 或 normalization
-任一不匹配都拒绝请求。Provider 返回 NaN、Infinity、错误 dimension 或空向量时拒绝该结果，不写入 projection。
+任一不匹配都拒绝请求。Embedding model 返回 NaN、Infinity、错误 dimension 或空向量时拒绝该结果，不写入 projection。
 
 # 缺点
 
 - `flat-v1` 重复目录且 inactive tombstone 长期增长，manifest 成本随 entry 数线性增长；
 - 同时维护 SQLite 与 OceanBase adapter、FTS5/Vec1 与 FULLTEXT/HNSW，扩大了 MVP 的实现和 conformance test 矩阵；
-- 启用 vector 时需要额外 embedding 计算和投影完整性检查；provider 不可用期间 `auto` 只能降级到 FTS；
+- 启用 vector 时需要额外 embedding 计算和投影完整性检查；embedding model 不可用期间 `auto` 只能降级到 FTS；
 - OceanBase 版本、tenant 模式和 vector memory 配置，以及 SQLite extension 装载，都会影响运行时 capability；
 - 不同 Coding Agent 的 hook 和 task boundary 不完全一致，integration 需要 provider adapter 和能力探测；
 - 无语义 candidate provider 时只能生成粗粒度 `working_note`；读取完整 Source 的兼容路径仍可能成本较高；
@@ -1056,7 +1060,7 @@ Entry hash 包含 kind、text 和 refs；排除 identity、version、前驱、`c
   HNSW index 直接位于同一 `memory_entry_heads` 表，不创建独立向量表；
 - MVP schema 不包含独立 projection 状态表或带版本后缀的向量表；每个部署只有一个固定 embedding profile 和 dimension，
   更换时只允许停写后的 migration/rebuild；
-- `MemoryBackend`、`MemoryUnitOfWork`、`CandidatePipeline` 和 `EmbeddingProvider` 的所有权与类图一致，不把数据库或检索
+- `MemoryBackend`、`MemoryUnitOfWork`、`CandidatePipeline` 和 `EmbeddingModel` 的所有权与类图一致，不把数据库或检索
   细节加入最小 Core Protocol；
 - `remember(memory=None, ...)` 只在有可保存内容时创建新的 Memory Artifact；
 - 后续 Memory 更新必须基于当前精确 Revision，并通过 head CAS；
@@ -1076,7 +1080,7 @@ Entry hash 包含 kind、text 和 refs；排除 identity、version、前驱、`c
 - 任一所选 Memory 的固定 profile 向量投影缺失或不一致时不执行向量搜索；`auto` 降级到 FTS，显式 vector/hybrid 返回
   capability error；
 - Runtime 能从 provider task event 显式触发候选生成；Source 写入本身不会旁路该流程自动创建 Memory；
-- 无 LLM 或 embedding provider 时，显式输入、确定性 adapter 和有价值的 task outcome 可以生成候选，全文搜索、
+- 无 LLM 或 embedding model 时，显式输入、确定性 adapter 和有价值的 task outcome 可以生成候选，全文搜索、
   organize、forget、reactivate、changes、expand 和 citation 校验仍可工作；
 - 无语义 provider 时只允许机械生成 `working_note`，不把最终报告推断成 fact、decision 或 constraint；
 - 所有候选来源的输出都必须通过 evidence、manifest membership、canonical hash 和 head CAS 校验；

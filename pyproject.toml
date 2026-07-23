@@ -44,6 +44,9 @@ sqlite = [
 oceanbase = [
     "pymysql>=1.1.1,<2",
 ]
+pydantic-ai = [
+    "pydantic-ai>=2.14.1,<3",
+]
 
 [project.scripts]
 powercontext = "powercontext.cli.entrypoint:main"
@@ -69,12 +72,11 @@ dev = [
     "pyyaml>=6,<7",
     "prek>=0.2.0",
     "tox-uv>=1.33.4",
-
     "ty>=0.0.24",
-
     "ruff>=0.15.7",
     "zensical>=0.0.26",
     "mkdocstrings-python>=1.0.3",
+    "pydantic-ai>=2.14.1,<3",
 ]
 
 [build-system]

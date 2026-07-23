@@ -22,6 +22,7 @@ from powercontext.errors import (
     MemoryBackendConfigurationError,
     RevisionConflictError,
 )
+from powercontext.inference import EmbeddingModel
 from powercontext.memory.backends._sql import (
     decode_entry_version,
     encode_entry_refs,
@@ -44,7 +45,6 @@ from powercontext.memory.models import (
     MemoryRevisionChanges,
 )
 from powercontext.memory.protocols import (
-    EmbeddingProvider,
     MemoryCommit,
     MemoryEvidenceCodec,
     MemoryProjection,
@@ -285,25 +285,25 @@ class OceanBaseMemoryBackend(DatabaseMemoryBackend):
         self._require_connection()
         return MemoryCapabilities(fts=True, vector=True, hybrid=True, embedding_profile=self._profile)
 
-    async def rebuild_projections(self, provider: EmbeddingProvider | None = None, /) -> None:
+    async def rebuild_projections(self, embedding_model: EmbeddingModel | None = None, /) -> None:
         """Offline-rebuild FULLTEXT and optional vectors from authoritative heads."""
 
         async with self._lock:
             rows = await asyncio.to_thread(self._authoritative_projection_rows)
             vectors: tuple[tuple[float, ...] | None, ...] = tuple(None for _ in rows)
-            if provider is not None:
-                if provider.profile != self._profile:
+            if embedding_model is not None:
+                if embedding_model.profile != self._profile:
                     raise CapabilityNotSupportedError("embedding-profile")
-                provided = await provider.embed(tuple(row.entry_version.text for row in rows))
-                if len(provided) != len(rows):
-                    raise _OceanBaseBackendError("projection-rebuild", "provider returned the wrong vector count")
-                vectors = tuple(validate_embedding(vector, dimension=self._profile.dimension) for vector in provided)
+                result = await embedding_model.embed(tuple(row.entry_version.text for row in rows))
+                if len(result.vectors) != len(rows):
+                    raise _OceanBaseBackendError(
+                        "projection-rebuild",
+                        "embedding model returned the wrong vector count",
+                    )
+                vectors = tuple(
+                    validate_embedding(vector, dimension=self._profile.dimension) for vector in result.vectors
+                )
             await asyncio.to_thread(self._rebuild_projections_sync, rows, vectors)
-
-    async def rebuild_vectors(self, provider: EmbeddingProvider, /) -> None:
-        """Offline-rebuild all projections with complete fixed-profile vectors."""
-
-        await self.rebuild_projections(provider)
 
     def _connect(self) -> Connection:
         return pymysql.connect(

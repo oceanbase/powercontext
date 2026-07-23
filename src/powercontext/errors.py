@@ -120,17 +120,6 @@ class CapabilityNotSupportedError(MemoryLayerError, RuntimeError):
         super().__init__(message)
 
 
-class EmbeddingProviderUnavailableError(MemoryLayerError, RuntimeError):
-    """Raised by an embedding provider when a transient outage prevents embedding."""
-
-    def __init__(self, detail: str | None = None) -> None:
-        self.detail = detail
-        message = "embedding provider is temporarily unavailable"
-        if detail is not None:
-            message = f"{message}: {detail}"
-        super().__init__(message)
-
-
 class MemoryEntryError(MemoryLayerError):
     """Base exception for logical Memory entry failures."""
 
@@ -174,6 +163,7 @@ class InvalidMemoryEvidenceError(MemoryLayerError, ValueError):
             "artifact-resolver": "Artifact evidence requires a canonical Artifact resolver",
             "source-outside": "entry Source evidence is outside the allowed evidence set",
             "artifact-outside": "entry Artifact evidence is outside the allowed evidence set",
+            "projection": "Memory evidence projection must be JSON-compatible",
             "source-codec": "Source evidence requires a MemoryEvidenceCodec",
             "artifact-codec": "Artifact evidence requires a MemoryEvidenceCodec",
             "source-changed": "Source evidence changed while the Memory operation was in progress",
@@ -188,7 +178,7 @@ class InvalidEmbeddingError(MemoryLayerError, ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         messages = {
-            "count": "embedding provider must return one vector per text",
+            "count": "embedding model must return one vector per text",
         }
         super().__init__(messages.get(code, f"invalid embedding: {code}"))
 

@@ -17,7 +17,7 @@ uv add 'powercontext[sqlite]'
 uv add 'powercontext[oceanbase]'
 ```
 
-The SQLite backend provides full-text search without a model or embedding provider:
+The SQLite backend provides full-text search without an embedding model:
 
 ```python
 import asyncio
@@ -150,9 +150,9 @@ history = await memory_service.changes(memory, since_revision=1)
 ```
 
 `auto` uses hybrid search only when every selected head has a complete fixed-profile vector projection and the
-configured provider has that exact profile. Otherwise it falls back to FTS. Explicit `vector` or `hybrid` requests
+configured embedding model has that exact profile. Otherwise it falls back to FTS. Explicit `vector` or `hybrid` requests
 raise `CapabilityNotSupportedError` when vector capability or completeness is unavailable. `fts` remains available
-without either a candidate or embedding provider.
+without either a candidate provider or embedding model.
 
 Persist a Handoff citation as the full exact anchor, not just an entry ID:
 
@@ -183,19 +183,19 @@ embedding profile:
 import asyncio
 import os
 
-from powercontext import EmbeddingProfile, MemoryService
+from powercontext import EmbeddingProfile, EmbeddingResult, MemoryService
 from powercontext.memory.backends.sqlite import SQLiteMemoryBackend
 
 
-class ExampleEmbeddingProvider:
-    """Replace this deterministic example with the application's embedding provider."""
+class ExampleEmbeddingModel:
+    """Replace this deterministic example with the application's embedding model."""
 
     def __init__(self, profile: EmbeddingProfile) -> None:
         self.profile = profile
 
-    async def embed(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+    async def embed(self, texts: tuple[str, ...]) -> EmbeddingResult:
         vector = (1.0,) + (0.0,) * (self.profile.dimension - 1)
-        return tuple(vector for _ in texts)
+        return EmbeddingResult(vectors=tuple(vector for _ in texts))
 
 
 async def main() -> None:
@@ -213,7 +213,7 @@ async def main() -> None:
     )
     await backend.initialize()
     try:
-        MemoryService(backend=backend, embedding_provider=ExampleEmbeddingProvider(profile))
+        MemoryService(backend=backend, embedding_model=ExampleEmbeddingModel(profile))
     finally:
         await backend.close()
 
@@ -222,10 +222,10 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-The extension path and profile must be configured together. Provider model, dimension, distance, and normalization
+The extension path and profile must be configured together. Embedding model name, dimension, distance, and normalization
 must exactly match the backend profile. While writes and searches are stopped,
 `await backend.rebuild_projections()` reconstructs FTS from authoritative heads and intentionally leaves vectors
-incomplete; passing the provider, or calling `await backend.rebuild_vectors(embedding_provider)`, reconstructs both
+incomplete; passing the embedding model reconstructs both
 FTS and every current active vector. Rebuild validates vector count, dimension, and finite values before committing.
 Changing profiles is an offline migration: stop writes, replace the fixed Vec1 projection, backfill all active heads,
 verify completeness, and then resume traffic.
@@ -265,13 +265,13 @@ backend = OceanBaseMemoryBackend(
     table_prefix=os.environ.get("POWERCONTEXT_OCEANBASE_TABLE_PREFIX", ""),
 )
 await backend.initialize()
-memory_service = MemoryService(backend=backend, embedding_provider=embedding_provider)
+memory_service = MemoryService(backend=backend, embedding_model=embedding_model)
 ```
 
-The vector dimension is part of DDL, so one deployment has exactly one profile. When an embedding provider is absent,
+The vector dimension is part of DDL, so one deployment has exactly one profile. When an embedding model is absent,
 writes still commit authoritative history and FULLTEXT rows with null vector fields; `auto` falls back to FTS. With
 writes and searches stopped, `await backend.rebuild_projections()` reconstructs FULLTEXT with null vectors, while
-`await backend.rebuild_projections(embedding_provider)` reconstructs FULLTEXT and HNSW data for every active head.
+`await backend.rebuild_projections(embedding_model)` reconstructs FULLTEXT and HNSW data for every active head.
 Resume traffic only after completeness checks pass.
 
 `drop_schema()` removes exactly the tables owned by the configured prefix. It exists for isolated integration tests.

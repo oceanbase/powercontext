@@ -15,7 +15,7 @@ uv add 'powercontext[sqlite]'
 uv add 'powercontext[oceanbase]'
 ```
 
-SQLite backend 在没有模型或 embedding provider 时也提供全文搜索：
+SQLite backend 在没有 embedding model 时也提供全文搜索：
 
 ```python
 import asyncio
@@ -142,9 +142,9 @@ entries = await memory_service.expand(result.hits)
 history = await memory_service.changes(memory, since_revision=1)
 ```
 
-只有当每个所选 head 的固定 profile 向量 projection 都完整，并且 provider profile 完全相同时，`auto` 才使用 hybrid；否则
+只有当每个所选 head 的固定 profile 向量 projection 都完整，并且 embedding model profile 完全相同时，`auto` 才使用 hybrid；否则
 降级为 FTS。显式 `vector` 或 `hybrid` 在向量能力不可用或不完整时抛出 `CapabilityNotSupportedError`。没有 candidate 或
-embedding provider 时，`fts` 仍可工作。
+embedding model 时，`fts` 仍可工作。
 
 Handoff citation 必须保存完整精确锚点，不能只存 entry ID：
 
@@ -174,19 +174,19 @@ exact_entry = await memory_service.validate_citation(citation)
 import asyncio
 import os
 
-from powercontext import EmbeddingProfile, MemoryService
+from powercontext import EmbeddingProfile, EmbeddingResult, MemoryService
 from powercontext.memory.backends.sqlite import SQLiteMemoryBackend
 
 
-class ExampleEmbeddingProvider:
-    """生产环境中请替换为应用实际使用的 embedding provider。"""
+class ExampleEmbeddingModel:
+    """生产环境中请替换为应用实际使用的 embedding model。"""
 
     def __init__(self, profile: EmbeddingProfile) -> None:
         self.profile = profile
 
-    async def embed(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+    async def embed(self, texts: tuple[str, ...]) -> EmbeddingResult:
         vector = (1.0,) + (0.0,) * (self.profile.dimension - 1)
-        return tuple(vector for _ in texts)
+        return EmbeddingResult(vectors=tuple(vector for _ in texts))
 
 
 async def main() -> None:
@@ -204,7 +204,7 @@ async def main() -> None:
     )
     await backend.initialize()
     try:
-        MemoryService(backend=backend, embedding_provider=ExampleEmbeddingProvider(profile))
+        MemoryService(backend=backend, embedding_model=ExampleEmbeddingModel(profile))
     finally:
         await backend.close()
 
@@ -213,9 +213,9 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-extension path 和 profile 必须同时配置。Provider 的 model、dimension、distance 与 normalization 必须与 backend profile
+extension path 和 profile 必须同时配置。Embedding model 的名称、dimension、distance 与 normalization 必须与 backend profile
 完全相同。写入和搜索停止后，`await backend.rebuild_projections()` 可从权威 head 重建 FTS，并有意让向量保持不完整；传入
-provider，或调用 `await backend.rebuild_vectors(embedding_provider)`，则同时重建 FTS 与全部 current active vectors。重建
+embedding model，则同时重建 FTS 与全部 current active vectors。重建
 会在提交前校验向量数量、dimension 和有限数值。更换 profile 属于离线 migration：停止写入，替换固定 Vec1 projection，
 回填所有 active heads，验证完整性后再恢复流量。
 
@@ -253,13 +253,13 @@ backend = OceanBaseMemoryBackend(
     table_prefix=os.environ.get("POWERCONTEXT_OCEANBASE_TABLE_PREFIX", ""),
 )
 await backend.initialize()
-memory_service = MemoryService(backend=backend, embedding_provider=embedding_provider)
+memory_service = MemoryService(backend=backend, embedding_model=embedding_model)
 ```
 
-vector dimension 是 DDL 的一部分，因此一个部署只有一个 profile。embedding provider 不可用时，写入仍会提交权威历史与
+vector dimension 是 DDL 的一部分，因此一个部署只有一个 profile。embedding model 不可用时，写入仍会提交权威历史与
 FULLTEXT rows，并把向量字段保存为 null；`auto` 会降级为 FTS。写入和搜索停止后，
 `await backend.rebuild_projections()` 会以 null vector 重建 FULLTEXT；
-`await backend.rebuild_projections(embedding_provider)` 会为全部 active heads 同时重建 FULLTEXT 和 HNSW 数据。完整性
+`await backend.rebuild_projections(embedding_model)` 会为全部 active heads 同时重建 FULLTEXT 和 HNSW 数据。完整性
 检查通过后才能恢复流量。
 
 `drop_schema()` 会删除配置 prefix 拥有的精确表集合；它只用于隔离的 integration tests。未配置 prefix 的部署或生产部署

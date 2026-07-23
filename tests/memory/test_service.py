@@ -8,11 +8,10 @@ from dataclasses import dataclass, replace
 import pytest
 
 from powercontext import ArtifactNotFoundError, ArtifactRef, RevisionConflictError
+from powercontext.inference import EmbeddingResult, EmbeddingVector, InferenceTimeoutError, InferenceUnavailableError
 from powercontext.memory import (
     CapabilityNotSupportedError,
     EmbeddingProfile,
-    EmbeddingProviderUnavailableError,
-    EmbeddingVector,
     Memory,
     MemoryBackend,
     MemoryCapabilities,
@@ -198,12 +197,15 @@ class RecordingMemoryBackend(MemoryBackend, MemoryUnitOfWork, AbstractAsyncConte
         return tuple(self._versions[hit.entry_version_id] for hit in hits)
 
 
-class RecordingEmbeddingProvider:
+class RecordingEmbeddingModel:
     def __init__(
         self,
         *,
         profile: EmbeddingProfile,
-        responses: tuple[tuple[EmbeddingVector, ...] | EmbeddingProviderUnavailableError, ...] = (),
+        responses: tuple[
+            tuple[EmbeddingVector, ...] | InferenceUnavailableError | InferenceTimeoutError,
+            ...,
+        ] = (),
     ) -> None:
         self._profile = profile
         self._responses = list(responses)
@@ -213,14 +215,17 @@ class RecordingEmbeddingProvider:
     def profile(self) -> EmbeddingProfile:
         return self._profile
 
-    async def embed(self, texts: tuple[str, ...], /) -> tuple[EmbeddingVector, ...]:
+    async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
         self.calls.append(texts)
         if self._responses:
             response = self._responses.pop(0)
-            if isinstance(response, EmbeddingProviderUnavailableError):
+            if isinstance(
+                response,
+                (InferenceUnavailableError, InferenceTimeoutError),
+            ):
                 raise response
-            return response
-        return tuple((1.0, 0.0, 0.0) for _ in texts)
+            return EmbeddingResult(vectors=response)
+        return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
 
 
 TEST_PROFILE = EmbeddingProfile(
@@ -235,9 +240,9 @@ TEST_PROFILE = EmbeddingProfile(
 async def searchable_memory(
     *,
     vector_complete: bool,
-    provider: RecordingEmbeddingProvider | None = None,
-) -> tuple[RecordingMemoryBackend, MemoryService, Memory, RecordingEmbeddingProvider]:
-    configured_provider = RecordingEmbeddingProvider(profile=TEST_PROFILE) if provider is None else provider
+    embedding_model: RecordingEmbeddingModel | None = None,
+) -> tuple[RecordingMemoryBackend, MemoryService, Memory, RecordingEmbeddingModel]:
+    configured_model = RecordingEmbeddingModel(profile=TEST_PROFILE) if embedding_model is None else embedding_model
     backend = RecordingMemoryBackend(
         capabilities=MemoryCapabilities(
             fts=True,
@@ -249,7 +254,7 @@ async def searchable_memory(
     )
     service = MemoryService(
         backend=backend,
-        embedding_provider=configured_provider,
+        embedding_model=configured_model,
         id_factory=SequentialIds(),
     )
     memory = await service.remember(
@@ -258,7 +263,7 @@ async def searchable_memory(
         mode="append",
     )
     assert memory is not None
-    return backend, service, memory, configured_provider
+    return backend, service, memory, configured_model
 
 
 async def memory_with_one_entry() -> tuple[RecordingMemoryBackend, MemoryService, Memory]:
@@ -731,7 +736,16 @@ def test_write_embeddings_are_profile_and_content_bound() -> None:
     asyncio.run(scenario())
 
 
-def test_transient_embedding_outage_does_not_block_authoritative_write() -> None:
+@pytest.mark.parametrize(
+    "embedding_error",
+    [
+        InferenceUnavailableError("embed"),
+        InferenceTimeoutError("embed", 1),
+    ],
+)
+def test_transient_embedding_outage_does_not_block_authoritative_write(
+    embedding_error: InferenceUnavailableError | InferenceTimeoutError,
+) -> None:
     async def scenario() -> None:
         backend = RecordingMemoryBackend(
             capabilities=MemoryCapabilities(
@@ -741,11 +755,11 @@ def test_transient_embedding_outage_does_not_block_authoritative_write() -> None
                 embedding_profile=TEST_PROFILE,
             )
         )
-        provider = RecordingEmbeddingProvider(
+        provider = RecordingEmbeddingModel(
             profile=TEST_PROFILE,
-            responses=(EmbeddingProviderUnavailableError("provider timeout"),),
+            responses=(embedding_error,),
         )
-        service = MemoryService(backend=backend, embedding_provider=provider, id_factory=SequentialIds())
+        service = MemoryService(backend=backend, embedding_model=provider, id_factory=SequentialIds())
 
         memory = await service.remember(
             memory=None,
@@ -771,8 +785,8 @@ def test_forget_reuses_unchanged_vectors_without_reembedding() -> None:
             ),
             vector_complete=True,
         )
-        provider = RecordingEmbeddingProvider(profile=TEST_PROFILE)
-        service = MemoryService(backend=backend, embedding_provider=provider, id_factory=SequentialIds())
+        provider = RecordingEmbeddingModel(profile=TEST_PROFILE)
+        service = MemoryService(backend=backend, embedding_model=provider, id_factory=SequentialIds())
         memory = await service.remember(
             memory=None,
             entries=(
@@ -813,8 +827,8 @@ def test_forget_during_embedding_outage_preserves_sibling_vectors() -> None:
             ),
             vector_complete=True,
         )
-        provider = RecordingEmbeddingProvider(profile=TEST_PROFILE)
-        service = MemoryService(backend=backend, embedding_provider=provider, id_factory=SequentialIds())
+        provider = RecordingEmbeddingModel(profile=TEST_PROFILE)
+        service = MemoryService(backend=backend, embedding_model=provider, id_factory=SequentialIds())
         memory = await service.remember(
             memory=None,
             entries=(
@@ -828,7 +842,7 @@ def test_forget_during_embedding_outage_preserves_sibling_vectors() -> None:
         beta_projection = next(
             projection for projection in backend.commits[0].projections if projection.entry_version.entry_id != alpha_id
         )
-        provider._responses.append(EmbeddingProviderUnavailableError("provider timeout"))
+        provider._responses.append(InferenceUnavailableError("embed"))
 
         forgotten = await service.forget(memory, entries=(await current_entry(service, memory, alpha_id),))
 
@@ -852,8 +866,8 @@ def test_reactivate_only_embeds_restored_entry() -> None:
             ),
             vector_complete=True,
         )
-        provider = RecordingEmbeddingProvider(profile=TEST_PROFILE)
-        service = MemoryService(backend=backend, embedding_provider=provider, id_factory=SequentialIds())
+        provider = RecordingEmbeddingModel(profile=TEST_PROFILE)
+        service = MemoryService(backend=backend, embedding_model=provider, id_factory=SequentialIds())
         memory = await service.remember(
             memory=None,
             entries=(
@@ -896,8 +910,8 @@ def test_revise_only_embeds_changed_entry_text() -> None:
             ),
             vector_complete=True,
         )
-        provider = RecordingEmbeddingProvider(profile=TEST_PROFILE)
-        service = MemoryService(backend=backend, embedding_provider=provider, id_factory=SequentialIds())
+        provider = RecordingEmbeddingModel(profile=TEST_PROFILE)
+        service = MemoryService(backend=backend, embedding_model=provider, id_factory=SequentialIds())
         memory = await service.remember(
             memory=None,
             entries=(
@@ -954,8 +968,8 @@ def test_invalid_write_embeddings_abort_before_commit(
                 embedding_profile=TEST_PROFILE,
             )
         )
-        provider = RecordingEmbeddingProvider(profile=TEST_PROFILE, responses=(response,))
-        service = MemoryService(backend=backend, embedding_provider=provider, id_factory=SequentialIds())
+        provider = RecordingEmbeddingModel(profile=TEST_PROFILE, responses=(response,))
+        service = MemoryService(backend=backend, embedding_model=provider, id_factory=SequentialIds())
 
         with pytest.raises(ValueError, match=message):
             await service.remember(
@@ -995,16 +1009,16 @@ def test_auto_falls_back_to_fts_before_query_embedding_when_projection_is_incomp
     asyncio.run(scenario())
 
 
-def test_auto_falls_back_to_fts_when_query_provider_becomes_unavailable() -> None:
+def test_auto_falls_back_to_fts_when_query_embedding_model_becomes_unavailable() -> None:
     async def scenario() -> None:
-        provider = RecordingEmbeddingProvider(
+        provider = RecordingEmbeddingModel(
             profile=TEST_PROFILE,
             responses=(
                 ((1.0, 0.0, 0.0),),
-                EmbeddingProviderUnavailableError("provider timeout"),
+                InferenceUnavailableError("embed"),
             ),
         )
-        backend, service, memory, _ = await searchable_memory(vector_complete=True, provider=provider)
+        backend, service, memory, _ = await searchable_memory(vector_complete=True, embedding_model=provider)
         entry = backend.commits[0].entry_versions[0]
         backend.channels = MemorySearchChannels(
             fts=(MemoryChannelHit(memory.ref, entry.entry_id, entry.entry_version_id, entry.text),)
@@ -1020,16 +1034,16 @@ def test_auto_falls_back_to_fts_when_query_provider_becomes_unavailable() -> Non
     asyncio.run(scenario())
 
 
-def test_explicit_vector_maps_transient_provider_outage_to_capability_error() -> None:
+def test_explicit_vector_maps_transient_embedding_outage_to_capability_error() -> None:
     async def scenario() -> None:
-        provider = RecordingEmbeddingProvider(
+        provider = RecordingEmbeddingModel(
             profile=TEST_PROFILE,
             responses=(
                 ((1.0, 0.0, 0.0),),
-                EmbeddingProviderUnavailableError("provider timeout"),
+                InferenceUnavailableError("embed"),
             ),
         )
-        _, service, memory, _ = await searchable_memory(vector_complete=True, provider=provider)
+        _, service, memory, _ = await searchable_memory(vector_complete=True, embedding_model=provider)
 
         with pytest.raises(CapabilityNotSupportedError, match="temporarily unavailable"):
             await service.search("query", memories=(memory,), mode="vector")
@@ -1094,11 +1108,11 @@ def test_explicit_vector_does_not_fallback_when_projection_is_incomplete() -> No
 
 def test_query_embedding_is_validated_before_backend_search() -> None:
     async def scenario() -> None:
-        provider = RecordingEmbeddingProvider(
+        provider = RecordingEmbeddingModel(
             profile=TEST_PROFILE,
             responses=(((1.0, 0.0, 0.0),), (((1.0, 2.0),))),
         )
-        backend, service, memory, _ = await searchable_memory(vector_complete=True, provider=provider)
+        backend, service, memory, _ = await searchable_memory(vector_complete=True, embedding_model=provider)
         with pytest.raises(ValueError, match="3 dimensions"):
             await service.search("query", memories=(memory,), mode="vector")
         assert backend.requests == []

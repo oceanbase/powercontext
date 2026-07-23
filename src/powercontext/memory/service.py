@@ -10,7 +10,6 @@ from uuid import uuid4
 from powercontext.artifacts import Artifact, ArtifactLineage, ArtifactRef
 from powercontext.errors import (
     CapabilityNotSupportedError,
-    EmbeddingProviderUnavailableError,
     InvalidEmbeddingError,
     InvalidMemoryCandidateError,
     InvalidMemoryCitationError,
@@ -18,6 +17,12 @@ from powercontext.errors import (
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
     RevisionConflictError,
+)
+from powercontext.inference import (
+    EmbeddingModel,
+    EmbeddingVector,
+    InferenceTimeoutError,
+    InferenceUnavailableError,
 )
 from powercontext.memory.canonical import (
     analyze_text,
@@ -35,7 +40,6 @@ from powercontext.memory.canonical import (
 )
 from powercontext.memory.models import (
     EmbeddingProfile,
-    EmbeddingVector,
     Memory,
     MemoryCapabilities,
     MemoryChange,
@@ -53,7 +57,6 @@ from powercontext.memory.models import (
 )
 from powercontext.memory.protocols import (
     CandidatePipeline,
-    EmbeddingProvider,
     MemoryBackend,
     MemoryCandidateRequest,
     MemoryCommit,
@@ -120,7 +123,7 @@ class MemoryService:
         *,
         backend: MemoryBackend,
         candidate_pipeline: CandidatePipeline | None = None,
-        embedding_provider: EmbeddingProvider | None = None,
+        embedding_model: EmbeddingModel | None = None,
         evidence_codec: MemoryEvidenceCodec | None = None,
         source_resolver: _SourceResolver | None = None,
         artifact_resolver: _ArtifactResolver | None = None,
@@ -128,7 +131,7 @@ class MemoryService:
     ) -> None:
         self._backend = backend
         self._candidate_pipeline = candidate_pipeline
-        self._embedding_provider = embedding_provider
+        self._embedding_model = embedding_model
         self._evidence_codec = evidence_codec
         self._source_resolver = source_resolver
         self._artifact_resolver = artifact_resolver
@@ -305,14 +308,14 @@ class MemoryService:
                 raise CapabilityNotSupportedError(selected_mode)
             try:
                 query_vector = (await self._embed_texts((normalized_query,), profile))[0]
-            except EmbeddingProviderUnavailableError as error:
+            except (InferenceUnavailableError, InferenceTimeoutError) as error:
                 if mode == "auto" and capabilities.fts:
                     selected_mode = "fts"
                     profile = None
                 else:
                     raise CapabilityNotSupportedError(
                         selected_mode,
-                        "embedding provider is temporarily unavailable",
+                        "embedding model is temporarily unavailable",
                     ) from error
         request = MemorySearchRequest(
             query=normalized_query,
@@ -392,9 +395,9 @@ class MemoryService:
                 raise CapabilityNotSupportedError("fts")
             return "fts"
 
-        provider_profile = self._provider_profile_for_search(requested, fts=capabilities.fts)
+        embedding_profile = self._embedding_profile_for_search()
         profile = capabilities.embedding_profile
-        profile_matches = profile is not None and provider_profile == profile
+        profile_matches = profile is not None and embedding_profile == profile
         vector_complete = (
             await self._backend.vector_complete(memories, profile)
             if capabilities.vector and profile_matches and profile is not None
@@ -419,24 +422,11 @@ class MemoryService:
             raise CapabilityNotSupportedError("fts")
         raise _InvalidMemoryOperationError("search-mode")
 
-    def _provider_profile_for_search(
-        self,
-        requested: MemorySearchMode,
-        *,
-        fts: bool,
-    ) -> EmbeddingProfile | None:
-        provider = self._embedding_provider
-        if provider is None:
+    def _embedding_profile_for_search(self) -> EmbeddingProfile | None:
+        embedding_model = self._embedding_model
+        if embedding_model is None:
             return None
-        try:
-            return provider.profile
-        except EmbeddingProviderUnavailableError as error:
-            if requested == "auto" and fts:
-                return None
-            raise CapabilityNotSupportedError(
-                requested,
-                "embedding provider is temporarily unavailable",
-            ) from error
+        return embedding_model.profile
 
     def _deduplicate_manifest(
         self,
@@ -673,24 +663,21 @@ class MemoryService:
         projections: tuple[MemoryProjection, ...],
         embed_indices: Sequence[int],
     ) -> tuple[MemoryProjection, ...]:
-        if not projections or not embed_indices or self._embedding_provider is None:
+        if not projections or not embed_indices or self._embedding_model is None:
             return projections
         capabilities = await self._backend.capabilities()
         profile = capabilities.embedding_profile
         if not capabilities.vector or profile is None:
             return projections
-        try:
-            provider_profile = self._embedding_provider.profile
-        except EmbeddingProviderUnavailableError:
-            return projections
-        if provider_profile != profile:
+        embedding_profile = self._embedding_model.profile
+        if embedding_profile != profile:
             return projections
         try:
             vectors = await self._embed_texts(
                 tuple(projections[index].entry_version.text for index in embed_indices),
                 profile,
             )
-        except EmbeddingProviderUnavailableError:
+        except (InferenceUnavailableError, InferenceTimeoutError):
             return projections
         updated = list(projections)
         for index, vector in zip(embed_indices, vectors, strict=True):
@@ -715,10 +702,11 @@ class MemoryService:
         texts: tuple[str, ...],
         profile: EmbeddingProfile,
     ) -> tuple[EmbeddingVector, ...]:
-        provider = self._embedding_provider
-        if provider is None or provider.profile != profile:
+        embedding_model = self._embedding_model
+        if embedding_model is None or embedding_model.profile != profile:
             raise CapabilityNotSupportedError("embedding-profile")
-        vectors = await provider.embed(texts)
+        result = await embedding_model.embed(texts)
+        vectors = result.vectors
         if len(vectors) != len(texts):
             raise InvalidEmbeddingError("count")
         return tuple(validate_embedding(vector, dimension=profile.dimension) for vector in vectors)

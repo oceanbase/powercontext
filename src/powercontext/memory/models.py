@@ -13,12 +13,11 @@ MemoryChangeOp: TypeAlias = Literal["add", "revise", "deactivate", "reactivate"]
 MemorySearchMode: TypeAlias = Literal["fts", "vector", "hybrid", "auto"]
 MemoryUsedSearchMode: TypeAlias = Literal["fts", "vector", "hybrid"]
 MemoryMatchedBy: TypeAlias = Literal["fts", "vector"]
-EmbeddingVector: TypeAlias = tuple[float, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class EmbeddingProfile:
-    """The single immutable embedding configuration for one deployment."""
+    """The Memory embedding index contract for one deployment."""
 
     profile_id: str
     model: str

@@ -10,6 +10,7 @@ RFC 支撑 PowerContext 的设计流程。
 - [0001 - 产品定义与构想](0001_product_definition_and_vision.md)
 - [0002 - Core SDK 产品模型](0002_core_sdk_product_model.md)
 - [0003 - Memory Layer 设计](0003_memory_layer_design.md)
+- [0004 - Pydantic AI 推理层与 Memory 首期集成](0004_pydantic_ai_inference_integration.md)
 
 RFC（request for comments）流程为重大变更提供一致路径，使维护者和贡献者可以在实现开始前形成共识。
 

@@ -2,7 +2,6 @@
 
 from powercontext.errors import (
     CapabilityNotSupportedError,
-    EmbeddingProviderUnavailableError,
     InvalidEmbeddingError,
     InvalidMemoryCandidateError,
     InvalidMemoryCitationError,
@@ -13,9 +12,20 @@ from powercontext.errors import (
     MemoryLayerError,
 )
 from powercontext.memory.candidates import TaskOutcomeReport, TaskOutcomeSource, WorkingNoteCandidatePipeline
+from powercontext.memory.extraction import (
+    DefaultMemoryEvidenceProjector,
+    KnownMemoryEntryKind,
+    LLMMemoryCandidatePipeline,
+    MemoryEvidenceProjector,
+    MemoryExtractionCandidate,
+    MemoryExtractionCurrentEntry,
+    MemoryExtractionEvidence,
+    MemoryExtractionInput,
+    MemoryExtractionIntent,
+    MemoryExtractionOutput,
+)
 from powercontext.memory.models import (
     EmbeddingProfile,
-    EmbeddingVector,
     Memory,
     MemoryCapabilities,
     MemoryChange,
@@ -35,9 +45,9 @@ from powercontext.memory.models import (
     MemorySearchResult,
     MemoryUsedSearchMode,
 )
+from powercontext.memory.prompts import MEMORY_EXTRACTION_INSTRUCTIONS, MEMORY_EXTRACTION_INSTRUCTIONS_VERSION
 from powercontext.memory.protocols import (
     CandidatePipeline,
-    EmbeddingProvider,
     MemoryBackend,
     MemoryCandidateRequest,
     MemoryCommit,
@@ -50,16 +60,18 @@ from powercontext.memory.protocols import (
 from powercontext.memory.service import MemoryRememberMode, MemoryService
 
 __all__ = [
+    "MEMORY_EXTRACTION_INSTRUCTIONS",
+    "MEMORY_EXTRACTION_INSTRUCTIONS_VERSION",
     "CandidatePipeline",
     "CapabilityNotSupportedError",
+    "DefaultMemoryEvidenceProjector",
     "EmbeddingProfile",
-    "EmbeddingProvider",
-    "EmbeddingProviderUnavailableError",
-    "EmbeddingVector",
     "InvalidEmbeddingError",
     "InvalidMemoryCandidateError",
     "InvalidMemoryCitationError",
     "InvalidMemoryEvidenceError",
+    "KnownMemoryEntryKind",
+    "LLMMemoryCandidatePipeline",
     "Memory",
     "MemoryBackend",
     "MemoryBackendConfigurationError",
@@ -77,6 +89,13 @@ __all__ = [
     "MemoryEntryState",
     "MemoryEntryVersion",
     "MemoryEvidenceCodec",
+    "MemoryEvidenceProjector",
+    "MemoryExtractionCandidate",
+    "MemoryExtractionCurrentEntry",
+    "MemoryExtractionEvidence",
+    "MemoryExtractionInput",
+    "MemoryExtractionIntent",
+    "MemoryExtractionOutput",
     "MemoryHit",
     "MemoryLayerError",
     "MemoryManifest",

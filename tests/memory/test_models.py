@@ -30,7 +30,6 @@ def test_package_root_exposes_only_user_facing_memory_api() -> None:
     assert {"Memory", "MemoryEntryInput", "MemorySearchResult", "MemoryService"} <= set(powercontext.__all__)
     assert {
         "CandidatePipeline",
-        "EmbeddingProvider",
         "MemoryBackend",
         "MemoryUnitOfWork",
         "TaskOutcomeReport",

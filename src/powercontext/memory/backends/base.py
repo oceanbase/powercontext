@@ -10,6 +10,7 @@ from types import TracebackType
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.errors import CapabilityNotSupportedError, MemoryBackendConfigurationError, RevisionConflictError
+from powercontext.inference import EmbeddingVector
 from powercontext.memory.backends._sql import (
     decode_lineage,
     decode_memory_content,
@@ -25,7 +26,6 @@ from powercontext.memory.canonical import (
 )
 from powercontext.memory.models import (
     EmbeddingProfile,
-    EmbeddingVector,
     Memory,
     MemoryCapabilities,
     MemoryChannelHit,
