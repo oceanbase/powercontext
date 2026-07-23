@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol, TypeAlias, TypeVar, overload
 from uuid import uuid4
 
-from powercontext.artifacts import Artifact, ArtifactLineage, ArtifactRef
+from powercontext.artifacts import Artifact, ArtifactCatalog, ArtifactLineage, ArtifactRef
 from powercontext.errors import (
     CapabilityNotSupportedError,
     InvalidEmbeddingError,
@@ -115,7 +115,7 @@ class _InvalidMemoryOperationError(ValueError):
         super().__init__(messages[code])
 
 
-class MemoryService:
+class MemoryService(ArtifactCatalog[Memory]):
     """Validate and orchestrate Memory operations without exposing storage details."""
 
     def __init__(
@@ -136,6 +136,27 @@ class MemoryService:
         self._source_resolver = source_resolver
         self._artifact_resolver = artifact_resolver
         self._id_factory = _default_id if id_factory is None else id_factory
+
+    async def get(self, memory: Memory, /) -> Memory:
+        """Return the canonical exact Memory Revision matching ``memory``."""
+
+        return await self._canonical_memory(memory)
+
+    async def latest(self, memory: Memory, /) -> Memory:
+        """Return the current head of the same Memory identity."""
+
+        canonical = await self.get(memory)
+        return await self._backend.latest(canonical.artifact_id)
+
+    async def revisions(self, memory: Memory, /) -> tuple[Memory, ...]:
+        """Return the visible Memory history in ascending Revision order."""
+
+        canonical = await self.get(memory)
+        latest = await self._backend.latest(canonical.artifact_id)
+        history = []
+        for revision in range(1, latest.revision + 1):
+            history.append(await self._backend.get(ArtifactRef(canonical.artifact_id, revision)))
+        return tuple(history)
 
     async def remember(
         self,

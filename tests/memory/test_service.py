@@ -4,10 +4,18 @@ import asyncio
 import math
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, replace
+from typing import cast
 
 import pytest
 
-from powercontext import ArtifactNotFoundError, ArtifactRef, RevisionConflictError
+from powercontext import (
+    ArtifactCatalog,
+    ArtifactNotFoundError,
+    ArtifactRef,
+    PowerContext,
+    RevisionConflictError,
+    Sources,
+)
 from powercontext.inference import EmbeddingResult, EmbeddingVector, InferenceTimeoutError, InferenceUnavailableError
 from powercontext.memory import (
     CapabilityNotSupportedError,
@@ -306,6 +314,38 @@ def test_append_creates_revision_one_only_for_a_real_entry() -> None:
         assert backend.commits[0].base is None
         assert backend.commits[0].memory == memory
         assert backend.entry_version_count == 1
+
+    asyncio.run(scenario())
+
+
+def test_memory_service_composes_as_typed_artifacts() -> None:
+    async def scenario() -> None:
+        _, service, first = await memory_with_one_entry()
+        entry = await current_entry(service, first)
+        second = await service.remember(
+            memory=first,
+            entries=(
+                MemoryEntryInput(
+                    entry=entry,
+                    kind="decision",
+                    text="Use direct SQL adapters and exact Artifact reads.",
+                ),
+            ),
+            mode="append",
+        )
+        assert second is not None
+
+        catalog: ArtifactCatalog[Memory] = service
+        context = PowerContext(
+            sources=cast(Sources, object()),
+            artifacts=service,
+            triggers=object(),
+        )
+
+        assert context.artifacts is catalog
+        assert await context.artifacts.get(first) == first
+        assert await context.artifacts.latest(first) == second
+        assert await context.artifacts.revisions(first) == (first, second)
 
     asyncio.run(scenario())
 

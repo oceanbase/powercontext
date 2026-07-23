@@ -47,12 +47,29 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-服务启动时先初始化 backend，应用关闭时显式关闭。Memory MVP 暂时是 `powercontext.memory` 下的 family-level service，
-尚未进入 `PowerContext`。这样既保持现有 `PowerContext` 构造方式兼容，也避免在 family-aware runtime API 完成前，误把
-Memory backend 的 revision store 当成 `context.artifacts` 使用的同一个 catalog。
+服务启动时先初始化 backend，应用关闭时显式关闭。`MemoryService` 实现 `ArtifactCatalog[Memory]`，并继续作为
+Memory-specific operation 的 typed 入口。因此应用可以直接将 service 作为 `PowerContext` 的 `artifacts` 组件：
+
+```python
+from powercontext import PowerContext
+
+context = PowerContext(
+    sources=sources,
+    artifacts=memory_service,
+    triggers=triggers,
+)
+
+memory = await context.artifacts.remember(
+    memory=None,
+    entries=entries,
+    mode="append",
+)
+```
+
+数据库对象仍然是 Memory backend。它负责持久化和事务，但不会被重命名或作为第二个 family-level service 暴露。
 
 `context.sources.add()` 始终只是 Source 写入。provider task event、Trigger action、plugin、CLI wrapper 或其他 integration
-必须显式调用 `memory_service.remember()`；组合对象不会引入隐式模型调用或自动提取旁路。
+必须显式调用 `context.artifacts.remember()`；组合对象不会引入隐式模型调用或自动提取旁路。
 
 ## 写入和演进 Memory
 

@@ -49,13 +49,31 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Initialize the backend before serving requests and close it during application shutdown. The Memory MVP remains a
-family-level service under `powercontext.memory`; it is not yet part of `PowerContext`. This keeps existing
-`PowerContext` constructors compatible and avoids presenting the Memory backend's revision store as the same catalog
-used by `context.artifacts` before a shared family-aware runtime API is available.
+Initialize the backend before serving requests and close it during application shutdown. `MemoryService` implements
+`ArtifactCatalog[Memory]` and remains the typed entry point for Memory-specific operations. Applications can therefore
+compose the service directly as the `artifacts` component of `PowerContext`:
+
+```python
+from powercontext import PowerContext
+
+context = PowerContext(
+    sources=sources,
+    artifacts=memory_service,
+    triggers=triggers,
+)
+
+memory = await context.artifacts.remember(
+    memory=None,
+    entries=entries,
+    mode="append",
+)
+```
+
+The database object remains a Memory backend. It owns persistence and transactions but is not renamed or exposed as a
+second family-level service.
 
 `context.sources.add()` remains only a Source write. A provider task event, Trigger action, plugin, CLI wrapper, or
-other integration must explicitly call `memory_service.remember()`; composition does not introduce a hidden model
+other integration must explicitly call `context.artifacts.remember()`; composition does not introduce a hidden model
 call or automatic extraction path.
 
 ## Write and evolve a Memory

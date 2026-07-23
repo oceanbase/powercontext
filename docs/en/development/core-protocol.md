@@ -226,7 +226,7 @@ from collections.abc import Awaitable, Callable
 
 
 async def record_agent_turn(
-    context: PowerContext[ContextTriggers],
+    context: PowerContext[ContextTriggers, Artifacts],
     state: PendingTurns,
     value: AgentTurnInput,
     extract_memories: Callable[

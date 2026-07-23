@@ -636,7 +636,7 @@ class SQLiteWorkflow:
     def __init__(
         self,
         database: sqlite3.Connection,
-        context: PowerContext[ContextTriggers],
+        context: PowerContext[ContextTriggers, Artifacts],
         source_repository: SQLiteSourceRepository,
         memory_queries: MemoryQueries,
         extract_memories: MemoryExtractor,
@@ -942,7 +942,7 @@ async def extract_memories(materials: tuple[object, ...]) -> tuple[MemoryContent
 
 
 async def run_agent_turn(
-    context: PowerContext[ContextTriggers],
+    context: PowerContext[ContextTriggers, Artifacts],
     workflow: SQLiteWorkflow,
     memory_queries: MemoryQueries,
     model: RecordingModel,

@@ -10,6 +10,7 @@ from powercontext.errors import ArtifactFamilyMismatchError
 from powercontext.sources import Source, SourceCatalog, SourceCatalogBackend, SourceStore
 
 TriggersT = TypeVar("TriggersT")
+ArtifactsT = TypeVar("ArtifactsT")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -89,9 +90,9 @@ class Artifacts(
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class PowerContext(Generic[TriggersT]):
+class PowerContext(Generic[TriggersT, ArtifactsT]):
     """Bind explicitly configured domain components without owning their lifecycle."""
 
     sources: Sources
-    artifacts: Artifacts
+    artifacts: ArtifactsT
     triggers: TriggersT
