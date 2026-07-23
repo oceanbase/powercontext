@@ -17,9 +17,9 @@ from powercontext.memory import (
     MemoryService,
 )
 from powercontext.memory.backends import SQLiteMemoryBackend
-from powercontext.memory.candidates import TaskOutcomeReport, TaskOutcomeSource, WorkingNoteCandidatePipeline
 from powercontext.sources import Source, SourceCatalog, SourceCatalogBackend, SourceMaterialization, SourceStore
 from tests.memory.backends.contract import ContractIds
+from tests.task_outcomes import TaskOutcomeReport, TaskOutcomeSource, WorkingNoteCandidatePipeline
 
 
 class SourceResolver:

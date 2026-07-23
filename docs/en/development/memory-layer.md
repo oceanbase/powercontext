@@ -132,16 +132,19 @@ Candidate output is untrusted. The service revalidates evidence, current-manifes
 predecessors, and head CAS. Integrations that persist evidence references must configure matching source/artifact
 resolvers and a `MemoryEvidenceCodec` on both the service and backend.
 
-Without a semantic provider, `WorkingNoteCandidatePipeline` can mechanically turn an explicitly persisted
-`TaskOutcomeSource` into a `working_note`. It never reclassifies a final report as a fact, decision, or constraint:
+For example, an integration-owned `CandidatePipeline` may mechanically turn its explicitly persisted
+`TaskOutcomeSource` into a `working_note`. This pipeline belongs to the integration and is not a concrete Source type
+or default admission rule promised by Memory:
 
 ```python
 from powercontext import MemoryService
-from powercontext.memory.candidates import WorkingNoteCandidatePipeline
+from powercontext.memory import CandidatePipeline
+
+working_note_pipeline: CandidatePipeline = ...
 
 memory_service = MemoryService(
     backend=backend,
-    candidate_pipeline=WorkingNoteCandidatePipeline(),
+    candidate_pipeline=working_note_pipeline,
     source_resolver=source_catalog,
     evidence_codec=evidence_codec,
 )

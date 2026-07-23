@@ -53,14 +53,14 @@ class SourceCatalog(SourceCatalogBackend):
 
         sources = await self._backend.list()
         for source in sources:
-            _validate_source(source, self._adapters_by_source_class)
+            _validate_source(source)
         return sources
 
     async def get(self, source: Source, /) -> Source:
         """Return the canonical catalog entry matching ``source``."""
 
         stored = await self._backend.get(source)
-        _validate_source(stored, self._adapters_by_source_class)
+        _validate_source(stored)
         if type(stored) is not type(source) or stored != source:
             raise SourceNotFoundError(source)
         return stored
@@ -119,10 +119,6 @@ def _adapter_for_source(
     return adapter
 
 
-def _validate_source(
-    source: object,
-    adapters_by_source_class: Mapping[type[Source], _AnySourceAdapter],
-) -> None:
+def _validate_source(source: object) -> None:
     if not isinstance(source, Source):
         raise InvalidSourceEntryError(type(source))
-    _adapter_for_source(source, adapters_by_source_class)

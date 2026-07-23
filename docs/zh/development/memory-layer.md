@@ -125,22 +125,24 @@ memory = await memory_service.remember(
 evidence ref 的 integration，必须在 service 与 backend 两侧配置匹配的 source/artifact resolver 和
 `MemoryEvidenceCodec`。
 
-没有 semantic provider 时，`WorkingNoteCandidatePipeline` 可把显式持久化的 `TaskOutcomeSource` 机械转换成
-`working_note`，但绝不会把最终报告重新归类成 fact、decision 或 constraint：
+例如，integration 自己定义的 `CandidatePipeline` 可以把它显式持久化的 `TaskOutcomeSource` 机械转换成
+`working_note`。该 pipeline 属于 integration，不是 Memory 承诺的具体 Source 类型或默认准入规则：
 
 ```python
 from powercontext import MemoryService
-from powercontext.memory.candidates import WorkingNoteCandidatePipeline
+from powercontext.memory import CandidatePipeline
+
+working_note_pipeline: CandidatePipeline = ...
 
 memory_service = MemoryService(
     backend=backend,
-    candidate_pipeline=WorkingNoteCandidatePipeline(),
+    candidate_pipeline=working_note_pipeline,
     source_resolver=source_catalog,
     evidence_codec=evidence_codec,
 )
 ```
 
-task event 的捕获和持久化由 integration 负责。PowerContext 不给原始材料做版本控制，也不计算通用 Source diff。
+Task event 的捕获和持久化由 integration 负责。PowerContext 不给原始材料做版本控制，也不计算通用 Source diff。
 
 ## 检索、展开和 citation
 

@@ -11,7 +11,6 @@ from powercontext.errors import (
     MemoryEntryNotFoundError,
     MemoryLayerError,
 )
-from powercontext.memory.candidates import TaskOutcomeReport, TaskOutcomeSource, WorkingNoteCandidatePipeline
 from powercontext.memory.extraction import (
     DefaultMemoryEvidenceProjector,
     KnownMemoryEntryKind,
@@ -111,7 +110,4 @@ __all__ = [
     "MemoryService",
     "MemoryUnitOfWork",
     "MemoryUsedSearchMode",
-    "TaskOutcomeReport",
-    "TaskOutcomeSource",
-    "WorkingNoteCandidatePipeline",
 ]

@@ -179,6 +179,22 @@ def test_source_catalog_supports_the_read_only_usage_flow() -> None:
     asyncio.run(scenario())
 
 
+def test_catalog_does_not_require_an_adapter_for_persisted_sources() -> None:
+    async def scenario() -> None:
+        source = UnknownConversationSource(
+            name="captured-event",
+            materialization=SourceMaterialization.CAPTURED,
+        )
+        catalog = SourceCatalog(backend=InMemorySourceStore(source), adapters=())
+
+        assert await catalog.list() == (source,)
+        assert await catalog.get(source) == source
+        with pytest.raises(SourceAdapterNotFoundError):
+            await catalog.read(source)
+
+    asyncio.run(scenario())
+
+
 def test_catalog_rejects_ambiguous_adapter_routes() -> None:
     adapter = ConversationAdapter({"session-42": Conversation(("Remember aisle seats.",))})
 

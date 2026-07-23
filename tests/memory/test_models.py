@@ -32,9 +32,6 @@ def test_package_root_exposes_only_user_facing_memory_api() -> None:
         "CandidatePipeline",
         "MemoryBackend",
         "MemoryUnitOfWork",
-        "TaskOutcomeReport",
-        "TaskOutcomeSource",
-        "WorkingNoteCandidatePipeline",
     }.isdisjoint(powercontext.__all__)
 
 

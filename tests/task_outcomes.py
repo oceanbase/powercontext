@@ -1,18 +1,14 @@
-"""Deterministic candidate adapters for integration-owned task outcomes."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
-from powercontext.memory.models import MemoryEntryInput
-from powercontext.memory.protocols import MemoryCandidateRequest
+from powercontext.memory import MemoryCandidateRequest, MemoryEntryInput
 from powercontext.sources import Source
 
 
 @dataclass(frozen=True, slots=True)
 class TaskOutcomeReport:
-    """A structured final report supplied explicitly by an agent integration."""
-
     final_report: str = ""
     changed_paths: tuple[str, ...] = ()
     git_head: str | None = None
@@ -21,14 +17,12 @@ class TaskOutcomeReport:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TaskOutcomeSource(Source):
-    """A persisted task event whose report may support a working note."""
+    source_type: ClassVar[str] = "test-task-outcome"
 
     report: TaskOutcomeReport
 
 
 class WorkingNoteCandidatePipeline:
-    """Mechanically render useful task outcomes without semantic inference."""
-
     async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
         candidates: list[MemoryEntryInput] = []
         for source in request.sources:
