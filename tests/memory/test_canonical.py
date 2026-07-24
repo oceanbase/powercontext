@@ -6,12 +6,10 @@ import pytest
 
 from powercontext.memory import MemoryChange, MemoryContent, MemoryManifest, MemoryManifestEntry
 from powercontext.memory.canonical import (
-    analyze_text,
     canonical_json,
     embedding_content_hash,
     entry_content_bytes,
     entry_content_hash,
-    fts_match_query,
     memory_content_hash,
     normalize_kind,
     normalize_reason,
@@ -85,16 +83,6 @@ def test_memory_hash_covers_complete_manifest_and_change_summary() -> None:
 
     assert memory_content_hash(initial) != memory_content_hash(restored)
     assert len(memory_content_hash(initial)) == 64
-
-
-def test_analyzer_emits_latin_and_ascii_safe_cjk_terms() -> None:
-    assert analyze_text("SQLite 中文!") == "sqlite u_4e2d u_6587 b_4e2d_6587"
-    assert analyze_text("POWER-context_v1") == "power context_v1"
-
-
-def test_match_query_contains_only_quoted_analyzer_tokens() -> None:
-    assert fts_match_query('SQLite" OR 中文*') == '"sqlite" OR "or" OR "u_4e2d" OR "u_6587" OR "b_4e2d_6587"'
-    assert fts_match_query("!!!") is None
 
 
 def test_limits_are_measured_after_normalization() -> None:

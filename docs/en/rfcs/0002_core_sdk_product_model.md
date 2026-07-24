@@ -195,9 +195,9 @@ This amendment narrows RFC 0002's implementation boundary. The product direction
 `PowerContext` API proposed above remain unchanged. If the original RFC assigns a responsibility differently, this
 section takes precedence.
 
-The internal Core Protocol integration guide develops this boundary through an extended example.
-`tests/e2e/test_context_system.py` exercises the same design. Both provide implementation context, while this RFC
-remains the normative decision record.
+The internal Core Protocol integration guide develops this boundary through an extended example. The guide provides
+implementation context, while this RFC remains the normative decision record. Concrete Runtime behavior is validated
+through the production integration profile rather than a parallel test-only application.
 
 ### Core Protocol contracts
 

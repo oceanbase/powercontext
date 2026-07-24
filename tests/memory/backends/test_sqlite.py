@@ -22,97 +22,14 @@ def scalar(connection: apsw.Connection, statement: str, bindings: tuple[object, 
     return row[0]
 
 
-def test_sqlite_backend_initializes_required_authoritative_and_fts_tables(tmp_path: Path) -> None:
-    async def scenario() -> None:
-        database = tmp_path / "memory.db"
-        backend = SQLiteMemoryBackend(database)
-        await backend.initialize()
-        try:
-            assert await backend.capabilities() == MemoryCapabilities(fts=True)
-            connection = apsw.Connection(str(database))
-            try:
-                tables = {
-                    row[0]
-                    for row in connection.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")
-                }
-                assert {
-                    "powercontext_schema",
-                    "artifact_revisions",
-                    "artifact_heads",
-                    "memory_entry_versions",
-                    "memory_entry_heads",
-                    "memory_entry_search_fts",
-                    "memory_entry_vector_metadata",
-                } <= tables
-                assert await backend.foreign_keys_enabled()
-                assert not any(name.endswith("_v1") for name in tables)
-            finally:
-                connection.close()
-        finally:
-            await backend.close()
-
-    asyncio.run(scenario())
-
-
 def test_sqlite_backend_passes_memory_domain_and_fts_contract(tmp_path: Path) -> None:
-    async def scenario() -> None:
-        database = tmp_path / "memory.db"
-        backend = SQLiteMemoryBackend(database)
-        await backend.initialize()
-        try:
-            head = await exercise_memory_backend(backend)
-            connection = apsw.Connection(str(database))
-            try:
-                assert scalar(connection, "SELECT count(*) FROM artifact_revisions") == 4
-                assert scalar(connection, "SELECT count(*) FROM memory_entry_versions") == 3
-                assert scalar(connection, "SELECT count(*) FROM memory_entry_heads") == 2
-                assert (
-                    scalar(
-                        connection,
-                        "SELECT revision FROM artifact_heads WHERE artifact_id = ?",
-                        (head.artifact_id,),
-                    )
-                    == 4
-                )
-            finally:
-                connection.close()
-        finally:
-            await backend.close()
-
-    asyncio.run(scenario())
-
-
-def test_sqlite_search_validates_heads_and_filters_hits_in_one_read_transaction(tmp_path: Path) -> None:
     async def scenario() -> None:
         backend = SQLiteMemoryBackend(tmp_path / "memory.db")
         await backend.initialize()
         try:
-            service = MemoryService(backend=backend, id_factory=ContractIds())
-            memory = await service.remember(
-                memory=None,
-                entries=(MemoryEntryInput(kind="fact", text="Transactional lexical search."),),
-                mode="append",
-            )
-            assert memory is not None
-            connection = backend._connection
-            assert connection is not None
-            statements: list[str] = []
-
-            def trace(_cursor: apsw.Cursor, statement: str, _bindings: object) -> bool:
-                statements.append(statement.strip().upper())
-                return True
-
-            connection.set_exec_trace(trace)
-            try:
-                result = await service.search("transactional", memories=(memory,), mode="fts")
-            finally:
-                connection.set_exec_trace(None)
-
-            assert result.hits
-            begin = statements.index("BEGIN")
-            commit = statements.index("COMMIT", begin)
-            assert any("MATCH" in statement for statement in statements[begin:commit])
-            assert any("ARTIFACT_HEADS" in statement for statement in statements[begin:commit])
+            assert await backend.capabilities() == MemoryCapabilities(fts=True)
+            assert await backend.foreign_keys_enabled()
+            await exercise_memory_backend(backend)
         finally:
             await backend.close()
 

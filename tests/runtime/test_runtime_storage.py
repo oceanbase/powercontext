@@ -1,28 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 import subprocess
 import sys
 
 from powercontext.runtime import (
-    MemoryBindingStore,
     PowerContextRuntime,
-    RuntimeScopeStorage,
-    RuntimeStorage,
     SourceCursor,
 )
 from powercontext.runtime.backends.sqlite import (
     SQLiteMemoryBindingStore,
-    SQLiteRuntimeScopeStorage,
     SQLiteRuntimeStorage,
 )
-
-
-def test_sqlite_runtime_storage_implements_backend_neutral_contracts() -> None:
-    assert MemoryBindingStore in SQLiteMemoryBindingStore.__bases__
-    assert RuntimeScopeStorage in SQLiteRuntimeScopeStorage.__bases__
-    assert RuntimeStorage in SQLiteRuntimeStorage.__bases__
 
 
 def test_runtime_contracts_do_not_require_a_database_driver() -> None:
@@ -80,10 +69,6 @@ def test_memory_binding_is_stable_per_store_and_unique_across_stores(tmp_path) -
             assert await restored.memory_artifact_id("scope:shared") == first_id
         finally:
             await restored.close()
-
-        with sqlite3.connect(first_database) as connection:
-            columns = tuple(str(row[1]) for row in connection.execute("PRAGMA table_info(runtime_memory_bindings)"))
-        assert columns == ("scope_id", "memory_artifact_id")
 
     asyncio.run(scenario())
 

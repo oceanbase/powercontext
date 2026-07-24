@@ -179,8 +179,8 @@ processing 方案。每项新能力都需要对应明确的产品动作，并说
 本次修订收窄 RFC 0002 的实现边界。RFC 0001 的产品方向和前文 Guide-level 提议的 `PowerContext` 使用形式保持
 不变。若原 RFC 对职责的分配与本节冲突，以本节为准。
 
-面向内部开发者的 Core Protocol 集成导读通过一个扩展示例展开这些边界，
-`tests/e2e/test_context_system.py` 验证同一套设计。二者提供实现背景，本 RFC 仍是规范性决策记录。
+面向内部开发者的 Core Protocol 集成导读通过一个扩展示例展开这些边界。导读提供实现背景，本 RFC 仍是规范性
+决策记录；具体 Runtime 行为由生产集成 profile 验证，不再维护一套仅用于测试的平行应用。
 
 ### Core Protocol 契约
 

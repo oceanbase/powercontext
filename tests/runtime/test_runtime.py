@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
 
 import apsw
 import pytest
@@ -42,16 +41,8 @@ class ContentCandidatePipeline:
         )
 
 
-def test_runtime_rejects_configuration_before_opening_sources(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_runtime_rejects_configuration_without_creating_storage(tmp_path) -> None:
     async def scenario() -> None:
-        initialize_storage = AsyncMock()
-        initialize_sources = AsyncMock()
-        monkeypatch.setattr("powercontext.runtime.backends.sqlite.SQLiteRuntimeStorage.initialize", initialize_storage)
-        monkeypatch.setattr("powercontext.sources.backends.sqlite.SQLiteSourceBackend.initialize", initialize_sources)
-
         with pytest.raises(ValueError, match="source_window_limit"):
             await PowerContextRuntime.open(tmp_path / "window.db", source_window_limit=0)
         with pytest.raises(ValueError, match="schedule_seconds"):
@@ -65,8 +56,7 @@ def test_runtime_rejects_configuration_before_opening_sources(
         with pytest.raises(MemoryBackendConfigurationError, match="profile and extension"):
             await PowerContextRuntime.open(tmp_path / "vector.db", vec1_extension="vec1")
 
-        initialize_storage.assert_not_awaited()
-        initialize_sources.assert_not_awaited()
+        assert list(tmp_path.iterdir()) == []
 
     asyncio.run(scenario())
 

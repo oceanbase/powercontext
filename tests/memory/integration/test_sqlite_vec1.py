@@ -18,7 +18,6 @@ from powercontext.memory import (
 from powercontext.memory.backends import SQLiteMemoryBackend
 from tests.memory import current_entry
 from tests.memory.backends.contract import ContractIds
-from tests.memory.backends.test_sqlite import scalar
 
 TEST_PROFILE = EmbeddingProfile(
     profile_id="keyword-v1",
@@ -60,7 +59,7 @@ def vec1_extension() -> Path:
     return path
 
 
-def test_sqlite_vec1_probes_version_and_maintains_exact_projection_ids(tmp_path: Path) -> None:
+def test_sqlite_vec1_supports_vector_search_with_a_fixed_profile(tmp_path: Path) -> None:
     async def scenario() -> None:
         database = tmp_path / "memory.db"
         backend = SQLiteMemoryBackend(
@@ -92,30 +91,6 @@ def test_sqlite_vec1_probes_version_and_maintains_exact_projection_ids(tmp_path:
             result = await service.search("alpha", memories=(memory,), mode="vector")
             assert result.mode == "vector"
             assert result.hits[0].text == "Alpha lexical record."
-
-            connection = apsw.Connection(str(database))
-            connection.enable_load_extension(True)
-            connection.load_extension(str(vec1_extension()))
-            connection.enable_load_extension(False)
-            try:
-                assert "version 0.7" in str(scalar(connection, "SELECT vec1_info()"))
-                assert scalar(connection, "SELECT count(*) FROM memory_entry_vector_metadata") == 2
-                assert scalar(connection, "SELECT count(*) FROM memory_entry_search_vector") == 2
-                assert (
-                    tuple(
-                        row[0]
-                        for row in connection.execute(
-                            """
-                        SELECT projection_id FROM memory_entry_vector_metadata
-                        EXCEPT
-                        SELECT rowid FROM memory_entry_search_vector
-                        """
-                        )
-                    )
-                    == ()
-                )
-            finally:
-                connection.close()
         finally:
             await backend.close()
 
@@ -146,16 +121,8 @@ def test_sqlite_vec1_removes_inactive_vectors_and_never_reuses_stale_embeddings(
             alpha_id = memory.content.manifest.entries[0].entry_id
             forgotten = await service.forget(memory, entries=(await current_entry(service, memory, alpha_id),))
             assert await backend.vector_complete((forgotten.ref,), TEST_PROFILE)
-
-            connection = apsw.Connection(str(database))
-            connection.enable_load_extension(True)
-            connection.load_extension(str(vec1_extension()))
-            connection.enable_load_extension(False)
-            try:
-                assert scalar(connection, "SELECT count(*) FROM memory_entry_vector_metadata") == 1
-                assert scalar(connection, "SELECT count(*) FROM memory_entry_search_vector") == 1
-            finally:
-                connection.close()
+            result = await service.search("alpha", memories=(forgotten,), mode="vector")
+            assert all(hit.entry_id != alpha_id for hit in result.hits)
         finally:
             await backend.close()
 

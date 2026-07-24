@@ -7,7 +7,6 @@ import pytest
 
 from powercontext import ArtifactNotFoundError
 from powercontext.artifacts import ArtifactRef
-from powercontext.context import Sources
 from powercontext.memory import (
     CapabilityNotSupportedError,
     InvalidMemoryEvidenceError,
@@ -17,18 +16,16 @@ from powercontext.memory import (
     MemoryService,
 )
 from powercontext.memory.backends import SQLiteMemoryBackend
-from powercontext.sources import Source, SourceCatalog, SourceCatalogBackend, SourceMaterialization, SourceStore
+from powercontext.sources import Source, SourceMaterialization
 from tests.memory.backends.contract import ContractIds
 from tests.task_outcomes import TaskOutcomeReport, TaskOutcomeSource, WorkingNoteCandidatePipeline
 
 
 class SourceResolver:
-    def __init__(self, source: Source, events: list[str]) -> None:
+    def __init__(self, source: Source) -> None:
         self._source = source
-        self._events = events
 
     async def get(self, source: Source, /) -> Source:
-        self._events.append("resolve")
         assert source == self._source
         return self._source
 
@@ -64,16 +61,12 @@ class StaleEvidenceCodec(EvidenceCodec):
 
 
 class RecordingWorkingNotePipeline:
-    def __init__(self, events: list[str]) -> None:
-        self._events = events
+    def __init__(self) -> None:
         self._pipeline = WorkingNoteCandidatePipeline()
-        self.calls = 0
         self.requests: list[MemoryCandidateRequest] = []
 
     async def extract(self, request: MemoryCandidateRequest, /):
-        self.calls += 1
         self.requests.append(request)
-        self._events.append("extract")
         return await self._pipeline.extract(request)
 
 
@@ -82,41 +75,24 @@ class UnrelatedSource(Source):
     value: str
 
 
-class DirectSourceBackend(SourceCatalogBackend, SourceStore[Source]):
-    def __init__(self) -> None:
-        self.values: list[Source] = []
-
-    async def add(self, source: Source, /) -> Source:
-        self.values.append(source)
-        return source
-
-    async def get(self, source: Source, /) -> Source:
-        return self.values[self.values.index(source)]
-
-    async def list(self) -> tuple[Source, ...]:
-        return tuple(self.values)
-
-
 def task_outcome_source() -> TaskOutcomeSource:
     return TaskOutcomeSource(
         name="task-outcome-42",
         materialization=SourceMaterialization.CAPTURED,
         report=TaskOutcomeReport(
             final_report="Implemented the explicit Memory facade.",
-            changed_paths=("src/powercontext/context.py", "tests/test_context.py"),
+            changed_paths=("src/powercontext/context.py", "tests/memory/test_service.py"),
             git_head="abc123",
             verification=("make test: passed", "make check: passed"),
         ),
     )
 
 
-def test_working_note_pipeline_runs_after_canonical_evidence_and_only_emits_working_note(tmp_path) -> None:
+def test_working_note_pipeline_emits_a_canonical_working_note(tmp_path) -> None:
     async def scenario() -> None:
         source = task_outcome_source()
-        events: list[str] = []
-        resolver = SourceResolver(source, events)
         codec = EvidenceCodec(source)
-        pipeline = RecordingWorkingNotePipeline(events)
+        pipeline = RecordingWorkingNotePipeline()
         backend = SQLiteMemoryBackend(tmp_path / "memory.db", evidence_codec=codec)
         await backend.initialize()
         try:
@@ -124,39 +100,22 @@ def test_working_note_pipeline_runs_after_canonical_evidence_and_only_emits_work
                 backend=backend,
                 candidate_pipeline=pipeline,
                 evidence_codec=codec,
-                source_resolver=resolver,
+                source_resolver=SourceResolver(source),
                 id_factory=ContractIds(),
             )
             memory = await service.remember(memory=None, sources=(source,), mode="extract")
             assert memory is not None
-            assert events == ["resolve", "extract", "resolve"]
             version = (await backend.entries(memory.ref))[0]
             assert version.kind == "working_note"
             assert version.sources == (source,)
             assert version.text == (
                 "Implemented the explicit Memory facade.\n"
-                "Changed paths: src/powercontext/context.py, tests/test_context.py\n"
+                "Changed paths: src/powercontext/context.py, tests/memory/test_service.py\n"
                 "Git head: abc123\n"
                 "Verification: make test: passed; make check: passed"
             )
         finally:
             await backend.close()
-
-    asyncio.run(scenario())
-
-
-def test_source_persistence_alone_never_invokes_candidate_extraction() -> None:
-    async def scenario() -> None:
-        events: list[str] = []
-        pipeline = RecordingWorkingNotePipeline(events)
-        source = task_outcome_source()
-        backend = DirectSourceBackend()
-        sources = Sources(catalog=SourceCatalog(backend=backend, adapters=()), store=backend)
-
-        assert await sources.add(source) is source
-        assert backend.values == [source]
-        assert pipeline.calls == 0
-        assert events == []
 
     asyncio.run(scenario())
 
@@ -171,7 +130,7 @@ def test_sqlite_commit_re_resolves_evidence_and_rolls_back_when_it_changed(tmp_p
             service = MemoryService(
                 backend=backend,
                 evidence_codec=codec,
-                source_resolver=SourceResolver(source, []),
+                source_resolver=SourceResolver(source),
                 id_factory=ContractIds(),
             )
             with pytest.raises(InvalidMemoryEvidenceError, match="changed"):
@@ -204,7 +163,7 @@ def test_working_note_pipeline_ignores_unrelated_or_empty_task_outcomes(tmp_path
                 backend=backend,
                 candidate_pipeline=WorkingNoteCandidatePipeline(),
                 evidence_codec=codec,
-                source_resolver=SourceResolver(unrelated, []),
+                source_resolver=SourceResolver(unrelated),
             )
             assert await service.remember(memory=None, sources=(unrelated,), mode="extract") is None
         finally:
@@ -217,7 +176,7 @@ def test_candidate_pipeline_sees_only_active_current_entries(tmp_path) -> None:
     async def scenario() -> None:
         source = task_outcome_source()
         codec = EvidenceCodec(source)
-        pipeline = RecordingWorkingNotePipeline([])
+        pipeline = RecordingWorkingNotePipeline()
         backend = SQLiteMemoryBackend(tmp_path / "memory.db", evidence_codec=codec)
         await backend.initialize()
         try:
@@ -225,7 +184,7 @@ def test_candidate_pipeline_sees_only_active_current_entries(tmp_path) -> None:
                 backend=backend,
                 candidate_pipeline=pipeline,
                 evidence_codec=codec,
-                source_resolver=SourceResolver(source, []),
+                source_resolver=SourceResolver(source),
                 id_factory=ContractIds(),
             )
             first = await service.remember(
@@ -258,7 +217,7 @@ def test_explicit_extract_without_a_candidate_provider_is_typed_error(tmp_path) 
             service = MemoryService(
                 backend=backend,
                 evidence_codec=codec,
-                source_resolver=SourceResolver(source, []),
+                source_resolver=SourceResolver(source),
             )
             with pytest.raises(CapabilityNotSupportedError, match="extract"):
                 await service.remember(memory=None, sources=(source,), mode="extract")

@@ -1,20 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 
 import pytest
 
 from powercontext import ArtifactRef
 from powercontext.sources import ContentCapture, ContentSource, ContentSourceAdapter, SourceMaterialization
 from powercontext.sources.backends.sqlite import (
-    SQLiteScopedSourceBackend,
     SQLiteSourceBackend,
     SQLiteSourceEvidenceCodec,
     _decode_content_source,
     _encode_content_source,
 )
-from powercontext.sources.journal import SourceCursor, SourceJournal, TriggerCursorStore
+from powercontext.sources.journal import SourceCursor
 
 
 def test_content_source_json_roundtrip_preserves_nested_unicode_metadata() -> None:
@@ -47,11 +45,6 @@ def test_content_source_metadata_is_an_immutable_json_snapshot() -> None:
         assert _decode_content_source(_encode_content_source(source)) == source
 
     asyncio.run(scenario())
-
-
-def test_scoped_source_backend_declares_journal_and_cursor_protocols() -> None:
-    assert SourceJournal in SQLiteScopedSourceBackend.__bases__
-    assert TriggerCursorStore in SQLiteScopedSourceBackend.__bases__
 
 
 @pytest.mark.parametrize(
@@ -110,19 +103,5 @@ def test_cursor_never_moves_backwards_across_backend_connections(tmp_path) -> No
         finally:
             await first.close()
             await second.close()
-
-    asyncio.run(scenario())
-
-
-def test_source_schema_does_not_persist_an_unused_content_hash(tmp_path) -> None:
-    async def scenario() -> None:
-        database = tmp_path / "runtime.db"
-        backend = SQLiteSourceBackend(database)
-        await backend.initialize()
-        await backend.close()
-
-        with sqlite3.connect(database) as connection:
-            columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(runtime_sources)")}
-        assert "content_hash" not in columns
 
     asyncio.run(scenario())

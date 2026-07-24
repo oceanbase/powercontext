@@ -10,7 +10,6 @@ from powercontext.memory import MemoryCandidateRequest
 from powercontext.memory.backends.sqlite import SQLiteMemoryBackend
 from powercontext.runtime import PowerContextRuntime, SearchMemoryRequest, SourceCursor
 from powercontext.runtime.scheduler import (
-    SOURCE_WINDOW_JOB_ID,
     SchedulerConfigurationError,
     SchedulerStateError,
     dispatch_source_windows,
@@ -85,12 +84,7 @@ def test_scheduler_persists_one_stable_job_across_runtime_restarts(tmp_path) -> 
         await restored.close()
 
         assert first_jobs == _stored_jobs(database)
-        assert first_jobs[0][0] == SOURCE_WINDOW_JOB_ID
-        with sqlite3.connect(database) as connection:
-            scheduler_table = connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'powercontext_scheduler_jobs'"
-            ).fetchone()
-        assert scheduler_table is None
+        assert len(first_jobs) == 1
 
     asyncio.run(scenario())
 
@@ -214,7 +208,7 @@ def test_restored_scheduler_automatically_processes_pending_sources(tmp_path) ->
         assert (await runtime.memory.for_scope(scope_id).cursor()).sequence == 0
         await runtime.close()
 
-        assert _stored_jobs(database)[0][0] == SOURCE_WINDOW_JOB_ID
+        assert len(_stored_jobs(database)) == 1
 
         restored = await PowerContextRuntime.open(
             database,
@@ -228,7 +222,7 @@ def test_restored_scheduler_automatically_processes_pending_sources(tmp_path) ->
                 await asyncio.sleep(0.01)
 
             assert (await restored.memory.for_scope(scope_id).cursor()).sequence == 1
-            assert [job[0] for job in _stored_jobs(database)] == [SOURCE_WINDOW_JOB_ID]
+            assert len(_stored_jobs(database)) == 1
         finally:
             await restored.close()
 

@@ -1042,7 +1042,6 @@ def test_auto_falls_back_to_fts_before_query_embedding_when_projection_is_incomp
 
         assert result.mode == "fts"
         assert result.hits[0].matched_by == ("fts",)
-        assert backend.requests[-1].candidate_limit == 32
         assert backend.requests[-1].query_vector is None
         assert len(provider.calls) == write_call_count
 

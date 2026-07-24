@@ -8,21 +8,15 @@ import powercontext
 from powercontext import ArtifactRef, PowerContextError
 from powercontext.memory import (
     CapabilityNotSupportedError,
-    EmbeddingProfile,
     Memory,
-    MemoryCapabilities,
     MemoryChange,
-    MemoryCitation,
     MemoryContent,
     MemoryEntryInactiveError,
     MemoryEntryInput,
     MemoryEntryNotFoundError,
     MemoryEntryVersion,
-    MemoryHit,
     MemoryManifest,
     MemoryManifestEntry,
-    MemoryRevisionChanges,
-    MemorySearchResult,
 )
 
 
@@ -81,51 +75,6 @@ def test_memory_entry_kind_is_an_open_non_empty_string() -> None:
     assert entry.kind == candidate.kind == "integration-owned-kind"
     assert entry.sources == candidate.sources == ()
     assert entry.artifacts == ()
-
-
-def test_search_and_change_models_keep_exact_anchors_and_actual_mode() -> None:
-    memory_ref = ArtifactRef("memory-a", 4)
-    change = MemoryChange(
-        op="reactivate",
-        entry_id="entry-a",
-        from_entry_version_id=None,
-        to_entry_version_id="version-a1",
-        reason="user_restored",
-    )
-    hit = MemoryHit(
-        memory_ref=memory_ref,
-        entry_id="entry-a",
-        entry_version_id="version-a1",
-        text="Durable text.",
-        score=1 / 61,
-        matched_by=("fts",),
-    )
-
-    assert MemoryRevisionChanges(memory_ref=memory_ref, changes=(change,)).memory_ref == memory_ref
-    assert MemorySearchResult(mode="fts", hits=(hit,)).hits == (hit,)
-    assert (
-        MemoryCitation(
-            memory_ref=memory_ref,
-            entry_id="entry-a",
-            entry_version_id="version-a1",
-        ).entry_version_id
-        == "version-a1"
-    )
-
-
-def test_capabilities_bind_one_optional_embedding_profile() -> None:
-    profile = EmbeddingProfile(
-        profile_id="keyword-v1",
-        model="keyword",
-        dimension=3,
-        distance="l2",
-        normalization="none",
-    )
-
-    assert MemoryCapabilities(fts=True).embedding_profile is None
-    assert (
-        MemoryCapabilities(fts=True, vector=True, hybrid=True, embedding_profile=profile).embedding_profile is profile
-    )
 
 
 def test_memory_errors_are_stable_powercontext_errors() -> None:

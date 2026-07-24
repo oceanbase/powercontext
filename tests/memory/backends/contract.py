@@ -173,9 +173,11 @@ async def exercise_memory_backend(backend: MemoryBackend) -> Memory:
 
     chinese = await service.search("文档 检查", memories=(restored,), mode="fts")
     english = await service.search("SQLite lexical", memories=(restored,), mode="fts")
+    operator_like = await service.search('" OR 中文*', memories=(restored,), mode="fts")
     assert chinese.mode == english.mode == "fts"
     assert chinese.hits[0].entry_id == first_manifest[0].entry_id
     assert english.hits[0].entry_id == first_manifest[1].entry_id
+    assert operator_like.hits[0].entry_id == first_manifest[0].entry_id
 
     cited = await service.validate_citation(
         MemoryCitation(

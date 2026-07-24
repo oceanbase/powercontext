@@ -7,12 +7,9 @@ The types and functions below illustrate the design. They are not a proposed bui
 workers, and model clients are omitted so that the protocol remains visible. Focus on how objects move through the
 system and which component owns each operation.
 
-`tests/e2e/test_context_system.py` is the executable companion to this guide. It covers session-partitioned Trigger
-State, query- and owner-scoped Memory retrieval, heterogeneous Sources, zero-to-many Memory writes from one Action,
-and scheduled Handoff generation. The test uses SQLite as its local database example and APScheduler as its scheduler
-example. Review changes to this guide's object flow, protocol boundaries, or recommended call order against that test.
-Update the test when the expected behavior changes. Its concrete codecs and worker are test fixtures, not proposed
-Core APIs.
+The examples describe application-owned integration choices rather than a builtin implementation. Concrete Runtime
+behavior is covered through the production SQLite profile in `tests/runtime/`; changes to this guide should be reviewed
+against the public protocol boundaries instead of a parallel test-only application.
 
 ## Core boundaries
 
