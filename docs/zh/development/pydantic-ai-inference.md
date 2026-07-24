@@ -9,6 +9,9 @@
 uv add 'powercontext[pydantic-ai]'
 ```
 
+该可选集成安装 Pydantic AI slim package、用于 Claude 的 Anthropic provider，以及用于 OpenAI-compatible
+endpoint 的 OpenAI provider。
+
 导入 `powercontext` 不会导入 Pydantic AI。只有实际使用可选集成的组合代码才需要导入 adapter 模块。
 
 ## 组合两种能力

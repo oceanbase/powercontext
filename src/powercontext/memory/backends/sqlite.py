@@ -12,6 +12,7 @@ from pathlib import Path
 
 import apsw
 
+from powercontext._sqlite import sqlite_write_lock
 from powercontext.artifacts import ArtifactRef
 from powercontext.errors import (
     ArtifactNotFoundError,
@@ -212,6 +213,7 @@ class SQLiteMemoryBackend(DatabaseMemoryBackend):
         if embedding_profile is not None and (embedding_profile.dimension < 1 or embedding_profile.distance != "l2"):
             raise _SQLiteBackendStateError("vector-config", "profile must use a positive dimension and L2 distance")
         self._connection: apsw.Connection | None = None
+        self._write_lock = sqlite_write_lock(database)
 
     async def initialize(self) -> None:
         """Probe required SQLite features and install the fixed RFC schema."""
@@ -271,6 +273,10 @@ class SQLiteMemoryBackend(DatabaseMemoryBackend):
             await asyncio.to_thread(self._rebuild_projections_sync, rows, vectors)
 
     def _initialize_sync(self) -> None:
+        with self._write_lock:
+            self._initialize_unlocked_sync()
+
+    def _initialize_unlocked_sync(self) -> None:
         found_version = apsw.sqlitelibversion()
         if _version_tuple(found_version) < _MINIMUM_SQLITE_VERSION:
             raise _SQLiteBackendStateError("sqlite-version", found_version)
@@ -555,6 +561,14 @@ class SQLiteMemoryBackend(DatabaseMemoryBackend):
         rows: tuple[_ProjectionRebuildRow, ...],
         vectors: tuple[tuple[float, ...] | None, ...],
     ) -> None:
+        with self._write_lock:
+            self._rebuild_projections_unlocked_sync(rows, vectors)
+
+    def _rebuild_projections_unlocked_sync(
+        self,
+        rows: tuple[_ProjectionRebuildRow, ...],
+        vectors: tuple[tuple[float, ...] | None, ...],
+    ) -> None:
         connection = self._require_connection()
         connection.execute("BEGIN IMMEDIATE")
         try:
@@ -711,6 +725,10 @@ class SQLiteMemoryBackend(DatabaseMemoryBackend):
         return self._validated_channel_hits(rows, request.memories)
 
     def _commit_sync(self, value: MemoryCommit) -> Memory:
+        with self._write_lock:
+            return self._commit_unlocked_sync(value)
+
+    def _commit_unlocked_sync(self, value: MemoryCommit) -> Memory:
         connection = self._require_connection()
         connection.execute("BEGIN IMMEDIATE")
         try:

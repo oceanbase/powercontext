@@ -27,16 +27,15 @@ cli = [
 ]
 client = [
     "httpx>=0.28,<1",
+    "pydantic-settings>=2.7,<3",
     "powercontext[cli]",
 ]
 server = [
     "fastapi>=0.115,<1",
-    "pydantic-settings>=2.7,<3",
-    "uvicorn>=0.34,<1",
-]
-mcp = [
     "fastmcp>=3.4,<4",
-    "powercontext[server]",
+    "pydantic-settings>=2.8,<3",
+    "powercontext[cli,pydantic-ai,runtime,sqlite]",
+    "uvicorn>=0.34,<1",
 ]
 sqlite = [
     "apsw>=3.50.0.0,<4",
@@ -49,7 +48,7 @@ oceanbase = [
     "pymysql>=1.1.1,<2",
 ]
 pydantic-ai = [
-    "pydantic-ai>=2.14.1,<3",
+    "pydantic-ai-slim[anthropic,openai]>=2.14.1,<3",
 ]
 
 [project.scripts]
@@ -69,7 +68,7 @@ dev = [
     "apsw>=3.50.0.0,<4",
     "apscheduler>=3.11,<4",
     "datamodel-code-generator==0.57.0",
-    "powercontext[client,mcp]",
+    "powercontext[client,server]",
     "pymysql>=1.1.1,<2",
     "pytest>=9.0.2",
     "pytest-cov>=7,<8",
@@ -80,7 +79,6 @@ dev = [
     "ruff>=0.15.7",
     "zensical>=0.0.26",
     "mkdocstrings-python>=1.0.3",
-    "pydantic-ai>=2.14.1,<3",
     "sqlalchemy>=2,<3",
 ]
 

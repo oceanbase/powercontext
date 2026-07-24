@@ -10,6 +10,9 @@ credentials, HTTP clients, and their lifecycle remain application concerns.
 uv add 'powercontext[pydantic-ai]'
 ```
 
+The optional integration installs the Pydantic AI slim package with its Anthropic provider for Claude and its OpenAI
+provider for OpenAI-compatible endpoints.
+
 Importing `powercontext` does not import Pydantic AI. Only import the adapter module in the composition code that uses
 the optional integration.
 

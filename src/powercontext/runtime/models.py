@@ -58,6 +58,14 @@ class MemoryFlushResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeCapabilities:
+    """Behavior available from the assembled Source-to-Memory Runtime."""
+
+    memory_extraction: bool
+    memory_search_modes: tuple[MemorySearchMode, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class RememberMemoryRequest:
     """Append explicit entries, optionally against an expected head."""
 

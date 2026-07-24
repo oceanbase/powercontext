@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Annotated, TypeAlias
 
 import typer
 
-from powercontext.api import Capabilities, CapabilityLimit, HealthResponse, ReadinessResponse
+from powercontext.api import Capabilities, HealthResponse, ReadinessResponse
 from powercontext.client.client import PowerContextClient
 from powercontext.client.errors import ClientError
+from powercontext.client.settings import ClientSettings
 
-DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
-DEFAULT_TIMEOUT = 10.0
 HELP_OPTION_NAMES = ("-h", "--help")
 _ClientResponse: TypeAlias = Capabilities | HealthResponse | ReadinessResponse
 
@@ -37,17 +36,16 @@ class _ClientOptions:
 def main(
     context: typer.Context,
     server_url: Annotated[
-        str,
-        typer.Option(envvar="POWERCONTEXT_SERVER_URL", help="PowerContext Server base URL."),
-    ] = DEFAULT_SERVER_URL,
+        str | None,
+        typer.Option(help="PowerContext Server base URL."),
+    ] = None,
     timeout: Annotated[
-        float,
+        float | None,
         typer.Option(
-            envvar="POWERCONTEXT_CLIENT_TIMEOUT",
             help="HTTP timeout in seconds.",
             min=0.1,
         ),
-    ] = DEFAULT_TIMEOUT,
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Write the response as JSON."),
@@ -55,9 +53,10 @@ def main(
 ) -> None:
     """Configure remote Client commands."""
 
+    settings = ClientSettings()
     context.meta["powercontext.client.options"] = _ClientOptions(
-        server_url=server_url,
-        timeout=timeout,
+        server_url=settings.server_url if server_url is None else server_url,
+        timeout=settings.timeout if timeout is None else timeout,
         json_output=json_output,
     )
 
@@ -121,8 +120,8 @@ def _print_human_response(response: _ClientResponse) -> None:
         case Capabilities():
             typer.echo(f"Source types: {_items(response.source_types)}")
             typer.echo(f"Artifact families: {_items(response.artifact_families)}")
+            typer.echo(f"Memory extraction: {'enabled' if response.memory_extraction else 'disabled'}")
             typer.echo(f"Search modes: {_items(response.search_modes)}")
-            typer.echo(f"Limits: {_limits(response.limits)}")
         case ReadinessResponse():
             typer.echo(f"Status: {response.status}")
             for name, status in sorted(response.checks.items()):
@@ -131,9 +130,5 @@ def _print_human_response(response: _ClientResponse) -> None:
             typer.echo(f"Status: {response.status}")
 
 
-def _items(values: list[str]) -> str:
+def _items(values: Sequence[str]) -> str:
     return ", ".join(values) if values else "none"
-
-
-def _limits(limits: list[CapabilityLimit]) -> str:
-    return ", ".join(f"{limit.name}={limit.value}" for limit in limits) if limits else "none"

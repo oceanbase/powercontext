@@ -22,6 +22,7 @@ from powercontext.memory import (
     MemoryCitation,
     MemoryEntryInput,
     MemoryEntryVersion,
+    MemorySearchMode,
     MemoryService,
 )
 from powercontext.runtime.errors import InvalidRuntimeRequestError
@@ -36,6 +37,7 @@ from powercontext.runtime.models import (
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
     ReviseMemoryEntryRequest,
+    RuntimeCapabilities,
     SearchMemoryRequest,
     SourceHighWatermark,
     SourceReceipt,
@@ -161,16 +163,17 @@ class ScopedMemoryApplication:
     async def search(self, request: SearchMemoryRequest, /) -> MemorySearchPage:
         async with self._runtime._operation():
             scoped = await self._runtime._scope(self.scope_id)
-            service = scoped.context.artifacts.memory
-            current = await _head_or_none(service, scoped.memory_artifact_id)
-            if current is None:
-                return MemorySearchPage(memory_ref=None, mode=None)
-            result = await service.search(
-                request.query,
-                memories=(current,),
-                limit=request.limit,
-                mode=request.mode,
-            )
+            async with scoped.lock:
+                service = scoped.context.artifacts.memory
+                current = await _head_or_none(service, scoped.memory_artifact_id)
+                if current is None:
+                    return MemorySearchPage(memory_ref=None, mode=None)
+                result = await service.search(
+                    request.query,
+                    memories=(current,),
+                    limit=request.limit,
+                    mode=request.mode,
+                )
             return MemorySearchPage(memory_ref=current.ref, mode=result.mode, hits=result.hits)
 
     async def list(self) -> MemoryEntriesPage:
@@ -440,6 +443,29 @@ class PowerContextRuntime:
 
     async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
         await self.close()
+
+    async def capabilities(self) -> RuntimeCapabilities:
+        """Return behavior enabled by the initialized Runtime assembly."""
+
+        async with self._operation():
+            backend = await self._storage.memory_capabilities()
+            profile = backend.embedding_profile
+            embedding_available = (
+                self._embedding_model is not None and profile is not None and self._embedding_model.profile == profile
+            )
+            modes: list[MemorySearchMode] = []
+            if backend.fts or (backend.hybrid and embedding_available):
+                modes.append("auto")
+            if backend.fts:
+                modes.append("fts")
+            if backend.vector and embedding_available:
+                modes.append("vector")
+            if backend.hybrid and embedding_available:
+                modes.append("hybrid")
+            return RuntimeCapabilities(
+                memory_extraction=self._candidate_pipeline is not None,
+                memory_search_modes=tuple(modes),
+            )
 
     async def close(self) -> None:
         async with self._close_lock:

@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 import uvicorn
 
-from powercontext.server.app import create_app
+from powercontext.server.runtime import create_server_app
 from powercontext.server.settings import ServerSettings
 
 HELP_OPTION_NAMES = ("-h", "--help")
@@ -32,14 +32,19 @@ def run(
 ) -> None:
     """Run the FastAPI Server in the foreground."""
 
-    settings = ServerSettings()
-    if host is not None or port is not None:
-        settings = ServerSettings(
-            host=host if host is not None else settings.host,
-            port=port if port is not None else settings.port,
+    http_overrides = {
+        name: value
+        for name, value in (
+            ("host", host),
+            ("port", port),
         )
+        if value is not None
+    }
+    # Pydantic Settings merges this partial init mapping with lower-priority environment values.
+    settings = ServerSettings(http=http_overrides)  # ty: ignore[invalid-argument-type]
+    server_app = create_server_app(settings=settings)
     uvicorn.run(
-        create_app(settings=settings),
-        host=settings.host,
-        port=settings.port,
+        server_app,
+        host=settings.http.host,
+        port=settings.http.port,
     )

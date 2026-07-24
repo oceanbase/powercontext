@@ -15,7 +15,7 @@ from powercontext import (
     SourceConflictError,
 )
 from powercontext.errors import MemoryBackendConfigurationError
-from powercontext.memory import MemoryCandidateRequest
+from powercontext.memory import MemoryCandidateRequest, MemoryService
 from powercontext.runtime import (
     GetMemoryEntryRequest,
     InvalidRuntimeRequestError,
@@ -89,6 +89,49 @@ def test_runtime_without_candidate_pipeline_keeps_deterministic_memory_available
     asyncio.run(scenario())
 
 
+def test_runtime_search_keeps_a_valid_head_during_a_concurrent_write(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        runtime = await PowerContextRuntime.open(tmp_path / "runtime.db")
+        try:
+            memory = runtime.memory.for_scope("scope:read-write")
+            await memory.remember(
+                RememberMemoryRequest(
+                    entries=(MemoryEntryInput(kind="decision", text="Keep search and writes coherent."),)
+                )
+            )
+
+            search_started = asyncio.Event()
+            finish_search = asyncio.Event()
+            original_search = MemoryService.search
+
+            async def paused_search(self, query, **kwargs):
+                search_started.set()
+                await finish_search.wait()
+                return await original_search(self, query, **kwargs)
+
+            monkeypatch.setattr(MemoryService, "search", paused_search)
+            search_task = asyncio.create_task(memory.search(SearchMemoryRequest("coherent")))
+            await search_started.wait()
+            write_task = asyncio.create_task(
+                memory.remember(
+                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="A concurrent update."),))
+                )
+            )
+
+            _, pending = await asyncio.wait({write_task}, timeout=0.05)
+            assert write_task in pending
+            finish_search.set()
+            searched, updated = await asyncio.gather(search_task, write_task)
+
+            assert searched.memory_ref is not None
+            assert searched.memory_ref.revision == 1
+            assert updated.memory_ref.revision == 2
+        finally:
+            await runtime.close()
+
+    asyncio.run(scenario())
+
+
 def test_runtime_open_probes_memory_storage_before_serving_scopes(tmp_path) -> None:
     database = tmp_path / "runtime.db"
     connection = apsw.Connection(str(database))
@@ -155,6 +198,47 @@ def test_runtime_keeps_explicit_memory_separate_from_captured_sources(tmp_path) 
                 )
             )
             assert exact.entry.sources == (first.source,)
+        finally:
+            await runtime.close()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_captures_new_scopes_concurrently(tmp_path) -> None:
+    async def scenario() -> None:
+        runtime = await PowerContextRuntime.open(tmp_path / "runtime.db")
+        try:
+            receipts = await asyncio.gather(
+                *(
+                    runtime.sources.for_scope(f"scope:concurrent-{index}").capture(
+                        ContentCapture(
+                            source_id="turn-1",
+                            content=f"Concurrent Source {index}.",
+                        )
+                    )
+                    for index in range(5)
+                )
+            )
+
+            assert [receipt.sequence for receipt in receipts] == [1] * 5
+
+            memories = await asyncio.gather(
+                *(
+                    runtime.memory.for_scope(f"scope:concurrent-{index}").remember(
+                        RememberMemoryRequest(
+                            entries=(
+                                MemoryEntryInput(
+                                    kind="working_note",
+                                    text=f"Concurrent Memory {index}.",
+                                ),
+                            )
+                        )
+                    )
+                    for index in range(5)
+                )
+            )
+
+            assert [memory.memory_ref.revision for memory in memories] == [1] * 5
         finally:
             await runtime.close()
 

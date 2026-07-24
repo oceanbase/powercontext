@@ -49,7 +49,7 @@ class PydanticAIConfigurationError(InferenceError, RuntimeError):
 
 try:
     from pydantic import PydanticSchemaGenerationError, PydanticUserError, TypeAdapter, ValidationError
-    from pydantic_ai import Agent, Embedder
+    from pydantic_ai import Agent, Embedder, PromptedOutput
     from pydantic_ai.embeddings import EmbeddingModel as PydanticAIEmbeddingModelBase
     from pydantic_ai.exceptions import (
         ConcurrencyLimitExceeded,
@@ -108,7 +108,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
             self._input_adapter = TypeAdapter(input_type)
             self._agent = Agent(
                 model,
-                output_type=output_type,
+                output_type=PromptedOutput(output_type),
                 instructions=instructions,
                 retries=self._limits.max_requests - 1,
             )

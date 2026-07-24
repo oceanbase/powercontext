@@ -9,6 +9,7 @@ from threading import RLock
 import apsw
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
+from powercontext._sqlite import sqlite_write_lock
 from powercontext.artifacts import ArtifactRef
 from powercontext.errors import SourceConflictError, SourceNotFoundError
 from powercontext.sources import (
@@ -107,6 +108,7 @@ class SQLiteSourceBackend:
         self._database = str(database)
         self._connection: apsw.Connection | None = None
         self._lock = RLock()
+        self._write_lock = sqlite_write_lock(database)
 
     async def initialize(self) -> None:
         await asyncio.to_thread(self._initialize_sync)
@@ -124,14 +126,16 @@ class SQLiteSourceBackend:
         with self._lock:
             if self._connection is not None:
                 return
-            connection = apsw.Connection(self._database)
-            connection.set_busy_timeout(30_000)
-            connection.execute("PRAGMA foreign_keys = ON")
-            if self._database != ":memory:":
-                connection.execute("PRAGMA journal_mode = WAL")
-            for statement in _SCHEMA:
-                connection.execute(statement)
-            self._connection = connection
+            with self._write_lock:
+                connection = apsw.Connection(self._database)
+                connection.set_busy_timeout(30_000)
+                connection.transaction_mode = "IMMEDIATE"
+                connection.execute("PRAGMA foreign_keys = ON")
+                if self._database != ":memory:":
+                    connection.execute("PRAGMA journal_mode = WAL")
+                for statement in _SCHEMA:
+                    connection.execute(statement)
+                self._connection = connection
 
     def _close_sync(self) -> None:
         with self._lock:
@@ -152,20 +156,20 @@ class SQLiteSourceBackend:
         payload = _encode_content_source(source)
         with self._lock:
             connection = self._connection_sync()
-            row = connection.execute(
-                """
-                SELECT payload
-                FROM runtime_sources
-                WHERE scope_id = ? AND adapter_name = ? AND source_name = ?
-                """,
-                (scope_id, CONTENT_SOURCE_NAME, source.name),
-            ).fetchone()
-            if row is not None:
-                stored = _decode_content_source(str(row[0]))
-                if stored == source:
-                    return source
-                raise SourceConflictError("identity", (scope_id, CONTENT_SOURCE_NAME, source.name))
-            with connection:
+            with self._write_lock, connection:
+                row = connection.execute(
+                    """
+                        SELECT payload
+                        FROM runtime_sources
+                        WHERE scope_id = ? AND adapter_name = ? AND source_name = ?
+                        """,
+                    (scope_id, CONTENT_SOURCE_NAME, source.name),
+                ).fetchone()
+                if row is not None:
+                    stored = _decode_content_source(str(row[0]))
+                    if stored == source:
+                        return source
+                    raise SourceConflictError("identity", (scope_id, CONTENT_SOURCE_NAME, source.name))
                 sequence_row = connection.execute(
                     "SELECT COALESCE(MAX(sequence), 0) + 1 FROM runtime_sources WHERE scope_id = ?",
                     (scope_id,),
@@ -173,10 +177,10 @@ class SQLiteSourceBackend:
                 sequence = 1 if sequence_row is None else int(sequence_row[0])
                 connection.execute(
                     """
-                    INSERT INTO runtime_sources (
-                        scope_id, sequence, adapter_name, source_name, payload
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
+                        INSERT INTO runtime_sources (
+                            scope_id, sequence, adapter_name, source_name, payload
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
                     (scope_id, sequence, CONTENT_SOURCE_NAME, source.name, payload),
                 )
         return source
@@ -285,16 +289,16 @@ class SQLiteSourceBackend:
             raise _InvalidSQLiteSourceValueError("negative-cursor")
         with self._lock:
             connection = self._connection_sync()
-            with connection:
+            with self._write_lock, connection:
                 row = connection.execute(
                     """
-                    INSERT INTO runtime_trigger_cursors (scope_id, trigger_name, sequence)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT (scope_id, trigger_name)
-                    DO UPDATE SET sequence = excluded.sequence
-                    WHERE excluded.sequence >= runtime_trigger_cursors.sequence
-                    RETURNING sequence
-                    """,
+                        INSERT INTO runtime_trigger_cursors (scope_id, trigger_name, sequence)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT (scope_id, trigger_name)
+                        DO UPDATE SET sequence = excluded.sequence
+                        WHERE excluded.sequence >= runtime_trigger_cursors.sequence
+                        RETURNING sequence
+                        """,
                     (scope_id, trigger_name, cursor.sequence),
                 ).fetchone()
                 if row is None:

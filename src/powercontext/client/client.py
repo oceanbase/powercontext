@@ -8,11 +8,47 @@ from typing import Protocol, Self, TypeVar
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
-from powercontext.api import Capabilities, HealthResponse, ReadinessResponse
-from powercontext.api.generated.operations import GET_CAPABILITIES, GET_LIVENESS, GET_READINESS, Operation
+from powercontext.api import (
+    Capabilities,
+    CaptureContentSourceRequest,
+    CaptureContentSourceResponse,
+    ErrorResponse,
+    FlushMemoryRequest,
+    FlushMemoryResponse,
+    GetMemoryEntryRequest,
+    HealthResponse,
+    ListMemoryChangesRequest,
+    ListMemoryChangesResponse,
+    ListMemoryEntriesRequest,
+    ListMemoryEntriesResponse,
+    MemoryEntry,
+    MemoryMutationResponse,
+    ReadinessResponse,
+    RememberMemoryRequest,
+    RetireMemoryEntryRequest,
+    ReviseMemoryEntryRequest,
+    SearchMemoryRequest,
+    SearchMemoryResponse,
+)
+from powercontext.api.generated.operations import (
+    CAPTURE_CONTENT_SOURCE,
+    FLUSH_MEMORY,
+    GET_CAPABILITIES,
+    GET_LIVENESS,
+    GET_MEMORY_ENTRY,
+    GET_READINESS,
+    LIST_MEMORY_CHANGES,
+    LIST_MEMORY_ENTRIES,
+    REMEMBER_MEMORY,
+    RETIRE_MEMORY_ENTRY,
+    REVISE_MEMORY_ENTRY,
+    SEARCH_MEMORY,
+    Operation,
+)
 from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
 
 REQUEST_ID_HEADER = "X-Request-ID"
+_RequestT = TypeVar("_RequestT")
 _ResponseT = TypeVar("_ResponseT")
 
 
@@ -21,9 +57,6 @@ class _Headers(Protocol):
 
 
 class _HttpResponse(Protocol):
-    @property
-    def is_success(self) -> bool: ...
-
     @property
     def status_code(self) -> int: ...
 
@@ -35,7 +68,13 @@ class _HttpResponse(Protocol):
 
 
 class _SyncHttpClient(Protocol):
-    def request(self, method: str, url: str) -> _HttpResponse: ...
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: object | None = None,
+    ) -> _HttpResponse: ...
 
 
 class PowerContextClient:
@@ -76,31 +115,97 @@ class PowerContextClient:
     def get_liveness(self) -> HealthResponse:
         """Read process liveness."""
 
-        return self._get(GET_LIVENESS)
+        return self._request(GET_LIVENESS)
 
     def get_readiness(self) -> ReadinessResponse:
         """Read deployment readiness checks."""
 
-        return self._get(GET_READINESS)
+        return self._request(GET_READINESS)
 
     def get_capabilities(self) -> Capabilities:
         """Read behavior enabled by the assembled runtime."""
 
-        return self._get(GET_CAPABILITIES)
+        return self._request(GET_CAPABILITIES)
 
-    def _get(
+    def capture_content_source(self, request: CaptureContentSourceRequest) -> CaptureContentSourceResponse:
+        """Capture raw content as durable Source evidence."""
+
+        return self._request(CAPTURE_CONTENT_SOURCE, request)
+
+    def flush_memory(self, request: FlushMemoryRequest) -> FlushMemoryResponse:
+        """Run one bounded Source-to-Memory activation."""
+
+        return self._request(FLUSH_MEMORY, request)
+
+    def remember_memory(self, request: RememberMemoryRequest) -> MemoryMutationResponse:
+        """Save one explicit Memory entry without creating a Source."""
+
+        return self._request(REMEMBER_MEMORY, request)
+
+    def search_memory(self, request: SearchMemoryRequest) -> SearchMemoryResponse:
+        """Search active Memory entries in one scope."""
+
+        return self._request(SEARCH_MEMORY, request)
+
+    def list_memory_entries(self, request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
+        """List the entry snapshot from the current Memory head."""
+
+        return self._request(LIST_MEMORY_ENTRIES, request)
+
+    def get_memory_entry(self, request: GetMemoryEntryRequest) -> MemoryEntry:
+        """Read one exact Memory entry version."""
+
+        return self._request(GET_MEMORY_ENTRY, request)
+
+    def revise_memory_entry(self, request: ReviseMemoryEntryRequest) -> MemoryMutationResponse:
+        """Revise one exact active Memory entry."""
+
+        return self._request(REVISE_MEMORY_ENTRY, request)
+
+    def retire_memory_entry(self, request: RetireMemoryEntryRequest) -> MemoryMutationResponse:
+        """Deactivate one exact Memory entry without deleting history."""
+
+        return self._request(RETIRE_MEMORY_ENTRY, request)
+
+    def list_memory_changes(self, request: ListMemoryChangesRequest) -> ListMemoryChangesResponse:
+        """Read compact Memory Revision changes."""
+
+        return self._request(LIST_MEMORY_CHANGES, request)
+
+    def _request(
         self,
-        operation: Operation[_ResponseT],
+        operation: Operation[_RequestT, _ResponseT],
+        request: _RequestT | None = None,
     ) -> _ResponseT:
+        json_payload = None
+        if request is not None:
+            if operation.request_type is None:
+                message = f"{operation.operation_id} does not accept a request body"
+                raise TypeError(message)
+            json_payload = TypeAdapter(operation.request_type).dump_python(
+                request,
+                mode="json",
+                exclude_none=True,
+            )
+
         try:
-            response = self._http_client.request(operation.method, f"{self._base_url}{operation.path}")
+            response = self._http_client.request(
+                operation.method,
+                f"{self._base_url}{operation.path}",
+                json=json_payload,
+            )
         except httpx.HTTPError as exc:
             raise TransportError(operation.path) from exc
 
-        if not response.is_success:
+        request_id = response.headers.get(REQUEST_ID_HEADER)
+        if response.status_code != operation.success_status:
+            error = _decode_error(response.content)
             raise ServerResponseError(
                 status_code=response.status_code,
-                request_id=response.headers.get(REQUEST_ID_HEADER),
+                request_id=request_id,
+                code=None if error is None else error.error.code,
+                message=None if error is None else error.error.message,
+                details=None if error is None else error.error.details,
             )
 
         try:
@@ -108,5 +213,12 @@ class PowerContextClient:
         except ValidationError as exc:
             raise InvalidResponseError(
                 operation.path,
-                request_id=response.headers.get(REQUEST_ID_HEADER),
+                request_id=request_id,
             ) from exc
+
+
+def _decode_error(content: bytes) -> ErrorResponse | None:
+    try:
+        return ErrorResponse.model_validate_json(content)
+    except ValidationError:
+        return None

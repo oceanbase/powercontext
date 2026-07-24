@@ -36,8 +36,4 @@
 
 ## Python Client SDK
 
-::: powercontext.client.client
-
-## Python Client 错误
-
-::: powercontext.client.errors
+::: powercontext.client

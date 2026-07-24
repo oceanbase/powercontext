@@ -58,26 +58,346 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Capabilities"
+  /v1/sources/content:
+    post:
+      tags: [sources]
+      summary: Capture durable ContentSource evidence
+      description: Accept raw content as an idempotent Source without synchronously deriving Artifacts.
+      operationId: capture_content_source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CaptureContentSourceRequest"
+      responses:
+        "202":
+          description: The Source is durably stored for later processing.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptureContentSourceResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/memory/flush:
+    post:
+      tags: [memory]
+      summary: Process the pending Source window into Memory
+      description: Run one bounded Source-to-Memory activation for operational control and testing.
+      operationId: flush_memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlushMemoryRequest"
+      responses:
+        "200":
+          description: The activation completed or found no pending Sources.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlushMemoryResponse"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/memory/remember:
+    post:
+      tags: [memory]
+      summary: Remember explicit Memory content
+      description: Save one already-curated Memory entry without creating a Source or invoking extraction.
+      operationId: remember_memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RememberMemoryRequest"
+      responses:
+        "200":
+          description: The explicit Memory mutation completed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryMutationResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/memory/search:
+    post:
+      tags: [memory]
+      summary: Search active Memory entries
+      description: Retrieve relevant active Memory entries within one explicit application scope.
+      operationId: search_memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchMemoryRequest"
+      responses:
+        "200":
+          description: Matching Memory entries, or an empty result when the scope has no Memory.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchMemoryResponse"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/memory/entries/list:
+    post:
+      tags: [memory]
+      summary: List Memory entries
+      description: Read the complete entry snapshot from the current Memory head.
+      operationId: list_memory_entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListMemoryEntriesRequest"
+      responses:
+        "200":
+          description: The current Memory entry snapshot.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListMemoryEntriesResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/memory/entries/get:
+    post:
+      tags: [memory]
+      summary: Get an exact Memory entry version
+      description: Resolve an immutable entry citation within one Memory Revision.
+      operationId: get_memory_entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetMemoryEntryRequest"
+      responses:
+        "200":
+          description: The exact Memory entry version.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryEntry"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/memory/entries/revise:
+    post:
+      tags: [memory]
+      summary: Revise an exact Memory entry
+      description: Replace active entry content against an explicit current Memory Revision.
+      operationId: revise_memory_entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviseMemoryEntryRequest"
+      responses:
+        "200":
+          description: The Memory entry revision completed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryMutationResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/memory/entries/retire:
+    post:
+      tags: [memory]
+      summary: Retire an exact Memory entry
+      description: Deactivate an entry against an explicit current Memory Revision without deleting history.
+      operationId: retire_memory_entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetireMemoryEntryRequest"
+      responses:
+        "200":
+          description: The Memory entry retirement completed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryMutationResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/memory/changes:
+    post:
+      tags: [memory]
+      summary: List Memory Revision changes
+      description: Read compact entry changes without expanding entry bodies.
+      operationId: list_memory_changes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListMemoryChangesRequest"
+      responses:
+        "200":
+          description: Compact changes through the selected Memory Revision.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListMemoryChangesResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
 components:
   headers:
     RequestId:
       description: Opaque identifier for correlating one request.
       schema:
         type: string
+  responses:
+    Conflict:
+      description: The command conflicts with current immutable state.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InvalidRequest:
+      description: The request violates the transport or application contract.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: The requested immutable Memory value was not found.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unavailable:
+      description: A required Runtime binding or dependency is unavailable.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: The Server failed without exposing internal details.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
   schemas:
-    CapabilityLimit:
+    ArtifactReference:
       type: object
       additionalProperties: false
-      required: [name, value]
+      required: [artifact_id, revision]
       properties:
-        name:
+        artifact_id:
           type: string
-        value:
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        revision:
           type: integer
+          minimum: 1
     Capabilities:
       type: object
       additionalProperties: false
-      required: [source_types, artifact_families, search_modes, limits]
+      required: [source_types, artifact_families, memory_extraction, search_modes]
       properties:
         source_types:
           type: array
@@ -87,14 +407,137 @@ components:
           type: array
           items:
             type: string
+        memory_extraction:
+          type: boolean
+          description: Whether pending Sources can be extracted into Memory.
         search_modes:
           type: array
           items:
-            type: string
-        limits:
-          type: array
-          items:
-            $ref: "#/components/schemas/CapabilityLimit"
+            $ref: "#/components/schemas/MemorySearchMode"
+    CaptureContentSourceRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, source_id, content]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        content:
+          type: string
+          minLength: 1
+          maxLength: 200000
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+    CaptureContentSourceResponse:
+      type: object
+      additionalProperties: false
+      required: [status, source, position]
+      properties:
+        status:
+          $ref: "#/components/schemas/CaptureStatus"
+        source:
+          $ref: "#/components/schemas/SourceReference"
+        position:
+          type: integer
+          minimum: 1
+    EntryChange:
+      type: object
+      additionalProperties: false
+      required: [op, entry_id, from_entry_version_id, to_entry_version_id, reason]
+      properties:
+        op:
+          $ref: "#/components/schemas/EntryChangeOperation"
+        entry_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        from_entry_version_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+          nullable: true
+        to_entry_version_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required: [code, message, details]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+    FlushMemoryRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    FlushMemoryResponse:
+      type: object
+      additionalProperties: false
+      required: [status, previous_cursor, current_cursor, high_watermark, processed_source_count]
+      properties:
+        status:
+          $ref: "#/components/schemas/FlushStatus"
+        previous_cursor:
+          type: integer
+          minimum: 0
+        current_cursor:
+          type: integer
+          minimum: 0
+        high_watermark:
+          type: integer
+          minimum: 0
+        processed_source_count:
+          type: integer
+          minimum: 0
+        memory:
+          $ref: "#/components/schemas/ArtifactReference"
+    GetMemoryEntryRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, citation]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        citation:
+          $ref: "#/components/schemas/MemoryCitation"
     HealthResponse:
       type: object
       additionalProperties: false
@@ -102,9 +545,123 @@ components:
       properties:
         status:
           type: string
-    ReadinessStatus:
-      type: string
-      enum: [ready, not_ready]
+    ListMemoryChangesRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        since_revision:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: >-
+            Exclusive lower bound; 0 requests complete history from Revision 1.
+            Positive nonexistent revisions are errors.
+    ListMemoryChangesResponse:
+      type: object
+      additionalProperties: false
+      required: [revisions]
+      properties:
+        memory:
+          $ref: "#/components/schemas/ArtifactReference"
+        revisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoryRevisionChanges"
+    ListMemoryEntriesRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    ListMemoryEntriesResponse:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        memory:
+          $ref: "#/components/schemas/ArtifactReference"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoryEntry"
+    MemoryEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - citation
+        - version
+        - kind
+        - text
+        - state
+        - source_refs
+        - artifact_refs
+      properties:
+        citation:
+          $ref: "#/components/schemas/MemoryCitation"
+        version:
+          type: integer
+          minimum: 1
+        kind:
+          type: string
+        text:
+          type: string
+        state:
+          $ref: "#/components/schemas/MemoryEntryState"
+        source_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceReference"
+        artifact_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactReference"
+    MemoryMutationResponse:
+      type: object
+      additionalProperties: false
+      required: [memory]
+      properties:
+        memory:
+          $ref: "#/components/schemas/ArtifactReference"
+        entry:
+          $ref: "#/components/schemas/MemoryEntry"
+    MemoryCitation:
+      type: object
+      additionalProperties: false
+      required: [memory_ref, entry_id, entry_version_id]
+      properties:
+        memory_ref:
+          $ref: "#/components/schemas/ArtifactReference"
+        entry_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        entry_version_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+    MemoryRevisionChanges:
+      type: object
+      additionalProperties: false
+      required: [memory_ref, changes]
+      properties:
+        memory_ref:
+          $ref: "#/components/schemas/ArtifactReference"
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntryChange"
     ReadinessResponse:
       type: object
       additionalProperties: false
@@ -116,3 +673,160 @@ components:
           type: object
           additionalProperties:
             type: string
+    ReadinessStatus:
+      type: string
+      enum: [ready, not_ready]
+    RememberMemoryRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, kind, text]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+        text:
+          type: string
+          minLength: 1
+          description: Must not exceed 8192 UTF-8 bytes after normalization.
+        reason:
+          type: string
+          maxLength: 512
+          nullable: true
+        expected_revision:
+          type: integer
+          minimum: 1
+          nullable: true
+    RetireMemoryEntryRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, citation]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        citation:
+          $ref: "#/components/schemas/MemoryCitation"
+        reason:
+          type: string
+          maxLength: 512
+          nullable: true
+    ReviseMemoryEntryRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, citation, kind, text]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        citation:
+          $ref: "#/components/schemas/MemoryCitation"
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+        text:
+          type: string
+          minLength: 1
+          description: Must not exceed 8192 UTF-8 bytes after normalization.
+        reason:
+          type: string
+          maxLength: 512
+          nullable: true
+    SearchMemoryHit:
+      type: object
+      additionalProperties: false
+      required: [citation, text, score, matched_by]
+      properties:
+        citation:
+          $ref: "#/components/schemas/MemoryCitation"
+        text:
+          type: string
+        score:
+          type: number
+          minimum: 0
+          maximum: 1
+        matched_by:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoryMatchedBy"
+    SearchMemoryRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, query]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        query:
+          type: string
+          minLength: 1
+          maxLength: 8192
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 10
+        mode:
+          $ref: "#/components/schemas/MemorySearchMode"
+          default: auto
+    SearchMemoryResponse:
+      type: object
+      additionalProperties: false
+      required: [hits]
+      properties:
+        memory:
+          $ref: "#/components/schemas/ArtifactReference"
+        mode:
+          $ref: "#/components/schemas/MemoryUsedSearchMode"
+        hits:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchMemoryHit"
+    SourceReference:
+      type: object
+      additionalProperties: false
+      required: [name, source_id]
+      properties:
+        name:
+          type: string
+          description: Stable Source type.
+        source_id:
+          type: string
+    CaptureStatus:
+      type: string
+      enum: [accepted]
+    EntryChangeOperation:
+      x-powercontext-python-model: powercontext.memory.MemoryChangeOp
+      type: string
+      enum: [add, revise, deactivate, reactivate]
+    FlushStatus:
+      type: string
+      enum: [idle, processed]
+    MemoryEntryState:
+      x-powercontext-python-model: powercontext.memory.MemoryEntryState
+      type: string
+      enum: [active, inactive]
+    MemoryMatchedBy:
+      x-powercontext-python-model: powercontext.memory.MemoryMatchedBy
+      type: string
+      enum: [fts, vector]
+    MemorySearchMode:
+      x-powercontext-python-model: powercontext.memory.MemorySearchMode
+      type: string
+      enum: [auto, fts, vector, hybrid]
+    MemoryUsedSearchMode:
+      x-powercontext-python-model: powercontext.memory.MemoryUsedSearchMode
+      type: string
+      enum: [fts, vector, hybrid]

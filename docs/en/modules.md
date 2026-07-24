@@ -37,8 +37,4 @@ not part of this API.
 
 ## Python Client SDK
 
-::: powercontext.client.client
-
-## Python Client errors
-
-::: powercontext.client.errors
+::: powercontext.client

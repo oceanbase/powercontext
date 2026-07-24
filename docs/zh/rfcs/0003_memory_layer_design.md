@@ -717,7 +717,9 @@ MemoryRevisionChanges:
 
 `changes()` 按 Revision 升序返回 `(memory_ref, changes)`，只读取 Artifact Revision 中的紧凑 `MemoryChange`，不加载
 `MemoryEntryVersion.text`、evidence 或检索 projection。`since_revision` 是 exclusive；省略时只返回目标 Revision 自身的
-changes。传入不存在、跨 Artifact 或大于目标 Revision 的值时抛出 `ArtifactNotFoundError` 或 `ValueError`。
+changes。Revision 编号从 `1` 开始，因此 `0` 是读取完整历史的显式下界哨兵，返回 Revision `1` 到目标 Revision 的
+changes。传入负数、不存在的正 Revision、跨 Artifact 或大于目标 Revision 的值时抛出 `ArtifactNotFoundError` 或
+`ValueError`。
 
 Coding Agent 应先读取 change 的 `op + entry_id + reason` 判断哪些变化可能影响当前任务，再仅对相关 entry 调用
 `expand()`。`reason` 可能减少不必要的全文注入，但它不是检索摘要或 evidence；如果仅凭 reason 无法作出可靠判断，

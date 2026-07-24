@@ -814,9 +814,10 @@ MemoryRevisionChanges:
 
 `changes()` returns `(memory_ref, changes)` in ascending Revision order. It reads only the compact `MemoryChange` values
 in Artifact Revisions and does not load `MemoryEntryVersion.text`, evidence, or retrieval projections.
-`since_revision` is exclusive; when omitted, only the changes of the target Revision are returned. A nonexistent value,
-a value from another Artifact, or a value greater than the target Revision raises `ArtifactNotFoundError` or
-`ValueError` as appropriate.
+`since_revision` is exclusive; when omitted, only the changes of the target Revision are returned. Revision numbers
+start at `1`, so `0` is the explicit lower-bound sentinel for reading the complete history from Revision `1` through
+the target Revision. A negative value, a nonexistent positive Revision, a value from another Artifact, or a value
+greater than the target Revision raises `ArtifactNotFoundError` or `ValueError` as appropriate.
 
 A Coding Agent should first inspect each change's `op + entry_id + reason` to determine which changes may affect the
 current task and then call `expand()` only for relevant entries. `reason` may reduce unnecessary full-content

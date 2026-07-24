@@ -2,7 +2,6 @@
 
 from powercontext.api.generated.models import (
     Capabilities,
-    CapabilityLimit,
     HealthResponse,
     ReadinessResponse,
     ReadinessStatus,
@@ -14,7 +13,6 @@ __all__ = [
     "GET_LIVENESS",
     "GET_READINESS",
     "Capabilities",
-    "CapabilityLimit",
     "HealthResponse",
     "Operation",
     "ReadinessResponse",

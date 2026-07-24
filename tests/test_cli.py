@@ -8,7 +8,8 @@ from typer.testing import CliRunner
 
 import powercontext.client.cli as client_cli
 from powercontext.cli.app import create_cli
-from powercontext.client.client import PowerContextClient
+from powercontext.client import PowerContextClient
+from powercontext.client.settings import ClientSettings
 from powercontext.server.cli import app as server_app
 
 
@@ -85,19 +86,55 @@ def test_cli_version_reports_the_installed_distribution() -> None:
     assert installed_version.output == f"{version('powercontext')}\n"
 
 
-def test_server_command_applies_cli_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_client_settings_load_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "https://memory.example/api/")
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_TIMEOUT", "3.5")
+
+    settings = ClientSettings()
+
+    assert settings.server_url == "https://memory.example/api"
+    assert settings.timeout == 3.5
+    assert ClientSettings(server_url="https://override.example/").server_url == "https://override.example"
+
+
+@pytest.mark.parametrize(
+    ("environment", "arguments", "expected_host", "expected_port"),
+    [
+        (
+            {"POWERCONTEXT_SERVER_HTTP_PORT": "8123"},
+            ["--host", "192.0.2.1"],
+            "192.0.2.1",
+            8123,
+        ),
+        (
+            {"POWERCONTEXT_SERVER_HTTP_HOST": "192.0.2.2"},
+            ["--port", "8124"],
+            "192.0.2.2",
+            8124,
+        ),
+    ],
+)
+def test_server_command_layers_partial_cli_overrides_over_environment_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    environment: dict[str, str],
+    arguments: list[str],
+    expected_host: str,
+    expected_port: int,
+) -> None:
     run_server = Mock()
     monkeypatch.setattr("powercontext.server.cli.uvicorn.run", run_server)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
 
     result = CliRunner().invoke(
         create_cli([server_app]),
-        ["server", "run", "--host", "192.0.2.1", "--port", "9000"],
+        ["server", "run", *arguments],
     )
 
     assert result.exit_code == 0
     run_server.assert_called_once()
-    assert run_server.call_args.kwargs["host"] == "192.0.2.1"
-    assert run_server.call_args.kwargs["port"] == 9000
+    assert run_server.call_args.kwargs["host"] == expected_host
+    assert run_server.call_args.kwargs["port"] == expected_port
 
 
 def test_cli_reports_server_errors_with_request_context_without_a_traceback(

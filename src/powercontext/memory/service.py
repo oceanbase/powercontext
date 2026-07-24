@@ -108,6 +108,7 @@ class _InvalidMemoryOperationError(ValueError):
             "id-collision": "generated memory identity collides with current content",
             "organize-mode": "unsupported memory organize mode",
             "since-greater": "since_revision cannot be greater than the target Revision",
+            "since-negative": "since_revision cannot be negative",
             "search-memories": "memory search requires at least one explicit Memory ref",
             "search-limit": "memory search limit must be positive",
             "search-mode": "unsupported memory search mode",
@@ -298,11 +299,14 @@ class MemoryService(ArtifactCatalog[Memory]):
 
         target = await self._canonical_memory(memory)
         if since_revision is not None:
+            if since_revision < 0:
+                raise _InvalidMemoryOperationError("since-negative")
             if since_revision > target.revision:
                 raise _InvalidMemoryOperationError("since-greater")
             if since_revision == target.revision:
                 return ()
-            await self._backend.get(ArtifactRef(target.artifact_id, since_revision))
+            if since_revision > 0:
+                await self._backend.get(ArtifactRef(target.artifact_id, since_revision))
         return await self._backend.changes(target.ref, since_revision)
 
     async def search(

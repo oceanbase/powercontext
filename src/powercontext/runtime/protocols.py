@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from powercontext.memory import MemoryBackend, MemoryEvidenceCodec
+from powercontext.memory import MemoryBackend, MemoryCapabilities, MemoryEvidenceCodec
 from powercontext.sources import Source, SourceCatalogBackend, SourceStore
 from powercontext.sources.journal import SourceJournal, TriggerCursorStore
 
@@ -42,6 +42,8 @@ class RuntimeStorage(Protocol):
     async def initialize(self) -> None: ...
 
     async def close(self) -> None: ...
+
+    async def memory_capabilities(self) -> MemoryCapabilities: ...
 
     async def open_scope(self, scope_id: str, /) -> RuntimeScopeStorage: ...
 

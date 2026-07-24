@@ -78,6 +78,9 @@ def test_runtime_assembles_from_the_backend_neutral_storage_contract(tmp_path) -
         storage = SQLiteRuntimeStorage(tmp_path / "runtime.db")
         runtime = await PowerContextRuntime.assemble(storage=storage)
         try:
+            capabilities = await runtime.capabilities()
+            assert capabilities.memory_extraction is False
+            assert capabilities.memory_search_modes == ("auto", "fts")
             assert await runtime.memory.for_scope("scope:assembled").cursor() == SourceCursor()
         finally:
             await runtime.close()

@@ -1,9 +1,12 @@
 import httpx
 import pytest
 
-from powercontext.api import Capabilities
-from powercontext.client.client import PowerContextClient
-from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
+from powercontext.api import (
+    Capabilities,
+    CaptureContentSourceRequest,
+    SearchMemoryRequest,
+)
+from powercontext.client import InvalidResponseError, PowerContextClient, ServerResponseError, TransportError
 
 
 def test_client_decodes_a_capabilities_response() -> None:
@@ -15,8 +18,8 @@ def test_client_decodes_a_capabilities_response() -> None:
             json={
                 "source_types": [],
                 "artifact_families": [],
+                "memory_extraction": False,
                 "search_modes": [],
-                "limits": [],
             },
         )
 
@@ -29,8 +32,50 @@ def test_client_decodes_a_capabilities_response() -> None:
     assert isinstance(capabilities, Capabilities)
 
 
+def test_client_decodes_an_empty_memory_search() -> None:
+    response = httpx.Response(200, json={"hits": []})
+    with httpx.Client(transport=httpx.MockTransport(lambda request: response)) as http_client:
+        result = PowerContextClient("https://memory.example", http_client=http_client).search_memory(
+            SearchMemoryRequest(scope_id="new-scope", query="anything")
+        )
+
+    assert result.memory is None
+    assert result.mode is None
+    assert result.hits == []
+
+
+def test_client_rejects_an_undeclared_success_status() -> None:
+    response = httpx.Response(
+        200,
+        json={
+            "status": "accepted",
+            "source": {"name": "content", "source_id": "turn-1"},
+            "position": 1,
+        },
+    )
+    with httpx.Client(transport=httpx.MockTransport(lambda request: response)) as http_client:
+        client = PowerContextClient("https://memory.example", http_client=http_client)
+
+        with pytest.raises(ServerResponseError) as caught:
+            client.capture_content_source(
+                CaptureContentSourceRequest(scope_id="project", source_id="turn-1", content="content")
+            )
+
+    assert caught.value.status_code == 200
+
+
 def test_client_preserves_server_error_context() -> None:
-    response = httpx.Response(503, headers={"X-Request-ID": "request-123"})
+    response = httpx.Response(
+        503,
+        headers={"X-Request-ID": "request-123"},
+        json={
+            "error": {
+                "code": "runtime_not_ready",
+                "message": "The Runtime is not ready.",
+                "details": {"component": "memory"},
+            }
+        },
+    )
     with httpx.Client(transport=httpx.MockTransport(lambda request: response)) as http_client:
         client = PowerContextClient("https://memory.example", http_client=http_client)
 
@@ -39,6 +84,21 @@ def test_client_preserves_server_error_context() -> None:
 
     assert caught.value.status_code == 503
     assert caught.value.request_id == "request-123"
+    assert caught.value.code == "runtime_not_ready"
+    assert caught.value.server_message == "The Runtime is not ready."
+    assert caught.value.details == {"component": "memory"}
+
+
+def test_client_keeps_a_generic_server_error_when_the_error_body_is_invalid() -> None:
+    response = httpx.Response(500, text="Internal Server Error")
+    with httpx.Client(transport=httpx.MockTransport(lambda request: response)) as http_client:
+        client = PowerContextClient("https://memory.example", http_client=http_client)
+
+        with pytest.raises(ServerResponseError) as caught:
+            client.get_liveness()
+
+    assert caught.value.status_code == 500
+    assert caught.value.code is None
 
 
 def test_client_rejects_an_invalid_success_response() -> None:

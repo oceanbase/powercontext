@@ -10,7 +10,8 @@ from uuid import uuid4
 
 import apsw
 
-from powercontext.memory import EmbeddingProfile
+from powercontext._sqlite import sqlite_write_lock
+from powercontext.memory import EmbeddingProfile, MemoryCapabilities
 from powercontext.memory.backends.sqlite import SQLiteMemoryBackend
 from powercontext.memory.canonical import validate_identifier
 from powercontext.runtime.protocols import (
@@ -49,6 +50,7 @@ class SQLiteMemoryBindingStore(MemoryBindingStore):
         self._database = str(database)
         self._connection: apsw.Connection | None = None
         self._lock = RLock()
+        self._write_lock = sqlite_write_lock(database)
 
     async def initialize(self) -> None:
         await asyncio.to_thread(self._initialize_sync)
@@ -64,12 +66,13 @@ class SQLiteMemoryBindingStore(MemoryBindingStore):
         with self._lock:
             if self._connection is not None:
                 return
-            connection = apsw.Connection(self._database)
-            connection.set_busy_timeout(30_000)
-            if self._database != ":memory:":
-                connection.execute("PRAGMA journal_mode = WAL")
-            connection.execute(_BINDING_SCHEMA)
-            self._connection = connection
+            with self._write_lock:
+                connection = apsw.Connection(self._database)
+                connection.set_busy_timeout(30_000)
+                if self._database != ":memory:":
+                    connection.execute("PRAGMA journal_mode = WAL")
+                connection.execute(_BINDING_SCHEMA)
+                self._connection = connection
 
     def _close_sync(self) -> None:
         with self._lock:
@@ -88,21 +91,21 @@ class SQLiteMemoryBindingStore(MemoryBindingStore):
         candidate = f"memory-{uuid4()}"
         with self._lock:
             connection = self._connection_sync()
-            with connection:
+            with self._write_lock, connection:
                 connection.execute(
                     """
-                    INSERT INTO runtime_memory_bindings (scope_id, memory_artifact_id)
-                    VALUES (?, ?)
-                    ON CONFLICT (scope_id) DO NOTHING
-                    """,
+                        INSERT INTO runtime_memory_bindings (scope_id, memory_artifact_id)
+                        VALUES (?, ?)
+                        ON CONFLICT (scope_id) DO NOTHING
+                        """,
                     (scope_id, candidate),
                 )
                 row = connection.execute(
                     """
-                    SELECT memory_artifact_id
-                    FROM runtime_memory_bindings
-                    WHERE scope_id = ?
-                    """,
+                        SELECT memory_artifact_id
+                        FROM runtime_memory_bindings
+                        WHERE scope_id = ?
+                        """,
                     (scope_id,),
                 ).fetchone()
         if row is None:
@@ -143,6 +146,7 @@ class SQLiteRuntimeStorage(RuntimeStorage):
             embedding_profile=embedding_profile,
             vec1_extension=vec1_extension,
         )
+        self._memory_capabilities: MemoryCapabilities | None = None
 
     async def initialize(self) -> None:
         try:
@@ -150,6 +154,7 @@ class SQLiteRuntimeStorage(RuntimeStorage):
                 await self._sources.initialize()
                 await self._bindings.initialize()
                 await self._memory_probe.initialize()
+                self._memory_capabilities = await self._memory_probe.capabilities()
             finally:
                 await self._memory_probe.close()
         except BaseException:
@@ -159,6 +164,12 @@ class SQLiteRuntimeStorage(RuntimeStorage):
     async def close(self) -> None:
         await self._bindings.close()
         await self._sources.close()
+
+    async def memory_capabilities(self) -> MemoryCapabilities:
+        capabilities = self._memory_capabilities
+        if capabilities is None:
+            raise _SQLiteMemoryBindingStateError("not-initialized")
+        return capabilities
 
     async def open_scope(self, scope_id: str, /) -> SQLiteRuntimeScopeStorage:
         normalized_scope = validate_scope_id(scope_id)

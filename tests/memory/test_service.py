@@ -712,10 +712,14 @@ def test_changes_are_revision_ordered_and_since_is_exclusive() -> None:
         third = await service.forget(second, entries=(await current_entry(service, second),), reason="obsolete")
 
         deltas = await service.changes(third, since_revision=1)
+        full_history = await service.changes(third, since_revision=0)
         target_only = await service.changes(third)
 
         assert tuple(delta.memory_ref.revision for delta in deltas) == (2, 3)
+        assert tuple(delta.memory_ref.revision for delta in full_history) == (1, 2, 3)
         assert target_only == (MemoryRevisionChanges(third.ref, third.content.changes),)
+        with pytest.raises(ValueError, match="negative"):
+            await service.changes(third, since_revision=-1)
         with pytest.raises(ValueError, match="greater"):
             await service.changes(third, since_revision=4)
 

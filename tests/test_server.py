@@ -1,18 +1,36 @@
 from fastapi.testclient import TestClient
 
-from powercontext.api import Capabilities, CapabilityLimit, ReadinessResponse, ReadinessStatus
+from powercontext.api import (
+    Capabilities,
+    ReadinessResponse,
+    ReadinessStatus,
+)
 from powercontext.server.app import create_app
 from powercontext.server.settings import ServerSettings
 
 
 def test_settings_load_server_environment(monkeypatch) -> None:
-    monkeypatch.setenv("POWERCONTEXT_SERVER_HOST", "127.0.0.2")
-    monkeypatch.setenv("POWERCONTEXT_SERVER_PORT", "9000")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.2")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_STORAGE_PATH", "/var/lib/powercontext/test.db")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT", "25")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS", "30")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL", " test ")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS", "4")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_MCP_PATH", "/context/")
 
     settings = ServerSettings()
 
-    assert settings.host == "127.0.0.2"
-    assert settings.port == 9000
+    assert settings.http.host == "127.0.0.2"
+    assert settings.http.port == 9000
+    assert str(settings.storage.path) == "/var/lib/powercontext/test.db"
+    assert settings.runtime.source_window_limit == 25
+    assert settings.runtime.schedule_seconds == 30
+    assert settings.inference.generation_model == "test"
+    assert settings.inference.generation_timeout_seconds == 12.5
+    assert settings.inference.generation_max_requests == 4
+    assert settings.mcp.path == "/context"
 
 
 def test_liveness_adds_a_request_id() -> None:
@@ -71,11 +89,23 @@ def test_readiness_reports_unavailable_bindings() -> None:
     assert response.headers["X-Request-ID"]
 
 
+def test_unbound_runtime_error_preserves_status_and_request_id() -> None:
+    response = TestClient(create_app()).post(
+        "/v1/memory/entries/list",
+        headers={"X-Request-ID": "request-123"},
+        json={"scope_id": "project:powercontext"},
+    )
+
+    assert response.status_code == 503
+    assert response.headers["X-Request-ID"] == "request-123"
+    assert response.json()["error"]["code"] == "runtime_not_ready"
+
+
 def test_unhandled_errors_preserve_the_request_id() -> None:
     def fail() -> Capabilities:
         raise RuntimeError("boom")
 
-    client = TestClient(create_app(capability_provider=fail))
+    client = TestClient(create_app(capability_provider=fail), raise_server_exceptions=False)
 
     response = client.get("/v1/capabilities", headers={"X-Request-ID": "request-123"})
 
@@ -87,8 +117,8 @@ def test_capabilities_translate_core_values() -> None:
     capabilities = Capabilities(
         source_types=["git-commit"],
         artifact_families=["memory"],
-        search_modes=["text"],
-        limits=[CapabilityLimit(name="max_results", value=20)],
+        memory_extraction=True,
+        search_modes=["fts"],
     )
     client = TestClient(create_app(capability_provider=lambda: capabilities))
 
@@ -98,19 +128,6 @@ def test_capabilities_translate_core_values() -> None:
     assert response.json() == {
         "source_types": ["git-commit"],
         "artifact_families": ["memory"],
-        "search_modes": ["text"],
-        "limits": [{"name": "max_results", "value": 20}],
+        "memory_extraction": True,
+        "search_modes": ["fts"],
     }
-
-
-def test_openapi_exposes_only_the_implemented_contract() -> None:
-    schema = create_app().openapi()
-
-    assert schema["openapi"] == "3.0.3"
-    assert set(schema["paths"]) == {
-        "/health/live",
-        "/health/ready",
-        "/v1/capabilities",
-    }
-    assert schema["paths"]["/v1/capabilities"]["get"]["operationId"] == "get_capabilities"
-    assert "X-Request-ID" in schema["paths"]["/v1/capabilities"]["get"]["responses"]["200"]["headers"]

@@ -103,7 +103,7 @@ class ResultEmbeddingModel(PydanticAIEmbeddingModelBase):
 def test_structured_generator_binds_schema_and_usage() -> None:
     async def scenario() -> None:
         generator = PydanticAIStructuredGenerator(
-            model=TestModel(custom_output_args={"value": "durable preference"}),
+            model=TestModel(custom_output_text='{"value":"durable preference"}'),
             instructions="Return the durable value.",
             input_type=Question,
             output_type=Answer,
@@ -241,7 +241,7 @@ def test_structured_generator_propagates_cancellation() -> None:
 def test_invalid_structured_output_maps_to_stable_error() -> None:
     async def scenario() -> None:
         generator = PydanticAIStructuredGenerator(
-            model=TestModel(custom_output_args={"missing": "value"}),
+            model=TestModel(custom_output_text='{"missing":"value"}'),
             instructions="Return a value.",
             input_type=Question,
             output_type=Answer,
