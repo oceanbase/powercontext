@@ -279,6 +279,7 @@ class SQLiteMemoryBackend(DatabaseMemoryBackend):
             flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE | apsw.SQLITE_OPEN_FULLMUTEX,
         )
         try:
+            connection.set_busy_timeout(30_000)
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA journal_mode = WAL")
             self._probe_fts(connection)

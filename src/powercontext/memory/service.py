@@ -158,6 +158,16 @@ class MemoryService(ArtifactCatalog[Memory]):
             history.append(await self._backend.get(ArtifactRef(canonical.artifact_id, revision)))
         return tuple(history)
 
+    async def head(self, artifact_id: str, /) -> Memory:
+        """Return the current Memory head by its stable Artifact identity."""
+
+        return await self._backend.latest(artifact_id)
+
+    async def revision(self, memory: ArtifactRef, /) -> Memory:
+        """Return one exact Memory Revision by its stable reference."""
+
+        return await self._backend.get(memory)
+
     async def remember(
         self,
         *,

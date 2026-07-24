@@ -71,6 +71,29 @@ memory = await context.artifacts.remember(
 `context.sources.add()` 始终只是 Source 写入。provider task event、Trigger action、plugin、CLI wrapper 或其他 integration
 必须显式调用 `context.artifacts.remember()`；组合对象不会引入隐式模型调用或自动提取旁路。
 
+## 本地 Source-to-Memory runtime
+
+安装 `powercontext[runtime,sqlite]` 可使用内置 SQLite profile。其他 adapter 可以实现 `RuntimeStorage`，并通过
+`PowerContextRuntime.assemble()` 组装。Runtime 将 Source 和 Memory 作为独立的 family-scoped 服务暴露。显式
+Memory 写入直接调用 `MemoryService`；捕获内容先进入 Source journal，scheduled 或手动 `flush()` 才触发提取。
+
+direct write、read 和 FTS 不要求配置 `candidate_pipeline`；存在 pending Source 的手动 flush 需要 pipeline，缺少
+pipeline 时配置 scheduling 会在启动阶段被拒绝。Runtime 会在接受 scoped operation 前探测 SQLite Memory schema 和
+FTS5；可选 embedding model 还必须配置匹配的固定 profile 和可用 Vec1 extension。
+
+APScheduler 只发起 activation，其 SQLAlchemy job store 将 interval job 持久化在 SQLite sidecar 中；Source
+journal 和 cursor 仍由 runtime 管理。`SourceWindowTrigger` 是基于 journal high watermark 和 cursor 的纯策略。完整
+窗口成功后才推进 cursor，提取结果为空也属于成功。部署方必须确保每个 database 只有一个 live Runtime owner；进程内
+防重只拒绝重复的 scheduled owner，不提供跨进程锁。SQLite profile 提供 at-least-once 语义；job store 属于受信任的
+本地状态，不提供 workflow claim、lease、分布式协调或 exactly-once 执行。
+
+关闭 Runtime 后，新的 application operation 会被拒绝；已经准入的手动和 scheduled operation 完成后，scheduler 与
+backend 才会关闭。`ContentCapture` 会保存 JSON metadata 快照；content、description 和 metadata 都属于 canonical
+Source payload，并参与幂等与 identity conflict 判断。
+
+Runtime storage 将每个不透明 scope 映射到一个持久化、全局唯一的 Memory Artifact ID。binding 能跨重启恢复，而
+Memory Artifact 本身只有在内容实际变化后才创建。
+
 ## 写入和演进 Memory
 
 `remember(memory=None, ...)` 只有在至少一个通过校验的候选确实产生变化时才创建 identity。后续修改必须保存并传回上一次

@@ -76,6 +76,33 @@ second family-level service.
 other integration must explicitly call `context.artifacts.remember()`; composition does not introduce a hidden model
 call or automatic extraction path.
 
+## Local Source-to-Memory runtime
+
+Install `powercontext[runtime,sqlite]` to use the built-in SQLite profile. Other adapters can implement
+`RuntimeStorage` and use `PowerContextRuntime.assemble()`. The Runtime exposes Source and Memory as separate
+family-scoped services. Explicit Memory writes call `MemoryService` directly; captured content enters a Source journal
+and is extracted only after a scheduled or manual `flush()`.
+
+`candidate_pipeline` is optional for direct writes, reads, and FTS. A manual flush with pending Sources requires it,
+and scheduling is rejected at startup when it is absent. Runtime startup probes the SQLite Memory schema and FTS5
+before accepting scoped operations; an optional embedding model additionally requires a matching fixed profile and a
+working Vec1 extension.
+
+APScheduler only initiates activations. Its SQLAlchemy job store persists the interval job in a SQLite sidecar;
+the Source journal and cursor remain runtime-owned state. `SourceWindowTrigger` remains a pure policy over a journal
+high watermark and a cursor. A cursor advances after the whole fixed window succeeds, including an extraction no-op.
+The SQLite profile requires one live Runtime owner per database; the in-process guard only rejects duplicate scheduled
+owners and does not provide a cross-process lock. Processing is at-least-once: a process failure after a Memory commit
+but before the cursor write may replay the window. The job store is trusted local state and does not provide workflow
+claims, leases, distributed coordination, or exactly-once execution.
+
+Closing the Runtime rejects new application operations, waits for already admitted manual and scheduled operations,
+and then closes the scheduler and backends. `ContentCapture` snapshots JSON metadata; content, description, and metadata
+are part of the canonical Source payload used for idempotency and identity-conflict checks.
+
+The Runtime storage maps each opaque scope to one persisted, globally unique Memory Artifact ID. The binding survives
+restart, while the Memory Artifact itself is created only after a real content change.
+
 ## Write and evolve a Memory
 
 `remember(memory=None, ...)` creates an identity only when at least one validated candidate produces a real change.
