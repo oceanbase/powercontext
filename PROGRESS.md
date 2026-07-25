@@ -15,3 +15,5 @@
 | Phase 5 | coder-dev | ✅ done | 2026-07-25 19:27 | 82bfaaf | TDD 代码实现：7 issue 修复，93/93 测试通过。FC-1 CSS 静态引用，FC-2 NIM 导出，FC-3 forget marker metadata，FC-4 retention_score 提取，FC-5 API 泄露修复(21处)，FC-6 六维加权评估，FC-7 Ebbinghaus 替换线性公式。20% Checklist ✅。
 | Phase 5 fix | coder-dev | ✅ done | 2026-07-25 19:30 | c675fa2 | FC-4 测试修复：multi_agent/multi_user 模块级 Memory 导入，修复 patch() AttributeError。74 passed, 1 skipped。|
 | Phase 6 | coder-dev | ✅ done | 2026-07-25 19:37 | — | 冒烟测试：9/9 PASS。FC-1~FC-7 全部真实环境验证通过，68 unit tests passed。docs/smoke_test_report.md。 |
+| Phase 7 | reviewer-dev | ✅ done | 2026-07-25 19:39 | — | 行为审查：CONDITIONAL APPROVED。7 FC 全部逐 AC 对照，21 处 str(e) 已修复。1 High 遗漏（system.py:246），3 Minor 代码质量。docs/behavioral_review.md。 |
+| Phase 7.5 | reviewer-dev | ✅ done | 2026-07-25 19:39 | — | 对抗审查：CONDITIONAL APPROVED。0 Critical，1 High（system.py str(e) 泄露），2 Medium（metadata 覆盖风险）。安全攻击面、竞态条件、数据泄露全面审查。docs/adversarial_review.md。 |
