@@ -17,3 +17,4 @@
 | Phase 6 | coder-dev | ✅ done | 2026-07-25 19:37 | — | 冒烟测试：9/9 PASS。FC-1~FC-7 全部真实环境验证通过，68 unit tests passed。docs/smoke_test_report.md。 |
 | Phase 7 | reviewer-dev | ✅ done | 2026-07-25 19:39 | — | 行为审查：CONDITIONAL APPROVED。7 FC 全部逐 AC 对照，21 处 str(e) 已修复。1 High 遗漏（system.py:246），3 Minor 代码质量。docs/behavioral_review.md。 |
 | Phase 7.5 | reviewer-dev | ✅ done | 2026-07-25 19:39 | — | 对抗审查：CONDITIONAL APPROVED。0 Critical，1 High（system.py str(e) 泄露），2 Medium（metadata 覆盖风险）。安全攻击面、竞态条件、数据泄露全面审查。docs/adversarial_review.md。 |
+| Phase 8 | coder-dev | ✅ done | 2026-07-25 19:44 | a26d9cc | 文档更新：README.md 添加 Bug Fixes 章节（7 issue 表格），docs/CHANGELOG_FIXES.md 用户面向修复说明。 |
