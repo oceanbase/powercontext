@@ -64,7 +64,7 @@ class UserService:
             logger.error(f"Failed to get user profile {user_id}: {e}", exc_info=True)
             raise APIError(
                 code=ErrorCode.INTERNAL_ERROR,
-                message=f"Failed to get user profile: {str(e)}",
+                message="Failed to get user profile",
                 status_code=500,
             )
     
@@ -150,7 +150,7 @@ class UserService:
             logger.error(f"Failed to add user profile {user_id}: {e}", exc_info=True)
             raise APIError(
                 code=ErrorCode.PROFILE_UPDATE_FAILED,
-                message=f"Failed to add user profile: {str(e)}",
+                message="Failed to add user profile",
                 status_code=500,
             )
 
@@ -212,7 +212,7 @@ class UserService:
             logger.error(f"Failed to update user memory {memory_id}: {e}", exc_info=True)
             raise APIError(
                 code=ErrorCode.INTERNAL_ERROR,
-                message=f"Failed to update user memory: {str(e)}",
+                message="Failed to update user memory",
                 status_code=500,
             )
     
@@ -263,7 +263,7 @@ class UserService:
             logger.error(f"Failed to get user memories {user_id}: {e}", exc_info=True)
             raise APIError(
                 code=ErrorCode.INTERNAL_ERROR,
-                message=f"Failed to get user memories: {str(e)}",
+                message="Failed to get user memories",
                 status_code=500,
             )
     
@@ -320,7 +320,7 @@ class UserService:
             logger.error(f"Failed to delete user memories {user_id}: {e}", exc_info=True)
             raise APIError(
                 code=ErrorCode.INTERNAL_ERROR,
-                message=f"Failed to delete user memories: {str(e)}",
+                message="Failed to delete user memories",
                 status_code=500,
             )
     
@@ -378,7 +378,7 @@ class UserService:
             logger.error(f"Failed to delete user profile {user_id}: {e}", exc_info=True)
             raise APIError(
                 code=ErrorCode.INTERNAL_ERROR,
-                message=f"Failed to delete user profile: {str(e)}",
+                message="Failed to delete user profile",
                 status_code=500,
             )
 
@@ -417,7 +417,7 @@ class UserService:
             logger.error(f"Failed to get profiles: {e}", exc_info=True)
             raise APIError(
                 code=ErrorCode.INTERNAL_ERROR,
-                message=f"Failed to get profiles: {str(e)}",
+                message="Failed to get profiles",
                 status_code=500,
             )
 

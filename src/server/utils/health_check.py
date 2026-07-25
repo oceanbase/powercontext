@@ -128,16 +128,13 @@ def _check_database_sync() -> DependencyStatus:
         )
     except Exception as e:
         latency_ms = (time.time() - start_time) * 1000
-        error_msg = str(e)
-        # Truncate long error messages
-        if len(error_msg) > 200:
-            error_msg = error_msg[:197] + "..."
+        logger.error(f"Database health check failed: {e}", exc_info=True)
             
         return DependencyStatus(
             name="database",
             status="unavailable",
             latency_ms=round(latency_ms, 2),
-            error_message=error_msg,
+            error_message="Database connection failed",
             last_checked=datetime.utcnow(),
         )
 
@@ -221,16 +218,13 @@ def _check_llm_sync() -> DependencyStatus:
         )
     except Exception as e:
         latency_ms = (time.time() - start_time) * 1000
-        error_msg = str(e)
-        # Truncate long error messages
-        if len(error_msg) > 200:
-            error_msg = error_msg[:197] + "..."
+        logger.error(f"LLM health check failed: {e}", exc_info=True)
             
         return DependencyStatus(
             name="llm",
             status="unavailable",
             latency_ms=round(latency_ms, 2),
-            error_message=error_msg,
+            error_message="LLM service check failed",
             last_checked=datetime.utcnow(),
         )
 
