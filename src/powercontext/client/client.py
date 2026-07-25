@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import TracebackType
-from typing import Protocol, Self, TypeVar
+from typing import Self, TypeVar
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
@@ -52,31 +52,6 @@ _RequestT = TypeVar("_RequestT")
 _ResponseT = TypeVar("_ResponseT")
 
 
-class _Headers(Protocol):
-    def get(self, key: str) -> str | None: ...
-
-
-class _HttpResponse(Protocol):
-    @property
-    def status_code(self) -> int: ...
-
-    @property
-    def headers(self) -> _Headers: ...
-
-    @property
-    def content(self) -> bytes: ...
-
-
-class _AsyncHttpClient(Protocol):
-    async def request(
-        self,
-        method: str,
-        url: str,
-        *,
-        json: object | None = None,
-    ) -> _HttpResponse: ...
-
-
 class PowerContextClient:
     """Async Python facade for transport-level Server operations."""
 
@@ -85,7 +60,7 @@ class PowerContextClient:
         base_url: str,
         *,
         timeout: float = 10.0,
-        http_client: _AsyncHttpClient | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._owned_http_client: httpx.AsyncClient | None = None

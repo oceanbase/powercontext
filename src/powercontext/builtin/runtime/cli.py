@@ -8,8 +8,8 @@ from typing import Annotated
 import typer
 from pydantic import BaseModel
 
+from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
-from powercontext.builtin.runtime.instance import open_builtin_runtime
 from powercontext.builtin.runtime.models import MemorySearchMode
 from powercontext.builtin.runtime.settings import BuiltinSettings
 

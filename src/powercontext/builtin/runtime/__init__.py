@@ -1,7 +1,6 @@
 """Built-in runtime configuration, lifecycle, and application services."""
 
 from powercontext.builtin.artifacts.memory.models import MemoryChange
-from powercontext.builtin.components import MemoryFlushResult
 from powercontext.builtin.runtime.application import (
     BuiltinRuntime,
     MemoryApplication,
@@ -10,6 +9,11 @@ from powercontext.builtin.runtime.application import (
     ScopedSourceApplication,
     SourceApplication,
 )
+from powercontext.builtin.runtime.composition import (
+    BuiltinConfigurationError,
+    open_builtin_contexts,
+    open_builtin_runtime,
+)
 from powercontext.builtin.runtime.config import (
     BuiltinConfig,
     DatabaseConfig,
@@ -17,11 +21,6 @@ from powercontext.builtin.runtime.config import (
     RuntimeConfig,
 )
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
-from powercontext.builtin.runtime.instance import (
-    BuiltinConfigurationError,
-    open_builtin_contexts,
-    open_builtin_runtime,
-)
 from powercontext.builtin.runtime.models import (
     CaptureSource,
     GetMemoryEntryRequest,
@@ -31,6 +30,7 @@ from powercontext.builtin.runtime.models import (
     MemoryEntryInput,
     MemoryEntryRecord,
     MemoryEntryVersion,
+    MemoryFlushResult,
     MemoryHit,
     MemoryMutationResult,
     MemoryRevisionChanges,

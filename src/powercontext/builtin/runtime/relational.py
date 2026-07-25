@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, cast
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -18,24 +18,18 @@ from powercontext.builtin.artifacts.memory import (
     MemoryService,
     MemoryWritePlan,
 )
-from powercontext.builtin.components import (
-    BuiltinArtifacts,
-    BuiltinSources,
-    MemoryFlushResult,
-    SourceWindowApplication,
-)
+from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
-from powercontext.builtin.persistence.memory import (
-    MemoryIndexStrategy,
-    NoMemoryIndex,
-    RelationalMemoryBackend,
-)
+from powercontext.builtin.persistence.memory import RelationalMemoryBackend
+from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.runtime.models import MemoryFlushResult
+from powercontext.builtin.runtime.protocols import SourceWindow
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, SourceCursor, validate_scope_id
 from powercontext.builtin.triggers import (
     SOURCE_WINDOW_TRIGGER_NAME,
@@ -56,14 +50,67 @@ IdFactory = Callable[[str], str]
 _SOURCE_ADAPTERS: tuple[SourceAdapter[Any, Any, Any], ...] = (CONTENT_SOURCE_ADAPTER,)
 
 
-class _Repositories(BaseModel):
+@dataclass(frozen=True, slots=True)
+class _Repositories:
     """Repositories shared by every scoped context."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     sources: SourceRepository
     artifacts: ArtifactRepository
     cursors: SourceCursorRepository
+
+
+@dataclass(frozen=True, slots=True)
+class _ScopedServices:
+    """Centralize relational service wiring for one scope."""
+
+    database: AsyncDatabase
+    scope_id: str
+    repositories: _Repositories
+    index: MemoryIndex
+    candidate_pipeline: CandidatePipeline | None
+    embedding_model: EmbeddingModel | None
+    id_factory: IdFactory
+    memory_artifact_id: str
+    source_lock: asyncio.Lock
+
+    def sources(
+        self,
+        connection: AsyncConnection | None = None,
+    ) -> tuple[_RelationalSources, SourceCatalog]:
+        backend = _RelationalSources(
+            database=self.database,
+            scope_id=self.scope_id,
+            adapters=_SOURCE_ADAPTERS,
+            repository=self.repositories.sources,
+            write_lock=self.source_lock,
+            connection=connection,
+        )
+        return backend, SourceCatalog(backend=backend, adapters=_SOURCE_ADAPTERS)
+
+    def memory(
+        self,
+        source_resolver: SourceCatalog,
+        connection: AsyncConnection | None = None,
+    ) -> MemoryService:
+        return MemoryService(
+            backend=RelationalMemoryBackend(
+                database=self.database,
+                scope_id=self.scope_id,
+                artifacts=self.repositories.artifacts,
+                index=self.index,
+                connection=connection,
+            ),
+            candidate_pipeline=self.candidate_pipeline,
+            embedding_model=self.embedding_model,
+            source_resolver=source_resolver,
+            artifact_resolver=_RelationalArtifactResolver(
+                database=self.database,
+                scope_id=self.scope_id,
+                repository=self.repositories.artifacts,
+                connection=connection,
+            ),
+            id_factory=self.id_factory,
+        )
 
 
 class RelationalContexts:
@@ -73,7 +120,7 @@ class RelationalContexts:
         self,
         *,
         database: AsyncDatabase,
-        index: MemoryIndexStrategy | None = None,
+        index: MemoryIndex | None = None,
         candidate_pipeline: CandidatePipeline | None = None,
         embedding_model: EmbeddingModel | None = None,
         id_factory: IdFactory | None = None,
@@ -93,7 +140,7 @@ class RelationalContexts:
         self._memory_artifact_id = memory_artifact_id
         self._contexts: dict[
             str,
-            PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindowApplication],
+            PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindow],
         ] = {}
         self._source_locks: dict[str, asyncio.Lock] = {}
         self._activation_locks: dict[str, asyncio.Lock] = {}
@@ -113,33 +160,13 @@ class RelationalContexts:
         self,
         scope_id: str,
         /,
-    ) -> PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindowApplication]:
+    ) -> PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindow]:
         scope = validate_scope_id(scope_id)
         existing = self._contexts.get(scope)
         if existing is not None:
             return existing
 
-        sources_backend = _RelationalSources(
-            database=self.database,
-            scope_id=scope,
-            adapters=_SOURCE_ADAPTERS,
-            repository=self.repositories.sources,
-            write_lock=self._source_locks.setdefault(scope, asyncio.Lock()),
-        )
-        source_catalog = SourceCatalog(
-            backend=sources_backend,
-            adapters=_SOURCE_ADAPTERS,
-        )
-        memory = self._memory_service(
-            scope,
-            source_resolver=source_catalog,
-            artifact_resolver=_RelationalArtifactResolver(
-                database=self.database,
-                scope_id=scope,
-                repository=self.repositories.artifacts,
-            ),
-        )
-        source_windows = _RelationalSourceWindows(
+        services = _ScopedServices(
             database=self.database,
             scope_id=scope,
             repositories=self.repositories,
@@ -148,45 +175,26 @@ class RelationalContexts:
             embedding_model=self._embedding_model,
             id_factory=self._id_factory,
             memory_artifact_id=self._memory_artifact_id,
+            source_lock=self._source_locks.setdefault(scope, asyncio.Lock()),
+        )
+        sources_backend, source_catalog = services.sources()
+        source_window = _RelationalSourceWindow(
+            services=services,
             lock=self._activation_locks.setdefault(scope, asyncio.Lock()),
         )
-        context: PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindowApplication] = PowerContext(
+        context: PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindow] = PowerContext(
             sources=BuiltinSources(
                 catalog=source_catalog,
                 store=sources_backend,
                 journal=sources_backend,
             ),
             artifacts=BuiltinArtifacts(
-                memory=memory,
+                memory=services.memory(source_catalog),
                 memory_artifact_id=self._memory_artifact_id,
             ),
-            triggers=source_windows,
+            triggers=source_window,
         )
         return self._contexts.setdefault(scope, context)
-
-    def _memory_service(
-        self,
-        scope_id: str,
-        *,
-        source_resolver: SourceCatalog,
-        artifact_resolver: _RelationalArtifactResolver,
-        connection: AsyncConnection | None = None,
-    ) -> MemoryService:
-        backend = RelationalMemoryBackend(
-            database=self.database,
-            scope_id=scope_id,
-            artifacts=self.repositories.artifacts,
-            index=self.index,
-            connection=connection,
-        )
-        return MemoryService(
-            backend=backend,
-            candidate_pipeline=self._candidate_pipeline,
-            embedding_model=self._embedding_model,
-            source_resolver=source_resolver,
-            artifact_resolver=artifact_resolver,
-            id_factory=self._id_factory,
-        )
 
 
 class _RelationalSources:
@@ -210,9 +218,7 @@ class _RelationalSources:
     async def add(self, source: Source, /) -> Source:
         async with self._write_lock:
             try:
-                if self._bound_connection is not None:
-                    return (await self._repository.add(self._bound_connection, self._scope_id, source)).value
-                async with self._database.transaction() as connection:
+                async with self._database.connection(self._bound_connection) as connection:
                     return (await self._repository.add(connection, self._scope_id, source)).value
             except StoredPayloadConflictError as error:
                 raise SourceConflictError("identity", error.identity) from None
@@ -220,27 +226,20 @@ class _RelationalSources:
     async def get(self, source: Source, /) -> Source:
         ref = self._as_ref(source)
         try:
-            if self._bound_connection is not None:
-                return (await self._repository.get(self._bound_connection, self._scope_id, ref)).value
-            async with self._database.transaction() as connection:
+            async with self._database.connection(self._bound_connection) as connection:
                 return (await self._repository.get(connection, self._scope_id, ref)).value
         except RepositoryNotFoundError:
             raise SourceNotFoundError(source) from None
 
     async def list(self) -> tuple[Source, ...]:
-        if self._bound_connection is not None:
-            rows = await self._repository.list(self._bound_connection, self._scope_id)
-        else:
-            async with self._database.transaction() as connection:
-                rows = await self._repository.list(connection, self._scope_id)
+        async with self._database.connection(self._bound_connection) as connection:
+            rows = await self._repository.list(connection, self._scope_id)
         return tuple(row.value for row in rows)
 
     async def position(self, source: Source, /) -> int:
         ref = self._as_ref(source)
         try:
-            if self._bound_connection is not None:
-                return (await self._repository.get(self._bound_connection, self._scope_id, ref)).journal_position
-            async with self._database.transaction() as connection:
+            async with self._database.connection(self._bound_connection) as connection:
                 return (await self._repository.get(connection, self._scope_id, ref)).journal_position
         except RepositoryNotFoundError:
             raise SourceNotFoundError(source) from None
@@ -261,16 +260,11 @@ class _RelationalArtifactResolver:
         self._database = database
         self._scope_id = scope_id
         self._repository = repository
-        self._connection = connection
+        self._bound_connection = connection
 
     async def get(self, artifact: Artifact[object], /) -> Artifact[object]:
         try:
-            if self._connection is not None:
-                return cast(
-                    Artifact[object],
-                    await self._repository.get(self._connection, self._scope_id, artifact.as_ref()),
-                )
-            async with self._database.transaction() as connection:
+            async with self._database.connection(self._bound_connection) as connection:
                 return cast(
                     Artifact[object],
                     await self._repository.get(connection, self._scope_id, artifact.as_ref()),
@@ -279,52 +273,38 @@ class _RelationalArtifactResolver:
             raise ArtifactNotFoundError(artifact) from None
 
 
-class _RelationalSourceWindows:
+class _RelationalSourceWindow:
     def __init__(
         self,
         *,
-        database: AsyncDatabase,
-        scope_id: str,
-        repositories: _Repositories,
-        index: MemoryIndexStrategy,
-        candidate_pipeline: CandidatePipeline | None,
-        embedding_model: EmbeddingModel | None,
-        id_factory: IdFactory | None,
-        memory_artifact_id: str,
+        services: _ScopedServices,
         lock: asyncio.Lock,
     ) -> None:
-        self._database = database
-        self._scope_id = scope_id
-        self._repositories = repositories
-        self._index = index
-        self._candidate_pipeline = candidate_pipeline
-        self._embedding_model = embedding_model
-        self._id_factory = id_factory
-        self._memory_artifact_id = memory_artifact_id
+        self._services = services
         self._lock = lock
         self._trigger = SourceWindowTrigger()
 
     async def cursor(self) -> SourceCursor:
-        async with self._database.transaction() as connection:
-            state = await self._repositories.cursors.load(
+        async with self._services.database.transaction() as connection:
+            state = await self._services.repositories.cursors.load(
                 connection,
-                self._scope_id,
+                self._services.scope_id,
                 SOURCE_WINDOW_TRIGGER_NAME,
             )
         return self._trigger.initial_state() if state is None else state.cursor
 
     async def flush(self, *, limit: int) -> MemoryFlushResult:
         async with self._lock:
-            async with self._database.transaction() as connection:
-                state_row = await self._repositories.cursors.load(
+            async with self._services.database.transaction() as connection:
+                state_row = await self._services.repositories.cursors.load(
                     connection,
-                    self._scope_id,
+                    self._services.scope_id,
                     SOURCE_WINDOW_TRIGGER_NAME,
                 )
                 state = self._trigger.initial_state() if state_row is None else state_row.cursor
-                high_watermark = await self._repositories.sources.journal_position(
+                high_watermark = await self._services.repositories.sources.journal_position(
                     connection,
-                    self._scope_id,
+                    self._services.scope_id,
                 )
                 signal = SourceHighWatermark(sequence=high_watermark, limit=limit)
                 transition = self._trigger.activate(signal, state)
@@ -340,11 +320,12 @@ class _RelationalSourceWindows:
 
             action = transition.actions[0]
             prepared = await self._prepare_memory(sources)
-            async with self._database.transaction() as connection:
-                updated = await self._memory_service(connection).apply(prepared)
-                await self._repositories.cursors.save(
+            async with self._services.database.transaction() as connection:
+                _, source_catalog = self._services.sources(connection)
+                updated = await self._services.memory(source_catalog, connection).apply(prepared)
+                await self._services.repositories.cursors.save(
                     connection,
-                    self._scope_id,
+                    self._services.scope_id,
                     SOURCE_WINDOW_TRIGGER_NAME,
                     transition.state,
                     expected_generation=None if state_row is None else state_row.generation,
@@ -362,56 +343,21 @@ class _RelationalSourceWindows:
         connection: AsyncConnection,
         action: ProcessSourceWindow,
     ) -> tuple[Source, ...]:
-        rows = await self._repositories.sources.list(
+        rows = await self._services.repositories.sources.list(
             connection,
-            self._scope_id,
+            self._services.scope_id,
             after=action.after,
         )
         return tuple(row.value for row in rows if row.journal_position <= action.through)
 
     async def _prepare_memory(self, sources: tuple[Source, ...]) -> MemoryWritePlan:
-        service = self._memory_service()
+        _, source_catalog = self._services.sources()
+        service = self._services.memory(source_catalog)
         try:
-            current = await service.head(self._memory_artifact_id)
+            current = await service.head(self._services.memory_artifact_id)
         except ArtifactNotFoundError:
             current = None
         return await service.plan_remember(memory=current, sources=sources, mode="extract")
-
-    def _memory_service(self, connection: AsyncConnection | None = None) -> MemoryService:
-        source_backend = _RelationalSources(
-            database=self._database,
-            scope_id=self._scope_id,
-            adapters=_SOURCE_ADAPTERS,
-            repository=self._repositories.sources,
-            write_lock=self._lock,
-            connection=connection,
-        )
-        source_catalog = SourceCatalog(
-            backend=source_backend,
-            adapters=_SOURCE_ADAPTERS,
-        )
-        artifact_resolver = _RelationalArtifactResolver(
-            database=self._database,
-            scope_id=self._scope_id,
-            repository=self._repositories.artifacts,
-            connection=connection,
-        )
-        backend = RelationalMemoryBackend(
-            database=self._database,
-            scope_id=self._scope_id,
-            artifacts=self._repositories.artifacts,
-            index=self._index,
-            connection=connection,
-        )
-        service = MemoryService(
-            backend=backend,
-            candidate_pipeline=self._candidate_pipeline,
-            embedding_model=self._embedding_model,
-            source_resolver=source_catalog,
-            artifact_resolver=artifact_resolver,
-            id_factory=self._id_factory,
-        )
-        return service
 
 
 def _scoped_id_factory(memory_artifact_id: str, delegate: IdFactory | None) -> IdFactory:

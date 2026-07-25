@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterable, Mapping
+from collections.abc import AsyncIterator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, ClassVar, Protocol
+from dataclasses import dataclass, replace
+from typing import Any, ClassVar
 
-from pydantic import BaseModel, RootModel
-from sqlalchemy import Table, delete, insert, select
+from pydantic import RootModel
+from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactDraft, ArtifactRef
 from powercontext.builtin.artifacts.memory import (
-    CapabilityNotSupportedError,
     EmbeddingProfile,
     InvalidEmbeddingError,
     Memory,
     MemoryCapabilities,
-    MemoryChannelHit,
     MemoryCommit,
     MemoryContent,
     MemoryEntryVersion,
@@ -44,6 +43,7 @@ from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
+from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     MEMORY_ENTRY_HEADS_TABLE,
@@ -61,33 +61,12 @@ class _ArtifactRefs(RootModel[tuple[ArtifactRef, ...]]):
     pass
 
 
-def memory_channel_hits(
-    rows: Iterable[Mapping[Any, Any]],
-    memories: tuple[ArtifactRef, ...],
-    /,
-) -> tuple[MemoryChannelHit, ...]:
-    requested = {(memory.artifact_id, memory.revision) for memory in memories}
-    return tuple(
-        MemoryChannelHit(
-            memory_ref=ArtifactRef(
-                family="memory",
-                artifact_id=str(row["memory_artifact_id"]),
-                revision=int(row["head_revision"]),
-            ),
-            entry_id=str(row["entry_id"]),
-            entry_version_id=str(row["entry_version_id"]),
-            text=str(row["text"]),
-        )
-        for row in rows
-        if (str(row["memory_artifact_id"]), int(row["head_revision"])) in requested
-    )
-
-
 class _MemoryDraft(ArtifactDraft[MemoryContent]):
     family: ClassVar[str] = Memory.family
 
 
-class _RebuildSnapshot(BaseModel):
+@dataclass(frozen=True, slots=True)
+class _RebuildSnapshot:
     memory_ref: ArtifactRef
     projections: tuple[MemoryProjection, ...]
 
@@ -126,7 +105,7 @@ class RelationalMemoryBackend:
         database: AsyncDatabase,
         scope_id: str,
         artifacts: ArtifactRepository,
-        index: MemoryIndexStrategy | None = None,
+        index: MemoryIndex | None = None,
         connection: AsyncConnection | None = None,
     ) -> None:
         self._database = database
@@ -141,7 +120,7 @@ class RelationalMemoryBackend:
     async def get(self, memory: ArtifactRef, /) -> Memory:
         if memory.family != Memory.family:
             raise ArtifactNotFoundError(memory)
-        async with self._connection() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             try:
                 artifact = await self._artifacts.get(connection, self._scope_id, memory)
             except RepositoryNotFoundError:
@@ -149,7 +128,7 @@ class RelationalMemoryBackend:
         return _require_memory(artifact)
 
     async def latest(self, artifact_id: str, /) -> Memory:
-        async with self._connection() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             try:
                 artifact = await self._artifacts.latest(
                     connection,
@@ -166,7 +145,7 @@ class RelationalMemoryBackend:
         version_ids = tuple(item.entry_version_id for item in canonical.content.manifest.entries)
         if not version_ids:
             return ()
-        async with self._connection() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             rows = (
                 await connection.execute(
                     select(MEMORY_ENTRY_VERSIONS_TABLE).where(
@@ -183,7 +162,7 @@ class RelationalMemoryBackend:
 
     async def projections(self, memory: ArtifactRef, /) -> tuple[MemoryProjection, ...]:
         canonical = await self.get(memory)
-        async with self._connection() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             rows = (
                 await connection.execute(
                     select(MEMORY_ENTRY_HEADS_TABLE, MEMORY_ENTRY_VERSIONS_TABLE)
@@ -265,9 +244,7 @@ class RelationalMemoryBackend:
                 )
 
     def begin(self) -> AbstractAsyncContextManager[MemoryUnitOfWork]:
-        if self._bound_connection is not None:
-            return _bound_unit_of_work(self, self._bound_connection)
-        return _owned_unit_of_work(self)
+        return _unit_of_work(self)
 
     async def changes(
         self,
@@ -277,7 +254,7 @@ class RelationalMemoryBackend:
     ) -> tuple[MemoryRevisionChanges, ...]:
         target = await self.get(memory)
         lower = target.revision - 1 if since_revision is None else since_revision
-        async with self._connection() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             revisions = await self._artifacts.revisions(
                 connection,
                 self._scope_id,
@@ -290,7 +267,7 @@ class RelationalMemoryBackend:
         )
 
     async def vector_complete(self, memories: tuple[ArtifactRef, ...], profile: EmbeddingProfile, /) -> bool:
-        async with self._connection() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             return await self._index.vector_complete(connection, self._scope_id, memories, profile)
 
     async def search(self, request: MemorySearchRequest, /) -> MemorySearchChannels:
@@ -299,12 +276,12 @@ class RelationalMemoryBackend:
             latest = await self.latest(memory.artifact_id)
             if exact.as_ref() != latest.as_ref():
                 raise InvalidMemoryCitationError("memory-mismatch")
-        async with self._connection() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             return await self._index.search(connection, self._scope_id, request)
 
     async def expand(self, hits: tuple[MemoryHit, ...], /) -> tuple[MemoryEntryVersion, ...]:
         expanded: list[MemoryEntryVersion] = []
-        async with self._connection() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             for hit in hits:
                 row = (
                     (
@@ -420,17 +397,8 @@ class RelationalMemoryBackend:
             for projection, vector in zip(projections, vectors, strict=True)
         )
         return tuple(
-            snapshot.model_copy(update={"projections": tuple(next(embedded) for _ in snapshot.projections)})
-            for snapshot in snapshots
+            replace(snapshot, projections=tuple(next(embedded) for _ in snapshot.projections)) for snapshot in snapshots
         )
-
-    @asynccontextmanager
-    async def _connection(self) -> AsyncIterator[AsyncConnection]:
-        if self._bound_connection is not None:
-            yield self._bound_connection
-            return
-        async with self._database.transaction() as connection:
-            yield connection
 
     async def _commit(self, connection: AsyncConnection, value: MemoryCommit) -> Memory:
         _validate_commit(value)
@@ -500,19 +468,11 @@ class _RelationalMemoryUnitOfWork:
 
 
 @asynccontextmanager
-async def _owned_unit_of_work(
+async def _unit_of_work(
     backend: RelationalMemoryBackend,
 ) -> AsyncIterator[_RelationalMemoryUnitOfWork]:
-    async with backend._database.transaction() as connection:
+    async with backend._database.connection(backend._bound_connection) as connection:
         yield _RelationalMemoryUnitOfWork(backend, connection)
-
-
-@asynccontextmanager
-async def _bound_unit_of_work(
-    backend: RelationalMemoryBackend,
-    connection: AsyncConnection,
-) -> AsyncIterator[_RelationalMemoryUnitOfWork]:
-    yield _RelationalMemoryUnitOfWork(backend, connection)
 
 
 def _validate_commit(value: MemoryCommit) -> None:
@@ -635,171 +595,3 @@ def _require_memory(value: object) -> Memory:
     if type(value) is not Memory:
         raise _InvalidMemoryCommitError("memory-type", type(value).__name__)
     return value
-
-
-class MemoryIndexStrategy(Protocol):
-    """Optional query projection updated in the authoritative write transaction."""
-
-    capabilities: MemoryCapabilities
-    tables: tuple[Table, ...]
-
-    async def initialize(self, connection: AsyncConnection, /) -> None: ...
-
-    async def replace(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        memory_ref: ArtifactRef,
-        projections: tuple[MemoryProjection, ...],
-        /,
-    ) -> None: ...
-
-    async def search(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        request: MemorySearchRequest,
-        /,
-    ) -> MemorySearchChannels: ...
-
-    async def vector_complete(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        memories: tuple[ArtifactRef, ...],
-        profile: EmbeddingProfile,
-        /,
-    ) -> bool: ...
-
-    async def hydrate(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        projections: tuple[MemoryProjection, ...],
-        /,
-    ) -> tuple[MemoryProjection, ...]: ...
-
-
-class NoMemoryIndex:
-    """Truthfully expose an authoritative store without search projections."""
-
-    capabilities = MemoryCapabilities(fts=False)
-    tables: tuple[Table, ...] = ()
-
-    async def initialize(self, connection: AsyncConnection, /) -> None:
-        del connection
-
-    async def replace(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        memory_ref: ArtifactRef,
-        projections: tuple[MemoryProjection, ...],
-        /,
-    ) -> None:
-        del connection, scope_id, memory_ref, projections
-
-    async def search(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        request: MemorySearchRequest,
-        /,
-    ) -> MemorySearchChannels:
-        del connection, scope_id, request
-        raise CapabilityNotSupportedError("fts")
-
-    async def vector_complete(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        memories: tuple[ArtifactRef, ...],
-        profile: EmbeddingProfile,
-        /,
-    ) -> bool:
-        del connection, scope_id, memories, profile
-        return False
-
-    async def hydrate(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        projections: tuple[MemoryProjection, ...],
-        /,
-    ) -> tuple[MemoryProjection, ...]:
-        del connection, scope_id
-        return projections
-
-
-class CompositeMemoryIndex:
-    """Combine independent search indexes without leaking them into repositories."""
-
-    def __init__(self, *indexes: MemoryIndexStrategy) -> None:
-        self.indexes = indexes
-        fts = any(index.capabilities.fts for index in indexes)
-        vector_indexes = tuple(index for index in indexes if index.capabilities.vector)
-        profile = vector_indexes[0].capabilities.embedding_profile if vector_indexes else None
-        self.capabilities = MemoryCapabilities(
-            fts=fts,
-            vector=bool(vector_indexes),
-            hybrid=fts and bool(vector_indexes),
-            embedding_profile=profile,
-        )
-        self.tables = tuple(table for index in indexes for table in index.tables)
-
-    async def initialize(self, connection: AsyncConnection, /) -> None:
-        for index in self.indexes:
-            await index.initialize(connection)
-
-    async def replace(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        memory_ref: ArtifactRef,
-        projections: tuple[MemoryProjection, ...],
-        /,
-    ) -> None:
-        for index in self.indexes:
-            await index.replace(connection, scope_id, memory_ref, projections)
-
-    async def search(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        request: MemorySearchRequest,
-        /,
-    ) -> MemorySearchChannels:
-        fts: tuple[MemoryChannelHit, ...] = ()
-        vector: tuple[MemoryChannelHit, ...] = ()
-        for index in self.indexes:
-            channels = await index.search(connection, scope_id, request)
-            fts += channels.fts
-            vector += channels.vector
-        return MemorySearchChannels(fts=fts, vector=vector)
-
-    async def vector_complete(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        memories: tuple[ArtifactRef, ...],
-        profile: EmbeddingProfile,
-        /,
-    ) -> bool:
-        vector_indexes = tuple(index for index in self.indexes if index.capabilities.vector)
-        if not vector_indexes:
-            return False
-        for index in vector_indexes:
-            if not await index.vector_complete(connection, scope_id, memories, profile):
-                return False
-        return True
-
-    async def hydrate(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        projections: tuple[MemoryProjection, ...],
-        /,
-    ) -> tuple[MemoryProjection, ...]:
-        for index in self.indexes:
-            projections = await index.hydrate(connection, scope_id, projections)
-        return projections

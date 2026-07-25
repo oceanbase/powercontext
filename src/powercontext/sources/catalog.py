@@ -18,7 +18,7 @@ from powercontext.sources.protocols import SourceCatalogBackend
 _AnySourceAdapter = SourceAdapter[Any, Any, Any]
 
 
-class SourceCatalog(SourceCatalogBackend):
+class SourceCatalog:
     """A read-only Source catalog routed by actual adapters."""
 
     def __init__(

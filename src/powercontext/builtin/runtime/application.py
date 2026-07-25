@@ -7,7 +7,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING
 
 from powercontext.builtin.artifacts.memory import (
     Memory,
@@ -17,12 +17,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryService,
 )
 from powercontext.builtin.artifacts.memory.errors import MemoryEntryNotFoundError
-from powercontext.builtin.components import (
-    BuiltinArtifacts,
-    BuiltinSources,
-    MemoryFlushResult,
-    SourceWindowApplication,
-)
+from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
 from powercontext.builtin.runtime.models import (
     CaptureSource,
@@ -30,6 +25,7 @@ from powercontext.builtin.runtime.models import (
     MemoryChangesPage,
     MemoryEntriesPage,
     MemoryEntryRecord,
+    MemoryFlushResult,
     MemoryMutationResult,
     MemorySearchPage,
     RememberMemoryRequest,
@@ -39,25 +35,17 @@ from powercontext.builtin.runtime.models import (
     SearchMemoryRequest,
     SourceReceipt,
 )
-from powercontext.builtin.runtime.protocols import PowerContextProvider
+from powercontext.builtin.runtime.protocols import PowerContextProvider, SourceWindow
 from powercontext.builtin.sources import ContentCapture, SourceCursor, validate_scope_id
+from powercontext.context import PowerContext
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
+
+if TYPE_CHECKING:
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 logger = logging.getLogger(__name__)
 
 ScopeIds = Callable[[], Awaitable[tuple[str, ...]]]
-
-
-class _RuntimeScheduler(Protocol):
-    running: bool
-
-    def start(self, paused: bool = False) -> None: ...
-
-    def pause(self) -> None: ...
-
-    def resume(self) -> None: ...
-
-    def shutdown(self, wait: bool = True) -> None: ...
 
 
 class _RuntimeConfigurationError(ValueError):
@@ -83,8 +71,7 @@ class ScopedSourceApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def capture(self, value: CaptureSource, /) -> SourceReceipt:
-        async with self._runtime._operation():
-            context = await self._runtime._context(self.scope_id)
+        async with self._runtime._context(self.scope_id) as context:
             source, sequence = await context.sources.capture(
                 ContentCapture(
                     source_id=value.source_id,
@@ -113,8 +100,7 @@ class ScopedMemoryApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def remember(self, request: RememberMemoryRequest, /) -> MemoryMutationResult:
-        async with self._runtime._operation():
-            context = await self._runtime._context(self.scope_id)
+        async with self._runtime._context(self.scope_id) as context:
             async with self._runtime._lock(self.scope_id):
                 service = context.artifacts.memory
                 current = await _head_or_none(service, context.artifacts.memory_artifact_id)
@@ -133,8 +119,7 @@ class ScopedMemoryApplication:
             )
 
     async def search(self, request: SearchMemoryRequest, /) -> MemorySearchPage:
-        async with self._runtime._operation():
-            context = await self._runtime._context(self.scope_id)
+        async with self._runtime._context(self.scope_id) as context:
             async with self._runtime._lock(self.scope_id):
                 service = context.artifacts.memory
                 current = await _head_or_none(service, context.artifacts.memory_artifact_id)
@@ -153,8 +138,7 @@ class ScopedMemoryApplication:
             )
 
     async def list(self) -> MemoryEntriesPage:
-        async with self._runtime._operation():
-            context = await self._runtime._context(self.scope_id)
+        async with self._runtime._context(self.scope_id) as context:
             service = context.artifacts.memory
             current = await _head_or_none(service, context.artifacts.memory_artifact_id)
             if current is None:
@@ -165,8 +149,7 @@ class ScopedMemoryApplication:
             )
 
     async def get(self, request: GetMemoryEntryRequest, /) -> MemoryEntryRecord:
-        async with self._runtime._operation():
-            context = await self._runtime._context(self.scope_id)
+        async with self._runtime._context(self.scope_id) as context:
             service = context.artifacts.memory
             citation = request.citation
             memory = await service.revision(citation.memory_ref)
@@ -174,8 +157,7 @@ class ScopedMemoryApplication:
             return _entry_record(memory, await _cited_entry(service, memory, citation))
 
     async def revise(self, request: ReviseMemoryEntryRequest, /) -> MemoryMutationResult:
-        async with self._runtime._operation():
-            context = await self._runtime._context(self.scope_id)
+        async with self._runtime._context(self.scope_id) as context:
             async with self._runtime._lock(self.scope_id):
                 service = context.artifacts.memory
                 current, entry = await _current_citation(
@@ -205,8 +187,7 @@ class ScopedMemoryApplication:
             )
 
     async def retire(self, request: RetireMemoryEntryRequest, /) -> MemoryMutationResult:
-        async with self._runtime._operation():
-            context = await self._runtime._context(self.scope_id)
+        async with self._runtime._context(self.scope_id) as context:
             async with self._runtime._lock(self.scope_id):
                 service = context.artifacts.memory
                 current, entry = await _current_citation(
@@ -223,8 +204,7 @@ class ScopedMemoryApplication:
             )
 
     async def changes(self, *, since_revision: int | None = None) -> MemoryChangesPage:
-        async with self._runtime._operation():
-            context = await self._runtime._context(self.scope_id)
+        async with self._runtime._context(self.scope_id) as context:
             service = context.artifacts.memory
             current = await _head_or_none(service, context.artifacts.memory_artifact_id)
             if current is None:
@@ -237,15 +217,13 @@ class ScopedMemoryApplication:
             )
 
     async def flush(self, /, *, limit: int | None = None) -> MemoryFlushResult:
-        async with self._runtime._operation():
-            context = await self._runtime._context(self.scope_id)
+        async with self._runtime._context(self.scope_id) as context:
             window_limit = self._runtime.source_window_limit if limit is None else limit
             async with self._runtime._lock(self.scope_id):
                 return await context.triggers.flush(limit=window_limit)
 
     async def cursor(self) -> SourceCursor:
-        async with self._runtime._operation():
-            context = await self._runtime._context(self.scope_id)
+        async with self._runtime._context(self.scope_id) as context:
             return await context.triggers.cursor()
 
 
@@ -285,7 +263,7 @@ class BuiltinRuntime:
     def __init__(
         self,
         *,
-        provider: PowerContextProvider[BuiltinSources, BuiltinArtifacts, SourceWindowApplication],
+        provider: PowerContextProvider[BuiltinSources, BuiltinArtifacts, SourceWindow],
         capabilities: RuntimeCapabilities,
         source_window_limit: int = 100,
         scope_ids: ScopeIds | None = None,
@@ -302,7 +280,7 @@ class BuiltinRuntime:
         self._active_operations = 0
         self._closing = False
         self._closed = False
-        self._scheduler: _RuntimeScheduler | None = None
+        self._scheduler: AsyncIOScheduler | None = None
         self._scheduler_runtime_key: str | None = None
         self.sources = SourceApplication(self)
         self.memory = MemoryApplication(self)
@@ -336,7 +314,7 @@ class BuiltinRuntime:
         )
 
         runtime_key = scheduler_runtime_key(scheduler_path)
-        scheduler: _RuntimeScheduler | None = None
+        scheduler: AsyncIOScheduler | None = None
         register_processor(runtime_key, self.processor.run)
         self._scheduler_runtime_key = runtime_key
         try:
@@ -397,8 +375,13 @@ class BuiltinRuntime:
                 if self._active_operations == 0:
                     self._lifecycle.notify_all()
 
-    async def _context(self, scope_id: str):
-        return await self._provider.get(validate_scope_id(scope_id))
+    @asynccontextmanager
+    async def _context(
+        self,
+        scope_id: str,
+    ) -> AsyncIterator[PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindow]]:
+        async with self._operation():
+            yield await self._provider.get(validate_scope_id(scope_id))
 
     def _lock(self, scope_id: str) -> asyncio.Lock:
         return self._locks.setdefault(validate_scope_id(scope_id), asyncio.Lock())

@@ -1,4 +1,4 @@
-"""SQLite Memory persistence projections using FTS5 and Vec1."""
+"""SQLite Memory search indexes using FTS5 and Vec1."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ from powercontext.builtin.artifacts.memory.canonical import (
     fts_match_query,
     validate_embedding,
 )
-from powercontext.builtin.persistence.memory import memory_channel_hits
+from powercontext.builtin.persistence.memory_index import memory_channel_hits
 from powercontext.builtin.persistence.tables import (
     MAX_MEMORY_ENTRY_ID_LENGTH,
     MAX_MEMORY_HASH_LENGTH,

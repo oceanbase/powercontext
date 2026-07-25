@@ -1,4 +1,4 @@
-"""Lifecycle for one configured built-in runtime instance."""
+"""Composition and lifecycle for one configured built-in runtime."""
 
 from __future__ import annotations
 
@@ -14,13 +14,13 @@ from powercontext.builtin.artifacts.memory import (
     MemoryCapabilities,
 )
 from powercontext.builtin.inference import EmbeddingModel
-from powercontext.builtin.persistence.memory import CompositeMemoryIndex, MemoryIndexStrategy
-from powercontext.builtin.persistence.oceanbase.memory import (
+from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
+from powercontext.builtin.persistence.oceanbase.memory_index import (
     OceanBaseMemoryFTSIndex,
     OceanBaseMemoryVectorIndex,
 )
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
-from powercontext.builtin.persistence.sqlite.memory import SQLiteMemoryFTSIndex, SQLiteMemoryVec1Index
+from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVec1Index
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime.application import BuiltinRuntime
@@ -112,7 +112,7 @@ async def open_builtin_contexts(
 
     database = config.database
     if isinstance(database, SQLiteConfig):
-        indexes: list[MemoryIndexStrategy] = [SQLiteMemoryFTSIndex()]
+        indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
         if database.vec1_extension is not None:
             if embedding_model is None:
                 raise ValueError("SQLite Vec1 requires an embedding model")  # noqa: TRY003

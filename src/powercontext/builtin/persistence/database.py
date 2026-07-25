@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
@@ -60,6 +60,14 @@ class AsyncDatabase:
             async with self._state_changed:
                 self._active_transactions -= 1
                 self._state_changed.notify_all()
+
+    def connection(
+        self,
+        bound: AsyncConnection | None = None,
+    ) -> AbstractAsyncContextManager[AsyncConnection]:
+        """Use ``bound`` when supplied, otherwise own a transaction."""
+
+        return self.transaction() if bound is None else nullcontext(bound)
 
     async def close(self) -> None:
         """Drain active transactions, then dispose only an owned engine."""

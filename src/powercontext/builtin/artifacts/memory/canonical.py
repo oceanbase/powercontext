@@ -11,7 +11,7 @@ from itertools import pairwise
 from typing import cast
 
 import rfc8785
-from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
 
 from powercontext.builtin.artifacts.memory.models import MemoryContent
 
@@ -287,16 +287,11 @@ def _validated_json(value: object) -> JsonValue:
 
 
 class _CanonicalJSON(BaseModel):
-    """Validate one JSON value and expose Pydantic's JSON-mode projection."""
+    """Validate normalized JSON and expose Pydantic's JSON-mode projection."""
 
     model_config = ConfigDict(strict=True)
 
     value: JsonValue
-
-    @field_validator("value", mode="before")
-    @classmethod
-    def normalize_unicode(cls, value: object) -> object:
-        return _normalize_unicode(value)
 
 
 def _normalize_unicode(value: object) -> object:

@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Literal, Protocol, TypeAlias, TypeVar, overload
 from uuid import uuid4
 
-from pydantic import BaseModel
-
-from powercontext.artifacts import Artifact, ArtifactCatalog, ArtifactLineage, ArtifactRef
+from powercontext.artifacts import Artifact, ArtifactLineage, ArtifactRef
 from powercontext.builtin.artifacts.memory.canonical import (
     analyze_text,
     canonical_json,
@@ -82,18 +81,18 @@ class _ArtifactResolver(Protocol):
     async def get(self, artifact: Artifact[object], /) -> Artifact[object]: ...
 
 
-class _OperationEvidence(BaseModel):
+@dataclass(frozen=True, slots=True)
+class _OperationEvidence:
     sources: tuple[Source, ...]
     artifacts: tuple[Artifact[object], ...]
 
 
-class _EntryMaterial(BaseModel):
+@dataclass(frozen=True, slots=True)
+class _EntryMaterial:
     kind: str
     text: str
     sources: tuple[SourceRef, ...]
     artifacts: tuple[ArtifactRef, ...]
-    source_refs: tuple[object, ...]
-    artifact_refs: tuple[object, ...]
     content_bytes: bytes
     content_hash: str
 
@@ -116,7 +115,7 @@ class _InvalidMemoryOperationError(ValueError):
         super().__init__(messages[code])
 
 
-class MemoryService(ArtifactCatalog[Memory]):
+class MemoryService:
     """Validate and orchestrate Memory operations without exposing storage details."""
 
     def __init__(
@@ -521,12 +520,7 @@ class MemoryService(ArtifactCatalog[Memory]):
             ordered = sorted(entry_ids, key=str.encode)
             for entry_id in ordered[1:]:
                 item = manifest[entry_id]
-                manifest[entry_id] = MemoryManifestEntry(
-                    entry_id=item.entry_id,
-                    entry_version_id=item.entry_version_id,
-                    entry_content_hash=item.entry_content_hash,
-                    state="inactive",
-                )
+                manifest[entry_id] = item.model_copy(update={"state": "inactive"})
                 changes.append(
                     MemoryChange(
                         op="deactivate",
@@ -609,12 +603,7 @@ class MemoryService(ArtifactCatalog[Memory]):
                 raise InvalidMemoryCitationError("entry-mismatch")
             if item.state == target_state:
                 continue
-            manifest[entry_id] = MemoryManifestEntry(
-                entry_id=item.entry_id,
-                entry_version_id=item.entry_version_id,
-                entry_content_hash=item.entry_content_hash,
-                state=target_state,
-            )
+            manifest[entry_id] = item.model_copy(update={"state": target_state})
             changes.append(
                 MemoryChange(
                     op="reactivate" if target_state == "active" else "deactivate",
@@ -744,13 +733,11 @@ class MemoryService(ArtifactCatalog[Memory]):
             or previous.searchable_text != searchable_text
         ):
             return None
-        if previous.embedding is None:
-            return MemoryProjection(entry_version=version, searchable_text=searchable_text)
-        return MemoryProjection(
-            entry_version=version,
-            searchable_text=searchable_text,
-            embedding=previous.embedding,
-            embedding_content_hash=previous.embedding_content_hash,
+        return previous.model_copy(
+            update={
+                "entry_version": version,
+                "searchable_text": searchable_text,
+            }
         )
 
     async def _attach_embeddings(
@@ -777,18 +764,18 @@ class MemoryService(ArtifactCatalog[Memory]):
         updated = list(projections)
         for index, vector in zip(embed_indices, vectors, strict=True):
             projection = updated[index]
-            updated[index] = MemoryProjection(
-                entry_version=projection.entry_version,
-                searchable_text=projection.searchable_text,
-                embedding=vector,
-                embedding_content_hash=embedding_content_hash(
-                    profile_id=profile.profile_id,
-                    model=profile.model,
-                    dimension=profile.dimension,
-                    distance=profile.distance,
-                    normalization=profile.normalization,
-                    entry_content_hash=projection.entry_version.entry_content_hash,
-                ),
+            updated[index] = projection.model_copy(
+                update={
+                    "embedding": vector,
+                    "embedding_content_hash": embedding_content_hash(
+                        profile_id=profile.profile_id,
+                        model=profile.model,
+                        dimension=profile.dimension,
+                        distance=profile.distance,
+                        normalization=profile.normalization,
+                        entry_content_hash=projection.entry_version.entry_content_hash,
+                    ),
+                }
             )
         return tuple(updated)
 
@@ -902,7 +889,6 @@ class MemoryService(ArtifactCatalog[Memory]):
         memory_id = base.artifact_id if base is not None else self._new_id("memory")
         next_revision = 1 if base is None else base.revision + 1
         manifest = {} if base is None else {entry.entry_id: entry for entry in base.content.manifest.entries}
-        versions = {entry.entry_version_id: entry for entry in current_entries}
         current_by_entry = {entry.entry_id: entry for entry in current_entries}
         new_versions: list[MemoryEntryVersion] = []
         changes: list[MemoryChange] = []
@@ -930,7 +916,6 @@ class MemoryService(ArtifactCatalog[Memory]):
                     created_in_revision=next_revision,
                 )
                 manifest[entry_id] = _manifest_entry(version, state="active")
-                versions[version.entry_version_id] = version
                 current_by_entry[entry_id] = version
                 new_versions.append(version)
                 changes.append(
@@ -953,7 +938,7 @@ class MemoryService(ArtifactCatalog[Memory]):
             material = await self._material_from_candidate(
                 candidate,
                 evidence.sources,
-                (*evidence.artifacts,),
+                evidence.artifacts,
                 previous=previous,
             )
             previous_material = self._material_from_version(previous)
@@ -970,7 +955,6 @@ class MemoryService(ArtifactCatalog[Memory]):
                 created_in_revision=next_revision,
             )
             manifest[entry_id] = _manifest_entry(version, state="active")
-            versions[version.entry_version_id] = version
             current_by_entry[entry_id] = version
             new_versions.append(version)
             changes.append(
@@ -1089,10 +1073,11 @@ class MemoryService(ArtifactCatalog[Memory]):
         allowed_refs = tuple(artifact.as_ref() for artifact in allowed)
         for value in values:
             canonical = value if self._artifact_resolver is None else await self._artifact_resolver.get(value)
-            if canonical.as_ref() not in (*allowed_refs, *previous):
+            reference = canonical.as_ref()
+            if reference not in (*allowed_refs, *previous):
                 raise InvalidMemoryEvidenceError("artifact-outside")
-            if canonical.as_ref() not in result:
-                result.append(canonical.as_ref())
+            if reference not in result:
+                result.append(reference)
         return tuple(result)
 
     def _material_from_version(self, version: MemoryEntryVersion) -> _EntryMaterial:
@@ -1128,8 +1113,6 @@ class MemoryService(ArtifactCatalog[Memory]):
             text=normalized_text,
             sources=canonical_sources,
             artifacts=canonical_artifacts,
-            source_refs=source_refs,
-            artifact_refs=artifact_refs,
             content_bytes=content_bytes,
             content_hash=entry_content_hash(
                 kind=normalized_kind,

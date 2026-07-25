@@ -42,6 +42,20 @@ class RuntimeCapabilities(BaseModel):
     memory_search_modes: tuple[MemorySearchMode, ...]
 
 
+class MemoryFlushResult(BaseModel):
+    """Result of processing one scoped Source window."""
+
+    previous_cursor: int
+    high_watermark: int
+    current_cursor: int
+    source_count: int
+    memory_ref: ArtifactRef | None
+
+    @property
+    def processed(self) -> bool:
+        return self.current_cursor > self.previous_cursor
+
+
 class RememberMemoryRequest(BaseModel):
     """Append explicit entries, optionally against an expected head."""
 

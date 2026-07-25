@@ -1,43 +1,16 @@
-"""Typed component groups for the standard built-in profile."""
+"""Typed context groups for the standard built-in profile."""
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
-
 from pydantic import BaseModel, ConfigDict
 
-from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import MemoryService
 from powercontext.builtin.sources import (
     ContentCapture,
     ContentSource,
-    SourceCursor,
     SourceJournal,
 )
 from powercontext.context import Sources
-
-
-class MemoryFlushResult(BaseModel):
-    """Result of processing one scoped Source window."""
-
-    previous_cursor: int
-    high_watermark: int
-    current_cursor: int
-    source_count: int
-    memory_ref: ArtifactRef | None
-
-    @property
-    def processed(self) -> bool:
-        return self.current_cursor > self.previous_cursor
-
-
-@runtime_checkable
-class SourceWindowApplication(Protocol):
-    """Atomically execute one built-in Source-window activation."""
-
-    async def flush(self, *, limit: int) -> MemoryFlushResult: ...
-
-    async def cursor(self) -> SourceCursor: ...
 
 
 class BuiltinSources(Sources):

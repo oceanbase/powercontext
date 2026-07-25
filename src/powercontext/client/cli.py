@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from typing import Annotated, TypeAlias
 
 import typer
-from pydantic import BaseModel
 
 from powercontext.api import Capabilities, HealthResponse, ReadinessResponse
 from powercontext.client.client import PowerContextClient
@@ -26,7 +26,8 @@ app = typer.Typer(
 )
 
 
-class _ClientOptions(BaseModel):
+@dataclass(frozen=True, slots=True)
+class _ClientOptions:
     server_url: str
     timeout: float
     json_output: bool
