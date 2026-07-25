@@ -54,9 +54,14 @@ _BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=3)
 
 
 def _forget_marker_updates() -> Dict[str, Any]:
+    now = get_current_datetime().isoformat()
     return {
         "should_forget": True,
-        "marked_for_forgetting_at": get_current_datetime().isoformat(),
+        "marked_for_forgetting_at": now,
+        "metadata": {
+            "should_forget": True,
+            "marked_for_forgetting_at": now,
+        },
     }
 
 
