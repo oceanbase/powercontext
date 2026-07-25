@@ -12,3 +12,4 @@
 | Phase 3.5 | reviewer-dev | ✅ done | 2026-07-25 19:08 | — | 架构评审：CONDITIONAL APPROVE。1 Critical（FC-7 `_get_intelligent_memory_config()` 不存在），4 Medium（str(e) 计数 21→23、Spec Review 回应不足、旧数据兼容、metadata 合并策略）。8 维度评审：6 PASS、2 FAIL |
 | Phase 4 | coder-dev | ✅ done | 2026-07-25 19:15 | ce2d2bd | 测试先行：7 个测试文件，28+ AC，29 FAIL / 39 PASS。FC-1 源码检查(2F/2P)，FC-2 NIM 导出(5F/1P)，FC-3 forget marker(5F/1P)，FC-4 retention_score(5F/3P)，FC-5 API 泄露扫描(7F/1P)，FC-6 加权评估(5F/7P)，FC-7 Ebbinghaus(0F/21P，算法已存在) |
 | Phase 4 | tester | ✅ done | 2026-07-25 19:16 | ce2d2bd | 独立验证：75 tests (37 FAIL / 37 PASS / 1 SKIP)。COVERAGE_MATRIX.md 已更新实际状态。7 FC 全覆盖，28 AC 映射，22 NFR 覆盖。红灯状态确认：7 个 FC 的核心修复测试全部 FAIL，现有正确行为测试 PASS。 |
+| Phase 5 | coder-dev | ✅ done | 2026-07-25 19:27 | 82bfaaf | TDD 代码实现：7 issue 修复，93/93 测试通过。FC-1 CSS 静态引用，FC-2 NIM 导出，FC-3 forget marker metadata，FC-4 retention_score 提取，FC-5 API 泄露修复(21处)，FC-6 六维加权评估，FC-7 Ebbinghaus 替换线性公式。20% Checklist ✅。
