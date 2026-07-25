@@ -23,6 +23,7 @@ from powermem.agent.components.collaboration_coordinator import CollaborationCoo
 from powermem.agent.components.privacy_protector import PrivacyProtector
 from powermem.agent.filters import matches_memory_filters
 from powermem.agent.utils.memory_id import memory_key_variants, normalize_memory_id
+from powermem.core.memory import Memory
 
 logger = logging.getLogger(__name__)
 

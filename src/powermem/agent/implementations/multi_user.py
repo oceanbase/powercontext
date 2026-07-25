@@ -19,6 +19,7 @@ from powermem.agent.filters import matches_memory_filters
 from powermem.agent.utils.memory_id import memory_key_variants, normalize_memory_id
 from powermem.intelligence.intelligent_memory_manager import IntelligentMemoryManager
 from powermem.agent.abstract.manager import AgentMemoryManagerBase
+from powermem.core.memory import Memory
 
 logger = logging.getLogger(__name__)
 
