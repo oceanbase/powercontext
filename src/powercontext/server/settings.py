@@ -12,6 +12,15 @@ from powercontext.builtin.runtime.config import (
     RuntimeConfig,
     normalize_database_discriminator,
 )
+from powercontext.paths import default_database_path, default_scheduler_path, sqlite_url
+
+
+def _default_database() -> SQLiteConfig:
+    return SQLiteConfig(url=sqlite_url(default_database_path()))
+
+
+def _default_runtime() -> RuntimeConfig:
+    return RuntimeConfig(scheduler_path=default_scheduler_path())
 
 
 class HttpConfig(BaseModel):
@@ -51,8 +60,8 @@ class ServerSettings(BaseSettings):
 
     http: HttpConfig = Field(default_factory=HttpConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
-    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
-    database: DatabaseConfig = Field(default_factory=SQLiteConfig, discriminator="kind")
+    runtime: RuntimeConfig = Field(default_factory=_default_runtime)
+    database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
 
     @model_validator(mode="before")

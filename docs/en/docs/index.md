@@ -1,25 +1,23 @@
 ---
-title: Documentation
-description: Choose the current Core, Memory, inference, Server, and API documentation.
+title: PowerContext documentation
+description: Install PowerContext, connect Codex, and choose the right integration surface.
 ---
 
-# Documentation
+# PowerContext documentation
 
-<p class="pc-page-lead">Choose the guide that owns the behavior you need. Development pages describe the current implementation; RFCs preserve accepted design decisions.</p>
+PowerContext stores project-scoped context for agents. It runs as a local or remote Server and exposes the same
+durable Memory through Codex, Python, HTTP, and MCP.
 
-<div class="pc-docs-start">
-  <p>Recommended starting point</p>
-  <a href="../development/memory-layer/">
-    <strong>Use the Builtin Memory layer</strong>
-    <span>Open a relational profile, write Memory entries, and configure search.</span>
-    <span aria-hidden="true">→</span>
-  </a>
-</div>
+If you are installing PowerContext for yourself, start with the [Codex quickstart](tutorials/codex-quickstart.md). It
+takes you from a Git install to a second Codex session that can restore the first session's work.
 
-<ul class="pc-index-list pc-index-list--secondary">
-  <li><a href="../development/core-protocol/"><strong>Core protocol and composition</strong><span>Understand the stable extension contracts and ownership boundaries.</span><span aria-hidden="true">→</span></a></li>
-  <li><a href="../development/pydantic-ai-inference/"><strong>Pydantic AI inference</strong><span>Configure generation and embedding for Builtin Memory services.</span><span aria-hidden="true">→</span></a></li>
-  <li><a href="../development/remote-access-implementation/"><strong>PowerContext Server</strong><span>Run the current HTTP, Client, CLI, and optional MCP path.</span><span aria-hidden="true">→</span></a></li>
-  <li><a href="../modules/"><strong>API Reference</strong><span>Inspect the contracts exported by the current package.</span><span aria-hidden="true">→</span></a></li>
-  <li><a href="../rfcs/"><strong>RFC index</strong><span>Read accepted design records and the contribution process.</span><span aria-hidden="true">→</span></a></li>
-</ul>
+## Use PowerContext
+
+- [Install and run](how-to/install-and-run.md): install from Git, start the Server, and update it.
+- [Configure Codex](how-to/configure-codex.md): install the plugin and control project scope and prompt capture.
+- [Troubleshoot](how-to/troubleshoot.md): diagnose credentials, plugin, Server, database, and hook failures.
+
+## Look up details
+
+- [Interfaces](reference/interfaces.md): Codex, CLI, Client SDK, Core SDK, HTTP, and MCP.
+- [Configuration](reference/configuration.md): defaults and environment variables.

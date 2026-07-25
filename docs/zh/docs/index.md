@@ -1,25 +1,23 @@
 ---
-title: 文档
-description: 选择当前 Core、Memory、推理、Server 和 API 文档。
+title: PowerContext 文档
+description: 安装 PowerContext、连接 Codex，并选择合适的集成方式。
 ---
 
-# 文档
+# PowerContext 文档
 
-<p class="pc-page-lead">根据需要的行为选择对应文档。开发文档描述当前实现，RFC 保留已接受的设计决策。</p>
+PowerContext 为 Agent 保存项目级上下文。它以本地或远程 Server 的形式运行，并通过 Codex、Python、HTTP 和
+MCP 提供同一份持久化 Memory。
 
-<div class="pc-docs-start">
-  <p>建议从这里开始</p>
-  <a href="../development/memory-layer/">
-    <strong>使用 Builtin Memory layer</strong>
-    <span>打开关系型 profile，写入 Memory entry，并配置检索。</span>
-    <span aria-hidden="true">→</span>
-  </a>
-</div>
+如果你要为自己安装 PowerContext，请从 [Codex 快速入门](tutorials/codex-quickstart.md)开始。它会从
+Git 安装讲到第二个 Codex 会话如何恢复第一个会话的工作。
 
-<ul class="pc-index-list pc-index-list--secondary">
-  <li><a href="../development/core-protocol/"><strong>Core 协议与组合</strong><span>理解稳定扩展契约和职责边界。</span><span aria-hidden="true">→</span></a></li>
-  <li><a href="../development/pydantic-ai-inference/"><strong>Pydantic AI 推理</strong><span>为本地 Memory 服务配置 generation 和 embedding。</span><span aria-hidden="true">→</span></a></li>
-  <li><a href="../development/remote-access-implementation/"><strong>PowerContext Server</strong><span>运行当前 HTTP、Client、CLI 和可选 MCP 路径。</span><span aria-hidden="true">→</span></a></li>
-  <li><a href="../modules/"><strong>API 参考</strong><span>查阅当前包导出的公开契约。</span><span aria-hidden="true">→</span></a></li>
-  <li><a href="../rfcs/"><strong>RFC 索引</strong><span>阅读已接受的设计记录和贡献流程。</span><span aria-hidden="true">→</span></a></li>
-</ul>
+## 使用 PowerContext
+
+- [安装和运行](how-to/install-and-run.md)：从 Git 安装、启动 Server 和更新版本。
+- [配置 Codex](how-to/configure-codex.md)：安装插件，并控制项目 scope 和提示词采集。
+- [排查问题](how-to/troubleshoot.md)：诊断凭据、插件、Server、数据库和 Hook。
+
+## 查询细节
+
+- [接口](reference/interfaces.md)：Codex、CLI、Client SDK、Core SDK、HTTP 和 MCP。
+- [配置](reference/configuration.md)：默认值和环境变量。

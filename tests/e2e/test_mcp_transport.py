@@ -41,6 +41,19 @@ def test_mcp_streamable_http_is_mounted_at_the_configured_server_path(tmp_path: 
         )
         async with app.router.lifespan_context(app), Client(transport) as client:
             tools = {tool.name for tool in await client.list_tools()}
+            empty_search = await client.call_tool(
+                "search_memory",
+                {
+                    "scope_id": "project:empty",
+                    "query": "nothing stored",
+                },
+            )
+            empty_list = await client.call_tool(
+                "list_memory_entries",
+                {"scope_id": "project:empty"},
+            )
+            assert empty_search.structured_content == {"memory": None, "mode": None, "hits": []}
+            assert empty_list.structured_content == {"memory": None, "entries": []}
             remembered = await client.call_tool(
                 "remember_memory",
                 {

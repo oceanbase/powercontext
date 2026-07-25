@@ -1,0 +1,108 @@
+---
+title: Configuration
+description: PowerContext paths, Server, Client, inference, and Codex environment variables.
+---
+
+# Configuration
+
+PowerContext reads configuration from environment variables when each process starts.
+
+## User data
+
+`POWERCONTEXT_HOME` overrides the directory used by the installed Server:
+
+```bash
+export POWERCONTEXT_HOME=/srv/powercontext
+```
+
+Without an override, the default is:
+
+- Linux: `$XDG_DATA_HOME/powercontext`, or `~/.local/share/powercontext`;
+- macOS: `~/Library/Application Support/powercontext`.
+
+The default SQLite database is `powercontext.db` in this directory. Scheduled processing uses `scheduler.db` in the
+same directory.
+
+## Server
+
+Server settings use the `POWERCONTEXT_SERVER_` prefix.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | Listener address |
+| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | Listener port |
+| `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |
+| `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP path |
+| `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async database URL |
+| `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Sources processed in one activation |
+| `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | unset | Scheduler interval; unset disables scheduling |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model identifier for Memory extraction |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation timeout |
+
+Example with a controlled SQLite path and scheduled extraction:
+
+```bash
+export POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:////srv/powercontext/runtime.db
+export POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=30
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
+powercontext server run
+```
+
+Provider credentials, such as `OPENAI_API_KEY`, are read by the configured inference provider. Do not place secrets in
+command-line arguments, documentation, or Memory. Replace `provider:model-name` with a model identifier supported by
+Pydantic AI. Scheduled extraction requires both a generation model and
+`POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`. An explicit Memory write does not require either.
+
+To use OceanBase, provide its URL through your environment or secret manager:
+
+```bash
+export POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase
+export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
+```
+
+The URL must use the `mysql+aoceanbase` driver, include an explicit port and database, and set `charset=utf8mb4`. The
+tenant must use MySQL compatibility mode.
+
+### Embeddings
+
+Embedding search is enabled only when all three identity fields are set:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=provider:embedding-model
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=embedding-model-v1
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1024
+```
+
+Replace the example values with the selected provider model, a stable profile ID, and that model's dimension.
+
+Optional settings are `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` and
+`POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS`.
+
+## Client CLI
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `POWERCONTEXT_CLIENT_SERVER_URL` | `http://127.0.0.1:8000` | Server base URL |
+| `POWERCONTEXT_CLIENT_TIMEOUT` | `10` | HTTP timeout in seconds |
+
+Equivalent one-off flags are available on `powercontext client`.
+
+## Codex plugin
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `POWERCONTEXT_CODEX_SCOPE_ID` | derived from Git remote or project path | Override project scope |
+| `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
+| `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
+| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request hook timeout |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Shared hook HTTP budget |
+| `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt |
+
+The outer Codex hook timeout is ten seconds. Recall, capture, and flush fail independently and never block Codex when
+the Server is unavailable.
+
+## Builtin CLI
+
+`powercontext builtin` uses the same database, runtime, and inference field names under the
+`POWERCONTEXT_BUILTIN_` prefix. Its default SQLite database is in memory; configure
+`POWERCONTEXT_BUILTIN_DATABASE_URL` when CLI invocations must share state.

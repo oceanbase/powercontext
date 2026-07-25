@@ -7,7 +7,7 @@
     "email": "open_oceanbase@oceanbase.com",
     "url": "https://github.com/oceanbase"
   },
-  "homepage": "https://oceanbase.github.io/powercontext/",
+  "homepage": "https://github.com/oceanbase/powercontext",
   "repository": "https://github.com/oceanbase/powercontext",
   "license": "Apache-2.0",
   "keywords": [
@@ -27,7 +27,7 @@
       "Read",
       "Write"
     ],
-    "websiteURL": "https://oceanbase.github.io/powercontext/",
+    "websiteURL": "https://github.com/oceanbase/powercontext/tree/main/docs/en/docs",
     "defaultPrompt": [
       "Restore relevant project memory for this task.",
       "Remember this project decision.",

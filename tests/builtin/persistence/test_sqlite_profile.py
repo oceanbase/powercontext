@@ -20,6 +20,18 @@ def test_sqlite_config_requires_the_async_dialect() -> None:
         SQLiteConfig(url="sqlite:///:memory:")
 
 
+def test_sqlite_profile_creates_a_missing_database_directory(tmp_path) -> None:
+    async def scenario() -> None:
+        database = tmp_path / "nested" / "powercontext.db"
+        async with SQLiteProfile.open(
+            SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
+            tables=SHARED_TABLES,
+        ):
+            assert database.is_file()
+
+    asyncio.run(scenario())
+
+
 def test_sqlite_pragmas_enforce_lineage_source_foreign_keys() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile:

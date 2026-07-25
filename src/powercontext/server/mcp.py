@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import httpx
 from fastapi import FastAPI
 from fastmcp import FastMCP
-from fastmcp.server.providers.openapi import MCPType
+from fastmcp.server.providers.openapi import MCPType, OpenAPIProvider
 from fastmcp.utilities.lifespan import combine_lifespans
 from fastmcp.utilities.openapi import HTTPRoute
 
@@ -38,11 +39,19 @@ def _select_mcp_type(route: HTTPRoute, _: MCPType) -> MCPType:
 def create_mcp_server(server_app: FastAPI) -> FastMCP:
     """Project the Agent-facing subset of a Server app into MCP components."""
 
-    return FastMCP.from_fastapi(
-        app=server_app,
-        name=MCP_SERVER_NAME,
-        route_map_fn=_select_mcp_type,
+    client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=server_app),
+        base_url="http://fastapi",
     )
+    provider = OpenAPIProvider(
+        openapi_spec=server_app.openapi(),
+        client=client,
+        route_map_fn=_select_mcp_type,
+        # FastAPI has already validated the response model. A second JSON Schema
+        # pass rejects valid OpenAPI 3.0 nullable references in empty results.
+        validate_output=False,
+    )
+    return FastMCP(name=MCP_SERVER_NAME, providers=[provider])
 
 
 def mount_mcp(server_app: FastAPI, *, path: str = MCP_PATH) -> FastAPI:

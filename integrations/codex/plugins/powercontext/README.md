@@ -3,7 +3,7 @@
 This plugin is a thin Codex integration for a running PowerContext Server. It
 does not embed storage or start the server.
 
-The integration deliberately uses each public surface for the job it fits:
+The integration uses each public surface for the job it fits:
 
 - the `UserPromptSubmit` hook first calls `POST /v1/memory/search`, then
   captures the current prompt with `POST /v1/sources/content`;
@@ -13,7 +13,7 @@ The integration deliberately uses each public surface for the job it fits:
 Start a local server before using the integration:
 
 ```bash
-uv run powercontext server run
+powercontext server run
 ```
 
 The hook runtime is declared by the plugin's `pyproject.toml` and launched with
@@ -21,7 +21,9 @@ The hook runtime is declared by the plugin's `pyproject.toml` and launched with
 The hook uses a small synchronous standard-library HTTP adapter because Codex
 executes it as a short-lived process. It does not expose that adapter as an SDK.
 
-Set `POWERCONTEXT_CODEX_SCOPE_ID` to override Git-based project scoping.
+Set `POWERCONTEXT_CODEX_SCOPE_ID` to override automatic project scoping. By
+default, the scope comes from the normalized Git remote, or from the project
+path when no supported remote is available.
 `.mcp.json` is the single Server endpoint configuration consumed by Codex and
 the hook: the hook validates its PowerContext MCP URL and derives the HTTP API
 base by removing the final `/mcp` path segment. Change that file before

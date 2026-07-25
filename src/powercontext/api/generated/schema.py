@@ -397,7 +397,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "current_cursor": {"type": "integer", "minimum": 0.0},
                     "high_watermark": {"type": "integer", "minimum": 0.0},
                     "processed_source_count": {"type": "integer", "minimum": 0.0},
-                    "memory": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -448,7 +448,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ListMemoryChangesResponse": {
                 "properties": {
-                    "memory": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
                     "revisions": {"items": {"$ref": "#/components/schemas/MemoryRevisionChanges"}, "type": "array"},
                 },
                 "additionalProperties": False,
@@ -463,7 +463,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ListMemoryEntriesResponse": {
                 "properties": {
-                    "memory": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
                     "entries": {"items": {"$ref": "#/components/schemas/MemoryEntry"}, "type": "array"},
                 },
                 "additionalProperties": False,
@@ -487,7 +487,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "MemoryMutationResponse": {
                 "properties": {
                     "memory": {"$ref": "#/components/schemas/ArtifactReference"},
-                    "entry": {"$ref": "#/components/schemas/MemoryEntry"},
+                    "entry": {"$ref": "#/components/schemas/MemoryEntry", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -593,8 +593,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "SearchMemoryResponse": {
                 "properties": {
-                    "memory": {"$ref": "#/components/schemas/ArtifactReference"},
-                    "mode": {"$ref": "#/components/schemas/MemoryUsedSearchMode"},
+                    "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "mode": {"$ref": "#/components/schemas/MemoryUsedSearchMode", "nullable": True},
                     "hits": {"items": {"$ref": "#/components/schemas/SearchMemoryHit"}, "type": "array"},
                 },
                 "additionalProperties": False,

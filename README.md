@@ -1,75 +1,74 @@
 # PowerContext
 
-PowerContext turns human-agent work into handoff-ready context.
+PowerContext gives agents durable, project-scoped context. A later session can recover a decision, outcome, current
+state, or next step without relying on chat history. PowerContext includes a local Server, SQLite storage, an
+async Python client, a Core SDK, a CLI, and a Codex plugin.
 
-The current Python package defines typed contracts for:
+PowerContext can be installed directly from its Git URL. Users need read access to that URL, but they do not need to
+clone the repository or run commands from its working tree.
 
-- resolving and storing external work evidence as Sources;
-- maintaining versioned Artifacts with lifecycle and lineage;
-- computing Trigger transitions from signals and state;
-- composing those contracts without taking ownership of host-side infrastructure.
+## Install for Codex
 
-The Core package leaves infrastructure ownership to the host. Optional extras provide the supported implementation and
-process roles:
+Prerequisites:
 
-| Extra | Includes |
+- macOS or Linux;
+- [uv](https://docs.astral.sh/uv/getting-started/installation/);
+- Codex CLI;
+- read access to `oceanbase/powercontext`.
+
+Install the tool and configure the Codex plugin:
+
+```bash
+uv tool install "powercontext[cli,client,server] @ git+https://github.com/oceanbase/powercontext.git@main"
+powercontext setup codex --source oceanbase/powercontext --ref main
+```
+
+You do not need to create or manage a repository checkout. Start the local service in a terminal:
+
+```bash
+powercontext server run
+```
+
+In another terminal, verify the package, plugin, Server, and database:
+
+```bash
+powercontext doctor
+```
+
+Start a new Codex session after installation. Open `/hooks` once and approve the PowerContext hook if Codex asks for
+trust. The default database is persistent and requires no configuration.
+
+See the [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) for a first cross-session workflow.
+
+## Choose an interface
+
+| Interface | Use it for |
 | --- | --- |
-| `builtin` | Builtin runtime, SQLite, OceanBase, scheduling, and inference |
-| `client` | Core contracts and the async Python SDK |
-| `server` | Builtin runtime, HTTP, and MCP |
-| `cli` | Command shell, Builtin by default, and installed-role discovery |
+| Codex plugin | Restore relevant project memory and explicitly remember, revise, or retire entries while coding |
+| CLI | Install the plugin, run the Server, inspect capabilities, and diagnose an installation |
+| Python client | Call the Server's Source and Memory API from an application |
+| Core SDK | Embed PowerContext contracts or supply custom adapters in a Python system |
+| HTTP and MCP | Integrate a non-Python process or an agent host with the running Server |
 
-Install a role directly when using its Python API:
+The [interface reference](docs/en/docs/reference/interfaces.md) explains the ownership boundary between these
+surfaces. Installation, configuration, and troubleshooting live under [`docs/en/docs/`](docs/en/docs/index.md).
 
-```bash
-uv add "powercontext[builtin]"
-uv add "powercontext[client]"
-uv add "powercontext[server]"
-```
+## Python projects
 
-The CLI defaults to the `builtin` command. Add Client or Server to the same environment only when their commands are
-needed:
+Add only the role the project imports:
 
 ```bash
-uv add "powercontext[cli]"
-uv add "powercontext[cli,client]"
-uv add "powercontext[cli,server]"
+uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@main"
 ```
 
-Commands are discovered from installed entry points. A role that is not installed does not appear in CLI help.
-
-The repository has not published a tagged release yet.
-
-## Documentation
-
-- [Project overview](docs/en/index.md)
-- [Core Protocol integration guide](docs/en/development/core-protocol.md)
-- [API reference](docs/en/modules.md)
-- [RFCs](docs/en/rfcs/README.md)
+Available extras are `builtin`, `client`, `server`, and `cli`. The CLI discovers commands from installed entry points,
+so a role that is not installed does not appear in its help.
 
 ## Development
 
-Install the environment and repository hooks:
-
-```bash
-make install
-```
-
-Run the test and quality suites:
-
-```bash
-make test
-make check
-```
-
-Build the documentation strictly or serve it locally:
-
-```bash
-make docs-test
-make docs
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow.
+Repository contributors can install the locked environment and hooks with `make install`. Use `make test`,
+`make check`, and `make docs-test` before opening a pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full
+workflow and [`docs/en/development/`](docs/en/development/core-protocol.md) for implementation guides.
 
 ## License
 

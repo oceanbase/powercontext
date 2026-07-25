@@ -531,6 +531,7 @@ components:
           minimum: 0
         memory:
           $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
     GetMemoryEntryRequest:
       type: object
       additionalProperties: false
@@ -574,6 +575,7 @@ components:
       properties:
         memory:
           $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
         revisions:
           type: array
           items:
@@ -595,6 +597,7 @@ components:
       properties:
         memory:
           $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
         entries:
           type: array
           items:
@@ -639,6 +642,7 @@ components:
           $ref: "#/components/schemas/ArtifactReference"
         entry:
           $ref: "#/components/schemas/MemoryEntry"
+          nullable: true
     MemoryCitation:
       type: object
       additionalProperties: false
@@ -793,8 +797,10 @@ components:
       properties:
         memory:
           $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
         mode:
           $ref: "#/components/schemas/MemoryUsedSearchMode"
+          nullable: true
         hits:
           type: array
           items:

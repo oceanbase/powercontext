@@ -37,11 +37,13 @@ client = [
 server = [
     "fastapi>=0.115,<1",
     "fastmcp>=3.4,<4",
+    "platformdirs>=4,<5",
     "powercontext[builtin]",
     "pydantic-settings>=2.7,<3",
     "uvicorn>=0.34,<1",
 ]
 cli = [
+    "platformdirs>=4,<5",
     "powercontext[builtin]",
     "typer>=0.16,<1",
 ]
@@ -52,12 +54,14 @@ powercontext = "powercontext.cli.app:main"
 [project.entry-points."powercontext.cli"]
 builtin = "powercontext.builtin.runtime.cli:app"
 client = "powercontext.client.cli:app"
+doctor = "powercontext.cli.system:doctor_app"
 server = "powercontext.server.cli:app"
+setup = "powercontext.cli.system:setup_app"
 
 [project.urls]
-Homepage = "https://oceanbase.github.io/powercontext/"
+Homepage = "https://github.com/oceanbase/powercontext"
 Repository = "https://github.com/oceanbase/powercontext"
-Documentation = "https://oceanbase.github.io/powercontext/"
+Documentation = "https://github.com/oceanbase/powercontext/tree/main/docs/en/docs"
 
 [dependency-groups]
 dev = [

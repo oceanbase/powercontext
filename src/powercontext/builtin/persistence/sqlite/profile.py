@@ -66,6 +66,7 @@ class SQLiteProfile:
     ) -> AsyncIterator[SQLiteProfile]:
         """Create, initialize and exclusively own one SQLite engine."""
 
+        _create_database_directory(config.url)
         engine_options: dict[str, object] = {"echo": config.echo}
         if _is_memory_url(config.url):
             engine_options["poolclass"] = StaticPool
@@ -85,6 +86,13 @@ class SQLiteProfile:
 def _is_memory_url(value: str) -> bool:
     database = make_url(value).database
     return database in {None, "", ":memory:"}
+
+
+def _create_database_directory(value: str) -> None:
+    database = make_url(value).database
+    if not database or database == ":memory:":
+        return
+    Path(database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
 
 
 def _configure_sqlite(engine: AsyncEngine, config: SQLiteConfig) -> None:

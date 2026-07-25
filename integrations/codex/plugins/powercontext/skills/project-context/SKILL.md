@@ -39,9 +39,9 @@ current-state, task-outcome, or next-step. Never store secrets or credentials,
 and never claim success until the tool returns successfully.
 
 Before `revise_memory_entry` or `retire_memory_entry`, read the current entry.
-Pass its `memory_revision` as `expected_revision` and its exact `citation`.
-After a conflict, refresh the head and retry once only if the user's requested
-change still applies.
+Pass its exact `citation`; the citation's Memory revision is the concurrency
+check. After a conflict, refresh the head and retry once only if the user's
+requested change still applies.
 
 ## Degrade safely
 

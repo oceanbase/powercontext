@@ -10,7 +10,7 @@ import typer
 
 COMMAND_PROVIDER_GROUP = "powercontext.cli"
 HELP_OPTION_NAMES = ("-h", "--help")
-DOCUMENTATION_URL = "https://oceanbase.github.io/powercontext/"
+DOCUMENTATION_URL = "https://github.com/oceanbase/powercontext/tree/main/docs/en/docs"
 ISSUES_URL = "https://github.com/oceanbase/powercontext/issues"
 
 
