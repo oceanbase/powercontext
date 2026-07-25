@@ -100,7 +100,7 @@ export default function Features() {
                 key={feature.key}
                 className={styles.card}
               >
-                <div className={`${styles.icon} ${styles[`icon-${feature.key}`]}`}>
+                <div className={styles.icon}>
                   <Icon className={styles.iconSvg} />
                 </div>
                 <Heading as="h3" className={styles.cardTitle}>
