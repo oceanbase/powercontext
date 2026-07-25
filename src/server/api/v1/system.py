@@ -243,6 +243,6 @@ async def delete_all_memories(
     except Exception as e:
         raise APIError(
             code=ErrorCode.INTERNAL_ERROR,
-            message=f"Failed to delete all memories: {str(e)}",
+            message="Failed to delete all memories",
             status_code=500,
         )
