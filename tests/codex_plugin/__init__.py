@@ -1,0 +1,1 @@
+"""Codex plugin contract tests."""

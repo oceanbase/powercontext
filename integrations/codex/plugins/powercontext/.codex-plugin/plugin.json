@@ -1,0 +1,37 @@
+{
+  "name": "powercontext",
+  "version": "0.1.0",
+  "description": "Restore and maintain durable project memory from Codex.",
+  "author": {
+    "name": "PowerContext Team",
+    "email": "open_oceanbase@oceanbase.com",
+    "url": "https://github.com/oceanbase"
+  },
+  "homepage": "https://oceanbase.github.io/powercontext/",
+  "repository": "https://github.com/oceanbase/powercontext",
+  "license": "Apache-2.0",
+  "keywords": [
+    "codex",
+    "context",
+    "memory"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "PowerContext",
+    "shortDescription": "Durable project memory for Codex",
+    "longDescription": "Recall relevant project history and explicitly remember, revise, or retire durable entries through the PowerContext Server.",
+    "developerName": "PowerContext Team",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://oceanbase.github.io/powercontext/",
+    "defaultPrompt": [
+      "Restore relevant project memory for this task.",
+      "Remember this project decision.",
+      "Retire outdated project memory."
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project context"
+  short_description: "Restore and maintain durable project memory"
+  default_prompt: "Restore relevant PowerContext memory for this task."

@@ -1,0 +1,17 @@
+{
+  "description": "Recall relevant memory and capture the current Codex prompt as a Source.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/recall.py\"",
+            "timeout": 5,
+            "statusMessage": "Syncing PowerContext"
+          }
+        ]
+      }
+    ]
+  }
+}
