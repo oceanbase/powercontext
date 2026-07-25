@@ -349,6 +349,20 @@ More topics: [Sub stores](docs/guides/0006-sub_stores.md), [guides index](docs/g
 | 0.2.0 | 2025-12-16 | Advanced profiles; multimodal (text/image/audio) |
 | 0.1.0 | 2025-11-14 | Core memory + hybrid retrieval; LLM extraction; forgetting curve; multi-agent; OceanBase/PostgreSQL/SQLite; graph search |
 
+## Bug Fixes (2026-07-25 batch)
+
+| Issue | Problem | Fix |
+|-------|---------|-----|
+| [#1178](https://github.com/oceanbase/powermem/issues/1178) | Website favicon rendered with an undefined CSS class | Removed non-existent CSS class reference |
+| [#1158](https://github.com/oceanbase/powermem/issues/1158) | NIM reranker types were not exported from the rerank package | Added `NimRerank` and `NimRerankConfig` to package exports |
+| [#1151](https://github.com/oceanbase/powermem/issues/1151) | OceanBase forget-marker updates were lost on metadata column | `_forget_marker_updates()` now writes to the metadata column as well |
+| [#1143](https://github.com/oceanbase/powermem/issues/1143) | `retention_score` returned `null` in some cases | Extract value from `intelligence.current_retention` when available |
+| [#1137](https://github.com/oceanbase/powermem/issues/1137) | API responses leaked raw Python exception strings | Replaced `str(e)` with generic user-facing error messages |
+| [#1141](https://github.com/oceanbase/powermem/issues/1141) | Importance scoring was inconsistent across modules | Unified to six-dimension weighted scoring everywhere |
+| [#1149](https://github.com/oceanbase/powermem/issues/1149) | Memory retention used a linear decay formula | Replaced with Ebbinghaus forgetting-curve algorithm (`EbbinghausAlgorithm`) |
+
+See [CHANGELOG_FIXES.md](docs/CHANGELOG_FIXES.md) for user-facing details.
+
 ## Support
 
 - [GitHub Issues](https://github.com/oceanbase/powermem/issues)
