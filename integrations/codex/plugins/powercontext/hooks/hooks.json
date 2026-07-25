@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/hooks/recall.py\"",
-            "timeout": 5,
+            "command": "uv run --locked --quiet --project \"${PLUGIN_ROOT}\" python \"${PLUGIN_ROOT}/hooks/recall.py\"",
+            "timeout": 10,
             "statusMessage": "Syncing PowerContext"
           }
         ]

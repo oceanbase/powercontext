@@ -5,6 +5,7 @@ from powercontext.api import (
     ReadinessResponse,
     ReadinessStatus,
 )
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.server.app import create_app
 from powercontext.server.settings import ServerSettings
 
@@ -12,25 +13,39 @@ from powercontext.server.settings import ServerSettings
 def test_settings_load_server_environment(monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.2")
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
-    monkeypatch.setenv("POWERCONTEXT_SERVER_STORAGE_PATH", "/var/lib/powercontext/test.db")
+    monkeypatch.setenv(
+        "POWERCONTEXT_SERVER_DATABASE_URL",
+        "sqlite+aiosqlite:////var/lib/powercontext/test.db",
+    )
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT", "25")
-    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS", "30")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL", " test ")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS", "12.5")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS", "4")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_MCP_ENABLED", "false")
     monkeypatch.setenv("POWERCONTEXT_SERVER_MCP_PATH", "/context/")
 
     settings = ServerSettings()
 
     assert settings.http.host == "127.0.0.2"
     assert settings.http.port == 9000
-    assert str(settings.storage.path) == "/var/lib/powercontext/test.db"
+    assert settings.database.url == "sqlite+aiosqlite:////var/lib/powercontext/test.db"
     assert settings.runtime.source_window_limit == 25
-    assert settings.runtime.schedule_seconds == 30
     assert settings.inference.generation_model == "test"
     assert settings.inference.generation_timeout_seconds == 12.5
     assert settings.inference.generation_max_requests == 4
+    assert settings.mcp.enabled is False
     assert settings.mcp.path == "/context"
+
+
+def test_server_settings_select_oceanbase(monkeypatch) -> None:
+    url = "mysql+aoceanbase://root:test@127.0.0.1:2881/powercontext?charset=utf8mb4"
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "oceanbase")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_URL", url)
+
+    settings = ServerSettings()
+
+    assert isinstance(settings.database, OceanBaseConfig)
+    assert settings.database.url.get_secret_value() == url
 
 
 def test_liveness_adds_a_request_id() -> None:
@@ -54,24 +69,6 @@ def test_liveness_does_not_reflect_an_unsafe_request_id() -> None:
     assert response.headers["X-Request-ID"] != "unsafe value"
 
 
-def test_readiness_probe_is_injected_by_the_assembly() -> None:
-    async def probe() -> ReadinessResponse:
-        return ReadinessResponse(
-            status=ReadinessStatus.READY,
-            checks={"database": "ready", "migrations": "ready"},
-        )
-
-    client = TestClient(create_app(readiness_probe=probe))
-
-    response = client.get("/health/ready")
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "status": "ready",
-        "checks": {"database": "ready", "migrations": "ready"},
-    }
-
-
 def test_readiness_reports_unavailable_bindings() -> None:
     async def probe() -> ReadinessResponse:
         return ReadinessResponse(
@@ -89,18 +86,6 @@ def test_readiness_reports_unavailable_bindings() -> None:
     assert response.headers["X-Request-ID"]
 
 
-def test_unbound_runtime_error_preserves_status_and_request_id() -> None:
-    response = TestClient(create_app()).post(
-        "/v1/memory/entries/list",
-        headers={"X-Request-ID": "request-123"},
-        json={"scope_id": "project:powercontext"},
-    )
-
-    assert response.status_code == 503
-    assert response.headers["X-Request-ID"] == "request-123"
-    assert response.json()["error"]["code"] == "runtime_not_ready"
-
-
 def test_unhandled_errors_preserve_the_request_id() -> None:
     def fail() -> Capabilities:
         raise RuntimeError("boom")
@@ -111,23 +96,3 @@ def test_unhandled_errors_preserve_the_request_id() -> None:
 
     assert response.status_code == 500
     assert response.headers["X-Request-ID"] == "request-123"
-
-
-def test_capabilities_translate_core_values() -> None:
-    capabilities = Capabilities(
-        source_types=["git-commit"],
-        artifact_families=["memory"],
-        memory_extraction=True,
-        search_modes=["fts"],
-    )
-    client = TestClient(create_app(capability_provider=lambda: capabilities))
-
-    response = client.get("/v1/capabilities")
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "source_types": ["git-commit"],
-        "artifact_families": ["memory"],
-        "memory_extraction": True,
-        "search_modes": ["fts"],
-    }

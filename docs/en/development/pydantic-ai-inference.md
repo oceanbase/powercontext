@@ -1,111 +1,116 @@
-# Compose Pydantic AI inference for Memory
+# Configure Pydantic AI inference
 
-This how-to is for application developers who already have a Memory backend, evidence resolvers, and a
-`MemoryEvidenceCodec`. It shows how to inject application-constructed Pydantic AI objects. Provider selection,
-credentials, HTTP clients, and their lifecycle remain application concerns.
+PowerContext uses Pydantic AI at the provider boundary while keeping Memory services framework-neutral. Generation
+extracts structured Memory candidates. Embedding supplies vectors for indexes that support vector search. Either
+capability can be configured independently.
 
-## Install the optional integration
+## Install the integration
 
-```console
-uv add 'powercontext[pydantic-ai]'
+The inference integration is part of the built-in implementation:
+
+```bash
+uv add "powercontext[builtin]"
 ```
 
-The optional integration installs the Pydantic AI slim package with its Anthropic provider for Claude and its OpenAI
-provider for OpenAI-compatible endpoints.
+The Server extra includes Builtin:
 
-Importing `powercontext` does not import Pydantic AI. Only import the adapter module in the composition code that uses
-the optional integration.
+```bash
+uv add "powercontext[server]"
+```
 
-## Compose the capabilities
+## Configure the Server
 
-Construct the provider-specific Pydantic AI `Model` and embedding model in the application. Do not pass a model
-name string to a PowerContext adapter.
+The standard Server builds inference adapters from `ServerSettings.inference`. A generation model enables
+Source-to-Memory extraction:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="provider:model-name"
+```
+
+Vector search needs the embedding model and its complete deployment profile:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL="provider:embedding-model"
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID="project-embedding-v1"
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION="1536"
+export POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION="/opt/sqlite-extensions/vec1"
+```
+
+Provider credentials remain in the environment variables understood by the selected Pydantic AI provider. They are
+not fields on PowerContext models.
+
+The Server rejects a partial embedding profile. `embedding_model`, `embedding_profile_id`, and `embedding_dimension`
+must be configured together. Vec1 also requires that embedding configuration because the index dimension and stored
+vectors must agree.
+
+## Compose generation directly
+
+Use direct composition when the application already owns provider model lifecycles:
 
 ```python
-from pydantic_ai import Embedder
-from pydantic_ai.embeddings import EmbeddingModel as PydanticAIEmbeddingModelBase
-from pydantic_ai.models import Model
-
-from powercontext import EmbeddingProfile, MemoryService
-from powercontext.inference.pydantic_ai import (
-    InferenceLimits,
-    PydanticAIEmbeddingModel,
-    PydanticAIStructuredGenerator,
-)
-from powercontext.memory import (
-    LLMMemoryCandidatePipeline,
+from powercontext.builtin.artifacts.memory import (
     MEMORY_EXTRACTION_INSTRUCTIONS,
-    MemoryEvidenceProjector,
+    LLMMemoryCandidatePipeline,
     MemoryExtractionInput,
     MemoryExtractionOutput,
 )
+from powercontext.builtin.inference.pydantic_ai import (
+    InferenceLimits,
+    PydanticAIStructuredGenerator,
+)
 
+generator = PydanticAIStructuredGenerator(
+    model=generation_model,
+    instructions=MEMORY_EXTRACTION_INSTRUCTIONS,
+    input_type=MemoryExtractionInput,
+    output_type=MemoryExtractionOutput,
+    limits=InferenceLimits(timeout_seconds=30, max_requests=2),
+)
+candidate_pipeline = LLMMemoryCandidatePipeline(generator)
+```
 
-def build_memory_service(
-    *,
-    generation_model: Model,
-    pydantic_embedding_model: PydanticAIEmbeddingModelBase,
-    evidence_projector: MemoryEvidenceProjector,
-    backend,
-    evidence_codec,
-    source_resolver,
-    artifact_resolver,
-) -> MemoryService:
-    limits = InferenceLimits(timeout_seconds=30, max_requests=2)
-    generator = PydanticAIStructuredGenerator(
-        model=generation_model,
-        instructions=MEMORY_EXTRACTION_INSTRUCTIONS,
-        input_type=MemoryExtractionInput,
-        output_type=MemoryExtractionOutput,
-        limits=limits,
-    )
-    candidate_pipeline = LLMMemoryCandidatePipeline(generator, evidence_projector=evidence_projector)
+`generation_model` must be an initialized Pydantic AI `Model`, not a provider name string. The application that opens
+the model also closes it.
 
-    profile = EmbeddingProfile(
+The generator serializes Pydantic input models and validates structured output against the declared output type.
+Memory validation still runs after generation, so a schema-valid candidate is not automatically accepted for
+persistence.
+
+## Compose embeddings directly
+
+```python
+from pydantic_ai import Embedder
+
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.inference.pydantic_ai import (
+    InferenceLimits,
+    PydanticAIEmbeddingModel,
+)
+
+embedding_model = PydanticAIEmbeddingModel(
+    embedder=Embedder(provider_embedding_model),
+    profile=EmbeddingProfile(
         profile_id="project-embedding-v1",
         model="provider:embedding-model",
         dimension=1536,
-        distance="l2",
         normalization="none",
-    )
-    embedding_model = PydanticAIEmbeddingModel(
-        embedder=Embedder(pydantic_embedding_model),
-        profile=profile,
-        limits=limits,
-    )
-
-    return MemoryService(
-        backend=backend,
-        candidate_pipeline=candidate_pipeline,
-        embedding_model=embedding_model,
-        evidence_codec=evidence_codec,
-        source_resolver=source_resolver,
-        artifact_resolver=artifact_resolver,
-    )
-```
-
-Configure the backend with the exact same `EmbeddingProfile`. A mismatched profile disables vector and hybrid search;
-it never reuses vectors from another profile.
-
-The default evidence projector exposes only stable Source and Artifact metadata. Pass an application-owned
-`MemoryEvidenceProjector` when extraction needs captured task bodies, summaries, or other domain fields. The projector
-must return JSON-compatible values; unsupported values fail before the model call.
-
-Persist the evidence first, then request extraction explicitly:
-
-```python
-updated_memory = await memory_service.remember(
-    memory=repo_memory,
-    sources=(task_outcome,),
-    mode="extract",
+    ),
+    limits=InferenceLimits(timeout_seconds=30),
 )
 ```
 
-The generator sees only the selected evidence and current active entries. Its add/revise suggestions remain untrusted:
-`MemoryService` resolves evidence, validates exact entry versions, removes exact duplicates, and commits the new
-Revision with head CAS. An empty candidate list returns the current Memory unchanged. Generation failure commits no
-Revision.
+Pass this adapter to `open_builtin_contexts()` or `open_builtin_runtime()` with a `SQLiteConfig` that selects the Vec1
+extension. The adapter verifies output count, order, dimension, and finite numeric values before vectors reach
+persistence.
 
-If embedding is temporarily unavailable, authoritative Memory and full-text projections can still commit without a
-vector. `search(mode="auto")` falls back to full-text search; explicit vector or hybrid search reports an unavailable
-capability.
+An `EmbeddingProfile` is a deployment contract, not descriptive metadata. Stored projections and query embeddings
+must use the same profile. When the model, dimension, or normalization changes, rebuild Memory projections from the
+authoritative revisions.
+
+## Failure behavior
+
+Generation and embedding failures map provider errors into PowerContext inference errors. Timeouts and temporary
+provider failures do not commit partial Memory revisions.
+
+For `mode="auto"` search, a temporary query embedding failure can fall back to FTS when the backend supports it.
+Explicit vector or hybrid search reports the missing capability instead of silently changing modes.

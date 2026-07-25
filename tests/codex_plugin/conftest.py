@@ -27,3 +27,8 @@ def scope_module() -> ModuleType:
 @pytest.fixture
 def recall_module() -> ModuleType:
     return _load_module("powercontext_codex_recall", PLUGIN_ROOT / "hooks" / "recall.py")
+
+
+@pytest.fixture
+def settings_module() -> ModuleType:
+    return _load_module("powercontext_codex_settings", PLUGIN_ROOT / "settings.py")

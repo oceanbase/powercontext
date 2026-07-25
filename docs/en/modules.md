@@ -3,10 +3,6 @@
 This reference is generated from the public modules in the current package. RFCs may describe planned behavior that is
 not part of this API.
 
-## Catalogs
-
-::: powercontext.catalogs
-
 ## Composition
 
 ::: powercontext.context
@@ -21,7 +17,7 @@ not part of this API.
 
 ## Memory
 
-::: powercontext.memory
+::: powercontext.builtin.artifacts.memory
 
 ## Triggers
 

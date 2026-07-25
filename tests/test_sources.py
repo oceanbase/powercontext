@@ -7,15 +7,13 @@ from typing import TypeVar
 
 import pytest
 
-from powercontext.context import Sources
-from powercontext.errors import (
-    InvalidSourceAdapterError,
+from powercontext import (
     InvalidSourceEntryError,
     InvalidSourceResultError,
     SourceAdapterNotFoundError,
-    SourceConflictError,
     SourceNotFoundError,
 )
+from powercontext.context import Sources
 from powercontext.sources import (
     Source,
     SourceAdapter,
@@ -43,18 +41,15 @@ class TranscriptExportInput:
     name: str
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
 class ConversationSource(Source):
     session_id: str
     captured_value: Conversation | None = None
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
 class TranscriptExportSource(Source):
     pass
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
 class UnknownConversationSource(Source):
     pass
 
@@ -139,7 +134,10 @@ def test_source_catalog_supports_the_read_only_usage_flow() -> None:
         }
         adapter = ConversationAdapter(conversations)
         backend = InMemorySourceStore()
-        catalog = SourceCatalog(backend=backend, adapters=(adapter,))
+        catalog = SourceCatalog(
+            backend=backend,
+            adapters=(adapter,),
+        )
         sources = Sources(catalog=catalog, store=backend)
 
         captured_input = ConversationCapture("session-42-snapshot", "session-42", capture=True)
@@ -179,7 +177,7 @@ def test_source_catalog_supports_the_read_only_usage_flow() -> None:
     asyncio.run(scenario())
 
 
-def test_catalog_does_not_require_an_adapter_for_persisted_sources() -> None:
+def test_catalog_rejects_persisted_sources_without_an_adapter() -> None:
     async def scenario() -> None:
         source = UnknownConversationSource(
             name="captured-event",
@@ -187,46 +185,12 @@ def test_catalog_does_not_require_an_adapter_for_persisted_sources() -> None:
         )
         catalog = SourceCatalog(backend=InMemorySourceStore(source), adapters=())
 
-        assert await catalog.list() == (source,)
-        assert await catalog.get(source) == source
         with pytest.raises(SourceAdapterNotFoundError):
-            await catalog.read(source)
+            await catalog.list()
+        with pytest.raises(SourceAdapterNotFoundError):
+            await catalog.get(source)
 
     asyncio.run(scenario())
-
-
-def test_catalog_rejects_ambiguous_adapter_routes() -> None:
-    adapter = ConversationAdapter({"session-42": Conversation(("Remember aisle seats.",))})
-
-    class DuplicateInputAdapter(TranscriptExportAdapter):
-        input_class = ConversationCapture
-
-    with pytest.raises(SourceConflictError, match="input_class") as input_error:
-        SourceCatalog(backend=InMemorySourceStore(), adapters=(adapter, DuplicateInputAdapter()))
-    assert input_error.value.value is ConversationCapture
-
-    class DuplicateNameAdapter(TranscriptExportAdapter):
-        input_class = TranscriptExportInput
-        name = "conversation"
-
-    with pytest.raises(SourceConflictError, match="name") as name_error:
-        SourceCatalog(backend=InMemorySourceStore(), adapters=(adapter, DuplicateNameAdapter()))
-    assert name_error.value.value == "conversation"
-
-    class DuplicateSourceClassAdapter(SourceAdapter[TranscriptExportInput, ConversationSource, object]):
-        input_class = TranscriptExportInput
-        name = "conversation-copy"
-        source_class = ConversationSource
-
-        async def resolve(self, value: TranscriptExportInput, /) -> ConversationSource:
-            raise NotImplementedError
-
-        async def read(self, source: ConversationSource, /) -> object:
-            return source
-
-    with pytest.raises(SourceConflictError, match="source_class") as source_class_error:
-        SourceCatalog(backend=InMemorySourceStore(), adapters=(adapter, DuplicateSourceClassAdapter()))
-    assert source_class_error.value.value is ConversationSource
 
 
 def test_catalog_routes_only_exact_input_and_source_classes() -> None:
@@ -236,7 +200,10 @@ def test_catalog_routes_only_exact_input_and_source_classes() -> None:
 
     async def scenario() -> None:
         adapter = ConversationAdapter({"session-42": Conversation(("Remember aisle seats.",))})
-        catalog = SourceCatalog(backend=InMemorySourceStore(), adapters=(adapter,))
+        catalog = SourceCatalog(
+            backend=InMemorySourceStore(),
+            adapters=(adapter,),
+        )
 
         with pytest.raises(SourceAdapterNotFoundError) as input_error:
             await catalog.resolve(SpecializedConversationCapture("session-42", "session-42"))
@@ -273,7 +240,10 @@ def test_adapter_results_and_declarations_are_checked_at_the_boundary() -> None:
             return source
 
     async def scenario() -> None:
-        catalog = SourceCatalog(backend=InMemorySourceStore(), adapters=(InvalidResultAdapter(),))
+        catalog = SourceCatalog(
+            backend=InMemorySourceStore(),
+            adapters=(InvalidResultAdapter(),),
+        )
         with pytest.raises(InvalidSourceResultError) as error:
             await catalog.resolve(ConversationCapture("session-42", "session-42"))
         assert error.value.operation == "resolve"
@@ -282,9 +252,19 @@ def test_adapter_results_and_declarations_are_checked_at_the_boundary() -> None:
 
     asyncio.run(scenario())
 
-    class InvalidNameAdapter(TranscriptExportAdapter):
-        name = ""
 
-    with pytest.raises(InvalidSourceAdapterError) as error:
-        SourceCatalog(backend=InMemorySourceStore(), adapters=(InvalidNameAdapter(),))
-    assert error.value.field == "name"
+def test_source_composition_rejects_unregistered_values_before_storage() -> None:
+    async def scenario() -> None:
+        backend = InMemorySourceStore()
+        catalog = SourceCatalog(backend=backend, adapters=())
+        sources = Sources(catalog=catalog, store=backend)
+        unknown = UnknownConversationSource(
+            name="unknown",
+            materialization=SourceMaterialization.REFERENCED,
+        )
+
+        with pytest.raises(SourceAdapterNotFoundError):
+            await sources.add(unknown)
+        assert backend.sources == []
+
+    asyncio.run(scenario())

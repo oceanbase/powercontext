@@ -8,39 +8,19 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 
-from powercontext.memory import (
-    MemoryChangeOp,
-    MemoryEntryState,
-    MemoryMatchedBy,
-    MemorySearchMode,
-    MemoryUsedSearchMode,
-)
-
 
 class ArtifactReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     revision: Annotated[StrictInt, Field(ge=1)]
-
-
-class Capabilities(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-    )
-    source_types: list[StrictStr]
-    artifact_families: list[StrictStr]
-    memory_extraction: Annotated[StrictBool, Field(description="Whether pending Sources can be extracted into Memory.")]
-    search_modes: list[MemorySearchMode]
 
 
 class CaptureContentSourceRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
@@ -48,22 +28,9 @@ class CaptureContentSourceRequest(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
-class EntryChange(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-    )
-    op: MemoryChangeOp
-    entry_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    from_entry_version_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    to_entry_version_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    reason: Annotated[StrictStr | None, Field(...)]
-
-
 class ErrorDetail(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     code: StrictStr
     message: StrictStr
@@ -73,7 +40,6 @@ class ErrorDetail(BaseModel):
 class ErrorResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     error: ErrorDetail
 
@@ -81,7 +47,6 @@ class ErrorResponse(BaseModel):
 class FlushMemoryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
 
@@ -89,7 +54,6 @@ class FlushMemoryRequest(BaseModel):
 class HealthResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     status: StrictStr
 
@@ -97,7 +61,6 @@ class HealthResponse(BaseModel):
 class ListMemoryChangesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     since_revision: Annotated[
@@ -112,7 +75,6 @@ class ListMemoryChangesRequest(BaseModel):
 class ListMemoryEntriesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
 
@@ -120,20 +82,10 @@ class ListMemoryEntriesRequest(BaseModel):
 class MemoryCitation(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     memory_ref: ArtifactReference
     entry_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     entry_version_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-
-
-class MemoryRevisionChanges(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-    )
-    memory_ref: ArtifactReference
-    changes: list[EntryChange]
 
 
 class ReadinessStatus(StrEnum):
@@ -144,7 +96,6 @@ class ReadinessStatus(StrEnum):
 class RememberMemoryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     kind: Annotated[StrictStr, Field(max_length=128, min_length=1)]
@@ -156,7 +107,6 @@ class RememberMemoryRequest(BaseModel):
 class RetireMemoryEntryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     citation: MemoryCitation
@@ -166,7 +116,6 @@ class RetireMemoryEntryRequest(BaseModel):
 class ReviseMemoryEntryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     citation: MemoryCitation
@@ -175,42 +124,9 @@ class ReviseMemoryEntryRequest(BaseModel):
     reason: Annotated[StrictStr | None, Field(max_length=512)] = None
 
 
-class SearchMemoryHit(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-    )
-    citation: MemoryCitation
-    text: StrictStr
-    score: Annotated[StrictFloat, Field(ge=0.0, le=1.0)]
-    matched_by: list[MemoryMatchedBy]
-
-
-class SearchMemoryRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    query: Annotated[StrictStr, Field(max_length=8192, min_length=1)]
-    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 10
-    mode: MemorySearchMode = "auto"
-
-
-class SearchMemoryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-    )
-    memory: ArtifactReference | None = None
-    mode: MemoryUsedSearchMode | None = None
-    hits: list[SearchMemoryHit]
-
-
 class SourceReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     name: Annotated[StrictStr, Field(description="Stable Source type.")]
     source_id: StrictStr
@@ -220,25 +136,74 @@ class CaptureStatus(StrEnum):
     ACCEPTED = "accepted"
 
 
+class EntryChangeOperation(StrEnum):
+    ADD = "add"
+    REVISE = "revise"
+    DEACTIVATE = "deactivate"
+    REACTIVATE = "reactivate"
+
+
 class FlushStatus(StrEnum):
     IDLE = "idle"
     PROCESSED = "processed"
 
 
+class MemoryEntryState(StrEnum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+
+
+class MemoryMatchedBy(StrEnum):
+    FTS = "fts"
+    VECTOR = "vector"
+
+
+class MemorySearchMode(StrEnum):
+    AUTO = "auto"
+    FTS = "fts"
+    VECTOR = "vector"
+    HYBRID = "hybrid"
+
+
+class MemoryUsedSearchMode(StrEnum):
+    FTS = "fts"
+    VECTOR = "vector"
+    HYBRID = "hybrid"
+
+
+class Capabilities(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source_types: list[StrictStr]
+    artifact_families: list[StrictStr]
+    memory_extraction: Annotated[StrictBool, Field(description="Whether pending Sources can be extracted into Memory.")]
+    search_modes: list[MemorySearchMode]
+
+
 class CaptureContentSourceResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     status: CaptureStatus
     source: SourceReference
     position: Annotated[StrictInt, Field(ge=1)]
 
 
+class EntryChange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    op: EntryChangeOperation
+    entry_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    from_entry_version_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    to_entry_version_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    reason: Annotated[StrictStr | None, Field(...)]
+
+
 class FlushMemoryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     status: FlushStatus
     previous_cursor: Annotated[StrictInt, Field(ge=0)]
@@ -251,25 +216,14 @@ class FlushMemoryResponse(BaseModel):
 class GetMemoryEntryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     citation: MemoryCitation
 
 
-class ListMemoryChangesResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-    )
-    memory: ArtifactReference | None = None
-    revisions: list[MemoryRevisionChanges]
-
-
 class MemoryEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     citation: MemoryCitation
     version: Annotated[StrictInt, Field(ge=1)]
@@ -283,25 +237,67 @@ class MemoryEntry(BaseModel):
 class MemoryMutationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     memory: ArtifactReference
     entry: MemoryEntry | None = None
 
 
+class MemoryRevisionChanges(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    memory_ref: ArtifactReference
+    changes: list[EntryChange]
+
+
 class ReadinessResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     status: ReadinessStatus
     checks: dict[str, StrictStr]
 
 
+class SearchMemoryHit(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    citation: MemoryCitation
+    text: StrictStr
+    score: Annotated[StrictFloat, Field(ge=0.0, le=1.0)]
+    matched_by: list[MemoryMatchedBy]
+
+
+class SearchMemoryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    query: Annotated[StrictStr, Field(max_length=8192, min_length=1)]
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 10
+    mode: MemorySearchMode = MemorySearchMode.AUTO
+
+
+class SearchMemoryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    memory: ArtifactReference | None = None
+    mode: MemoryUsedSearchMode | None = None
+    hits: list[SearchMemoryHit]
+
+
+class ListMemoryChangesResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    memory: ArtifactReference | None = None
+    revisions: list[MemoryRevisionChanges]
+
+
 class ListMemoryEntriesResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        frozen=True,
     )
     memory: ArtifactReference | None = None
     entries: list[MemoryEntry]

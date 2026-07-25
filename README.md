@@ -9,8 +9,36 @@ The current Python package defines typed contracts for:
 - computing Trigger transitions from signals and state;
 - composing those contracts without taking ownership of host-side infrastructure.
 
-Storage, scheduling, model calls, queues, and framework integration remain explicit responsibilities of the host
-application. The repository has not published a tagged release yet.
+The Core package leaves infrastructure ownership to the host. Optional extras provide the supported implementation and
+process roles:
+
+| Extra | Includes |
+| --- | --- |
+| `builtin` | Builtin runtime, SQLite, OceanBase, scheduling, and inference |
+| `client` | Core contracts and the async Python SDK |
+| `server` | Builtin runtime, HTTP, and MCP |
+| `cli` | Command shell, Builtin by default, and installed-role discovery |
+
+Install a role directly when using its Python API:
+
+```bash
+uv add "powercontext[builtin]"
+uv add "powercontext[client]"
+uv add "powercontext[server]"
+```
+
+The CLI defaults to the `builtin` command. Add Client or Server to the same environment only when their commands are
+needed:
+
+```bash
+uv add "powercontext[cli]"
+uv add "powercontext[cli,client]"
+uv add "powercontext[cli,server]"
+```
+
+Commands are discovered from installed entry points. A role that is not installed does not appear in CLI help.
+
+The repository has not published a tagged release yet.
 
 ## Documentation
 

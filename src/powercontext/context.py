@@ -2,20 +2,33 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Generic, TypeVar
+
+from pydantic import BaseModel, ConfigDict
 
 from powercontext.artifacts import Artifact, ArtifactCatalog, ArtifactDraft, ArtifactStore
 from powercontext.errors import ArtifactFamilyMismatchError
-from powercontext.sources import Source, SourceCatalog, SourceCatalogBackend, SourceStore
+from powercontext.sources import Source, SourceCatalog, SourceStore
 
-TriggersT = TypeVar("TriggersT")
+SourcesT = TypeVar("SourcesT")
 ArtifactsT = TypeVar("ArtifactsT")
+TriggersT = TypeVar("TriggersT")
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Sources(SourceCatalogBackend, SourceStore[Source]):
+class PowerContext(BaseModel, Generic[SourcesT, ArtifactsT, TriggersT]):
+    """Bind three explicitly selected component groups without owning their lifecycle."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    sources: SourcesT
+    artifacts: ArtifactsT
+    triggers: TriggersT
+
+
+class Sources(BaseModel):
     """Compose Source acquisition, persistence, and read operations."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     catalog: SourceCatalog
     store: SourceStore[Source]
@@ -28,7 +41,10 @@ class Sources(SourceCatalogBackend, SourceStore[Source]):
     async def add(self, source: Source, /) -> Source:
         """Persist a resolved Source without deriving Artifacts."""
 
-        return await self.store.add(source)
+        self.catalog.as_ref(source)
+        stored = await self.store.add(source)
+        self.catalog.as_ref(stored)
+        return stored
 
     async def get(self, source: Source, /) -> Source:
         """Return the canonical persisted Source matching ``source``."""
@@ -46,12 +62,10 @@ class Sources(SourceCatalogBackend, SourceStore[Source]):
         return await self.catalog.read(source)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Artifacts(
-    ArtifactCatalog[Artifact[object]],
-    ArtifactStore[ArtifactDraft[object], Artifact[object]],
-):
+class Artifacts(BaseModel):
     """Compose shared Artifact persistence and read operations."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     catalog: ArtifactCatalog[Artifact[object]]
     store: ArtifactStore[ArtifactDraft[object], Artifact[object]]
@@ -87,12 +101,3 @@ class Artifacts(
         """Return the visible history of ``artifact``."""
 
         return await self.catalog.revisions(artifact)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class PowerContext(Generic[TriggersT, ArtifactsT]):
-    """Bind explicitly configured domain components without owning their lifecycle."""
-
-    sources: Sources
-    artifacts: ArtifactsT
-    triggers: TriggersT

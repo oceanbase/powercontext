@@ -67,8 +67,8 @@ class _HttpResponse(Protocol):
     def content(self) -> bytes: ...
 
 
-class _SyncHttpClient(Protocol):
-    def request(
+class _AsyncHttpClient(Protocol):
+    async def request(
         self,
         method: str,
         url: str,
@@ -78,101 +78,101 @@ class _SyncHttpClient(Protocol):
 
 
 class PowerContextClient:
-    """Synchronous Python facade for transport-level Server operations."""
+    """Async Python facade for transport-level Server operations."""
 
     def __init__(
         self,
         base_url: str,
         *,
         timeout: float = 10.0,
-        http_client: _SyncHttpClient | None = None,
+        http_client: _AsyncHttpClient | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._owned_http_client: httpx.Client | None = None
+        self._owned_http_client: httpx.AsyncClient | None = None
         if http_client is None:
-            self._owned_http_client = httpx.Client(timeout=timeout)
+            self._owned_http_client = httpx.AsyncClient(timeout=timeout)
             self._http_client = self._owned_http_client
         else:
             self._http_client = http_client
 
-    def __enter__(self) -> Self:
+    async def __aenter__(self) -> Self:
         return self
 
-    def __exit__(
+    async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.close()
+        await self.aclose()
 
-    def close(self) -> None:
+    async def aclose(self) -> None:
         """Close only the HTTP client created by this facade."""
 
         if self._owned_http_client is not None:
-            self._owned_http_client.close()
+            await self._owned_http_client.aclose()
 
-    def get_liveness(self) -> HealthResponse:
+    async def get_liveness(self) -> HealthResponse:
         """Read process liveness."""
 
-        return self._request(GET_LIVENESS)
+        return await self._request(GET_LIVENESS)
 
-    def get_readiness(self) -> ReadinessResponse:
+    async def get_readiness(self) -> ReadinessResponse:
         """Read deployment readiness checks."""
 
-        return self._request(GET_READINESS)
+        return await self._request(GET_READINESS)
 
-    def get_capabilities(self) -> Capabilities:
+    async def get_capabilities(self) -> Capabilities:
         """Read behavior enabled by the assembled runtime."""
 
-        return self._request(GET_CAPABILITIES)
+        return await self._request(GET_CAPABILITIES)
 
-    def capture_content_source(self, request: CaptureContentSourceRequest) -> CaptureContentSourceResponse:
+    async def capture_content_source(self, request: CaptureContentSourceRequest) -> CaptureContentSourceResponse:
         """Capture raw content as durable Source evidence."""
 
-        return self._request(CAPTURE_CONTENT_SOURCE, request)
+        return await self._request(CAPTURE_CONTENT_SOURCE, request)
 
-    def flush_memory(self, request: FlushMemoryRequest) -> FlushMemoryResponse:
+    async def flush_memory(self, request: FlushMemoryRequest) -> FlushMemoryResponse:
         """Run one bounded Source-to-Memory activation."""
 
-        return self._request(FLUSH_MEMORY, request)
+        return await self._request(FLUSH_MEMORY, request)
 
-    def remember_memory(self, request: RememberMemoryRequest) -> MemoryMutationResponse:
+    async def remember_memory(self, request: RememberMemoryRequest) -> MemoryMutationResponse:
         """Save one explicit Memory entry without creating a Source."""
 
-        return self._request(REMEMBER_MEMORY, request)
+        return await self._request(REMEMBER_MEMORY, request)
 
-    def search_memory(self, request: SearchMemoryRequest) -> SearchMemoryResponse:
+    async def search_memory(self, request: SearchMemoryRequest) -> SearchMemoryResponse:
         """Search active Memory entries in one scope."""
 
-        return self._request(SEARCH_MEMORY, request)
+        return await self._request(SEARCH_MEMORY, request)
 
-    def list_memory_entries(self, request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
+    async def list_memory_entries(self, request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
         """List the entry snapshot from the current Memory head."""
 
-        return self._request(LIST_MEMORY_ENTRIES, request)
+        return await self._request(LIST_MEMORY_ENTRIES, request)
 
-    def get_memory_entry(self, request: GetMemoryEntryRequest) -> MemoryEntry:
+    async def get_memory_entry(self, request: GetMemoryEntryRequest) -> MemoryEntry:
         """Read one exact Memory entry version."""
 
-        return self._request(GET_MEMORY_ENTRY, request)
+        return await self._request(GET_MEMORY_ENTRY, request)
 
-    def revise_memory_entry(self, request: ReviseMemoryEntryRequest) -> MemoryMutationResponse:
+    async def revise_memory_entry(self, request: ReviseMemoryEntryRequest) -> MemoryMutationResponse:
         """Revise one exact active Memory entry."""
 
-        return self._request(REVISE_MEMORY_ENTRY, request)
+        return await self._request(REVISE_MEMORY_ENTRY, request)
 
-    def retire_memory_entry(self, request: RetireMemoryEntryRequest) -> MemoryMutationResponse:
+    async def retire_memory_entry(self, request: RetireMemoryEntryRequest) -> MemoryMutationResponse:
         """Deactivate one exact Memory entry without deleting history."""
 
-        return self._request(RETIRE_MEMORY_ENTRY, request)
+        return await self._request(RETIRE_MEMORY_ENTRY, request)
 
-    def list_memory_changes(self, request: ListMemoryChangesRequest) -> ListMemoryChangesResponse:
+    async def list_memory_changes(self, request: ListMemoryChangesRequest) -> ListMemoryChangesResponse:
         """Read compact Memory Revision changes."""
 
-        return self._request(LIST_MEMORY_CHANGES, request)
+        return await self._request(LIST_MEMORY_CHANGES, request)
 
-    def _request(
+    async def _request(
         self,
         operation: Operation[_RequestT, _ResponseT],
         request: _RequestT | None = None,
@@ -189,7 +189,7 @@ class PowerContextClient:
             )
 
         try:
-            response = self._http_client.request(
+            response = await self._http_client.request(
                 operation.method,
                 f"{self._base_url}{operation.path}",
                 json=json_payload,

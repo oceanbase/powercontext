@@ -8,14 +8,18 @@ from powercontext.api import (
     CaptureContentSourceResponse,
     CaptureStatus,
     EntryChange,
+    EntryChangeOperation,
     FlushMemoryResponse,
     FlushStatus,
     GetMemoryEntryRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesResponse,
     MemoryEntry,
+    MemoryEntryState,
+    MemoryMatchedBy,
     MemoryMutationResponse,
     MemoryRevisionChanges,
+    MemoryUsedSearchMode,
     RetireMemoryEntryRequest,
     ReviseMemoryEntryRequest,
     SearchMemoryHit,
@@ -30,59 +34,52 @@ from powercontext.api import (
     RememberMemoryRequest as TransportRememberMemoryRequest,
 )
 from powercontext.artifacts import ArtifactRef
-from powercontext.memory import (
+from powercontext.builtin.runtime import (
+    CaptureSource,
     MemoryChange,
-    MemoryEntryInput,
-    MemoryHit,
-)
-from powercontext.memory import (
-    MemoryCitation as CoreMemoryCitation,
-)
-from powercontext.memory import (
-    MemoryRevisionChanges as CoreMemoryRevisionChanges,
-)
-from powercontext.memory.canonical import normalize_kind, normalize_reason, normalize_text
-from powercontext.runtime import (
-    GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
-)
-from powercontext.runtime import (
     MemoryChangesPage,
     MemoryEntriesPage,
+    MemoryEntryInput,
     MemoryEntryRecord,
     MemoryFlushResult,
+    MemoryHit,
     MemoryMutationResult,
     MemorySearchPage,
     RememberMemoryRequest,
     SourceReceipt,
 )
-from powercontext.runtime import (
+from powercontext.builtin.runtime import (
+    GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
+)
+from powercontext.builtin.runtime import (
+    MemoryCitation as RuntimeMemoryCitation,
+)
+from powercontext.builtin.runtime import (
+    MemoryRevisionChanges as RuntimeMemoryRevisionChanges,
+)
+from powercontext.builtin.runtime import (
     RetireMemoryEntryRequest as RuntimeRetireMemoryEntryRequest,
 )
-from powercontext.runtime import (
+from powercontext.builtin.runtime import (
     ReviseMemoryEntryRequest as RuntimeReviseMemoryEntryRequest,
 )
-from powercontext.runtime import (
+from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
 )
-from powercontext.server.errors import InvalidServerRequestError
-from powercontext.sources import CONTENT_SOURCE_NAME, ContentCapture
 
 
-def capture_request(value: CaptureContentSourceRequest) -> ContentCapture:
-    try:
-        return ContentCapture(
-            source_id=value.source_id,
-            content=value.content,
-            metadata={} if value.metadata is None else value.metadata,
-        )
-    except (TypeError, ValueError) as error:
-        raise InvalidServerRequestError from error
+def capture_request(value: CaptureContentSourceRequest) -> CaptureSource:
+    return CaptureSource(
+        source_id=value.source_id,
+        content=value.content,
+        metadata={} if value.metadata is None else value.metadata,
+    )
 
 
 def capture_response(value: SourceReceipt) -> CaptureContentSourceResponse:
     return CaptureContentSourceResponse(
         status=CaptureStatus.ACCEPTED,
-        source=SourceReference(name=CONTENT_SOURCE_NAME, source_id=value.source.name),
+        source=SourceReference(name=value.source_ref.source_type, source_id=value.source_ref.source_id),
         position=value.sequence,
     )
 
@@ -99,62 +96,37 @@ def flush_response(value: MemoryFlushResult) -> FlushMemoryResponse:
 
 
 def remember_request(value: TransportRememberMemoryRequest) -> RememberMemoryRequest:
-    try:
-        return RememberMemoryRequest(
-            entries=(
-                MemoryEntryInput(
-                    kind=normalize_kind(value.kind),
-                    text=normalize_text(value.text),
-                    reason=normalize_reason(value.reason),
-                ),
-            ),
-            expected_revision=value.expected_revision,
-        )
-    except (TypeError, ValueError) as error:
-        raise InvalidServerRequestError from error
+    return RememberMemoryRequest(
+        entries=(MemoryEntryInput(kind=value.kind, text=value.text, reason=value.reason),),
+        expected_revision=value.expected_revision,
+    )
 
 
 def search_request(value: SearchMemoryRequest) -> RuntimeSearchMemoryRequest:
-    try:
-        return RuntimeSearchMemoryRequest(
-            query=normalize_text(value.query),
-            limit=value.limit,
-            mode=value.mode,
-        )
-    except (TypeError, ValueError) as error:
-        raise InvalidServerRequestError from error
+    return RuntimeSearchMemoryRequest(query=value.query, limit=value.limit, mode=value.mode.value)
 
 
 def get_request(value: GetMemoryEntryRequest) -> RuntimeGetMemoryEntryRequest:
-    return RuntimeGetMemoryEntryRequest(citation=core_citation(value.citation))
+    return RuntimeGetMemoryEntryRequest(citation=runtime_citation(value.citation))
 
 
 def revise_request(value: ReviseMemoryEntryRequest) -> RuntimeReviseMemoryEntryRequest:
-    try:
-        return RuntimeReviseMemoryEntryRequest(
-            citation=core_citation(value.citation),
-            kind=normalize_kind(value.kind),
-            text=normalize_text(value.text),
-            reason=normalize_reason(value.reason),
-        )
-    except (TypeError, ValueError) as error:
-        raise InvalidServerRequestError from error
+    return RuntimeReviseMemoryEntryRequest(
+        citation=runtime_citation(value.citation),
+        kind=value.kind,
+        text=value.text,
+        reason=value.reason,
+    )
 
 
 def retire_request(value: RetireMemoryEntryRequest) -> RuntimeRetireMemoryEntryRequest:
-    try:
-        return RuntimeRetireMemoryEntryRequest(
-            citation=core_citation(value.citation),
-            reason=normalize_reason(value.reason),
-        )
-    except (TypeError, ValueError) as error:
-        raise InvalidServerRequestError from error
+    return RuntimeRetireMemoryEntryRequest(citation=runtime_citation(value.citation), reason=value.reason)
 
 
 def search_response(value: MemorySearchPage) -> SearchMemoryResponse:
     return SearchMemoryResponse(
         memory=None if value.memory_ref is None else artifact_reference(value.memory_ref),
-        mode=value.mode,
+        mode=None if value.mode is None else MemoryUsedSearchMode(value.mode),
         hits=[search_hit(hit) for hit in value.hits],
     )
 
@@ -181,18 +153,22 @@ def changes_response(value: MemoryChangesPage) -> ListMemoryChangesResponse:
 
 
 def artifact_reference(value: ArtifactRef) -> ArtifactReference:
-    return ArtifactReference(artifact_id=value.artifact_id, revision=value.revision)
+    return ArtifactReference(family=value.family, artifact_id=value.artifact_id, revision=value.revision)
 
 
-def core_citation(value: TransportMemoryCitation) -> CoreMemoryCitation:
-    return CoreMemoryCitation(
-        memory_ref=ArtifactRef(value.memory_ref.artifact_id, value.memory_ref.revision),
+def runtime_citation(value: TransportMemoryCitation) -> RuntimeMemoryCitation:
+    return RuntimeMemoryCitation(
+        memory_ref=ArtifactRef(
+            family=value.memory_ref.family,
+            artifact_id=value.memory_ref.artifact_id,
+            revision=value.memory_ref.revision,
+        ),
         entry_id=value.entry_id,
         entry_version_id=value.entry_version_id,
     )
 
 
-def transport_citation(value: CoreMemoryCitation) -> TransportMemoryCitation:
+def transport_citation(value: RuntimeMemoryCitation) -> TransportMemoryCitation:
     return TransportMemoryCitation(
         memory_ref=artifact_reference(value.memory_ref),
         entry_id=value.entry_id,
@@ -202,7 +178,7 @@ def transport_citation(value: CoreMemoryCitation) -> TransportMemoryCitation:
 
 def entry_change(value: MemoryChange) -> EntryChange:
     return EntryChange(
-        op=value.op,
+        op=EntryChangeOperation(value.op),
         entry_id=value.entry_id,
         from_entry_version_id=value.from_entry_version_id,
         to_entry_version_id=value.to_entry_version_id,
@@ -210,7 +186,7 @@ def entry_change(value: MemoryChange) -> EntryChange:
     )
 
 
-def revision_changes(value: CoreMemoryRevisionChanges) -> MemoryRevisionChanges:
+def revision_changes(value: RuntimeMemoryRevisionChanges) -> MemoryRevisionChanges:
     return MemoryRevisionChanges(
         memory_ref=artifact_reference(value.memory_ref),
         changes=[entry_change(change) for change in value.changes],
@@ -220,7 +196,7 @@ def revision_changes(value: CoreMemoryRevisionChanges) -> MemoryRevisionChanges:
 def search_hit(value: MemoryHit) -> SearchMemoryHit:
     return SearchMemoryHit(
         citation=transport_citation(
-            CoreMemoryCitation(
+            RuntimeMemoryCitation(
                 memory_ref=value.memory_ref,
                 entry_id=value.entry_id,
                 entry_version_id=value.entry_version_id,
@@ -228,7 +204,7 @@ def search_hit(value: MemoryHit) -> SearchMemoryHit:
         ),
         text=value.text,
         score=value.score,
-        matched_by=list(value.matched_by),
+        matched_by=[MemoryMatchedBy(channel) for channel in value.matched_by],
     )
 
 
@@ -239,7 +215,7 @@ def memory_entry(value: MemoryEntryRecord) -> MemoryEntry:
         version=entry.version,
         kind=entry.kind,
         text=entry.text,
-        state=value.state,
-        source_refs=[SourceReference(name=CONTENT_SOURCE_NAME, source_id=source.name) for source in entry.sources],
+        state=MemoryEntryState(value.state),
+        source_refs=[SourceReference(name=source.source_type, source_id=source.source_id) for source in entry.sources],
         artifact_refs=[artifact_reference(reference) for reference in entry.artifacts],
     )

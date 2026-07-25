@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import FrozenInstanceError, dataclass
-from typing import ClassVar, cast
+from typing import ClassVar
 
 import pytest
+from pydantic import ValidationError
 
+from powercontext import ArtifactFamilyMismatchError
 from powercontext.artifacts import (
     Artifact,
     ArtifactCatalog,
@@ -15,32 +16,28 @@ from powercontext.artifacts import (
     ArtifactStore,
 )
 from powercontext.context import Artifacts
-from powercontext.errors import ArtifactFamilyMismatchError
-from powercontext.sources import Source, SourceMaterialization
+from powercontext.sources import SourceRef
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ConversationSource(Source):
-    session_id: str
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class ExtractedMemory(Artifact[tuple[str, ...]]):
     family: ClassVar[str] = "extracted-memory"
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
 class HandoffDraft(ArtifactDraft[str]):
     family: ClassVar[str] = "handoff"
 
 
-def test_artifact_is_an_immutable_fixed_family_snapshot_with_direct_lineage() -> None:
-    source = ConversationSource(
-        name="session-42-snapshot",
-        materialization=SourceMaterialization.CAPTURED,
-        session_id="session-42",
-    )
-    dependency = ArtifactRef("user-profile", 2)
+class RejectingArtifactBackend(
+    ArtifactCatalog[Artifact[object]],
+    ArtifactStore[ArtifactDraft[object], Artifact[object]],
+):
+    async def revise(self, artifact: Artifact[object], draft: ArtifactDraft[object], /) -> Artifact[object]:
+        raise AssertionError
+
+
+def test_artifact_is_a_fixed_family_snapshot_with_direct_lineage() -> None:
+    source = SourceRef(source_type="conversation", source_id="session-42-snapshot")
+    dependency = ArtifactRef(family="profile", artifact_id="user-profile", revision=2)
     artifact = ExtractedMemory(
         artifact_id="preference-memory",
         revision=3,
@@ -49,18 +46,85 @@ def test_artifact_is_an_immutable_fixed_family_snapshot_with_direct_lineage() ->
     )
 
     assert artifact.family == "extracted-memory"
-    assert artifact.ref == ArtifactRef("preference-memory", 3)
+    assert artifact.as_ref() == ArtifactRef(family="extracted-memory", artifact_id="preference-memory", revision=3)
     assert artifact.lineage == ArtifactLineage(sources=(source,), artifacts=(dependency,))
-    with pytest.raises(FrozenInstanceError):
-        artifact.revision = 4  # ty: ignore[invalid-assignment]
+
+
+@pytest.mark.parametrize(
+    ("family", "artifact_id", "revision", "field"),
+    [
+        ("", "artifact", 1, "family"),
+        (" family", "artifact", 1, "family"),
+        ("x" * 129, "artifact", 1, "family"),
+        ("memory", "", 1, "artifact_id"),
+        ("memory", " artifact", 1, "artifact_id"),
+        ("memory", "x" * 129, 1, "artifact_id"),
+        ("memory", "artifact", 0, "revision"),
+        ("memory", "artifact", -1, "revision"),
+        ("memory", "artifact", True, "revision"),
+    ],
+)
+def test_artifact_reference_rejects_invalid_identity(
+    family: str,
+    artifact_id: str,
+    revision: int,
+    field: str,
+) -> None:
+    with pytest.raises(ValidationError) as error:
+        ArtifactRef(family=family, artifact_id=artifact_id, revision=revision)
+    assert error.value.errors()[0]["loc"][0] == field
+
+
+@pytest.mark.parametrize(
+    ("factory", "field"),
+    [
+        (
+            lambda: ExtractedMemory(
+                artifact_id="",
+                revision=1,
+                content=(),
+            ),
+            "artifact_id",
+        ),
+        (
+            lambda: ExtractedMemory(
+                artifact_id="memory",
+                revision=0,
+                content=(),
+            ),
+            "revision",
+        ),
+        (
+            lambda: ExtractedMemory(
+                artifact_id="memory",
+                revision=1,
+                content=(),
+                lineage=object(),  # ty: ignore[invalid-argument-type]
+            ),
+            "lineage",
+        ),
+        (
+            lambda: ArtifactLineage(sources=(object(),)),  # ty: ignore[invalid-argument-type]
+            "sources",
+        ),
+        (
+            lambda: HandoffDraft(content="handoff", sources=(object(),)),  # ty: ignore[invalid-argument-type]
+            "sources",
+        ),
+    ],
+)
+def test_artifact_domain_values_reject_invalid_identity_and_lineage(factory, field: str) -> None:
+    with pytest.raises(ValidationError) as error:
+        factory()
+    assert error.value.errors()[0]["loc"][0] == field
 
 
 def test_artifacts_reject_cross_family_revisions_before_storage() -> None:
     async def scenario() -> None:
-        backend = object()
+        backend = RejectingArtifactBackend()
         artifacts = Artifacts(
-            catalog=cast(ArtifactCatalog[Artifact[object]], backend),
-            store=cast(ArtifactStore[ArtifactDraft[object], Artifact[object]], backend),
+            catalog=backend,
+            store=backend,
         )
         memory = ExtractedMemory(
             artifact_id="preference-memory",

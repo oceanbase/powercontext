@@ -1,65 +1,21 @@
-from importlib.metadata import EntryPoint, version
+import json
+from importlib.metadata import version
+from pathlib import Path
+from types import TracebackType
+from typing import Self
 from unittest.mock import Mock
 
-import httpx
 import pytest
-import typer
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 import powercontext.client.cli as client_cli
+from powercontext.api import HealthResponse, ReadinessResponse
+from powercontext.builtin.runtime.cli import app as builtin_app
 from powercontext.cli.app import create_cli
-from powercontext.client import PowerContextClient
+from powercontext.client import ServerResponseError
 from powercontext.client.settings import ClientSettings
 from powercontext.server.cli import app as server_app
-
-
-def test_cli_discovers_declared_component_entry_points() -> None:
-    cli = create_cli()
-
-    assert {"client", "server"} <= {group.name for group in cli.registered_groups}
-    assert cli.registered_commands == []
-
-
-def test_cli_accepts_a_component_without_knowing_its_commands() -> None:
-    runtime_app = typer.Typer(name="runtime")
-
-    @runtime_app.command()
-    def inspect() -> None:
-        typer.echo("runtime")
-
-    cli = create_cli([runtime_app])
-
-    result = CliRunner().invoke(cli, ["runtime", "inspect"])
-
-    assert result.exit_code == 0
-    assert result.output == "runtime\n"
-
-
-def test_cli_rejects_duplicate_provider_names() -> None:
-    commands = [
-        typer.Typer(name="runtime"),
-        typer.Typer(name="runtime"),
-    ]
-
-    with pytest.raises(ValueError, match="runtime"):
-        create_cli(commands)
-
-
-def test_cli_ignores_components_with_missing_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
-    unavailable = EntryPoint(
-        name="client",
-        value="powercontext.missing.cli:app",
-        group="powercontext.cli",
-    )
-
-    def find_entry_points(*, group: str) -> list[EntryPoint]:
-        return [unavailable]
-
-    monkeypatch.setattr("powercontext.cli.app.entry_points", find_entry_points)
-
-    cli = create_cli()
-
-    assert cli.registered_groups == []
 
 
 @pytest.mark.parametrize(
@@ -86,6 +42,35 @@ def test_cli_version_reports_the_installed_distribution() -> None:
     assert installed_version.output == f"{version('powercontext')}\n"
 
 
+def test_cli_exposes_installed_role_commands() -> None:
+    result = CliRunner().invoke(create_cli(), ["--help"])
+
+    assert result.exit_code == 0
+    assert all(command in result.output for command in ("builtin", "client", "server"))
+
+
+def test_builtin_cli_reports_the_configured_instance_capabilities(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "POWERCONTEXT_BUILTIN_DATABASE_URL",
+        f"sqlite+aiosqlite:///{tmp_path / 'builtin.db'}",
+    )
+
+    result = CliRunner().invoke(
+        create_cli([builtin_app]),
+        ["builtin", "capabilities", "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {
+        "database": "sqlite",
+        "memory_extraction": False,
+        "memory_search_modes": ["auto", "fts"],
+    }
+
+
 def test_client_settings_load_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "https://memory.example/api/")
     monkeypatch.setenv("POWERCONTEXT_CLIENT_TIMEOUT", "3.5")
@@ -95,6 +80,14 @@ def test_client_settings_load_environment(monkeypatch: pytest.MonkeyPatch) -> No
     assert settings.server_url == "https://memory.example/api"
     assert settings.timeout == 3.5
     assert ClientSettings(server_url="https://override.example/").server_url == "https://override.example"
+
+
+def test_client_settings_reject_invalid_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "not-a-url")
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_TIMEOUT", "0")
+
+    with pytest.raises(ValidationError):
+        ClientSettings()
 
 
 @pytest.mark.parametrize(
@@ -122,7 +115,7 @@ def test_server_command_layers_partial_cli_overrides_over_environment_settings(
     expected_port: int,
 ) -> None:
     run_server = Mock()
-    monkeypatch.setattr("powercontext.server.cli.uvicorn.run", run_server)
+    monkeypatch.setattr("powercontext.server.cli._run_server", run_server)
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
 
@@ -140,32 +133,48 @@ def test_server_command_layers_partial_cli_overrides_over_environment_settings(
 def test_cli_reports_server_errors_with_request_context_without_a_traceback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    response = httpx.Response(503, headers={"X-Request-ID": "request-123"})
-    with httpx.Client(transport=httpx.MockTransport(lambda request: response)) as http_client:
-        client = PowerContextClient("https://memory.example", http_client=http_client)
+    class FailingClient:
+        async def __aenter__(self) -> Self:
+            return self
 
-        def create_client(base_url: str, *, timeout: float) -> PowerContextClient:
-            return client
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
+            return None
 
-        monkeypatch.setattr(client_cli, "PowerContextClient", create_client)
+        async def get_readiness(self) -> ReadinessResponse:
+            raise ServerResponseError(status_code=503, request_id="request-123")
 
-        result = CliRunner().invoke(create_cli([client_cli.app]), ["client", "ready"])
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: FailingClient())
+
+    result = CliRunner().invoke(create_cli([client_cli.app]), ["client", "ready"])
 
     assert result.exit_code == 1
     assert result.output == "PowerContext Server returned HTTP 503 (request ID: request-123)\n"
 
 
 def test_client_command_prints_human_readable_output_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    response = httpx.Response(200, json={"status": "ok"})
-    with httpx.Client(transport=httpx.MockTransport(lambda request: response)) as http_client:
-        client = PowerContextClient("https://memory.example", http_client=http_client)
+    class HealthyClient:
+        async def __aenter__(self) -> Self:
+            return self
 
-        def create_client(base_url: str, *, timeout: float) -> PowerContextClient:
-            return client
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
+            return None
 
-        monkeypatch.setattr(client_cli, "PowerContextClient", create_client)
+        async def get_liveness(self) -> HealthResponse:
+            return HealthResponse(status="ok")
 
-        result = CliRunner().invoke(create_cli([client_cli.app]), ["client", "live"])
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: HealthyClient())
+
+    result = CliRunner().invoke(create_cli([client_cli.app]), ["client", "live"])
 
     assert result.exit_code == 0
     assert result.output == "Status: ok\n"

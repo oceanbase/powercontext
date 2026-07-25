@@ -1,445 +1,139 @@
-# Integrating the Core Protocol
+# Core protocol and composition
 
-This guide is for developers who implement PowerContext components. It follows a context system as it grows and
-explains where the Core Protocol ends and the integration layer begins.
+This page explains the stable Core boundary for developers who extend PowerContext or assemble it into another
+application. For ready-to-run storage and remote access, use the Builtin profiles and Server described in the other
+development guides.
 
-The types and functions below illustrate the design. They are not a proposed builtin API. Database tables, codecs,
-workers, and model clients are omitted so that the protocol remains visible. Focus on how objects move through the
-system and which component owns each operation.
+## The composition root
 
-The examples describe application-owned integration choices rather than a builtin implementation. Concrete Runtime
-behavior is covered through the production SQLite profile in `tests/runtime/`; changes to this guide should be reviewed
-against the public protocol boundaries instead of a parallel test-only application.
-
-## Core boundaries
-
-Core defines three groups of domain contracts and one composition object:
-
-| Concept | Core types | Purpose |
-| --- | --- | --- |
-| Source | `Source`, `SourceAdapter`, `SourceCatalog`, `SourceStore` | Bring external working material into the system and preserve readable evidence |
-| Artifact | `ArtifactDraft`, `Artifact`, `ArtifactCatalog`, `ArtifactStore` | Write and read context products with revisions and lineage |
-| Trigger | `Trigger`, `PolicyTransition` | Map a Signal and State to the next State and zero or more Actions |
-| Composition | `Sources`, `Artifacts`, `PowerContext` | Bind the concrete components selected by an application |
-
-Memory generation, Handoff queries, Trigger State persistence, Action execution, and scheduling remain outside Core.
-An integration may provide them without making Core depend on a database, scheduler, or model SDK.
-
-## Stage 1: generate Memory from agent turns
-
-After a model call completes, the integration records that turn as a Source. The Source is evidence used to generate
-Memory. It is not Memory itself.
-
-### Define the Agent Source
-
-Concrete implementations inherit their protocols explicitly. The class definition then records the relationship
-between the input, stored Source, and value returned by `read()`.
+`PowerContext` is the public composition root. It binds the selected Source, Artifact, and Trigger services:
 
 ```python
-from dataclasses import dataclass
+from powercontext import PowerContext
 
-from powercontext import Source, SourceAdapter, SourceMaterialization
-
-
-@dataclass(frozen=True, slots=True)
-class AgentTurnInput:
-    session_id: str
-    round_number: int
-    user: str
-    assistant: str
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class AgentTurnSource(Source):
-    session_id: str
-    round_number: int
-    user: str
-    assistant: str
-
-
-class AgentTurnAdapter(
-    SourceAdapter[AgentTurnInput, AgentTurnSource, AgentTurnInput]
-):
-    input_class = AgentTurnInput
-    name = "agent-turn"
-    source_class = AgentTurnSource
-
-    async def resolve(self, value: AgentTurnInput, /) -> AgentTurnSource:
-        return AgentTurnSource(
-            name=f"{value.session_id}/round-{value.round_number}",
-            materialization=SourceMaterialization.CAPTURED,
-            session_id=value.session_id,
-            round_number=value.round_number,
-            user=value.user,
-            assistant=value.assistant,
-        )
-
-    async def read(self, source: AgentTurnSource, /) -> AgentTurnInput:
-        return AgentTurnInput(
-            session_id=source.session_id,
-            round_number=source.round_number,
-            user=source.user,
-            assistant=source.assistant,
-        )
+context = PowerContext(
+    sources=source_services,
+    artifacts=artifact_services,
+    triggers=trigger_services,
+)
 ```
 
-`SourceAdapter.name` identifies one adapter registration; `Source.name` identifies one value within a concrete Source
-class. Core routes reads by the adapter's exact `source_class`. The adapter name is not copied onto Source values or
-used as their persistence discriminator.
+The object does not discover implementations, open databases, read environment variables, or start schedulers. Those
+are lifecycle decisions for the application entry point or a Builtin profile. Keeping that work outside Core lets the
+same contracts run in a local process, a Server process, or an application with its own resource lifecycle.
 
-This adapter uses captured materialization, so the Source contains the turn as it existed when the call completed. An
-adapter backed by an external trace store could use referenced materialization and materialize the content in
-`read()`. The adapter owns that choice.
+## Domain roles
 
-### Define the Memory Artifact
+### Source
 
-Memory is an Artifact family. The family defines its content instead of adding retrieval fields or business dates to
-the generic Artifact contract.
+A `Source` describes evidence that an adapter can resolve or read. Source subtypes use Pydantic models, so validation
+and serialization stay with the model:
 
 ```python
-from dataclasses import dataclass
+from typing import Literal
+
+from powercontext import Source, SourceMaterialization
+
+
+class IssueSource(Source):
+    provider: Literal["github"]
+    repository: str
+    number: int
+
+
+issue = IssueSource(
+    name="oceanbase/powercontext#42",
+    materialization=SourceMaterialization.REFERENCED,
+    provider="github",
+    repository="oceanbase/powercontext",
+    number=42,
+)
+```
+
+An adapter owns the mapping between its native input, its Source subtype, and the value returned by `read()`. Register
+the adapter with `SourceCatalog`; callers should not reproduce adapter identity rules.
+
+The Source catalog derives `SourceRef` values:
+
+```python
+source_ref = source_catalog.as_ref(issue)
+```
+
+This is preferable to repeating `source_type` and `source_id` at each call site.
+
+### Artifact
+
+An `Artifact` is one immutable revision of reusable output. An Artifact family declares its family name as a class
+value and uses a `BaseModel` for structured content:
+
+```python
 from typing import ClassVar
 
-from powercontext import Artifact, ArtifactDraft
+from pydantic import BaseModel
+
+from powercontext import Artifact
 
 
-@dataclass(frozen=True, slots=True)
-class MemoryContent:
-    summary: str
+class NoteContent(BaseModel):
+    text: str
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class MemoryDraft(ArtifactDraft[MemoryContent]):
-    family: ClassVar[str] = "memory"
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Memory(Artifact[MemoryContent]):
-    family: ClassVar[str] = "memory"
+class Note(Artifact[NoteContent]):
+    family: ClassVar[str] = "note"
 ```
 
-`MemoryDraft.sources` records the Agent Sources actually used during generation. After the Store commits the draft,
-it returns a `Memory` with an identity, revision, and lineage.
-
-### Define a round-based Trigger
-
-A Trigger does not read the database or call a model. It only computes a transition.
+Persisted Artifacts already carry their identity and revision. Use `artifact.as_ref()` when another value needs an
+exact reference:
 
 ```python
-from dataclasses import dataclass
-
-from powercontext import Trigger
-from powercontext.triggers import PolicyTransition
-
-
-@dataclass(frozen=True, slots=True)
-class SourceStored:
-    source: AgentTurnSource
-
-
-@dataclass(frozen=True, slots=True)
-class PendingTurns:
-    sources: tuple[AgentTurnSource, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class GenerateMemory:
-    sources: tuple[AgentTurnSource, ...]
-
-
-class EveryAgentRounds(
-    Trigger[SourceStored, PendingTurns, GenerateMemory]
-):
-    def __init__(self, rounds: int) -> None:
-        if rounds < 1:
-            raise ValueError("rounds must be positive")
-        self._rounds = rounds
-
-    def initial_state(self) -> PendingTurns:
-        return PendingTurns()
-
-    def activate(
-        self,
-        signal: SourceStored,
-        state: PendingTurns,
-        /,
-    ) -> PolicyTransition[PendingTurns, GenerateMemory]:
-        sources = (*state.sources, signal.source)
-        if len(sources) < self._rounds:
-            return PolicyTransition(state=PendingTurns(sources))
-        return PolicyTransition(
-            state=PendingTurns(),
-            actions=(GenerateMemory(sources),),
-        )
+note_ref = note.as_ref()
 ```
 
-`PolicyTransition.actions` is a tuple. A policy may return no Action or several Actions. Action count and Artifact
-count are separate concerns: one `GenerateMemory` Action may produce no Memory, one Memory, or several Memories.
+Lineage contains Source and Artifact references used to produce that revision. The store is responsible for revision
+conflicts and persistence; the family service is responsible for its domain behavior.
 
-### Compose the components
+### Trigger
 
-Concrete repositories should also inherit `SourceCatalogBackend`, `SourceStore`, `ArtifactCatalog`, or
-`ArtifactStore` explicitly. This example assumes the application already provides `source_repository` and
-`artifact_repository`.
+A `Trigger` is a policy over a signal and prior state. It returns a `PolicyTransition` containing the next state and
+zero or more actions. A Trigger should not open storage, schedule itself, or perform the action it selects.
 
-```python
-from dataclasses import dataclass
+APScheduler belongs to the Builtin runtime lifecycle. It decides when to evaluate a policy. The Trigger decides what
+the observed signal means.
 
-from powercontext import Artifacts, PowerContext, SourceCatalog, Sources, Trigger
+## Ownership boundaries
 
+| Concern | Owner |
+| --- | --- |
+| Domain models, references, protocols, composition | Core |
+| Builtin Memory, relational persistence, indexes, runtime policy | `powercontext.builtin` |
+| Environment-backed process configuration | `powercontext.client.settings`, `powercontext.server.settings` |
+| HTTP lifecycle and optional MCP transport | `powercontext.server` |
+| Provider-specific generation and embedding | Inference integration |
+| Database and scheduler resource lifetime | Application entry point or Builtin runtime instance |
 
-@dataclass(frozen=True, slots=True)
-class ContextTriggers:
-    agent_memory: Trigger[SourceStored, PendingTurns, GenerateMemory]
+Core models use Pydantic `BaseModel`. Add a validator when the value has a real domain constraint. Do not add wrapper
+properties for stored fields, custom JSON value hierarchies, or a second definition object when the model or protocol
+already expresses the boundary.
 
+## Choosing an integration path
 
-context = PowerContext(
-    sources=Sources(
-        catalog=SourceCatalog(
-            backend=source_repository,
-            adapters=(AgentTurnAdapter(),),
-        ),
-        store=source_repository,
-    ),
-    artifacts=Artifacts(
-        catalog=artifact_repository,
-        store=artifact_repository,
-    ),
-    triggers=ContextTriggers(
-        agent_memory=EveryAgentRounds(10),
-    ),
-)
-```
+Use the smallest public layer that owns the behavior you need:
 
-`PowerContext` does not start workers or take ownership of repositories. It is the result of explicit composition.
+- Use Core protocols when providing a new Source adapter, Artifact family, Trigger policy, or persistence adapter.
+- Use `open_builtin_runtime()` for the standard Source and Memory services with either supported database.
+- Use `create_server_app()` when running the standard HTTP service with optional MCP.
 
-### Apply transitions in the integration layer
+The [Memory guide](memory-layer.md) covers the Builtin Artifact family. The
+[remote access guide](remote-access-implementation.md) covers process configuration and transports.
 
-After a Source has been stored, the integration publishes a Signal, loads the corresponding State, and calls the
-Trigger. The Action handler reads Sources, calls the model, and writes the resulting Artifact.
+## Extension review
 
-```python
-from collections.abc import Awaitable, Callable
+Before adding a new abstraction, check that it represents one of these:
 
+- a stable domain value with validation;
+- behavior that has more than one practical implementation;
+- a resource or lifecycle boundary;
+- a user-visible capability.
 
-async def record_agent_turn(
-    context: PowerContext[ContextTriggers, Artifacts],
-    state: PendingTurns,
-    value: AgentTurnInput,
-    extract_memories: Callable[
-        [tuple[AgentTurnInput, ...]],
-        Awaitable[tuple[MemoryContent, ...]],
-    ],
-) -> PendingTurns:
-    resolved = await context.sources.resolve(value)
-    source = await context.sources.add(resolved)
-    if not isinstance(source, AgentTurnSource):
-        raise TypeError
-
-    transition = context.triggers.agent_memory.activate(
-        SourceStored(source),
-        state,
-    )
-    for action in transition.actions:
-        turns: list[AgentTurnInput] = []
-        for item in action.sources:
-            turn = await context.sources.read(item)
-            if not isinstance(turn, AgentTurnInput):
-                raise TypeError
-            turns.append(turn)
-
-        contents = await extract_memories(tuple(turns))
-        for content in contents:
-            await context.artifacts.add(
-                MemoryDraft(
-                    content=content,
-                    sources=action.sources,
-                )
-            )
-    return transition.state
-```
-
-The function illustrates control flow. A production integration will usually append the Signal to a durable queue and
-let a worker process the transition and Actions. `Sources.add()` remains a Source write. It does not imply a model call
-or Artifact generation.
-
-Passing `state` directly keeps the example short. A runtime must persist Trigger State under an application-defined
-partition, such as a session, owner, or project scope. Core does not define that partition key. Keeping one global State
-per Trigger can mix Sources from unrelated conversations.
-
-### Inject Memory before the model call
-
-Committed Memory is read while building the model request. The current turn can only be captured after the model has
-returned, so Memory generated from that turn affects later requests.
-
-```python
-memories = await memory_queries.search(
-    query=user_message,
-    scope=context_scope,
-)
-request = build_agent_request(
-    user_message=user_message,
-    memories=memories,
-)
-assistant = await model(request)
-
-state = await record_agent_turn(
-    context,
-    state,
-    AgentTurnInput(
-        session_id=session_id,
-        round_number=round_number,
-        user=user_message,
-        assistant=assistant,
-    ),
-    extract_memories,
-)
-```
-
-`memory_queries` belongs to the Memory family. The generic `ArtifactCatalog` does not offer `search`, because recall,
-ranking, filtering, and scope rules differ between families. `context_scope` is an application-defined object; Core
-does not add owner or session fields to every Artifact.
-
-## Stage 2: add a Git Source
-
-Adding a Source does not require changes to `Sources` or `PowerContext`. Implement the Source, its input, and its
-adapter, then register the adapter with `SourceCatalog` during application startup.
-
-```python
-@dataclass(frozen=True, slots=True)
-class GitCommitInput:
-    repository: str
-    commit: str
-    summary: str
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class GitCommitSource(Source):
-    repository: str
-    commit: str
-    summary: str
-
-
-class GitCommitAdapter(
-    SourceAdapter[GitCommitInput, GitCommitSource, GitCommitInput]
-):
-    input_class = GitCommitInput
-    name = "git-commit"
-    source_class = GitCommitSource
-
-    async def resolve(self, value: GitCommitInput, /) -> GitCommitSource: ...
-
-    async def read(self, source: GitCommitSource, /) -> GitCommitInput: ...
-```
-
-Register both adapters when composing the application:
-
-```python
-source_catalog = SourceCatalog(
-    backend=source_repository,
-    adapters=(AgentTurnAdapter(), GitCommitAdapter()),
-)
-```
-
-Git commits may feed a separate Trigger or contribute to Memory together with agent turns. The integration decides
-which Sources contribute to an Artifact. Core only requires the Artifact lineage to contain the Source objects that
-were actually used.
-
-## Stage 3: replace a Trigger
-
-The application selects Triggers through a typed bundle. When another implementation keeps the same Signal, State,
-and Action contract, only the object in the bundle changes.
-
-```python
-triggers = ContextTriggers(
-    agent_memory=EveryAgentRounds(20),
-)
-
-context = PowerContext(
-    sources=sources,
-    artifacts=artifacts,
-    triggers=triggers,
-)
-```
-
-Another `Trigger[SourceStored, PendingTurns, GenerateMemory]` could activate after session completion, manual approval,
-or an evaluation result. The runtime contract stays unchanged.
-
-Changing the State or Action type widens the replacement boundary. The owning runtime, state codec, and Action handler
-must change with it. Core does not promise arbitrary interchangeability between these internal parts.
-
-## Stage 4: connect a local database and scheduler
-
-This section uses SQLite and APScheduler as concrete examples of a local database and scheduler. Neither choice is part
-of the Core Protocol.
-
-```text
-Agent hook or Git hook
-    -> write Source
-    -> append Signal
-
-APScheduler job
-    -> append timer Signal
-
-worker
-    -> load Trigger State
-    -> Trigger.activate(Signal, State)
-    -> commit next State and pending Actions
-    -> execute Action
-    -> add or revise Artifact
-```
-
-A local database integration will usually persist the following data. The companion E2E implements this role with
-SQLite.
-
-| Data | Writer | Reader |
-| --- | --- | --- |
-| Source | Agent hook, Git hook, or another adapter integration | Action handler, SourceCatalog |
-| Artifact revision | Memory or Handoff handler | Family query, ArtifactCatalog |
-| Pending Signal | Hook, external event, or scheduler callback | Trigger worker |
-| Trigger State by application partition | Trigger worker | Trigger worker |
-| Pending Action | Trigger worker | Action handler |
-
-Before activation, the runtime selects the State partition for the Signal. When processing it, the runtime should
-commit the next State and pending Actions in one transaction. The runtime also owns Action claim, acknowledgement,
-retry, and idempotency behavior.
-
-APScheduler owns time-based wakeups. A cron job should append a Signal such as `DailyReviewDue(scope, day)`. The active
-runtime then evaluates the Trigger supplied by the application. The job should not reconstruct a default Trigger,
-because that would bypass the application's replacement.
-
-A daily Handoff handler can read that scope's Memory for the day, build `HandoffDraft(artifacts=memories)`, and add a
-new Artifact or revise an existing Handoff. Memory and Handoff share `Artifacts`, while their family queries remain
-separate.
-
-## End-to-end call order
-
-One agent turn follows this order:
-
-```text
-read relevant committed Memory for the current scope
-    -> build model request
-    -> call model
-    -> resolve and add AgentTurnSource
-    -> append SourceStored Signal
-    -> evaluate Trigger with persisted partitioned State
-    -> execute GenerateMemory Action
-    -> add zero or more Memory Artifacts with Source lineage
-```
-
-Daily Handoff uses a separate Signal and Action path while sharing the Source catalog and Artifact lifecycle.
-
-## Boundaries to review
-
-Review an integration against these questions:
-
-1. Does `PowerContext` only compose explicitly configured `Sources`, `Artifacts`, and a typed Trigger bundle?
-2. Do public interfaces pass Source and Artifact objects instead of backend IDs or row references?
-3. Do `Sources.add()` and `Artifacts.add()` retain clear persistence semantics without implied model calls?
-4. Does each Trigger remain sans-I/O and allow a transition to return zero or more Actions?
-5. Does the runtime partition Trigger State without turning the partition key into a Core concern?
-6. Do family queries apply application scope while workers, schedulers, codecs, and transactions remain in the
-   concrete integration?
-
-If an implementation needs to change these boundaries, discuss the Core Protocol first instead of adding an implicit
-runtime convention.
+An alias around one implementation, a duplicate configuration model, or a property that only returns a stored field
+does not create a useful boundary.

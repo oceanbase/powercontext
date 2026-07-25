@@ -2,10 +2,6 @@
 
 本参考由当前包的公开模块生成。RFC 可能描述尚未成为当前 API 一部分的计划能力。
 
-## Catalogs
-
-::: powercontext.catalogs
-
 ## Composition
 
 ::: powercontext.context
@@ -20,7 +16,7 @@
 
 ## Memory
 
-::: powercontext.memory
+::: powercontext.builtin.artifacts.memory
 
 ## Triggers
 

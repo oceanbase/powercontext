@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 from pathlib import Path
 from pprint import pformat
 
@@ -13,7 +12,7 @@ from datamodel_code_generator.enums import StrictTypes
 from datamodel_code_generator.format import CodeFormatter, Formatter, PythonVersion
 from fastapi.openapi.models import MediaType, OpenAPI, PathItem, Reference, RequestBody, Response, Schema
 from fastapi.openapi.models import Operation as OpenAPIOperation
-from pydantic import ImportString, JsonValue, TypeAdapter, ValidationError
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "openapi" / "powercontext.yaml"
@@ -21,10 +20,7 @@ GENERATED_DIR = ROOT / "src" / "powercontext" / "api" / "generated"
 MODELS_PATH = GENERATED_DIR / "models.py"
 OPERATIONS_PATH = GENERATED_DIR / "operations.py"
 SCHEMA_PATH = GENERATED_DIR / "schema.py"
-CORE_MODEL_KEY = "x-powercontext-python-model"
-DATAMODEL_IMPORT_KEY = "x-python-import"
 DRIFT_MESSAGE = "Generated API code drifted; run 'make api-generate' and review the result."
-_CORE_MODEL_ADAPTER = TypeAdapter(ImportString[object])
 _JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
 
 
@@ -35,14 +31,6 @@ class ContractGenerationError(RuntimeError):
         self.subject = subject
         self.value = value
         super().__init__(f"cannot generate PowerContext API: invalid {subject}: {value!r}")
-
-
-@dataclass(frozen=True, slots=True)
-class CoreModelBinding:
-    """One OpenAPI schema backed by an existing Core model."""
-
-    module: str
-    name: str
 
 
 def generate_sources() -> dict[Path, str]:
@@ -58,17 +46,12 @@ def generate_sources() -> dict[Path, str]:
 
     if contract.components is None or contract.components.schemas is None:
         raise ContractGenerationError("components.schemas", None)
-    core_models: dict[str, CoreModelBinding] = {}
-    for name, schema in contract.components.schemas.items():
-        model_reference = (schema.model_extra or {}).get(CORE_MODEL_KEY)
-        if model_reference is not None:
-            core_models[name] = _core_model_binding(name, model_reference)
     contract_data = _JSON_OBJECT_ADAPTER.validate_python(
         contract.model_dump(mode="json", by_alias=True, exclude_none=True)
     )
     return {
-        MODELS_PATH: _generate_models(contract, core_models),
-        OPERATIONS_PATH: _generate_operations(contract, contract.components.schemas, core_models),
+        MODELS_PATH: _generate_models(contract),
+        OPERATIONS_PATH: _generate_operations(contract, contract.components.schemas),
         SCHEMA_PATH: _generate_schema(contract_data),
     }
 
@@ -91,20 +74,11 @@ def main() -> None:
 
 def _generate_models(
     contract: OpenAPI,
-    core_models: dict[str, CoreModelBinding],
 ) -> str:
     transport_contract = contract.model_copy(deep=True)
     transport_contract.paths = {}
     if transport_contract.components is None or transport_contract.components.schemas is None:
         raise ContractGenerationError("components.schemas", None)
-    for name, binding in core_models.items():
-        schema = transport_contract.components.schemas[name]
-        if schema.model_extra is None:
-            raise ContractGenerationError("Core model schema", name)  # noqa: TRY003
-        schema.model_extra[DATAMODEL_IMPORT_KEY] = {
-            "module": binding.module,
-            "name": binding.name,
-        }
     result = generate(
         transport_contract.model_dump(mode="json", by_alias=True, exclude_none=True),
         config=GenerateConfig(
@@ -112,7 +86,6 @@ def _generate_models(
             input_file_type=InputFileType.OpenAPI,
             target_python_version=PythonVersion.PY_311,
             disable_timestamp=True,
-            enable_faux_immutability=True,
             capitalise_enum_members=True,
             field_constraints=True,
             set_default_enum_member=True,
@@ -132,7 +105,6 @@ def _generate_models(
 def _generate_operations(
     contract: OpenAPI,
     schemas: dict[str, Schema | Reference],
-    core_models: dict[str, CoreModelBinding],
 ) -> str:
     imports: set[tuple[str, str]] = set()
     operations: list[str] = []
@@ -145,12 +117,12 @@ def _generate_operations(
             if operation.operationId is None or operation.summary is None:
                 raise ContractGenerationError("operation metadata", path)  # noqa: TRY003
             operation_id = operation.operationId
-            request_model = _request_model(operation.requestBody, schemas, core_models)
+            request_model = _request_model(operation.requestBody, schemas)
             if request_model is not None:
                 imports.add(request_model[:2])
 
             success_status, success_response = _success_response(operation.responses, path)
-            response_model = _model_for_json_content(success_response.content, schemas, core_models, path)
+            response_model = _model_for_json_content(success_response.content, schemas, path)
             imports.add(response_model[:2])
             operations.append(
                 _render_operation(
@@ -176,10 +148,9 @@ def _generate_operations(
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from pydantic import JsonValue
+from pydantic import BaseModel, JsonValue
 
 {import_lines}
 
@@ -192,8 +163,7 @@ RequestT = TypeVar("RequestT")
 ResponseT = TypeVar("ResponseT")
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Operation(Generic[RequestT, ResponseT]):
+class Operation(BaseModel, Generic[RequestT, ResponseT]):
     method: str
     path: str
     operation_id: str
@@ -235,13 +205,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {pformat(contract, width=100, sort_dicts=
 def _request_model(
     request_body: RequestBody | Reference | None,
     schemas: dict[str, Schema | Reference],
-    core_models: dict[str, CoreModelBinding],
 ) -> tuple[str, str] | None:
     if request_body is None:
         return None
     if not isinstance(request_body, RequestBody):
         raise ContractGenerationError("request body reference", request_body)  # noqa: TRY003
-    return _model_for_json_content(request_body.content, schemas, core_models, "request body")
+    return _model_for_json_content(request_body.content, schemas, "request body")
 
 
 def _success_response(
@@ -262,7 +231,6 @@ def _success_response(
 def _model_for_json_content(
     content: dict[str, MediaType] | None,
     schemas: dict[str, Schema | Reference],
-    core_models: dict[str, CoreModelBinding],
     subject: str,
 ) -> tuple[str, str]:
     if content is None or "application/json" not in content:
@@ -274,29 +242,7 @@ def _model_for_json_content(
     schema_name = schema_ref.removeprefix("#/components/schemas/")
     if schema_name not in schemas:
         raise ContractGenerationError("schema reference", schema_ref)  # noqa: TRY003
-    binding = core_models.get(schema_name)
-    module = binding.module if binding is not None else "powercontext.api.generated.models"
-    model_name = binding.name if binding is not None else schema_name
-    return module, model_name
-
-
-def _core_model_binding(schema_name: str, value: object) -> CoreModelBinding:
-    if not isinstance(value, str):
-        raise ContractGenerationError(f"{schema_name}.{CORE_MODEL_KEY}", value)
-    module, separator, name = value.rpartition(".")
-    if not separator or not module or not name:
-        raise ContractGenerationError(f"{schema_name}.{CORE_MODEL_KEY}", value)
-    try:
-        _CORE_MODEL_ADAPTER.validate_python(value)
-    except ValidationError as exc:
-        raise ContractGenerationError(
-            f"{schema_name}.{CORE_MODEL_KEY}",
-            value,
-        ) from exc
-    return CoreModelBinding(
-        module=module,
-        name=name,
-    )
+    return "powercontext.api.generated.models", schema_name
 
 
 def _response_metadata(response: Response | object) -> dict[str, JsonValue]:

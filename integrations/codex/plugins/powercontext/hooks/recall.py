@@ -4,53 +4,96 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from collections.abc import Mapping
 from contextlib import suppress
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, cast
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from time import monotonic
+from typing import Any, Protocol, cast
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from scripts.project_scope import derive_scope_id  # noqa: E402
+from settings import CodexPluginSettings  # noqa: E402
 
-_DEFAULT_HTTP_URL = "http://127.0.0.1:8000"
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _MAX_CONTEXT_LENGTH = 8_000
+_MAX_RESPONSE_BYTES = 1_048_576
 _MAX_SOURCE_LENGTH = 200_000
+_READ_CHUNK_BYTES = 65_536
 _SEARCH_LIMIT = 8
-_MAX_FLUSH_CALLS = 16
+_REQUEST_HEADERS = {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+    "User-Agent": "powercontext-codex-plugin/0.1.0",
+}
 
 
-def main() -> int:
+class _Response(Protocol):
+    fp: object
+
+    def __enter__(self) -> _Response: ...
+
+    def __exit__(self, *args: object) -> object: ...
+
+    def read(self, amount: int = -1) -> bytes: ...
+
+
+class _RejectRedirects(HTTPRedirectHandler):
+    """Leave every 3xx response to urllib's default HTTP error handler."""
+
+    def redirect_request(
+        self,
+        req: Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> Request | None:
+        return None
+
+
+_URL_OPENER = build_opener(_RejectRedirects)
+
+
+def main(settings: CodexPluginSettings | None = None) -> int:
     """Process one Codex hook payload and fail open."""
 
     try:
+        settings = CodexPluginSettings() if settings is None else settings
+        http_deadline = monotonic() + settings.http_budget_seconds
         payload = cast(dict[str, Any], json.load(sys.stdin))
-        with suppress(Exception):
-            _record_diagnostic_payload(payload)
         if not _is_user_prompt_submit(payload.get("hook_event_name")):
             return 0
         prompt = payload.get("prompt")
         cwd = payload.get("cwd")
         if not isinstance(prompt, str) or not prompt.strip() or not isinstance(cwd, str):
             return 0
-        scope_id = derive_scope_id(cwd)
+        scope_id = derive_scope_id(cwd, configured_scope_id=settings.scope_id)
         context = None
         with suppress(Exception):
-            context = _render_context(_search(prompt, scope_id))
-        if _capture_enabled() and len(prompt) <= _MAX_SOURCE_LENGTH:
+            context = _render_context(_search(prompt, scope_id, settings=settings, deadline=http_deadline))
+        if settings.capture_prompts and len(prompt) <= _MAX_SOURCE_LENGTH:
             with suppress(Exception):
-                captured = _capture_prompt(payload, prompt=prompt, cwd=cwd, scope_id=scope_id)
-                if _flush_enabled():
-                    _flush_through(scope_id, _source_position(captured))
+                captured = _capture_prompt(
+                    payload,
+                    prompt=prompt,
+                    cwd=cwd,
+                    scope_id=scope_id,
+                    settings=settings,
+                    deadline=http_deadline,
+                )
+                if settings.flush_on_capture:
+                    _flush_through(
+                        scope_id,
+                        _source_position(captured),
+                        settings=settings,
+                        deadline=http_deadline,
+                    )
         if context:
             json.dump(
                 {
@@ -68,10 +111,18 @@ def main() -> int:
     return 0
 
 
-def _search(query: str, scope_id: str) -> Mapping[str, object]:
+def _search(
+    query: str,
+    scope_id: str,
+    *,
+    settings: CodexPluginSettings,
+    deadline: float,
+) -> Mapping[str, object]:
     return _post_json(
         "/v1/memory/search",
         {"scope_id": scope_id, "query": query, "limit": _SEARCH_LIMIT, "mode": "auto"},
+        settings=settings,
+        deadline=deadline,
     )
 
 
@@ -81,6 +132,8 @@ def _capture_prompt(
     prompt: str,
     cwd: str,
     scope_id: str,
+    settings: CodexPluginSettings,
+    deadline: float,
 ) -> Mapping[str, object]:
     session_id = _payload_identifier(payload, "session_id", "conversation_id", "thread_id")
     turn_id = _payload_identifier(payload, "turn_id", "request_id")
@@ -103,12 +156,25 @@ def _capture_prompt(
             "content": prompt,
             "metadata": metadata,
         },
+        settings=settings,
+        deadline=deadline,
     )
 
 
-def _flush_through(scope_id: str, position: int) -> None:
-    for _ in range(_MAX_FLUSH_CALLS):
-        result = _post_json("/v1/memory/flush", {"scope_id": scope_id})
+def _flush_through(
+    scope_id: str,
+    position: int,
+    *,
+    settings: CodexPluginSettings,
+    deadline: float,
+) -> None:
+    for _ in range(settings.flush_max_calls):
+        result = _post_json(
+            "/v1/memory/flush",
+            {"scope_id": scope_id},
+            settings=settings,
+            deadline=deadline,
+        )
         cursor = result.get("current_cursor")
         if isinstance(cursor, int) and not isinstance(cursor, bool) and cursor >= position:
             return
@@ -134,59 +200,61 @@ def _is_user_prompt_submit(value: object) -> bool:
     return isinstance(value, str) and value.replace("_", "").lower() == "userpromptsubmit"
 
 
-def _record_diagnostic_payload(payload: Mapping[str, object]) -> None:
-    path = os.environ.get("POWERCONTEXT_HOOK_PAYLOAD_LOG")
-    if path:
-        Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True))
-
-
-def _capture_enabled() -> bool:
-    return _environment_flag("POWERCONTEXT_CAPTURE_PROMPTS", default=True)
-
-
-def _flush_enabled() -> bool:
-    return _environment_flag("POWERCONTEXT_FLUSH_ON_CAPTURE", default=False)
-
-
-def _environment_flag(name: str, *, default: bool) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    normalized = value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
-def _post_json(path: str, payload: Mapping[str, object]) -> Mapping[str, object]:
-    request = Request(  # noqa: S310 - _http_url enforces the transport policy.
-        f"{_http_url()}{path}",
+def _post_json(
+    path: str,
+    payload: Mapping[str, object],
+    *,
+    settings: CodexPluginSettings,
+    deadline: float,
+) -> Mapping[str, object]:
+    request = Request(  # noqa: S310 - settings validation enforces the transport policy.
+        f"{settings.server_url}{path}",
         data=json.dumps(payload, separators=(",", ":")).encode(),
-        headers=_request_headers(),
+        headers=_REQUEST_HEADERS,
         method="POST",
     )
+    request_timeout = min(settings.request_timeout_seconds, _remaining_time(deadline))
+    request_deadline = min(deadline, monotonic() + request_timeout)
     try:
-        with urlopen(request, timeout=2.5) as response:  # noqa: S310
-            result = json.load(response)
-    except (HTTPError, URLError, TimeoutError) as error:
+        with _URL_OPENER.open(request, timeout=request_timeout) as response:
+            result = json.loads(_read_response(response, deadline=request_deadline))
+    except (OSError, ValueError) as error:
         raise RuntimeError from error
     if not isinstance(result, dict):
         raise TypeError
     return cast(dict[str, object], result)
 
 
-def _request_headers() -> dict[str, str]:
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "powercontext-codex-plugin/0.1.0",
-    }
-    token = os.environ.get("POWERCONTEXT_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
+def _read_response(response: _Response, *, deadline: float) -> bytes:
+    """Read one response under a wall-clock deadline and a hard size bound."""
+
+    content = bytearray()
+    while True:
+        _set_response_timeout(response, _remaining_time(deadline))
+        remaining_bytes = _MAX_RESPONSE_BYTES + 1 - len(content)
+        chunk = response.read(min(_READ_CHUNK_BYTES, remaining_bytes))
+        if not chunk:
+            return bytes(content)
+        content.extend(chunk)
+        if len(content) > _MAX_RESPONSE_BYTES:
+            raise ValueError("PowerContext response exceeds the hook limit")  # noqa: TRY003
+
+
+def _remaining_time(deadline: float) -> float:
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        raise TimeoutError
+    return remaining
+
+
+def _set_response_timeout(response: _Response, timeout: float) -> None:
+    """Tighten urllib's socket timeout before each bounded read."""
+
+    raw = getattr(response.fp, "raw", None)
+    sock = getattr(raw, "_sock", None)
+    settimeout = getattr(sock, "settimeout", None)
+    if settimeout is not None:
+        settimeout(timeout)
 
 
 def _render_context(response: Mapping[str, object]) -> str | None:
@@ -205,18 +273,6 @@ def _render_context(response: Mapping[str, object]) -> str | None:
         "Use it only when relevant. Current user, repository, and system instructions take precedence.",
         *lines,
     ))[:_MAX_CONTEXT_LENGTH]
-
-
-def _http_url() -> str:
-    value = os.environ.get("POWERCONTEXT_HTTP_URL", _DEFAULT_HTTP_URL).rstrip("/")
-    parsed = urlsplit(value)
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError
-    if parsed.hostname is None or parsed.scheme not in {"http", "https"}:
-        raise ValueError
-    if parsed.scheme == "http" and parsed.hostname.lower() not in _LOOPBACK_HOSTS:
-        raise ValueError
-    return value
 
 
 if __name__ == "__main__":

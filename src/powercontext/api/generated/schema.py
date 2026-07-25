@@ -301,12 +301,13 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "schemas": {
             "ArtifactReference": {
                 "properties": {
+                    "family": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                     "revision": {"type": "integer", "minimum": 1.0},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["artifact_id", "revision"],
+                "required": ["family", "artifact_id", "revision"],
             },
             "Capabilities": {
                 "properties": {
@@ -610,32 +611,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["name", "source_id"],
             },
             "CaptureStatus": {"type": "string", "enum": ["accepted"]},
-            "EntryChangeOperation": {
-                "type": "string",
-                "enum": ["add", "revise", "deactivate", "reactivate"],
-                "x-powercontext-python-model": "powercontext.memory.MemoryChangeOp",
-            },
+            "EntryChangeOperation": {"type": "string", "enum": ["add", "revise", "deactivate", "reactivate"]},
             "FlushStatus": {"type": "string", "enum": ["idle", "processed"]},
-            "MemoryEntryState": {
-                "type": "string",
-                "enum": ["active", "inactive"],
-                "x-powercontext-python-model": "powercontext.memory.MemoryEntryState",
-            },
-            "MemoryMatchedBy": {
-                "type": "string",
-                "enum": ["fts", "vector"],
-                "x-powercontext-python-model": "powercontext.memory.MemoryMatchedBy",
-            },
-            "MemorySearchMode": {
-                "type": "string",
-                "enum": ["auto", "fts", "vector", "hybrid"],
-                "x-powercontext-python-model": "powercontext.memory.MemorySearchMode",
-            },
-            "MemoryUsedSearchMode": {
-                "type": "string",
-                "enum": ["fts", "vector", "hybrid"],
-                "x-powercontext-python-model": "powercontext.memory.MemoryUsedSearchMode",
-            },
+            "MemoryEntryState": {"type": "string", "enum": ["active", "inactive"]},
+            "MemoryMatchedBy": {"type": "string", "enum": ["fts", "vector"]},
+            "MemorySearchMode": {"type": "string", "enum": ["auto", "fts", "vector", "hybrid"]},
+            "MemoryUsedSearchMode": {"type": "string", "enum": ["fts", "vector", "hybrid"]},
         },
         "responses": {
             "Conflict": {

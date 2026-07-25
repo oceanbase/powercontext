@@ -3,8 +3,6 @@
 - RFC PR: [oceanbase/powercontext#19](https://github.com/oceanbase/powercontext/pull/19)
 - Tracking Issue: 尚未分配
 
-# Local Source-to-Memory Runtime
-
 # Summary
 
 本 RFC 提议 backend-neutral Runtime storage contract 和一个内置 SQLite profile。Runtime 使用 `PowerContext`
@@ -293,12 +291,12 @@ backend。
 | `ContentSource` | 具备 Core Source 语义的 captured text |
 | `SourceWindowTrigger` | 计算下一个 bounded Source window |
 
-`SourceRecord`、具体 persistence schema、scheduler registry 和 Pydantic evidence payload 都是当前 SQLite
-profile 的实现细节。storage protocol 定义 adapter boundary，但不会把 SQLite schema 提升为通用 Source、Trigger
-或 transport contract。
+具体 persistence schema、cursor row、scheduler registry 和 Pydantic evidence payload 都是当前 SQLite profile
+的实现细节。storage protocol 定义 adapter boundary，但不会把 SQLite schema 提升为通用 Source、Trigger 或
+transport contract。
 
-`MemoryArtifacts` 和 `MemoryTriggers` 是 `PowerContext` 的 typed component group。它们只说明当前组合根包含
-Memory Artifact Family 和 Source window Trigger，不在 Core 中注册全局 Artifact 或 Trigger catalog。
+`BuiltinArtifacts` 是 `PowerContext` 中的 typed Artifact group；Source-window application 直接作为 Trigger
+component 绑定。两者都不会引入全局 Artifact 或 Trigger catalog。
 
 ## 初始化
 
@@ -420,15 +418,15 @@ manifest 时抛出 `MemoryEntryNotFoundError`。changes request 晚于 current h
 
 ## Packaging
 
-Runtime contract 与 scheduler 通过 `powercontext[runtime]` 安装；内置 SQLite storage adapter 独立安装：
+已接受的实现以一个 Builtin role 分发：
 
 | Extra | 依赖 |
 | --- | --- |
-| `sqlite` | APSW Source 和 Memory backend |
-| `runtime` | Runtime contract、APScheduler 和 SQLAlchemyJobStore |
+| `builtin` | Runtime、SQLite、OceanBase、APScheduler、SQLAlchemy 和 Pydantic AI integration |
 
-内置 convenience profile 因此使用 `powercontext[runtime,sqlite]`。单独安装 `powercontext[sqlite]` 不会导入
-APScheduler 或 SQLAlchemy，自定义 Runtime storage 也不需要依赖 APSW。
+Server、Client 和 CLI 依赖不进入 `builtin`。Server extra 包含 Builtin，因为每个标准 Server process 都持有一个
+配置好的 Builtin runtime。CLI extra 也将 Builtin 作为默认 command；安装 Client 或 Server role 后，它们通过
+entry point discovery 提供各自的 command。
 
 # Drawbacks
 
@@ -485,7 +483,7 @@ integration。把这些类型放进默认 Runtime 会让 Memory candidate pipeli
 # Prior art
 
 本方案延续 [RFC 0002](0002_core_sdk_product_model.md) 对 Core Protocol 和 integration runtime 的分层，也复用
-[RFC 0003](0003_memory_layer_design.md) 已有的 MemoryService、Revision、candidate pipeline 和 evidence contract。
+[RFC 0014](0014_memory_layer_design.md) 已有的 MemoryService、Revision、candidate pipeline 和 evidence contract。
 
 Core Protocol 文档已经使用 SQLite 和 APScheduler 解释 local runtime，但没有把它们规定为 Core 依赖。本 RFC 将该
 示例收敛为一个具体的可选 profile。

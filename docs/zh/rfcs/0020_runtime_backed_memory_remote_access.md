@@ -1,11 +1,8 @@
 - Proposal Name: `runtime_backed_memory_remote_access`
 - Start Date: 2026-07-24
-- Status: 草案
 - RFC PR: [oceanbase/powercontext#20](https://github.com/oceanbase/powercontext/pull/20)
 - Tracking Issue: 尚未分配
 - Related RFCs: [RFC 0011](0011_remote_access_architecture.md), [RFC 0019](0019_local_source_memory_runtime.md)
-
-# 基于 Runtime 的 Memory 远程访问
 
 # Summary
 
@@ -271,20 +268,16 @@ Generated file 会签入仓库，不得通过直接编辑生成文件来代替�
 重新生成 source，并在存在 drift 时失败。Lock file 提供仓库使用的 generator、formatter、FastAPI、Pydantic
 和 YAML version。
 
-Generator 支持通过 `x-powercontext-python-model` 引用已有 public Python type。只有 Core type 与 wire schema
-具有相同含义、JSON structure、default 和 validation behavior 时，该 annotation 才有效。仅能完成 import
-resolution 不能证明这种等价关系。Contract test 必须覆盖每项 binding。
-
 Core dataclass 不能直接作为 transport model。其 constructor 不执行 `minimum`、required nullable field 或
 strict primitive type 等 OpenAPI constraint。因此，object schema 生成 Pydantic model，并显式映射到 Core
-value。当前直接 binding 仅限 validation 等价的封闭 Memory literal alias。精确 Memory 与 entry identifier
-会在 transport boundary 校验为非空、有长度上限的 printable ASCII value，之后才进入 Core 或 persistence
-code。
+value。Wire enum 同样在 API layer 生成，因此导入 Client SDK 不会加载 Memory、Runtime 或 BuiltIn module。
+精确 Memory 与 entry identifier 会在 transport boundary 校验为非空、有长度上限的 printable ASCII value，
+之后才进入 Core 或 persistence code。
 
 ## Core 与 transport type boundary
 
-Transport 直接复用 Memory search、state、match 和 change literal alias。Generated object model 在 Server
-boundary 映射到 `ArtifactRef`、`MemoryCitation`、`MemoryChange`、`MemoryRevisionChanges` 和 `MemoryHit`。
+Transport 自己持有 search、state、match 和 change enum。Generated wire value 在 Server boundary 映射到
+`ArtifactRef`、`MemoryCitation`、`MemoryChange`、`MemoryRevisionChanges` 和 `MemoryHit`。
 
 精确 Artifact reference 只有一种 JSON shape：
 
@@ -522,7 +515,7 @@ Source journal、cursor、scheduler recovery、Memory persistence 和 replay beh
 
 - 执行 `make api-generate` 后，repository diff check 不产生任何 generated change。
 - `make api-generate-check` 和 contract test 在 locked environment 中通过。
-- Contract test 验证 API 使用的每项 `x-powercontext-python-model` binding 具备 validation equivalence。
+- Client import-isolation test 验证 API loading 不会导入 Memory、Runtime 或 BuiltIn module。
 - Server 通过 lifespan 打开和关闭 `PowerContextRuntime`。
 - 有意保持未绑定的底层 Server 报告 `not_ready`；production Server 和 MCP factory 要么组装 Runtime，要么
   在启动阶段失败。

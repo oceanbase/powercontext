@@ -72,8 +72,9 @@ command 可以共存，不需要把任何一组具体 command 移入 shell。
 
 ## 组合方式
 
-Python distribution 为 Client、Server、CLI 和 MCP 提供可选功能面。Process 可以只使用 Client 而不托管 Server。
-本地 Runtime 也可以使用 CLI 而不启用远程访问。只有一个 environment 需要承担多个角色时才组合它们。
+Python distribution 为 Client、Server 和 CLI 提供可选功能面。MCP 是由 Server 配置控制的 transport，不是独立
+installation role。Process 可以只使用 Client 而不托管 Server。本地 Runtime 也可以使用 CLI 而不启用远程访问。
+只有一个 environment 需要承担多个角色时才组合它们。
 
 # Reference-level explanation
 

@@ -20,7 +20,19 @@ Target Python 3.11+. Use PEP 8 naming: modules and functions in `snake_case`, cl
 
 ## Testing Guidelines
 
-Use `pytest`; name test files `test_*.py` and test functions `test_*`. Put focused behavioral coverage in `tests/` and cross-component end-to-end scenarios in `tests/e2e/`; include doctests when public examples are useful. For changes that affect supported Python versions, prefer `tox` before opening a PR. Tests may use plain `assert`; Ruff allows `S101` under `tests/`.
+Use `pytest`; name test files `test_*.py` and test functions `test_*`. Tests must protect observable behavior or a
+specific regression:
+
+- Put focused behavior tests in `tests/` and cross-component acceptance scenarios in `tests/e2e/`.
+- Add a regression test when fixing a defect that is likely to recur.
+- Do not mirror import graphs, module ownership, dependency lists, private call order, or call counts that do not
+  express an external budget or idempotency guarantee.
+- A refactor or rewrite that preserves behavior should not require tests to be rewritten.
+- Do not test a straightforward script solely to increase coverage; test it only when it has meaningful external
+  behavior or a known regression.
+
+Include doctests when public examples are useful. For changes that affect supported Python versions, prefer `tox`
+before opening a PR. Tests may use plain `assert`; Ruff allows `S101` under `tests/`.
 
 ## Commit & Pull Request Guidelines
 

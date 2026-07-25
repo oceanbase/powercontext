@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
-from dataclasses import dataclass
+import asyncio
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Annotated, TypeAlias
 
 import typer
+from pydantic import BaseModel
 
 from powercontext.api import Capabilities, HealthResponse, ReadinessResponse
 from powercontext.client.client import PowerContextClient
@@ -16,6 +16,7 @@ from powercontext.client.settings import ClientSettings
 
 HELP_OPTION_NAMES = ("-h", "--help")
 _ClientResponse: TypeAlias = Capabilities | HealthResponse | ReadinessResponse
+_ClientOperation: TypeAlias = Callable[[PowerContextClient], Awaitable[_ClientResponse]]
 
 app = typer.Typer(
     name="client",
@@ -25,8 +26,7 @@ app = typer.Typer(
 )
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _ClientOptions:
+class _ClientOptions(BaseModel):
     server_url: str
     timeout: float
     json_output: bool
@@ -65,40 +65,32 @@ def main(
 def capabilities(context: typer.Context) -> None:
     """Show behavior enabled by the remote Server runtime."""
 
-    with _client_for(context) as client:
-        _print_result(client.get_capabilities, options=_options(context))
+    asyncio.run(_execute(context, lambda client: client.get_capabilities()))
 
 
 @app.command()
 def live(context: typer.Context) -> None:
     """Check whether the remote API process is alive."""
 
-    with _client_for(context) as client:
-        _print_result(client.get_liveness, options=_options(context))
+    asyncio.run(_execute(context, lambda client: client.get_liveness()))
 
 
 @app.command()
 def ready(context: typer.Context) -> None:
     """Check whether remote Server bindings are ready."""
 
-    with _client_for(context) as client:
-        _print_result(client.get_readiness, options=_options(context))
+    asyncio.run(_execute(context, lambda client: client.get_readiness()))
 
 
 def _options(context: typer.Context) -> _ClientOptions:
     return context.meta["powercontext.client.options"]
 
 
-@contextmanager
-def _client_for(context: typer.Context) -> Iterator[PowerContextClient]:
+async def _execute(context: typer.Context, operation: _ClientOperation) -> None:
     options = _options(context)
-    with PowerContextClient(options.server_url, timeout=options.timeout) as client:
-        yield client
-
-
-def _print_result(operation: Callable[[], _ClientResponse], *, options: _ClientOptions) -> None:
     try:
-        response = operation()
+        async with PowerContextClient(options.server_url, timeout=options.timeout) as client:
+            response = await operation(client)
     except ClientError as exc:
         typer.echo(_error_message(exc), err=True)
         raise typer.Exit(code=1) from exc

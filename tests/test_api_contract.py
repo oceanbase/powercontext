@@ -4,7 +4,6 @@ import pytest
 import yaml
 from pydantic import BaseModel, ValidationError
 
-import powercontext
 from powercontext.api import (
     ArtifactReference,
     CaptureContentSourceRequest,
@@ -25,7 +24,7 @@ from powercontext.api.generated.operations import (
     SEARCH_MEMORY,
 )
 from powercontext.server.app import create_app
-from powercontext.server.runtime import create_server_app
+from powercontext.server.factory import create_server_app
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "openapi" / "powercontext.yaml"
 
@@ -94,16 +93,16 @@ def test_memory_transport_has_one_reference_shape_and_nested_citations() -> None
 @pytest.mark.parametrize(
     ("model", "value"),
     [
-        (ArtifactReference, {"artifact_id": "memory-1", "revision": 0}),
-        (ArtifactReference, {"artifact_id": "memory-1", "revision": "1"}),
-        (ArtifactReference, {"artifact_id": "memory with spaces", "revision": 1}),
+        (ArtifactReference, {"family": "memory", "artifact_id": "memory-1", "revision": 0}),
+        (ArtifactReference, {"family": "memory", "artifact_id": "memory-1", "revision": "1"}),
+        (ArtifactReference, {"family": "memory", "artifact_id": "memory with spaces", "revision": 1}),
         (SearchMemoryRequest, {"scope_id": "scope", "query": "query", "limit": True}),
         (
             GetMemoryEntryRequest,
             {
                 "scope_id": "scope",
                 "citation": {
-                    "memory_ref": {"artifact_id": "memory-1", "revision": 1},
+                    "memory_ref": {"family": "memory", "artifact_id": "memory-1", "revision": 1},
                     "entry_id": "记忆",
                     "entry_version_id": "version-1",
                 },
@@ -117,10 +116,6 @@ def test_generated_transport_rejects_values_outside_openapi(
 ) -> None:
     with pytest.raises(ValidationError):
         model.model_validate(value)
-
-
-def test_server_capabilities_stay_out_of_the_core_api() -> None:
-    assert not hasattr(powercontext, "Capabilities")
 
 
 def test_server_publishes_the_canonical_openapi_schema() -> None:

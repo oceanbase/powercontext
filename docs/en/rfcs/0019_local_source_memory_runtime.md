@@ -3,8 +3,6 @@
 - RFC PR: [oceanbase/powercontext#19](https://github.com/oceanbase/powercontext/pull/19)
 - Tracking Issue: Not assigned
 
-# Local Source-to-Memory Runtime
-
 # Summary
 
 This RFC proposes backend-neutral Runtime storage contracts and a built-in SQLite profile. The Runtime uses the
@@ -306,13 +304,12 @@ This RFC adds the following public runtime surface:
 | `ContentSource` | Captured text with Core Source semantics |
 | `SourceWindowTrigger` | Computes the next bounded Source window |
 
-`SourceRecord`, concrete persistence schemas, the scheduler registry, and the Pydantic evidence payload are
-implementation details of the current SQLite profile. The storage protocols define the adapter boundary without
-promoting SQLite schemas into general Source, Trigger, or transport contracts.
+Concrete persistence schemas, cursor rows, the scheduler registry, and the Pydantic evidence payload are implementation
+details of the current SQLite profile. The storage protocols define the adapter boundary without promoting SQLite
+schemas into general Source, Trigger, or transport contracts.
 
-`MemoryArtifacts` and `MemoryTriggers` are typed component groups for `PowerContext`. They state only that the current
-composition root contains the Memory Artifact Family and a Source window Trigger. They do not register a global
-Artifact or Trigger catalog in Core.
+`BuiltinArtifacts` is the typed Artifact group in `PowerContext`; the Source-window application is bound directly as
+the Trigger component. Neither introduces a global Artifact or Trigger catalog.
 
 ## Initialization
 
@@ -447,16 +444,15 @@ missing from the cited manifest raises `MemoryEntryNotFoundError`. A changes req
 
 ## Packaging
 
-The Runtime contracts and scheduler are installed through `powercontext[runtime]`; the built-in SQLite storage adapter
-is installed separately:
+The accepted implementation is distributed as one Builtin role:
 
 | Extra | Dependencies |
 | --- | --- |
-| `sqlite` | APSW Source and Memory backends |
-| `runtime` | Runtime contracts, APScheduler, and `SQLAlchemyJobStore` |
+| `builtin` | Runtime, SQLite, OceanBase, APScheduler, SQLAlchemy, and Pydantic AI integration |
 
-The built-in convenience profile therefore uses `powercontext[runtime,sqlite]`. Installing only
-`powercontext[sqlite]` does not import APScheduler or SQLAlchemy, and custom Runtime storage need not depend on APSW.
+Server, Client, and CLI dependencies remain outside `builtin`. The Server extra includes Builtin because every standard
+Server process owns one configured Builtin runtime. The CLI extra also includes Builtin as its default command;
+installed Client and Server roles contribute their own commands through entry-point discovery.
 
 # Drawbacks
 
@@ -522,7 +518,7 @@ follow the public Source semantics.
 
 This design follows the separation between the Core Protocol and the integration runtime established in
 [RFC 0002](0002_core_sdk_product_model.md). It also reuses the `MemoryService`, Revision, candidate pipeline, and
-evidence contracts from [RFC 0003](0003_memory_layer_design.md).
+evidence contracts from [RFC 0014](0014_memory_layer_design.md).
 
 The Core Protocol documentation already uses SQLite and APScheduler to explain a local runtime without making them
 Core dependencies. This RFC turns that example into a concrete, optional profile.

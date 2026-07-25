@@ -1,210 +1,175 @@
-# Current remote access implementation
+# Run and use the PowerContext Server
 
-This document follows the remote access implementation end to end, from the OpenAPI contract and generated transport
-code to the FastAPI Server, Python Client, CLI providers, and FastMCP projection. It records current behavior rather
-than the target architecture proposed by an RFC.
+The ready-to-run Server owns one `BuiltinRuntime` and exposes it through HTTP. The same process can project a
+curated subset of Memory operations as MCP tools. `ServerSettings.mcp.enabled` controls that projection, so MCP does
+not require a separate entry point or extra.
 
-The checked-in [`openapi/powercontext.yaml`](../../../openapi/powercontext.yaml) file is the authoritative HTTP contract.
-The [Python API reference](../modules.md) is generated from public modules in the package.
+## Install and start
 
-## Implementation flow
+Install the Server role together with the CLI to run this instance from the command line:
 
-```text
-openapi/powercontext.yaml
-        |
-        v
-generated models, operations, and schema
-        |                    |
-        v                    v
-FastAPI adapters       Python Client
-        |
-        v
-PowerContextRuntime -> scoped PowerContext
-        |
-        v
-FastMCP allow-list
-
-Client and Server command providers -> Typer CLI shell
+```bash
+uv add "powercontext[cli,server]"
 ```
 
-OpenAPI owns the HTTP shape used by both Server and Client code. Generated Pydantic models validate transport values
-strictly. Core dataclasses are mapped explicitly instead of being used as wire models because their constructors do
-not enforce OpenAPI field constraints. Closed Core literal aliases are reused when validation semantics are identical.
+Start the Server:
 
-The production `create_server_app()` factory opens `PowerContextRuntime` in its FastAPI lifespan, closes it during
-shutdown, and always mounts MCP. HTTP and MCP use that same Runtime instance. The lower-level `create_app()`
-factory only binds the HTTP adapter and does not consume process settings. The CLI shell discovers component-owned
-command groups instead of maintaining their commands itself.
+```bash
+uv run powercontext server run
+```
 
-## Implemented surface
+The default listener is `127.0.0.1:8000`. SQLite data is stored in `powercontext.db`. Command options can override the
+listener:
 
-| Component | Current behavior |
+```bash
+uv run powercontext server run --host 0.0.0.0 --port 8080
+```
+
+The process opens its configured database, creates a scope-bound Builtin runtime, and closes owned database, inference,
+and scheduler resources during shutdown.
+
+## Server configuration
+
+`ServerSettings` keeps transport and Builtin configuration at one level:
+
+| Group | Purpose |
 | --- | --- |
-| HTTP Server | Runtime-backed Source and Memory operations, readiness, capabilities, and request IDs |
-| HTTP contract | Source capture and Memory-family commands and queries |
-| Python Client | Synchronous typed methods for health, Source capture, and Memory operations |
-| CLI | A generic command-provider shell with Client and Server command groups |
-| MCP | An allow-listed Memory tool set mounted on the same Server |
-| Runtime | SQLite Source journal, Memory storage, cursor, and optional persisted scheduling |
+| `http` | Listener host and port |
+| `mcp` | Whether MCP is mounted and at which path |
+| `runtime` | Source-window and scheduler policy |
+| `database` | SQLite or OceanBase configuration |
+| `inference` | Optional generation and embedding configuration |
 
-The production factory owns the Runtime lifecycle. The lower-level `create_app()` factory remains available for
-contract and adapter tests; without a binding it reports `not_ready`.
+Environment variables use the `POWERCONTEXT_SERVER_` prefix. Nested fields are joined with underscores:
 
-## HTTP contract
-
-| Method | Path | Response |
-| --- | --- | --- |
-| `GET` | `/health/live` | `HealthResponse` |
-| `GET` | `/health/ready` | `ReadinessResponse` |
-| `GET` | `/v1/capabilities` | `Capabilities` |
-| `POST` | `/v1/sources/content` | `CaptureContentSourceResponse` |
-| `POST` | `/v1/memory/flush` | `FlushMemoryResponse` |
-| `POST` | `/v1/memory/remember` | `MemoryMutationResponse` |
-| `POST` | `/v1/memory/search` | `SearchMemoryResponse` |
-| `POST` | `/v1/memory/entries/list` | `ListMemoryEntriesResponse` |
-| `POST` | `/v1/memory/entries/get` | `MemoryEntry` |
-| `POST` | `/v1/memory/entries/revise` | `MemoryMutationResponse` |
-| `POST` | `/v1/memory/entries/retire` | `MemoryMutationResponse` |
-| `POST` | `/v1/memory/changes` | `ListMemoryChangesResponse` |
-
-Every response includes `X-Request-ID`. The readiness endpoint returns `503 Service Unavailable` when required bindings
-are not ready. The lower-level adapter factory accepts optional readiness and capability providers for explicit
-application assemblies. Production Server and MCP factories derive both values from the Runtime they own and reject
-detached overrides.
-
-Known domain failures are mapped before the response returns through request ID middleware. Missing Memory values use
-`404`; Source, Revision, and inactive-entry conflicts use `409`; invalid transport or Runtime requests use `422`; and
-unavailable Runtime or inference dependencies use `503`. Only unexpected failures use `500 internal_error`.
-
-Artifact-family operations use family-specific prefixes. Memory operations stay under `/v1/memory/`; future Artifact
-families must use their own prefixes instead of extending a generic context namespace. Content capture remains a Source
-operation and returns `202 Accepted` without inventing a durable Operation resource.
-
-`ServerSettings` groups process configuration under `http`, `mcp`, `runtime`, `storage`, and `inference`. Environment
-variables use explicit flat names with the `POWERCONTEXT_SERVER_` prefix, for example
-`POWERCONTEXT_SERVER_STORAGE_PATH` and `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL`. Pydantic Settings splits only
-at the Server group boundary, leaving field names such as `generation_model` intact. Provider credentials remain owned
-by the selected model provider.
-
-When `inference.generation_model` is configured, the composition root builds `LLMMemoryCandidatePipeline`. Its evidence
-projector exposes captured `ContentSource` text and metadata to the Memory extraction schema. Without a generation
-model, capture and explicit Memory operations remain available, while flush reports that extraction is unsupported.
-
-The `inference.embedding_*` fields contain the embedding model, profile ID, dimension, normalization, and timeout.
-`storage.vec1_extension` remains specific to the SQLite profile. The composition root requires both blocks together,
-builds the Pydantic AI embedding adapter, and passes it with the matching `EmbeddingProfile` to the Runtime.
-`/v1/capabilities` reports extraction and search behavior from the initialized Runtime and backend; it does not expose
-storage paths, model names, Source window sizes, or inference budgets.
-
-### Run with an OpenAI-compatible endpoint and Vec1
-
-The repository provides a Linux installer for the pinned
-[official Vec1 0.7 source](https://sqlite.org/vec1/doc/trunk/doc/vec1.md):
-
-```shell
-make vec1-install
+```bash
+export POWERCONTEXT_SERVER_HTTP_PORT="8080"
+export POWERCONTEXT_SERVER_DATABASE_URL="sqlite+aiosqlite:///data/powercontext.db"
+export POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT="200"
+export POWERCONTEXT_SERVER_MCP_ENABLED="false"
 ```
 
-It downloads the official Vec1 source and SQLite headers, verifies their SHA-256 digests, compiles a portable loadable
-extension, and probes it through the APSW version used by PowerContext. The resulting
-`.powercontext/vec1.so` file is local build output and is not committed.
+SQLite is the default database. Select OceanBase by changing only the discriminator and URL:
 
-Copy the example environment file and replace the model names, embedding dimension, endpoint, and credentials:
-
-```shell
-cp .env.example .env
-set -a
-. ./.env
-set +a
-powercontext server run
+```bash
+export POWERCONTEXT_SERVER_DATABASE_KIND="oceanbase"
+export POWERCONTEXT_SERVER_DATABASE_URL="mysql+aoceanbase://user:password@host:2881/powercontext?charset=utf8mb4"
 ```
 
-`ServerSettings` does not load `.env` files itself; the shell or process supervisor must export the values. Use the
-`openai-chat:` model prefix for generic Chat Completions-compatible generation endpoints. Embeddings use the
-`openai:` prefix. The example assumes generation and embeddings share `OPENAI_BASE_URL` and `OPENAI_API_KEY`.
+Both database choices expose full-text search through the same Server API. With an embedding model, SQLite uses Vec1
+and OceanBase uses HNSW for `vector` and `hybrid` searches.
+
+Inference configuration is documented in [Configure Pydantic AI inference](pydantic-ai-inference.md).
+
+Set `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` to process pending Source windows on a persisted interval and
+`POWERCONTEXT_SERVER_RUNTIME_SCHEDULER_PATH` to choose its SQLite sidecar. Scheduling works with either application
+database and requires a configured generation pipeline.
+
+## HTTP surface
+
+The source contract is `openapi/powercontext.yaml`. Generated Pydantic models and operation descriptors under
+`powercontext.api.generated` are build artifacts of that contract.
+
+| Area | Operations |
+| --- | --- |
+| Health | liveness and readiness |
+| Capabilities | source types, Artifact families, extraction, search modes |
+| Sources | capture durable content evidence |
+| Memory | flush pending Sources, remember explicit entries, search |
+| Memory entries | list, get, revise, retire |
+| History | list Memory changes |
+
+Every domain request includes a scope ID. That ID selects the Source journal, Memory head, and Trigger cursor used by
+the Builtin runtime. HTTP request models are transport values and remain separate from Core domain models.
+
+Server errors use the OpenAPI error schema and include an `X-Request-ID` response header. Validation errors, revision
+conflicts, missing entries, unavailable inference, and internal failures map to stable HTTP status codes.
 
 ## Python Client
 
-`PowerContextClient` is synchronous and validates successful responses against the OpenAPI-derived models. In addition
-to health and capability discovery, it provides:
+Install the Client role for the SDK:
 
-- `capture_content_source()` and `flush_memory()`;
-- `remember_memory()` and `search_memory()`;
-- `list_memory_entries()` and `get_memory_entry()`;
-- `revise_memory_entry()` and `retire_memory_entry()`;
-- `list_memory_changes()`.
+```bash
+uv add "powercontext[client]"
+```
 
-Each application method accepts its generated request model. The generated operation metadata records the request type,
-response type, and exact successful status. This lets capture require `202` while the Memory operations require `200`.
-Memory responses use `ArtifactReference` for exact Revisions. Entry responses and search hits carry a nested
-`MemoryCitation`; callers can pass that citation directly to get, revise, or retire requests. The Client does not retry
-mutations or infer Runtime behavior.
+`PowerContextClient` is async-native and uses the generated request and response models:
 
-Client failures use these stable exception classes:
+```python
+from powercontext.api import SearchMemoryRequest
+from powercontext.client import PowerContextClient
 
-- `TransportError` when no valid HTTP response is received;
-- `ServerResponseError` for a non-success HTTP status, including a validated stable error code when supplied;
-- `InvalidResponseError` when a successful response violates the transport model.
 
-`ClientSettings` reads the Server URL and timeout through the `POWERCONTEXT_CLIENT_` prefix. Command-line options
-override those settings.
+async def search() -> None:
+    async with PowerContextClient("http://127.0.0.1:8000") as client:
+        capabilities = await client.get_capabilities()
+        result = await client.search_memory(
+            SearchMemoryRequest(
+                scope_id="project-alpha",
+                query="composition root",
+                limit=10,
+                mode="auto",
+            )
+        )
+        print(capabilities.model_dump())
+        print(result.model_dump())
+```
+
+The client validates successful responses with Pydantic. Transport failures, invalid responses, and structured Server
+errors are exposed as distinct exceptions from `powercontext.client`.
 
 ## CLI
 
-The top-level Typer shell discovers command groups supplied by installed components. It owns global help and version
-handling but does not define component commands.
+Add the CLI extra to expose the installed Client command:
 
-The current groups provide:
-
-```text
-powercontext client live
-powercontext client ready
-powercontext client capabilities
-powercontext server run
+```bash
+uv add "powercontext[cli,client]"
 ```
 
-Client commands accept `--server-url`, `--timeout`, and `--json`. The Server command reads process configuration from
-`ServerSettings`; optional `--host` and `--port` values are partial init-source overrides over the environment source.
+The `client` command provides process and capability checks:
+
+```bash
+uv run powercontext client live
+uv run powercontext client ready
+uv run powercontext client capabilities
+uv run powercontext client --json capabilities
+```
+
+Use `POWERCONTEXT_CLIENT_SERVER_URL` and `POWERCONTEXT_CLIENT_TIMEOUT` for client defaults.
+
+The CLI discovers command groups from installed roles. `powercontext[cli]` provides the Builtin command by default;
+Client and Server commands appear only when their role extras are also installed.
 
 ## MCP
 
-FastMCP projects selected operations from an assembled FastAPI application. The route map exposes search, list, exact
-get, remember, revise, and retire. It excludes Source capture, flush, changes, health, readiness, and capabilities.
+MCP is enabled by default and mounted at `/mcp`. Disable it without changing the HTTP API:
 
-The Streamable HTTP endpoint is mounted at `/mcp/`. A local process can start the combined application with:
-
-```shell
-powercontext server run
+```bash
+export POWERCONTEXT_SERVER_MCP_ENABLED="false"
 ```
 
-The `server` installation extra includes FastMCP; there is no separate MCP extra. `create_server_app` is the only
-production composition factory and always mounts MCP at the path from the same immutable `ServerSettings` instance used
-by the Runtime. The MCP package only provides projection and mounting primitives. Adding an HTTP endpoint does not
-expose it through MCP; each MCP primitive requires an explicit route selection.
+To change the mount path:
 
-## Contract workflow
-
-Change `openapi/powercontext.yaml` before changing generated transport models. Reuse or map a Core Protocol model when
-its meaning matches the wire type. Keep transport-only metadata outside Core.
-
-Schemas marked with `x-powercontext-python-model` import the declared public Core type. This is limited to the matching
-Memory literal aliases. Object schemas such as Artifact references, Memory citations, Memory hits, and Revision changes
-are generated Pydantic models and mapped explicitly to Core dataclasses. Memory and entry identity fields are rejected
-at the transport boundary unless they are non-empty, bounded, printable ASCII values.
-
-Run the following checks after a contract change:
-
-```shell
-make api-generate
-make contract-test
-make unit-test
-make e2e-test
+```bash
+export POWERCONTEXT_SERVER_MCP_PATH="/agent"
 ```
 
-Tests should verify generated output and public behavior. They should not depend on incidental packaging internals or
-generated source layout.
+The MCP projection includes the agent-facing Memory operations for search, listing, reading, remembering, revising,
+and retiring entries. Health, capability, Source capture, flush, and change-history endpoints remain HTTP-only.
 
-## Not implemented
+HTTP and MCP share the same Server application and Runtime binding. A request made through either transport therefore
+uses the same scope isolation, Memory validation, and persistence behavior.
 
-Authentication, authorization, multi-tenant isolation, durable Operation status, distributed workers, and non-Python
-SDKs remain outside the current implementation. Codex plugin packaging is also separate from the HTTP and MCP runtime.
+## Programmatic composition
+
+Applications that host FastAPI themselves can build the same service:
+
+```python
+from powercontext.server.factory import create_server_app
+from powercontext.server.settings import ServerSettings
+
+app = create_server_app(settings=ServerSettings())
+```
+
+`create_server_app()` owns the built-in Runtime lifecycle. Tests and embedding applications may inject a
+`candidate_pipeline` or `embedding_model` without replacing that lifecycle.

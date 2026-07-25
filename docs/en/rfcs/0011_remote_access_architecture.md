@@ -76,9 +76,10 @@ commands and remote Client commands can coexist without moving either command se
 
 ## Composition
 
-The Python distribution provides optional Client, Server, CLI, and MCP surfaces. A process can use the Client without
-hosting a Server. A local Runtime can use the CLI without enabling remote access. Applications combine roles only when
-one environment needs them together.
+The Python distribution provides optional Client, Server, and CLI surfaces. MCP is a Server transport controlled by
+Server configuration rather than a separate installation role. A process can use the Client without hosting a Server.
+A local Runtime can use the CLI without enabling remote access. Applications combine roles only when one environment
+needs them together.
 
 # Reference-level explanation
 

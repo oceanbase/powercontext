@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from pydantic import JsonValue
+from pydantic import BaseModel, JsonValue
 
 from powercontext.api.generated.models import (
     Capabilities,
@@ -38,8 +37,7 @@ RequestT = TypeVar("RequestT")
 ResponseT = TypeVar("ResponseT")
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Operation(Generic[RequestT, ResponseT]):
+class Operation(BaseModel, Generic[RequestT, ResponseT]):
     method: str
     path: str
     operation_id: str

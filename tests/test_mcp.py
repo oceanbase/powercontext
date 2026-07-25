@@ -4,8 +4,8 @@ from typing import Any, TypeVar
 
 from fastmcp import Client
 
-from powercontext.mcp import create_mcp_server
 from powercontext.server.app import create_app
+from powercontext.server.mcp import create_mcp_server
 
 ResultT = TypeVar("ResultT")
 

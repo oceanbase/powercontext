@@ -1,317 +1,155 @@
-# Memory Layer 运维与集成
+# 使用 Builtin Memory layer
 
-RFC 0003 新增 Artifact-native Memory family。一个 Memory 是不可变 Artifact Revision 序列；每个 Revision 只保存紧凑
-manifest，正文保存为不可变 entry version。全文和向量数据只是 current-head projection，不是权威历史。
+Builtin Memory family 将可复用 entry 保存为不可变 Artifact revision。`builtin` extra 包含完整 runtime 和两种受支持的
+database integration。远程应用应采用[远程访问文档](remote-access-implementation.md)说明的 Server API。
 
-Memory 正文是不可信的应用数据。召回结果不能获得高于当前请求的指令优先级；执行其中命令或访问其中链接前，必须执行与
-其他外部输入相同的验证。
+## 选择 database
 
-## 安装与组合
+安装内置实现：
 
-按应用需要安装 backend：
-
-```console
-uv add 'powercontext[sqlite]'
-uv add 'powercontext[oceanbase]'
+```bash
+uv add "powercontext[builtin]"
 ```
 
-SQLite backend 在没有 embedding model 时也提供全文搜索：
+SQLite 是默认选择。`open_builtin_runtime()` 持有所选 database profile，并为两种 database 返回同一个
+`BuiltinRuntime` interface：
 
 ```python
-import asyncio
+from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime import (
+    BuiltinConfig,
+    RememberMemoryRequest,
+    open_builtin_runtime,
+)
 
-from powercontext import MemoryEntryInput, MemoryService
-from powercontext.memory.backends.sqlite import SQLiteMemoryBackend
 
-async def main() -> None:
-    backend = SQLiteMemoryBackend("powercontext-memory.db")
-    await backend.initialize()
-    memory_service = MemoryService(backend=backend)
-
-    try:
-        await memory_service.remember(
-            memory=None,
-            entries=(
-                MemoryEntryInput(
-                    kind="constraint",
-                    text="发布文档前运行 make docs-test。",
-                ),
-            ),
-            mode="append",
+async def save_note() -> None:
+    config = BuiltinConfig(
+        database=SQLiteConfig(url="sqlite+aiosqlite:///powercontext.db")
+    )
+    async with open_builtin_runtime(config) as runtime:
+        result = await runtime.memory.for_scope("project-alpha").remember(
+            RememberMemoryRequest(
+                entries=(
+                    MemoryEntryInput(
+                        kind="decision",
+                        text="Use one composition root for the process.",
+                    ),
+                )
+            )
         )
-    finally:
-        await backend.close()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        assert result.memory_ref.revision == 1
 ```
 
-服务启动时先初始化 backend，应用关闭时显式关闭。`MemoryService` 实现 `ArtifactCatalog[Memory]`，并继续作为
-Memory-specific operation 的 typed 入口。因此应用可以直接将 service 作为 `PowerContext` 的 `artifacts` 组件：
+scope ID 在数据库中选择相互隔离的 Source journal、Memory lifecycle 和 Trigger cursor。
+
+## 写入和演进 entry
+
+`ScopedMemoryApplication.remember()` 接受显式的 `MemoryEntryInput`。基于 Source 的 extraction 使用另一条路径：
+先 capture Source，再通过已经配置 candidate pipeline 的 Runtime flush 待处理 Source window。
+
+result 包含新的不可变 Memory reference 和发生变化的 entry。后续 mutation 直接使用它的 citation：
 
 ```python
-from powercontext import PowerContext
+from powercontext.builtin.runtime import ReviseMemoryEntryRequest
 
-context = PowerContext(
-    sources=sources,
-    artifacts=memory_service,
-    triggers=triggers,
-)
-
-memory = await context.artifacts.remember(
-    memory=None,
-    entries=entries,
-    mode="append",
-)
-```
-
-数据库对象仍然是 Memory backend。它负责持久化和事务，但不会被重命名或作为第二个 family-level service 暴露。
-
-`context.sources.add()` 始终只是 Source 写入。provider task event、Trigger action、plugin、CLI wrapper 或其他 integration
-必须显式调用 `context.artifacts.remember()`；组合对象不会引入隐式模型调用或自动提取旁路。
-
-## 本地 Source-to-Memory runtime
-
-安装 `powercontext[runtime,sqlite]` 可使用内置 SQLite profile。其他 adapter 可以实现 `RuntimeStorage`，并通过
-`PowerContextRuntime.assemble()` 组装。Runtime 将 Source 和 Memory 作为独立的 family-scoped 服务暴露。显式
-Memory 写入直接调用 `MemoryService`；捕获内容先进入 Source journal，scheduled 或手动 `flush()` 才触发提取。
-
-direct write、read 和 FTS 不要求配置 `candidate_pipeline`；存在 pending Source 的手动 flush 需要 pipeline，缺少
-pipeline 时配置 scheduling 会在启动阶段被拒绝。Runtime 会在接受 scoped operation 前探测 SQLite Memory schema 和
-FTS5；可选 embedding model 还必须配置匹配的固定 profile 和可用 Vec1 extension。
-
-APScheduler 只发起 activation，其 SQLAlchemy job store 将 interval job 持久化在 SQLite sidecar 中；Source
-journal 和 cursor 仍由 runtime 管理。`SourceWindowTrigger` 是基于 journal high watermark 和 cursor 的纯策略。完整
-窗口成功后才推进 cursor，提取结果为空也属于成功。部署方必须确保每个 database 只有一个 live Runtime owner；进程内
-防重只拒绝重复的 scheduled owner，不提供跨进程锁。SQLite profile 提供 at-least-once 语义；job store 属于受信任的
-本地状态，不提供 workflow claim、lease、分布式协调或 exactly-once 执行。
-
-关闭 Runtime 后，新的 application operation 会被拒绝；已经准入的手动和 scheduled operation 完成后，scheduler 与
-backend 才会关闭。`ContentCapture` 会保存 JSON metadata 快照；content、description 和 metadata 都属于 canonical
-Source payload，并参与幂等与 identity conflict 判断。
-
-Runtime storage 将每个不透明 scope 映射到一个持久化、全局唯一的 Memory Artifact ID。binding 能跨重启恢复，而
-Memory Artifact 本身只有在内容实际变化后才创建。
-
-## 写入和演进 Memory
-
-`remember(memory=None, ...)` 只有在至少一个通过校验的候选确实产生变化时才创建 identity。后续修改必须保存并传回上一次
-返回的精确 head。过期 head 会在乐观 CAS 时失败，不会被静默合并。
-
-```python
-from powercontext import MemoryEntryInput
-
-memory = await memory_service.remember(
-    memory=None,
-    entries=(MemoryEntryInput(kind="decision", text="使用 direct SQL adapter。"),),
-    mode="append",
-)
-assert memory is not None
-
-entry = (await memory_service.entries(memory))[0]
-memory = await memory_service.remember(
-    memory=memory,
-    entries=(
-        MemoryEntryInput(
-            entry=entry,
-            kind="decision",
-            text="使用 direct SQL adapter 和同一套 conformance tests。",
-            reason="验证两个受支持数据库",
-        ),
-    ),
-    mode="append",
-)
-assert memory is not None
-
-entry = (await memory_service.entries(memory))[0]
-memory = await memory_service.forget(memory, entries=(entry,), reason="已取代")
-entry = (await memory_service.entries(memory))[0]
-memory = await memory_service.reactivate(memory, entries=(entry,), reason="再次需要")
-memory = await memory_service.organize(memory, mode="default")
-```
-
-`forget()` 和 `reactivate()` 只修改 manifest state，不修改或替换 entry 正文；重复设置同一状态是 no-op。`organize()`
-刻意保持机械化，只执行精确去重与 canonical normalization，不推断事实，也不裁决冲突。
-
-提取模式需要配置 `CandidatePipeline`，并传入已经规范持久化的 evidence：
-
-```python
-memory = await memory_service.remember(
-    memory=memory,
-    sources=(task_outcome_source,),
-    mode="extract",
-)
-```
-
-候选输出是不可信输入。Service 会重新校验 evidence、current manifest membership、hash、直接前驱和 head CAS。需要持久化
-evidence ref 的 integration，必须在 service 与 backend 两侧配置匹配的 source/artifact resolver 和
-`MemoryEvidenceCodec`。
-
-例如，integration 自己定义的 `CandidatePipeline` 可以把它显式持久化的 `TaskOutcomeSource` 机械转换成
-`working_note`。该 pipeline 属于 integration，不是 Memory 承诺的具体 Source 类型或默认准入规则：
-
-```python
-from powercontext import MemoryService
-from powercontext.memory import CandidatePipeline
-
-working_note_pipeline: CandidatePipeline = ...
-
-memory_service = MemoryService(
-    backend=backend,
-    candidate_pipeline=working_note_pipeline,
-    source_resolver=source_catalog,
-    evidence_codec=evidence_codec,
-)
-```
-
-Task event 的捕获和持久化由 integration 负责。PowerContext 不给原始材料做版本控制，也不计算通用 Source diff。
-
-## 检索、展开和 citation
-
-搜索必须显式提供精确 Memory refs。只有所选 current heads 中的 active entries 可以返回；传入历史 ref 会报错，不会被替换
-为 latest head。
-
-```python
-result = await memory_service.search(
-    "SQL adapter 文档",
-    memories=(memory,),
-    mode="auto",
-    limit=8,
-)
-
-entries = await memory_service.expand(result.hits)
-history = await memory_service.changes(memory, since_revision=1)
-```
-
-只有当每个所选 head 的固定 profile 向量 projection 都完整，并且 embedding model profile 完全相同时，`auto` 才使用 hybrid；否则
-降级为 FTS。显式 `vector` 或 `hybrid` 在向量能力不可用或不完整时抛出 `CapabilityNotSupportedError`。没有 candidate 或
-embedding model 时，`fts` 仍可工作。
-
-Handoff citation 必须保存完整精确锚点，不能只存 entry ID：
-
-```python
-from powercontext import MemoryCitation
-
-hit = result.hits[0]
-citation = MemoryCitation(
-    memory_ref=hit.memory_ref,
-    entry_id=hit.entry_id,
-    entry_version_id=hit.entry_version_id,
-)
-exact_entry = await memory_service.validate_citation(citation)
-```
-
-`changes()` 返回不带正文的紧凑 Revision 摘要。`expand()` 和 citation 校验读取锚点指定的精确历史 entry version，并检测
-跨 Revision 替换和数据篡改。
-
-## SQLite 部署
-
-`SQLiteMemoryBackend` 要求 SQLite 3.38.0 或更新版本、foreign-key enforcement 和 FTS5。APSW 提供 SQLite runtime。
-初始化会探测所需行为，不能工作的 capability 不会被宣称为可用。
-
-向量搜索是可选能力，需要可加载的官方 Vec1 0.7 或更新版本，以及一个部署固定的 embedding profile：
-
-```python
-import asyncio
-import os
-
-from powercontext import EmbeddingProfile, EmbeddingResult, MemoryService
-from powercontext.memory.backends.sqlite import SQLiteMemoryBackend
-
-
-class ExampleEmbeddingModel:
-    """生产环境中请替换为应用实际使用的 embedding model。"""
-
-    def __init__(self, profile: EmbeddingProfile) -> None:
-        self.profile = profile
-
-    async def embed(self, texts: tuple[str, ...]) -> EmbeddingResult:
-        vector = (1.0,) + (0.0,) * (self.profile.dimension - 1)
-        return EmbeddingResult(vectors=tuple(vector for _ in texts))
-
-
-async def main() -> None:
-    profile = EmbeddingProfile(
-        profile_id="project-embedding-v1",
-        model="example-model",
-        dimension=768,
-        distance="l2",
-        normalization="none",
+memory = runtime.memory.for_scope("project-alpha")
+entries = await memory.list()
+current = entries.entries[0]
+revised = await memory.revise(
+    ReviseMemoryEntryRequest(
+        citation=current.citation,
+        kind=current.entry.kind,
+        text="Use PowerContext as the only composition root.",
+        reason="Clarify ownership.",
     )
-    backend = SQLiteMemoryBackend(
-        "powercontext-memory.db",
-        embedding_profile=profile,
-        vec1_extension=os.environ["POWERCONTEXT_VEC1_EXTENSION"],
-    )
-    await backend.initialize()
-    try:
-        MemoryService(backend=backend, embedding_model=ExampleEmbeddingModel(profile))
-    finally:
-        await backend.close()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+)
 ```
 
-extension path 和 profile 必须同时配置。Embedding model 的名称、dimension、distance 与 normalization 必须与 backend profile
-完全相同。写入和搜索停止后，`await backend.rebuild_projections()` 可从权威 head 重建 FTS，并有意让向量保持不完整；传入
-embedding model，则同时重建 FTS 与全部 current active vectors。重建
-会在提交前校验向量数量、dimension 和有限数值。更换 profile 属于离线 migration：停止写入，替换固定 Vec1 projection，
-回填所有 active heads，验证完整性后再恢复流量。
+`retire()` 将 entry 标记为 inactive，但不删除不可变 content。`changes()` 返回紧凑的 revision change。
+expected revision 和 citation 保留 optimistic concurrency，调用方无需重新构造 reference。
 
-SQLite 数据库中的 Artifact Revisions 和 entry versions 是需要备份的权威数据。FTS5/Vec1 rows 可丢弃和重建，但权威历史
-不可丢弃。
+## 检索、展开与引用
 
-## OceanBase 部署
-
-`OceanBaseMemoryBackend` 要求 OceanBase Database 4.3.5 BP3 或更新版本的 MySQL 模式租户，并启用 FULLTEXT、HNSW、
-vector memory，以及创建表、索引和 schema foreign keys 的权限。除常规 DDL/DML 权限外还要授予 `REFERENCES`。Adapter
-安装固定 schema 前会探测 server identity、tenant mode、`TOKENIZE`、FULLTEXT 和 vector search。
-
-凭据应放入 secret manager 或环境变量，不能写入源码或命令历史：
+SQLite 和 OceanBase 都会初始化全文索引，因此不配置 embedding model 也可以检索：
 
 ```python
-import os
+from powercontext.builtin.runtime import SearchMemoryRequest
 
-from powercontext import EmbeddingProfile, MemoryService
-from powercontext.memory.backends.oceanbase import OceanBaseMemoryBackend
-
-profile = EmbeddingProfile(
-    profile_id="project-embedding-v1",
-    model="example-model",
-    dimension=768,
-    distance="l2",
-    normalization="none",
+result = await runtime.memory.for_scope("project-alpha").search(
+    SearchMemoryRequest(query="composition root", mode="fts")
 )
-backend = OceanBaseMemoryBackend(
-    host=os.environ["POWERCONTEXT_OCEANBASE_HOST"],
-    port=int(os.environ.get("POWERCONTEXT_OCEANBASE_PORT", "2881")),
-    user=os.environ["POWERCONTEXT_OCEANBASE_USER"],
-    password=os.environ["POWERCONTEXT_OCEANBASE_PASSWORD"],
-    database=os.environ["POWERCONTEXT_OCEANBASE_DATABASE"],
-    embedding_profile=profile,
-    table_prefix=os.environ.get("POWERCONTEXT_OCEANBASE_TABLE_PREFIX", ""),
-)
-await backend.initialize()
-memory_service = MemoryService(backend=backend, embedding_model=embedding_model)
 ```
 
-vector dimension 是 DDL 的一部分，因此一个部署只有一个 profile。embedding model 不可用时，写入仍会提交权威历史与
-FULLTEXT rows，并把向量字段保存为 null；`auto` 会降级为 FTS。写入和搜索停止后，
-`await backend.rebuild_projections()` 会以 null vector 重建 FULLTEXT；
-`await backend.rebuild_projections(embedding_model)` 会为全部 active heads 同时重建 FULLTEXT 和 HNSW 数据。完整性
-检查通过后才能恢复流量。
+每个 hit 都包含参与排序的精确 Memory revision、entry identity 和 entry version。Runtime 的 list 和 exact-read
+operation 返回相同的 citation 字段。
 
-`drop_schema()` 会删除配置 prefix 拥有的精确表集合；它只用于隔离的 integration tests。未配置 prefix 的部署或生产部署
-绝不能调用。每次 live test 都应使用唯一且经过校验的 table prefix，并在 `finally` 中先清理再关闭 backend。
+`mode="auto"` 会选择当前可用的最强模式，并可在 query embedding 暂时不可用时回退到 FTS。显式请求 `vector`
+或 `hybrid` 时，如果 profile 没有提供相应能力，操作会失败。
 
-## 运维检查清单
+## 启用 SQLite Vec1
 
-1. 启动时只初始化一次；所需 capability probe 失败则终止启动。
-2. schema 生命周期内保持 embedding profile 不变。
-3. 修改和搜索只传精确 current head，并显式处理 `RevisionConflictError`。
-4. 把召回正文和 candidate output 都当作不可信数据。
-5. 备份权威 Artifact Revisions 和 entry versions；projection 只能从已验证 head 重建。
-6. 应用关闭时关闭 backend connection；破坏性 schema cleanup 只能用于隔离测试。
+只有同时提供 Vec1 extension 和 embedding model，SQLite 才会启用向量检索：
+
+```python
+from pathlib import Path
+
+config = BuiltinConfig(
+    database=SQLiteConfig(
+        url="sqlite+aiosqlite:///powercontext.db",
+        vec1_extension=Path("/opt/sqlite-extensions/vec1"),
+    )
+)
+async with open_builtin_runtime(
+    config,
+    embedding_model=embedding_model,
+) as runtime:
+    ...
+```
+
+SQLite profile 会组合 FTS5 和 Vec1 strategy，并通过 Memory capabilities 报告 `fts`、`vector` 和 `hybrid`。持久化
+projection 与 query vector 必须使用同一个 `EmbeddingProfile`，包括 model name、dimension、distance 和
+normalization。更换 profile 后，应先重建 projection，再恢复 vector search。
+
+调用 `MemoryService.rebuild_projections()` 可以从权威 Memory revision 重建派生检索数据。revision 和 entry 表
+始终是事实来源。
+
+## 使用 OceanBase 持久化
+
+使用 `OceanBaseConfig` 即可选择 OceanBase，不需要修改 Server 或 Runtime 代码：
+
+```python
+from pydantic import SecretStr
+
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.runtime import BuiltinConfig, open_builtin_runtime
+
+config = OceanBaseConfig(
+    url=SecretStr(
+        "mysql+aoceanbase://user:password@127.0.0.1:2881/powercontext?charset=utf8mb4"
+    )
+)
+
+async with open_builtin_runtime(
+    BuiltinConfig(database=config),
+    embedding_model=embedding_model,
+) as runtime:
+    memory = runtime.memory.for_scope("project-alpha")
+```
+
+OceanBase profile 与 SQLite 使用相同的 index 组合方式。全文 strategy 始终可用；提供 embedding model 后，会增加
+`VECTOR` projection 和 HNSW strategy，并启用 `vector` 与 `hybrid` mode。SQLite FTS5 与 OceanBase FULLTEXT
+服务于同一组 Runtime 和 Server search 调用，Vec1 与 HNSW 也通过同一接口提供向量检索。
+
+## 运行检查
+
+对外提供服务前，应确认：
+
+- 所选 profile 能够成功打开并完成初始化；
+- 每个 tenant 或 project 映射到预期的 scope ID；
+- 定时 extraction 已经配置 candidate pipeline；
+- Vec1 配置包含匹配的 embedding model；
+- OceanBase vector search 配置了匹配的 embedding model；
+- capability response 与实际初始化的 index 一致；
+- database 和 scheduler 资源会随进程生命周期关闭。

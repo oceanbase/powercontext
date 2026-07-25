@@ -384,8 +384,13 @@ components:
     ArtifactReference:
       type: object
       additionalProperties: false
-      required: [artifact_id, revision]
+      required: [family, artifact_id, revision]
       properties:
+        family:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
         artifact_id:
           type: string
           minLength: 1
@@ -808,25 +813,20 @@ components:
       type: string
       enum: [accepted]
     EntryChangeOperation:
-      x-powercontext-python-model: powercontext.memory.MemoryChangeOp
       type: string
       enum: [add, revise, deactivate, reactivate]
     FlushStatus:
       type: string
       enum: [idle, processed]
     MemoryEntryState:
-      x-powercontext-python-model: powercontext.memory.MemoryEntryState
       type: string
       enum: [active, inactive]
     MemoryMatchedBy:
-      x-powercontext-python-model: powercontext.memory.MemoryMatchedBy
       type: string
       enum: [fts, vector]
     MemorySearchMode:
-      x-powercontext-python-model: powercontext.memory.MemorySearchMode
       type: string
       enum: [auto, fts, vector, hybrid]
     MemoryUsedSearchMode:
-      x-powercontext-python-model: powercontext.memory.MemoryUsedSearchMode
       type: string
       enum: [fts, vector, hybrid]

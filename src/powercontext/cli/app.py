@@ -1,4 +1,4 @@
-"""Typer shell assembled from registered command providers."""
+"""Typer shell assembled from installed PowerContext roles."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def _show_version(value: bool) -> None:
 
 
 def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
-    """Create the top-level CLI from package entry points."""
+    """Create the CLI from command providers installed with each role."""
 
     cli = typer.Typer(
         context_settings={"help_option_names": HELP_OPTION_NAMES},
@@ -42,7 +42,7 @@ def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
             ),
         ] = False,
     ) -> None:
-        """Run commands contributed by installed PowerContext components."""
+        """Run commands supplied by installed PowerContext roles."""
 
     if commands is None:
         installed_commands: list[typer.Typer] = []
@@ -68,3 +68,9 @@ def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
         cli.add_typer(command, name=name)
         registered_names.add(name)
     return cli
+
+
+def main() -> None:
+    """Run the PowerContext CLI."""
+
+    create_cli()()

@@ -8,9 +8,7 @@ The integration deliberately uses each public surface for the job it fits:
 - the `UserPromptSubmit` hook first calls `POST /v1/memory/search`, then
   captures the current prompt with `POST /v1/sources/content`;
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives Codex the curated
-  memory tools;
-- the Python `PowerContextClient` is used by the isolated evaluation harness
-  to seed and verify state through the same OpenAPI-backed HTTP contract.
+  memory tools.
 
 Start a local server before using the integration:
 
@@ -18,16 +16,37 @@ Start a local server before using the integration:
 uv run powercontext server run
 ```
 
-Set `POWERCONTEXT_SCOPE_ID` to override Git-based project scoping. Set
-`POWERCONTEXT_HTTP_URL` only when the hook should call a different base URL.
-Plain HTTP is accepted only for loopback hosts.
+The hook runtime is declared by the plugin's `pyproject.toml` and launched with
+`uv`; this keeps its `pydantic-settings` dependency isolated and reproducible.
+The hook uses a small synchronous standard-library HTTP adapter because Codex
+executes it as a short-lived process. It does not expose that adapter as an SDK.
 
-Prompt capture is enabled by default. Set `POWERCONTEXT_CAPTURE_PROMPTS=false`
+Set `POWERCONTEXT_CODEX_SCOPE_ID` to override Git-based project scoping.
+`.mcp.json` is the single Server endpoint configuration consumed by Codex and
+the hook: the hook validates its PowerContext MCP URL and derives the HTTP API
+base by removing the final `/mcp` path segment. Change that file before
+installing the plugin when the loopback default is not appropriate. MCP URLs
+cannot contain credentials, query strings, or fragments; plain HTTP is accepted
+only for loopback hosts.
+
+The hook rejects redirects, caps response bodies at 1 MiB, and applies both
+per-request and shared wall-clock deadlines. Authentication is not exposed
+until the Server and both transport surfaces enforce one complete policy.
+
+Prompt capture is enabled by default. Set `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false`
 when prompts must not be persisted. Captured Sources are normally processed by
 the Server scheduler. For tests or read-your-write workflows, set
-`POWERCONTEXT_FLUSH_ON_CAPTURE=true`; the hook then flushes until the captured
+`POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true`; the hook then flushes until the captured
 Source position is processed.
+
+All hook configuration uses the `POWERCONTEXT_CODEX_` prefix. The default
+request timeout is one second, the shared HTTP budget is four seconds, and a
+flush performs at most four calls. These can be tuned with
+`POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS`,
+`POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS`, and
+`POWERCONTEXT_CODEX_FLUSH_MAX_CALLS`, while the outer Codex hook remains capped
+at ten seconds.
 
 Memory returned by the hook is labelled as untrusted history. Recall, capture,
 and flush fail independently; an unavailable Server never blocks normal Codex
-work.
+work. The hook never writes raw prompt diagnostics to disk.

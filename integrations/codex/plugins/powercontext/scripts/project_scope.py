@@ -8,22 +8,26 @@ import hashlib
 import os
 import re
 import subprocess
-from collections.abc import Mapping, Sequence
+import sys
+from collections.abc import Sequence
 from pathlib import Path
 from shutil import which
 from urllib.parse import urlsplit
+
+_PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_PLUGIN_ROOT))
+
+from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_SCOPE_LENGTH = 256
 _SCP_REMOTE = re.compile(r"^(?:[^@/\s]+@)?(?P<host>[^:/\s]+):(?P<path>.+)$")
 
 
-def derive_scope_id(cwd: str, *, environ: Mapping[str, str] | None = None) -> str:
+def derive_scope_id(cwd: str, *, configured_scope_id: str | None = None) -> str:
     """Return an explicit, remote-derived, or path-derived project scope."""
 
-    environment = os.environ if environ is None else environ
-    configured = environment.get("POWERCONTEXT_SCOPE_ID", "").strip()
-    if configured:
-        return _bounded_explicit(configured)
+    if configured_scope_id:
+        return _bounded_explicit(configured_scope_id)
     root_value = _git_value(cwd, "rev-parse", "--show-toplevel")
     project_root = Path(root_value or cwd).resolve(strict=False)
     remote = _git_value(str(project_root), "config", "--get", "remote.origin.url")
@@ -96,7 +100,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cwd", default=os.getcwd())
     arguments = parser.parse_args(argv)
-    print(derive_scope_id(arguments.cwd))
+    settings = CodexPluginSettings()
+    print(derive_scope_id(arguments.cwd, configured_scope_id=settings.scope_id))
     return 0
 
 

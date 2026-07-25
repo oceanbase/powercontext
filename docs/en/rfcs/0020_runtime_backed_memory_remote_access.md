@@ -1,11 +1,8 @@
 - Proposal Name: `runtime_backed_memory_remote_access`
 - Start Date: 2026-07-24
-- Status: Draft
 - RFC PR: [oceanbase/powercontext#20](https://github.com/oceanbase/powercontext/pull/20)
 - Tracking Issue: Not assigned
 - Related RFCs: [RFC 0011](0011_remote_access_architecture.md), [RFC 0019](0019_local_source_memory_runtime.md)
-
-# Runtime-backed Memory remote access
 
 # Summary
 
@@ -277,20 +274,16 @@ Generated files are checked in and must not be edited as a substitute for changi
 regenerates sources in memory and fails on drift. The lock file supplies the generator, formatter, FastAPI, Pydantic,
 and YAML versions used by the repository.
 
-The generator supports `x-powercontext-python-model` for an existing public Python type. The annotation is valid only
-when the Core type and wire schema have the same meaning, JSON structure, defaults, and validation behavior. Import
-resolution alone cannot prove this equivalence. Contract tests must cover each binding.
-
 Core dataclasses are not direct transport models. Their constructors do not enforce OpenAPI constraints such as
 `minimum`, required nullable fields, or strict primitive types. Object schemas therefore generate Pydantic models and
-map explicitly to Core values. The current direct bindings are closed Memory literal aliases with equivalent
-validation. Exact Memory and entry identifiers are validated at the transport boundary as non-empty, bounded,
-printable ASCII values before they reach Core or persistence code.
+map explicitly to Core values. Wire enums are generated in the API layer as well, so importing the Client SDK does not
+load Memory, Runtime, or BuiltIn modules. Exact Memory and entry identifiers are validated at the transport boundary as
+non-empty, bounded, printable ASCII values before they reach Core or persistence code.
 
 ## Core and transport type boundary
 
-The transport directly reuses Memory search, state, match, and change literal aliases. Generated object models map to
-`ArtifactRef`, `MemoryCitation`, `MemoryChange`, `MemoryRevisionChanges`, and `MemoryHit` at the Server boundary.
+The transport owns its search, state, match, and change enums. Generated wire values map to `ArtifactRef`,
+`MemoryCitation`, `MemoryChange`, `MemoryRevisionChanges`, and `MemoryHit` at the Server boundary.
 
 An exact Artifact reference has one JSON shape:
 
@@ -535,7 +528,7 @@ The implementation is complete when:
 
 - `make api-generate` followed by the repository diff check produces no generated changes.
 - `make api-generate-check` and contract tests pass from a locked environment.
-- Contract tests verify validation equivalence for each `x-powercontext-python-model` binding used by the API.
+- Client import-isolation tests verify that API loading does not import Memory, Runtime, or BuiltIn modules.
 - The Server opens and closes `PowerContextRuntime` through its lifespan.
 - An intentionally unbound low-level Server reports `not_ready`; production Server and MCP factories assemble a
   Runtime or fail during startup.

@@ -18,7 +18,7 @@ to duplicate the current prompt.
 Before the first memory tool call, run:
 
 ```bash
-python3 "$PLUGIN_ROOT/scripts/project_scope.py" --cwd "$PWD"
+uv run --locked --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/project_scope.py" --cwd "$PWD"
 ```
 
 Reuse that exact `scope_id` for the task.

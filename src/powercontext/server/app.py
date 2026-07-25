@@ -59,20 +59,17 @@ from powercontext.api.generated.operations import (
     Operation,
 )
 from powercontext.api.generated.schema import OPENAPI_SCHEMA
-from powercontext.errors import (
-    ArtifactNotFoundError,
+from powercontext.builtin.artifacts.memory.errors import (
     CapabilityNotSupportedError,
+    InvalidMemoryCandidateError,
+    InvalidMemoryCitationError,
+    InvalidMemoryEvidenceError,
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
-    PowerContextError,
-    RevisionConflictError,
-    SourceConflictError,
 )
-from powercontext.inference import InferenceTimeoutError, InferenceUnavailableError
-from powercontext.runtime import (
-    GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
-)
-from powercontext.runtime import (
+from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
+from powercontext.builtin.runtime import (
+    CaptureSource,
     InvalidRuntimeRequestError,
     MemoryChangesPage,
     MemoryEntriesPage,
@@ -82,21 +79,28 @@ from powercontext.runtime import (
     MemorySearchPage,
     SourceReceipt,
 )
-from powercontext.runtime import (
+from powercontext.builtin.runtime import (
+    GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
+)
+from powercontext.builtin.runtime import (
     RememberMemoryRequest as RuntimeRememberMemoryRequest,
 )
-from powercontext.runtime import (
+from powercontext.builtin.runtime import (
     RetireMemoryEntryRequest as RuntimeRetireMemoryEntryRequest,
 )
-from powercontext.runtime import (
+from powercontext.builtin.runtime import (
     ReviseMemoryEntryRequest as RuntimeReviseMemoryEntryRequest,
 )
-from powercontext.runtime import (
+from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
 )
+from powercontext.errors import (
+    ArtifactNotFoundError,
+    PowerContextError,
+    RevisionConflictError,
+    SourceConflictError,
+)
 from powercontext.server import mapping
-from powercontext.server.errors import InvalidServerRequestError
-from powercontext.sources import ContentCapture
 
 REQUEST_ID_HEADER = "X-Request-ID"
 REQUEST_ID_PATTERN = r"[A-Za-z0-9._:-]{1,128}"
@@ -109,7 +113,7 @@ _ResponseT = TypeVar("_ResponseT")
 
 
 class _ScopedSourceApplication(Protocol):
-    async def capture(self, value: ContentCapture, /) -> SourceReceipt: ...
+    async def capture(self, value: CaptureSource, /) -> SourceReceipt: ...
 
 
 class _SourceApplication(Protocol):
@@ -164,7 +168,12 @@ def create_app(  # noqa: C901
     )
     app.openapi_version = OPENAPI_VERSION
     app.state.application = application
-    app.state.capabilities = _empty_capabilities()
+    app.state.capabilities = Capabilities(
+        source_types=[],
+        artifact_families=[],
+        memory_extraction=False,
+        search_modes=[],
+    )
 
     @app.middleware("http")
     async def attach_request_id(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -304,15 +313,6 @@ def _runtime_readiness(application: ServerApplication | None) -> ReadinessRespon
     )
 
 
-def _empty_capabilities() -> Capabilities:
-    return Capabilities(
-        source_types=[],
-        artifact_families=[],
-        memory_extraction=False,
-        search_modes=[],
-    )
-
-
 def _require_application(application: ServerApplication | None) -> ServerApplication:
     if application is None:
         raise _RuntimeNotReadyError
@@ -372,7 +372,15 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
             "The requested capability is unavailable.",
             {"capability": error.capability},
         )
-    if isinstance(error, (InvalidRuntimeRequestError, InvalidServerRequestError)):
+    if isinstance(
+        error,
+        (
+            InvalidMemoryCandidateError,
+            InvalidMemoryCitationError,
+            InvalidMemoryEvidenceError,
+            InvalidRuntimeRequestError,
+        ),
+    ):
         return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_request", "The request is invalid.", None
     if isinstance(error, InferenceTimeoutError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_timeout", "Memory inference timed out.", None

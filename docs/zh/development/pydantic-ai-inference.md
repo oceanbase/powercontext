@@ -1,105 +1,110 @@
-# 为 Memory 组合 Pydantic AI 推理能力
+# 配置 Pydantic AI 推理
 
-本文面向已经准备好 Memory backend、evidence resolver 和 `MemoryEvidenceCodec` 的应用开发者，说明如何显式注入由应用
-创建的 Pydantic AI 对象。Provider 选择、凭证、HTTP client 及其生命周期仍由应用负责。
+PowerContext 在 provider 边界使用 Pydantic AI，同时保持 Memory service 与具体框架无关。generation 用于提取结构化
+Memory candidate，embedding 为支持 vector search 的 index 提供向量。这两项能力可以独立配置。
 
-## 安装可选集成
+## 安装集成
 
-```console
-uv add 'powercontext[pydantic-ai]'
+推理集成属于内置实现：
+
+```bash
+uv add "powercontext[builtin]"
 ```
 
-该可选集成安装 Pydantic AI slim package、用于 Claude 的 Anthropic provider，以及用于 OpenAI-compatible
-endpoint 的 OpenAI provider。
+Server extra 已经包含 Builtin：
 
-导入 `powercontext` 不会导入 Pydantic AI。只有实际使用可选集成的组合代码才需要导入 adapter 模块。
+```bash
+uv add "powercontext[server]"
+```
 
-## 组合两种能力
+## 配置 Server
 
-应用先创建 provider-specific Pydantic AI `Model` 和 embedding model。不要向 PowerContext adapter 传入模型名字符串。
+标准 Server 根据 `ServerSettings.inference` 构造推理 adapter。配置 generation model 后会启用
+Source-to-Memory extraction：
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="provider:model-name"
+```
+
+vector search 需要 embedding model 和完整的 deployment profile：
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL="provider:embedding-model"
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID="project-embedding-v1"
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION="1536"
+export POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION="/opt/sqlite-extensions/vec1"
+```
+
+provider credential 仍使用所选 Pydantic AI provider 支持的环境变量，不属于 PowerContext model 字段。
+
+Server 会拒绝不完整的 embedding profile。`embedding_model`、`embedding_profile_id` 和
+`embedding_dimension` 必须一起配置。Vec1 也依赖这组配置，因为 index dimension 必须与持久化向量一致。
+
+## 直接组合 generation
+
+应用已经持有 provider model 生命周期时，可以直接组合：
 
 ```python
-from pydantic_ai import Embedder
-from pydantic_ai.embeddings import EmbeddingModel as PydanticAIEmbeddingModelBase
-from pydantic_ai.models import Model
-
-from powercontext import EmbeddingProfile, MemoryService
-from powercontext.inference.pydantic_ai import (
-    InferenceLimits,
-    PydanticAIEmbeddingModel,
-    PydanticAIStructuredGenerator,
-)
-from powercontext.memory import (
-    LLMMemoryCandidatePipeline,
+from powercontext.builtin.artifacts.memory import (
     MEMORY_EXTRACTION_INSTRUCTIONS,
-    MemoryEvidenceProjector,
+    LLMMemoryCandidatePipeline,
     MemoryExtractionInput,
     MemoryExtractionOutput,
 )
+from powercontext.builtin.inference.pydantic_ai import (
+    InferenceLimits,
+    PydanticAIStructuredGenerator,
+)
 
+generator = PydanticAIStructuredGenerator(
+    model=generation_model,
+    instructions=MEMORY_EXTRACTION_INSTRUCTIONS,
+    input_type=MemoryExtractionInput,
+    output_type=MemoryExtractionOutput,
+    limits=InferenceLimits(timeout_seconds=30, max_requests=2),
+)
+candidate_pipeline = LLMMemoryCandidatePipeline(generator)
+```
 
-def build_memory_service(
-    *,
-    generation_model: Model,
-    pydantic_embedding_model: PydanticAIEmbeddingModelBase,
-    evidence_projector: MemoryEvidenceProjector,
-    backend,
-    evidence_codec,
-    source_resolver,
-    artifact_resolver,
-) -> MemoryService:
-    limits = InferenceLimits(timeout_seconds=30, max_requests=2)
-    generator = PydanticAIStructuredGenerator(
-        model=generation_model,
-        instructions=MEMORY_EXTRACTION_INSTRUCTIONS,
-        input_type=MemoryExtractionInput,
-        output_type=MemoryExtractionOutput,
-        limits=limits,
-    )
-    candidate_pipeline = LLMMemoryCandidatePipeline(generator, evidence_projector=evidence_projector)
+`generation_model` 必须是已经初始化的 Pydantic AI `Model`，不能是 provider name 字符串。打开 model 的应用也负责
+关闭它。
 
-    profile = EmbeddingProfile(
+generator 使用 Pydantic 序列化 input model，并根据声明的 output type 校验结构化输出。generation 之后仍会执行
+Memory validation，因此 schema 有效的 candidate 不会自动获得持久化资格。
+
+## 直接组合 embedding
+
+```python
+from pydantic_ai import Embedder
+
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.inference.pydantic_ai import (
+    InferenceLimits,
+    PydanticAIEmbeddingModel,
+)
+
+embedding_model = PydanticAIEmbeddingModel(
+    embedder=Embedder(provider_embedding_model),
+    profile=EmbeddingProfile(
         profile_id="project-embedding-v1",
         model="provider:embedding-model",
         dimension=1536,
-        distance="l2",
         normalization="none",
-    )
-    embedding_model = PydanticAIEmbeddingModel(
-        embedder=Embedder(pydantic_embedding_model),
-        profile=profile,
-        limits=limits,
-    )
-
-    return MemoryService(
-        backend=backend,
-        candidate_pipeline=candidate_pipeline,
-        embedding_model=embedding_model,
-        evidence_codec=evidence_codec,
-        source_resolver=source_resolver,
-        artifact_resolver=artifact_resolver,
-    )
-```
-
-Backend 必须配置完全相同的 `EmbeddingProfile`。Profile 不匹配时 vector 和 hybrid search 不可用，也不会复用其他 profile 的
-向量。
-
-默认 evidence projector 只暴露稳定的 Source 和 Artifact 元数据。提取需要 captured task body、summary 或其他领域字段时，
-应用必须传入自己拥有的 `MemoryEvidenceProjector`。Projector 必须返回 JSON-compatible value；不支持的值会在模型调用前失败。
-
-先持久化 evidence，再显式请求提取：
-
-```python
-updated_memory = await memory_service.remember(
-    memory=repo_memory,
-    sources=(task_outcome,),
-    mode="extract",
+    ),
+    limits=InferenceLimits(timeout_seconds=30),
 )
 ```
 
-生成模型只能看到本次选择的 evidence 和当前 active entries。add/revise 建议仍是不可信输入：`MemoryService` 会解析
-evidence、校验精确 entry version、移除精确重复项，并通过 head CAS 提交新 Revision。空候选会原样返回当前 Memory；生成
-失败不会产生 Revision。
+将这个 adapter 传给 `open_builtin_contexts()` 或 `open_builtin_runtime()`，并通过 `SQLiteConfig` 选择 Vec1
+extension。向量进入持久化之前，adapter 会校验输出数量、顺序、dimension 和数值有效性。
 
-Embedding 暂时不可用时，权威 Memory 和全文 projection 仍可在没有向量的情况下提交。`search(mode="auto")` 会降级到
-全文搜索；显式 vector 或 hybrid search 会报告 capability 不可用。
+`EmbeddingProfile` 是 deployment contract，不是描述性 metadata。持久化 projection 和 query embedding 必须使用
+同一个 profile。model、dimension 或 normalization 发生变化后，应从权威 Memory revision 重建 projection。
+
+## 失败行为
+
+generation 和 embedding failure 会将 provider error 映射为 PowerContext inference error。timeout 和临时 provider
+failure 不会提交部分 Memory revision。
+
+对于 `mode="auto"` 的检索，如果 backend 支持 FTS，临时 query embedding failure 可以回退到 FTS。显式 vector
+或 hybrid search 会报告能力缺失，不会静默改变模式。
