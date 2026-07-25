@@ -19,6 +19,7 @@ from powermem.agent.filters import matches_memory_filters
 from powermem.agent.utils.memory_id import memory_key_variants, normalize_memory_id
 from powermem.intelligence.intelligent_memory_manager import IntelligentMemoryManager
 from powermem.agent.abstract.manager import AgentMemoryManagerBase
+from powermem.core.memory import Memory
 
 logger = logging.getLogger(__name__)
 
@@ -267,8 +268,8 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
                 metadata={
                     'scope': memory_data.get('scope').value if memory_data.get('scope') else None,
                     'memory_type': memory_data.get('memory_type').value if memory_data.get('memory_type') else None,
-                    'retention_score': memory_data.get('retention_score'),
-                    'importance_level': memory_data.get('importance_level'),
+                    'retention_score': memory_data.get('metadata', {}).get('intelligence', {}).get('current_retention', 1.0),
+                    'importance_level': memory_data.get('metadata', {}).get('intelligence', {}).get('importance_score'),
                     'privacy_level': memory_data.get('privacy_level').value if memory_data.get('privacy_level') else None,
                     **memory_data.get('metadata', {})
                 },
@@ -906,6 +907,11 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             Dictionary containing the decay update results
         """
         try:
+            from powermem.intelligence import EbbinghausAlgorithm
+
+            if not hasattr(self, '_ebbinghaus'):
+                self._ebbinghaus = EbbinghausAlgorithm({})
+
             decay_results = {
                 'updated_memories': 0,
                 'forgotten_memories': 0,
@@ -916,28 +922,24 @@ class MultiUserMemoryManager(AgentMemoryManagerBase):
             for user_id, user_memory_types in self.user_memories.items():
                 for memory_type in MemoryType:
                     for memory_id, memory_data in user_memory_types[memory_type].items():
-                        current_score = memory_data.get('retention_score', 1.0)
-                        access_count = memory_data.get('access_count', 0)
-                        last_accessed = memory_data.get('last_accessed')
-                        
-                        # Simple decay calculation (this should be replaced with proper Ebbinghaus algorithm)
-                        decay_rate = 0.1
-                        if last_accessed:
-                            # Parse ISO format string to datetime
-                            if isinstance(last_accessed, str):
-                                last_accessed_dt = datetime.fromisoformat(last_accessed.replace('Z', '+00:00'))
-                            else:
-                                last_accessed_dt = last_accessed
-                            time_since_access = (datetime.now() - last_accessed_dt).total_seconds() / 3600
-                        else:
-                            time_since_access = 24
-                        new_score = current_score * (1 - decay_rate * time_since_access / 24)
-                        new_score = max(0.0, min(1.0, new_score))
+                        try:
+                            new_score = self._ebbinghaus.calculate_current_retention(memory_data)
+                            decay_rate = self._ebbinghaus._get_decay_rate_for_type(
+                                memory_data.get('memory_type', 'working')
+                                if isinstance(memory_data.get('memory_type'), str)
+                                else getattr(memory_data.get('memory_type'), 'value', 'working')
+                            )
+                            forgotten = self._ebbinghaus.should_forget(memory_data)
+                        except Exception:
+                            new_score = memory_data.get('retention_score', 1.0)
+                            decay_rate = 0.1
+                            forgotten = False
                         
                         decay_result = {
                             'new_score': new_score,
                             'decay_rate': decay_rate,
-                            'forgotten': new_score < 0.1
+                            'forgotten': forgotten,
+                            'reinforced': False,
                         }
                         
                         # Update memory data
