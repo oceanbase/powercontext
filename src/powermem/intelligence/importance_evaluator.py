@@ -95,7 +95,7 @@ class ImportanceEvaluator:
         context: Optional[Dict[str, Any]] = None
     ) -> float:
         """
-        Rule-based importance evaluation.
+        Rule-based importance evaluation using six-dimension weighted framework.
         
         Args:
             content: Content to evaluate
@@ -105,53 +105,20 @@ class ImportanceEvaluator:
         Returns:
             Importance score between 0 and 1
         """
-        score = 0.0
-        
-        # Length factor
-        if len(content) > 100:
-            score += 0.1
-        elif len(content) > 50:
-            score += 0.05
-        
-        # Keyword importance
-        important_keywords = [
-            "important", "critical", "urgent", "remember", "note",
-            "preference", "like", "dislike", "hate", "love",
-            "password", "secret", "private", "confidential"
-        ]
-        
-        content_lower = content.lower()
-        for keyword in important_keywords:
-            if keyword in content_lower:
-                score += 0.1
-        
-        # Question factor
-        if "?" in content:
-            score += 0.05
-        
-        # Exclamation factor
-        if "!" in content:
-            score += 0.05
-        
-        # Metadata factors
-        if metadata:
-            if metadata.get("priority") == "high":
-                score += 0.2
-            elif metadata.get("priority") == "medium":
-                score += 0.1
-            
-            if metadata.get("tags"):
-                score += 0.05
-        
-        # Context factors
-        if context:
-            if context.get("user_engagement") == "high":
-                score += 0.1
-            elif context.get("user_engagement") == "medium":
-                score += 0.05
-        
-        # Cap the score at 1.0
-        return min(score, 1.0)
+        scores = {
+            "relevance": self._evaluate_relevance(content, context),
+            "novelty": self._evaluate_novelty(content, metadata),
+            "emotional_impact": self._evaluate_emotional_impact(content),
+            "actionable": self._evaluate_actionable(content),
+            "factual": self._evaluate_factual(content),
+            "personal": self._evaluate_personal(content, metadata),
+        }
+        weighted_total = sum(
+            scores[dim] * weight
+            for dim, weight in self.criteria_weights.items()
+            if dim in scores
+        )
+        return max(0.0, min(1.0, weighted_total))
     
     def _llm_based_evaluation(
         self,
@@ -242,6 +209,12 @@ class ImportanceEvaluator:
                 breakdown[criterion] = self._evaluate_factual(content)
             elif criterion == "personal":
                 breakdown[criterion] = self._evaluate_personal(content, metadata)
+        
+        breakdown["weighted_total"] = sum(
+            breakdown.get(dim, 0.0) * weight
+            for dim, weight in self.criteria_weights.items()
+            if dim in breakdown
+        )
         
         return breakdown
     
@@ -421,7 +394,7 @@ class ImportanceEvaluator:
     
     def _evaluate_personal(self, content: str, metadata: Optional[Dict[str, Any]]) -> float:
         """Evaluate if content is personal."""
-        # Check for personal indicators
+        # Check for personal indicators using word boundary matching
         personal_indicators = [
             "i", "me", "my", "mine", "myself",
             "personal", "private", "confidential"
@@ -430,7 +403,8 @@ class ImportanceEvaluator:
         
         score = 0.0
         for indicator in personal_indicators:
-            if indicator in content_lower:
+            # Use word boundary matching to avoid substring false positives
+            if re.search(r'\b' + re.escape(indicator) + r'\b', content_lower):
                 score += 0.1
         
         return min(score, 1.0)

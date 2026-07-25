@@ -109,6 +109,6 @@ class SearchService:
             
             raise APIError(
                 code=ErrorCode.SEARCH_FAILED,
-                message=f"Search failed: {str(e)}",
+                message="Search failed",
                 status_code=500,
             )

@@ -10,12 +10,14 @@ from .qwen import QwenRerank
 from .jina import JinaRerank
 from .generic import GenericRerank
 from .zai import ZaiRerank
+from .nim import NimRerank
 from .config.base import BaseRerankConfig
 from .config.providers import (
     QwenRerankConfig,
     JinaRerankConfig,
     ZaiRerankConfig,
     GenericRerankConfig,
+    NimRerankConfig,
 )
 
 __all__ = [
@@ -25,10 +27,12 @@ __all__ = [
     "JinaRerank",
     "GenericRerank",
     "ZaiRerank",
+    "NimRerank",
     "BaseRerankConfig",
     "QwenRerankConfig",
     "JinaRerankConfig",
     "ZaiRerankConfig",
     "GenericRerankConfig",
+    "NimRerankConfig",
 ]
 

@@ -77,7 +77,7 @@ class AgentService:
             logger.error(f"Failed to get agent memories {agent_id}: {e}", exc_info=True)
             raise APIError(
                 code=ErrorCode.INTERNAL_ERROR,
-                message=f"Failed to get agent memories: {str(e)}",
+                message="Failed to get agent memories",
                 status_code=500,
             )
     
@@ -162,7 +162,7 @@ class AgentService:
             logger.error(f"Failed to create agent memory: {e}", exc_info=True)
             raise APIError(
                 code=ErrorCode.MEMORY_CREATE_FAILED,
-                message=f"Failed to create agent memory: {str(e)}",
+                message="Failed to create agent memory",
                 status_code=500,
             )
     
@@ -312,7 +312,7 @@ class AgentService:
             logger.error(f"Failed to share memories: {e}", exc_info=True)
             raise APIError(
                 code=ErrorCode.AGENT_MEMORY_SHARE_FAILED,
-                message=f"Failed to share memories: {str(e)}",
+                message="Failed to share memories",
                 status_code=500,
             )
     
