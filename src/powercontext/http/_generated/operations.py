@@ -197,7 +197,7 @@ LIST_MEMORY_ENTRIES = Operation[ListMemoryEntriesRequest, ListMemoryEntriesRespo
     tags=("memory",),
     responses={
         200: {
-            "description": "The current Memory entry snapshot.",
+            "description": "The selected entries from the current Memory head.",
             "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},

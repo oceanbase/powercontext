@@ -27,7 +27,9 @@ Reuse that exact `scope_id` for the task.
 
 - Use `search_memory` with a focused query, `mode: "auto"`, and no more than
   eight results.
-- Use `list_memory_entries` to audit the current scope.
+- Use `list_memory_entries` to read active entries in the current scope.
+- Set `include_inactive` to `true` only when the user explicitly asks to audit
+  retired entries or the complete current Memory snapshot.
 - Use `get_memory_entry` with the exact returned `citation` when full immutable
   entry details are needed.
 

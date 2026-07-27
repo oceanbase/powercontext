@@ -77,6 +77,9 @@ class ListMemoryEntriesRequest(BaseModel):
         extra="forbid",
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    include_inactive: Annotated[
+        StrictBool, Field(description="Include inactive entries from the current Memory head for explicit audit.")
+    ] = False
 
 
 class MemoryCitation(BaseModel):

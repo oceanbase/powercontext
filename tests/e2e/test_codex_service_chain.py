@@ -20,7 +20,7 @@ from pydantic_ai.models.test import TestModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
 from powercontext.client import PowerContextClient
-from powercontext.http import ListMemoryEntriesRequest, SearchMemoryRequest
+from powercontext.http import ListMemoryEntriesRequest, RetireMemoryEntryRequest, SearchMemoryRequest
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
@@ -111,26 +111,55 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
                 entries = await sdk.list_memory_entries(
                     ListMemoryEntriesRequest(scope_id=SCOPE_ID),
                 )
-            assert found.hits
-            assert {hit.text for hit in found.hits} == {"Use PowerContext as the composition root."}
-            assert entries.entries
-            assert entries.entries[0].source_refs[0].name == "content"
+                assert found.hits
+                assert {hit.text for hit in found.hits} == {"Use PowerContext as the composition root."}
+                assert entries.entries
+                assert entries.entries[0].source_refs[0].name == "content"
 
-            transport = StreamableHttpTransport(f"{base_url}/mcp")
-            async with Client(transport) as mcp:
-                result = await mcp.call_tool(
-                    "search_memory",
-                    {
-                        "scope_id": SCOPE_ID,
-                        "query": "PowerContext composition root",
-                    },
+                transport = StreamableHttpTransport(f"{base_url}/mcp")
+                async with Client(transport) as mcp:
+                    result = await mcp.call_tool(
+                        "search_memory",
+                        {
+                            "scope_id": SCOPE_ID,
+                            "query": "PowerContext composition root",
+                        },
+                    )
+                structured = result.structured_content or {}
+                hits = structured.get("hits")
+                assert isinstance(hits, list)
+                assert hits[0]["text"] == "Use PowerContext as the composition root."
+
+                retired_entry_ids: set[str] = set()
+                current = entries
+                while current.entries:
+                    retired = await sdk.retire_memory_entry(
+                        RetireMemoryEntryRequest(
+                            scope_id=SCOPE_ID,
+                            citation=current.entries[0].citation,
+                            reason="superseded",
+                        ),
+                    )
+                    assert retired.entry is not None
+                    retired_entry_ids.add(retired.entry.citation.entry_id)
+                    current = await sdk.list_memory_entries(
+                        ListMemoryEntriesRequest(scope_id=SCOPE_ID),
+                    )
+                audited = await sdk.list_memory_entries(
+                    ListMemoryEntriesRequest(scope_id=SCOPE_ID, include_inactive=True),
                 )
-            structured = result.structured_content or {}
-            hits = structured.get("hits")
-            assert isinstance(hits, list)
-            assert hits[0]["text"] == "Use PowerContext as the composition root."
+                assert current.entries == []
+                assert {entry.citation.entry_id for entry in audited.entries} == retired_entry_ids
+                assert all(entry.state == "inactive" for entry in audited.entries)
 
         asyncio.run(verify_public_surfaces())
+
+        excluded = _run_hook(
+            plugin,
+            prompt="Which composition root should this project use?",
+            turn_id="turn-3",
+        )
+        assert excluded.stdout == ""
     finally:
         server.should_exit = True
         thread.join(timeout=10)

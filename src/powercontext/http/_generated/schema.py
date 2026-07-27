@@ -165,7 +165,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "post": {
                 "tags": ["memory"],
                 "summary": "List Memory entries",
-                "description": "Read the complete entry snapshot from the current Memory head.",
+                "description": "Read active entries from the "
+                "current Memory head. Inactive "
+                "entries are available only when "
+                "explicitly requested for audit.",
                 "operationId": "list_memory_entries",
                 "requestBody": {
                     "content": {
@@ -175,7 +178,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
                 "responses": {
                     "200": {
-                        "description": "The current Memory entry snapshot.",
+                        "description": "The selected entries from the current Memory head.",
                         "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/ListMemoryEntriesResponse"}}
@@ -456,7 +459,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["revisions"],
             },
             "ListMemoryEntriesRequest": {
-                "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"}},
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "include_inactive": {
+                        "type": "boolean",
+                        "description": "Include inactive entries from the current Memory head for explicit audit.",
+                        "default": False,
+                    },
+                },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["scope_id"],

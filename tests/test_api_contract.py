@@ -9,6 +9,7 @@ from powercontext.http import (
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     GetMemoryEntryRequest,
+    ListMemoryEntriesRequest,
     SearchMemoryRequest,
 )
 from powercontext.http._generated.operations import (
@@ -90,6 +91,18 @@ def test_memory_transport_has_one_reference_shape_and_nested_citations() -> None
         assert "expected_revision" not in properties
 
 
+def test_entry_list_hides_inactive_entries_unless_explicitly_requested() -> None:
+    default_request = ListMemoryEntriesRequest(scope_id="scope")
+    audit_request = ListMemoryEntriesRequest(scope_id="scope", include_inactive=True)
+
+    assert default_request.include_inactive is False
+    assert audit_request.include_inactive is True
+
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    include_inactive = contract["components"]["schemas"]["ListMemoryEntriesRequest"]["properties"]["include_inactive"]
+    assert include_inactive["default"] is False
+
+
 @pytest.mark.parametrize(
     ("model", "value"),
     [
@@ -97,6 +110,7 @@ def test_memory_transport_has_one_reference_shape_and_nested_citations() -> None
         (ArtifactReference, {"family": "memory", "artifact_id": "memory-1", "revision": "1"}),
         (ArtifactReference, {"family": "memory", "artifact_id": "memory with spaces", "revision": 1}),
         (SearchMemoryRequest, {"scope_id": "scope", "query": "query", "limit": True}),
+        (ListMemoryEntriesRequest, {"scope_id": "scope", "include_inactive": 1}),
         (
             GetMemoryEntryRequest,
             {

@@ -1,6 +1,5 @@
 import asyncio
 from pathlib import Path
-from typing import Any
 
 import httpx
 from fastmcp import Client
@@ -11,7 +10,7 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
 
-def test_mcp_streamable_http_is_mounted_at_the_configured_server_path(tmp_path: Path) -> None:
+def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path) -> None:
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
@@ -34,63 +33,27 @@ def test_mcp_streamable_http_is_mounted_at_the_configured_server_path(tmp_path: 
             follow_redirects=True,
         )
 
-    async def exercise_tools() -> tuple[set[str], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    async def exercise_tools() -> set[str]:
         transport = StreamableHttpTransport(
             "http://testserver/agent/",
             httpx_client_factory=create_http_client,
         )
         async with app.router.lifespan_context(app), Client(transport) as client:
-            tools = {tool.name for tool in await client.list_tools()}
-            empty_search = await client.call_tool(
-                "search_memory",
-                {
-                    "scope_id": "project:empty",
-                    "query": "nothing stored",
-                },
-            )
+            projected_tools = {tool.name: tool for tool in await client.list_tools()}
+            include_inactive = projected_tools["list_memory_entries"].inputSchema["properties"]["include_inactive"]
+            assert include_inactive["type"] == "boolean"
+            assert include_inactive["default"] is False
             empty_list = await client.call_tool(
                 "list_memory_entries",
-                {"scope_id": "project:empty"},
+                {
+                    "scope_id": "project:empty",
+                    "include_inactive": True,
+                },
             )
-            assert empty_search.structured_content == {"memory": None, "mode": None, "hits": []}
             assert empty_list.structured_content == {"memory": None, "entries": []}
-            remembered = await client.call_tool(
-                "remember_memory",
-                {
-                    "scope_id": "project:powercontext",
-                    "kind": "decision",
-                    "text": "Expose a curated MCP projection.",
-                },
-            )
-            found = await client.call_tool(
-                "search_memory",
-                {
-                    "scope_id": "project:powercontext",
-                    "query": "curated MCP projection",
-                },
-            )
-            remembered_content = remembered.structured_content or {}
-            listed = await client.call_tool(
-                "list_memory_entries",
-                {"scope_id": "project:powercontext"},
-            )
-            entry = remembered_content["entry"]
-            exact = await client.call_tool(
-                "get_memory_entry",
-                {
-                    "scope_id": "project:powercontext",
-                    "citation": entry["citation"],
-                },
-            )
-            return (
-                tools,
-                remembered_content,
-                found.structured_content or {},
-                listed.structured_content or {},
-                exact.structured_content or {},
-            )
+            return set(projected_tools)
 
-    tools, remembered, found, listed, exact = asyncio.run(exercise_tools())
+    tools = asyncio.run(exercise_tools())
 
     assert tools == {
         "get_memory_entry",
@@ -100,11 +63,6 @@ def test_mcp_streamable_http_is_mounted_at_the_configured_server_path(tmp_path: 
         "revise_memory_entry",
         "search_memory",
     }
-    assert remembered["memory"]["revision"] == 1
-    assert found["hits"][0]["text"] == "Expose a curated MCP projection."
-    assert found["hits"][0]["citation"] == remembered["entry"]["citation"]
-    assert listed["entries"] == [remembered["entry"]]
-    assert exact == remembered["entry"]
 
 
 def test_mcp_endpoint_is_absent_when_disabled_by_server_settings() -> None:

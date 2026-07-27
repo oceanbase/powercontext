@@ -125,7 +125,7 @@ class _ScopedMemoryApplication(Protocol):
 
     async def search(self, request: RuntimeSearchMemoryRequest, /) -> MemorySearchPage: ...
 
-    async def list(self) -> MemoryEntriesPage: ...
+    async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage: ...
 
     async def get(self, request: RuntimeGetMemoryEntryRequest, /) -> MemoryEntryRecord: ...
 
@@ -256,7 +256,9 @@ def create_app(  # noqa: C901
 
     async def list_memory_entries(request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
         runtime = _require_application(app.state.application)
-        result = await runtime.memory.for_scope(request.scope_id).list()
+        result = await runtime.memory.for_scope(request.scope_id).list(
+            include_inactive=request.include_inactive,
+        )
         return mapping.entries_response(result)
 
     async def get_memory_entry(request: GetMemoryEntryRequest) -> MemoryEntry:

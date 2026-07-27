@@ -259,7 +259,27 @@ def test_sdk_memory_lifecycle_reaches_one_composed_runtime(tmp_path: Path) -> No
                 )
             )
             assert retired.entry is not None
-            current = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id="project:powercontext"))
+            current = await client.list_memory_entries(
+                ListMemoryEntriesRequest(scope_id="project:powercontext"),
+            )
+            audited = await client.list_memory_entries(
+                ListMemoryEntriesRequest(
+                    scope_id="project:powercontext",
+                    include_inactive=True,
+                ),
+            )
+            retired_search = await client.search_memory(
+                SearchMemoryRequest(
+                    scope_id="project:powercontext",
+                    query="strict Pydantic transport models",
+                ),
+            )
+            retired_exact = await client.get_memory_entry(
+                GetMemoryEntryRequest(
+                    scope_id="project:powercontext",
+                    citation=retired.entry.citation,
+                ),
+            )
             with pytest.raises(ServerResponseError) as inactive:
                 await client.revise_memory_entry(
                     ReviseMemoryEntryRequest(
@@ -281,7 +301,13 @@ def test_sdk_memory_lifecycle_reaches_one_composed_runtime(tmp_path: Path) -> No
         assert revised.entry.text == "Keep strict Pydantic transport models."
         assert [revision.memory_ref.revision for revision in changes.revisions] == [revised.memory.revision]
         assert retired.entry.state == "inactive"
-        assert current.entries == [retired.entry]
+        assert current.memory == retired.memory
+        assert current.entries == []
+        assert audited.memory == retired.memory
+        assert audited.entries == [retired.entry]
+        assert retired_search.memory == retired.memory
+        assert retired_search.hits == []
+        assert retired_exact == retired.entry
         assert (inactive.value.status_code, inactive.value.code) == (409, "memory_entry_inactive")
         assert (missing.value.status_code, missing.value.code) == (404, "memory_not_found")
 

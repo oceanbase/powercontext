@@ -137,15 +137,18 @@ class ScopedMemoryApplication:
                 hits=result.hits,
             )
 
-    async def list(self) -> MemoryEntriesPage:
+    async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:
             service = context.artifacts.memory
             current = await _head_or_none(service, context.artifacts.memory_artifact_id)
             if current is None:
                 return MemoryEntriesPage(memory_ref=None)
+            entries = tuple(_entry_record(current, entry) for entry in await service.entries(current))
+            if not include_inactive:
+                entries = tuple(entry for entry in entries if entry.state == "active")
             return MemoryEntriesPage(
                 memory_ref=current.as_ref(),
-                entries=tuple(_entry_record(current, entry) for entry in await service.entries(current)),
+                entries=entries,
             )
 
     async def get(self, request: GetMemoryEntryRequest, /) -> MemoryEntryRecord:

@@ -123,7 +123,7 @@ class PowerContextClient:
         return await self._request(SEARCH_MEMORY, request)
 
     async def list_memory_entries(self, request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
-        """List the entry snapshot from the current Memory head."""
+        """List active entries, optionally including inactive entries for audit."""
 
         return await self._request(LIST_MEMORY_ENTRIES, request)
 

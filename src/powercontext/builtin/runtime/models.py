@@ -96,7 +96,7 @@ class MemoryEntryRecord(BaseModel):
 
 
 class MemoryEntriesPage(BaseModel):
-    """Current entries for one scope, or an absent Memory."""
+    """Selected current-head entries for one scope, or an absent Memory."""
 
     memory_ref: ArtifactRef | None
     entries: tuple[MemoryEntryRecord, ...] = ()
