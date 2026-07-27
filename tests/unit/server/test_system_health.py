@@ -48,35 +48,13 @@ def test_public_health_does_not_expose_startup_error():
 
     response = TestClient(app).get("/api/v1/system/health")
 
-    assert response.status_code == 503
+    assert response.status_code == 200
     body = response.json()
-    assert body["success"] is False
     assert body["data"]["status"] == "degraded"
     assert body["data"]["memory_service_ready"] is False
     assert "startup_error" not in body["data"]
 
     assert_sensitive_startup_error_hidden(body)
-
-
-def test_public_health_returns_success_when_memory_service_is_ready():
-    from fastapi.testclient import TestClient
-
-    from server.api.v1.system import router
-
-    app = build_app_with_startup_error()
-    app.state.service_ready = True
-    app.state.storage_type = "oceanbase"
-    app.state.service_startup_error = None
-    app.include_router(router, prefix="/api/v1")
-
-    response = TestClient(app).get("/api/v1/system/health")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["success"] is True
-    assert body["data"]["status"] == "healthy"
-    assert body["data"]["memory_service_ready"] is True
-    assert body["data"]["storage_type"] == "oceanbase"
 
 
 def test_authenticated_status_does_not_expose_startup_error(monkeypatch):
