@@ -78,10 +78,12 @@ RUN if [ -n "$DEBIAN_MIRROR" ]; then \
     apt-get install -y --no-install-recommends \
         postgresql-client \
         curl \
+        gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN useradd -m -u 1000 powermem && \
+    mkdir -p /app/logs && \
     chown -R powermem:powermem /app
 
 # Copy installed package from builder
@@ -96,9 +98,6 @@ COPY --chown=powermem:powermem pyproject.toml ./
 COPY --chown=powermem:powermem docker/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Switch to non-root user
-USER powermem
-
 # Expose default port
 EXPOSE 8848
 
@@ -112,7 +111,7 @@ ENV PYTHONUNBUFFERED=1 \
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8848/api/v1/system/health || exit 1
 
-# Use entrypoint script
+# The entrypoint initializes bind-mounted directories, then drops to powermem.
 ENTRYPOINT ["docker-entrypoint.sh"]
 
 # Default command: API server + PMem Dashboard on port 8848

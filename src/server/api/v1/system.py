@@ -35,21 +35,31 @@ router = APIRouter(prefix="/system", tags=["system"])
     "/health",
     response_model=APIResponse,
     summary="Health check",
-    description="Check if the API server is healthy (public endpoint, no authentication required)",
+    description=(
+        "Check whether the API server and memory service are ready. "
+        "Returns 503 when the memory service is unavailable."
+    ),
 )
-async def health_check(request: Request):
+async def health_check(request: Request, response: Response):
     """Health check endpoint"""
     ready = bool(getattr(request.app.state, "service_ready", False))
+    if not ready:
+        response.status_code = 503
+
     health = HealthResponse(
         status="healthy" if ready else "degraded",
         memory_service_ready=ready,
         storage_type=getattr(request.app.state, "storage_type", None),
     )
-    
+
     return APIResponse(
-        success=True,
-        data=health.model_dump(mode='json'),
-        message="Service is healthy" if ready else "HTTP server is running but memory service is unavailable",
+        success=ready,
+        data=health.model_dump(mode="json"),
+        message=(
+            "Service is healthy"
+            if ready
+            else "HTTP server is running but memory service is unavailable"
+        ),
     )
 
 

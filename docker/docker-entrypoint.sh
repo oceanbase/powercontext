@@ -19,6 +19,21 @@ validate_config() {
     log "Configuration validation completed"
 }
 
+# Prepare writable paths backed by bind mounts before dropping privileges.
+prepare_runtime_directories() {
+    if [ "$(id -u)" -eq 0 ]; then
+        mkdir -p /app/logs
+        chown -R powermem:powermem /app/logs
+        chmod -R u+rwX /app/logs
+        return
+    fi
+
+    if [ ! -d /app/logs ] || [ ! -w /app/logs ]; then
+        log "Error: /app/logs must be writable by the runtime user"
+        exit 1
+    fi
+}
+
 # Main execution
 main() {
     log "Starting PowerMem Server..."
@@ -37,6 +52,9 @@ main() {
     
     # Validate configuration
     validate_config
+
+    # Bind-mounted directories are commonly created as root on the host.
+    prepare_runtime_directories
     
     # Log configuration (without sensitive data)
     log "Server Configuration:"
@@ -49,9 +67,11 @@ main() {
     
     # Execute the command
     log "Launching server..."
+    if [ "$(id -u)" -eq 0 ]; then
+        exec gosu powermem "$@"
+    fi
     exec "$@"
 }
 
 # Run main function
 main "$@"
-
