@@ -1,11 +1,11 @@
 from fastapi.testclient import TestClient
 
-from powercontext.api import (
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.http import (
     Capabilities,
     ReadinessResponse,
     ReadinessStatus,
 )
-from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.server.app import create_app
 from powercontext.server.settings import ServerSettings
 

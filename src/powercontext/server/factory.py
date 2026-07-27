@@ -7,13 +7,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from powercontext.api import Capabilities, MemorySearchMode
 from powercontext.builtin.artifacts.memory import CandidatePipeline
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.runtime import BuiltinRuntime
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
+from powercontext.http import Capabilities, MemorySearchMode
 from powercontext.server.app import create_app
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.settings import ServerSettings

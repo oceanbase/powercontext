@@ -2,37 +2,6 @@
 
 from __future__ import annotations
 
-from powercontext.api import (
-    ArtifactReference,
-    CaptureContentSourceRequest,
-    CaptureContentSourceResponse,
-    CaptureStatus,
-    EntryChange,
-    EntryChangeOperation,
-    FlushMemoryResponse,
-    FlushStatus,
-    GetMemoryEntryRequest,
-    ListMemoryChangesResponse,
-    ListMemoryEntriesResponse,
-    MemoryEntry,
-    MemoryEntryState,
-    MemoryMatchedBy,
-    MemoryMutationResponse,
-    MemoryRevisionChanges,
-    MemoryUsedSearchMode,
-    RetireMemoryEntryRequest,
-    ReviseMemoryEntryRequest,
-    SearchMemoryHit,
-    SearchMemoryRequest,
-    SearchMemoryResponse,
-    SourceReference,
-)
-from powercontext.api import (
-    MemoryCitation as TransportMemoryCitation,
-)
-from powercontext.api import (
-    RememberMemoryRequest as TransportRememberMemoryRequest,
-)
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.runtime import (
     CaptureSource,
@@ -65,6 +34,37 @@ from powercontext.builtin.runtime import (
 )
 from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
+)
+from powercontext.http import (
+    ArtifactReference,
+    CaptureContentSourceRequest,
+    CaptureContentSourceResponse,
+    CaptureStatus,
+    EntryChange,
+    EntryChangeOperation,
+    FlushMemoryResponse,
+    FlushStatus,
+    GetMemoryEntryRequest,
+    ListMemoryChangesResponse,
+    ListMemoryEntriesResponse,
+    MemoryEntry,
+    MemoryEntryState,
+    MemoryMatchedBy,
+    MemoryMutationResponse,
+    MemoryRevisionChanges,
+    MemoryUsedSearchMode,
+    RetireMemoryEntryRequest,
+    ReviseMemoryEntryRequest,
+    SearchMemoryHit,
+    SearchMemoryRequest,
+    SearchMemoryResponse,
+    SourceReference,
+)
+from powercontext.http import (
+    MemoryCitation as TransportMemoryCitation,
+)
+from powercontext.http import (
+    RememberMemoryRequest as TransportRememberMemoryRequest,
 )
 
 

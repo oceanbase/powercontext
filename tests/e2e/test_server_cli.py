@@ -7,9 +7,9 @@ import pytest
 from typer.testing import CliRunner
 
 import powercontext.client.cli as client_cli
-from powercontext.api import Capabilities, MemorySearchMode
 from powercontext.cli.app import create_cli
 from powercontext.client import PowerContextClient
+from powercontext.http import Capabilities, MemorySearchMode
 from powercontext.server.app import create_app
 
 

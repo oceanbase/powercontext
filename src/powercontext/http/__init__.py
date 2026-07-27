@@ -1,6 +1,6 @@
-"""Public transport models shared by the Server and Client SDK."""
+"""Public HTTP models shared by the Server and Client SDK."""
 
-from powercontext.api.generated.models import (
+from powercontext.http._generated.models import (
     ArtifactReference,
     Capabilities,
     CaptureContentSourceRequest,

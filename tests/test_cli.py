@@ -10,11 +10,11 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 import powercontext.client.cli as client_cli
-from powercontext.api import HealthResponse, ReadinessResponse
 from powercontext.builtin.runtime.cli import app as builtin_app
 from powercontext.cli.app import create_cli
 from powercontext.client import ServerResponseError
 from powercontext.client.settings import ClientSettings
+from powercontext.http import HealthResponse, ReadinessResponse
 from powercontext.server.cli import app as server_app
 
 

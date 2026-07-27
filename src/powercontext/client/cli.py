@@ -9,10 +9,10 @@ from typing import Annotated, TypeAlias
 
 import typer
 
-from powercontext.api import Capabilities, HealthResponse, ReadinessResponse
 from powercontext.client.client import PowerContextClient
 from powercontext.client.errors import ClientError
 from powercontext.client.settings import ClientSettings
+from powercontext.http import Capabilities, HealthResponse, ReadinessResponse
 
 HELP_OPTION_NAMES = ("-h", "--help")
 _ClientResponse: TypeAlias = Capabilities | HealthResponse | ReadinessResponse

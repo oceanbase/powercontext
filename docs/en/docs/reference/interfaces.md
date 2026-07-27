@@ -42,7 +42,7 @@ Use the Client SDK when the Server owns persistence:
 ```python
 import asyncio
 
-from powercontext.api import RememberMemoryRequest, SearchMemoryRequest
+from powercontext.http import RememberMemoryRequest, SearchMemoryRequest
 from powercontext.client import PowerContextClient
 
 

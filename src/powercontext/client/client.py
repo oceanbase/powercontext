@@ -8,7 +8,8 @@ from typing import Self, TypeVar
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
-from powercontext.api import (
+from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
+from powercontext.http import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
@@ -30,7 +31,7 @@ from powercontext.api import (
     SearchMemoryRequest,
     SearchMemoryResponse,
 )
-from powercontext.api.generated.operations import (
+from powercontext.http._generated.operations import (
     CAPTURE_CONTENT_SOURCE,
     FLUSH_MEMORY,
     GET_CAPABILITIES,
@@ -45,7 +46,6 @@ from powercontext.api.generated.operations import (
     SEARCH_MEMORY,
     Operation,
 )
-from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
 
 REQUEST_ID_HEADER = "X-Request-ID"
 _RequestT = TypeVar("_RequestT")

@@ -17,10 +17,10 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from pydantic_ai.models.test import TestModel
 
-from powercontext.api import ListMemoryEntriesRequest, SearchMemoryRequest
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
 from powercontext.client import PowerContextClient
+from powercontext.http import ListMemoryEntriesRequest, SearchMemoryRequest
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 

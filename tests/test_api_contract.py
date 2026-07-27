@@ -4,14 +4,14 @@ import pytest
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from powercontext.api import (
+from powercontext.http import (
     ArtifactReference,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     GetMemoryEntryRequest,
     SearchMemoryRequest,
 )
-from powercontext.api.generated.operations import (
+from powercontext.http._generated.operations import (
     CAPTURE_CONTENT_SOURCE,
     FLUSH_MEMORY,
     GET_MEMORY_ENTRY,

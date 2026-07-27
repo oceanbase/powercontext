@@ -9,7 +9,7 @@ from fastmcp.server.providers.openapi import MCPType, OpenAPIProvider
 from fastmcp.utilities.lifespan import combine_lifespans
 from fastmcp.utilities.openapi import HTTPRoute
 
-from powercontext.api.generated.operations import (
+from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     LIST_MEMORY_ENTRIES,
     REMEMBER_MEMORY,

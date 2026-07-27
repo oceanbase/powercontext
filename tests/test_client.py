@@ -4,11 +4,11 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from powercontext.api import (
-    CaptureContentSourceRequest,
-)
 from powercontext.client import InvalidResponseError, PowerContextClient, ServerResponseError, TransportError
 from powercontext.client.settings import ClientSettings
+from powercontext.http import (
+    CaptureContentSourceRequest,
+)
 
 
 def test_client_rejects_an_undeclared_success_status() -> None:

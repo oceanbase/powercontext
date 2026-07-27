@@ -29,7 +29,7 @@ not part of this API.
 
 ## HTTP models
 
-::: powercontext.api
+::: powercontext.http
 
 ## Python Client SDK
 

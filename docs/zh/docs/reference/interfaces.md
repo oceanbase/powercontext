@@ -41,7 +41,7 @@ CLI 只显示已安装 extra 所提供的命令。
 ```python
 import asyncio
 
-from powercontext.api import RememberMemoryRequest, SearchMemoryRequest
+from powercontext.http import RememberMemoryRequest, SearchMemoryRequest
 from powercontext.client import PowerContextClient
 
 

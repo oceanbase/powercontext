@@ -16,7 +16,7 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "openapi" / "powercontext.yaml"
-GENERATED_DIR = ROOT / "src" / "powercontext" / "api" / "generated"
+GENERATED_DIR = ROOT / "src" / "powercontext" / "http" / "_generated"
 MODELS_PATH = GENERATED_DIR / "models.py"
 OPERATIONS_PATH = GENERATED_DIR / "operations.py"
 SCHEMA_PATH = GENERATED_DIR / "schema.py"
@@ -242,7 +242,7 @@ def _model_for_json_content(
     schema_name = schema_ref.removeprefix("#/components/schemas/")
     if schema_name not in schemas:
         raise ContractGenerationError("schema reference", schema_ref)  # noqa: TRY003
-    return "powercontext.api.generated.models", schema_name
+    return "powercontext.http._generated.models", schema_name
 
 
 def _response_metadata(response: Response | object) -> dict[str, JsonValue]:

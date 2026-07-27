@@ -65,7 +65,7 @@ inference 配置见[配置 Pydantic AI 推理](pydantic-ai-inference.md)。
 
 ## HTTP 接口
 
-契约源文件是 `openapi/powercontext.yaml`。`powercontext.api.generated` 下的 Pydantic model 和 operation descriptor
+契约源文件是 `openapi/powercontext.yaml`。`powercontext.http._generated` 下的 Pydantic model 和 operation descriptor
 由该契约生成。
 
 | 领域 | Operation |
@@ -94,7 +94,7 @@ uv add "powercontext[client]"
 `PowerContextClient` 是 async-native client，使用生成的 request 和 response model：
 
 ```python
-from powercontext.api import SearchMemoryRequest
+from powercontext.http import SearchMemoryRequest
 from powercontext.client import PowerContextClient
 
 

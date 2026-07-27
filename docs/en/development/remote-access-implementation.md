@@ -68,7 +68,7 @@ database and requires a configured generation pipeline.
 ## HTTP surface
 
 The source contract is `openapi/powercontext.yaml`. Generated Pydantic models and operation descriptors under
-`powercontext.api.generated` are build artifacts of that contract.
+`powercontext.http._generated` are build artifacts of that contract.
 
 | Area | Operations |
 | --- | --- |
@@ -96,7 +96,7 @@ uv add "powercontext[client]"
 `PowerContextClient` is async-native and uses the generated request and response models:
 
 ```python
-from powercontext.api import SearchMemoryRequest
+from powercontext.http import SearchMemoryRequest
 from powercontext.client import PowerContextClient
 
 

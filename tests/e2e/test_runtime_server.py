@@ -10,18 +10,6 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from powercontext.api import (
-    CaptureContentSourceRequest,
-    FlushMemoryRequest,
-    GetMemoryEntryRequest,
-    ListMemoryChangesRequest,
-    ListMemoryEntriesRequest,
-    RememberMemoryRequest,
-    RetireMemoryEntryRequest,
-    ReviseMemoryEntryRequest,
-    SearchMemoryRequest,
-)
-from powercontext.api import MemorySearchMode as ApiMemorySearchMode
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     MemoryCandidateRequest,
@@ -33,6 +21,18 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
 from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient, ServerResponseError
+from powercontext.http import (
+    CaptureContentSourceRequest,
+    FlushMemoryRequest,
+    GetMemoryEntryRequest,
+    ListMemoryChangesRequest,
+    ListMemoryEntriesRequest,
+    RememberMemoryRequest,
+    RetireMemoryEntryRequest,
+    ReviseMemoryEntryRequest,
+    SearchMemoryRequest,
+)
+from powercontext.http import MemorySearchMode as HttpMemorySearchMode
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
@@ -189,14 +189,14 @@ def test_server_databases_share_vector_and_hybrid_search_behavior(
                 SearchMemoryRequest(
                     scope_id=scope_id,
                     query="alpha",
-                    mode=ApiMemorySearchMode.VECTOR,
+                    mode=HttpMemorySearchMode.VECTOR,
                 )
             )
             hybrid = await client.search_memory(
                 SearchMemoryRequest(
                     scope_id=scope_id,
                     query="alpha",
-                    mode=ApiMemorySearchMode.HYBRID,
+                    mode=HttpMemorySearchMode.HYBRID,
                 )
             )
 

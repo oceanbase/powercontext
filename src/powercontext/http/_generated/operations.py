@@ -6,7 +6,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, JsonValue
 
-from powercontext.api.generated.models import (
+from powercontext.http._generated.models import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,

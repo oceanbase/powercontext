@@ -15,50 +15,6 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.types import Lifespan
 
-from powercontext.api import (
-    Capabilities,
-    CaptureContentSourceRequest,
-    CaptureContentSourceResponse,
-    ErrorDetail,
-    ErrorResponse,
-    FlushMemoryRequest,
-    FlushMemoryResponse,
-    GetMemoryEntryRequest,
-    HealthResponse,
-    ListMemoryChangesRequest,
-    ListMemoryChangesResponse,
-    ListMemoryEntriesRequest,
-    ListMemoryEntriesResponse,
-    MemoryEntry,
-    MemoryMutationResponse,
-    ReadinessResponse,
-    ReadinessStatus,
-    RememberMemoryRequest,
-    RetireMemoryEntryRequest,
-    ReviseMemoryEntryRequest,
-    SearchMemoryRequest,
-    SearchMemoryResponse,
-)
-from powercontext.api.generated.operations import (
-    API_DESCRIPTION,
-    API_TITLE,
-    API_VERSION,
-    CAPTURE_CONTENT_SOURCE,
-    FLUSH_MEMORY,
-    GET_CAPABILITIES,
-    GET_LIVENESS,
-    GET_MEMORY_ENTRY,
-    GET_READINESS,
-    LIST_MEMORY_CHANGES,
-    LIST_MEMORY_ENTRIES,
-    OPENAPI_VERSION,
-    REMEMBER_MEMORY,
-    RETIRE_MEMORY_ENTRY,
-    REVISE_MEMORY_ENTRY,
-    SEARCH_MEMORY,
-    Operation,
-)
-from powercontext.api.generated.schema import OPENAPI_SCHEMA
 from powercontext.builtin.artifacts.memory.errors import (
     CapabilityNotSupportedError,
     InvalidMemoryCandidateError,
@@ -100,6 +56,50 @@ from powercontext.errors import (
     RevisionConflictError,
     SourceConflictError,
 )
+from powercontext.http import (
+    Capabilities,
+    CaptureContentSourceRequest,
+    CaptureContentSourceResponse,
+    ErrorDetail,
+    ErrorResponse,
+    FlushMemoryRequest,
+    FlushMemoryResponse,
+    GetMemoryEntryRequest,
+    HealthResponse,
+    ListMemoryChangesRequest,
+    ListMemoryChangesResponse,
+    ListMemoryEntriesRequest,
+    ListMemoryEntriesResponse,
+    MemoryEntry,
+    MemoryMutationResponse,
+    ReadinessResponse,
+    ReadinessStatus,
+    RememberMemoryRequest,
+    RetireMemoryEntryRequest,
+    ReviseMemoryEntryRequest,
+    SearchMemoryRequest,
+    SearchMemoryResponse,
+)
+from powercontext.http._generated.operations import (
+    API_DESCRIPTION,
+    API_TITLE,
+    API_VERSION,
+    CAPTURE_CONTENT_SOURCE,
+    FLUSH_MEMORY,
+    GET_CAPABILITIES,
+    GET_LIVENESS,
+    GET_MEMORY_ENTRY,
+    GET_READINESS,
+    LIST_MEMORY_CHANGES,
+    LIST_MEMORY_ENTRIES,
+    OPENAPI_VERSION,
+    REMEMBER_MEMORY,
+    RETIRE_MEMORY_ENTRY,
+    REVISE_MEMORY_ENTRY,
+    SEARCH_MEMORY,
+    Operation,
+)
+from powercontext.http._generated.schema import OPENAPI_SCHEMA
 from powercontext.server import mapping
 
 REQUEST_ID_HEADER = "X-Request-ID"
