@@ -89,14 +89,14 @@ embedding_model = PydanticAIEmbeddingModel(
         profile_id="project-embedding-v1",
         model="provider:embedding-model",
         dimension=1536,
-        normalization="none",
+        normalization="unit",
     ),
     limits=InferenceLimits(timeout_seconds=30),
 )
 ```
 
 将这个 adapter 传给 `open_builtin_contexts()` 或 `open_builtin_runtime()`，并通过 `SQLiteConfig` 选择 Vec1
-extension。向量进入持久化之前，adapter 会校验输出数量、顺序、dimension 和数值有效性。
+extension。向量进入持久化之前，adapter 会校验输出数量、顺序、dimension 和数值有效性，并执行 profile 声明的单位归一化。
 
 `EmbeddingProfile` 是 deployment contract，不是描述性 metadata。持久化 projection 和 query embedding 必须使用
 同一个 profile。model、dimension 或 normalization 发生变化后，应从权威 Memory revision 重建 projection。

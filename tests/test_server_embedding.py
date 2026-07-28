@@ -24,6 +24,15 @@ def test_embedding_settings_load_one_complete_environment_profile(
     assert settings.inference.embedding_normalization == "unit"
 
 
+def test_embedding_normalization_defaults_to_unit() -> None:
+    assert InferenceConfig().embedding_normalization == "unit"
+
+
+def test_embedding_settings_reject_unknown_normalization() -> None:
+    with pytest.raises(ValidationError, match=r"none.*unit"):
+        InferenceConfig.model_validate({"embedding_normalization": "provider-default"})
+
+
 @pytest.mark.parametrize(
     "values",
     [

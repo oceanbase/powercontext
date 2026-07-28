@@ -11,6 +11,7 @@ from powercontext.builtin.artifacts.memory.canonical import (
     entry_content_bytes,
     entry_content_hash,
     memory_content_hash,
+    normalize_embedding,
     normalize_kind,
     normalize_reason,
     normalize_text,
@@ -125,6 +126,16 @@ def test_embedding_validation_rejects_wrong_or_non_finite_vectors() -> None:
             validate_embedding((1.0, invalid, 3.0), dimension=3)
     with pytest.raises(ValueError, match="positive"):
         validate_embedding((), dimension=0)
+
+
+def test_embedding_normalization_produces_a_unit_vector() -> None:
+    assert normalize_embedding((3.0, 4.0), dimension=2) == pytest.approx((0.6, 0.8))
+    assert normalize_embedding((1e308, 1e308), dimension=2) == pytest.approx((math.sqrt(0.5), math.sqrt(0.5)))
+
+
+def test_embedding_normalization_rejects_zero_vectors() -> None:
+    with pytest.raises(ValueError, match="non-zero norm"):
+        normalize_embedding((0.0, 0.0), dimension=2)
 
 
 def test_embedding_hash_binds_profile_and_entry_content() -> None:

@@ -19,7 +19,7 @@ PROFILE = EmbeddingProfile(
     model="test",
     dimension=3,
     distance="l2",
-    normalization="none",
+    normalization="unit",
 )
 
 

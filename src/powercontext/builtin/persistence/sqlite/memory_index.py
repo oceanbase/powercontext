@@ -148,7 +148,8 @@ _VECTOR_SEARCH_SQL = text(
         SELECT rowid, embedding
         FROM pc_memory_entry_vec(:query_vector, :parameters)
     )
-    SELECT m.memory_artifact_id, m.head_revision, m.entry_id, m.entry_version_id, v.text
+    SELECT m.memory_artifact_id, m.head_revision, m.entry_id, m.entry_version_id, v.text,
+           vec1_l2_distance(:query_vector, c.embedding) AS distance
     FROM candidates AS c
     JOIN pc_memory_vector_entries AS m ON m.vector_id = c.rowid
     JOIN pc_memory_entry_versions AS v
@@ -295,8 +296,11 @@ class SQLiteMemoryVec1Index:
     tables: tuple[Table, ...] = SQLITE_MEMORY_VEC1_TABLES
 
     def __init__(self, extension: str | Path, profile: EmbeddingProfile) -> None:
-        if profile.dimension < 1 or profile.distance != "l2":
-            raise CapabilityNotSupportedError("vector", "Vec1 requires a positive L2 embedding profile")
+        if profile.dimension < 1 or profile.distance != "l2" or profile.normalization != "unit":
+            raise CapabilityNotSupportedError(
+                "vector",
+                "Vec1 requires a positive unit-normalized L2 embedding profile",
+            )
         self.extension = str(extension)
         self.profile = profile
         self.capabilities = MemoryCapabilities(vector=True, embedding_profile=profile, fts=False)

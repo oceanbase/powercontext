@@ -668,14 +668,22 @@ MVP 定义四种 mode：
 | `hybrid` | 分别取得 FTS 与 vector 候选，再使用 RRF 合并 |
 | `auto` | embedding model 可用、profile 匹配且所选 Memory 的向量投影完整时使用 hybrid，否则使用 FTS |
 
-全文和向量通道先各取 `max(limit * 4, 32)` 个候选，分别保持 backend 内部排序，再使用 reciprocal rank fusion：
+全文和向量通道先各取 `max(limit * 4, 32)` 个候选。融合前，应用层对两个通道分别执行内部相关性准入：
+
+- FTS 使用 Analyzer v1 的去重词项。至多两个词项的 query 要求命中一个词项；更长的 query 必须同时满足固定基线的最小
+  命中词项数和最小 query 词项覆盖率。
+- Vector 要求 embedding 真实单位归一化。Backend 内部使用 L2 distance，应用层将其转换为 cosine similarity
+  后应用固定的内部语义相似度基线。
+
+低于阈值的候选不会为了填满 `limit` 而恢复。准入后的候选分别保持 backend 内部排序，再使用 reciprocal rank fusion：
 
 ```text
 rrf_score(candidate) = Σ 1 / (60 + rank_in_channel)
 ```
 
-`rank_in_channel` 从 1 开始；单独的 `fts` 或 `vector` mode 也用单通道公式生成公开 score。缺少某通道的候选只贡献
-另一通道分数。OceanBase adapter 可以使用 4.6+ 的原生 `HYBRID_SEARCH` 优化，但对外必须保持
+`rank_in_channel` 从 1 开始；单独的 `fts` 或 `vector` mode 也用单通道公式生成公开 score。被某通道拒绝或未被该通道
+召回的候选只贡献另一通道分数，`matched_by` 也只包含实际准入的通道。OceanBase adapter 可以使用 4.6+ 的原生
+`HYBRID_SEARCH` 优化，但对外必须保持
 同样的 active-head 过滤、RRF 参数和稳定 tie-break；4.3.5 baseline 使用应用层 RRF。SQLite 使用 FTS5 与 Vec1 结果执行
 相同的应用层 RRF。相同 RRF score 按 `memory_artifact_id`、UTF-8 `entry_id`、`entry_version_id` 升序打破平局。
 

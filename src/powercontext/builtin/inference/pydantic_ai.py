@@ -8,7 +8,7 @@ from typing import Generic, TypeVar, cast
 
 from pydantic import BaseModel, Field
 
-from powercontext.builtin.artifacts.memory.canonical import validate_embedding
+from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
 from powercontext.builtin.inference.errors import (
     InferenceError,
@@ -210,7 +210,13 @@ class PydanticAIEmbeddingModel:
         vectors: list[tuple[float, ...]] = []
         for row in rows:
             try:
-                vectors.append(validate_embedding(row, dimension=self.profile.dimension))
+                vectors.append(
+                    canonical_embedding(
+                        row,
+                        dimension=self.profile.dimension,
+                        normalization=self.profile.normalization,
+                    )
+                )
             except (TypeError, ValueError) as error:
                 raise InvalidInferenceOutputError("embed", str(error)) from error
         return tuple(vectors)

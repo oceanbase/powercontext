@@ -78,6 +78,8 @@ Replace the example values with the selected provider model, a stable profile ID
 Optional settings are `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` and
 `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS`.
 
+Embedding normalization defaults to `unit`.
+
 ## Client CLI
 
 | Variable | Default | Meaning |

@@ -196,6 +196,25 @@ def test_embedding_adapter_returns_validated_vectors_and_usage() -> None:
     asyncio.run(scenario())
 
 
+def test_embedding_adapter_enforces_unit_normalization_profile() -> None:
+    async def scenario() -> None:
+        model = PydanticAIEmbeddingModel(
+            embedder=Embedder(ResultEmbeddingModel(((3.0, 4.0),))),
+            profile=EmbeddingProfile(
+                profile_id="unit-v1",
+                model="test:result-model",
+                dimension=2,
+                normalization="unit",
+            ),
+        )
+
+        result = await model.embed(("alpha",))
+
+        assert result.vectors[0] == pytest.approx((0.6, 0.8))
+
+    asyncio.run(scenario())
+
+
 def test_embedding_adapter_maps_provider_errors_and_preserves_cause() -> None:
     async def scenario() -> None:
         provider_error = ModelHTTPError(503, "result-model", {"secret": "provider response"})

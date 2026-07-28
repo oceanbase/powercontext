@@ -93,15 +93,15 @@ embedding_model = PydanticAIEmbeddingModel(
         profile_id="project-embedding-v1",
         model="provider:embedding-model",
         dimension=1536,
-        normalization="none",
+        normalization="unit",
     ),
     limits=InferenceLimits(timeout_seconds=30),
 )
 ```
 
 Pass this adapter to `open_builtin_contexts()` or `open_builtin_runtime()` with a `SQLiteConfig` that selects the Vec1
-extension. The adapter verifies output count, order, dimension, and finite numeric values before vectors reach
-persistence.
+extension. The adapter verifies output count, order, dimension, and finite numeric values, then applies the declared
+unit normalization before vectors reach persistence.
 
 An `EmbeddingProfile` is a deployment contract, not descriptive metadata. Stored projections and query embeddings
 must use the same profile. When the model, dimension, or normalization changes, rebuild Memory projections from the

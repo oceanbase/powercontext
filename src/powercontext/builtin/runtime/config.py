@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -29,7 +29,7 @@ class InferenceConfig(BaseModel):
     embedding_model: str | None = None
     embedding_profile_id: str | None = None
     embedding_dimension: int | None = Field(default=None, ge=1)
-    embedding_normalization: str = "none"
+    embedding_normalization: Literal["none", "unit"] = "unit"
     embedding_timeout_seconds: float = Field(default=30.0, gt=0)
 
     @field_validator("generation_model", "embedding_model", "embedding_profile_id")
@@ -42,12 +42,14 @@ class InferenceConfig(BaseModel):
             raise ValueError("inference identifiers must not be empty")  # noqa: TRY003
         return normalized
 
-    @field_validator("embedding_normalization")
+    @field_validator("embedding_normalization", mode="before")
     @classmethod
-    def validate_normalization(cls, value: str) -> str:
+    def validate_normalization(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
         normalized = value.strip()
-        if not normalized:
-            raise ValueError("embedding normalization must not be empty")  # noqa: TRY003
+        if normalized not in {"none", "unit"}:
+            raise ValueError("embedding normalization must be 'none' or 'unit'")  # noqa: TRY003
         return normalized
 
     @model_validator(mode="after")

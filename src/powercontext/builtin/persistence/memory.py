@@ -29,10 +29,10 @@ from powercontext.builtin.artifacts.memory import (
 )
 from powercontext.builtin.artifacts.memory.canonical import (
     analyze_text,
+    canonical_embedding,
     embedding_content_hash,
     entry_content_hash,
     memory_content_hash,
-    validate_embedding,
 )
 from powercontext.builtin.artifacts.memory.errors import (
     InvalidMemoryCitationError,
@@ -383,7 +383,11 @@ class RelationalMemoryBackend:
         embedded = iter(
             projection.model_copy(
                 update={
-                    "embedding": validate_embedding(vector, dimension=profile.dimension),
+                    "embedding": canonical_embedding(
+                        vector,
+                        dimension=profile.dimension,
+                        normalization=profile.normalization,
+                    ),
                     "embedding_content_hash": embedding_content_hash(
                         profile_id=profile.profile_id,
                         model=profile.model,

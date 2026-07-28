@@ -8,7 +8,7 @@ import unicodedata
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from itertools import pairwise
-from typing import cast
+from typing import Literal, cast
 
 import rfc8785
 from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
@@ -32,6 +32,7 @@ class _CanonicalValueError(ValueError):
             "dimension-positive": "embedding dimension must be positive",
             "vector-dimension": f"embedding must contain exactly {detail} dimensions",
             "vector-finite": "embedding values must all be finite",
+            "vector-zero": "embedding must have a non-zero norm",
             "string-empty": f"{detail} must be non-empty",
             "json-key-collision": "canonical JSON object keys collide after NFC normalization",
         }
@@ -222,6 +223,31 @@ def validate_embedding(values: Sequence[float], *, dimension: int) -> tuple[floa
     if not all(math.isfinite(value) for value in vector):
         raise _CanonicalValueError("vector-finite")
     return vector
+
+
+def normalize_embedding(values: Sequence[float], *, dimension: int) -> tuple[float, ...]:
+    """Return a finite unit vector with the deployment-fixed dimension."""
+
+    vector = validate_embedding(values, dimension=dimension)
+    scale = max(abs(value) for value in vector)
+    if scale == 0.0:
+        raise _CanonicalValueError("vector-zero")
+    scaled = tuple(value / scale for value in vector)
+    norm = math.sqrt(sum(value * value for value in scaled))
+    return tuple(value / norm for value in scaled)
+
+
+def canonical_embedding(
+    values: Sequence[float],
+    *,
+    dimension: int,
+    normalization: Literal["none", "unit"],
+) -> tuple[float, ...]:
+    """Validate an embedding and apply its declared normalization."""
+
+    if normalization == "unit":
+        return normalize_embedding(values, dimension=dimension)
+    return validate_embedding(values, dimension=dimension)
 
 
 def analyze_text(value: str) -> str:

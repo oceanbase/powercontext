@@ -69,7 +69,8 @@ SELECT
     m.head_revision,
     m.entry_id,
     m.entry_version_id,
-    v.text
+    v.text,
+    l2_distance(m.embedding, :query_vector) AS distance
 FROM pc_memory_vector_entries AS m
 JOIN pc_memory_entry_versions AS v
   ON v.scope_id = m.scope_id
@@ -119,7 +120,7 @@ class OceanBaseMemoryFTSIndex:
     ) -> MemorySearchChannels:
         if request.mode not in {"fts", "hybrid"}:
             return MemorySearchChannels()
-        score = match(MEMORY_ENTRY_HEADS_TABLE.c.searchable_text, against=request.query)
+        score = match(MEMORY_ENTRY_HEADS_TABLE.c.searchable_text, against=request.analyzed_query)
         rows = (
             await connection.execute(
                 select(
@@ -182,8 +183,11 @@ class OceanBaseMemoryVectorIndex:
     """OceanBase HNSW strategy over rebuildable active-head embeddings."""
 
     def __init__(self, profile: EmbeddingProfile) -> None:
-        if profile.dimension < 1 or profile.distance != "l2":
-            raise CapabilityNotSupportedError("vector", "OceanBase requires a positive L2 embedding profile")
+        if profile.dimension < 1 or profile.distance != "l2" or profile.normalization != "unit":
+            raise CapabilityNotSupportedError(
+                "vector",
+                "OceanBase requires a positive unit-normalized L2 embedding profile",
+            )
         self.profile = profile
         self.capabilities = MemoryCapabilities(
             fts=False,

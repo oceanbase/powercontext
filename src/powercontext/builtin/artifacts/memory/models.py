@@ -23,7 +23,7 @@ class EmbeddingProfile(BaseModel):
     model: str
     dimension: int
     distance: Literal["l2"] = "l2"
-    normalization: str = "none"
+    normalization: Literal["none", "unit"] = "unit"
 
 
 class MemoryCapabilities(BaseModel):
@@ -119,6 +119,7 @@ class MemoryChannelHit(BaseModel):
     entry_id: str
     entry_version_id: str
     text: str
+    distance: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
 
 
 class MemoryHit(BaseModel):

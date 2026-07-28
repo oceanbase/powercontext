@@ -10,6 +10,7 @@ from uuid import uuid4
 from powercontext.artifacts import Artifact, ArtifactLineage, ArtifactRef
 from powercontext.builtin.artifacts.memory.canonical import (
     analyze_text,
+    canonical_embedding,
     canonical_json,
     embedding_content_hash,
     entry_content_bytes,
@@ -18,7 +19,6 @@ from powercontext.builtin.artifacts.memory.canonical import (
     normalize_kind,
     normalize_reason,
     normalize_text,
-    validate_embedding,
     validate_identifier,
 )
 from powercontext.builtin.artifacts.memory.errors import (
@@ -56,7 +56,11 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemorySearchRequest,
     MemoryWritePlan,
 )
-from powercontext.builtin.artifacts.memory.ranking import fuse_rankings
+from powercontext.builtin.artifacts.memory.ranking import (
+    admit_fts_candidates,
+    admit_vector_candidates,
+    fuse_rankings,
+)
 from powercontext.builtin.inference import (
     EmbeddingModel,
     EmbeddingVector,
@@ -382,6 +386,11 @@ class MemoryService:
             profile = capabilities.embedding_profile
             if profile is None:
                 raise CapabilityNotSupportedError(selected_mode)
+            if profile.distance != "l2" or profile.normalization != "unit":
+                raise CapabilityNotSupportedError(
+                    selected_mode,
+                    "cosine admission requires a unit-normalized L2 embedding profile",
+                )
             try:
                 query_vector = (await self._embed_texts((normalized_query,), profile))[0]
             except (InferenceUnavailableError, InferenceTimeoutError) as error:
@@ -403,9 +412,11 @@ class MemoryService:
             embedding_profile=profile,
         )
         channels = await self._backend.search(request)
+        admitted_fts = admit_fts_candidates(normalized_query, channels.fts)
+        admitted_vector = admit_vector_candidates(channels.vector)
         hits = fuse_rankings(
-            fts=channels.fts if selected_mode in {"fts", "hybrid"} else (),
-            vector=channels.vector if selected_mode in {"vector", "hybrid"} else (),
+            fts=admitted_fts if selected_mode in {"fts", "hybrid"} else (),
+            vector=admitted_vector if selected_mode in {"vector", "hybrid"} else (),
             limit=limit,
         )
         return MemorySearchResult(mode=selected_mode, hits=hits)
@@ -791,7 +802,14 @@ class MemoryService:
         vectors = result.vectors
         if len(vectors) != len(texts):
             raise InvalidEmbeddingError("count")
-        return tuple(validate_embedding(vector, dimension=profile.dimension) for vector in vectors)
+        return tuple(
+            canonical_embedding(
+                vector,
+                dimension=profile.dimension,
+                normalization=profile.normalization,
+            )
+            for vector in vectors
+        )
 
     @overload
     async def _canonical_base(self, memory: None) -> None: ...

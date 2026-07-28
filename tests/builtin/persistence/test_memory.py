@@ -108,6 +108,13 @@ def test_sqlite_memory_backend_commits_authoritative_history_and_fts() -> None:
             assert tuple(hit.text for hit in result.hits) == ("Use one atomic composition boundary.",)
             assert result.hits[0].memory_ref == second.as_ref()
 
+            unrelated = await context.artifacts.memory.search(
+                "Should we use blue icons in the mobile navigation bar?",
+                memories=(second,),
+                mode="fts",
+            )
+            assert unrelated.hits == ()
+
     asyncio.run(scenario())
 
 

@@ -42,7 +42,7 @@ EMBEDDING_PROFILE = EmbeddingProfile(
     model="database-e2e",
     dimension=3,
     distance="l2",
-    normalization="none",
+    normalization="unit",
 )
 
 
@@ -123,6 +123,9 @@ def test_server_databases_share_source_to_memory_search_behavior(
             )
             flushed = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))
             found = await client.search_memory(SearchMemoryRequest(scope_id=scope_id, query="OpenAPI authoritative"))
+            unrelated = await client.search_memory(
+                SearchMemoryRequest(scope_id=scope_id, query="Should we keep blue icons in mobile navigation?")
+            )
             entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
 
         assert readiness.checks == {"runtime": "ready"}
@@ -134,6 +137,7 @@ def test_server_databases_share_source_to_memory_search_behavior(
         assert flushed.memory is not None
         assert found.mode == "fts"
         assert [hit.text for hit in found.hits] == ["Keep the OpenAPI contract authoritative."]
+        assert unrelated.hits == []
         assert entries.memory == flushed.memory
         assert entries.entries[0].source_refs[0].source_id == "turn-1"
 
@@ -182,6 +186,13 @@ def test_server_databases_share_vector_and_hybrid_search_behavior(
                     scope_id=scope_id,
                     source_id="alpha-source",
                     content="Alpha semantic record.",
+                )
+            )
+            await client.capture_content_source(
+                CaptureContentSourceRequest(
+                    scope_id=scope_id,
+                    source_id="beta-source",
+                    content="Beta semantic record.",
                 )
             )
             flushed = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))

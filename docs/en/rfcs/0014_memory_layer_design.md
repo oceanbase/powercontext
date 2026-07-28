@@ -761,15 +761,24 @@ The MVP defines four modes:
 | `hybrid` | Retrieve FTS and vector candidates separately, then combine them with RRF |
 | `auto` | Use hybrid when the embedding model is available, its profile matches, and all selected Memory Artifacts have complete vector projections; otherwise use FTS |
 
-The full-text and vector channels each retrieve `max(limit * 4, 32)` candidates first, preserving the backend's
-internal order within each channel, and then apply reciprocal rank fusion:
+The full-text and vector channels each retrieve `max(limit * 4, 32)` candidates first. Before fusion, the application
+applies internal relevance admission independently to each channel:
+
+- FTS uses distinct Analyzer v1 terms. Queries with at most two terms require one match. Longer queries require both
+  the fixed baseline minimum matched-term count and minimum query-term coverage.
+- Vector search requires unit-normalized embeddings. Backends use L2 distance, and the application converts it to
+  cosine similarity before applying a fixed internal semantic-similarity baseline.
+
+Candidates below either threshold are not restored merely to fill `limit`. The admitted candidates preserve the
+backend's internal order within each channel, and then use reciprocal rank fusion:
 
 ```text
 rrf_score(candidate) = Σ 1 / (60 + rank_in_channel)
 ```
 
 `rank_in_channel` starts at 1. Single-channel `fts` and `vector` modes use the same one-channel formula to produce their
-public score. A candidate absent from one channel receives a contribution only from the other. The OceanBase adapter
+public score. A candidate rejected by or absent from one channel receives a contribution only from the other, and
+`matched_by` contains only admitting channels. The OceanBase adapter
 may use native `HYBRID_SEARCH` in version 4.6+ as an optimization, but it must preserve the same active-head filtering,
 RRF parameters, and stable tie-breaks externally. The 4.3.5 baseline performs RRF in the application. SQLite performs
 the same application-level RRF over FTS5 and Vec1 results. Equal RRF scores are broken by ascending
