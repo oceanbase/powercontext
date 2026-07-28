@@ -210,3 +210,17 @@ def test_embedding_adapter_maps_provider_errors_and_preserves_cause() -> None:
         assert "secret" not in str(error.value)
 
     asyncio.run(scenario())
+
+
+def test_embedding_adapter_maps_empty_provider_data_to_unavailable() -> None:
+    async def scenario() -> None:
+        provider_error = ValueError("No embedding data received")
+        adapter = PydanticAIEmbeddingModel(
+            embedder=Embedder(ResultEmbeddingModel((), error=provider_error)),
+            profile=TEST_PROFILE,
+        )
+
+        with pytest.raises(InferenceUnavailableError):
+            await adapter.embed(("bounded text",))
+
+    asyncio.run(scenario())

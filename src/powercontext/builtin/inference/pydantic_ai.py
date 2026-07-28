@@ -171,9 +171,10 @@ class PydanticAIEmbeddingModel:
                 self._embedder.embed_documents(texts),
                 timeout=self._limits.timeout_seconds,
             )
-            vectors = self._validated_vectors(texts, result.inputs, result.input_type, result.embeddings)
         except asyncio.CancelledError:
             raise
+        except ValueError as error:
+            raise InferenceUnavailableError("embed") from error
         except Exception as error:
             mapped = _map_error(error, operation="embed", timeout_seconds=self._limits.timeout_seconds)
             if mapped is None:
@@ -182,6 +183,7 @@ class PydanticAIEmbeddingModel:
                 raise
             raise mapped from error
 
+        vectors = self._validated_vectors(texts, result.inputs, result.input_type, result.embeddings)
         usage = InferenceUsage(
             requests=1,
             input_tokens=result.usage.input_tokens,
