@@ -56,25 +56,26 @@ cd <directory_in_which_repo_should_be_created>
 git clone git@github.com:YOUR_NAME/powercontext.git
 ```
 
-3. Now we need to install the environment. Navigate into the directory
+3. Navigate into the repository:
 
 ```bash
 cd powercontext
 ```
 
-Then, install and activate the environment with:
+Then install the development environment and Git hooks:
 
 ```bash
-uv sync
+make install
 ```
 
-4. Install prek to run linters/formatters at commit time:
+Recommended Codex skills are optional and are not required to build or test the project. If you have `npx`
+available, install the skills pinned in `skills-lock.json` before starting a new Codex session:
 
 ```bash
-uv run prek install
+make skills-install
 ```
 
-5. Create a branch for local development:
+4. Create a branch for local development:
 
 ```bash
 git checkout -b name-of-your-bugfix-or-feature
@@ -82,31 +83,20 @@ git checkout -b name-of-your-bugfix-or-feature
 
 Now you can make your changes locally.
 
-6. Don't forget to add test cases for your added functionality to the `tests` directory.
-
-7. When you're done making changes, check that your changes pass the formatting tests.
+5. Run the checks that match the change:
 
 ```bash
 make check
+make unit-test
 ```
 
-Now, validate that all unit tests are passing:
+Use `make e2e-test` for cross-component behavior, `make contract-test` for OpenAPI changes, and
+`make docs-test` for documentation changes. `make test` runs the complete pytest suite.
 
-```bash
-make test
-```
+Before raising a pull request you should also run tox when a change may affect supported Python versions.
+This requires you to have the relevant Python versions installed. The same version matrix runs in CI.
 
-9. Before raising a pull request you should also run tox.
-   This will run the tests across different versions of Python:
-
-```bash
-tox
-```
-
-This requires you to have multiple versions of python installed.
-This step is also triggered in the CI/CD pipeline, so you could also choose to skip this step locally.
-
-10. Commit your changes and push your branch to GitHub:
+6. Commit your changes and push your branch to GitHub:
 
 ```bash
 git add .
@@ -114,13 +104,14 @@ git commit -m "Your detailed description of your changes."
 git push origin name-of-your-bugfix-or-feature
 ```
 
-11. Submit a pull request through the GitHub website.
+7. Submit a pull request through the GitHub website.
 
 # Pull Request Guidelines
 
 Before you submit a pull request, check that it meets these guidelines:
 
-1. The pull request should include tests.
+1. Add behavior tests for new externally observable behavior. Add a regression test when a defect is likely to
+   recur. Changes that provide neither do not need tests solely for coverage.
 
 2. If the pull request adds functionality, the docs should be updated.
    Put your new functionality into a function with a docstring, and add the feature to the list in `README.md`.
