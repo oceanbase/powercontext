@@ -13,6 +13,19 @@
 
 PowerMem 融合向量、全文与图检索，由 LLM 驱动记忆抽取，并叠加艾宾浩斯型时间衰减；原生支持**经验 (Experience) + 技能 (Skill) 双层蒸馏**的自进化记忆、多智能体隔离、用户画像，以及文本/图像/音频等多模态信号。
 
+## 为什么选择 PowerMem
+
+AI 智能体需要的不只是聊天历史。上下文窗口有限，朴素地“全部保存”的记忆会很快变得嘈杂、昂贵且难以检索。PowerMem 将对话、操作与反馈转化为结构化长期记忆，可被搜索、更新、衰减，并在智能体之间共享。
+
+PowerMem 的不同之处：
+
+- **智能记忆生命周期** — LLM 驱动抽取、更新、合并与艾宾浩斯型衰减，让记忆保持有用，而不是变成静态笔记堆。
+- **自进化双层记忆** — Experience + Skill 蒸馏让智能体从交互中学习可复用工作流，而不只是回忆事实。见 [Experience + Skill 蒸馏](docs/examples/scenario_6_sub_stores.md)。
+- **开箱即用的混合检索** — 向量、全文、图与近期性信号在同一记忆层中协同工作，无需自定义胶水代码。
+- **生产级集成界面** — 同一后端支持 Python SDK、HTTP Server、MCP、CLI 与 AI 客户端插件。见 [架构概览](docs/architecture/overview.md)。
+
+当你在构建长周期智能体、Copilot 或多智能体系统，并需要跨会话记住用户、项目、决策、偏好和习得工作流时，PowerMem 会很适合。
+
 ---
 
 ## 性能基准
@@ -37,7 +50,7 @@ PowerMem 融合向量、全文与图检索，由 LLM 驱动记忆抽取，并叠
 
 ---
 
-## 集成 
+## 集成 — 选客户端，复制一行即可接入
 
 PowerMem 为最常见的 AI 客户端提供官方插件与安装指南。它们均指向同一后端（HTTP 服务、MCP 服务或本地 `pmem` CLI）——无需为每个客户端重写配置 schema。所有智能体共享同一记忆服务。
 
@@ -68,6 +81,7 @@ PowerMem 为最常见的 AI 客户端提供官方插件与安装指南。它们�
 |-----------------|---------|
 | Python SDK | `pip install powermem`，见 [快速开始](#quick-start-python-sdk) |
 | LangChain / LangGraph | `pip install powermem`，见 [LangChain 指南](docs/integrations/langchain.md) |
+| AgentScope | 通过 AgentScope 的 MCP 客户端连接 `powermem-mcp`，见 [AgentScope 指南](docs/integrations/agentscope.md) |
 | Go 应用 | [SDK](#sdks) |
 | Java 应用 | [SDK](#sdks) |
 | TypeScript 应用 | [SDK](#sdks) |
@@ -190,6 +204,12 @@ pip install powermem langchain langchain-openai
 
 完整框架指南：[LangChain 与 LangGraph 集成](docs/integrations/langchain.md)。
 
+### AgentScope
+
+PowerMem 可通过 MCP 与 AgentScope 配合使用。启动 `powermem-mcp`，再使用 AgentScope 的 MCP 客户端连接它，这样 AgentScope 工作流即可使用 `add_memory`、`search_memories` 和其他记忆工具。
+
+完整框架指南：[AgentScope 集成](docs/integrations/agentscope.md)。
+
 <a id="sdks"></a>
 
 ### SDK
@@ -229,6 +249,18 @@ pip install "powermem[server,seekdb]"
 
 # 常用本地完整安装
 pip install "powermem[cli,server,seekdb]"
+```
+
+对于 Cursor、Codex、Claude Desktop、Cline 或 Goose 等零安装 MCP 客户端，可使用 wrapper 包：
+
+```bash
+uvx powermem-mcp
+```
+
+`powermem-mcp` wrapper 与主 `powermem` 发布版本锁定一致，并会安装同版本的 `powermem[server,seekdb]`。如果 `uv` 缓存了较旧的工具环境，请显式刷新：
+
+```bash
+uvx --refresh --upgrade powermem-mcp
 ```
 
 ### SDK 用法

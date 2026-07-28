@@ -13,6 +13,19 @@
 
 PowerMem はベクトル・全文・グラフ検索に LLM 駆動のメモリ抽出とエビングハウス型の時間減衰を組み合わせます。**経験 (Experience) + スキル (Skill) の二層蒸留**による自己進化型メモリ、マルチエージェント分離、ユーザープロフィール、そしてテキスト/画像/音声のマルチモーダル信号を標準搭載しています。
 
+## PowerMem を選ぶ理由
+
+AI エージェントに必要なのはチャット履歴だけではありません。コンテキストウィンドウには限りがあり、単純に「すべて保存する」メモリはすぐにノイズが多く、高コストで、検索しにくいものになります。PowerMem は会話、アクション、フィードバックを構造化された長期メモリへ変換し、検索、更新、減衰、エージェント間共有を可能にします。
+
+PowerMem の違い:
+
+- **インテリジェントなメモリライフサイクル** — LLM 駆動の抽出、更新、マージ、エビングハウス型減衰により、静的なメモの山ではなく、有用なメモリを保ちます。
+- **自己進化型の二層メモリ** — Experience + Skill 蒸留により、エージェントは事実を思い出すだけでなく、対話から再利用可能なワークフローを学習できます。[Experience + Skill 蒸留](docs/examples/scenario_6_sub_stores.md) を参照。
+- **標準搭載のハイブリッド検索** — ベクトル、全文、グラフ、最新性シグナルが、カスタムの接着コードなしで同じメモリ層内で連携します。
+- **本番対応の統合インターフェース** — 同じバックエンドが Python SDK、HTTP サーバー、MCP、CLI、AI クライアントプラグインをサポートします。[アーキテクチャ概要](docs/architecture/overview.md) を参照。
+
+長期間動作するエージェント、コパイロット、またはマルチエージェントシステムで、セッションをまたいでユーザー、プロジェクト、意思決定、好み、学習済みワークフローを記憶する必要がある場合に PowerMem が適しています。
+
 ---
 
 ## ベンチマーク
@@ -68,6 +81,7 @@ PowerMem は主要な AI クライアント向けに公式プラグインとセ�
 |-----------------|---------|
 | Python SDK | `pip install powermem`、[クイックスタート](#quick-start-python-sdk) を参照 |
 | LangChain / LangGraph | `pip install powermem`、[LangChain ガイド](docs/integrations/langchain.md) を参照 |
+| AgentScope | AgentScope の MCP クライアントで `powermem-mcp` に接続します。[AgentScope ガイド](docs/integrations/agentscope.md) を参照 |
 | Go アプリ | [SDK](#sdks) |
 | Java アプリ | [SDK](#sdks) |
 | TypeScript アプリ | [SDK](#sdks) |
@@ -190,6 +204,12 @@ pip install powermem langchain langchain-openai
 
 フレームワーク全体のガイド: [LangChain と LangGraph 連携](docs/integrations/langchain.md)。
 
+### AgentScope
+
+PowerMem は MCP 経由で AgentScope と連携できます。`powermem-mcp` を起動し、AgentScope の MCP クライアントで接続すると、AgentScope ワークフローから `add_memory`、`search_memories`、その他のメモリツールを利用できます。
+
+フレームワーク全体のガイド: [AgentScope 連携](docs/integrations/agentscope.md)。
+
 <a id="sdks"></a>
 
 ### SDK
@@ -229,6 +249,18 @@ pip install "powermem[server,seekdb]"
 
 # 一般的なローカル全部入りインストール
 pip install "powermem[cli,server,seekdb]"
+```
+
+Cursor、Codex、Claude Desktop、Cline、Goose などのゼロインストール MCP クライアントでは、wrapper パッケージを使用します:
+
+```bash
+uvx powermem-mcp
+```
+
+`powermem-mcp` wrapper はメインの `powermem` リリースとバージョン固定されており、同じバージョンの `powermem[server,seekdb]` をインストールします。`uv` が古いツール環境をキャッシュしている場合は、明示的に更新してください:
+
+```bash
+uvx --refresh --upgrade powermem-mcp
 ```
 
 ### SDK サンプル
