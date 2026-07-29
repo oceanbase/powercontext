@@ -86,6 +86,30 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/context/prepare": {
+            "post": {
+                "tags": ["context"],
+                "summary": "Prepare bounded context for an Agent turn",
+                "description": "Prepare final, ephemeral context from "
+                "Runtime-owned sources without "
+                "persisting or injecting it.",
+                "operationId": "prepare_context",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrepareContextRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Final context ready for direct injection, or a normal empty result.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedContext"}}},
+                    },
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
         "/v1/memory/flush": {
             "post": {
                 "tags": ["memory"],
@@ -321,10 +345,20 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "description": "Whether pending Sources can be extracted into Memory.",
                     },
                     "search_modes": {"items": {"$ref": "#/components/schemas/MemorySearchMode"}, "type": "array"},
+                    "context_versions": {
+                        "items": {"$ref": "#/components/schemas/PreparedContextSchema"},
+                        "type": "array",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["source_types", "artifact_families", "memory_extraction", "search_modes"],
+                "required": [
+                    "source_types",
+                    "artifact_families",
+                    "memory_extraction",
+                    "search_modes",
+                    "context_versions",
+                ],
             },
             "CaptureContentSourceRequest": {
                 "properties": {
@@ -346,6 +380,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["status", "source", "position"],
+            },
+            "PreparedContext": {
+                "properties": {
+                    "schema": {"$ref": "#/components/schemas/PreparedContextSchema"},
+                    "status": {"$ref": "#/components/schemas/PreparedContextStatus"},
+                    "content": {"type": "string", "nullable": True},
+                    "content_bytes": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["schema", "status", "content", "content_bytes"],
             },
             "EntryChange": {
                 "properties": {
@@ -527,6 +572,16 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["memory_ref", "changes"],
             },
+            "PrepareContextRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "query": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "max_bytes": {"type": "integer", "maximum": 32768.0, "minimum": 512.0, "default": 8000},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "query"],
+            },
             "ReadinessResponse": {
                 "properties": {
                     "status": {"$ref": "#/components/schemas/ReadinessStatus"},
@@ -621,6 +676,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["name", "source_id"],
             },
             "CaptureStatus": {"type": "string", "enum": ["accepted"]},
+            "PreparedContextSchema": {"type": "string", "enum": ["powercontext.prepared-context.v1"]},
+            "PreparedContextStatus": {"type": "string", "enum": ["ready", "empty"]},
             "EntryChangeOperation": {"type": "string", "enum": ["add", "revise", "deactivate", "reactivate"]},
             "FlushStatus": {"type": "string", "enum": ["idle", "processed"]},
             "MemoryEntryState": {"type": "string", "enum": ["active", "inactive"]},

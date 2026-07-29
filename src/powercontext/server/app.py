@@ -39,6 +39,12 @@ from powercontext.builtin.runtime import (
     GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
 )
 from powercontext.builtin.runtime import (
+    PrepareContextRequest as RuntimePrepareContextRequest,
+)
+from powercontext.builtin.runtime import (
+    PreparedContext as RuntimePreparedContext,
+)
+from powercontext.builtin.runtime import (
     RememberMemoryRequest as RuntimeRememberMemoryRequest,
 )
 from powercontext.builtin.runtime import (
@@ -72,6 +78,8 @@ from powercontext.http import (
     ListMemoryEntriesResponse,
     MemoryEntry,
     MemoryMutationResponse,
+    PrepareContextRequest,
+    PreparedContext,
     ReadinessResponse,
     ReadinessStatus,
     RememberMemoryRequest,
@@ -93,6 +101,7 @@ from powercontext.http._generated.operations import (
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     OPENAPI_VERSION,
+    PREPARE_CONTEXT,
     REMEMBER_MEMORY,
     RETIRE_MEMORY_ENTRY,
     REVISE_MEMORY_ENTRY,
@@ -120,6 +129,14 @@ class _SourceApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedSourceApplication: ...
 
 
+class _ScopedContextApplication(Protocol):
+    async def prepare(self, request: RuntimePrepareContextRequest, /) -> RuntimePreparedContext: ...
+
+
+class _ContextApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedContextApplication: ...
+
+
 class _ScopedMemoryApplication(Protocol):
     async def remember(self, request: RuntimeRememberMemoryRequest, /) -> MemoryMutationResult: ...
 
@@ -144,6 +161,7 @@ class _MemoryApplication(Protocol):
 
 class ServerApplication(Protocol):
     sources: _SourceApplication
+    context: _ContextApplication
     memory: _MemoryApplication
 
 
@@ -173,6 +191,7 @@ def create_app(  # noqa: C901
         artifact_families=[],
         memory_extraction=False,
         search_modes=[],
+        context_versions=[],
     )
 
     @app.middleware("http")
@@ -254,6 +273,11 @@ def create_app(  # noqa: C901
         result = await runtime.memory.for_scope(request.scope_id).search(mapping.search_request(request))
         return mapping.search_response(result)
 
+    async def prepare_context(request: PrepareContextRequest) -> PreparedContext:
+        runtime = _require_application(app.state.application)
+        result = await runtime.context.for_scope(request.scope_id).prepare(mapping.prepare_context_request(request))
+        return mapping.prepared_context_response(result)
+
     async def list_memory_entries(request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
         runtime = _require_application(app.state.application)
         result = await runtime.memory.for_scope(request.scope_id).list(
@@ -288,6 +312,7 @@ def create_app(  # noqa: C901
     _add_route(app, FLUSH_MEMORY, flush_memory)
     _add_route(app, REMEMBER_MEMORY, remember_memory)
     _add_route(app, SEARCH_MEMORY, search_memory)
+    _add_route(app, PREPARE_CONTEXT, prepare_context)
     _add_route(app, LIST_MEMORY_ENTRIES, list_memory_entries)
     _add_route(app, GET_MEMORY_ENTRY, get_memory_entry)
     _add_route(app, REVISE_MEMORY_ENTRY, revise_memory_entry)

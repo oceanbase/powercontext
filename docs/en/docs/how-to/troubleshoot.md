@@ -97,3 +97,14 @@ powercontext client capabilities
 
 This is expected. The prompt hook fails open so a Memory outage cannot block ordinary Codex work. Restart the Server
 to restore recall and capture; the existing database is reopened automatically.
+
+## Codex does not inject recalled context
+
+Inspect the Hook's single-line JSON event on stderr. `empty` means the Runtime prepared no context for this turn.
+`version_mismatch` means the installed plugin expects
+`POST /v1/context/prepare` but the Server does not provide it—reinstall the plugin and tool from the same ref, then
+restart the Server. `server_unavailable` and `invalid_response` distinguish transport and contract failures. These
+events intentionally omit the query and prepared content.
+
+Run `powercontext client capabilities` and confirm that `powercontext.prepared-context.v1` appears under Context
+versions.

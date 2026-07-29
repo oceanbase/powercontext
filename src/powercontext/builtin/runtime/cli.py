@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
-from powercontext.builtin.runtime.models import MemorySearchMode
+from powercontext.builtin.runtime.models import MemorySearchMode, PreparedContextSchema
 from powercontext.builtin.runtime.settings import BuiltinSettings
 
 HELP_OPTION_NAMES = ("-h", "--help")
@@ -27,6 +27,7 @@ class _BuiltinCapabilities(BaseModel):
     database: str
     memory_extraction: bool
     memory_search_modes: tuple[MemorySearchMode, ...]
+    context_versions: tuple[PreparedContextSchema, ...]
 
 
 @app.callback()
@@ -58,6 +59,7 @@ async def _show_capabilities(settings: BuiltinSettings, *, json_output: bool) ->
         database=settings.database.kind,
         memory_extraction=runtime_capabilities.memory_extraction,
         memory_search_modes=runtime_capabilities.memory_search_modes,
+        context_versions=runtime_capabilities.context_versions,
     )
     if json_output:
         typer.echo(capabilities.model_dump_json())
@@ -66,3 +68,5 @@ async def _show_capabilities(settings: BuiltinSettings, *, json_output: bool) ->
     typer.echo(f"Memory extraction: {'enabled' if capabilities.memory_extraction else 'disabled'}")
     modes = ", ".join(capabilities.memory_search_modes) if capabilities.memory_search_modes else "none"
     typer.echo(f"Search modes: {modes}")
+    versions = ", ".join(capabilities.context_versions) if capabilities.context_versions else "none"
+    typer.echo(f"Context versions: {versions}")

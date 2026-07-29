@@ -20,7 +20,12 @@ from pydantic_ai.models.test import TestModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
 from powercontext.client import PowerContextClient
-from powercontext.http import ListMemoryEntriesRequest, RetireMemoryEntryRequest, SearchMemoryRequest
+from powercontext.http import (
+    ListMemoryEntriesRequest,
+    PrepareContextRequest,
+    RetireMemoryEntryRequest,
+    SearchMemoryRequest,
+)
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
@@ -98,7 +103,9 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
             turn_id="turn-2",
         )
         context = json.loads(recalled.stdout)["hookSpecificOutput"]["additionalContext"]
-        assert "[memory] Use PowerContext as the composition root." in context
+        envelope = json.loads(context.splitlines()[-2])
+        assert envelope["items"][0]["content"] == "Use PowerContext as the composition root."
+        assert envelope["items"][0]["citation"]["memory_ref"]["family"] == "memory"
 
         async def verify_public_surfaces() -> None:
             async with PowerContextClient(base_url) as sdk:
@@ -108,11 +115,22 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
                         query="PowerContext composition root",
                     )
                 )
+                prepared = await sdk.prepare_context(
+                    PrepareContextRequest(
+                        scope_id=SCOPE_ID,
+                        query="PowerContext composition root",
+                    )
+                )
                 entries = await sdk.list_memory_entries(
                     ListMemoryEntriesRequest(scope_id=SCOPE_ID),
                 )
                 assert found.hits
                 assert {hit.text for hit in found.hits} == {"Use PowerContext as the composition root."}
+                assert prepared.content is not None
+                prepared_envelope = json.loads(prepared.content.splitlines()[-2])
+                assert "Use PowerContext as the composition root." in {
+                    item["content"] for item in prepared_envelope["items"]
+                }
                 assert entries.entries
                 assert entries.entries[0].source_refs[0].name == "content"
 

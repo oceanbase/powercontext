@@ -5,8 +5,8 @@ does not embed storage or start the server.
 
 The integration uses each public surface for the job it fits:
 
-- the `UserPromptSubmit` hook first calls `POST /v1/memory/search`, then
-  captures the current prompt with `POST /v1/sources/content`;
+- the `UserPromptSubmit` hook first calls `POST /v1/context/prepare`, then
+  independently captures the current prompt with `POST /v1/sources/content`;
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives Codex the curated
   memory tools.
 
@@ -31,8 +31,10 @@ installing the plugin when the loopback default is not appropriate. MCP URLs
 cannot contain credentials, query strings, or fragments; plain HTTP is accepted
 only for loopback hosts.
 
-The hook rejects redirects, caps response bodies at 1 MiB, and applies both
-per-request and shared wall-clock deadlines. Authentication is not exposed
+The hook strictly validates `powercontext.prepared-context.v1`, rejects redirects,
+caps response bodies at 1 MiB, and applies both per-request and shared wall-clock
+deadlines. The Runtime owns final selection, rendering, exact citations, and the
+8000-byte output budget; the hook injects validated content unchanged. Authentication is not exposed
 until the Server and both transport surfaces enforce one complete policy.
 
 Prompt capture is enabled by default. Set `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false`
@@ -49,6 +51,8 @@ flush performs at most four calls. These can be tuned with
 `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS`, while the outer Codex hook remains capped
 at ten seconds.
 
-Memory returned by the hook is labelled as untrusted history. Recall, capture,
+Context returned by the hook is labelled as untrusted history. Recall, capture,
 and flush fail independently; an unavailable Server never blocks normal Codex
-work. The hook never writes raw prompt diagnostics to disk.
+work. For an empty result, version mismatch, unavailable Server, or invalid
+response, the hook writes one diagnostic JSON line to stderr. Diagnostics contain
+status and byte counts only—never the query, scope, content, citation, or response body.

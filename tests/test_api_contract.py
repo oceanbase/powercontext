@@ -10,6 +10,8 @@ from powercontext.http import (
     CaptureContentSourceResponse,
     GetMemoryEntryRequest,
     ListMemoryEntriesRequest,
+    PrepareContextRequest,
+    PreparedContext,
     SearchMemoryRequest,
 )
 from powercontext.http._generated.operations import (
@@ -19,6 +21,7 @@ from powercontext.http._generated.operations import (
     GET_READINESS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    PREPARE_CONTEXT,
     REMEMBER_MEMORY,
     RETIRE_MEMORY_ENTRY,
     REVISE_MEMORY_ENTRY,
@@ -40,6 +43,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
         "artifact_families",
         "memory_extraction",
         "search_modes",
+        "context_versions",
     }
     assert "CapabilityLimit" not in schemas
 
@@ -69,6 +73,19 @@ def test_memory_operations_use_family_prefixed_paths_and_typed_requests() -> Non
     assert all(operation.path.startswith("/v1/memory/") for operation in memory_operations)
     assert all(operation.request_type is not None for operation in memory_operations)
     assert SEARCH_MEMORY.request_type is SearchMemoryRequest
+
+
+def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_tools() -> None:
+    assert PREPARE_CONTEXT.path == "/v1/context/prepare"
+    assert PREPARE_CONTEXT.request_type is PrepareContextRequest
+    assert PREPARE_CONTEXT.response_type is PreparedContext
+    assert PREPARE_CONTEXT.success_status == 200
+
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schemas = contract["components"]["schemas"]
+    assert set(schemas["PrepareContextRequest"]["properties"]) == {"scope_id", "query", "max_bytes"}
+    assert set(schemas["PreparedContext"]["properties"]) == {"schema", "status", "content", "content_bytes"}
+    assert not {"memory", "mode", "selection"} & set(schemas["PreparedContext"]["properties"])
 
 
 def test_source_reference_keeps_name_as_the_source_type() -> None:

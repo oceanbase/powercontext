@@ -68,6 +68,7 @@ def test_builtin_cli_reports_the_configured_instance_capabilities(
         "database": "sqlite",
         "memory_extraction": False,
         "memory_search_modes": ["auto", "fts"],
+        "context_versions": ["powercontext.prepared-context.v1"],
     }
 
 

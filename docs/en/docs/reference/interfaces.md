@@ -42,7 +42,7 @@ Use the Client SDK when the Server owns persistence:
 ```python
 import asyncio
 
-from powercontext.http import RememberMemoryRequest, SearchMemoryRequest
+from powercontext.http import PrepareContextRequest, RememberMemoryRequest, SearchMemoryRequest
 from powercontext.client import PowerContextClient
 
 
@@ -62,6 +62,10 @@ async def main() -> None:
             )
         )
         print([hit.text for hit in result.hits])
+        prepared = await client.prepare_context(
+            PrepareContextRequest(scope_id="project:example", query="public API")
+        )
+        print(prepared.content)
 
 
 asyncio.run(main())
@@ -81,3 +85,5 @@ want the supplied SQLite or OceanBase-backed implementation in the same process.
 The Server publishes its OpenAPI document at `/openapi.json`, readiness at `/health/ready`, capabilities at
 `/v1/capabilities`, and Streamable HTTP MCP at `/mcp` by default. HTTP is the complete application contract. MCP is a
 curated agent-facing projection of Memory operations.
+`POST /v1/context/prepare` and the matching Python Client method expose final ephemeral `PreparedContext` over HTTP;
+the Runtime owns selection and total output budgeting, and the operation is intentionally not projected as an MCP tool.

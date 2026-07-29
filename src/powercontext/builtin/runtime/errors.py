@@ -14,4 +14,12 @@ class InvalidRuntimeRequestError(PowerContextError, ValueError):
         super().__init__(messages.get(code, f"invalid Runtime request: {code}"))
 
 
-__all__ = ["InvalidRuntimeRequestError"]
+class PreparedContextInvariantError(PowerContextError, RuntimeError):
+    """Raised when an internal source violates prepared-context construction."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(f"Prepared Context invariant failed: {code}")
+
+
+__all__ = ["InvalidRuntimeRequestError", "PreparedContextInvariantError"]

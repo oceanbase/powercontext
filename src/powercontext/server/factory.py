@@ -13,7 +13,7 @@ from powercontext.builtin.runtime import BuiltinRuntime
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
-from powercontext.http import Capabilities, MemorySearchMode
+from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSchema
 from powercontext.server.app import create_app
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.settings import ServerSettings
@@ -52,6 +52,7 @@ def create_server_app(
                     artifact_families=[],
                     memory_extraction=False,
                     search_modes=[],
+                    context_versions=[],
                 )
 
     app = create_app(lifespan=lifespan)
@@ -67,6 +68,7 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
         artifact_families=["memory"],
         memory_extraction=capabilities.memory_extraction,
         search_modes=[MemorySearchMode(mode) for mode in capabilities.memory_search_modes],
+        context_versions=[PreparedContextSchema(version) for version in capabilities.context_versions],
     )
 
 

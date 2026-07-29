@@ -88,6 +88,34 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/context/prepare:
+    post:
+      tags: [context]
+      summary: Prepare bounded context for an Agent turn
+      description: Prepare final, ephemeral context from Runtime-owned sources without persisting or injecting it.
+      operationId: prepare_context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepareContextRequest"
+      responses:
+        "200":
+          description: Final context ready for direct injection, or a normal empty result.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreparedContext"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/memory/flush:
     post:
       tags: [memory]
@@ -404,7 +432,7 @@ components:
     Capabilities:
       type: object
       additionalProperties: false
-      required: [source_types, artifact_families, memory_extraction, search_modes]
+      required: [source_types, artifact_families, memory_extraction, search_modes, context_versions]
       properties:
         source_types:
           type: array
@@ -421,6 +449,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MemorySearchMode"
+        context_versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PreparedContextSchema"
     CaptureContentSourceRequest:
       type: object
       additionalProperties: false
@@ -455,6 +487,21 @@ components:
         position:
           type: integer
           minimum: 1
+    PreparedContext:
+      type: object
+      additionalProperties: false
+      required: [schema, status, content, content_bytes]
+      properties:
+        schema:
+          $ref: "#/components/schemas/PreparedContextSchema"
+        status:
+          $ref: "#/components/schemas/PreparedContextStatus"
+        content:
+          type: string
+          nullable: true
+        content_bytes:
+          type: integer
+          minimum: 0
     EntryChange:
       type: object
       additionalProperties: false
@@ -677,6 +724,26 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/EntryChange"
+    PrepareContextRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, query]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        query:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        max_bytes:
+          type: integer
+          minimum: 512
+          maximum: 32768
+          default: 8000
     ReadinessResponse:
       type: object
       additionalProperties: false
@@ -824,6 +891,12 @@ components:
     CaptureStatus:
       type: string
       enum: [accepted]
+    PreparedContextSchema:
+      type: string
+      enum: [powercontext.prepared-context.v1]
+    PreparedContextStatus:
+      type: string
+      enum: [ready, empty]
     EntryChangeOperation:
       type: string
       enum: [add, revise, deactivate, reactivate]

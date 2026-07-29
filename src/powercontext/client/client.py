@@ -24,6 +24,8 @@ from powercontext.http import (
     ListMemoryEntriesResponse,
     MemoryEntry,
     MemoryMutationResponse,
+    PrepareContextRequest,
+    PreparedContext,
     ReadinessResponse,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
@@ -40,6 +42,7 @@ from powercontext.http._generated.operations import (
     GET_READINESS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    PREPARE_CONTEXT,
     REMEMBER_MEMORY,
     RETIRE_MEMORY_ENTRY,
     REVISE_MEMORY_ENTRY,
@@ -121,6 +124,11 @@ class PowerContextClient:
         """Search active Memory entries in one scope."""
 
         return await self._request(SEARCH_MEMORY, request)
+
+    async def prepare_context(self, request: PrepareContextRequest) -> PreparedContext:
+        """Prepare final bounded context for one Agent turn."""
+
+        return await self._request(PREPARE_CONTEXT, request)
 
     async def list_memory_entries(self, request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
         """List active entries, optionally including inactive entries for audit."""

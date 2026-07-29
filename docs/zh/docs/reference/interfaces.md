@@ -41,7 +41,7 @@ CLI 只显示已安装 extra 所提供的命令。
 ```python
 import asyncio
 
-from powercontext.http import RememberMemoryRequest, SearchMemoryRequest
+from powercontext.http import PrepareContextRequest, RememberMemoryRequest, SearchMemoryRequest
 from powercontext.client import PowerContextClient
 
 
@@ -61,6 +61,10 @@ async def main() -> None:
             )
         )
         print([hit.text for hit in result.hits])
+        prepared = await client.prepare_context(
+            PrepareContextRequest(scope_id="project:example", query="公开 API")
+        )
+        print(prepared.content)
 
 
 asyncio.run(main())
@@ -78,3 +82,5 @@ asyncio.run(main())
 Server 在 `/openapi.json` 提供 OpenAPI 文档，在 `/health/ready` 提供就绪检查，在 `/v1/capabilities`
 提供能力信息，并默认在 `/mcp` 提供 Streamable HTTP MCP。HTTP 是完整应用契约，MCP 是面向 Agent 的
 Memory 操作子集。
+`POST /v1/context/prepare` 及对应的 Python Client method 通过 HTTP 提供最终的临时 `PreparedContext`；
+Runtime 负责选择和总输出预算，该 operation 不会投影为 MCP tool。

@@ -1,13 +1,15 @@
 from fastapi.testclient import TestClient
 
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.http import (
     Capabilities,
     ReadinessResponse,
     ReadinessStatus,
 )
 from powercontext.server.app import create_app
-from powercontext.server.settings import ServerSettings
+from powercontext.server.factory import create_server_app
+from powercontext.server.settings import McpConfig, ServerSettings
 
 
 def test_settings_load_server_environment(monkeypatch) -> None:
@@ -96,3 +98,25 @@ def test_unhandled_errors_preserve_the_request_id() -> None:
 
     assert response.status_code == 500
     assert response.headers["X-Request-ID"] == "request-123"
+
+
+def test_prepare_context_rejects_memory_specific_tuning_fields(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/context/prepare",
+            json={
+                "scope_id": "project:test",
+                "query": "query",
+                "candidate_limit": 2,
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"

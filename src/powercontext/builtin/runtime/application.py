@@ -28,6 +28,8 @@ from powercontext.builtin.runtime.models import (
     MemoryFlushResult,
     MemoryMutationResult,
     MemorySearchPage,
+    PrepareContextRequest,
+    PreparedContext,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
     ReviseMemoryEntryRequest,
@@ -35,6 +37,7 @@ from powercontext.builtin.runtime.models import (
     SearchMemoryRequest,
     SourceReceipt,
 )
+from powercontext.builtin.runtime.prepared_context import PreparedContextBuilder
 from powercontext.builtin.runtime.protocols import PowerContextProvider, SourceWindow
 from powercontext.builtin.sources import ContentCapture, SourceCursor, validate_scope_id
 from powercontext.context import PowerContext
@@ -90,6 +93,45 @@ class SourceApplication:
 
     def for_scope(self, scope_id: str, /) -> ScopedSourceApplication:
         return ScopedSourceApplication(self._runtime, scope_id)
+
+
+class ScopedContextApplication:
+    """Prepare final context for one scope using Runtime-owned source policy."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def prepare(self, request: PrepareContextRequest, /) -> PreparedContext:
+        builder = PreparedContextBuilder()
+        async with self._runtime._context(self.scope_id) as context, self._runtime._lock(self.scope_id):
+            service = context.artifacts.memory
+            current = await _head_or_none(service, context.artifacts.memory_artifact_id)
+            if current is None:
+                return builder.empty()
+            result = await service.search(
+                request.query,
+                memories=(current,),
+                limit=builder.candidate_limit,
+                mode="auto",
+            )
+            if not result.hits:
+                return builder.empty()
+            return builder.build(
+                memory_ref=current.as_ref(),
+                hits=result.hits,
+                request=request,
+            )
+
+
+class ContextApplication:
+    """Select the scoped context-preparation application service."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedContextApplication:
+        return ScopedContextApplication(self._runtime, scope_id)
 
 
 class ScopedMemoryApplication:
@@ -286,6 +328,7 @@ class BuiltinRuntime:
         self._scheduler: AsyncIOScheduler | None = None
         self._scheduler_runtime_key: str | None = None
         self.sources = SourceApplication(self)
+        self.context = ContextApplication(self)
         self.memory = MemoryApplication(self)
         self.processor = None if scope_ids is None else ScheduledSourceProcessor(self, scope_ids)
 

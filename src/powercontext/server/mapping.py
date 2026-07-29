@@ -14,6 +14,8 @@ from powercontext.builtin.runtime import (
     MemoryHit,
     MemoryMutationResult,
     MemorySearchPage,
+    PrepareContextRequest,
+    PreparedContext,
     RememberMemoryRequest,
     SourceReceipt,
 )
@@ -53,6 +55,8 @@ from powercontext.http import (
     MemoryMutationResponse,
     MemoryRevisionChanges,
     MemoryUsedSearchMode,
+    PreparedContextSchema,
+    PreparedContextStatus,
     RetireMemoryEntryRequest,
     ReviseMemoryEntryRequest,
     SearchMemoryHit,
@@ -62,6 +66,12 @@ from powercontext.http import (
 )
 from powercontext.http import (
     MemoryCitation as TransportMemoryCitation,
+)
+from powercontext.http import (
+    PrepareContextRequest as TransportPrepareContextRequest,
+)
+from powercontext.http import (
+    PreparedContext as TransportPreparedContext,
 )
 from powercontext.http import (
     RememberMemoryRequest as TransportRememberMemoryRequest,
@@ -106,6 +116,10 @@ def search_request(value: SearchMemoryRequest) -> RuntimeSearchMemoryRequest:
     return RuntimeSearchMemoryRequest(query=value.query, limit=value.limit, mode=value.mode.value)
 
 
+def prepare_context_request(value: TransportPrepareContextRequest) -> PrepareContextRequest:
+    return PrepareContextRequest(query=value.query, max_bytes=value.max_bytes)
+
+
 def get_request(value: GetMemoryEntryRequest) -> RuntimeGetMemoryEntryRequest:
     return RuntimeGetMemoryEntryRequest(citation=runtime_citation(value.citation))
 
@@ -129,6 +143,15 @@ def search_response(value: MemorySearchPage) -> SearchMemoryResponse:
         mode=None if value.mode is None else MemoryUsedSearchMode(value.mode),
         hits=[search_hit(hit) for hit in value.hits],
     )
+
+
+def prepared_context_response(value: PreparedContext) -> TransportPreparedContext:
+    return TransportPreparedContext.model_validate({
+        "schema": PreparedContextSchema(value.schema_version),
+        "status": PreparedContextStatus(value.status),
+        "content": value.content,
+        "content_bytes": value.content_bytes,
+    })
 
 
 def entries_response(value: MemoryEntriesPage) -> ListMemoryEntriesResponse:

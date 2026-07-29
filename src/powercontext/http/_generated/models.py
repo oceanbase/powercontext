@@ -91,6 +91,15 @@ class MemoryCitation(BaseModel):
     entry_version_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
+class PrepareContextRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
+
+
 class ReadinessStatus(StrEnum):
     READY = "ready"
     NOT_READY = "not_ready"
@@ -139,6 +148,15 @@ class CaptureStatus(StrEnum):
     ACCEPTED = "accepted"
 
 
+class PreparedContextSchema(StrEnum):
+    POWERCONTEXT_PREPARED_CONTEXT_V1 = "powercontext.prepared-context.v1"
+
+
+class PreparedContextStatus(StrEnum):
+    READY = "ready"
+    EMPTY = "empty"
+
+
 class EntryChangeOperation(StrEnum):
     ADD = "add"
     REVISE = "revise"
@@ -182,6 +200,7 @@ class Capabilities(BaseModel):
     artifact_families: list[StrictStr]
     memory_extraction: Annotated[StrictBool, Field(description="Whether pending Sources can be extracted into Memory.")]
     search_modes: list[MemorySearchMode]
+    context_versions: list[PreparedContextSchema]
 
 
 class CaptureContentSourceResponse(BaseModel):
@@ -191,6 +210,16 @@ class CaptureContentSourceResponse(BaseModel):
     status: CaptureStatus
     source: SourceReference
     position: Annotated[StrictInt, Field(ge=1)]
+
+
+class PreparedContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[PreparedContextSchema, Field(alias="schema")]
+    status: PreparedContextStatus
+    content: Annotated[StrictStr | None, Field(...)]
+    content_bytes: Annotated[StrictInt, Field(ge=0)]
 
 
 class EntryChange(BaseModel):

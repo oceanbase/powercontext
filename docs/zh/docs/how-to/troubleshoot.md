@@ -95,3 +95,13 @@ powercontext client capabilities
 
 这是预期行为。Prompt Hook 会正常降级，Memory 故障不能阻塞普通 Codex 工作。重启 Server 后即可恢复
 检索和采集，现有数据库会被自动重新打开。
+
+## Codex 没有注入召回上下文
+
+查看 Hook 在 stderr 输出的单行 JSON 事件。`empty` 表示 Runtime 没有为本轮准备上下文。`version_mismatch`
+表示已安装插件要求 `POST /v1/context/prepare`，但 Server 尚未提供该接口；请从同一个 ref 重新安装插件和工具
+并重启 Server。`server_unavailable` 和 `invalid_response` 分别表示传输与 contract 问题。诊断事件会刻意
+省略 query 与准备好的上下文正文。
+
+执行 `powercontext client capabilities`，确认 Context versions 中包含
+`powercontext.prepared-context.v1`。

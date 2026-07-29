@@ -20,6 +20,8 @@ from powercontext.http._generated.models import (
     ListMemoryEntriesResponse,
     MemoryEntry,
     MemoryMutationResponse,
+    PrepareContextRequest,
+    PreparedContext,
     ReadinessResponse,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
@@ -119,6 +121,26 @@ CAPTURE_CONTENT_SOURCE = Operation[CaptureContentSourceRequest, CaptureContentSo
             "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
+    method="POST",
+    path="/v1/context/prepare",
+    operation_id="prepare_context",
+    request_type=PrepareContextRequest,
+    response_type=PreparedContext,
+    success_status=200,
+    summary="Prepare bounded context for an Agent turn",
+    tags=("context",),
+    responses={
+        200: {
+            "description": "Final context ready for direct injection, or a normal empty result.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},

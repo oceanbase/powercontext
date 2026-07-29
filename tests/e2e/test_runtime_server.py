@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -27,6 +28,7 @@ from powercontext.http import (
     GetMemoryEntryRequest,
     ListMemoryChangesRequest,
     ListMemoryEntriesRequest,
+    PrepareContextRequest,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
     ReviseMemoryEntryRequest,
@@ -123,6 +125,9 @@ def test_server_databases_share_source_to_memory_search_behavior(
             )
             flushed = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))
             found = await client.search_memory(SearchMemoryRequest(scope_id=scope_id, query="OpenAPI authoritative"))
+            prepared = await client.prepare_context(
+                PrepareContextRequest(scope_id=scope_id, query="OpenAPI authoritative")
+            )
             unrelated = await client.search_memory(
                 SearchMemoryRequest(scope_id=scope_id, query="Should we keep blue icons in mobile navigation?")
             )
@@ -132,11 +137,18 @@ def test_server_databases_share_source_to_memory_search_behavior(
         assert capabilities.source_types == ["content"]
         assert capabilities.memory_extraction is True
         assert capabilities.search_modes == ["auto", "fts"]
+        assert capabilities.context_versions == ["powercontext.prepared-context.v1"]
         assert captured.position == 1
         assert flushed.current_cursor == captured.position
         assert flushed.memory is not None
         assert found.mode == "fts"
         assert [hit.text for hit in found.hits] == ["Keep the OpenAPI contract authoritative."]
+        assert prepared.schema_ == "powercontext.prepared-context.v1"
+        assert prepared.status == "ready"
+        assert prepared.content is not None
+        prepared_item = json.loads(prepared.content.splitlines()[-2])["items"][0]
+        assert prepared_item["content"] == "Keep the OpenAPI contract authoritative."
+        assert prepared_item["citation"] == found.hits[0].citation.model_dump(mode="json", by_alias=True)
         assert unrelated.hits == []
         assert entries.memory == flushed.memory
         assert entries.entries[0].source_refs[0].source_id == "turn-1"
