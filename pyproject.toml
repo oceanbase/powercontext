@@ -65,7 +65,7 @@ Documentation = "https://github.com/oceanbase/powercontext/tree/main/docs/en/doc
 
 [dependency-groups]
 dev = [
-    "datamodel-code-generator==0.57.0",
+    "datamodel-code-generator==0.64.0",
     "powercontext[cli,client,server]",
     "pytest>=9.0.2",
     "pytest-cov>=7,<8",
