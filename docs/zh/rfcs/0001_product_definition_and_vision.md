@@ -1,7 +1,6 @@
 - Proposal Name: `product_definition_and_vision`
 - Start Date: 2026-07-07
 - RFC PR: [oceanbase/powercontext#0001](https://github.com/oceanbase/powercontext/pull/0001)
-- Tracking Issue: [oceanbase/powercontext#0001](https://github.com/oceanbase/powercontext/issues/0001)
 
 # Summary
 

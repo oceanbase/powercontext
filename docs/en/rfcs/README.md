@@ -1,20 +1,9 @@
-# RFCs - PowerContext Active RFC List
+# PowerContext RFCs
 
-RFCs power PowerContext's design process.
+RFCs record substantial design proposals and the decisions made about them.
 
-An active RFC records accepted design direction, not released behavior. Use the current source and
-[API reference](../modules.md) for implemented public contracts.
-
-## Active RFCs
-
-- [0001 - Product Definition and Vision](0001_product_definition_and_vision.md)
-- [0002 - Core SDK Product Model](0002_core_sdk_product_model.md)
-- [0011 - Remote Access Architecture](0011_remote_access_architecture.md)
-- [0014 - Memory Layer Design](0014_memory_layer_design.md)
-- [0016 - Pydantic AI Inference Layer and Initial Memory Integration](0016_pydantic_ai_inference_integration.md)
-- [0019 - Local Source-to-Memory Runtime](0019_local_source_memory_runtime.md)
-- [0020 - Runtime-backed Memory Remote Access](0020_runtime_backed_memory_remote_access.md)
-- [0028 - Context Pack](0028_context_pack.md)
+An RFC describes design intent, not released behavior or implementation progress. Use the current source and
+[API reference](../modules.md) for implemented public contracts and availability.
 
 The "RFC" (request for comments) process provides a consistent path for substantial changes so maintainers and contributors can build consensus before implementation work starts.
 
@@ -56,18 +45,19 @@ Useful preparatory steps include:
 - After the pull request is open, rename the `0000-` prefix to the pull request number.
 - Build consensus and integrate feedback through normal pull request review.
 - Make revisions as additional commits so reviewers can follow the design history.
-- Once accepted, create or link a tracking issue and update the RFC links.
-- After merge, the RFC becomes active.
+- After merge, keep the RFC as a durable design record.
+- If a dedicated implementation issue already exists, it may be linked from the RFC as an optional `Tracking Issue`.
 
 ## Implementing an RFC
 
-An active RFC records an accepted design direction. It does not imply immediate implementation priority or assignment.
+A merged RFC does not imply implementation priority, assignment, or completion.
 
-The RFC author is encouraged, but not required, to implement the accepted design.
+The RFC author is encouraged, but not required, to implement the design.
 
-Each accepted RFC should have a tracking issue for implementation status, follow-up work, and unresolved details.
+The RFC process does not require a tracking issue. Do not create one solely to advance an RFC or record its progress.
 
-If the accepted design needs material changes, submit a follow-up pull request or a new RFC rather than silently changing the implementation contract.
+If the design needs material changes, submit a follow-up pull request or a new RFC rather than silently changing the
+implementation contract.
 
 ## Tips
 

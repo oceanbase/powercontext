@@ -1,20 +1,9 @@
-# RFCs - PowerContext 有效 RFC 列表
+# PowerContext RFC
 
-RFC 支撑 PowerContext 的设计流程。
+RFC 记录重要的设计提案及其决策。
 
-有效 RFC 记录的是已接受的设计方向，不代表已经发布的行为。已实现的公开契约以当前源码和
+RFC 描述设计意图，不代表已经发布的行为或实现进度。已实现的公开契约及其可用性以当前源码和
 [API 参考](../modules.md)为准。
-
-## 有效 RFC
-
-- [0001 - 产品定义与构想](0001_product_definition_and_vision.md)
-- [0002 - Core SDK 产品模型](0002_core_sdk_product_model.md)
-- [0011 - 远程访问架构](0011_remote_access_architecture.md)
-- [0014 - Memory Layer 设计](0014_memory_layer_design.md)
-- [0016 - Pydantic AI 推理层与 Memory 首期集成](0016_pydantic_ai_inference_integration.md)
-- [0019 - 本地 Source-to-Memory Runtime](0019_local_source_memory_runtime.md)
-- [0020 - 基于 Runtime 的 Memory 远程访问](0020_runtime_backed_memory_remote_access.md)
-- [0028 - Context Pack](0028_context_pack.md)
 
 RFC（request for comments）流程为重大变更提供一致路径，使维护者和贡献者可以在实现开始前形成共识。
 
@@ -56,18 +45,18 @@ RFC（request for comments）流程为重大变更提供一致路径，使维护
 - pull request 打开后，将 `0000-` 前缀重命名为 pull request 编号。
 - 通过常规 pull request 评审建立共识并整合反馈。
 - 以追加 commit 的方式修改内容，便于评审者跟踪设计历史。
-- RFC 被接受后，创建或关联 tracking issue，并更新 RFC 链接。
-- 合并后，RFC 成为有效设计记录。
+- 合并后，将 RFC 保留为长期设计记录。
+- 如果已经存在专门的实现 issue，可以在 RFC 中将其作为可选的 `Tracking Issue` 引用。
 
 ## 实现 RFC
 
-有效 RFC 记录的是已经接受的设计方向，不代表立即拥有实现优先级或分配给某个人。
+RFC 合并不代表已经确定实现优先级、负责人或完成情况。
 
-鼓励 RFC 作者实现已接受的设计，但这不是强制要求。
+鼓励 RFC 作者实现该设计，但这不是强制要求。
 
-每个被接受的 RFC 都应该有一个 tracking issue，用于跟踪实现状态、后续工作和未决细节。
+RFC 流程不要求 tracking issue。不要仅为了推进 RFC 流程或记录 RFC 进度而创建 tracking issue。
 
-如果已接受的设计需要实质性变更，请提交后续 pull request 或新的 RFC，而不是静默改变实现契约。
+如果设计需要实质性变更，请提交后续 pull request 或新的 RFC，而不是静默改变实现契约。
 
 ## 建议
 

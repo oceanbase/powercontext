@@ -1,7 +1,6 @@
 - Proposal Name: `runtime_backed_memory_remote_access`
 - Start Date: 2026-07-24
 - RFC PR: [oceanbase/powercontext#20](https://github.com/oceanbase/powercontext/pull/20)
-- Tracking Issue: Not assigned
 - Related RFCs: [RFC 0011](0011_remote_access_architecture.md), [RFC 0019](0019_local_source_memory_runtime.md)
 
 # Summary
@@ -422,22 +421,6 @@ Server lifespan
 
 The HTTP Server does not persist APScheduler jobs or Source cursors. It calls the Runtime that already owns those
 details under RFC 0019.
-
-# Current implementation status
-
-The implementation now opens the Runtime in the Server lifespan, probes the Source and Memory schemas plus FTS before
-reporting readiness, mounts MCP on the same application, derives capabilities from that assembly, and maps domain
-errors before request ID middleware returns the response. HTTP, SDK, and MCP tests execute real Memory operations
-against SQLite.
-
-Generated transport models use strict primitives and preserve OpenAPI field constraints. Core object dataclasses are
-mapped explicitly. Source capture documents durable journal acceptance, explicit remember rejects Revision zero, and
-entry listing is documented as a current-head snapshot.
-
-Memory Revisions use one `ArtifactReference` shape across responses. Entry responses and search hits carry a strict
-transport `MemoryCitation`; get, revise, and retire accept that same nested citation. The Server can also assemble a
-Pydantic AI embedding model from one validated settings profile. Successful vector initialization extends capabilities
-from `auto/fts` to `auto/fts/vector/hybrid`.
 
 # Drawbacks
 

@@ -1,7 +1,6 @@
 - Proposal Name: `runtime_context_pack`
 - Start Date: 2026-07-27
 - RFC PR: [oceanbase/powercontext#28](https://github.com/oceanbase/powercontext/pull/28)
-- Tracking Issue: 尚未分配
 - Related RFCs: [RFC 0014](0014_memory_layer_design.md)、[RFC 0019](0019_local_source_memory_runtime.md)、
   [RFC 0020](0020_runtime_backed_memory_remote_access.md)
 

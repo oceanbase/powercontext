@@ -3,7 +3,7 @@
 <!--
 Link the related issue or RFC using GitHub syntax.
 For example, `Closes #123` indicates that this PR will close issue #123.
-If this PR implements an accepted RFC, link the RFC and tracking issue.
+If this PR implements an RFC, link the RFC and any existing tracking issue.
 -->
 
 Closes #.

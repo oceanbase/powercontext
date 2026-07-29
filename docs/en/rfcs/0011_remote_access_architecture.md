@@ -1,7 +1,6 @@
 - Proposal Name: `remote_access_architecture`
 - Start Date: 2026-07-16
 - RFC PR: [oceanbase/powercontext#11](https://github.com/oceanbase/powercontext/pull/11)
-- Tracking Issue: Not assigned
 
 # Summary
 

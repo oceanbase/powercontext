@@ -1,7 +1,6 @@
 - 提案名称：`memory_layer_design`
 - 开始日期：2026-07-14
 - RFC PR：[oceanbase/powercontext#14](https://github.com/oceanbase/powercontext/pull/14)
-- Tracking Issue：尚未分配
 - 相关 RFC：[RFC 0001：产品定义与构想](0001_product_definition_and_vision.md)
 - 相关 RFC：[RFC 0002：Core SDK 产品模型](0002_core_sdk_product_model.md)
 - 相关约束：[RFC 0011：Server 与 Client SDK 架构](https://github.com/oceanbase/powercontext/pull/11)

@@ -1,7 +1,6 @@
 - 提案名称：`pydantic_ai_inference_integration`
 - 开始日期：2026-07-21
 - RFC PR：[oceanbase/powercontext#16](https://github.com/oceanbase/powercontext/pull/16)
-- Tracking Issue：尚未分配
 - 相关 RFC：[RFC 0002：Core SDK 产品模型](0002_core_sdk_product_model.md)
 - 相关 RFC：[RFC 0014：Memory Layer 设计](0014_memory_layer_design.md)
 

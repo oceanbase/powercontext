@@ -1,7 +1,6 @@
 - Proposal Name: (fill me in with a unique identifier, `my_awesome_feature`)
 - Start Date: (fill me in with today's date, YYYY-MM-DD)
 - RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
-- Tracking Issue: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/issues/0000)
 
 # Summary
 

@@ -1,7 +1,6 @@
 - Proposal Name: `runtime_backed_memory_remote_access`
 - Start Date: 2026-07-24
 - RFC PR: [oceanbase/powercontext#20](https://github.com/oceanbase/powercontext/pull/20)
-- Tracking Issue: 尚未分配
 - Related RFCs: [RFC 0011](0011_remote_access_architecture.md), [RFC 0019](0019_local_source_memory_runtime.md)
 
 # Summary
@@ -412,21 +411,6 @@ Server lifespan
 ```
 
 HTTP Server 不持久化 APScheduler job 或 Source cursor。它调用已经按照 RFC 0019 持有这些细节的 Runtime。
-
-# 当前实现状态
-
-当前实现已经在 Server lifespan 中打开 Runtime，在报告 readiness 前探测 Source、Memory schema 与 FTS，将
-MCP 挂载在同一个 application 上，并从该 assembly 派生 capability。Domain error 会在 request ID middleware
-返回 response 前完成映射。HTTP、SDK 与 MCP test 都会针对 SQLite 执行真实 Memory operation。
-
-Generated transport model 使用 strict primitive，并保留 OpenAPI field constraint。Core object dataclass
-通过显式 mapping 转换。Source capture 文档承诺 durable journal acceptance，explicit remember 拒绝
-Revision zero，entry list 被描述为 current-head snapshot。
-
-所有 response 中的 Memory Revision 使用同一种 `ArtifactReference` shape。Entry response 与 search hit 携带
-strict transport `MemoryCitation`；get、revise 和 retire 接受同一个嵌套 citation。Server 还可以根据一组通过
-校验的 settings profile 组装 Pydantic AI embedding model。Vector initialization 成功后，capabilities 从
-`auto/fts` 扩展为 `auto/fts/vector/hybrid`。
 
 # Drawbacks
 

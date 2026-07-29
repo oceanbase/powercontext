@@ -1,7 +1,6 @@
 - Proposal Name: `local_source_memory_runtime`
 - Start Date: 2026-07-24
 - RFC PR: [oceanbase/powercontext#19](https://github.com/oceanbase/powercontext/pull/19)
-- Tracking Issue: Not assigned
 
 # Summary
 

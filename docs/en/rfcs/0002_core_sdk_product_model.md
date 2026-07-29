@@ -1,7 +1,6 @@
 - Proposal Name: `core_sdk_product_model`
 - Start Date: 2026-07-07
 - RFC PR: [oceanbase/powercontext#2](https://github.com/oceanbase/powercontext/pull/2)
-- Tracking Issue: [oceanbase/powercontext#2](https://github.com/oceanbase/powercontext/issues/2)
 - Last Amendment: 2026-07-16
 
 # Summary

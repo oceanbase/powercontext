@@ -1,7 +1,6 @@
 - Proposal Name: `memory_layer_design`
 - Start Date: 2026-07-14
 - RFC PR: [oceanbase/powercontext#14](https://github.com/oceanbase/powercontext/pull/14)
-- Tracking Issue: Not assigned
 - Related RFC: [RFC 0001: Product Definition and Vision](0001_product_definition_and_vision.md)
 - Related RFC: [RFC 0002: Core SDK Product Model](0002_core_sdk_product_model.md)
 - Related Constraint: [RFC 0011: Server and Client SDK Architecture](https://github.com/oceanbase/powercontext/pull/11)
