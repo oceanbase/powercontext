@@ -14,6 +14,7 @@ An active RFC records accepted design direction, not released behavior. Use the 
 - [0016 - Pydantic AI Inference Layer and Initial Memory Integration](0016_pydantic_ai_inference_integration.md)
 - [0019 - Local Source-to-Memory Runtime](0019_local_source_memory_runtime.md)
 - [0020 - Runtime-backed Memory Remote Access](0020_runtime_backed_memory_remote_access.md)
+- [0028 - Context Pack](0028_context_pack.md)
 
 The "RFC" (request for comments) process provides a consistent path for substantial changes so maintainers and contributors can build consensus before implementation work starts.
 

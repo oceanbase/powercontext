@@ -115,6 +115,9 @@ class PreparedContextBuilder:
                 content=_truncate_utf8(text, byte_budget),
                 truncated=True,
             )
+            if len(candidate.content.encode("utf-8")) < _MIN_TRUNCATED_CONTENT_BYTES:
+                lower = byte_budget + 1
+                continue
             if _rendered_bytes((*entries, candidate)) <= max_bytes:
                 best = candidate
                 lower = byte_budget + 1
@@ -147,6 +150,3 @@ def _truncate_utf8(text: str, byte_budget: int) -> str:
     prefix_budget = byte_budget - len(_ELLIPSIS.encode("utf-8"))
     encoded_prefix = text.encode("utf-8")[:prefix_budget]
     return f"{encoded_prefix.decode('utf-8', errors='ignore')}{_ELLIPSIS}"
-
-
-__all__ = ["PreparedContextBuilder"]

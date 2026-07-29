@@ -291,15 +291,18 @@ def _recall_context(
     try:
         prepared = _validate_prepared_context(_prepare_context(query, scope_id, settings=settings, deadline=deadline))
     except _HttpStatusError as error:
-        outcome = "version_mismatch" if error.status == 404 else "server_unavailable"
-        if error.status not in {404, 503}:
+        if error.status == 404:
+            outcome = "version_mismatch"
+        elif error.status == 503:
+            outcome = "server_unavailable"
+        else:
             outcome = "invalid_response"
         _emit_context_event(outcome, http_status=error.status)
         return None
     except _ServerUnavailableError:
         _emit_context_event("server_unavailable")
         return None
-    except Exception:
+    except _InvalidResponseError:
         _emit_context_event("invalid_response")
         return None
 

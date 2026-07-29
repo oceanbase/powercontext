@@ -22,4 +22,4 @@ class PreparedContextInvariantError(PowerContextError, RuntimeError):
         super().__init__(f"Prepared Context invariant failed: {code}")
 
 
-__all__ = ["InvalidRuntimeRequestError", "PreparedContextInvariantError"]
+__all__ = ["InvalidRuntimeRequestError"]

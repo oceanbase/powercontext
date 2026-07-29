@@ -14,6 +14,7 @@ RFC 支撑 PowerContext 的设计流程。
 - [0016 - Pydantic AI 推理层与 Memory 首期集成](0016_pydantic_ai_inference_integration.md)
 - [0019 - 本地 Source-to-Memory Runtime](0019_local_source_memory_runtime.md)
 - [0020 - 基于 Runtime 的 Memory 远程访问](0020_runtime_backed_memory_remote_access.md)
+- [0028 - Context Pack](0028_context_pack.md)
 
 RFC（request for comments）流程为重大变更提供一致路径，使维护者和贡献者可以在实现开始前形成共识。
 

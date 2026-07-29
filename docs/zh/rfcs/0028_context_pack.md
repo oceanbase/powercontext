@@ -1,8 +1,6 @@
 - Proposal Name: `runtime_context_pack`
-- RFC Number: 0021
 - Start Date: 2026-07-27
-- Status: Draft
-- RFC PR: 尚未分配
+- RFC PR: [oceanbase/powercontext#28](https://github.com/oceanbase/powercontext/pull/28)
 - Tracking Issue: 尚未分配
 - Related RFCs: [RFC 0014](0014_memory_layer_design.md)、[RFC 0019](0019_local_source_memory_runtime.md)、
   [RFC 0020](0020_runtime_backed_memory_remote_access.md)
@@ -27,7 +25,7 @@ Memory entry 始终是不可信历史数据。Context Pack 保留 `memory_ref + 
 - search hit 中已有的精确 citation 在渲染时被丢弃；
 - 字符串被直接截到固定长度，可能截断一条 entry 或破坏结构；
 - limit 只限制 search result 数量，没有独立的候选窗口、输出条目和内容预算语义；
-- 没有说明多少候选因为条目上限或预算没有进入上下文；
+- 被截断的条目没有标记，条目上限或内容预算下的省略行为也没有定义；
 - `no-memory`、`no-match` 与异常都表现为没有注入；
 - 选择、截断和安全渲染规则位于 Codex Hook，其他 Agent integration 无法复用；
 - 直接扩展 Hook 会让 application policy 逐渐进入 provider adapter。
@@ -47,9 +45,9 @@ Memory search 与 Context Pack 回答不同问题：
 
 ## Product positioning and v1 profile
 
-“Context Pack”表示长期产品抽象；RFC 0021 中可执行的 `powercontext.prepared-context.v1` 则是它的首个具体 profile。两者关系如下：
+“Context Pack”表示长期产品抽象；RFC 0028 中可执行的 `powercontext.prepared-context.v1` 则是它的首个具体 profile。两者关系如下：
 
-| 维度 | 长期 Context Pack | RFC 0021 首版 |
+| 维度 | 长期 Context Pack | RFC 0028 首版 |
 | --- | --- | --- |
 | 目标 | 为 Agent 注入和 handoff 交付有来源、有边界的上下文 | 在 Coding Agent 分析前提供相关 Memory |
 | 来源 | 可扩展到 Memory、经验、RAG、Skills、场景状态 | 只读取一个 scope 的 active Memory head |
@@ -75,10 +73,10 @@ effective agent context
   + prepared Memory Context Pack
 ```
 
-因此，RFC 0021 不声称单个 Memory Context Pack 已经提供“完备 handoff”。它缺少任务目标与完成状态、当前 patch、测试结果、未解决风险、工具执行状态以及非 Memory 来源。Coding Agent 必须以当前指令和实时仓库事实为准，并把 Pack 当作可核验的历史补充。
+因此，RFC 0028 不声称单个 Memory Context Pack 已经提供“完备 handoff”。它缺少任务目标与完成状态、当前 patch、测试结果、未解决风险、工具执行状态以及非 Memory 来源。Coding Agent 必须以当前指令和实时仓库事实为准，并把 Pack 当作可核验的历史补充。
 
-未来的完整 handoff 也不是“把所有内容放进一个包”。完备性必须相对于某个明确 recipe 判断，并至少说明：必需来源是否成功、每项内容的 provenance、as-of/freshness、预算省略、冲突与不确定性。首版只有 Memory contributor，因此只承诺精确 citation、
-精确 citation 与一个有界的最终输出。
+未来的完整 handoff 也不是“把所有内容放进一个包”。完备性必须相对于某个明确 recipe 判断，并至少说明：必需来源是否成功、每项内容的 provenance、as-of/freshness、预算省略、冲突与不确定性。首版只有 Memory contributor，因此只承诺精确 citation
+与一个有界的最终输出。
 
 ## Mental model
 
@@ -653,7 +651,7 @@ Memory Revision 和确定性参数重新构建，首版没有持久化价值，�
 本次实现没有未决的首版 API 问题。Runtime 统一拥有默认 8000-byte 总预算；Codex Hook 为 empty 与错误结果写诊断，普通成功
 保持安静。
 
-以下问题明确留给后续 RFC，而不是 RFC 0021 的实现项：
+以下问题明确留给后续 RFC，而不是 RFC 0028 的实现项：
 
 - 多 scope / 多 Memory Pack；
 - provider token-aware selection；
@@ -665,7 +663,9 @@ Memory Revision 和确定性参数重新构建，首版没有持久化价值，�
 - durable Context Pack Artifact 与跨 Agent/session replay；
 - Coding Agent 之外的场景 Context Pack。
 
-# Evolution path and graduation criteria
+# Future possibilities
+
+## Evolution path and graduation criteria
 
 长期方向不改变：Context Pack 要成为通用的 Agent 上下文交付制品。但它按以下阶段演进，每一阶段都由真实需求触发，而不是
 预先一次性设计完毕。
@@ -686,5 +686,5 @@ Memory Revision 和确定性参数重新构建，首版没有持久化价值，�
 - Skills 需要版本锁定、宿主授权和使用归因；
 - 需要对来源缺失、过期、冲突或不确定性给出机器可读的完备性报告。
 
-在这些条件出现前，RFC 0021 的边界保持不变：它是有界、可引用、只读、不可信、临时的 Memory projection，也是未来通用
+在这些条件出现前，RFC 0028 的边界保持不变：它是有界、可引用、只读、不可信、临时的 Memory projection，也是未来通用
 Context Pack 的第一块可验证基础，而不是第二套 Memory 或尚未证实的通用编排框架。

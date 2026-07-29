@@ -8,11 +8,9 @@ from pydantic import ValidationError
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import MemoryHit
-from powercontext.builtin.runtime import (
-    PrepareContextRequest,
-    PreparedContextBuilder,
-    PreparedContextInvariantError,
-)
+from powercontext.builtin.runtime import PrepareContextRequest
+from powercontext.builtin.runtime.errors import PreparedContextInvariantError
+from powercontext.builtin.runtime.prepared_context import PreparedContextBuilder
 
 MEMORY_REF = ArtifactRef(family="memory", artifact_id="memory", revision=3)
 
@@ -77,6 +75,25 @@ def test_builder_truncates_unicode_and_owns_the_final_output_budget() -> None:
     item = _items(first.content)[0]
     assert item["truncated"] is True
     assert str(item["content"]).endswith("…")
+
+
+def test_builder_does_not_accept_truncated_unicode_below_the_minimum_byte_size() -> None:
+    hit = _hit("emoji", "🙂" * 200)
+
+    too_small = PreparedContextBuilder().build(
+        memory_ref=MEMORY_REF,
+        hits=(hit,),
+        request=PrepareContextRequest(query="emoji", max_bytes=590),
+    )
+    large_enough = PreparedContextBuilder().build(
+        memory_ref=MEMORY_REF,
+        hits=(hit,),
+        request=PrepareContextRequest(query="emoji", max_bytes=594),
+    )
+
+    assert too_small.status == "empty"
+    item = _items(large_enough.content)[0]
+    assert len(item["content"].encode("utf-8")) >= 64
 
 
 def test_builder_skips_an_entry_that_cannot_fit_but_keeps_a_later_shorter_one() -> None:

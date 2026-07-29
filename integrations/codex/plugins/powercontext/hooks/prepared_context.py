@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import cast
 
 PREPARED_CONTEXT_SCHEMA = "powercontext.prepared-context.v1"
 MAX_CONTEXT_BYTES = 8_000
@@ -18,15 +17,14 @@ class InvalidPreparedContextResponse(RuntimeError):
 def validate_prepared_context(response: Mapping[str, object]) -> dict[str, object]:
     """Return a safe copy after validating the complete v1 response contract."""
 
-    if not isinstance(response, dict) or set(response) != _PREPARED_CONTEXT_FIELDS:
+    if set(response) != _PREPARED_CONTEXT_FIELDS:
         raise InvalidPreparedContextResponse
-    prepared = cast(dict[str, object], response)
-    if prepared["schema"] != PREPARED_CONTEXT_SCHEMA:
+    if response["schema"] != PREPARED_CONTEXT_SCHEMA:
         raise InvalidPreparedContextResponse
 
-    status = prepared["status"]
-    content = prepared["content"]
-    content_bytes = prepared["content_bytes"]
+    status = response["status"]
+    content = response["content"]
+    content_bytes = response["content_bytes"]
     if not isinstance(content_bytes, int) or isinstance(content_bytes, bool) or content_bytes < 0:
         raise InvalidPreparedContextResponse
     if status == "empty":
@@ -35,21 +33,17 @@ def validate_prepared_context(response: Mapping[str, object]) -> dict[str, objec
     elif status == "ready":
         if not isinstance(content, str) or not content.strip():
             raise InvalidPreparedContextResponse
-        if len(content.encode("utf-8")) != content_bytes or content_bytes > MAX_CONTEXT_BYTES:
+        try:
+            encoded_content = content.encode("utf-8")
+        except UnicodeEncodeError as error:
+            raise InvalidPreparedContextResponse from error
+        if len(encoded_content) != content_bytes or content_bytes > MAX_CONTEXT_BYTES:
             raise InvalidPreparedContextResponse
     else:
         raise InvalidPreparedContextResponse
     return {
-        "schema": prepared["schema"],
+        "schema": response["schema"],
         "status": status,
         "content": content,
         "content_bytes": content_bytes,
     }
-
-
-__all__ = [
-    "MAX_CONTEXT_BYTES",
-    "PREPARED_CONTEXT_SCHEMA",
-    "InvalidPreparedContextResponse",
-    "validate_prepared_context",
-]

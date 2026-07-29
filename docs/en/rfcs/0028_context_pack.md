@@ -1,8 +1,6 @@
 - Proposal Name: `runtime_context_pack`
-- RFC Number: 0021
 - Start Date: 2026-07-27
-- Status: Draft
-- RFC PR: Not assigned
+- RFC PR: [oceanbase/powercontext#28](https://github.com/oceanbase/powercontext/pull/28)
 - Tracking Issue: Not assigned
 - Related RFCs: [RFC 0014](0014_memory_layer_design.md), [RFC 0019](0019_local_source_memory_runtime.md), and
   [RFC 0020](0020_runtime_backed_memory_remote_access.md)
@@ -43,7 +41,7 @@ several problems:
 - exact citations already present on search hits are discarded during rendering;
 - the string is sliced at a fixed length, which can cut an entry or break its structure;
 - the search result limit does not define a separate candidate window, output entry limit, or content budget;
-- the result does not report candidates omitted by the entry or content budget;
+- truncated entries are not marked, and omission behavior under the entry or content budget is undefined;
 - `no-memory`, `no-match`, and failures all look like no injected context;
 - selection, truncation, and safe rendering policy live in the Codex hook and cannot be reused by another Agent;
 - extending the hook would move application policy into a provider adapter.
@@ -72,10 +70,10 @@ into a public contract.
 ## Product positioning and v1 profile
 
 “Context Pack” names the long-term product abstraction. The executable `powercontext.prepared-context.v1` in
-RFC 0021 is its first Memory-backed profile. The schema name is intentionally narrow: it carries only this RFC's
+RFC 0028 is its first Memory-backed profile. The schema name is intentionally narrow: it carries only this RFC's
 Memory projection semantics and must not grow into a multi-source contract through undeclared fields:
 
-| Dimension | Long-term Context Pack | RFC 0021 first version |
+| Dimension | Long-term Context Pack | RFC 0028 first version |
 | --- | --- | --- |
 | Goal | Deliver bounded, sourced context for Agent injection and handoff | Provide relevant Memory before Coding Agent analysis |
 | Sources | May extend to Memory, experience, RAG, Skills, and scenario state | Read one scope's active Memory head only |
@@ -103,7 +101,7 @@ effective agent context
   + prepared Memory Context Pack
 ```
 
-RFC 0021 therefore does not claim that one Memory Context Pack provides a complete handoff. It lacks task objective
+RFC 0028 therefore does not claim that one Memory Context Pack provides a complete handoff. It lacks task objective
 and completion state, the current patch, test results, unresolved risks, tool execution state, and non-Memory sources.
 A Coding Agent must prefer current instructions and live repository facts and treat the Pack as verifiable historical
 support.
@@ -407,7 +405,7 @@ source-specific counts in internal metrics, but they are not part of the shared 
 
 The Runtime owns a fixed trust policy; it is not free-form text supplied by Memory or a remote caller. The Builder must:
 
-- declare before every entry that snippets are untrusted historical data;
+- declare before the item list that snippets are untrusted historical data;
 - state that current system/developer instructions, user requests, repository rules, and current verification win;
 - encode snippets as JSON strings or an equivalent structured representation;
 - prevent Memory newlines, NUL, terminal escapes, `BEGIN/END` text, and Markdown fences from crossing data boundaries;
@@ -716,7 +714,7 @@ web sources.
 No first-version API questions remain open in this implementation. Runtime owns one total 8000-byte default budget,
 and the Codex Hook emits diagnostics for empty and error outcomes while ordinary success remains quiet.
 
-These questions explicitly require later RFCs and are not RFC 0021 implementation items:
+These questions explicitly require later RFCs and are not RFC 0028 implementation items:
 
 - multi-scope or multi-Memory Packs;
 - provider token-aware selection;
@@ -728,7 +726,9 @@ These questions explicitly require later RFCs and are not RFC 0021 implementatio
 - a durable Context Pack Artifact and cross-Agent/session replay;
 - scenario Context Packs beyond Coding Agent.
 
-# Evolution path and graduation criteria
+# Future possibilities
+
+## Evolution path and graduation criteria
 
 The long-term direction remains unchanged: Context Pack should become a generic Agent context deliverable. It evolves
 in stages triggered by real demand rather than being designed all at once:
@@ -754,6 +754,6 @@ A later RFC should start when any of these conditions is met:
 - Skills require version locking, host authorization, and usage attribution;
 - missing, stale, conflicting, or uncertain sources require a machine-readable completeness report.
 
-Until then, RFC 0021 keeps `powercontext.prepared-context.v1` as a bounded, cited, read-only, untrusted,
+Until then, RFC 0028 keeps `powercontext.prepared-context.v1` as a bounded, cited, read-only, untrusted,
 ephemeral Memory projection. It is the first verifiable foundation for a generic Context Pack, not a second Memory
 and not a schema that can silently grow into a multi-source orchestration framework.

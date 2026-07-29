@@ -3,10 +3,8 @@
 from powercontext.builtin.artifacts.memory.models import MemoryChange
 from powercontext.builtin.runtime.application import (
     BuiltinRuntime,
-    ContextApplication,
     MemoryApplication,
     ScheduledSourceProcessor,
-    ScopedContextApplication,
     ScopedMemoryApplication,
     ScopedSourceApplication,
     SourceApplication,
@@ -22,9 +20,8 @@ from powercontext.builtin.runtime.config import (
     InferenceConfig,
     RuntimeConfig,
 )
-from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, PreparedContextInvariantError
+from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
 from powercontext.builtin.runtime.models import (
-    PREPARED_CONTEXT_SCHEMA,
     CaptureSource,
     GetMemoryEntryRequest,
     MemoryChangesPage,
@@ -40,8 +37,6 @@ from powercontext.builtin.runtime.models import (
     MemorySearchPage,
     PrepareContextRequest,
     PreparedContext,
-    PreparedContextSchema,
-    PreparedContextStatus,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
     ReviseMemoryEntryRequest,
@@ -49,16 +44,13 @@ from powercontext.builtin.runtime.models import (
     SearchMemoryRequest,
     SourceReceipt,
 )
-from powercontext.builtin.runtime.prepared_context import PreparedContextBuilder
 from powercontext.builtin.runtime.protocols import PowerContextProvider
 
 __all__ = [
-    "PREPARED_CONTEXT_SCHEMA",
     "BuiltinConfig",
     "BuiltinConfigurationError",
     "BuiltinRuntime",
     "CaptureSource",
-    "ContextApplication",
     "DatabaseConfig",
     "GetMemoryEntryRequest",
     "InferenceConfig",
@@ -79,17 +71,12 @@ __all__ = [
     "PowerContextProvider",
     "PrepareContextRequest",
     "PreparedContext",
-    "PreparedContextBuilder",
-    "PreparedContextInvariantError",
-    "PreparedContextSchema",
-    "PreparedContextStatus",
     "RememberMemoryRequest",
     "RetireMemoryEntryRequest",
     "ReviseMemoryEntryRequest",
     "RuntimeCapabilities",
     "RuntimeConfig",
     "ScheduledSourceProcessor",
-    "ScopedContextApplication",
     "ScopedMemoryApplication",
     "ScopedSourceApplication",
     "SearchMemoryRequest",
