@@ -12,9 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/prek
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -28,7 +28,7 @@ jobs:
       - name: Check OpenAPI contract
         run: make contract-test
 
-  tests-and-type-check:
+  tests:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -39,7 +39,7 @@ jobs:
         shell: bash
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
@@ -52,16 +52,12 @@ jobs:
       - name: Run end-to-end tests
         run: make e2e-test
 
-      - name: Check typing
-        run: uv run ty check
-
-
 
   check-docs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env

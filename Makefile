@@ -51,7 +51,7 @@ api-generate-check: ## Verify generated API code is current.
 .PHONY: build
 build: clean-build ## Build wheel file
 	@echo "🚀 Creating wheel file"
-	@uvx --from build pyproject-build --installer uv
+	@uv build
 
 .PHONY: clean-build
 clean-build: ## Clean build artifacts
@@ -61,7 +61,7 @@ clean-build: ## Clean build artifacts
 .PHONY: publish
 publish: ## Publish a release to PyPI.
 	@echo "🚀 Publishing."
-	@uvx twine upload --repository-url https://upload.pypi.org/legacy/ dist/*
+	@uv publish dist/*
 
 .PHONY: build-and-publish
 build-and-publish: build publish ## Build and publish.
