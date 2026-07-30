@@ -17,6 +17,12 @@ from powercontext.http._generated.operations import (
     REVISE_MEMORY_ENTRY,
     SEARCH_MEMORY,
 )
+from powercontext.server.app import REQUEST_ID_HEADER
+from powercontext.server.context import (
+    bind_internal_bridge,
+    current_request_id,
+    reset_internal_bridge,
+)
 
 MCP_PATH = "/mcp"
 MCP_SERVER_NAME = "PowerContext Server"
@@ -40,7 +46,7 @@ def create_mcp_server(server_app: FastAPI) -> FastMCP:
     """Project the Agent-facing subset of a Server app into MCP components."""
 
     client = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=server_app),
+        transport=_InternalBridgeTransport(app=server_app),
         base_url="http://fastapi",
     )
     provider = OpenAPIProvider(
@@ -52,6 +58,18 @@ def create_mcp_server(server_app: FastAPI) -> FastMCP:
         validate_output=False,
     )
     return FastMCP(name=MCP_SERVER_NAME, providers=[provider])
+
+
+class _InternalBridgeTransport(httpx.ASGITransport):
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        request_id = current_request_id()
+        if request_id is not None:
+            request.headers[REQUEST_ID_HEADER] = request_id
+        token = bind_internal_bridge()
+        try:
+            return await super().handle_async_request(request)
+        finally:
+            reset_internal_bridge(token)
 
 
 def mount_mcp(server_app: FastAPI, *, path: str = MCP_PATH) -> FastAPI:

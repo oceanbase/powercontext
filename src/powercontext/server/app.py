@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
+from functools import wraps
 from re import fullmatch
+from time import perf_counter
 from typing import Annotated, Any, Protocol, TypeVar
 from uuid import uuid4
 
@@ -15,6 +18,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.types import Lifespan
 
+from powercontext._logging import log_safely
 from powercontext.builtin.artifacts.memory.errors import (
     CapabilityNotSupportedError,
     InvalidMemoryCandidateError,
@@ -110,6 +114,7 @@ from powercontext.http._generated.operations import (
 )
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
 from powercontext.server import mapping
+from powercontext.server.context import bind_request_id, current_request_id, reset_request_id
 
 REQUEST_ID_HEADER = "X-Request-ID"
 REQUEST_ID_PATTERN = r"[A-Za-z0-9._:-]{1,128}"
@@ -200,7 +205,11 @@ def create_app(
     async def attach_request_id(request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = _request_id(request.headers.get(REQUEST_ID_HEADER))
         request.state.request_id = request_id
-        response = await call_next(request)
+        token = bind_request_id(request_id)
+        try:
+            response = await call_next(request)
+        finally:
+            reset_request_id(token)
         response.headers[REQUEST_ID_HEADER] = request_id
         return response
 
@@ -217,18 +226,11 @@ def create_app(
     @app.exception_handler(PowerContextError)
     async def application_error(request: Request, error: Exception) -> JSONResponse:
         response_status, code, message, details = _map_error(error)
-        if response_status == status.HTTP_500_INTERNAL_SERVER_ERROR:
-            logger.exception(
-                "PowerContext request failed",
-                exc_info=error,
-                extra={"request_id": getattr(request.state, "request_id", None)},
-            )
         return _error_response(response_status, code=code, message=message, details=details)
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
         request_id = getattr(request.state, "request_id", _request_id(None))
-        logger.exception("PowerContext request failed", exc_info=error, extra={"request_id": request_id})
         response = _error_response(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="internal_error",
@@ -397,7 +399,7 @@ def _add_route(
 ) -> None:
     app.add_api_route(
         operation.path,
-        endpoint,
+        _log_application_operation(operation, endpoint),
         methods=[operation.method],
         operation_id=operation.operation_id,
         response_model=operation.response_type,
@@ -406,6 +408,63 @@ def _add_route(
         summary=operation.summary,
         tags=list(operation.tags),
     )
+
+
+def _log_application_operation(
+    operation: Operation[_RequestT, _ResponseT],
+    endpoint: Callable[..., Awaitable[_ResponseT | Response]],
+) -> Callable[..., Awaitable[_ResponseT | Response]]:
+    @wraps(endpoint)
+    async def observed_endpoint(*args: Any, **kwargs: Any) -> _ResponseT | Response:
+        started_at = perf_counter()
+        try:
+            return await endpoint(*args, **kwargs)
+        except asyncio.CancelledError:
+            _log_operation(
+                logging.INFO,
+                "PowerContext application operation cancelled",
+                operation=operation.operation_id,
+                outcome="cancelled",
+                started_at=started_at,
+            )
+            raise
+        except Exception as error:
+            response_status, error_code, _, _ = _map_error(error)
+            _log_operation(
+                logging.ERROR if response_status >= status.HTTP_500_INTERNAL_SERVER_ERROR else logging.WARNING,
+                "PowerContext application operation failed",
+                operation=operation.operation_id,
+                outcome="failure",
+                started_at=started_at,
+                error=error,
+                error_code=error_code,
+            )
+            raise
+
+    return observed_endpoint
+
+
+def _log_operation(
+    level: int,
+    message: str,
+    *,
+    operation: str,
+    outcome: str,
+    started_at: float,
+    error: Exception | None = None,
+    error_code: str | None = None,
+) -> None:
+    extra = {
+        "event": "application.operation.completed",
+        "operation": operation,
+        "outcome": outcome,
+        "request_id": current_request_id(),
+        "unit": "application",
+        "duration_ms": max(perf_counter() - started_at, 0) * 1_000,
+    }
+    if error_code is not None:
+        extra["error_code"] = error_code
+    log_safely(logger, level, message, exc_info=error, extra=extra)
 
 
 def _error_response(

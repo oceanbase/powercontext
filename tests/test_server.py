@@ -1,3 +1,5 @@
+import logging
+
 from fastapi.testclient import TestClient
 
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
@@ -120,3 +122,41 @@ def test_prepare_context_rejects_memory_specific_tuning_fields(tmp_path) -> None
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "invalid_request"
+
+
+def test_application_failure_log_uses_operation_context(caplog) -> None:
+    def fail() -> Capabilities:
+        raise RuntimeError("boom")
+
+    with caplog.at_level(logging.ERROR, logger="powercontext.server.app"):
+        response = TestClient(create_app(capability_provider=fail), raise_server_exceptions=False).get(
+            "/v1/capabilities",
+            headers={"X-Request-ID": "request-123"},
+        )
+
+    record = next(record for record in caplog.records if record.event == "application.operation.completed")
+    assert response.status_code == 500
+    assert record.operation == "get_capabilities"
+    assert record.outcome == "failure"
+    assert record.request_id == "request-123"
+    assert record.unit == "application"
+    assert record.error_code == "internal_error"
+
+
+def test_logging_failure_does_not_change_the_response(monkeypatch) -> None:
+    def fail() -> Capabilities:
+        raise RuntimeError("boom")
+
+    def fail_to_log(*args, **kwargs) -> None:
+        del args, kwargs
+        raise RuntimeError
+
+    monkeypatch.setattr("powercontext.server.app.logger.log", fail_to_log)
+
+    response = TestClient(create_app(capability_provider=fail), raise_server_exceptions=False).get(
+        "/v1/capabilities",
+        headers={"X-Request-ID": "request-123"},
+    )
+
+    assert response.status_code == 500
+    assert response.headers["X-Request-ID"] == "request-123"

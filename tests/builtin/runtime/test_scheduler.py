@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sqlite3
 
 import pytest
@@ -91,6 +92,22 @@ def test_scheduler_interval_activates_the_source_window_policy(tmp_path) -> None
             await runtime.close()
 
     asyncio.run(scenario())
+
+
+def test_scheduled_noop_logs_a_bounded_outcome(caplog) -> None:
+    async def scenario() -> None:
+        runtime = _runtime(_ScheduledTriggers())
+        assert runtime.processor is not None
+        await runtime.processor.run()
+
+    with caplog.at_level(logging.INFO, logger="powercontext.builtin.runtime.application"):
+        asyncio.run(scenario())
+
+    record = next(record for record in caplog.records if record.event == "background.operation.completed")
+    assert record.operation == "process_source_window"
+    assert record.outcome == "noop"
+    assert record.source_count == 0
+    assert "scope_id" not in vars(record)
 
 
 def test_scheduler_requires_file_storage_and_one_live_owner(tmp_path) -> None:

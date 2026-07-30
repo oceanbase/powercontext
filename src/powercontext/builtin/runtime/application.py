@@ -7,8 +7,10 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING
 
+from powercontext._logging import log_safely
 from powercontext.builtin.artifacts.memory import (
     Memory,
     MemoryCitation,
@@ -296,10 +298,46 @@ class ScheduledSourceProcessor:
             for scope_id in await self._scope_ids():
                 if self._runtime._closing or self._runtime._closed:
                     return
+                started_at = perf_counter()
                 try:
-                    await self._runtime.memory.for_scope(scope_id).flush()
-                except Exception:
-                    logger.exception("scheduled Source processing failed", extra={"scope_id": scope_id})
+                    result = await self._runtime.memory.for_scope(scope_id).flush()
+                except asyncio.CancelledError:
+                    _log_scheduled_processing("cancelled", started_at=started_at)
+                    raise
+                except Exception as error:
+                    _log_scheduled_processing("failure", started_at=started_at, error=error)
+                else:
+                    _log_scheduled_processing(
+                        "success" if result.processed else "noop",
+                        started_at=started_at,
+                        source_count=result.source_count,
+                    )
+
+
+def _log_scheduled_processing(
+    outcome: str,
+    *,
+    started_at: float,
+    error: Exception | None = None,
+    source_count: int | None = None,
+) -> None:
+    extra = {
+        "event": "background.operation.completed",
+        "operation": "process_source_window",
+        "outcome": outcome,
+        "unit": "background",
+        "duration_ms": max(perf_counter() - started_at, 0) * 1_000,
+    }
+    if source_count is not None:
+        extra["source_count"] = source_count
+    level = logging.ERROR if error is not None else logging.INFO
+    log_safely(
+        logger,
+        level,
+        "Scheduled Source processing completed" if error is None else "Scheduled Source processing failed",
+        exc_info=error,
+        extra=extra,
+    )
 
 
 class BuiltinRuntime:
