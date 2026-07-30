@@ -6,10 +6,10 @@ import logging
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from re import fullmatch
-from typing import Any, Protocol, TypeVar
+from typing import Annotated, Any, Protocol, TypeVar
 from uuid import uuid4
 
-from fastapi import FastAPI, Request, Response, status
+from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
@@ -169,7 +169,7 @@ class _RuntimeNotReadyError(RuntimeError):
     """Raised when an application operation is called without a Runtime binding."""
 
 
-def create_app(  # noqa: C901
+def create_app(
     *,
     application: ServerApplication | None = None,
     capability_provider: CapabilityProvider | None = None,
@@ -186,6 +186,8 @@ def create_app(  # noqa: C901
     )
     app.openapi_version = OPENAPI_VERSION
     app.state.application = application
+    app.state.capability_provider = capability_provider
+    app.state.readiness_probe = readiness_probe
     app.state.capabilities = Capabilities(
         source_types=[],
         artifact_families=[],
@@ -236,75 +238,6 @@ def create_app(  # noqa: C901
         response.headers[REQUEST_ID_HEADER] = request_id
         return response
 
-    async def get_liveness() -> HealthResponse:
-        return HealthResponse(status="ok")
-
-    async def get_readiness() -> JSONResponse:
-        readiness = (
-            await readiness_probe() if readiness_probe is not None else _runtime_readiness(app.state.application)
-        )
-        response_status = (
-            status.HTTP_200_OK if readiness.status is ReadinessStatus.READY else status.HTTP_503_SERVICE_UNAVAILABLE
-        )
-        return JSONResponse(content=readiness.model_dump(mode="json"), status_code=response_status)
-
-    async def get_capabilities() -> Capabilities:
-        if capability_provider is not None:
-            return capability_provider()
-        return app.state.capabilities
-
-    async def capture_content_source(request: CaptureContentSourceRequest) -> CaptureContentSourceResponse:
-        runtime = _require_application(app.state.application)
-        result = await runtime.sources.for_scope(request.scope_id).capture(mapping.capture_request(request))
-        return mapping.capture_response(result)
-
-    async def flush_memory(request: FlushMemoryRequest) -> FlushMemoryResponse:
-        runtime = _require_application(app.state.application)
-        result = await runtime.memory.for_scope(request.scope_id).flush()
-        return mapping.flush_response(result)
-
-    async def remember_memory(request: RememberMemoryRequest) -> MemoryMutationResponse:
-        runtime = _require_application(app.state.application)
-        result = await runtime.memory.for_scope(request.scope_id).remember(mapping.remember_request(request))
-        return mapping.mutation_response(result)
-
-    async def search_memory(request: SearchMemoryRequest) -> SearchMemoryResponse:
-        runtime = _require_application(app.state.application)
-        result = await runtime.memory.for_scope(request.scope_id).search(mapping.search_request(request))
-        return mapping.search_response(result)
-
-    async def prepare_context(request: PrepareContextRequest) -> PreparedContext:
-        runtime = _require_application(app.state.application)
-        result = await runtime.context.for_scope(request.scope_id).prepare(mapping.prepare_context_request(request))
-        return mapping.prepared_context_response(result)
-
-    async def list_memory_entries(request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
-        runtime = _require_application(app.state.application)
-        result = await runtime.memory.for_scope(request.scope_id).list(
-            include_inactive=request.include_inactive,
-        )
-        return mapping.entries_response(result)
-
-    async def get_memory_entry(request: GetMemoryEntryRequest) -> MemoryEntry:
-        runtime = _require_application(app.state.application)
-        result = await runtime.memory.for_scope(request.scope_id).get(mapping.get_request(request))
-        return mapping.memory_entry(result)
-
-    async def revise_memory_entry(request: ReviseMemoryEntryRequest) -> MemoryMutationResponse:
-        runtime = _require_application(app.state.application)
-        result = await runtime.memory.for_scope(request.scope_id).revise(mapping.revise_request(request))
-        return mapping.mutation_response(result)
-
-    async def retire_memory_entry(request: RetireMemoryEntryRequest) -> MemoryMutationResponse:
-        runtime = _require_application(app.state.application)
-        result = await runtime.memory.for_scope(request.scope_id).retire(mapping.retire_request(request))
-        return mapping.mutation_response(result)
-
-    async def list_memory_changes(request: ListMemoryChangesRequest) -> ListMemoryChangesResponse:
-        runtime = _require_application(app.state.application)
-        result = await runtime.memory.for_scope(request.scope_id).changes(since_revision=request.since_revision)
-        return mapping.changes_response(result)
-
     _add_route(app, GET_LIVENESS, get_liveness)
     _add_route(app, GET_READINESS, get_readiness)
     _add_route(app, GET_CAPABILITIES, get_capabilities)
@@ -328,6 +261,110 @@ def create_app(  # noqa: C901
     return app
 
 
+async def get_liveness() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+async def get_readiness(request: Request) -> JSONResponse:
+    readiness_probe: ReadinessProbe | None = request.app.state.readiness_probe
+    readiness = (
+        await readiness_probe() if readiness_probe is not None else _runtime_readiness(request.app.state.application)
+    )
+    response_status = (
+        status.HTTP_200_OK if readiness.status is ReadinessStatus.READY else status.HTTP_503_SERVICE_UNAVAILABLE
+    )
+    return JSONResponse(content=readiness.model_dump(mode="json"), status_code=response_status)
+
+
+async def get_capabilities(request: Request) -> Capabilities:
+    capability_provider: CapabilityProvider | None = request.app.state.capability_provider
+    if capability_provider is not None:
+        return capability_provider()
+    return request.app.state.capabilities
+
+
+async def capture_content_source(
+    request: CaptureContentSourceRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> CaptureContentSourceResponse:
+    result = await application.sources.for_scope(request.scope_id).capture(mapping.capture_request(request))
+    return mapping.capture_response(result)
+
+
+async def flush_memory(
+    request: FlushMemoryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> FlushMemoryResponse:
+    result = await application.memory.for_scope(request.scope_id).flush()
+    return mapping.flush_response(result)
+
+
+async def remember_memory(
+    request: RememberMemoryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> MemoryMutationResponse:
+    result = await application.memory.for_scope(request.scope_id).remember(mapping.remember_request(request))
+    return mapping.mutation_response(result)
+
+
+async def search_memory(
+    request: SearchMemoryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> SearchMemoryResponse:
+    result = await application.memory.for_scope(request.scope_id).search(mapping.search_request(request))
+    return mapping.search_response(result)
+
+
+async def prepare_context(
+    request: PrepareContextRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> PreparedContext:
+    result = await application.context.for_scope(request.scope_id).prepare(mapping.prepare_context_request(request))
+    return mapping.prepared_context_response(result)
+
+
+async def list_memory_entries(
+    request: ListMemoryEntriesRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ListMemoryEntriesResponse:
+    result = await application.memory.for_scope(request.scope_id).list(
+        include_inactive=request.include_inactive,
+    )
+    return mapping.entries_response(result)
+
+
+async def get_memory_entry(
+    request: GetMemoryEntryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> MemoryEntry:
+    result = await application.memory.for_scope(request.scope_id).get(mapping.get_request(request))
+    return mapping.memory_entry(result)
+
+
+async def revise_memory_entry(
+    request: ReviseMemoryEntryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> MemoryMutationResponse:
+    result = await application.memory.for_scope(request.scope_id).revise(mapping.revise_request(request))
+    return mapping.mutation_response(result)
+
+
+async def retire_memory_entry(
+    request: RetireMemoryEntryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> MemoryMutationResponse:
+    result = await application.memory.for_scope(request.scope_id).retire(mapping.retire_request(request))
+    return mapping.mutation_response(result)
+
+
+async def list_memory_changes(
+    request: ListMemoryChangesRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ListMemoryChangesResponse:
+    result = await application.memory.for_scope(request.scope_id).changes(since_revision=request.since_revision)
+    return mapping.changes_response(result)
+
+
 def _runtime_readiness(application: ServerApplication | None) -> ReadinessResponse:
     if application is None:
         return ReadinessResponse(
@@ -340,7 +377,8 @@ def _runtime_readiness(application: ServerApplication | None) -> ReadinessRespon
     )
 
 
-def _require_application(application: ServerApplication | None) -> ServerApplication:
+def _require_application(request: Request) -> ServerApplication:
+    application: ServerApplication | None = request.app.state.application
     if application is None:
         raise _RuntimeNotReadyError
     return application
