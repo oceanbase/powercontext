@@ -42,6 +42,7 @@ nav = [
             { "0020 Runtime-backed Memory Remote Access" = "en/rfcs/0020_runtime_backed_memory_remote_access.md" },
             { "0028 Context Pack" = "en/rfcs/0028_context_pack.md" },
             { "0048 Handoff Artifact" = "en/rfcs/0048_handoff_artifact.md" },
+            { "0051 Experience and Skill Artifact Families" = "en/rfcs/0051_experience_skill_artifact_families.md" },
         ] },
     ] },
     { "中文" = [
@@ -77,6 +78,7 @@ nav = [
             { "0020 基于 Runtime 的 Memory 远程访问" = "zh/rfcs/0020_runtime_backed_memory_remote_access.md" },
             { "0028 Context Pack" = "zh/rfcs/0028_context_pack.md" },
             { "0048 Handoff Artifact" = "zh/rfcs/0048_handoff_artifact.md" },
+            { "0051 Experience 与 Skill Artifact Family" = "zh/rfcs/0051_experience_skill_artifact_families.md" },
         ] },
     ] },
 ]
