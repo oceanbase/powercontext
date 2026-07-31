@@ -5,16 +5,16 @@ description: 在 Codex 插件、CLI、Python SDK、HTTP 和 MCP 之间选择。
 
 # 接口
 
-所有远程接口都操作同一个 Server 和同一份持久化 Memory。
+所有远程接口都操作同一个 Server 和同一份持久化 Artifact 存储。
 
 | 接口 | 适用场景 | 安装 |
 | --- | --- | --- |
 | Codex 插件 | 在 Codex 中跨会话恢复和显式维护 Memory | `powercontext setup codex` |
-| CLI | 配置、诊断、Server 进程控制和能力检查 | `powercontext[cli,client,server]` |
+| CLI | 配置、诊断、Server 控制、能力检查和人工 Candidate 审核 | `powercontext[cli,client,server]` |
 | Python Client SDK | 对运行中的 Server 发起类型化异步调用 | `powercontext[client]` |
 | Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | 基础包 |
 | HTTP | 从任意语言集成服务 | `powercontext[server]` |
-| MCP | 面向 Agent 的 Memory 读写工具 | 由 Server 启用 |
+| MCP | 面向 Agent 的 Memory 与 Candidate Review 工具 | 由 Server 启用 |
 
 ## Codex 插件
 
@@ -29,6 +29,11 @@ powercontext doctor
 powercontext server run
 powercontext client ready
 powercontext client capabilities
+powercontext client candidate list --scope-id project:example
+powercontext client candidate show --scope-id project:example CANDIDATE_ID
+powercontext client candidate approve --scope-id project:example --expected-version 1 CANDIDATE_ID
+powercontext client candidate reject --scope-id project:example --expected-version 1 --reason unsupported CANDIDATE_ID
+powercontext client candidate revise revision-request.json
 powercontext builtin capabilities
 ```
 
@@ -72,6 +77,11 @@ asyncio.run(main())
 
 变更操作的响应包含精确 citation。修订、停用或读取不可变条目版本时，应把该 citation 传回 Server。
 
+Client 还提供 `propose_experience`、`get_experience`、`list_artifact_candidates`、
+`get_artifact_candidate`、`approve_artifact_candidate`、`reject_artifact_candidate` 和
+`revise_artifact_candidate`。Review 写操作都要求 `expected_version`。批准响应返回精确的 Experience
+`result_artifact`；pending 和 rejected Candidate 不是 Artifact Revision。
+
 ## Core SDK
 
 基础 `powercontext` 包为自行管理 composition root 的应用导出 Python 协议和模型。它不会替应用选择存储、
@@ -81,6 +91,7 @@ asyncio.run(main())
 
 Server 在 `/openapi.json` 提供 OpenAPI 文档，在 `/health/ready` 提供就绪检查，在 `/v1/capabilities`
 提供能力信息，并默认在 `/mcp` 提供 Streamable HTTP MCP。HTTP 是完整应用契约，MCP 是面向 Agent 的
-Memory 操作子集。
+Memory 与 Candidate Review operation 子集。五个 Candidate Review operation 通过 HTTP 和 MCP 使用相同的 validation、
+`expected_version` 并发校验和 approval transaction。`propose_experience` 与 `get_experience` 仍只通过 HTTP 提供。
 `POST /v1/context/prepare` 及对应的 Python Client method 通过 HTTP 提供最终的临时 `PreparedContext`；
 Runtime 负责选择和总输出预算，该 operation 不会投影为 MCP tool。

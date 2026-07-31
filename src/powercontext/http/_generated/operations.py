@@ -7,13 +7,20 @@ from typing import Generic, TypeVar
 from pydantic import BaseModel, JsonValue
 
 from powercontext.http._generated.models import (
+    ApproveArtifactCandidateRequest,
+    ArtifactCandidate,
+    ArtifactCandidatePage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    ExperienceArtifact,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    GetArtifactCandidateRequest,
+    GetExperienceRequest,
     GetMemoryEntryRequest,
     HealthResponse,
+    ListArtifactCandidatesRequest,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -22,9 +29,12 @@ from powercontext.http._generated.models import (
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
+    ProposeExperienceRequest,
     ReadinessResponse,
+    RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
+    ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
     SearchMemoryRequest,
     SearchMemoryResponse,
@@ -309,6 +319,155 @@ LIST_MEMORY_CHANGES = Operation[ListMemoryChangesRequest, ListMemoryChangesRespo
             "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+PROPOSE_EXPERIENCE = Operation[ProposeExperienceRequest, ArtifactCandidate](
+    method="POST",
+    path="/v1/experience/propose",
+    operation_id="propose_experience",
+    request_type=ProposeExperienceRequest,
+    response_type=ArtifactCandidate,
+    success_status=201,
+    summary="Propose Experience content",
+    tags=("experience",),
+    responses={
+        201: {
+            "description": "The pending Experience Candidate.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_EXPERIENCE = Operation[GetExperienceRequest, ExperienceArtifact](
+    method="POST",
+    path="/v1/experience/get",
+    operation_id="get_experience",
+    request_type=GetExperienceRequest,
+    response_type=ExperienceArtifact,
+    success_status=200,
+    summary="Get an exact Experience Revision",
+    tags=("experience",),
+    responses={
+        200: {
+            "description": "The exact approved Experience Revision.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+LIST_ARTIFACT_CANDIDATES = Operation[ListArtifactCandidatesRequest, ArtifactCandidatePage](
+    method="POST",
+    path="/v1/artifact-candidates/list",
+    operation_id="list_artifact_candidates",
+    request_type=ListArtifactCandidatesRequest,
+    response_type=ArtifactCandidatePage,
+    success_status=200,
+    summary="List Artifact Candidates",
+    tags=("review",),
+    responses={
+        200: {
+            "description": "The selected current Candidate heads.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_ARTIFACT_CANDIDATE = Operation[GetArtifactCandidateRequest, ArtifactCandidate](
+    method="POST",
+    path="/v1/artifact-candidates/get",
+    operation_id="get_artifact_candidate",
+    request_type=GetArtifactCandidateRequest,
+    response_type=ArtifactCandidate,
+    success_status=200,
+    summary="Get an Artifact Candidate",
+    tags=("review",),
+    responses={
+        200: {
+            "description": "The current Candidate head.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+APPROVE_ARTIFACT_CANDIDATE = Operation[ApproveArtifactCandidateRequest, ArtifactCandidate](
+    method="POST",
+    path="/v1/artifact-candidates/approve",
+    operation_id="approve_artifact_candidate",
+    request_type=ApproveArtifactCandidateRequest,
+    response_type=ArtifactCandidate,
+    success_status=200,
+    summary="Approve an Artifact Candidate",
+    tags=("review",),
+    responses={
+        200: {
+            "description": "The approved Candidate and exact result Artifact.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+REJECT_ARTIFACT_CANDIDATE = Operation[RejectArtifactCandidateRequest, ArtifactCandidate](
+    method="POST",
+    path="/v1/artifact-candidates/reject",
+    operation_id="reject_artifact_candidate",
+    request_type=RejectArtifactCandidateRequest,
+    response_type=ArtifactCandidate,
+    success_status=200,
+    summary="Reject an Artifact Candidate",
+    tags=("review",),
+    responses={
+        200: {
+            "description": "The rejected Candidate.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+REVISE_ARTIFACT_CANDIDATE = Operation[ReviseArtifactCandidateRequest, ArtifactCandidate](
+    method="POST",
+    path="/v1/artifact-candidates/revise",
+    operation_id="revise_artifact_candidate",
+    request_type=ReviseArtifactCandidateRequest,
+    response_type=ArtifactCandidate,
+    success_status=200,
+    summary="Revise an Artifact Candidate",
+    tags=("review",),
+    responses={
+        200: {
+            "description": "The next pending Candidate version.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},

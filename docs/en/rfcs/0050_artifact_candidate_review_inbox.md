@@ -6,7 +6,7 @@
 
 # Summary
 
-This RFC defines Artifact Candidate and Review Inbox for Artifact Families that require human confirmation.
+This RFC defines Artifact Candidate and Review Inbox for Artifact Families that require explicit Review confirmation.
 
 Whether content enters Review is not chosen by the user and does not depend on whether an LLM is involved. It is fixed by
 the Artifact Family: Memory continues to write directly to an Artifact, while Experience and Skill must first become a
@@ -23,19 +23,19 @@ This review must confirm four decisions:
 1. Review policy is fixed on the Artifact Family; the user does not provide a mode.
 2. Memory writes directly, while Experience and Skill require Review.
 3. Pending and rejected Candidates are fully isolated from Artifact retrieval and PreparedContext.
-4. Review is exposed to people through HTTP, the Python Client, and the CLI, with no approval capability exposed through
-   MCP.
+4. Review operations are exposed consistently through HTTP, the Python Client, the CLI, and MCP; MCP is not a separate
+   approval-policy boundary.
 
 # Motivation
 
 Different Artifacts carry different risks.
 
 Memory stores facts, conventions, and preferences. It is written frequently and can retain exact evidence. Requiring
-human confirmation for every Memory write would turn Review Inbox into a routine operational burden.
+separate Review confirmation for every Memory write would turn Review Inbox into a routine operational burden.
 
 Experience and Skill are higher-order Artifacts. Experience derives a situation, action, outcome, and lesson from
 multiple results. Skill distills Experience into reusable steps. Incorrect generalization, semantic merging, or operating
-steps can affect many later tasks, so these Artifacts require human confirmation.
+steps can affect many later tasks, so these Artifacts require explicit Review.
 
 PowerMem has demonstrated the value of Experience and Skill distillation, deduplication, and merging. It also shows the
 governance risk of a direct `distill -> merge -> store` path. PowerContext preserves automatic generation while separating
@@ -169,6 +169,7 @@ A Candidate consists of a family-neutral envelope and a family-owned typed propo
 | `target` | Exact active ArtifactRef when modifying an existing Artifact |
 | `reason` | Untrusted explanation that does not affect authorization or ranking |
 | `result_artifact` | Exact Artifact Revision produced after approval |
+| `decision_reason` | Reviewer-supplied rejection reason; absent for other states |
 
 A Candidate reference is not an `ArtifactRef`. A Candidate has no Artifact identity and cannot be read by the Artifact
 catalog, a Family search index, or the Context builder.
@@ -185,6 +186,10 @@ pending --reject--> rejected
 `approve` confirms only the current Candidate version and cannot modify the proposal at the same time. To change content,
 the reviewer first calls `revise`, creates a complete new version, and then approves that version. `approved` and
 `rejected` are terminal states; the initial version does not support reopening them.
+
+A Candidate that modifies an existing Artifact must also include its exact `target` in `artifacts` evidence. This keeps
+the direct predecessor in the approved Revision's lineage instead of relying only on a temporary target field in the
+Candidate envelope.
 
 Every Review write requires `expected_version`. The Runtime performs two concurrency checks:
 
@@ -220,9 +225,15 @@ OpenAPI remains the source of truth for the HTTP contract. Review Inbox adds:
 | `reject_artifact_candidate` | Reject by expected version and reason |
 | `revise_artifact_candidate` | Submit a complete replacement proposal by expected version |
 
-The generated Python Client exposes the same operations, and the CLI provides
-`candidate list/show/approve/reject/revise`. None of these Review operations enter the MCP allow-list, preventing a
-producer from viewing or reviewing its own Candidate within the same Agent trust boundary.
+The initial Experience vertical slice also exposes `propose_experience` and `get_experience`. The former creates only a
+pending Candidate; the latter reads an approved Experience Revision only by exact `ArtifactRef`. Their HTTP paths are
+`/v1/experience/propose` and `/v1/experience/get`. The five Review paths are under `/v1/artifact-candidates/`.
+
+The generated Python Client exposes the same operations, the CLI provides
+`candidate list/show/approve/reject/revise`, and MCP projects all five Review operations as tools. Transport does not
+change Candidate validation, `expected_version` checks, or the atomic approval transaction. PowerContext does not treat
+MCP visibility as an authorization boundary; deployments that require reviewer separation must control access to the
+MCP endpoint.
 
 This RFC does not modify the existing Memory contract:
 
@@ -230,7 +241,7 @@ This RFC does not modify the existing Memory contract:
 - `remember_memory`, `revise_memory_entry`, and `retire_memory_entry` remain unchanged.
 - `MemoryRememberMode` and its existing behavior remain unchanged. It controls only how Memory content is generated and
   is unrelated to Review.
-- The Codex Hook, Memory MCP tools, and `prepare_context` contract remain unchanged.
+- The Codex Hook, existing Memory MCP tools, and `prepare_context` contract remain unchanged; Review adds five MCP tools.
 
 Candidate and Review code ships with the first Experience vertical slice. The project does not first deliver
 infrastructure consisting only of tables and unused APIs.
@@ -261,12 +272,12 @@ multi-Artifact Context Profile RFC. Candidate approval does not automatically ex
 | Conflict | A stale Candidate or Artifact target returns a typed conflict without automatic merge |
 | Reject | Write no Artifact; a terminal Candidate cannot be approved or revised again |
 | Compatibility | Existing Memory flush, HTTP, MCP, Hook, and PreparedContext behavior remains unchanged |
-| Agent boundary | MCP and Provider Hooks cannot list, read, modify, approve, or reject Candidates |
+| MCP parity | MCP can list, read, revise, approve, and reject Candidates with the same lifecycle and CAS rules |
 
 # Drawbacks
 
 - Memory does not go through Review, so incorrect content must be corrected through its existing revision semantics.
-- Experience and Skill are not available immediately after generation; they must wait for human review.
+- Experience and Skill are not available immediately after generation; they must wait for explicit Review.
 - Candidates may accumulate without assignment, notifications, or bulk operations.
 - A fixed policy is simple, but every new Family must explicitly choose `direct` or `review`.
 - Candidate heads and versions add storage and migration costs.
@@ -291,12 +302,19 @@ multi-Artifact Context Profile RFC. Candidate approval does not automatically ex
 - PowerMem's Experience and Skill distillation, deduplication, and merging provide a reference for generation, but
   automatic content review is not Artifact approval.
 
-# Unresolved questions
+# Limits and deferred work
 
-The exact limits for Candidate payload size, evidence count, and one Inbox page must be set before merge.
+The initial implementation uses these fixed limits:
 
-Experience and Skill content schemas, generation rules, and Family write semantics are defined by their own RFCs.
-Candidate retention, reviewer identity, RBAC, notifications, bulk review, and multi-IDE UI do not block this RFC.
+- A Candidate may contain at most 32 exact evidence references across `sources` and `artifacts`.
+- `reason` and the rejection-only `decision_reason` are limited to 2,000 characters each.
+- Inbox pages contain 50 items by default. Callers may choose a `limit` from 1 through 100 and continue with
+  `next_cursor`.
+- Each Family's typed schema limits its proposal payload. Each of the four initial Experience fields is limited to
+  8,000 characters.
+
+Experience and Skill generation rules and Family write semantics are defined by their own RFCs. Candidate retention,
+reviewer identity, RBAC, notifications, bulk review, and multi-IDE UI remain future work.
 
 # Future possibilities
 

@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
+from powercontext.builtin.review import CandidateStatus as RuntimeCandidateStatus
+from powercontext.builtin.runtime import (
+    ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
+)
 from powercontext.builtin.runtime import (
     CaptureSource,
+    ExperienceCandidate,
+    ExperienceCandidatePage,
     MemoryChange,
     MemoryChangesPage,
     MemoryEntriesPage,
@@ -20,7 +27,16 @@ from powercontext.builtin.runtime import (
     SourceReceipt,
 )
 from powercontext.builtin.runtime import (
+    GetArtifactCandidateRequest as RuntimeGetArtifactCandidateRequest,
+)
+from powercontext.builtin.runtime import (
+    GetExperienceRequest as RuntimeGetExperienceRequest,
+)
+from powercontext.builtin.runtime import (
     GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
+)
+from powercontext.builtin.runtime import (
+    ListArtifactCandidatesRequest as RuntimeListArtifactCandidatesRequest,
 )
 from powercontext.builtin.runtime import (
     MemoryCitation as RuntimeMemoryCitation,
@@ -29,7 +45,16 @@ from powercontext.builtin.runtime import (
     MemoryRevisionChanges as RuntimeMemoryRevisionChanges,
 )
 from powercontext.builtin.runtime import (
+    ProposeExperienceRequest as RuntimeProposeExperienceRequest,
+)
+from powercontext.builtin.runtime import (
+    RejectArtifactCandidateRequest as RuntimeRejectArtifactCandidateRequest,
+)
+from powercontext.builtin.runtime import (
     RetireMemoryEntryRequest as RuntimeRetireMemoryEntryRequest,
+)
+from powercontext.builtin.runtime import (
+    ReviseArtifactCandidateRequest as RuntimeReviseArtifactCandidateRequest,
 )
 from powercontext.builtin.runtime import (
     ReviseMemoryEntryRequest as RuntimeReviseMemoryEntryRequest,
@@ -38,15 +63,25 @@ from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
 )
 from powercontext.http import (
+    ApproveArtifactCandidateRequest,
+    ArtifactCandidate,
+    ArtifactCandidatePage,
     ArtifactReference,
+    CandidateFamily,
+    CandidateStatus,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CaptureStatus,
     EntryChange,
     EntryChangeOperation,
+    ExperienceArtifact,
+    ExperienceProposal,
     FlushMemoryResponse,
     FlushStatus,
+    GetArtifactCandidateRequest,
+    GetExperienceRequest,
     GetMemoryEntryRequest,
+    ListArtifactCandidatesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesResponse,
     MemoryEntry,
@@ -57,7 +92,10 @@ from powercontext.http import (
     MemoryUsedSearchMode,
     PreparedContextSchema,
     PreparedContextStatus,
+    ProposeExperienceRequest,
+    RejectArtifactCandidateRequest,
     RetireMemoryEntryRequest,
+    ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
     SearchMemoryHit,
     SearchMemoryRequest,
@@ -76,6 +114,7 @@ from powercontext.http import (
 from powercontext.http import (
     RememberMemoryRequest as TransportRememberMemoryRequest,
 )
+from powercontext.sources import SourceRef
 
 
 def capture_request(value: CaptureContentSourceRequest) -> CaptureSource:
@@ -109,6 +148,60 @@ def remember_request(value: TransportRememberMemoryRequest) -> RememberMemoryReq
     return RememberMemoryRequest(
         entries=(MemoryEntryInput(kind=value.kind, text=value.text, reason=value.reason),),
         expected_revision=value.expected_revision,
+    )
+
+
+def propose_experience_request(value: ProposeExperienceRequest) -> RuntimeProposeExperienceRequest:
+    return RuntimeProposeExperienceRequest(
+        proposal=experience_content(value.proposal),
+        sources=tuple(runtime_source_reference(source) for source in value.source_refs),
+        artifacts=tuple(runtime_artifact_reference(artifact) for artifact in value.artifact_refs),
+        target=None if value.target is None else runtime_artifact_reference(value.target),
+        reason=value.reason,
+    )
+
+
+def get_experience_request(value: GetExperienceRequest) -> RuntimeGetExperienceRequest:
+    return RuntimeGetExperienceRequest(artifact=runtime_artifact_reference(value.artifact))
+
+
+def list_candidates_request(value: ListArtifactCandidatesRequest) -> RuntimeListArtifactCandidatesRequest:
+    return RuntimeListArtifactCandidatesRequest(
+        status=RuntimeCandidateStatus(value.status.value),
+        family=None if value.family is None else value.family.value,
+        cursor=value.cursor,
+        limit=value.limit,
+    )
+
+
+def get_candidate_request(value: GetArtifactCandidateRequest) -> RuntimeGetArtifactCandidateRequest:
+    return RuntimeGetArtifactCandidateRequest(candidate_id=value.candidate_id)
+
+
+def approve_candidate_request(value: ApproveArtifactCandidateRequest) -> RuntimeApproveArtifactCandidateRequest:
+    return RuntimeApproveArtifactCandidateRequest(
+        candidate_id=value.candidate_id,
+        expected_version=value.expected_version,
+    )
+
+
+def reject_candidate_request(value: RejectArtifactCandidateRequest) -> RuntimeRejectArtifactCandidateRequest:
+    return RuntimeRejectArtifactCandidateRequest(
+        candidate_id=value.candidate_id,
+        expected_version=value.expected_version,
+        reason=value.reason,
+    )
+
+
+def revise_candidate_request(value: ReviseArtifactCandidateRequest) -> RuntimeReviseArtifactCandidateRequest:
+    return RuntimeReviseArtifactCandidateRequest(
+        candidate_id=value.candidate_id,
+        expected_version=value.expected_version,
+        proposal=experience_content(value.proposal),
+        sources=tuple(runtime_source_reference(source) for source in value.source_refs),
+        artifacts=tuple(runtime_artifact_reference(artifact) for artifact in value.artifact_refs),
+        target=None if value.target is None else runtime_artifact_reference(value.target),
+        reason=value.reason,
     )
 
 
@@ -175,8 +268,70 @@ def changes_response(value: MemoryChangesPage) -> ListMemoryChangesResponse:
     )
 
 
+def candidate_response(value: ExperienceCandidate) -> ArtifactCandidate:
+    return ArtifactCandidate(
+        candidate_id=value.candidate_id,
+        version=value.version,
+        family=CandidateFamily(value.family),
+        status=CandidateStatus(value.status.value),
+        proposal=experience_proposal(value.proposal),
+        source_refs=[source_reference(source) for source in value.sources],
+        artifact_refs=[artifact_reference(artifact) for artifact in value.artifacts],
+        target=None if value.target is None else artifact_reference(value.target),
+        reason=value.reason,
+        result_artifact=None if value.result_artifact is None else artifact_reference(value.result_artifact),
+        decision_reason=value.decision_reason,
+    )
+
+
+def candidate_page_response(value: ExperienceCandidatePage) -> ArtifactCandidatePage:
+    return ArtifactCandidatePage(
+        candidates=[candidate_response(candidate) for candidate in value.candidates],
+        next_cursor=value.next_cursor,
+    )
+
+
+def experience_response(value: Experience) -> ExperienceArtifact:
+    return ExperienceArtifact(
+        artifact=artifact_reference(value.as_ref()),
+        content=experience_proposal(value.content),
+        source_refs=[source_reference(source) for source in value.lineage.sources],
+        artifact_refs=[artifact_reference(artifact) for artifact in value.lineage.artifacts],
+    )
+
+
+def experience_content(value: ExperienceProposal) -> ExperienceContent:
+    return ExperienceContent(
+        situation=value.situation,
+        action=value.action,
+        outcome=value.outcome,
+        lesson=value.lesson,
+    )
+
+
+def experience_proposal(value: ExperienceContent) -> ExperienceProposal:
+    return ExperienceProposal(
+        situation=value.situation,
+        action=value.action,
+        outcome=value.outcome,
+        lesson=value.lesson,
+    )
+
+
 def artifact_reference(value: ArtifactRef) -> ArtifactReference:
     return ArtifactReference(family=value.family, artifact_id=value.artifact_id, revision=value.revision)
+
+
+def runtime_artifact_reference(value: ArtifactReference) -> ArtifactRef:
+    return ArtifactRef(family=value.family, artifact_id=value.artifact_id, revision=value.revision)
+
+
+def source_reference(value: SourceRef) -> SourceReference:
+    return SourceReference(name=value.source_type, source_id=value.source_id)
+
+
+def runtime_source_reference(value: SourceReference) -> SourceRef:
+    return SourceRef(source_type=value.name, source_id=value.source_id)
 
 
 def runtime_citation(value: TransportMemoryCitation) -> RuntimeMemoryCitation:

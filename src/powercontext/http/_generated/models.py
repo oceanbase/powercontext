@@ -6,7 +6,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, model_validator
 
 
 class ArtifactReference(BaseModel):
@@ -18,6 +18,15 @@ class ArtifactReference(BaseModel):
     revision: Annotated[StrictInt, Field(ge=1)]
 
 
+class ApproveArtifactCandidateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+
+
 class CaptureContentSourceRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26,6 +35,16 @@ class CaptureContentSourceRequest(BaseModel):
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
     content: Annotated[StrictStr, Field(max_length=200000, min_length=1)]
     metadata: dict[str, Any] | None = None
+
+
+class ExperienceProposal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    situation: Annotated[StrictStr, Field(max_length=8000, min_length=1, pattern=".*\\S.*")]
+    action: Annotated[StrictStr, Field(max_length=8000, min_length=1, pattern=".*\\S.*")]
+    outcome: Annotated[StrictStr, Field(max_length=8000, min_length=1, pattern=".*\\S.*")]
+    lesson: Annotated[StrictStr, Field(max_length=8000, min_length=1, pattern=".*\\S.*")]
 
 
 class ErrorDetail(BaseModel):
@@ -49,6 +68,22 @@ class FlushMemoryRequest(BaseModel):
         extra="forbid",
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class GetArtifactCandidateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+
+
+class GetExperienceRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    artifact: ArtifactReference
 
 
 class HealthResponse(BaseModel):
@@ -125,6 +160,16 @@ class RetireMemoryEntryRequest(BaseModel):
     reason: Annotated[StrictStr | None, Field(max_length=512)] = None
 
 
+class RejectArtifactCandidateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    reason: Annotated[StrictStr, Field(max_length=2000, min_length=1, pattern=".*\\S.*")]
+
+
 class ReviseMemoryEntryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -146,6 +191,16 @@ class SourceReference(BaseModel):
 
 class CaptureStatus(StrEnum):
     ACCEPTED = "accepted"
+
+
+class CandidateFamily(StrEnum):
+    EXPERIENCE = "experience"
+
+
+class CandidateStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class PreparedContextSchema(StrEnum):
@@ -192,6 +247,51 @@ class MemoryUsedSearchMode(StrEnum):
     HYBRID = "hybrid"
 
 
+class ArtifactCandidate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    version: Annotated[StrictInt, Field(ge=1)]
+    family: CandidateFamily
+    status: CandidateStatus
+    proposal: ExperienceProposal
+    source_refs: Annotated[
+        list[SourceReference],
+        Field(
+            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    artifact_refs: Annotated[
+        list[ArtifactReference],
+        Field(
+            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    target: Annotated[ArtifactReference | None, Field(...)]
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
+    result_artifact: Annotated[ArtifactReference | None, Field(...)]
+    decision_reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
+
+    @model_validator(mode="after")
+    def _reject_excess_candidate_evidence(self):
+        if len(self.source_refs) + len(self.artifact_refs) > 32:
+            raise ValueError(  # noqa: TRY003
+                "source_refs and artifact_refs together must not exceed 32 references"
+            )
+        return self
+
+
+class ArtifactCandidatePage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    candidates: list[ArtifactCandidate]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
+
+
 class Capabilities(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -233,6 +333,16 @@ class EntryChange(BaseModel):
     reason: Annotated[StrictStr | None, Field(...)]
 
 
+class ExperienceArtifact(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact: ArtifactReference
+    content: ExperienceProposal
+    source_refs: list[SourceReference]
+    artifact_refs: list[ArtifactReference]
+
+
 class FlushMemoryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -251,6 +361,17 @@ class GetMemoryEntryRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     citation: MemoryCitation
+
+
+class ListArtifactCandidatesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    status: CandidateStatus = CandidateStatus.PENDING
+    family: CandidateFamily | None = None
+    cursor: Annotated[StrictStr | None, Field(max_length=128, min_length=1)] = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
 
 
 class MemoryEntry(BaseModel):
@@ -282,12 +403,78 @@ class MemoryRevisionChanges(BaseModel):
     changes: list[EntryChange]
 
 
+class ProposeExperienceRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    proposal: ExperienceProposal
+    source_refs: Annotated[
+        list[SourceReference],
+        Field(
+            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    artifact_refs: Annotated[
+        list[ArtifactReference],
+        Field(
+            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    target: ArtifactReference | None = None
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+
+    @model_validator(mode="after")
+    def _reject_excess_candidate_evidence(self):
+        if len(self.source_refs) + len(self.artifact_refs) > 32:
+            raise ValueError(  # noqa: TRY003
+                "source_refs and artifact_refs together must not exceed 32 references"
+            )
+        return self
+
+
 class ReadinessResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     status: ReadinessStatus
     checks: dict[str, StrictStr]
+
+
+class ReviseArtifactCandidateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    proposal: ExperienceProposal
+    source_refs: Annotated[
+        list[SourceReference],
+        Field(
+            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    artifact_refs: Annotated[
+        list[ArtifactReference],
+        Field(
+            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    target: ArtifactReference | None = None
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+
+    @model_validator(mode="after")
+    def _reject_excess_candidate_evidence(self):
+        if len(self.source_refs) + len(self.artifact_refs) > 32:
+            raise ValueError(  # noqa: TRY003
+                "source_refs and artifact_refs together must not exceed 32 references"
+            )
+        return self
 
 
 class SearchMemoryHit(BaseModel):

@@ -155,10 +155,11 @@ export POWERCONTEXT_SERVER_MCP_PATH="/agent"
 ```
 
 The MCP projection includes the agent-facing Memory operations for search, listing, reading, remembering, revising,
-and retiring entries. Health, capability, Source capture, flush, and change-history endpoints remain HTTP-only.
+and retiring entries, plus Candidate Review operations for listing, reading, approving, rejecting, and revising
+Candidates. Health, capability, Source capture, Experience, flush, and change-history endpoints remain HTTP-only.
 
 HTTP and MCP share the same Server application and Runtime binding. A request made through either transport therefore
-uses the same scope isolation, Memory validation, and persistence behavior.
+uses the same scope isolation, validation, concurrency checks, and persistence behavior.
 
 ## Programmatic composition
 

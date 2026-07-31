@@ -323,6 +323,188 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/experience/propose": {
+            "post": {
+                "tags": ["experience"],
+                "summary": "Propose Experience content",
+                "description": "Persist a pending Experience Candidate without creating an Artifact Revision.",
+                "operationId": "propose_experience",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ProposeExperienceRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "The pending Experience Candidate.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/experience/get": {
+            "post": {
+                "tags": ["experience"],
+                "summary": "Get an exact Experience Revision",
+                "description": "Read approved Experience content and its exact direct evidence.",
+                "operationId": "get_experience",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GetExperienceRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The exact approved Experience Revision.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ExperienceArtifact"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/artifact-candidates/list": {
+            "post": {
+                "tags": ["review"],
+                "summary": "List Artifact Candidates",
+                "description": "Page current Candidate heads; pending is the default Review Inbox view.",
+                "operationId": "list_artifact_candidates",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ListArtifactCandidatesRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The selected current Candidate heads.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidatePage"}}
+                        },
+                    },
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/artifact-candidates/get": {
+            "post": {
+                "tags": ["review"],
+                "summary": "Get an Artifact Candidate",
+                "description": "Read the current head and exact immutable proposal version.",
+                "operationId": "get_artifact_candidate",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetArtifactCandidateRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The current Candidate head.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/artifact-candidates/approve": {
+            "post": {
+                "tags": ["review"],
+                "summary": "Approve an Artifact Candidate",
+                "description": "Commit the reviewed proposal and mark the Candidate approved in one transaction.",
+                "operationId": "approve_artifact_candidate",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ApproveArtifactCandidateRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The approved Candidate and exact result Artifact.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/artifact-candidates/reject": {
+            "post": {
+                "tags": ["review"],
+                "summary": "Reject an Artifact Candidate",
+                "description": "Move the exact pending "
+                "version to its rejected "
+                "terminal state without "
+                "writing an Artifact.",
+                "operationId": "reject_artifact_candidate",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RejectArtifactCandidateRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The rejected Candidate.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/artifact-candidates/revise": {
+            "post": {
+                "tags": ["review"],
+                "summary": "Revise an Artifact Candidate",
+                "description": "Append a complete replacement proposal as the next immutable pending version.",
+                "operationId": "revise_artifact_candidate",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ReviseArtifactCandidateRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The next pending Candidate version.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
     },
     "components": {
         "schemas": {
@@ -335,6 +517,89 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["family", "artifact_id", "revision"],
+            },
+            "ArtifactCandidate": {
+                "properties": {
+                    "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "version": {"type": "integer", "minimum": 1.0},
+                    "family": {"$ref": "#/components/schemas/CandidateFamily"},
+                    "status": {"$ref": "#/components/schemas/CandidateStatus"},
+                    "proposal": {"$ref": "#/components/schemas/ExperienceProposal"},
+                    "source_refs": {
+                        "items": {"$ref": "#/components/schemas/SourceReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Source "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "artifact_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "artifact_refs": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Artifact "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "source_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "target": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "result_artifact": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "decision_reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "candidate_id",
+                    "version",
+                    "family",
+                    "status",
+                    "proposal",
+                    "source_refs",
+                    "artifact_refs",
+                    "target",
+                    "reason",
+                    "result_artifact",
+                    "decision_reason",
+                ],
+            },
+            "ArtifactCandidatePage": {
+                "properties": {
+                    "candidates": {"items": {"$ref": "#/components/schemas/ArtifactCandidate"}, "type": "array"},
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["candidates", "next_cursor"],
+            },
+            "ApproveArtifactCandidateRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "expected_version": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "candidate_id", "expected_version"],
             },
             "Capabilities": {
                 "properties": {
@@ -416,6 +681,28 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["op", "entry_id", "from_entry_version_id", "to_entry_version_id", "reason"],
             },
+            "ExperienceArtifact": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "content": {"$ref": "#/components/schemas/ExperienceProposal"},
+                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
+                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "content", "source_refs", "artifact_refs"],
+            },
+            "ExperienceProposal": {
+                "properties": {
+                    "situation": {"type": "string", "maxLength": 8000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "action": {"type": "string", "maxLength": 8000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "outcome": {"type": "string", "maxLength": 8000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "lesson": {"type": "string", "maxLength": 8000, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["situation", "action", "outcome", "lesson"],
+            },
             "ErrorDetail": {
                 "properties": {
                     "code": {"type": "string"},
@@ -459,6 +746,24 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["scope_id", "citation"],
+            },
+            "GetArtifactCandidateRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "candidate_id"],
+            },
+            "GetExperienceRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact"],
             },
             "HealthResponse": {
                 "properties": {"status": {"type": "string"}},
@@ -525,6 +830,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["entries"],
             },
+            "ListArtifactCandidatesRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "status": {"$ref": "#/components/schemas/CandidateStatus", "default": "pending"},
+                    "family": {"$ref": "#/components/schemas/CandidateFamily", "nullable": True},
+                    "cursor": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
             "MemoryEntry": {
                 "properties": {
                     "citation": {"$ref": "#/components/schemas/MemoryCitation"},
@@ -582,6 +899,53 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "query"],
             },
+            "ProposeExperienceRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "proposal": {"$ref": "#/components/schemas/ExperienceProposal"},
+                    "source_refs": {
+                        "items": {"$ref": "#/components/schemas/SourceReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Source "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "artifact_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "artifact_refs": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Artifact "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "source_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "target": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "proposal", "source_refs", "artifact_refs"],
+            },
             "ReadinessResponse": {
                 "properties": {
                     "status": {"$ref": "#/components/schemas/ReadinessStatus"},
@@ -617,6 +981,73 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["scope_id", "citation"],
+            },
+            "RejectArtifactCandidateRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "expected_version": {"type": "integer", "minimum": 1.0},
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "candidate_id", "expected_version", "reason"],
+            },
+            "ReviseArtifactCandidateRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "expected_version": {"type": "integer", "minimum": 1.0},
+                    "proposal": {"$ref": "#/components/schemas/ExperienceProposal"},
+                    "source_refs": {
+                        "items": {"$ref": "#/components/schemas/SourceReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Source "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "artifact_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "artifact_refs": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Artifact "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "source_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "target": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "candidate_id",
+                    "expected_version",
+                    "proposal",
+                    "source_refs",
+                    "artifact_refs",
+                ],
             },
             "ReviseMemoryEntryRequest": {
                 "properties": {
@@ -676,6 +1107,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["name", "source_id"],
             },
             "CaptureStatus": {"type": "string", "enum": ["accepted"]},
+            "CandidateFamily": {"type": "string", "enum": ["experience"]},
+            "CandidateStatus": {"type": "string", "enum": ["pending", "approved", "rejected"]},
             "PreparedContextSchema": {"type": "string", "enum": ["powercontext.prepared-context.v1"]},
             "PreparedContextStatus": {"type": "string", "enum": ["ready", "empty"]},
             "EntryChangeOperation": {"type": "string", "enum": ["add", "revise", "deactivate", "reactivate"]},

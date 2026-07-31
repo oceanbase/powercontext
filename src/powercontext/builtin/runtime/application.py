@@ -11,6 +11,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING
 
 from powercontext._logging import log_safely
+from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.memory import (
     Memory,
     MemoryCitation,
@@ -20,10 +21,17 @@ from powercontext.builtin.artifacts.memory import (
 )
 from powercontext.builtin.artifacts.memory.errors import MemoryEntryNotFoundError
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
+from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
 from powercontext.builtin.runtime.models import (
+    ApproveArtifactCandidateRequest,
     CaptureSource,
+    ExperienceCandidate,
+    ExperienceCandidatePage,
+    GetArtifactCandidateRequest,
+    GetExperienceRequest,
     GetMemoryEntryRequest,
+    ListArtifactCandidatesRequest,
     MemoryChangesPage,
     MemoryEntriesPage,
     MemoryEntryRecord,
@@ -32,8 +40,11 @@ from powercontext.builtin.runtime.models import (
     MemorySearchPage,
     PrepareContextRequest,
     PreparedContext,
+    ProposeExperienceRequest,
+    RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
+    ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
     RuntimeCapabilities,
     SearchMemoryRequest,
@@ -51,6 +62,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ScopeIds = Callable[[], Awaitable[tuple[str, ...]]]
+ReviewServiceFactory = Callable[[str], ReviewService]
 
 
 class _RuntimeConfigurationError(ValueError):
@@ -63,6 +75,7 @@ class _RuntimeStateError(RuntimeError):
         messages = {
             "closed": "Built-in Runtime is closed",
             "empty-write": "explicit Memory write did not produce a Memory",
+            "review": "Candidate Review services are not configured",
             "scheduler": "Built-in Runtime scheduler is already started",
         }
         super().__init__(messages[code])
@@ -134,6 +147,97 @@ class ContextApplication:
 
     def for_scope(self, scope_id: str, /) -> ScopedContextApplication:
         return ScopedContextApplication(self._runtime, scope_id)
+
+
+class ScopedExperienceApplication:
+    """Propose and exactly read Experience Artifacts in one scope."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def propose(self, request: ProposeExperienceRequest, /) -> ExperienceCandidate:
+        async with self._runtime._operation(), self._runtime._lock(self.scope_id):
+            service = self._runtime._review(self.scope_id)
+            return await service.propose_experience(
+                request.proposal,
+                sources=request.sources,
+                artifacts=request.artifacts,
+                target=request.target,
+                reason=request.reason,
+            )
+
+    async def get(self, request: GetExperienceRequest, /) -> Experience:
+        async with self._runtime._operation():
+            return await self._runtime._review(self.scope_id).get_experience(request.artifact)
+
+
+class ExperienceApplication:
+    """Select a scoped Experience application service."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedExperienceApplication:
+        return ScopedExperienceApplication(self._runtime, scope_id)
+
+
+class ScopedReviewApplication:
+    """Inspect and decide current Candidate heads in one scope."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def list(self, request: ListArtifactCandidatesRequest, /) -> ExperienceCandidatePage:
+        async with self._runtime._operation():
+            return await self._runtime._review(self.scope_id).list_candidates(
+                status=request.status,
+                family=request.family,
+                cursor=request.cursor,
+                limit=request.limit,
+            )
+
+    async def get(self, request: GetArtifactCandidateRequest, /) -> ExperienceCandidate:
+        async with self._runtime._operation():
+            return await self._runtime._review(self.scope_id).get_candidate(request.candidate_id)
+
+    async def approve(self, request: ApproveArtifactCandidateRequest, /) -> ExperienceCandidate:
+        async with self._runtime._operation(), self._runtime._lock(self.scope_id):
+            return await self._runtime._review(self.scope_id).approve(
+                request.candidate_id,
+                request.expected_version,
+            )
+
+    async def reject(self, request: RejectArtifactCandidateRequest, /) -> ExperienceCandidate:
+        async with self._runtime._operation(), self._runtime._lock(self.scope_id):
+            return await self._runtime._review(self.scope_id).reject(
+                request.candidate_id,
+                request.expected_version,
+                request.reason,
+            )
+
+    async def revise(self, request: ReviseArtifactCandidateRequest, /) -> ExperienceCandidate:
+        async with self._runtime._operation(), self._runtime._lock(self.scope_id):
+            return await self._runtime._review(self.scope_id).revise(
+                request.candidate_id,
+                request.expected_version,
+                request.proposal,
+                sources=request.sources,
+                artifacts=request.artifacts,
+                target=request.target,
+                reason=request.reason,
+            )
+
+
+class ReviewApplication:
+    """Select a scoped Candidate Review application service."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedReviewApplication:
+        return ScopedReviewApplication(self._runtime, scope_id)
 
 
 class ScopedMemoryApplication:
@@ -350,11 +454,13 @@ class BuiltinRuntime:
         capabilities: RuntimeCapabilities,
         source_window_limit: int = 100,
         scope_ids: ScopeIds | None = None,
+        review_service: ReviewServiceFactory | None = None,
     ) -> None:
         if source_window_limit < 1:
             raise _RuntimeConfigurationError("source_window_limit")
         self._provider = provider
         self._capabilities = capabilities
+        self._review_service = review_service
         self.source_window_limit = source_window_limit
         self._locks: dict[str, asyncio.Lock] = {}
         self._processor_lock = asyncio.Lock()
@@ -367,7 +473,9 @@ class BuiltinRuntime:
         self._scheduler_runtime_key: str | None = None
         self.sources = SourceApplication(self)
         self.context = ContextApplication(self)
+        self.experience = ExperienceApplication(self)
         self.memory = MemoryApplication(self)
+        self.review = ReviewApplication(self)
         self.processor = None if scope_ids is None else ScheduledSourceProcessor(self, scope_ids)
 
     async def __aenter__(self) -> BuiltinRuntime:
@@ -469,6 +577,11 @@ class BuiltinRuntime:
 
     def _lock(self, scope_id: str) -> asyncio.Lock:
         return self._locks.setdefault(validate_scope_id(scope_id), asyncio.Lock())
+
+    def _review(self, scope_id: str) -> ReviewService:
+        if self._review_service is None:
+            raise _RuntimeStateError("review")
+        return self._review_service(validate_scope_id(scope_id))
 
 
 async def _head_or_none(service: MemoryService, artifact_id: str) -> Memory | None:

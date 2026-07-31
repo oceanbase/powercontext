@@ -19,6 +19,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.types import Lifespan
 
 from powercontext._logging import log_safely
+from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.memory.errors import (
     CapabilityNotSupportedError,
     InvalidMemoryCandidateError,
@@ -28,8 +29,20 @@ from powercontext.builtin.artifacts.memory.errors import (
     MemoryEntryNotFoundError,
 )
 from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
+from powercontext.builtin.review import (
+    ArtifactTargetConflictError,
+    CandidateConflictError,
+    CandidateNotFoundError,
+    CandidateTerminalError,
+    InvalidCandidateError,
+)
+from powercontext.builtin.runtime import (
+    ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
+)
 from powercontext.builtin.runtime import (
     CaptureSource,
+    ExperienceCandidate,
+    ExperienceCandidatePage,
     InvalidRuntimeRequestError,
     MemoryChangesPage,
     MemoryEntriesPage,
@@ -40,7 +53,16 @@ from powercontext.builtin.runtime import (
     SourceReceipt,
 )
 from powercontext.builtin.runtime import (
+    GetArtifactCandidateRequest as RuntimeGetArtifactCandidateRequest,
+)
+from powercontext.builtin.runtime import (
+    GetExperienceRequest as RuntimeGetExperienceRequest,
+)
+from powercontext.builtin.runtime import (
     GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
+)
+from powercontext.builtin.runtime import (
+    ListArtifactCandidatesRequest as RuntimeListArtifactCandidatesRequest,
 )
 from powercontext.builtin.runtime import (
     PrepareContextRequest as RuntimePrepareContextRequest,
@@ -49,10 +71,19 @@ from powercontext.builtin.runtime import (
     PreparedContext as RuntimePreparedContext,
 )
 from powercontext.builtin.runtime import (
+    ProposeExperienceRequest as RuntimeProposeExperienceRequest,
+)
+from powercontext.builtin.runtime import (
+    RejectArtifactCandidateRequest as RuntimeRejectArtifactCandidateRequest,
+)
+from powercontext.builtin.runtime import (
     RememberMemoryRequest as RuntimeRememberMemoryRequest,
 )
 from powercontext.builtin.runtime import (
     RetireMemoryEntryRequest as RuntimeRetireMemoryEntryRequest,
+)
+from powercontext.builtin.runtime import (
+    ReviseArtifactCandidateRequest as RuntimeReviseArtifactCandidateRequest,
 )
 from powercontext.builtin.runtime import (
     ReviseMemoryEntryRequest as RuntimeReviseMemoryEntryRequest,
@@ -67,15 +98,22 @@ from powercontext.errors import (
     SourceConflictError,
 )
 from powercontext.http import (
+    ApproveArtifactCandidateRequest,
+    ArtifactCandidate,
+    ArtifactCandidatePage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     ErrorDetail,
     ErrorResponse,
+    ExperienceArtifact,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    GetArtifactCandidateRequest,
+    GetExperienceRequest,
     GetMemoryEntryRequest,
     HealthResponse,
+    ListArtifactCandidatesRequest,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -84,10 +122,13 @@ from powercontext.http import (
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
+    ProposeExperienceRequest,
     ReadinessResponse,
     ReadinessStatus,
+    RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
+    ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
     SearchMemoryRequest,
     SearchMemoryResponse,
@@ -96,18 +137,25 @@ from powercontext.http._generated.operations import (
     API_DESCRIPTION,
     API_TITLE,
     API_VERSION,
+    APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     FLUSH_MEMORY,
+    GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
+    GET_EXPERIENCE,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
     GET_READINESS,
+    LIST_ARTIFACT_CANDIDATES,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     OPENAPI_VERSION,
     PREPARE_CONTEXT,
+    PROPOSE_EXPERIENCE,
+    REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RETIRE_MEMORY_ENTRY,
+    REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SEARCH_MEMORY,
     Operation,
@@ -142,6 +190,32 @@ class _ContextApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedContextApplication: ...
 
 
+class _ScopedExperienceApplication(Protocol):
+    async def propose(self, request: RuntimeProposeExperienceRequest, /) -> ExperienceCandidate: ...
+
+    async def get(self, request: RuntimeGetExperienceRequest, /) -> Experience: ...
+
+
+class _ExperienceApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedExperienceApplication: ...
+
+
+class _ScopedReviewApplication(Protocol):
+    async def list(self, request: RuntimeListArtifactCandidatesRequest, /) -> ExperienceCandidatePage: ...
+
+    async def get(self, request: RuntimeGetArtifactCandidateRequest, /) -> ExperienceCandidate: ...
+
+    async def approve(self, request: RuntimeApproveArtifactCandidateRequest, /) -> ExperienceCandidate: ...
+
+    async def reject(self, request: RuntimeRejectArtifactCandidateRequest, /) -> ExperienceCandidate: ...
+
+    async def revise(self, request: RuntimeReviseArtifactCandidateRequest, /) -> ExperienceCandidate: ...
+
+
+class _ReviewApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedReviewApplication: ...
+
+
 class _ScopedMemoryApplication(Protocol):
     async def remember(self, request: RuntimeRememberMemoryRequest, /) -> MemoryMutationResult: ...
 
@@ -167,7 +241,9 @@ class _MemoryApplication(Protocol):
 class ServerApplication(Protocol):
     sources: _SourceApplication
     context: _ContextApplication
+    experience: _ExperienceApplication
     memory: _MemoryApplication
+    review: _ReviewApplication
 
 
 class _RuntimeNotReadyError(RuntimeError):
@@ -253,6 +329,13 @@ def create_app(
     _add_route(app, REVISE_MEMORY_ENTRY, revise_memory_entry)
     _add_route(app, RETIRE_MEMORY_ENTRY, retire_memory_entry)
     _add_route(app, LIST_MEMORY_CHANGES, list_memory_changes)
+    _add_route(app, PROPOSE_EXPERIENCE, propose_experience)
+    _add_route(app, GET_EXPERIENCE, get_experience)
+    _add_route(app, LIST_ARTIFACT_CANDIDATES, list_artifact_candidates)
+    _add_route(app, GET_ARTIFACT_CANDIDATE, get_artifact_candidate)
+    _add_route(app, APPROVE_ARTIFACT_CANDIDATE, approve_artifact_candidate)
+    _add_route(app, REJECT_ARTIFACT_CANDIDATE, reject_artifact_candidate)
+    _add_route(app, REVISE_ARTIFACT_CANDIDATE, revise_artifact_candidate)
 
     def canonical_openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
@@ -365,6 +448,64 @@ async def list_memory_changes(
 ) -> ListMemoryChangesResponse:
     result = await application.memory.for_scope(request.scope_id).changes(since_revision=request.since_revision)
     return mapping.changes_response(result)
+
+
+async def propose_experience(
+    request: ProposeExperienceRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ArtifactCandidate:
+    result = await application.experience.for_scope(request.scope_id).propose(
+        mapping.propose_experience_request(request)
+    )
+    return mapping.candidate_response(result)
+
+
+async def get_experience(
+    request: GetExperienceRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ExperienceArtifact:
+    result = await application.experience.for_scope(request.scope_id).get(mapping.get_experience_request(request))
+    return mapping.experience_response(result)
+
+
+async def list_artifact_candidates(
+    request: ListArtifactCandidatesRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ArtifactCandidatePage:
+    result = await application.review.for_scope(request.scope_id).list(mapping.list_candidates_request(request))
+    return mapping.candidate_page_response(result)
+
+
+async def get_artifact_candidate(
+    request: GetArtifactCandidateRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ArtifactCandidate:
+    result = await application.review.for_scope(request.scope_id).get(mapping.get_candidate_request(request))
+    return mapping.candidate_response(result)
+
+
+async def approve_artifact_candidate(
+    request: ApproveArtifactCandidateRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ArtifactCandidate:
+    result = await application.review.for_scope(request.scope_id).approve(mapping.approve_candidate_request(request))
+    return mapping.candidate_response(result)
+
+
+async def reject_artifact_candidate(
+    request: RejectArtifactCandidateRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ArtifactCandidate:
+    result = await application.review.for_scope(request.scope_id).reject(mapping.reject_candidate_request(request))
+    return mapping.candidate_response(result)
+
+
+async def revise_artifact_candidate(
+    request: ReviseArtifactCandidateRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ArtifactCandidate:
+    result = await application.review.for_scope(request.scope_id).revise(mapping.revise_candidate_request(request))
+    return mapping.candidate_response(result)
 
 
 def _runtime_readiness(application: ServerApplication | None) -> ReadinessResponse:
@@ -481,7 +622,45 @@ def _error_response(
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     if isinstance(error, _RuntimeNotReadyError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "runtime_not_ready", "The Runtime is not ready.", None
-    if isinstance(error, (ArtifactNotFoundError, MemoryEntryNotFoundError)):
+    candidate_error = _map_candidate_error(error)
+    if candidate_error is not None:
+        return candidate_error
+    return _map_domain_error(error)
+
+
+def _map_candidate_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, CandidateNotFoundError):
+        return status.HTTP_404_NOT_FOUND, "candidate_not_found", "The requested Candidate was not found.", None
+    if isinstance(error, CandidateConflictError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "candidate_conflict",
+            "The Candidate version is stale.",
+            {"expected_version": error.expected_version, "current_version": error.current_version},
+        )
+    if isinstance(error, ArtifactTargetConflictError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "artifact_conflict",
+            "The Candidate target Artifact is stale.",
+            {"current": error.current.model_dump(mode="json")},
+        )
+    if isinstance(error, CandidateTerminalError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "candidate_terminal",
+            "The Candidate is already terminal.",
+            {"status": error.status},
+        )
+    if isinstance(error, InvalidCandidateError):
+        return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_request", "The request is invalid.", None
+    return None
+
+
+def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+    if isinstance(error, ArtifactNotFoundError):
+        return status.HTTP_404_NOT_FOUND, "artifact_not_found", "The requested Artifact was not found.", None
+    if isinstance(error, MemoryEntryNotFoundError):
         return status.HTTP_404_NOT_FOUND, "memory_not_found", "The requested Memory value was not found.", None
     if isinstance(error, SourceConflictError):
         return status.HTTP_409_CONFLICT, "source_conflict", "The Source identity has different content.", None

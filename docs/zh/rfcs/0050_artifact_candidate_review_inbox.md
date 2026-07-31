@@ -6,7 +6,7 @@
 
 # Summary
 
-本 RFC 为需要人工确认的 Artifact Family 定义 Artifact Candidate 与 Review Inbox。
+本 RFC 为需要显式 Review 确认的 Artifact Family 定义 Artifact Candidate 与 Review Inbox。
 
 是否进入 Review 不由用户选择，也不取决于是否使用 LLM，而由 Artifact Family 固定决定：Memory 继续直接写入 Artifact；Experience 和 Skill 必须先成为 pending Candidate，批准后才能形成 Artifact Revision。Task Outcome 尚未定义，不在本 RFC 中预设 Review policy。Handoff 是组合这些来源得到的下游交接结果，也不作为并列 Family 纳入本 RFC 的 Review policy。
 
@@ -17,16 +17,17 @@ Candidate 是持久化的不可信提案，不是 Artifact，不进入搜索或 
 1. Review policy 固定在 Artifact Family 上，用户不填写 mode；
 2. Memory 直接写入，Experience、Skill 必须 Review；
 3. pending/rejected Candidate 与 Artifact 检索和 PreparedContext 完全隔离；
-4. Review 只通过 HTTP、Python Client 和 CLI 面向人提供，不向 MCP 暴露批准能力。
+4. Review operation 通过 HTTP、Python Client、CLI 和 MCP 一致暴露；MCP 不是单独的 approval policy 边界。
 
 # Motivation
 
 不同 Artifact 的风险不同。
 
-Memory 保存事实、约定和偏好，写入频繁，并且可以保留 exact evidence。如果每条 Memory 都要求人工确认，Review Inbox
+Memory 保存事实、约定和偏好，写入频繁，并且可以保留 exact evidence。如果每条 Memory 都要求单独 Review 确认，Review Inbox
 会变成日常操作负担。
 
-Experience 和 Skill 则是更高阶的制品：Experience 从多个结果中归纳 situation、action、outcome 和 lesson；Skill 再把 Experience 蒸馏成可复用步骤。错误的归纳、语义合并或操作步骤会影响后续多个任务，因此需要人工确认。
+Experience 和 Skill 则是更高阶的制品：Experience 从多个结果中归纳 situation、action、outcome 和 lesson；Skill 再把 Experience
+蒸馏成可复用步骤。错误的归纳、语义合并或操作步骤会影响后续多个任务，因此需要显式 Review。
 
 PowerMem 已经验证了 Experience/Skill distillation、dedup 和 merge 的价值，也说明直接
 `distill -> merge -> store` 存在治理风险。PowerContext 保留自动生成能力，但把高阶制品的“生成”和“确认”分开：
@@ -151,6 +152,7 @@ Candidate 由 family-neutral envelope 和 family-owned typed proposal 组成：
 | `target` | 修改现有 Artifact 时指向 exact active ArtifactRef |
 | `reason` | 不可信说明，不参与授权或排序 |
 | `result_artifact` | 批准后指向 exact Artifact Revision |
+| `decision_reason` | 拒绝时由审核者填写的原因；其他状态为空 |
 
 Candidate reference 不是 `ArtifactRef`。Candidate 没有 Artifact identity，也不能被 Artifact catalog、Family search index 或
 Context builder 读取。
@@ -166,6 +168,9 @@ pending --reject--> rejected
 
 `approve` 只确认当前 Candidate version，不能同时修改 proposal。需要修改时先执行 `revise`，创建完整的新 version，再批准
 新 version。`approved` 和 `rejected` 是终态，首版不支持 reopen。
+
+修改现有 Artifact 的 Candidate 必须同时把 exact `target` 放入 `artifacts` evidence。这样批准后的新 Revision 会在 lineage
+中保留直接前序，而不是只依赖 Candidate envelope 中的临时目标字段。
 
 所有 Review 写操作都要求 `expected_version`。Runtime 同时执行两层并发校验：
 
@@ -199,15 +204,20 @@ OpenAPI 继续是 HTTP contract 的 source of truth。Review Inbox 增加：
 | `reject_artifact_candidate` | 按 expected version 和原因拒绝 |
 | `revise_artifact_candidate` | 按 expected version 提交完整 replacement proposal |
 
-生成的 Python Client 暴露相同操作，CLI 提供 `candidate list/show/approve/reject/revise`。上述 Review operation 均不进入
-MCP allow-list，防止生成者在同一 Agent 信任边界中查看或审核自己的 Candidate。
+首个 Experience vertical slice 还提供 `propose_experience` 和 `get_experience`：前者只创建 pending Candidate，后者只按
+exact `ArtifactRef` 读取已经批准的 Experience Revision。对应 HTTP 路径分别是 `/v1/experience/propose` 和
+`/v1/experience/get`；五个 Review 路径位于 `/v1/artifact-candidates/` 下。
+
+生成的 Python Client 暴露相同操作，CLI 提供 `candidate list/show/approve/reject/revise`，MCP 则把五个 Review
+operation 全部投影为 tool。transport 不改变 Candidate validation、`expected_version` 校验或原子 approval transaction。
+PowerContext 不把 MCP 可见性作为授权边界；需要 reviewer separation 的部署必须控制 MCP endpoint 的访问权限。
 
 本 RFC 不修改现有 Memory contract：
 
 - `POST /v1/memory/flush` 继续把 Source window 处理成 Memory；
 - `remember_memory`、`revise_memory_entry`、`retire_memory_entry` 保持不变；
 - `MemoryRememberMode` 及其现有行为保持不变；它只控制 Memory 内容的生成方式，与 Review 无关；
-- Codex Hook、Memory MCP tools 和 `prepare_context` contract 保持不变。
+- Codex Hook、现有 Memory MCP tools 和 `prepare_context` contract 保持不变；Review 新增五个 MCP tools。
 
 Candidate/Review 的代码与第一个 Experience vertical slice 一起实现，不先交付只有表和空 API 的基础设施。
 
@@ -237,12 +247,12 @@ RFC 决定；Candidate approval 不会自动扩展 Context Pack。
 | Conflict | stale Candidate 或 stale Artifact target 返回 typed conflict，不自动 merge |
 | Reject | 不写 Artifact，终态 Candidate 不能再次 approve/revise |
 | Compatibility | 现有 Memory flush、HTTP、MCP、Hook 和 PreparedContext 行为不变 |
-| Agent boundary | MCP 与 Provider Hook 不能列出、读取、修改、批准或拒绝 Candidate |
+| MCP parity | MCP 可按相同 lifecycle 与 CAS 规则列出、读取、修订、批准和拒绝 Candidate |
 
 # Drawbacks
 
 - Memory 不经 Review，错误内容需要通过现有修订语义纠正。
-- Experience 和 Skill 不会在生成后立即可用，必须等待人工审核。
+- Experience 和 Skill 不会在生成后立即可用，必须等待显式 Review。
 - 没有 assignment、通知或批量操作时，Candidate 可能积压。
 - 固定 policy 很简单，但每个新增 Family 都必须明确选择 `direct` 或 `review`。
 - Candidate head/version 增加了存储和迁移成本。
@@ -265,12 +275,17 @@ RFC 决定；Candidate approval 不会自动扩展 Context Pack。
 - RFC 0028 规定 PreparedContext 当前只读取 active Memory；pending Candidate 继续与其隔离。
 - PowerMem 的 Experience/Skill distillation、dedup 和 merge 提供生成能力参考，但自动 content review 不等于 Artifact approval。
 
-# Unresolved questions
+# Limits and deferred work
 
-合并前需要确定 Candidate payload、evidence count 和单页 Inbox 的具体上限。
+首个实现采用以下确定上限：
 
-Experience 与 Skill 的 content schema、生成规则和 Family write semantics 由各自 RFC 定义。Candidate retention、reviewer
-identity、RBAC、通知、批量审核和多 IDE UI 不阻塞本 RFC。
+- 一个 Candidate 最多包含 32 个 exact evidence reference，`sources` 与 `artifacts` 合计计算；
+- `reason` 和拒绝时的 `decision_reason` 最多 2,000 个字符；
+- Inbox 默认返回 50 项，调用方可以在 1 到 100 之间选择 `limit`，并使用 `next_cursor` 翻页；
+- proposal payload 由 Family 的 typed schema 限制；首个 Experience 的四个字段分别最多 8,000 个字符。
+
+Experience 与 Skill 的生成规则和 Family write semantics 由各自 RFC 定义。Candidate retention、reviewer identity、RBAC、
+通知、批量审核和多 IDE UI 留给后续工作。
 
 # Future possibilities
 

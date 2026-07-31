@@ -10,10 +10,15 @@ from fastmcp.utilities.lifespan import combine_lifespans
 from fastmcp.utilities.openapi import HTTPRoute
 
 from powercontext.http._generated.operations import (
+    APPROVE_ARTIFACT_CANDIDATE,
+    GET_ARTIFACT_CANDIDATE,
     GET_MEMORY_ENTRY,
+    LIST_ARTIFACT_CANDIDATES,
     LIST_MEMORY_ENTRIES,
+    REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RETIRE_MEMORY_ENTRY,
+    REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SEARCH_MEMORY,
 )
@@ -33,6 +38,11 @@ _MCP_OPERATION_IDS = frozenset({
     REMEMBER_MEMORY.operation_id,
     REVISE_MEMORY_ENTRY.operation_id,
     RETIRE_MEMORY_ENTRY.operation_id,
+    LIST_ARTIFACT_CANDIDATES.operation_id,
+    GET_ARTIFACT_CANDIDATE.operation_id,
+    APPROVE_ARTIFACT_CANDIDATE.operation_id,
+    REJECT_ARTIFACT_CANDIDATE.operation_id,
+    REVISE_ARTIFACT_CANDIDATE.operation_id,
 })
 
 

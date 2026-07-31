@@ -89,6 +89,7 @@ async def open_builtin_runtime(
                 ),
                 source_window_limit=config.runtime.source_window_limit,
                 scope_ids=contexts.scope_ids,
+                review_service=contexts.review,
             )
         )
         if config.runtime.schedule_seconds is not None:

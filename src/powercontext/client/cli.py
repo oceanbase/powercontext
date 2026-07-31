@@ -3,19 +3,37 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated, TypeAlias
 
 import typer
+from pydantic import ValidationError
 
 from powercontext.client.client import PowerContextClient
 from powercontext.client.errors import ClientError
 from powercontext.client.settings import ClientSettings
-from powercontext.http import Capabilities, HealthResponse, ReadinessResponse
+from powercontext.http import (
+    ApproveArtifactCandidateRequest,
+    ArtifactCandidate,
+    ArtifactCandidatePage,
+    CandidateFamily,
+    CandidateStatus,
+    Capabilities,
+    GetArtifactCandidateRequest,
+    HealthResponse,
+    ListArtifactCandidatesRequest,
+    ReadinessResponse,
+    RejectArtifactCandidateRequest,
+    ReviseArtifactCandidateRequest,
+)
 
 HELP_OPTION_NAMES = ("-h", "--help")
-_ClientResponse: TypeAlias = Capabilities | HealthResponse | ReadinessResponse
+_ClientResponse: TypeAlias = (
+    ArtifactCandidate | ArtifactCandidatePage | Capabilities | HealthResponse | ReadinessResponse
+)
 _ClientOperation: TypeAlias = Callable[[PowerContextClient], Awaitable[_ClientResponse]]
 
 app = typer.Typer(
@@ -24,6 +42,13 @@ app = typer.Typer(
     help="Inspect a remote PowerContext Server.",
     no_args_is_help=True,
 )
+candidate_app = typer.Typer(
+    name="candidate",
+    context_settings={"help_option_names": HELP_OPTION_NAMES},
+    help="Inspect and review Artifact Candidates.",
+    no_args_is_help=True,
+)
+app.add_typer(candidate_app, name="candidate")
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +108,95 @@ def ready(context: typer.Context) -> None:
     asyncio.run(_execute(context, lambda client: client.get_readiness()))
 
 
+@candidate_app.command("list")
+def list_candidates(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the Review Inbox.")],
+    status: Annotated[CandidateStatus, typer.Option(help="Candidate lifecycle state.")] = CandidateStatus.PENDING,
+    family: Annotated[CandidateFamily | None, typer.Option(help="Optional Artifact Family filter.")] = None,
+    cursor: Annotated[str | None, typer.Option(help="Opaque cursor from the previous page.")] = None,
+    limit: Annotated[int, typer.Option(min=1, max=100, help="Maximum Candidate heads to return.")] = 50,
+) -> None:
+    """List current Candidate heads; pending is the default Inbox view."""
+
+    request = ListArtifactCandidatesRequest(
+        scope_id=scope_id,
+        status=status,
+        family=family,
+        cursor=cursor,
+        limit=limit,
+    )
+    asyncio.run(_execute(context, lambda client: client.list_artifact_candidates(request)))
+
+
+@candidate_app.command("show")
+def show_candidate(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the Candidate.")],
+    candidate_id: Annotated[str, typer.Argument(help="Candidate identity.")],
+) -> None:
+    """Show the current exact Candidate version and evidence."""
+
+    request = GetArtifactCandidateRequest(scope_id=scope_id, candidate_id=candidate_id)
+    asyncio.run(_execute(context, lambda client: client.get_artifact_candidate(request)))
+
+
+@candidate_app.command("approve")
+def approve_candidate(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the Candidate.")],
+    candidate_id: Annotated[str, typer.Argument(help="Candidate identity.")],
+    expected_version: Annotated[int, typer.Option(min=1, help="Exact reviewed Candidate version.")],
+) -> None:
+    """Approve one exact pending Candidate version."""
+
+    request = ApproveArtifactCandidateRequest(
+        scope_id=scope_id,
+        candidate_id=candidate_id,
+        expected_version=expected_version,
+    )
+    asyncio.run(_execute(context, lambda client: client.approve_artifact_candidate(request)))
+
+
+@candidate_app.command("reject")
+def reject_candidate(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the Candidate.")],
+    candidate_id: Annotated[str, typer.Argument(help="Candidate identity.")],
+    expected_version: Annotated[int, typer.Option(min=1, help="Exact reviewed Candidate version.")],
+    reason: Annotated[str, typer.Option(help="Why the proposal was rejected.")],
+) -> None:
+    """Reject one exact pending Candidate version."""
+
+    request = RejectArtifactCandidateRequest(
+        scope_id=scope_id,
+        candidate_id=candidate_id,
+        expected_version=expected_version,
+        reason=reason,
+    )
+    asyncio.run(_execute(context, lambda client: client.reject_artifact_candidate(request)))
+
+
+@candidate_app.command("revise")
+def revise_candidate(
+    context: typer.Context,
+    request_file: Annotated[
+        Path,
+        typer.Argument(
+            exists=True, dir_okay=False, readable=True, help="JSON file containing the complete revision request."
+        ),
+    ],
+) -> None:
+    """Append a complete replacement proposal from a JSON request file."""
+
+    try:
+        request = ReviseArtifactCandidateRequest.model_validate_json(request_file.read_text(encoding="utf-8"))
+    except (OSError, ValidationError, json.JSONDecodeError) as error:
+        typer.echo(f"Invalid Candidate revision request: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    asyncio.run(_execute(context, lambda client: client.revise_artifact_candidate(request)))
+
+
 def _options(context: typer.Context) -> _ClientOptions:
     return context.meta["powercontext.client.options"]
 
@@ -122,6 +236,8 @@ def _print_human_response(response: _ClientResponse) -> None:
                 typer.echo(f"{name}: {status}")
         case HealthResponse():
             typer.echo(f"Status: {response.status}")
+        case ArtifactCandidate() | ArtifactCandidatePage():
+            typer.echo(response.model_dump_json(indent=2))
 
 
 def _items(values: Sequence[str]) -> str:

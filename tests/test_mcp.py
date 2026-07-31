@@ -20,7 +20,7 @@ def run_async(operation: Callable[[], Coroutine[Any, Any, ResultT]]) -> ResultT:
     return asyncio.run(operation())
 
 
-def test_mcp_exposes_only_the_agent_facing_server_operation() -> None:
+def test_mcp_exposes_only_the_agent_facing_server_operations() -> None:
     async def inspect_components() -> tuple[list[str], int, int]:
         async with Client(create_mcp_server(create_app())) as client:
             tools = await client.list_tools()
@@ -31,10 +31,15 @@ def test_mcp_exposes_only_the_agent_facing_server_operation() -> None:
     tool_names, resource_count, prompt_count = run_async(inspect_components)
 
     assert set(tool_names) == {
+        "approve_artifact_candidate",
+        "get_artifact_candidate",
         "get_memory_entry",
+        "list_artifact_candidates",
         "list_memory_entries",
+        "reject_artifact_candidate",
         "remember_memory",
         "retire_memory_entry",
+        "revise_artifact_candidate",
         "revise_memory_entry",
         "search_memory",
     }

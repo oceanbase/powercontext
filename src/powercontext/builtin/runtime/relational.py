@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import Artifact
+from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
 from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     Memory,
@@ -21,6 +22,7 @@ from powercontext.builtin.artifacts.memory import (
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
+from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
@@ -28,6 +30,7 @@ from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime.models import MemoryFlushResult
 from powercontext.builtin.runtime.protocols import SourceWindow
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, SourceCursor, validate_scope_id
@@ -56,6 +59,7 @@ class _Repositories:
 
     sources: SourceRepository
     artifacts: ArtifactRepository
+    candidates: CandidateRepository
     cursors: SourceCursorRepository
 
 
@@ -130,7 +134,8 @@ class RelationalContexts:
         self.index = NoMemoryIndex() if index is None else index
         self.repositories = _Repositories(
             sources=SourceRepository(_SOURCE_ADAPTERS),
-            artifacts=ArtifactRepository((Memory,)),
+            artifacts=ArtifactRepository((Memory, Experience)),
+            candidates=CandidateRepository({Experience.family: ExperienceContent}),
             cursors=SourceCursorRepository(),
         )
         self._candidate_pipeline = candidate_pipeline
@@ -144,6 +149,19 @@ class RelationalContexts:
         ] = {}
         self._source_locks: dict[str, asyncio.Lock] = {}
         self._activation_locks: dict[str, asyncio.Lock] = {}
+
+    def review(self, scope_id: str, /) -> ReviewService:
+        """Return Candidate and Experience operations bound to one scope."""
+
+        scope = validate_scope_id(scope_id)
+        return ReviewService(
+            database=self.database,
+            scope_id=scope,
+            candidates=self.repositories.candidates,
+            artifacts=self.repositories.artifacts,
+            sources=self.repositories.sources,
+            id_factory=self._id_factory,
+        )
 
     async def scope_ids(self) -> tuple[str, ...]:
         """Return scopes with a Source journal, in deterministic order."""
@@ -366,7 +384,12 @@ def _scoped_id_factory(memory_artifact_id: str, delegate: IdFactory | None) -> I
             return memory_artifact_id
         if delegate is not None:
             return delegate(kind)
-        prefixes = {"entry": "mem_ent", "version": "mem_ver"}
+        prefixes = {
+            "candidate": "cand",
+            "entry": "mem_ent",
+            "experience": "exp",
+            "version": "mem_ver",
+        }
         return f"{prefixes[kind]}_{uuid4().hex}"
 
     return new_id

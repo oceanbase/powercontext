@@ -22,6 +22,16 @@ OPERATIONS_PATH = GENERATED_DIR / "operations.py"
 SCHEMA_PATH = GENERATED_DIR / "schema.py"
 DRIFT_MESSAGE = "Generated API code drifted; run 'make api-generate' and review the result."
 _JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
+_MAX_CANDIDATE_EVIDENCE = 32
+_CANDIDATE_EVIDENCE_VALIDATOR = f"""
+    @model_validator(mode="after")
+    def _reject_excess_candidate_evidence(self):
+        if len(self.source_refs) + len(self.artifact_refs) > {_MAX_CANDIDATE_EVIDENCE}:
+            raise ValueError(  # noqa: TRY003
+                "source_refs and artifact_refs together must not exceed {_MAX_CANDIDATE_EVIDENCE} references"
+            )
+        return self
+"""
 
 
 class ContractGenerationError(RuntimeError):
@@ -99,7 +109,8 @@ def _generate_models(
     )
     if not isinstance(result, str):
         raise ContractGenerationError("model generator output", result)  # noqa: TRY003
-    return f"{result.rstrip()}\n"
+    evidence_models = _candidate_evidence_models(transport_contract.components.schemas)
+    return _with_candidate_evidence_limits(f"{result.rstrip()}\n", evidence_models)
 
 
 def _generate_operations(
@@ -200,6 +211,51 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {pformat(contract, width=100, sort_dicts=
         encoding="utf-8",
     )
     return f"{formatter.format_code(source).rstrip()}\n"
+
+
+def _candidate_evidence_models(schemas: dict[str, Schema | Reference]) -> tuple[str, ...]:
+    """Schemas where OpenAPI caps each evidence array at 32 and the combined total is also 32."""
+
+    names: list[str] = []
+    for name, schema in schemas.items():
+        if not isinstance(schema, Schema) or schema.properties is None:
+            continue
+        source_refs = schema.properties.get("source_refs")
+        artifact_refs = schema.properties.get("artifact_refs")
+        if not isinstance(source_refs, Schema) or not isinstance(artifact_refs, Schema):
+            continue
+        if source_refs.maxItems == _MAX_CANDIDATE_EVIDENCE and artifact_refs.maxItems == _MAX_CANDIDATE_EVIDENCE:
+            names.append(name)
+    return tuple(names)
+
+
+def _with_candidate_evidence_limits(source: str, model_names: tuple[str, ...]) -> str:
+    """Inject the combined evidence-limit validator OpenAPI cannot express natively."""
+
+    if not model_names:
+        return source
+    updated = source.replace(
+        "from pydantic import BaseModel, ConfigDict, Field,",
+        "from pydantic import BaseModel, ConfigDict, Field, model_validator,",
+        1,
+    )
+    if updated == source:
+        raise ContractGenerationError("pydantic import line", source.splitlines()[0:20])  # noqa: TRY003
+    for model_name in model_names:
+        class_header = f"class {model_name}(BaseModel):"
+        start = updated.find(class_header)
+        if start < 0:
+            raise ContractGenerationError("generated model class", model_name)  # noqa: TRY003
+        next_class = updated.find("\nclass ", start + len(class_header))
+        insert_at = next_class if next_class >= 0 else len(updated.rstrip())
+        updated = f"{updated[:insert_at].rstrip()}\n{_CANDIDATE_EVIDENCE_VALIDATOR.rstrip()}\n\n{updated[insert_at:].lstrip()}"
+    formatter = CodeFormatter(
+        python_version=PythonVersion.PY_311,
+        formatters=[Formatter.RUFF_FORMAT, Formatter.RUFF_CHECK],
+        settings_path=ROOT,
+        encoding="utf-8",
+    )
+    return f"{formatter.format_code(updated).rstrip()}\n"
 
 
 def _request_model(

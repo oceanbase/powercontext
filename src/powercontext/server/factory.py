@@ -65,7 +65,7 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
     capabilities = await runtime.capabilities()
     return Capabilities(
         source_types=[CONTENT_SOURCE_NAME],
-        artifact_families=["memory"],
+        artifact_families=["memory", "experience"],
         memory_extraction=capabilities.memory_extraction,
         search_modes=[MemorySearchMode(mode) for mode in capabilities.memory_search_modes],
         context_versions=[PreparedContextSchema(version) for version in capabilities.context_versions],

@@ -8,6 +8,7 @@ from typing import Annotated, Literal, TypeAlias
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.memory.models import (
     MemoryCitation,
     MemoryEntryInput,
@@ -17,6 +18,13 @@ from powercontext.builtin.artifacts.memory.models import (
     MemoryRevisionChanges,
     MemorySearchMode,
     MemoryUsedSearchMode,
+)
+from powercontext.builtin.review import (
+    DEFAULT_CANDIDATE_PAGE_SIZE,
+    MAX_CANDIDATE_PAGE_SIZE,
+    ArtifactCandidate,
+    ArtifactCandidatePage,
+    CandidateStatus,
 )
 from powercontext.sources import SourceRef
 
@@ -173,3 +181,53 @@ class MemoryMutationResult(BaseModel):
 class MemoryChangesPage(BaseModel):
     memory_ref: ArtifactRef | None
     revisions: tuple[MemoryRevisionChanges, ...] = ()
+
+
+class ProposeExperienceRequest(BaseModel):
+    """Submit a complete Experience proposal with exact evidence."""
+
+    proposal: ExperienceContent
+    sources: tuple[SourceRef, ...] = ()
+    artifacts: tuple[ArtifactRef, ...] = ()
+    target: ArtifactRef | None = None
+    reason: str | None = None
+
+
+class GetExperienceRequest(BaseModel):
+    """Read one exact approved Experience revision."""
+
+    artifact: ArtifactRef
+
+
+class ListArtifactCandidatesRequest(BaseModel):
+    """Filter and page the current Review Inbox."""
+
+    status: CandidateStatus = CandidateStatus.PENDING
+    family: Literal["experience"] | None = None
+    cursor: str | None = None
+    limit: Annotated[int, Field(ge=1, le=MAX_CANDIDATE_PAGE_SIZE)] = DEFAULT_CANDIDATE_PAGE_SIZE
+
+
+class GetArtifactCandidateRequest(BaseModel):
+    candidate_id: str
+
+
+class ApproveArtifactCandidateRequest(BaseModel):
+    candidate_id: str
+    expected_version: Annotated[int, Field(ge=1)]
+
+
+class RejectArtifactCandidateRequest(ApproveArtifactCandidateRequest):
+    reason: Annotated[str, Field(min_length=1, max_length=2_000)]
+
+
+class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
+    proposal: ExperienceContent
+    sources: tuple[SourceRef, ...] = ()
+    artifacts: tuple[ArtifactRef, ...] = ()
+    target: ArtifactRef | None = None
+    reason: str | None = None
+
+
+ExperienceCandidate = ArtifactCandidate[ExperienceContent]
+ExperienceCandidatePage = ArtifactCandidatePage[ExperienceContent]

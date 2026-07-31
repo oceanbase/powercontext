@@ -10,14 +10,21 @@ from pydantic import TypeAdapter, ValidationError
 
 from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
 from powercontext.http import (
+    ApproveArtifactCandidateRequest,
+    ArtifactCandidate,
+    ArtifactCandidatePage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     ErrorResponse,
+    ExperienceArtifact,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    GetArtifactCandidateRequest,
+    GetExperienceRequest,
     GetMemoryEntryRequest,
     HealthResponse,
+    ListArtifactCandidatesRequest,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -26,25 +33,35 @@ from powercontext.http import (
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
+    ProposeExperienceRequest,
     ReadinessResponse,
+    RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
+    ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
     SearchMemoryRequest,
     SearchMemoryResponse,
 )
 from powercontext.http._generated.operations import (
+    APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     FLUSH_MEMORY,
+    GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
+    GET_EXPERIENCE,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
     GET_READINESS,
+    LIST_ARTIFACT_CANDIDATES,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     PREPARE_CONTEXT,
+    PROPOSE_EXPERIENCE,
+    REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RETIRE_MEMORY_ENTRY,
+    REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SEARCH_MEMORY,
     Operation,
@@ -154,6 +171,41 @@ class PowerContextClient:
         """Read compact Memory Revision changes."""
 
         return await self._request(LIST_MEMORY_CHANGES, request)
+
+    async def propose_experience(self, request: ProposeExperienceRequest) -> ArtifactCandidate:
+        """Submit complete Experience content as a pending Candidate."""
+
+        return await self._request(PROPOSE_EXPERIENCE, request)
+
+    async def get_experience(self, request: GetExperienceRequest) -> ExperienceArtifact:
+        """Read one exact approved Experience Revision."""
+
+        return await self._request(GET_EXPERIENCE, request)
+
+    async def list_artifact_candidates(self, request: ListArtifactCandidatesRequest) -> ArtifactCandidatePage:
+        """Page current Candidate heads in the Review Inbox."""
+
+        return await self._request(LIST_ARTIFACT_CANDIDATES, request)
+
+    async def get_artifact_candidate(self, request: GetArtifactCandidateRequest) -> ArtifactCandidate:
+        """Read the current head of one Candidate."""
+
+        return await self._request(GET_ARTIFACT_CANDIDATE, request)
+
+    async def approve_artifact_candidate(self, request: ApproveArtifactCandidateRequest) -> ArtifactCandidate:
+        """Approve the exact current Candidate version."""
+
+        return await self._request(APPROVE_ARTIFACT_CANDIDATE, request)
+
+    async def reject_artifact_candidate(self, request: RejectArtifactCandidateRequest) -> ArtifactCandidate:
+        """Reject the exact current Candidate version."""
+
+        return await self._request(REJECT_ARTIFACT_CANDIDATE, request)
+
+    async def revise_artifact_candidate(self, request: ReviseArtifactCandidateRequest) -> ArtifactCandidate:
+        """Append a complete replacement Candidate proposal."""
+
+        return await self._request(REVISE_ARTIFACT_CANDIDATE, request)
 
     async def _request(
         self,

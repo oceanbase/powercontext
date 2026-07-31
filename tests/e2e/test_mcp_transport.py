@@ -38,7 +38,11 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
             "http://testserver/agent/",
             httpx_client_factory=create_http_client,
         )
-        async with app.router.lifespan_context(app), Client(transport) as client:
+        async with (
+            app.router.lifespan_context(app),
+            create_http_client() as http_client,
+            Client(transport) as client,
+        ):
             projected_tools = {tool.name: tool for tool in await client.list_tools()}
             include_inactive = projected_tools["list_memory_entries"].inputSchema["properties"]["include_inactive"]
             assert include_inactive["type"] == "boolean"
@@ -51,15 +55,57 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
                 },
             )
             assert empty_list.structured_content == {"memory": None, "entries": []}
+
+            captured_response = await http_client.post(
+                "/v1/sources/content",
+                json={
+                    "scope_id": "project:review",
+                    "source_id": "task-1",
+                    "content": "api-generate and contract-test passed",
+                },
+            )
+            captured_response.raise_for_status()
+            candidate_response = await http_client.post(
+                "/v1/experience/propose",
+                json={
+                    "scope_id": "project:review",
+                    "proposal": {
+                        "situation": "The public OpenAPI contract changes.",
+                        "action": "Regenerate the Client and run contract tests.",
+                        "outcome": "The generated transport matches the contract.",
+                        "lesson": "Regenerate the Client before contract tests.",
+                    },
+                    "source_refs": [captured_response.json()["source"]],
+                    "artifact_refs": [],
+                },
+            )
+            candidate_response.raise_for_status()
+            candidate = candidate_response.json()
+
+            approved = await client.call_tool(
+                "approve_artifact_candidate",
+                {
+                    "scope_id": "project:review",
+                    "candidate_id": candidate["candidate_id"],
+                    "expected_version": candidate["version"],
+                },
+            )
+            assert approved.structured_content["status"] == "approved"
+            assert approved.structured_content["result_artifact"] is not None
             return set(projected_tools)
 
     tools = asyncio.run(exercise_tools())
 
     assert tools == {
+        "approve_artifact_candidate",
+        "get_artifact_candidate",
         "get_memory_entry",
+        "list_artifact_candidates",
         "list_memory_entries",
+        "reject_artifact_candidate",
         "remember_memory",
         "retire_memory_entry",
+        "revise_artifact_candidate",
         "revise_memory_entry",
         "search_memory",
     }
