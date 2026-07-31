@@ -41,6 +41,7 @@ nav = [
             { "0019 Local Source-to-Memory Runtime" = "en/rfcs/0019_local_source_memory_runtime.md" },
             { "0020 Runtime-backed Memory Remote Access" = "en/rfcs/0020_runtime_backed_memory_remote_access.md" },
             { "0028 Context Pack" = "en/rfcs/0028_context_pack.md" },
+            { "0048 Handoff Artifact" = "en/rfcs/0048_handoff_artifact.md" },
         ] },
     ] },
     { "中文" = [
@@ -75,6 +76,7 @@ nav = [
             { "0019 本地 Source-to-Memory Runtime" = "zh/rfcs/0019_local_source_memory_runtime.md" },
             { "0020 基于 Runtime 的 Memory 远程访问" = "zh/rfcs/0020_runtime_backed_memory_remote_access.md" },
             { "0028 Context Pack" = "zh/rfcs/0028_context_pack.md" },
+            { "0048 Handoff Artifact" = "zh/rfcs/0048_handoff_artifact.md" },
         ] },
     ] },
 ]
