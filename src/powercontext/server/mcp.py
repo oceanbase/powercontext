@@ -10,7 +10,12 @@ from fastmcp.utilities.lifespan import combine_lifespans
 from fastmcp.utilities.openapi import HTTPRoute
 
 from powercontext.http._generated.operations import (
+    ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
+    CAPTURE_CONTENT_SOURCE,
+    COMMIT_HANDOFF,
+    CONTINUE_HANDOFF,
+    FINALIZE_HANDOFF,
     GET_ARTIFACT_CANDIDATE,
     GET_MEMORY_ENTRY,
     LIST_ARTIFACT_CANDIDATES,
@@ -32,6 +37,11 @@ from powercontext.server.context import (
 MCP_PATH = "/mcp"
 MCP_SERVER_NAME = "PowerContext Server"
 _MCP_OPERATION_IDS = frozenset({
+    CAPTURE_CONTENT_SOURCE.operation_id,
+    ACTIVATE_HANDOFF.operation_id,
+    FINALIZE_HANDOFF.operation_id,
+    COMMIT_HANDOFF.operation_id,
+    CONTINUE_HANDOFF.operation_id,
     SEARCH_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
     GET_MEMORY_ENTRY.operation_id,

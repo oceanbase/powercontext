@@ -67,6 +67,7 @@ def test_builtin_cli_reports_the_configured_instance_capabilities(
     assert json.loads(result.output) == {
         "database": "sqlite",
         "memory_extraction": False,
+        "handoff_generation": False,
         "memory_search_modes": ["auto", "fts"],
         "context_versions": ["powercontext.prepared-context.v1"],
     }

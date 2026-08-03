@@ -18,6 +18,7 @@ def test_capabilities_flow_through_server_sdk_and_cli(monkeypatch: pytest.Monkey
         source_types=["git-commit"],
         artifact_families=["memory", "handoff"],
         memory_extraction=True,
+        handoff_generation=True,
         search_modes=[MemorySearchMode.FTS],
         context_versions=[PreparedContextSchema.POWERCONTEXT_PREPARED_CONTEXT_V1],
     )
@@ -57,6 +58,7 @@ def test_capabilities_flow_through_server_sdk_and_cli(monkeypatch: pytest.Monkey
         "source_types": ["git-commit"],
         "artifact_families": ["memory", "handoff"],
         "memory_extraction": True,
+        "handoff_generation": True,
         "search_modes": ["fts"],
         "context_versions": ["powercontext.prepared-context.v1"],
     }

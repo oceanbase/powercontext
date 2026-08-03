@@ -7,18 +7,26 @@ from typing import Generic, TypeVar
 from pydantic import BaseModel, JsonValue
 
 from powercontext.http._generated.models import (
+    ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CommitHandoffRequest,
+    CommittedHandoff,
+    ContinueHandoffRequest,
     ExperienceArtifact,
+    FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
+    HandoffActivation,
+    HandoffDraft,
+    HandoffResolution,
     HealthResponse,
     ListArtifactCandidatesRequest,
     ListMemoryChangesRequest,
@@ -29,6 +37,8 @@ from powercontext.http._generated.models import (
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
+    PreparedHandoff,
+    PrepareHandoffRequest,
     ProposeExperienceRequest,
     ReadinessResponse,
     RejectArtifactCandidateRequest,
@@ -151,6 +161,112 @@ PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
             "description": "Final context ready for direct injection, or a normal empty result.",
             "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+ACTIVATE_HANDOFF = Operation[ActivateHandoffRequest, HandoffActivation](
+    method="POST",
+    path="/v1/handoff/activate",
+    operation_id="activate_handoff",
+    request_type=ActivateHandoffRequest,
+    response_type=HandoffActivation,
+    success_status=200,
+    summary="Activate Handoff generation at a Source boundary",
+    tags=("handoff",),
+    responses={
+        200: {
+            "description": "A generated inspectable Draft, or an ignored boundary that was already consumed.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+PREPARE_HANDOFF = Operation[PrepareHandoffRequest, HandoffDraft](
+    method="POST",
+    path="/v1/handoff/prepare",
+    operation_id="prepare_handoff",
+    request_type=PrepareHandoffRequest,
+    response_type=HandoffDraft,
+    success_status=200,
+    summary="Generate an inspectable Handoff Draft",
+    tags=("handoff",),
+    responses={
+        200: {
+            "description": "An uncommitted Draft generated from the selected exact evidence.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+FINALIZE_HANDOFF = Operation[FinalizeHandoffRequest, PreparedHandoff](
+    method="POST",
+    path="/v1/handoff/finalize",
+    operation_id="finalize_handoff",
+    request_type=FinalizeHandoffRequest,
+    response_type=PreparedHandoff,
+    success_status=200,
+    summary="Finalize an inspected Handoff Draft",
+    tags=("handoff",),
+    responses={
+        200: {
+            "description": "A temporary Handoff ready for direct transfer or explicit commit.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+COMMIT_HANDOFF = Operation[CommitHandoffRequest, CommittedHandoff](
+    method="POST",
+    path="/v1/handoff/commit",
+    operation_id="commit_handoff",
+    request_type=CommitHandoffRequest,
+    response_type=CommittedHandoff,
+    success_status=200,
+    summary="Commit an explicit Handoff milestone",
+    tags=("handoff",),
+    responses={
+        200: {
+            "description": "The committed immutable Handoff Revision.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+CONTINUE_HANDOFF = Operation[ContinueHandoffRequest, HandoffResolution](
+    method="POST",
+    path="/v1/handoff/continue",
+    operation_id="continue_handoff",
+    request_type=ContinueHandoffRequest,
+    response_type=HandoffResolution,
+    success_status=200,
+    summary="Resolve a Handoff as untrusted historical input",
+    tags=("handoff",),
+    responses={
+        200: {
+            "description": "Resolved content and per-statement evidence availability.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},

@@ -31,7 +31,12 @@ def test_mcp_exposes_only_the_agent_facing_server_operations() -> None:
     tool_names, resource_count, prompt_count = run_async(inspect_components)
 
     assert set(tool_names) == {
+        "activate_handoff",
         "approve_artifact_candidate",
+        "capture_content_source",
+        "commit_handoff",
+        "continue_handoff",
+        "finalize_handoff",
         "get_artifact_candidate",
         "get_memory_entry",
         "list_artifact_candidates",

@@ -19,7 +19,15 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.types import Lifespan
 
 from powercontext._logging import log_safely
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience
+from powercontext.builtin.artifacts.handoff import (
+    HandoffEvidenceUnavailableError,
+    HandoffGenerationUnavailableError,
+    HandoffScopeMismatchError,
+    InvalidHandoffGenerationError,
+    InvalidHandoffReferenceError,
+)
 from powercontext.builtin.artifacts.memory.errors import (
     CapabilityNotSupportedError,
     InvalidMemoryCandidateError,
@@ -37,12 +45,14 @@ from powercontext.builtin.review import (
     InvalidCandidateError,
 )
 from powercontext.builtin.runtime import (
-    ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
-)
-from powercontext.builtin.runtime import (
+    ActivateHandoff,
     CaptureSource,
     ExperienceCandidate,
     ExperienceCandidatePage,
+    Handoff,
+    HandoffActivation,
+    HandoffDraft,
+    HandoffResolution,
     InvalidRuntimeRequestError,
     MemoryChangesPage,
     MemoryEntriesPage,
@@ -50,7 +60,12 @@ from powercontext.builtin.runtime import (
     MemoryFlushResult,
     MemoryMutationResult,
     MemorySearchPage,
+    PreparedHandoff,
+    PrepareHandoff,
     SourceReceipt,
+)
+from powercontext.builtin.runtime import (
+    ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
 )
 from powercontext.builtin.runtime import (
     GetArtifactCandidateRequest as RuntimeGetArtifactCandidateRequest,
@@ -98,20 +113,26 @@ from powercontext.errors import (
     SourceConflictError,
 )
 from powercontext.http import (
+    ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CommitHandoffRequest,
+    CommittedHandoff,
+    ContinueHandoffRequest,
     ErrorDetail,
     ErrorResponse,
     ExperienceArtifact,
+    FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
+    HandoffSelection,
     HealthResponse,
     ListArtifactCandidatesRequest,
     ListMemoryChangesRequest,
@@ -122,6 +143,7 @@ from powercontext.http import (
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
+    PrepareHandoffRequest,
     ProposeExperienceRequest,
     ReadinessResponse,
     ReadinessStatus,
@@ -133,12 +155,28 @@ from powercontext.http import (
     SearchMemoryRequest,
     SearchMemoryResponse,
 )
+from powercontext.http import (
+    HandoffActivation as TransportHandoffActivation,
+)
+from powercontext.http import (
+    HandoffDraft as TransportHandoffDraft,
+)
+from powercontext.http import (
+    HandoffResolution as TransportHandoffResolution,
+)
+from powercontext.http import (
+    PreparedHandoff as TransportPreparedHandoff,
+)
 from powercontext.http._generated.operations import (
+    ACTIVATE_HANDOFF,
     API_DESCRIPTION,
     API_TITLE,
     API_VERSION,
     APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
+    COMMIT_HANDOFF,
+    CONTINUE_HANDOFF,
+    FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
@@ -151,6 +189,7 @@ from powercontext.http._generated.operations import (
     LIST_MEMORY_ENTRIES,
     OPENAPI_VERSION,
     PREPARE_CONTEXT,
+    PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
@@ -216,6 +255,24 @@ class _ReviewApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedReviewApplication: ...
 
 
+class _ScopedHandoffApplication(Protocol):
+    async def activate(self, request: ActivateHandoff, /) -> HandoffActivation: ...
+
+    async def prepare(self, request: PrepareHandoff, /) -> HandoffDraft: ...
+
+    async def finalize(self, draft: HandoffDraft, /) -> PreparedHandoff: ...
+
+    async def commit(self, prepared: PreparedHandoff, /) -> Handoff: ...
+
+    async def continue_from(self, handoff: PreparedHandoff | ArtifactRef, /) -> HandoffResolution: ...
+
+    async def continue_latest(self) -> HandoffResolution: ...
+
+
+class _HandoffApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedHandoffApplication: ...
+
+
 class _ScopedMemoryApplication(Protocol):
     async def remember(self, request: RuntimeRememberMemoryRequest, /) -> MemoryMutationResult: ...
 
@@ -242,6 +299,7 @@ class ServerApplication(Protocol):
     sources: _SourceApplication
     context: _ContextApplication
     experience: _ExperienceApplication
+    handoff: _HandoffApplication
     memory: _MemoryApplication
     review: _ReviewApplication
 
@@ -273,6 +331,7 @@ def create_app(
         source_types=[],
         artifact_families=[],
         memory_extraction=False,
+        handoff_generation=False,
         search_modes=[],
         context_versions=[],
     )
@@ -324,6 +383,11 @@ def create_app(
     _add_route(app, REMEMBER_MEMORY, remember_memory)
     _add_route(app, SEARCH_MEMORY, search_memory)
     _add_route(app, PREPARE_CONTEXT, prepare_context)
+    _add_route(app, ACTIVATE_HANDOFF, activate_handoff)
+    _add_route(app, PREPARE_HANDOFF, prepare_handoff)
+    _add_route(app, FINALIZE_HANDOFF, finalize_handoff)
+    _add_route(app, COMMIT_HANDOFF, commit_handoff)
+    _add_route(app, CONTINUE_HANDOFF, continue_handoff)
     _add_route(app, LIST_MEMORY_ENTRIES, list_memory_entries)
     _add_route(app, GET_MEMORY_ENTRY, get_memory_entry)
     _add_route(app, REVISE_MEMORY_ENTRY, revise_memory_entry)
@@ -406,6 +470,65 @@ async def prepare_context(
 ) -> PreparedContext:
     result = await application.context.for_scope(request.scope_id).prepare(mapping.prepare_context_request(request))
     return mapping.prepared_context_response(result)
+
+
+async def prepare_handoff(
+    request: PrepareHandoffRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> TransportHandoffDraft:
+    result = await application.handoff.for_scope(request.scope_id).prepare(mapping.prepare_handoff_request(request))
+    return mapping.handoff_draft_response(result)
+
+
+async def activate_handoff(
+    request: ActivateHandoffRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> TransportHandoffActivation:
+    result = await application.handoff.for_scope(request.scope_id).activate(mapping.activate_handoff_request(request))
+    return mapping.handoff_activation_response(result)
+
+
+async def finalize_handoff(
+    request: FinalizeHandoffRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> TransportPreparedHandoff:
+    result = await application.handoff.for_scope(request.scope_id).finalize(
+        mapping.runtime_handoff_draft(request.draft)
+    )
+    return mapping.prepared_handoff_response(result)
+
+
+async def commit_handoff(
+    request: CommitHandoffRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> CommittedHandoff:
+    result = await application.handoff.for_scope(request.scope_id).commit(
+        mapping.runtime_prepared_handoff(request.handoff)
+    )
+    return mapping.committed_handoff_response(result)
+
+
+async def continue_handoff(
+    request: ContinueHandoffRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> TransportHandoffResolution:
+    handoff = application.handoff.for_scope(request.scope_id)
+    if request.selection is HandoffSelection.LATEST:
+        _require_handoff_selection(request, prepared=False, revision=False)
+        result = await handoff.continue_latest()
+    elif request.selection is HandoffSelection.PREPARED:
+        _require_handoff_selection(request, prepared=True, revision=False)
+        prepared = request.prepared
+        if prepared is None:
+            raise InvalidRuntimeRequestError("handoff-selection")
+        result = await handoff.continue_from(mapping.runtime_prepared_handoff(prepared))
+    else:
+        _require_handoff_selection(request, prepared=False, revision=True)
+        revision = request.revision
+        if revision is None:
+            raise InvalidRuntimeRequestError("handoff-selection")
+        result = await handoff.continue_from(mapping.runtime_artifact_reference(revision))
+    return mapping.handoff_resolution_response(result)
 
 
 async def list_memory_entries(
@@ -506,6 +629,16 @@ async def revise_artifact_candidate(
 ) -> ArtifactCandidate:
     result = await application.review.for_scope(request.scope_id).revise(mapping.revise_candidate_request(request))
     return mapping.candidate_response(result)
+
+
+def _require_handoff_selection(
+    request: ContinueHandoffRequest,
+    *,
+    prepared: bool,
+    revision: bool,
+) -> None:
+    if (request.prepared is not None) != prepared or (request.revision is not None) != revision:
+        raise InvalidRuntimeRequestError("handoff-selection")
 
 
 def _runtime_readiness(application: ServerApplication | None) -> ReadinessResponse:
@@ -625,6 +758,9 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     candidate_error = _map_candidate_error(error)
     if candidate_error is not None:
         return candidate_error
+    availability_error = _map_availability_error(error)
+    if availability_error is not None:
+        return availability_error
     return _map_domain_error(error)
 
 
@@ -681,6 +817,8 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
             InvalidMemoryCandidateError,
             InvalidMemoryCitationError,
             InvalidMemoryEvidenceError,
+            HandoffScopeMismatchError,
+            InvalidHandoffReferenceError,
             InvalidRuntimeRequestError,
         ),
     ):
@@ -690,3 +828,29 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
     if isinstance(error, InferenceUnavailableError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Memory inference is unavailable.", None
     return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
+
+
+def _map_availability_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, _RuntimeNotReadyError):
+        return status.HTTP_503_SERVICE_UNAVAILABLE, "runtime_not_ready", "The Runtime is not ready.", None
+    return _map_handoff_error(error)
+
+
+def _map_handoff_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, HandoffEvidenceUnavailableError):
+        return status.HTTP_404_NOT_FOUND, "handoff_evidence_not_found", "Cited Handoff evidence was not found.", None
+    if isinstance(error, HandoffGenerationUnavailableError):
+        return (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "handoff_generation_unavailable",
+            "Handoff generation is unavailable.",
+            None,
+        )
+    if isinstance(error, InvalidHandoffGenerationError):
+        return (
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "invalid_handoff_generation",
+            "Handoff generation violated its contract.",
+            {"reason": error.code},
+        )
+    return None

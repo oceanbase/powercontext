@@ -228,6 +228,7 @@ def _print_human_response(response: _ClientResponse) -> None:
             typer.echo(f"Source types: {_items(response.source_types)}")
             typer.echo(f"Artifact families: {_items(response.artifact_families)}")
             typer.echo(f"Memory extraction: {'enabled' if response.memory_extraction else 'disabled'}")
+            typer.echo(f"Handoff generation: {'enabled' if response.handoff_generation else 'disabled'}")
             typer.echo(f"Search modes: {_items(response.search_modes)}")
             typer.echo(f"Context versions: {_items(response.context_versions)}")
         case ReadinessResponse():

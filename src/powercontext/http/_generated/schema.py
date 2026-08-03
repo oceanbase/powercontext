@@ -110,6 +110,132 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/handoff/activate": {
+            "post": {
+                "tags": ["handoff"],
+                "summary": "Activate Handoff generation at a Source boundary",
+                "description": "Evaluate the standard Handoff Trigger "
+                "and synchronously execute any emitted "
+                "PrepareHandoff Action.",
+                "operationId": "activate_handoff",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ActivateHandoffRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "A generated "
+                        "inspectable "
+                        "Draft, or an "
+                        "ignored "
+                        "boundary that "
+                        "was already "
+                        "consumed.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffActivation"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/handoff/prepare": {
+            "post": {
+                "tags": ["handoff"],
+                "summary": "Generate an inspectable Handoff Draft",
+                "operationId": "prepare_handoff",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrepareHandoffRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "An uncommitted Draft generated from the selected exact evidence.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffDraft"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/handoff/finalize": {
+            "post": {
+                "tags": ["handoff"],
+                "summary": "Finalize an inspected Handoff Draft",
+                "operationId": "finalize_handoff",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/FinalizeHandoffRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "A temporary Handoff ready for direct transfer or explicit commit.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedHandoff"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/handoff/commit": {
+            "post": {
+                "tags": ["handoff"],
+                "summary": "Commit an explicit Handoff milestone",
+                "operationId": "commit_handoff",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CommitHandoffRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The committed immutable Handoff Revision.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CommittedHandoff"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/handoff/continue": {
+            "post": {
+                "tags": ["handoff"],
+                "summary": "Resolve a Handoff as untrusted historical input",
+                "operationId": "continue_handoff",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ContinueHandoffRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Resolved content and per-statement evidence availability.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffResolution"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
         "/v1/memory/flush": {
             "post": {
                 "tags": ["memory"],
@@ -508,6 +634,23 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     },
     "components": {
         "schemas": {
+            "ActivateHandoffRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "boundary_source": {"$ref": "#/components/schemas/SourceReference"},
+                    "objective": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "evidence": {
+                        "items": {"$ref": "#/components/schemas/HandoffCitation"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "default": [],
+                    },
+                    "max_bytes": {"type": "integer", "maximum": 32768.0, "minimum": 512.0, "default": 8000},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "boundary_source", "objective"],
+            },
             "ArtifactReference": {
                 "properties": {
                     "family": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
@@ -609,6 +752,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "boolean",
                         "description": "Whether pending Sources can be extracted into Memory.",
                     },
+                    "handoff_generation": {
+                        "type": "boolean",
+                        "description": "Whether exact evidence can be generated into an inspectable Handoff Draft.",
+                    },
                     "search_modes": {"items": {"$ref": "#/components/schemas/MemorySearchMode"}, "type": "array"},
                     "context_versions": {
                         "items": {"$ref": "#/components/schemas/PreparedContextSchema"},
@@ -621,6 +768,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "source_types",
                     "artifact_families",
                     "memory_extraction",
+                    "handoff_generation",
                     "search_modes",
                     "context_versions",
                 ],
@@ -645,6 +793,236 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["status", "source", "position"],
+            },
+            "CommitHandoffRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "handoff": {"$ref": "#/components/schemas/PreparedHandoff"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "handoff"],
+            },
+            "CommittedHandoff": {
+                "properties": {
+                    "reference": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "content": {"$ref": "#/components/schemas/HandoffContent"},
+                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
+                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["reference", "content", "source_refs", "artifact_refs"],
+            },
+            "ContinueHandoffRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "selection": {"$ref": "#/components/schemas/HandoffSelection"},
+                    "prepared": {"$ref": "#/components/schemas/PreparedHandoff", "nullable": True},
+                    "revision": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "selection"],
+            },
+            "FinalizeHandoffRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "draft": {"$ref": "#/components/schemas/HandoffDraft"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "draft"],
+            },
+            "HandoffArtifactCitation": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["artifact"]},
+                    "artifact_ref": {"$ref": "#/components/schemas/ArtifactReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "artifact_ref"],
+            },
+            "HandoffActivation": {
+                "properties": {
+                    "status": {"$ref": "#/components/schemas/HandoffActivationStatus"},
+                    "boundary_source": {"$ref": "#/components/schemas/SourceReference"},
+                    "previous_position": {"type": "integer", "minimum": 0.0},
+                    "current_position": {"type": "integer", "minimum": 0.0},
+                    "draft": {"$ref": "#/components/schemas/HandoffDraft", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["status", "boundary_source", "previous_position", "current_position", "draft"],
+            },
+            "HandoffCitation": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/HandoffSourceCitation"},
+                    {"$ref": "#/components/schemas/HandoffArtifactCitation"},
+                    {"$ref": "#/components/schemas/HandoffMemoryCitation"},
+                ],
+                "discriminator": {
+                    "propertyName": "kind",
+                    "mapping": {
+                        "source": "#/components/schemas/HandoffSourceCitation",
+                        "artifact": "#/components/schemas/HandoffArtifactCitation",
+                        "memory": "#/components/schemas/HandoffMemoryCitation",
+                    },
+                },
+            },
+            "HandoffContent": {
+                "properties": {
+                    "schema": {"$ref": "#/components/schemas/HandoffSchema"},
+                    "objective": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "state": {
+                        "items": {"$ref": "#/components/schemas/HandoffStatement"},
+                        "type": "array",
+                        "maxItems": 64,
+                        "minItems": 1,
+                    },
+                    "disposition": {"$ref": "#/components/schemas/HandoffDisposition"},
+                    "next_action": {"$ref": "#/components/schemas/HandoffStatement", "nullable": True},
+                    "omissions": {
+                        "items": {"$ref": "#/components/schemas/HandoffOmission"},
+                        "type": "array",
+                        "maxItems": 64,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["schema", "objective", "state", "disposition", "next_action", "omissions"],
+            },
+            "HandoffDraft": {
+                "properties": {
+                    "objective": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "state": {
+                        "items": {"$ref": "#/components/schemas/HandoffStatement"},
+                        "type": "array",
+                        "maxItems": 64,
+                        "minItems": 1,
+                    },
+                    "disposition": {"$ref": "#/components/schemas/HandoffDisposition"},
+                    "next_action": {"$ref": "#/components/schemas/HandoffStatement", "nullable": True},
+                    "omissions": {
+                        "items": {"$ref": "#/components/schemas/HandoffOmission"},
+                        "type": "array",
+                        "maxItems": 64,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["objective", "state", "disposition", "next_action", "omissions"],
+            },
+            "HandoffEvidenceCheck": {
+                "properties": {
+                    "claim": {"$ref": "#/components/schemas/HandoffClaim"},
+                    "state_index": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "status": {"$ref": "#/components/schemas/HandoffEvidenceStatus"},
+                    "unavailable_evidence": {
+                        "items": {"$ref": "#/components/schemas/HandoffCitation"},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["claim", "state_index", "status", "unavailable_evidence"],
+            },
+            "HandoffMemoryCitation": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["memory"]},
+                    "memory_citation": {"$ref": "#/components/schemas/MemoryCitation"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "memory_citation"],
+            },
+            "HandoffOmission": {
+                "properties": {
+                    "text": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "citation": {"$ref": "#/components/schemas/HandoffCitation", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["text", "citation"],
+            },
+            "HandoffResolution": {
+                "properties": {
+                    "trust": {"type": "string", "enum": ["untrusted_history"]},
+                    "status": {"$ref": "#/components/schemas/HandoffResolutionStatus"},
+                    "scope_id": {"type": "string"},
+                    "content": {"$ref": "#/components/schemas/HandoffContent", "nullable": True},
+                    "selection": {"$ref": "#/components/schemas/HandoffSelection", "nullable": True},
+                    "selected_revision": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "current_revision": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "evidence_checks": {
+                        "items": {"$ref": "#/components/schemas/HandoffEvidenceCheck"},
+                        "type": "array",
+                        "maxItems": 65,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "trust",
+                    "status",
+                    "scope_id",
+                    "content",
+                    "selection",
+                    "selected_revision",
+                    "current_revision",
+                    "evidence_checks",
+                ],
+            },
+            "HandoffSourceCitation": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["source"]},
+                    "source_ref": {"$ref": "#/components/schemas/SourceReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "source_ref"],
+            },
+            "HandoffStatement": {
+                "properties": {
+                    "text": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "citations": {
+                        "items": {"$ref": "#/components/schemas/HandoffCitation"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "minItems": 1,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["text", "citations"],
+            },
+            "PrepareHandoffRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "objective": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "evidence": {
+                        "items": {"$ref": "#/components/schemas/HandoffCitation"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "minItems": 1,
+                    },
+                    "max_bytes": {"type": "integer", "maximum": 32768.0, "minimum": 512.0, "default": 8000},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "objective", "evidence"],
+            },
+            "PreparedHandoff": {
+                "properties": {
+                    "schema": {"$ref": "#/components/schemas/PreparedHandoffSchema"},
+                    "scope_id": {"type": "string"},
+                    "base": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "content": {"$ref": "#/components/schemas/HandoffContent"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["schema", "scope_id", "base", "content"],
             },
             "PreparedContext": {
                 "properties": {
@@ -1117,6 +1495,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "MemoryMatchedBy": {"type": "string", "enum": ["fts", "vector"]},
             "MemorySearchMode": {"type": "string", "enum": ["auto", "fts", "vector", "hybrid"]},
             "MemoryUsedSearchMode": {"type": "string", "enum": ["fts", "vector", "hybrid"]},
+            "HandoffClaim": {"type": "string", "enum": ["state", "next_action"]},
+            "HandoffActivationStatus": {"type": "string", "enum": ["generated", "ignored"]},
+            "HandoffDisposition": {"type": "string", "enum": ["continuable", "blocked", "complete"]},
+            "HandoffEvidenceStatus": {"type": "string", "enum": ["available", "unavailable"]},
+            "HandoffResolutionStatus": {"type": "string", "enum": ["empty", "resolved"]},
+            "HandoffSchema": {"type": "string", "enum": ["powercontext.handoff.v1"]},
+            "HandoffSelection": {"type": "string", "enum": ["prepared", "exact", "latest"]},
+            "PreparedHandoffSchema": {"type": "string", "enum": ["powercontext.prepared-handoff.v1"]},
         },
         "responses": {
             "Conflict": {

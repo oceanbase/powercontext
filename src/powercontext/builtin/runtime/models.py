@@ -58,6 +58,7 @@ class RuntimeCapabilities(BaseModel):
 
     memory_extraction: bool
     memory_search_modes: tuple[MemorySearchMode, ...]
+    handoff_generation: bool = False
     context_versions: tuple[PreparedContextSchema, ...] = (PREPARED_CONTEXT_SCHEMA,)
 
 

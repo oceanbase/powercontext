@@ -26,6 +26,7 @@ app = typer.Typer(
 class _BuiltinCapabilities(BaseModel):
     database: str
     memory_extraction: bool
+    handoff_generation: bool
     memory_search_modes: tuple[MemorySearchMode, ...]
     context_versions: tuple[PreparedContextSchema, ...]
 
@@ -58,6 +59,7 @@ async def _show_capabilities(settings: BuiltinSettings, *, json_output: bool) ->
     capabilities = _BuiltinCapabilities(
         database=settings.database.kind,
         memory_extraction=runtime_capabilities.memory_extraction,
+        handoff_generation=runtime_capabilities.handoff_generation,
         memory_search_modes=runtime_capabilities.memory_search_modes,
         context_versions=runtime_capabilities.context_versions,
     )
@@ -66,6 +68,7 @@ async def _show_capabilities(settings: BuiltinSettings, *, json_output: bool) ->
         return
     typer.echo(f"Database: {capabilities.database}")
     typer.echo(f"Memory extraction: {'enabled' if capabilities.memory_extraction else 'disabled'}")
+    typer.echo(f"Handoff generation: {'enabled' if capabilities.handoff_generation else 'disabled'}")
     modes = ", ".join(capabilities.memory_search_modes) if capabilities.memory_search_modes else "none"
     typer.echo(f"Search modes: {modes}")
     versions = ", ".join(capabilities.context_versions) if capabilities.context_versions else "none"

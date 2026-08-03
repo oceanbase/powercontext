@@ -8,6 +8,10 @@ from typing import TypeVar
 
 from pydantic import JsonValue
 
+from powercontext.builtin.artifacts.handoff import (
+    DefaultHandoffEvidenceProjector,
+    HandoffGenerationPipeline,
+)
 from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     DefaultMemoryEvidenceProjector,
@@ -57,19 +61,36 @@ class _ContentEvidenceProjector(DefaultMemoryEvidenceProjector):
         return super().project_source(source)
 
 
+class _ContentHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
+    def project_source(self, source: Source, /) -> JsonValue:
+        if isinstance(source, ContentSource):
+            return {
+                "source_type": CONTENT_SOURCE_NAME,
+                "source_id": source.name,
+                "content": source.content,
+                "metadata": source.model_dump(mode="json")["metadata"],
+            }
+        return super().project_source(source)
+
+
 @asynccontextmanager
 async def open_builtin_runtime(
     config: BuiltinConfig,
     *,
     candidate_pipeline: CandidatePipeline | None = None,
+    handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
     async with AsyncExitStack() as resources:
-        configured_pipeline = (
-            await _candidate_pipeline(config.inference, resources) if candidate_pipeline is None else candidate_pipeline
+        default_candidate_pipeline, default_handoff_pipeline = (
+            await _generation_pipelines(config.inference, resources)
+            if candidate_pipeline is None or handoff_pipeline is None
+            else (None, None)
         )
+        configured_pipeline = default_candidate_pipeline if candidate_pipeline is None else candidate_pipeline
+        configured_handoff_pipeline = default_handoff_pipeline if handoff_pipeline is None else handoff_pipeline
         configured_embedding = (
             await _embedding_model(config.inference, resources) if embedding_model is None else embedding_model
         )
@@ -77,6 +98,7 @@ async def open_builtin_runtime(
             open_builtin_contexts(
                 config,
                 candidate_pipeline=configured_pipeline,
+                handoff_pipeline=configured_handoff_pipeline,
                 embedding_model=configured_embedding,
             )
         )
@@ -86,6 +108,7 @@ async def open_builtin_runtime(
                 capabilities=RuntimeCapabilities(
                     memory_extraction=contexts.memory_extraction,
                     memory_search_modes=_search_modes(contexts.index.capabilities),
+                    handoff_generation=contexts.handoff_generation,
                 ),
                 source_window_limit=config.runtime.source_window_limit,
                 scope_ids=contexts.scope_ids,
@@ -107,6 +130,7 @@ async def open_builtin_contexts(
     config: BuiltinConfig,
     *,
     candidate_pipeline: CandidatePipeline | None = None,
+    handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
@@ -126,6 +150,7 @@ async def open_builtin_contexts(
                 database=profile.database,
                 index=index,
                 candidate_pipeline=candidate_pipeline,
+                handoff_pipeline=handoff_pipeline,
                 embedding_model=embedding_model,
             )
         return
@@ -143,16 +168,26 @@ async def open_builtin_contexts(
             database=profile.database,
             index=index,
             candidate_pipeline=candidate_pipeline,
+            handoff_pipeline=handoff_pipeline,
             embedding_model=embedding_model,
         )
 
 
-async def _candidate_pipeline(settings: InferenceConfig, resources: AsyncExitStack) -> CandidatePipeline | None:
+async def _generation_pipelines(
+    settings: InferenceConfig,
+    resources: AsyncExitStack,
+) -> tuple[CandidatePipeline | None, HandoffGenerationPipeline | None]:
     if settings.generation_model is None:
-        return None
+        return None, None
 
     from pydantic_ai.models import infer_model
 
+    from powercontext.builtin.artifacts.handoff import (
+        HANDOFF_GENERATION_INSTRUCTIONS,
+        HandoffGenerationInput,
+        HandoffGenerationOutput,
+        LLMHandoffGenerationPipeline,
+    )
     from powercontext.builtin.artifacts.memory import (
         MEMORY_EXTRACTION_INSTRUCTIONS,
         LLMMemoryCandidatePipeline,
@@ -161,17 +196,32 @@ async def _candidate_pipeline(settings: InferenceConfig, resources: AsyncExitSta
     )
     from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
 
-    generator = PydanticAIStructuredGenerator(
-        model=await resources.enter_async_context(infer_model(settings.generation_model)),
+    model = await resources.enter_async_context(infer_model(settings.generation_model))
+    limits = InferenceLimits(
+        timeout_seconds=settings.generation_timeout_seconds,
+        max_requests=settings.generation_max_requests,
+    )
+    memory_generator = PydanticAIStructuredGenerator(
+        model=model,
         instructions=MEMORY_EXTRACTION_INSTRUCTIONS,
         input_type=MemoryExtractionInput,
         output_type=MemoryExtractionOutput,
-        limits=InferenceLimits(
-            timeout_seconds=settings.generation_timeout_seconds,
-            max_requests=settings.generation_max_requests,
+        limits=limits,
+    )
+    handoff_generator = PydanticAIStructuredGenerator(
+        model=model,
+        instructions=HANDOFF_GENERATION_INSTRUCTIONS,
+        input_type=HandoffGenerationInput,
+        output_type=HandoffGenerationOutput,
+        limits=limits,
+    )
+    return (
+        LLMMemoryCandidatePipeline(memory_generator, evidence_projector=_ContentEvidenceProjector()),
+        LLMHandoffGenerationPipeline(
+            handoff_generator,
+            evidence_projector=_ContentHandoffEvidenceProjector(),
         ),
     )
-    return LLMMemoryCandidatePipeline(generator, evidence_projector=_ContentEvidenceProjector())
 
 
 async def _embedding_model(settings: InferenceConfig, resources: AsyncExitStack) -> EmbeddingModel | None:

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from powercontext.builtin.artifacts.handoff import HandoffGenerationPipeline
 from powercontext.builtin.artifacts.memory import CandidatePipeline
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.runtime import BuiltinRuntime
@@ -23,6 +24,7 @@ def create_server_app(
     *,
     settings: ServerSettings | None = None,
     candidate_pipeline: CandidatePipeline | None = None,
+    handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
 ) -> FastAPI:
     """Build the Server process and mount MCP when configured."""
@@ -39,6 +41,7 @@ def create_server_app(
         async with open_builtin_runtime(
             config,
             candidate_pipeline=candidate_pipeline,
+            handoff_pipeline=handoff_pipeline,
             embedding_model=embedding_model,
         ) as runtime:
             app.state.application = runtime
@@ -51,6 +54,7 @@ def create_server_app(
                     source_types=[],
                     artifact_families=[],
                     memory_extraction=False,
+                    handoff_generation=False,
                     search_modes=[],
                     context_versions=[],
                 )
@@ -65,8 +69,9 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
     capabilities = await runtime.capabilities()
     return Capabilities(
         source_types=[CONTENT_SOURCE_NAME],
-        artifact_families=["memory", "experience"],
+        artifact_families=["memory", "experience", "handoff"],
         memory_extraction=capabilities.memory_extraction,
+        handoff_generation=capabilities.handoff_generation,
         search_modes=[MemorySearchMode(mode) for mode in capabilities.memory_search_modes],
         context_versions=[PreparedContextSchema(version) for version in capabilities.context_versions],
     )

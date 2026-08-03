@@ -4,9 +4,19 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    model_validator,
+)
 
 
 class ArtifactReference(BaseModel):
@@ -35,6 +45,30 @@ class CaptureContentSourceRequest(BaseModel):
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
     content: Annotated[StrictStr, Field(max_length=200000, min_length=1)]
     metadata: dict[str, Any] | None = None
+
+
+class Kind(StrEnum):
+    ARTIFACT = "artifact"
+
+
+class HandoffArtifactCitation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["artifact"]
+    artifact_ref: ArtifactReference
+
+
+class Kind1(StrEnum):
+    MEMORY = "memory"
+
+
+class Trust(StrEnum):
+    UNTRUSTED_HISTORY = "untrusted_history"
+
+
+class Kind2(StrEnum):
+    SOURCE = "source"
 
 
 class ExperienceProposal(BaseModel):
@@ -247,6 +281,46 @@ class MemoryUsedSearchMode(StrEnum):
     HYBRID = "hybrid"
 
 
+class HandoffClaim(StrEnum):
+    STATE = "state"
+    NEXT_ACTION = "next_action"
+
+
+class HandoffActivationStatus(StrEnum):
+    GENERATED = "generated"
+    IGNORED = "ignored"
+
+
+class HandoffDisposition(StrEnum):
+    CONTINUABLE = "continuable"
+    BLOCKED = "blocked"
+    COMPLETE = "complete"
+
+
+class HandoffEvidenceStatus(StrEnum):
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+
+
+class HandoffResolutionStatus(StrEnum):
+    EMPTY = "empty"
+    RESOLVED = "resolved"
+
+
+class HandoffSchema(StrEnum):
+    POWERCONTEXT_HANDOFF_V1 = "powercontext.handoff.v1"
+
+
+class HandoffSelection(StrEnum):
+    PREPARED = "prepared"
+    EXACT = "exact"
+    LATEST = "latest"
+
+
+class PreparedHandoffSchema(StrEnum):
+    POWERCONTEXT_PREPARED_HANDOFF_V1 = "powercontext.prepared-handoff.v1"
+
+
 class ArtifactCandidate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -299,6 +373,9 @@ class Capabilities(BaseModel):
     source_types: list[StrictStr]
     artifact_families: list[StrictStr]
     memory_extraction: Annotated[StrictBool, Field(description="Whether pending Sources can be extracted into Memory.")]
+    handoff_generation: Annotated[
+        StrictBool, Field(description="Whether exact evidence can be generated into an inspectable Handoff Draft.")
+    ]
     search_modes: list[MemorySearchMode]
     context_versions: list[PreparedContextSchema]
 
@@ -310,6 +387,22 @@ class CaptureContentSourceResponse(BaseModel):
     status: CaptureStatus
     source: SourceReference
     position: Annotated[StrictInt, Field(ge=1)]
+
+
+class HandoffMemoryCitation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["memory"]
+    memory_citation: MemoryCitation
+
+
+class HandoffSourceCitation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["source"]
+    source_ref: SourceReference
 
 
 class PreparedContext(BaseModel):
@@ -506,6 +599,48 @@ class SearchMemoryResponse(BaseModel):
     hits: list[SearchMemoryHit]
 
 
+class HandoffCitation(RootModel[HandoffSourceCitation | HandoffArtifactCitation | HandoffMemoryCitation]):
+    root: Annotated[
+        HandoffSourceCitation | HandoffArtifactCitation | HandoffMemoryCitation, Field(discriminator="kind")
+    ]
+
+
+class HandoffEvidenceCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    claim: HandoffClaim
+    state_index: Annotated[StrictInt | None, Field(ge=0)]
+    status: HandoffEvidenceStatus
+    unavailable_evidence: Annotated[list[HandoffCitation], Field(max_length=32)]
+
+
+class HandoffOmission(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    text: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    citation: Annotated[HandoffCitation | None, Field(...)]
+
+
+class HandoffStatement(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    text: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    citations: Annotated[list[HandoffCitation], Field(max_length=32, min_length=1)]
+
+
+class PrepareHandoffRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    evidence: Annotated[list[HandoffCitation], Field(max_length=32, min_length=1)]
+    max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
+
+
 class ListMemoryChangesResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -520,3 +655,108 @@ class ListMemoryEntriesResponse(BaseModel):
     )
     memory: ArtifactReference | None = None
     entries: list[MemoryEntry]
+
+
+class ActivateHandoffRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    boundary_source: SourceReference
+    objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    evidence: Annotated[list[HandoffCitation], Field(max_length=32, validate_default=True)] = []
+    max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
+
+
+class HandoffContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[HandoffSchema, Field(alias="schema")]
+    objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    state: Annotated[list[HandoffStatement], Field(max_length=64, min_length=1)]
+    disposition: HandoffDisposition
+    next_action: Annotated[HandoffStatement | None, Field(...)]
+    omissions: Annotated[list[HandoffOmission], Field(max_length=64)]
+
+
+class HandoffDraft(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    state: Annotated[list[HandoffStatement], Field(max_length=64, min_length=1)]
+    disposition: HandoffDisposition
+    next_action: Annotated[HandoffStatement | None, Field(...)]
+    omissions: Annotated[list[HandoffOmission], Field(max_length=64)]
+
+
+class HandoffResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    trust: Trust
+    status: HandoffResolutionStatus
+    scope_id: StrictStr
+    content: Annotated[HandoffContent | None, Field(...)]
+    selection: Annotated[HandoffSelection | None, Field(...)]
+    selected_revision: Annotated[ArtifactReference | None, Field(...)]
+    current_revision: Annotated[ArtifactReference | None, Field(...)]
+    evidence_checks: Annotated[list[HandoffEvidenceCheck], Field(max_length=65)]
+
+
+class PreparedHandoff(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[PreparedHandoffSchema, Field(alias="schema")]
+    scope_id: StrictStr
+    base: Annotated[ArtifactReference | None, Field(...)]
+    content: HandoffContent
+
+
+class CommitHandoffRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    handoff: PreparedHandoff
+
+
+class CommittedHandoff(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    reference: ArtifactReference
+    content: HandoffContent
+    source_refs: list[SourceReference]
+    artifact_refs: list[ArtifactReference]
+
+
+class ContinueHandoffRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    selection: HandoffSelection
+    prepared: PreparedHandoff | None = None
+    revision: ArtifactReference | None = None
+
+
+class FinalizeHandoffRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    draft: HandoffDraft
+
+
+class HandoffActivation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: HandoffActivationStatus
+    boundary_source: SourceReference
+    previous_position: Annotated[StrictInt, Field(ge=0)]
+    current_position: Annotated[StrictInt, Field(ge=0)]
+    draft: Annotated[HandoffDraft | None, Field(...)]

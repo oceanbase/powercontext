@@ -5,6 +5,8 @@ from types import ModuleType
 
 import pytest
 
+PLUGIN_ROOT = Path(__file__).resolve().parents[2] / "integrations" / "codex" / "plugins" / "powercontext"
+
 
 @pytest.mark.parametrize(
     ("remote", "expected"),
@@ -81,3 +83,15 @@ def test_codex_settings_normalize_the_mcp_path_to_http_base(
     settings_module: ModuleType,
 ) -> None:
     assert settings_module._http_base_url("https://memory.example/api/mcp/") == "https://memory.example/api"
+
+
+def test_project_context_skill_preserves_the_explicit_handoff_boundary() -> None:
+    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text()
+
+    assert "capture_content_source" in content
+    assert "activate_handoff" in content
+    assert "`boundary_source`" in content
+    assert "canonical temporary" in content
+    assert "finalize_handoff" in content
+    assert 'selection: "prepared"' in content
+    assert "Call `commit_handoff` only when" in content

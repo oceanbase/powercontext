@@ -10,19 +10,27 @@ from pydantic import TypeAdapter, ValidationError
 
 from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
 from powercontext.http import (
+    ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CommitHandoffRequest,
+    CommittedHandoff,
+    ContinueHandoffRequest,
     ErrorResponse,
     ExperienceArtifact,
+    FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
+    HandoffActivation,
+    HandoffDraft,
+    HandoffResolution,
     HealthResponse,
     ListArtifactCandidatesRequest,
     ListMemoryChangesRequest,
@@ -33,6 +41,8 @@ from powercontext.http import (
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
+    PreparedHandoff,
+    PrepareHandoffRequest,
     ProposeExperienceRequest,
     ReadinessResponse,
     RejectArtifactCandidateRequest,
@@ -44,8 +54,12 @@ from powercontext.http import (
     SearchMemoryResponse,
 )
 from powercontext.http._generated.operations import (
+    ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
+    COMMIT_HANDOFF,
+    CONTINUE_HANDOFF,
+    FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
@@ -57,6 +71,7 @@ from powercontext.http._generated.operations import (
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     PREPARE_CONTEXT,
+    PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
@@ -147,6 +162,31 @@ class PowerContextClient:
 
         return await self._request(PREPARE_CONTEXT, request)
 
+    async def prepare_handoff(self, request: PrepareHandoffRequest) -> HandoffDraft:
+        """Generate one inspectable Handoff Draft from exact evidence."""
+
+        return await self._request(PREPARE_HANDOFF, request)
+
+    async def activate_handoff(self, request: ActivateHandoffRequest) -> HandoffActivation:
+        """Evaluate the standard Handoff Trigger at one Source boundary."""
+
+        return await self._request(ACTIVATE_HANDOFF, request)
+
+    async def finalize_handoff(self, request: FinalizeHandoffRequest) -> PreparedHandoff:
+        """Finalize an inspected Handoff Draft for direct transfer."""
+
+        return await self._request(FINALIZE_HANDOFF, request)
+
+    async def commit_handoff(self, request: CommitHandoffRequest) -> CommittedHandoff:
+        """Commit one finalized Handoff as a durable milestone."""
+
+        return await self._request(COMMIT_HANDOFF, request)
+
+    async def continue_handoff(self, request: ContinueHandoffRequest) -> HandoffResolution:
+        """Resolve temporary or committed Handoff content as untrusted history."""
+
+        return await self._request(CONTINUE_HANDOFF, request)
+
     async def list_memory_entries(self, request: ListMemoryEntriesRequest) -> ListMemoryEntriesResponse:
         """List active entries, optionally including inactive entries for audit."""
 
@@ -220,7 +260,7 @@ class PowerContextClient:
             json_payload = TypeAdapter(operation.request_type).dump_python(
                 request,
                 mode="json",
-                exclude_none=True,
+                by_alias=True,
             )
 
         try:

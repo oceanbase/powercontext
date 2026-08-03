@@ -11,7 +11,19 @@ from time import perf_counter
 from typing import TYPE_CHECKING
 
 from powercontext._logging import log_safely
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience
+from powercontext.builtin.artifacts.handoff import (
+    ActivateHandoff,
+    Handoff,
+    HandoffActivation,
+    HandoffAudience,
+    HandoffDraft,
+    HandoffResolution,
+    HandoffService,
+    PreparedHandoff,
+    PrepareHandoff,
+)
 from powercontext.builtin.artifacts.memory import (
     Memory,
     MemoryCitation,
@@ -51,7 +63,7 @@ from powercontext.builtin.runtime.models import (
     SourceReceipt,
 )
 from powercontext.builtin.runtime.prepared_context import PreparedContextBuilder
-from powercontext.builtin.runtime.protocols import PowerContextProvider, SourceWindow
+from powercontext.builtin.runtime.protocols import BuiltinTriggers, PowerContextProvider
 from powercontext.builtin.sources import ContentCapture, SourceCursor, validate_scope_id
 from powercontext.context import PowerContext
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
@@ -180,6 +192,73 @@ class ExperienceApplication:
 
     def for_scope(self, scope_id: str, /) -> ScopedExperienceApplication:
         return ScopedExperienceApplication(self._runtime, scope_id)
+
+
+class ScopedHandoffApplication:
+    """Operate temporary and committed Handoffs for one scope."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def activate(self, request: ActivateHandoff, /) -> HandoffActivation:
+        async with self._runtime._context(self.scope_id) as context:
+            return await context.triggers.activate_handoff(request)
+
+    async def prepare(self, action: PrepareHandoff, /) -> HandoffDraft:
+        async with self._runtime._context(self.scope_id) as context:
+            return await context.artifacts.handoff.prepare(action)
+
+    async def finalize(self, draft: HandoffDraft, /) -> PreparedHandoff:
+        async with self._runtime._context(self.scope_id) as context:
+            return await context.artifacts.handoff.finalize(draft)
+
+    async def commit(self, prepared: PreparedHandoff, /) -> Handoff:
+        async with self._runtime._context(self.scope_id) as context, self._runtime._lock(self.scope_id):
+            return await context.artifacts.handoff.commit(prepared)
+
+    async def continue_from(
+        self,
+        handoff: PreparedHandoff | ArtifactRef,
+        /,
+    ) -> HandoffResolution:
+        async with self._runtime._context(self.scope_id) as context:
+            return await context.artifacts.handoff.continue_from(handoff)
+
+    async def continue_latest(self) -> HandoffResolution:
+        async with self._runtime._context(self.scope_id) as context:
+            return await context.artifacts.handoff.continue_latest()
+
+    async def latest(self) -> Handoff | None:
+        async with self._runtime._context(self.scope_id) as context:
+            return await context.artifacts.handoff.latest()
+
+    async def revision(self, reference: ArtifactRef, /) -> Handoff:
+        async with self._runtime._context(self.scope_id) as context:
+            return await context.artifacts.handoff.revision(reference)
+
+    async def revisions(self) -> tuple[Handoff, ...]:
+        async with self._runtime._context(self.scope_id) as context:
+            return await context.artifacts.handoff.revisions()
+
+    @staticmethod
+    def render(
+        handoff: HandoffDraft | PreparedHandoff | Handoff,
+        /,
+        *,
+        audience: HandoffAudience,
+    ) -> str:
+        return HandoffService.render(handoff, audience=audience)
+
+
+class HandoffApplication:
+    """Select the application service for one Handoff family scope."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedHandoffApplication:
+        return ScopedHandoffApplication(self._runtime, scope_id)
 
 
 class ScopedReviewApplication:
@@ -450,7 +529,7 @@ class BuiltinRuntime:
     def __init__(
         self,
         *,
-        provider: PowerContextProvider[BuiltinSources, BuiltinArtifacts, SourceWindow],
+        provider: PowerContextProvider[BuiltinSources, BuiltinArtifacts, BuiltinTriggers],
         capabilities: RuntimeCapabilities,
         source_window_limit: int = 100,
         scope_ids: ScopeIds | None = None,
@@ -474,6 +553,7 @@ class BuiltinRuntime:
         self.sources = SourceApplication(self)
         self.context = ContextApplication(self)
         self.experience = ExperienceApplication(self)
+        self.handoff = HandoffApplication(self)
         self.memory = MemoryApplication(self)
         self.review = ReviewApplication(self)
         self.processor = None if scope_ids is None else ScheduledSourceProcessor(self, scope_ids)
@@ -571,7 +651,7 @@ class BuiltinRuntime:
     async def _context(
         self,
         scope_id: str,
-    ) -> AsyncIterator[PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindow]]:
+    ) -> AsyncIterator[PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers]]:
         async with self._operation():
             yield await self._provider.get(validate_scope_id(scope_id))
 

@@ -8,6 +8,16 @@ from powercontext.builtin.artifacts.handoff.errors import (
     InvalidHandoffGenerationError,
     InvalidHandoffReferenceError,
 )
+from powercontext.builtin.artifacts.handoff.generation import (
+    DefaultHandoffEvidenceProjector,
+    HandoffEvidenceProjector,
+    HandoffGenerationEvidenceInput,
+    HandoffGenerationInput,
+    HandoffGenerationOmission,
+    HandoffGenerationOutput,
+    HandoffGenerationStatement,
+    LLMHandoffGenerationPipeline,
+)
 from powercontext.builtin.artifacts.handoff.models import (
     DEFAULT_HANDOFF_MAX_BYTES,
     MAX_HANDOFF_BYTES,
@@ -41,6 +51,10 @@ from powercontext.builtin.artifacts.handoff.models import (
     PreparedHandoff,
     PrepareHandoff,
 )
+from powercontext.builtin.artifacts.handoff.prompts import (
+    HANDOFF_GENERATION_INSTRUCTIONS,
+    HANDOFF_GENERATION_INSTRUCTIONS_VERSION,
+)
 from powercontext.builtin.artifacts.handoff.protocols import (
     HandoffBackend,
     HandoffEvidenceResolver,
@@ -50,9 +64,12 @@ from powercontext.builtin.artifacts.handoff.service import HandoffService
 
 __all__ = [
     "DEFAULT_HANDOFF_MAX_BYTES",
+    "HANDOFF_GENERATION_INSTRUCTIONS",
+    "HANDOFF_GENERATION_INSTRUCTIONS_VERSION",
     "MAX_HANDOFF_BYTES",
     "MIN_HANDOFF_MAX_BYTES",
     "ActivateHandoff",
+    "DefaultHandoffEvidenceProjector",
     "Handoff",
     "HandoffActivation",
     "HandoffActivationStatus",
@@ -68,12 +85,18 @@ __all__ = [
     "HandoffDraft",
     "HandoffError",
     "HandoffEvidenceCheck",
+    "HandoffEvidenceProjector",
     "HandoffEvidenceResolver",
     "HandoffEvidenceStatus",
     "HandoffEvidenceUnavailableError",
     "HandoffGenerationEvidence",
+    "HandoffGenerationEvidenceInput",
+    "HandoffGenerationInput",
+    "HandoffGenerationOmission",
+    "HandoffGenerationOutput",
     "HandoffGenerationPipeline",
     "HandoffGenerationRequest",
+    "HandoffGenerationStatement",
     "HandoffGenerationUnavailableError",
     "HandoffMemoryCitation",
     "HandoffMemoryEvidence",
@@ -88,6 +111,7 @@ __all__ = [
     "HandoffStatement",
     "InvalidHandoffGenerationError",
     "InvalidHandoffReferenceError",
+    "LLMHandoffGenerationPipeline",
     "PrepareHandoff",
     "PreparedHandoff",
 ]

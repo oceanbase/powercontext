@@ -4,14 +4,24 @@ from __future__ import annotations
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
+from powercontext.builtin.artifacts.handoff import HandoffCitation as RuntimeHandoffCitation
 from powercontext.builtin.review import CandidateStatus as RuntimeCandidateStatus
 from powercontext.builtin.runtime import (
-    ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
-)
-from powercontext.builtin.runtime import (
+    ActivateHandoff,
     CaptureSource,
     ExperienceCandidate,
     ExperienceCandidatePage,
+    Handoff,
+    HandoffActivation,
+    HandoffArtifactCitation,
+    HandoffContent,
+    HandoffDraft,
+    HandoffEvidenceCheck,
+    HandoffMemoryCitation,
+    HandoffOmission,
+    HandoffResolution,
+    HandoffSourceCitation,
+    HandoffStatement,
     MemoryChange,
     MemoryChangesPage,
     MemoryEntriesPage,
@@ -23,8 +33,13 @@ from powercontext.builtin.runtime import (
     MemorySearchPage,
     PrepareContextRequest,
     PreparedContext,
+    PreparedHandoff,
+    PrepareHandoff,
     RememberMemoryRequest,
     SourceReceipt,
+)
+from powercontext.builtin.runtime import (
+    ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
 )
 from powercontext.builtin.runtime import (
     GetArtifactCandidateRequest as RuntimeGetArtifactCandidateRequest,
@@ -63,6 +78,7 @@ from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
 )
 from powercontext.http import (
+    ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
@@ -72,6 +88,7 @@ from powercontext.http import (
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CaptureStatus,
+    CommittedHandoff,
     EntryChange,
     EntryChangeOperation,
     ExperienceArtifact,
@@ -81,6 +98,13 @@ from powercontext.http import (
     GetArtifactCandidateRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
+    HandoffActivationStatus,
+    HandoffClaim,
+    HandoffDisposition,
+    HandoffEvidenceStatus,
+    HandoffResolutionStatus,
+    HandoffSchema,
+    HandoffSelection,
     ListArtifactCandidatesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesResponse,
@@ -92,6 +116,8 @@ from powercontext.http import (
     MemoryUsedSearchMode,
     PreparedContextSchema,
     PreparedContextStatus,
+    PreparedHandoffSchema,
+    PrepareHandoffRequest,
     ProposeExperienceRequest,
     RejectArtifactCandidateRequest,
     RetireMemoryEntryRequest,
@@ -103,6 +129,39 @@ from powercontext.http import (
     SourceReference,
 )
 from powercontext.http import (
+    HandoffActivation as TransportHandoffActivation,
+)
+from powercontext.http import (
+    HandoffArtifactCitation as TransportHandoffArtifactCitation,
+)
+from powercontext.http import (
+    HandoffCitation as TransportHandoffCitation,
+)
+from powercontext.http import (
+    HandoffContent as TransportHandoffContent,
+)
+from powercontext.http import (
+    HandoffDraft as TransportHandoffDraft,
+)
+from powercontext.http import (
+    HandoffEvidenceCheck as TransportHandoffEvidenceCheck,
+)
+from powercontext.http import (
+    HandoffMemoryCitation as TransportHandoffMemoryCitation,
+)
+from powercontext.http import (
+    HandoffOmission as TransportHandoffOmission,
+)
+from powercontext.http import (
+    HandoffResolution as TransportHandoffResolution,
+)
+from powercontext.http import (
+    HandoffSourceCitation as TransportHandoffSourceCitation,
+)
+from powercontext.http import (
+    HandoffStatement as TransportHandoffStatement,
+)
+from powercontext.http import (
     MemoryCitation as TransportMemoryCitation,
 )
 from powercontext.http import (
@@ -110,6 +169,9 @@ from powercontext.http import (
 )
 from powercontext.http import (
     PreparedContext as TransportPreparedContext,
+)
+from powercontext.http import (
+    PreparedHandoff as TransportPreparedHandoff,
 )
 from powercontext.http import (
     RememberMemoryRequest as TransportRememberMemoryRequest,
@@ -211,6 +273,92 @@ def search_request(value: SearchMemoryRequest) -> RuntimeSearchMemoryRequest:
 
 def prepare_context_request(value: TransportPrepareContextRequest) -> PrepareContextRequest:
     return PrepareContextRequest(query=value.query, max_bytes=value.max_bytes)
+
+
+def activate_handoff_request(value: ActivateHandoffRequest) -> ActivateHandoff:
+    return ActivateHandoff(
+        boundary_source=runtime_source_reference(value.boundary_source),
+        objective=value.objective,
+        evidence=tuple(runtime_handoff_citation(citation) for citation in value.evidence),
+        max_bytes=value.max_bytes,
+    )
+
+
+def handoff_activation_response(value: HandoffActivation) -> TransportHandoffActivation:
+    return TransportHandoffActivation(
+        status=HandoffActivationStatus(value.status),
+        boundary_source=source_reference(value.boundary_source),
+        previous_position=value.previous_position,
+        current_position=value.current_position,
+        draft=None if value.draft is None else handoff_draft_response(value.draft),
+    )
+
+
+def prepare_handoff_request(value: PrepareHandoffRequest) -> PrepareHandoff:
+    return PrepareHandoff(
+        objective=value.objective,
+        evidence=tuple(runtime_handoff_citation(citation) for citation in value.evidence),
+        max_bytes=value.max_bytes,
+    )
+
+
+def runtime_handoff_draft(value: TransportHandoffDraft) -> HandoffDraft:
+    return HandoffDraft(
+        objective=value.objective,
+        state=tuple(runtime_handoff_statement(statement) for statement in value.state),
+        disposition=value.disposition.value,
+        next_action=None if value.next_action is None else runtime_handoff_statement(value.next_action),
+        omissions=tuple(runtime_handoff_omission(omission) for omission in value.omissions),
+    )
+
+
+def runtime_prepared_handoff(value: TransportPreparedHandoff) -> PreparedHandoff:
+    return PreparedHandoff(
+        scope_id=value.scope_id,
+        base=None if value.base is None else runtime_artifact_reference(value.base),
+        content=runtime_handoff_content(value.content),
+    )
+
+
+def handoff_draft_response(value: HandoffDraft) -> TransportHandoffDraft:
+    return TransportHandoffDraft(
+        objective=value.objective,
+        state=[handoff_statement(statement) for statement in value.state],
+        disposition=HandoffDisposition(value.disposition),
+        next_action=None if value.next_action is None else handoff_statement(value.next_action),
+        omissions=[handoff_omission(omission) for omission in value.omissions],
+    )
+
+
+def prepared_handoff_response(value: PreparedHandoff) -> TransportPreparedHandoff:
+    return TransportPreparedHandoff.model_validate({
+        "schema": PreparedHandoffSchema(value.schema_version),
+        "scope_id": value.scope_id,
+        "base": None if value.base is None else artifact_reference(value.base),
+        "content": handoff_content(value.content),
+    })
+
+
+def committed_handoff_response(value: Handoff) -> CommittedHandoff:
+    return CommittedHandoff(
+        reference=artifact_reference(value.as_ref()),
+        content=handoff_content(value.content),
+        source_refs=[source_reference(reference) for reference in value.lineage.sources],
+        artifact_refs=[artifact_reference(reference) for reference in value.lineage.artifacts],
+    )
+
+
+def handoff_resolution_response(value: HandoffResolution) -> TransportHandoffResolution:
+    return TransportHandoffResolution.model_validate({
+        "trust": value.trust,
+        "status": HandoffResolutionStatus(value.status),
+        "scope_id": value.scope_id,
+        "content": None if value.content is None else handoff_content(value.content),
+        "selection": None if value.selection is None else HandoffSelection(value.selection),
+        "selected_revision": (None if value.selected_revision is None else artifact_reference(value.selected_revision)),
+        "current_revision": None if value.current_revision is None else artifact_reference(value.current_revision),
+        "evidence_checks": [handoff_evidence_check(check) for check in value.evidence_checks],
+    })
 
 
 def get_request(value: GetMemoryEntryRequest) -> RuntimeGetMemoryEntryRequest:
@@ -323,7 +471,11 @@ def artifact_reference(value: ArtifactRef) -> ArtifactReference:
 
 
 def runtime_artifact_reference(value: ArtifactReference) -> ArtifactRef:
-    return ArtifactRef(family=value.family, artifact_id=value.artifact_id, revision=value.revision)
+    return ArtifactRef(
+        family=value.family,
+        artifact_id=value.artifact_id,
+        revision=value.revision,
+    )
 
 
 def source_reference(value: SourceRef) -> SourceReference:
@@ -351,6 +503,96 @@ def transport_citation(value: RuntimeMemoryCitation) -> TransportMemoryCitation:
         memory_ref=artifact_reference(value.memory_ref),
         entry_id=value.entry_id,
         entry_version_id=value.entry_version_id,
+    )
+
+
+def runtime_handoff_citation(value: TransportHandoffCitation) -> RuntimeHandoffCitation:
+    citation = value.root
+    if isinstance(citation, TransportHandoffSourceCitation):
+        return HandoffSourceCitation(source_ref=runtime_source_reference(citation.source_ref))
+    if isinstance(citation, TransportHandoffArtifactCitation):
+        return HandoffArtifactCitation(artifact_ref=runtime_artifact_reference(citation.artifact_ref))
+    if isinstance(citation, TransportHandoffMemoryCitation):
+        return HandoffMemoryCitation(memory_citation=runtime_citation(citation.memory_citation))
+    raise TypeError(f"unsupported Handoff citation: {type(citation).__name__}")  # noqa: TRY003
+
+
+def handoff_citation(value: RuntimeHandoffCitation) -> TransportHandoffCitation:
+    if isinstance(value, HandoffSourceCitation):
+        citation = TransportHandoffSourceCitation(
+            kind="source",
+            source_ref=source_reference(value.source_ref),
+        )
+    elif isinstance(value, HandoffArtifactCitation):
+        citation = TransportHandoffArtifactCitation(
+            kind="artifact",
+            artifact_ref=artifact_reference(value.artifact_ref),
+        )
+    elif isinstance(value, HandoffMemoryCitation):
+        citation = TransportHandoffMemoryCitation(
+            kind="memory",
+            memory_citation=transport_citation(value.memory_citation),
+        )
+    else:
+        raise TypeError(f"unsupported Handoff citation: {type(value).__name__}")  # noqa: TRY003
+    return TransportHandoffCitation(root=citation)
+
+
+def runtime_handoff_statement(value: TransportHandoffStatement) -> HandoffStatement:
+    return HandoffStatement(
+        text=value.text,
+        citations=tuple(runtime_handoff_citation(citation) for citation in value.citations),
+    )
+
+
+def handoff_statement(value: HandoffStatement) -> TransportHandoffStatement:
+    return TransportHandoffStatement(
+        text=value.text,
+        citations=[handoff_citation(citation) for citation in value.citations],
+    )
+
+
+def runtime_handoff_omission(value: TransportHandoffOmission) -> HandoffOmission:
+    return HandoffOmission(
+        text=value.text,
+        citation=None if value.citation is None else runtime_handoff_citation(value.citation),
+    )
+
+
+def handoff_omission(value: HandoffOmission) -> TransportHandoffOmission:
+    return TransportHandoffOmission(
+        text=value.text,
+        citation=None if value.citation is None else handoff_citation(value.citation),
+    )
+
+
+def runtime_handoff_content(value: TransportHandoffContent) -> HandoffContent:
+    return HandoffContent(
+        objective=value.objective,
+        state=tuple(runtime_handoff_statement(statement) for statement in value.state),
+        disposition=value.disposition.value,
+        next_action=None if value.next_action is None else runtime_handoff_statement(value.next_action),
+        omissions=tuple(runtime_handoff_omission(omission) for omission in value.omissions),
+    )
+
+
+def handoff_content(value: HandoffContent) -> TransportHandoffContent:
+    return TransportHandoffContent.model_validate({
+        "schema": HandoffSchema(value.schema_version),
+        "objective": value.objective,
+        "state": [handoff_statement(statement) for statement in value.state],
+        "disposition": HandoffDisposition(value.disposition),
+        "next_action": None if value.next_action is None else handoff_statement(value.next_action),
+        "omissions": [handoff_omission(omission) for omission in value.omissions],
+    })
+
+
+def handoff_evidence_check(value: HandoffEvidenceCheck) -> TransportHandoffEvidenceCheck:
+    return TransportHandoffEvidenceCheck(
+        claim=HandoffClaim(value.claim),
+        state_index=value.state_index,
+        status=HandoffEvidenceStatus(value.status),
+        unavailable_evidence=[handoff_citation(citation) for citation in value.unavailable_evidence],
     )
 
 

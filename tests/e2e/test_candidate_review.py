@@ -128,7 +128,7 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
                 GetArtifactCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id)
             )
 
-            assert capabilities.artifact_families == ["memory", "experience"]
+            assert capabilities.artifact_families == ["memory", "experience", "handoff"]
             assert inbox.candidates == [candidate]
             assert prepared.status == "empty"
             assert revised.version == 2

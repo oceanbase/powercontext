@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, TypeVar
 
+from powercontext.builtin.artifacts.handoff import ActivateHandoff, HandoffActivation
 from powercontext.builtin.runtime.models import MemoryFlushResult
 from powercontext.builtin.sources import SourceCursor
 from powercontext.context import PowerContext
@@ -19,9 +20,11 @@ class PowerContextProvider(Protocol[SourcesT, ArtifactsT, TriggersT]):
     async def get(self, scope_id: str, /) -> PowerContext[SourcesT, ArtifactsT, TriggersT]: ...
 
 
-class SourceWindow(Protocol):
-    """Atomically execute one built-in Source-window activation."""
+class BuiltinTriggers(Protocol):
+    """Atomically execute the built-in Trigger policies for one scope."""
 
     async def flush(self, *, limit: int) -> MemoryFlushResult: ...
 
     async def cursor(self) -> SourceCursor: ...
+
+    async def activate_handoff(self, request: ActivateHandoff, /) -> HandoffActivation: ...

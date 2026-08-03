@@ -5,22 +5,36 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from powercontext.http import (
+    ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactReference,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CommitHandoffRequest,
+    CommittedHandoff,
+    ContinueHandoffRequest,
+    FinalizeHandoffRequest,
     GetMemoryEntryRequest,
+    HandoffActivation,
+    HandoffDraft,
+    HandoffResolution,
     ListMemoryEntriesRequest,
     PrepareContextRequest,
     PreparedContext,
+    PreparedHandoff,
+    PrepareHandoffRequest,
     ProposeExperienceRequest,
     ReviseArtifactCandidateRequest,
     SearchMemoryRequest,
 )
 from powercontext.http._generated.operations import (
+    ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
+    COMMIT_HANDOFF,
+    CONTINUE_HANDOFF,
+    FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GET_ARTIFACT_CANDIDATE,
     GET_EXPERIENCE,
@@ -30,6 +44,7 @@ from powercontext.http._generated.operations import (
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     PREPARE_CONTEXT,
+    PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
@@ -53,6 +68,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
         "source_types",
         "artifact_families",
         "memory_extraction",
+        "handoff_generation",
         "search_modes",
         "context_versions",
     }
@@ -157,6 +173,29 @@ def test_candidate_transport_rejects_combined_evidence_over_limit() -> None:
             "candidate_id": "cand-1",
             "expected_version": 1,
         })
+
+
+def test_handoff_operations_expose_the_complete_explicit_lifecycle() -> None:
+    operations = (
+        ACTIVATE_HANDOFF,
+        PREPARE_HANDOFF,
+        FINALIZE_HANDOFF,
+        COMMIT_HANDOFF,
+        CONTINUE_HANDOFF,
+    )
+
+    assert all(operation.path.startswith("/v1/handoff/") for operation in operations)
+    assert all(operation.success_status == 200 for operation in operations)
+    assert ACTIVATE_HANDOFF.request_type is ActivateHandoffRequest
+    assert ACTIVATE_HANDOFF.response_type is HandoffActivation
+    assert PREPARE_HANDOFF.request_type is PrepareHandoffRequest
+    assert PREPARE_HANDOFF.response_type is HandoffDraft
+    assert FINALIZE_HANDOFF.request_type is FinalizeHandoffRequest
+    assert FINALIZE_HANDOFF.response_type is PreparedHandoff
+    assert COMMIT_HANDOFF.request_type is CommitHandoffRequest
+    assert COMMIT_HANDOFF.response_type is CommittedHandoff
+    assert CONTINUE_HANDOFF.request_type is ContinueHandoffRequest
+    assert CONTINUE_HANDOFF.response_type is HandoffResolution
 
 
 def test_source_reference_keeps_name_as_the_source_type() -> None:

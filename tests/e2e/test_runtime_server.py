@@ -11,6 +11,15 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from powercontext.builtin.artifacts.handoff import (
+    HandoffDraft as RuntimeHandoffDraft,
+)
+from powercontext.builtin.artifacts.handoff import (
+    HandoffGenerationRequest,
+)
+from powercontext.builtin.artifacts.handoff import (
+    HandoffStatement as RuntimeHandoffStatement,
+)
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     MemoryCandidateRequest,
@@ -23,9 +32,14 @@ from powercontext.builtin.runtime import InferenceConfig
 from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
+    ActivateHandoffRequest,
     CaptureContentSourceRequest,
+    CommitHandoffRequest,
+    ContinueHandoffRequest,
+    FinalizeHandoffRequest,
     FlushMemoryRequest,
     GetMemoryEntryRequest,
+    HandoffSelection,
     ListMemoryChangesRequest,
     ListMemoryEntriesRequest,
     PrepareContextRequest,
@@ -68,6 +82,25 @@ class KeywordEmbeddingModel:
     async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
         return EmbeddingResult(
             vectors=tuple((1.0, 0.0, 0.0) if "alpha" in text.casefold() else (0.0, 1.0, 0.0) for text in texts)
+        )
+
+
+class DeterministicHandoffPipeline:
+    async def generate(self, request: HandoffGenerationRequest, /) -> RuntimeHandoffDraft:
+        citations = tuple(item.citation for item in request.evidence)
+        return RuntimeHandoffDraft(
+            objective=request.objective,
+            state=(
+                RuntimeHandoffStatement(
+                    text="The HTTP and SDK lifecycle is connected.",
+                    citations=citations,
+                ),
+            ),
+            disposition="continuable",
+            next_action=RuntimeHandoffStatement(
+                text="Continue from the inspected temporary Handoff.",
+                citations=citations,
+            ),
         )
 
 
@@ -152,6 +185,99 @@ def test_server_databases_share_source_to_memory_search_behavior(
         assert unrelated.hits == []
         assert entries.memory == flushed.memory
         assert entries.entries[0].source_refs[0].source_id == "turn-1"
+
+    asyncio.run(scenario())
+
+
+def test_sdk_handoff_lifecycle_reaches_generation_and_persistence(tmp_path: Path) -> None:
+    scope_id = "handoff-e2e"
+    app = create_server_app(
+        settings=_server_settings(tmp_path / "handoff.db"),
+        handoff_pipeline=DeterministicHandoffPipeline(),
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+            ) as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport)
+            capabilities = await client.get_capabilities()
+            captured = await client.capture_content_source(
+                CaptureContentSourceRequest(
+                    scope_id=scope_id,
+                    source_id="turn-1",
+                    content="The end-to-end Handoff lifecycle must remain explicit.",
+                )
+            )
+            activation = await client.activate_handoff(
+                ActivateHandoffRequest(
+                    scope_id=scope_id,
+                    boundary_source=captured.source,
+                    objective="Transfer the current implementation state.",
+                )
+            )
+            repeated = await client.activate_handoff(
+                ActivateHandoffRequest(
+                    scope_id=scope_id,
+                    boundary_source=captured.source,
+                    objective="Transfer the current implementation state.",
+                )
+            )
+            draft = activation.draft
+            assert draft is not None
+            inspected = draft.model_copy(
+                update={
+                    "state": [
+                        draft.state[0].model_copy(
+                            update={"text": "The full HTTP and SDK lifecycle is connected."},
+                        )
+                    ]
+                }
+            )
+            prepared = await client.finalize_handoff(FinalizeHandoffRequest(scope_id=scope_id, draft=inspected))
+            temporary = await client.continue_handoff(
+                ContinueHandoffRequest(
+                    scope_id=scope_id,
+                    selection=HandoffSelection.PREPARED,
+                    prepared=prepared,
+                )
+            )
+            committed = await client.commit_handoff(CommitHandoffRequest(scope_id=scope_id, handoff=prepared))
+            exact = await client.continue_handoff(
+                ContinueHandoffRequest(
+                    scope_id=scope_id,
+                    selection=HandoffSelection.EXACT,
+                    revision=committed.reference,
+                )
+            )
+            latest = await client.continue_handoff(
+                ContinueHandoffRequest(
+                    scope_id=scope_id,
+                    selection=HandoffSelection.LATEST,
+                )
+            )
+
+        assert capabilities.artifact_families == ["memory", "experience", "handoff"]
+        assert capabilities.handoff_generation is True
+        assert activation.status == "generated"
+        assert repeated.status == "ignored"
+        assert repeated.draft is None
+        assert draft.state[0].text == "The HTTP and SDK lifecycle is connected."
+        assert prepared.base is None
+        assert temporary.selection == "prepared"
+        assert temporary.selected_revision is None
+        assert temporary.content is not None
+        assert temporary.content.state[0].text == "The full HTTP and SDK lifecycle is connected."
+        assert committed.reference.family == "handoff"
+        assert committed.source_refs == [captured.source]
+        assert exact.selection == "exact"
+        assert exact.selected_revision == committed.reference
+        assert latest.selection == "latest"
+        assert latest.selected_revision == committed.reference
 
     asyncio.run(scenario())
 

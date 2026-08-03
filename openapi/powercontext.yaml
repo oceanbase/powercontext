@@ -116,6 +116,154 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/handoff/activate:
+    post:
+      tags: [handoff]
+      summary: Activate Handoff generation at a Source boundary
+      description: Evaluate the standard Handoff Trigger and synchronously execute any emitted PrepareHandoff Action.
+      operationId: activate_handoff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivateHandoffRequest"
+      responses:
+        "200":
+          description: A generated inspectable Draft, or an ignored boundary that was already consumed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffActivation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff/prepare:
+    post:
+      tags: [handoff]
+      summary: Generate an inspectable Handoff Draft
+      operationId: prepare_handoff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepareHandoffRequest"
+      responses:
+        "200":
+          description: An uncommitted Draft generated from the selected exact evidence.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffDraft"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff/finalize:
+    post:
+      tags: [handoff]
+      summary: Finalize an inspected Handoff Draft
+      operationId: finalize_handoff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinalizeHandoffRequest"
+      responses:
+        "200":
+          description: A temporary Handoff ready for direct transfer or explicit commit.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreparedHandoff"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff/commit:
+    post:
+      tags: [handoff]
+      summary: Commit an explicit Handoff milestone
+      operationId: commit_handoff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommitHandoffRequest"
+      responses:
+        "200":
+          description: The committed immutable Handoff Revision.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommittedHandoff"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff/continue:
+    post:
+      tags: [handoff]
+      summary: Resolve a Handoff as untrusted historical input
+      operationId: continue_handoff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContinueHandoffRequest"
+      responses:
+        "200":
+          description: Resolved content and per-statement evidence availability.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffResolution"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/memory/flush:
     post:
       tags: [memory]
@@ -625,6 +773,34 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    ActivateHandoffRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, boundary_source, objective]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        boundary_source:
+          $ref: "#/components/schemas/SourceReference"
+        objective:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        evidence:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/HandoffCitation"
+          default: []
+        max_bytes:
+          type: integer
+          minimum: 512
+          maximum: 32768
+          default: 8000
     ArtifactReference:
       type: object
       additionalProperties: false
@@ -734,7 +910,8 @@ components:
     Capabilities:
       type: object
       additionalProperties: false
-      required: [source_types, artifact_families, memory_extraction, search_modes, context_versions]
+      required:
+        [source_types, artifact_families, memory_extraction, handoff_generation, search_modes, context_versions]
       properties:
         source_types:
           type: array
@@ -747,6 +924,9 @@ components:
         memory_extraction:
           type: boolean
           description: Whether pending Sources can be extracted into Memory.
+        handoff_generation:
+          type: boolean
+          description: Whether exact evidence can be generated into an inspectable Handoff Draft.
         search_modes:
           type: array
           items:
@@ -789,6 +969,295 @@ components:
         position:
           type: integer
           minimum: 1
+    CommitHandoffRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, handoff]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        handoff:
+          $ref: "#/components/schemas/PreparedHandoff"
+    CommittedHandoff:
+      type: object
+      additionalProperties: false
+      required: [reference, content, source_refs, artifact_refs]
+      properties:
+        reference:
+          $ref: "#/components/schemas/ArtifactReference"
+        content:
+          $ref: "#/components/schemas/HandoffContent"
+        source_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceReference"
+        artifact_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactReference"
+    ContinueHandoffRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, selection]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        selection:
+          $ref: "#/components/schemas/HandoffSelection"
+        prepared:
+          $ref: "#/components/schemas/PreparedHandoff"
+          nullable: true
+        revision:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+    FinalizeHandoffRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, draft]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        draft:
+          $ref: "#/components/schemas/HandoffDraft"
+    HandoffArtifactCitation:
+      type: object
+      additionalProperties: false
+      required: [kind, artifact_ref]
+      properties:
+        kind:
+          type: string
+          enum: [artifact]
+        artifact_ref:
+          $ref: "#/components/schemas/ArtifactReference"
+    HandoffActivation:
+      type: object
+      additionalProperties: false
+      required: [status, boundary_source, previous_position, current_position, draft]
+      properties:
+        status:
+          $ref: "#/components/schemas/HandoffActivationStatus"
+        boundary_source:
+          $ref: "#/components/schemas/SourceReference"
+        previous_position:
+          type: integer
+          minimum: 0
+        current_position:
+          type: integer
+          minimum: 0
+        draft:
+          $ref: "#/components/schemas/HandoffDraft"
+          nullable: true
+    HandoffCitation:
+      oneOf:
+        - $ref: "#/components/schemas/HandoffSourceCitation"
+        - $ref: "#/components/schemas/HandoffArtifactCitation"
+        - $ref: "#/components/schemas/HandoffMemoryCitation"
+      discriminator:
+        propertyName: kind
+        mapping:
+          source: "#/components/schemas/HandoffSourceCitation"
+          artifact: "#/components/schemas/HandoffArtifactCitation"
+          memory: "#/components/schemas/HandoffMemoryCitation"
+    HandoffContent:
+      type: object
+      additionalProperties: false
+      required: [schema, objective, state, disposition, next_action, omissions]
+      properties:
+        schema:
+          $ref: "#/components/schemas/HandoffSchema"
+        objective:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        state:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/HandoffStatement"
+        disposition:
+          $ref: "#/components/schemas/HandoffDisposition"
+        next_action:
+          $ref: "#/components/schemas/HandoffStatement"
+          nullable: true
+        omissions:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/HandoffOmission"
+    HandoffDraft:
+      type: object
+      additionalProperties: false
+      required: [objective, state, disposition, next_action, omissions]
+      properties:
+        objective:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        state:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/HandoffStatement"
+        disposition:
+          $ref: "#/components/schemas/HandoffDisposition"
+        next_action:
+          $ref: "#/components/schemas/HandoffStatement"
+          nullable: true
+        omissions:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/HandoffOmission"
+    HandoffEvidenceCheck:
+      type: object
+      additionalProperties: false
+      required: [claim, state_index, status, unavailable_evidence]
+      properties:
+        claim:
+          $ref: "#/components/schemas/HandoffClaim"
+        state_index:
+          type: integer
+          minimum: 0
+          nullable: true
+        status:
+          $ref: "#/components/schemas/HandoffEvidenceStatus"
+        unavailable_evidence:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/HandoffCitation"
+    HandoffMemoryCitation:
+      type: object
+      additionalProperties: false
+      required: [kind, memory_citation]
+      properties:
+        kind:
+          type: string
+          enum: [memory]
+        memory_citation:
+          $ref: "#/components/schemas/MemoryCitation"
+    HandoffOmission:
+      type: object
+      additionalProperties: false
+      required: [text, citation]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        citation:
+          $ref: "#/components/schemas/HandoffCitation"
+          nullable: true
+    HandoffResolution:
+      type: object
+      additionalProperties: false
+      required:
+        [trust, status, scope_id, content, selection, selected_revision, current_revision, evidence_checks]
+      properties:
+        trust:
+          type: string
+          enum: [untrusted_history]
+        status:
+          $ref: "#/components/schemas/HandoffResolutionStatus"
+        scope_id:
+          type: string
+        content:
+          $ref: "#/components/schemas/HandoffContent"
+          nullable: true
+        selection:
+          $ref: "#/components/schemas/HandoffSelection"
+          nullable: true
+        selected_revision:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        current_revision:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        evidence_checks:
+          type: array
+          maxItems: 65
+          items:
+            $ref: "#/components/schemas/HandoffEvidenceCheck"
+    HandoffSourceCitation:
+      type: object
+      additionalProperties: false
+      required: [kind, source_ref]
+      properties:
+        kind:
+          type: string
+          enum: [source]
+        source_ref:
+          $ref: "#/components/schemas/SourceReference"
+    HandoffStatement:
+      type: object
+      additionalProperties: false
+      required: [text, citations]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        citations:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/HandoffCitation"
+    PrepareHandoffRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, objective, evidence]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        objective:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        evidence:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/HandoffCitation"
+        max_bytes:
+          type: integer
+          minimum: 512
+          maximum: 32768
+          default: 8000
+    PreparedHandoff:
+      type: object
+      additionalProperties: false
+      required: [schema, scope_id, base, content]
+      properties:
+        schema:
+          $ref: "#/components/schemas/PreparedHandoffSchema"
+        scope_id:
+          type: string
+        base:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        content:
+          $ref: "#/components/schemas/HandoffContent"
     PreparedContext:
       type: object
       additionalProperties: false
@@ -1413,3 +1882,27 @@ components:
     MemoryUsedSearchMode:
       type: string
       enum: [fts, vector, hybrid]
+    HandoffClaim:
+      type: string
+      enum: [state, next_action]
+    HandoffActivationStatus:
+      type: string
+      enum: [generated, ignored]
+    HandoffDisposition:
+      type: string
+      enum: [continuable, blocked, complete]
+    HandoffEvidenceStatus:
+      type: string
+      enum: [available, unavailable]
+    HandoffResolutionStatus:
+      type: string
+      enum: [empty, resolved]
+    HandoffSchema:
+      type: string
+      enum: [powercontext.handoff.v1]
+    HandoffSelection:
+      type: string
+      enum: [prepared, exact, latest]
+    PreparedHandoffSchema:
+      type: string
+      enum: [powercontext.prepared-handoff.v1]

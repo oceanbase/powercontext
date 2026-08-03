@@ -1,7 +1,7 @@
 {
   "name": "powercontext",
   "version": "0.1.0",
-  "description": "Restore and maintain durable project memory from Codex.",
+  "description": "Restore project memory and transfer current work from Codex.",
   "author": {
     "name": "PowerContext Team",
     "email": "open_oceanbase@oceanbase.com",
@@ -13,23 +13,26 @@
   "keywords": [
     "codex",
     "context",
+    "handoff",
     "memory"
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "PowerContext",
-    "shortDescription": "Durable project memory for Codex",
-    "longDescription": "Recall relevant project history and explicitly remember, revise, or retire durable entries through the PowerContext Server.",
+    "shortDescription": "Project memory and handoff for Codex",
+    "longDescription": "Recall project history, transfer current work through inspectable Handoffs, and explicitly maintain durable Memory through the PowerContext Server.",
     "developerName": "PowerContext Team",
     "category": "Productivity",
     "capabilities": [
       "Read",
-      "Write"
+      "Write",
+      "Handoff"
     ],
     "websiteURL": "https://github.com/oceanbase/powercontext/tree/main/docs/en/docs",
     "defaultPrompt": [
       "Restore relevant project memory for this task.",
+      "Prepare an inspectable Handoff for another task.",
       "Remember this project decision.",
       "Retire outdated project memory."
     ]

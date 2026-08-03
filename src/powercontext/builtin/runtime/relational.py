@@ -13,6 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import Artifact
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
+from powercontext.builtin.artifacts.handoff import (
+    ActivateHandoff,
+    Handoff,
+    HandoffActivation,
+    HandoffEvidenceUnavailableError,
+    HandoffGenerationPipeline,
+    HandoffService,
+    HandoffSourceCitation,
+)
 from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     Memory,
@@ -26,16 +35,23 @@ from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
+from powercontext.builtin.persistence.handoff import (
+    RelationalHandoffBackend,
+    RelationalHandoffEvidenceResolver,
+)
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime.models import MemoryFlushResult
-from powercontext.builtin.runtime.protocols import SourceWindow
+from powercontext.builtin.runtime.protocols import BuiltinTriggers
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, SourceCursor, validate_scope_id
 from powercontext.builtin.triggers import (
+    HANDOFF_BOUNDARY_TRIGGER_NAME,
     SOURCE_WINDOW_TRIGGER_NAME,
+    HandoffBoundary,
+    HandoffTrigger,
     ProcessSourceWindow,
     SourceHighWatermark,
     SourceWindowTrigger,
@@ -72,8 +88,10 @@ class _ScopedServices:
     repositories: _Repositories
     index: MemoryIndex
     candidate_pipeline: CandidatePipeline | None
+    handoff_pipeline: HandoffGenerationPipeline | None
     embedding_model: EmbeddingModel | None
     id_factory: IdFactory
+    handoff_artifact_id: str
     memory_artifact_id: str
     source_lock: asyncio.Lock
 
@@ -116,6 +134,29 @@ class _ScopedServices:
             id_factory=self.id_factory,
         )
 
+    def handoff(
+        self,
+        source_resolver: SourceCatalog,
+    ) -> HandoffService:
+        memory = self.memory(source_resolver)
+        return HandoffService(
+            scope_id=self.scope_id,
+            artifact_id=self.handoff_artifact_id,
+            backend=RelationalHandoffBackend(
+                database=self.database,
+                scope_id=self.scope_id,
+                artifacts=self.repositories.artifacts,
+            ),
+            evidence_resolver=RelationalHandoffEvidenceResolver(
+                database=self.database,
+                scope_id=self.scope_id,
+                sources=self.repositories.sources,
+                artifacts=self.repositories.artifacts,
+                memory=memory,
+            ),
+            generation_pipeline=self.handoff_pipeline,
+        )
+
 
 class RelationalContexts:
     """Compose typed, scope-bound contexts without owning the database lifecycle."""
@@ -126,26 +167,31 @@ class RelationalContexts:
         database: AsyncDatabase,
         index: MemoryIndex | None = None,
         candidate_pipeline: CandidatePipeline | None = None,
+        handoff_pipeline: HandoffGenerationPipeline | None = None,
         embedding_model: EmbeddingModel | None = None,
         id_factory: IdFactory | None = None,
+        handoff_artifact_id: str = "handoff",
         memory_artifact_id: str = "memory",
     ) -> None:
         self.database = database
         self.index = NoMemoryIndex() if index is None else index
         self.repositories = _Repositories(
             sources=SourceRepository(_SOURCE_ADAPTERS),
-            artifacts=ArtifactRepository((Memory, Experience)),
+            artifacts=ArtifactRepository((Handoff, Memory, Experience)),
             candidates=CandidateRepository({Experience.family: ExperienceContent}),
             cursors=SourceCursorRepository(),
         )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None
+        self._handoff_pipeline = handoff_pipeline
+        self.handoff_generation = handoff_pipeline is not None
         self._embedding_model = embedding_model
         self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
+        self._handoff_artifact_id = handoff_artifact_id
         self._memory_artifact_id = memory_artifact_id
         self._contexts: dict[
             str,
-            PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindow],
+            PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers],
         ] = {}
         self._source_locks: dict[str, asyncio.Lock] = {}
         self._activation_locks: dict[str, asyncio.Lock] = {}
@@ -178,7 +224,7 @@ class RelationalContexts:
         self,
         scope_id: str,
         /,
-    ) -> PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindow]:
+    ) -> PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers]:
         scope = validate_scope_id(scope_id)
         existing = self._contexts.get(scope)
         if existing is not None:
@@ -190,27 +236,31 @@ class RelationalContexts:
             repositories=self.repositories,
             index=self.index,
             candidate_pipeline=self._candidate_pipeline,
+            handoff_pipeline=self._handoff_pipeline,
             embedding_model=self._embedding_model,
             id_factory=self._id_factory,
+            handoff_artifact_id=self._handoff_artifact_id,
             memory_artifact_id=self._memory_artifact_id,
             source_lock=self._source_locks.setdefault(scope, asyncio.Lock()),
         )
         sources_backend, source_catalog = services.sources()
-        source_window = _RelationalSourceWindow(
+        triggers = _RelationalTriggers(
             services=services,
             lock=self._activation_locks.setdefault(scope, asyncio.Lock()),
         )
-        context: PowerContext[BuiltinSources, BuiltinArtifacts, SourceWindow] = PowerContext(
+        context: PowerContext[BuiltinSources, BuiltinArtifacts, BuiltinTriggers] = PowerContext(
             sources=BuiltinSources(
                 catalog=source_catalog,
                 store=sources_backend,
                 journal=sources_backend,
             ),
             artifacts=BuiltinArtifacts(
+                handoff=services.handoff(source_catalog),
+                handoff_artifact_id=self._handoff_artifact_id,
                 memory=services.memory(source_catalog),
                 memory_artifact_id=self._memory_artifact_id,
             ),
-            triggers=source_window,
+            triggers=triggers,
         )
         return self._contexts.setdefault(scope, context)
 
@@ -291,7 +341,7 @@ class _RelationalArtifactResolver:
             raise ArtifactNotFoundError(artifact) from None
 
 
-class _RelationalSourceWindow:
+class _RelationalTriggers:
     def __init__(
         self,
         *,
@@ -300,7 +350,61 @@ class _RelationalSourceWindow:
     ) -> None:
         self._services = services
         self._lock = lock
+        self._handoff_trigger = HandoffTrigger()
         self._trigger = SourceWindowTrigger()
+
+    async def activate_handoff(self, request: ActivateHandoff, /) -> HandoffActivation:
+        async with self._lock:
+            async with self._services.database.transaction() as connection:
+                try:
+                    source = await self._services.repositories.sources.get(
+                        connection,
+                        self._services.scope_id,
+                        request.boundary_source,
+                    )
+                except RepositoryNotFoundError:
+                    raise HandoffEvidenceUnavailableError(
+                        HandoffSourceCitation(source_ref=request.boundary_source)
+                    ) from None
+                state_row = await self._services.repositories.cursors.load(
+                    connection,
+                    self._services.scope_id,
+                    HANDOFF_BOUNDARY_TRIGGER_NAME,
+                )
+                state = self._handoff_trigger.initial_state() if state_row is None else state_row.cursor
+                transition = self._handoff_trigger.activate(
+                    HandoffBoundary(
+                        position=source.journal_position,
+                        activation=request,
+                    ),
+                    state,
+                )
+            if not transition.actions:
+                return HandoffActivation(
+                    status="ignored",
+                    boundary_source=request.boundary_source,
+                    previous_position=state.sequence,
+                    current_position=state.sequence,
+                    draft=None,
+                )
+
+            _, source_catalog = self._services.sources()
+            draft = await self._services.handoff(source_catalog).prepare(transition.actions[0])
+            async with self._services.database.transaction() as connection:
+                await self._services.repositories.cursors.save(
+                    connection,
+                    self._services.scope_id,
+                    HANDOFF_BOUNDARY_TRIGGER_NAME,
+                    transition.state,
+                    expected_generation=None if state_row is None else state_row.generation,
+                )
+            return HandoffActivation(
+                status="generated",
+                boundary_source=request.boundary_source,
+                previous_position=state.sequence,
+                current_position=transition.state.sequence,
+                draft=draft,
+            )
 
     async def cursor(self) -> SourceCursor:
         async with self._services.database.transaction() as connection:
