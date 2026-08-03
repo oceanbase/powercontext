@@ -3,9 +3,13 @@ info:
   title: PowerContext API
   description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
   version: 0.0.1
+security:
+  - BearerAuth: []
+  - {}
 paths:
   /health/live:
     get:
+      security: []
       tags: [health]
       summary: Get process liveness
       operationId: get_liveness
@@ -21,6 +25,7 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
   /health/ready:
     get:
+      security: []
       tags: [health]
       summary: Get deployment readiness
       operationId: get_readiness
@@ -58,6 +63,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Capabilities"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /v1/sources/content:
     post:
       tags: [sources]
@@ -82,6 +89,8 @@ paths:
                 $ref: "#/components/schemas/CaptureContentSourceResponse"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -110,6 +119,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PreparedContext"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -140,6 +151,8 @@ paths:
                 $ref: "#/components/schemas/HandoffActivation"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -169,6 +182,8 @@ paths:
                 $ref: "#/components/schemas/HandoffDraft"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -198,6 +213,8 @@ paths:
                 $ref: "#/components/schemas/PreparedHandoff"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -229,6 +246,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -258,6 +277,8 @@ paths:
                 $ref: "#/components/schemas/HandoffResolution"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -286,6 +307,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FlushMemoryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -316,6 +339,8 @@ paths:
                 $ref: "#/components/schemas/MemoryMutationResponse"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -344,6 +369,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SearchMemoryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -376,6 +403,8 @@ paths:
                 $ref: "#/components/schemas/ListMemoryEntriesResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -406,6 +435,8 @@ paths:
                 $ref: "#/components/schemas/MemoryEntry"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -438,6 +469,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -470,6 +503,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -500,6 +535,8 @@ paths:
                 $ref: "#/components/schemas/ListMemoryChangesResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -530,6 +567,8 @@ paths:
                 $ref: "#/components/schemas/ArtifactCandidate"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -560,6 +599,8 @@ paths:
                 $ref: "#/components/schemas/ExperienceArtifact"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -588,6 +629,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ArtifactCandidatePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -618,6 +661,8 @@ paths:
                 $ref: "#/components/schemas/ArtifactCandidate"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -650,6 +695,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -682,6 +729,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -714,6 +763,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -721,12 +772,33 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Static bearer token used when local Server authentication is enabled.
   headers:
+    BearerChallenge:
+      description: Authentication scheme required by the Server.
+      schema:
+        type: string
+        example: Bearer
     RequestId:
       description: Opaque identifier for correlating one request.
       schema:
         type: string
   responses:
+    Unauthorized:
+      description: A valid bearer token is required by this Server deployment.
+      headers:
+        WWW-Authenticate:
+          $ref: "#/components/headers/BearerChallenge"
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     Conflict:
       description: The command conflicts with current immutable state.
       headers:

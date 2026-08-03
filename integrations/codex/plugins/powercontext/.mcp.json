@@ -3,7 +3,10 @@
     "powercontext": {
       "type": "http",
       "url": "http://127.0.0.1:8000/mcp",
-      "required": false
+      "required": false,
+      "env_http_headers": {
+        "Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"
+      }
     }
   }
 }

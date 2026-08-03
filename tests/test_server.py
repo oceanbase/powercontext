@@ -1,6 +1,8 @@
 import logging
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -11,7 +13,7 @@ from powercontext.http import (
 )
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import McpConfig, ServerSettings
+from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
 
 
 def test_settings_load_server_environment(monkeypatch) -> None:
@@ -52,6 +54,23 @@ def test_server_settings_select_oceanbase(monkeypatch) -> None:
     assert settings.database.url.get_secret_value() == url
 
 
+def test_settings_load_bearer_authentication_without_exposing_token(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_ENABLED", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_TOKEN", "server-secret")
+
+    settings = ServerSettings()
+
+    assert settings.auth.enabled is True
+    assert settings.auth.token is not None
+    assert settings.auth.token.get_secret_value() == "server-secret"
+    assert "server-secret" not in repr(settings)
+
+
+def test_enabled_bearer_authentication_requires_a_token() -> None:
+    with pytest.raises(ValueError, match="Bearer token is required"):
+        BearerAuthConfig(enabled=True)
+
+
 def test_liveness_adds_a_request_id() -> None:
     client = TestClient(create_app())
 
@@ -71,6 +90,35 @@ def test_liveness_does_not_reflect_an_unsafe_request_id() -> None:
 
     assert response.status_code == 200
     assert response.headers["X-Request-ID"] != "unsafe value"
+
+
+def test_server_factory_optionally_requires_bearer_authentication() -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            auth=BearerAuthConfig(enabled=True, token=SecretStr("server-secret")),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+    client = TestClient(app)
+
+    missing = client.get("/v1/capabilities", headers={"X-Request-ID": "request-missing"})
+    invalid = client.get("/v1/capabilities", headers={"Authorization": "Bearer wrong"})
+    accepted = client.get("/v1/capabilities", headers={"Authorization": "Bearer server-secret"})
+    liveness = client.get("/health/live")
+
+    assert missing.status_code == 401
+    assert missing.headers["WWW-Authenticate"] == "Bearer"
+    assert missing.headers["X-Request-ID"] == "request-missing"
+    assert missing.json() == {
+        "error": {
+            "code": "unauthorized",
+            "message": "A valid bearer token is required.",
+            "details": None,
+        }
+    }
+    assert invalid.status_code == 401
+    assert accepted.status_code == 200
+    assert liveness.status_code == 200
 
 
 def test_readiness_reports_unavailable_bindings() -> None:

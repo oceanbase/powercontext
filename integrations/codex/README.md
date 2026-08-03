@@ -25,6 +25,10 @@ The installed plugin defaults to `http://127.0.0.1:8000/mcp`. Prompt capture can
 `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false`. Set `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true` only for tests that need
 captured Source evidence processed before the next prompt.
 
+For a Server using optional local bearer authentication, set `POWERCONTEXT_CODEX_AUTHORIZATION` to the complete
+`Bearer <token>` header before starting Codex. The Hook and MCP transport share that environment-backed value; the
+token value is never stored in the plugin configuration.
+
 Run the integration tests from a repository checkout:
 
 ```bash

@@ -55,8 +55,32 @@ export POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true
 
 这会给每个提示词增加推理延迟，不适合作为日常交互配置。
 
+## 连接启用鉴权的本地 Server
+
+从本地 secret manager 加载一个 token，然后启用鉴权并启动 Server：
+
+```bash
+export POWERCONTEXT_SERVER_AUTH_ENABLED=true
+export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
+powercontext server run
+```
+
+在包含匹配 Authorization header 的环境中启动 Codex：
+
+```bash
+export POWERCONTEXT_CODEX_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
+codex
+```
+
+修改该变量后需要重启 Codex。插件的 MCP 配置从环境读取这个可选 header，Prompt Hook 读取同一个值。不要把
+token 写入 `.mcp.json`、Server URL 或静态 MCP header。
+
+没有设置该变量或值为空，并且 Server 未启用鉴权时，插件行为与默认状态完全一致。如果 Server 已启用鉴权，
+但 header 缺失或错误，Hook 会正常降级并写出 `authentication_failed` 诊断；MCP tools 不可用，但不会阻塞
+Codex 会话。
+
 Server 不可用时，Hook 的恢复和采集会正常降级，不会阻塞 Codex。显式 Memory 工具会报告服务不可用。
 
 正常空结果或召回失败时，Hook 会向 stderr 写一行不含正文的 JSON 诊断。outcome 包括 `empty`、
-`version_mismatch`、`server_unavailable` 和 `invalid_response`；事件不会包含 query、scope、prepared content、
-citation 或 response body。
+`authentication_failed`、`version_mismatch`、`server_unavailable` 和 `invalid_response`；事件不会包含 query、
+scope、prepared content、citation、response body 或 authorization value。

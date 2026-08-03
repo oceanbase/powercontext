@@ -62,6 +62,28 @@ def test_client_preserves_server_error_context() -> None:
     asyncio.run(scenario())
 
 
+def test_client_sends_an_explicit_bearer_token() -> None:
+    async def scenario() -> None:
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json={"status": "ok"})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient(
+                "https://memory.example",
+                token="secret-token",  # noqa: S106 - non-secret test credential.
+                http_client=http_client,
+            )
+            await client.get_liveness()
+
+        assert len(requests) == 1
+        assert requests[0].headers["Authorization"] == "Bearer secret-token"
+
+    asyncio.run(scenario())
+
+
 def test_client_keeps_a_generic_server_error_when_the_error_body_is_invalid() -> None:
     async def scenario() -> None:
         response = httpx.Response(500, text="Internal Server Error")
@@ -131,3 +153,13 @@ def test_client_settings_error_repr_does_not_leak_url_credentials() -> None:
         ClientSettings(server_url="https://user:do-not-log@memory.example")
 
     assert "do-not-log" not in repr(caught.value)
+
+
+def test_client_settings_hide_the_api_token(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_API_TOKEN", "secret-token")
+
+    settings = ClientSettings()
+
+    assert settings.api_token is not None
+    assert settings.api_token.get_secret_value() == "secret-token"
+    assert "secret-token" not in repr(settings)

@@ -94,10 +94,12 @@ class PowerContextClient:
         self,
         base_url: str,
         *,
+        token: str | None = None,
         timeout: float = 10.0,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
+        self._headers = {"Authorization": f"Bearer {token}"} if token else None
         self._owned_http_client: httpx.AsyncClient | None = None
         if http_client is None:
             self._owned_http_client = httpx.AsyncClient(timeout=timeout)
@@ -267,6 +269,7 @@ class PowerContextClient:
             response = await self._http_client.request(
                 operation.method,
                 f"{self._base_url}{operation.path}",
+                headers=self._headers,
                 json=json_payload,
             )
         except httpx.HTTPError as exc:

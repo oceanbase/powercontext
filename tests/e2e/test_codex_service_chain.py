@@ -15,6 +15,7 @@ import pytest
 import uvicorn
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
+from pydantic import SecretStr
 from pydantic_ai.models.test import TestModel
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -27,16 +28,20 @@ from powercontext.http import (
     SearchMemoryRequest,
 )
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import McpConfig, ServerSettings
+from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CODEX_PLUGIN = PROJECT_ROOT / "integrations" / "codex" / "plugins" / "powercontext"
 SCOPE_ID = "project:codex-e2e"
+AUTH_TOKEN = "codex-e2e-token"  # noqa: S105 - non-secret test credential.
+AUTHORIZATION = f"Bearer {AUTH_TOKEN}"
 
 
+@pytest.mark.parametrize("authentication_enabled", [False, True], ids=["public", "authenticated"])
 def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    authentication_enabled: bool,
 ) -> None:
     model_output = """
     {
@@ -55,6 +60,10 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
     )
     app = create_server_app(
         settings=ServerSettings(
+            auth=BearerAuthConfig(
+                enabled=authentication_enabled,
+                token=SecretStr(AUTH_TOKEN) if authentication_enabled else None,
+            ),
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
             inference=InferenceConfig(generation_model="test"),
             mcp=McpConfig(enabled=True),
@@ -94,21 +103,25 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
             plugin,
             prompt="Remember which object is the composition root.",
             turn_id="turn-1",
+            authorization=AUTHORIZATION if authentication_enabled else None,
         )
         assert first.stdout == ""
+        assert AUTH_TOKEN not in first.stderr
 
         recalled = _run_hook(
             plugin,
             prompt="Which composition root should this project use?",
             turn_id="turn-2",
+            authorization=AUTHORIZATION if authentication_enabled else None,
         )
         context = json.loads(recalled.stdout)["hookSpecificOutput"]["additionalContext"]
         envelope = json.loads(context.splitlines()[-2])
         assert envelope["items"][0]["content"] == "Use PowerContext as the composition root."
         assert envelope["items"][0]["citation"]["memory_ref"]["family"] == "memory"
+        assert AUTH_TOKEN not in recalled.stderr
 
-        async def verify_public_surfaces() -> None:
-            async with PowerContextClient(base_url) as sdk:
+        async def verify_transport_surfaces() -> None:
+            async with PowerContextClient(base_url, token=AUTH_TOKEN if authentication_enabled else None) as sdk:
                 found = await sdk.search_memory(
                     SearchMemoryRequest(
                         scope_id=SCOPE_ID,
@@ -134,7 +147,10 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
                 assert entries.entries
                 assert entries.entries[0].source_refs[0].name == "content"
 
-                transport = StreamableHttpTransport(f"{base_url}/mcp")
+                transport = StreamableHttpTransport(
+                    f"{base_url}/mcp",
+                    headers={"Authorization": AUTHORIZATION} if authentication_enabled else None,
+                )
                 async with Client(transport) as mcp:
                     result = await mcp.call_tool(
                         "search_memory",
@@ -170,14 +186,16 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
                 assert {entry.citation.entry_id for entry in audited.entries} == retired_entry_ids
                 assert all(entry.state == "inactive" for entry in audited.entries)
 
-        asyncio.run(verify_public_surfaces())
+        asyncio.run(verify_transport_surfaces())
 
         excluded = _run_hook(
             plugin,
             prompt="Which composition root should this project use?",
             turn_id="turn-3",
+            authorization=AUTHORIZATION if authentication_enabled else None,
         )
         assert excluded.stdout == ""
+        assert AUTH_TOKEN not in excluded.stderr
     finally:
         server.should_exit = True
         thread.join(timeout=10)
@@ -185,14 +203,23 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
         assert not thread.is_alive()
 
 
-def _run_hook(plugin: Path, *, prompt: str, turn_id: str) -> subprocess.CompletedProcess[str]:
-    environment = {
+def _run_hook(
+    plugin: Path,
+    *,
+    prompt: str,
+    turn_id: str,
+    authorization: str | None,
+) -> subprocess.CompletedProcess[str]:
+    environment: dict[str, str] = {
         **os.environ,
         "POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE": "true",
         "POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS": "10",
         "POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS": "5",
         "POWERCONTEXT_CODEX_SCOPE_ID": SCOPE_ID,
     }
+    environment.pop("POWERCONTEXT_CODEX_AUTHORIZATION", None)
+    if authorization is not None:
+        environment["POWERCONTEXT_CODEX_AUTHORIZATION"] = authorization
     return subprocess.run(
         [sys.executable, str(plugin / "hooks" / "recall.py")],
         cwd=PROJECT_ROOT,

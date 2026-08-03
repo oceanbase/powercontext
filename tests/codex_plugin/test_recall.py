@@ -125,6 +125,36 @@ def test_recall_failure_is_non_blocking(
     }
 
 
+def test_recall_authentication_failure_is_non_blocking_and_content_free(
+    recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        recall_module,
+        "_prepare_context",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(recall_module._HttpStatusError(401)),
+    )
+    errors = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", errors)
+
+    assert (
+        recall_module._recall_context(
+            "secret query",
+            "secret scope",
+            settings=recall_module.CodexPluginSettings(),
+            deadline=time.monotonic() + 1,
+        )
+        is None
+    )
+    assert json.loads(errors.getvalue()) == {
+        "component": "powercontext.codex.recall",
+        "event": "context_prepare",
+        "outcome": "authentication_failed",
+        "http_status": 401,
+    }
+    assert "secret" not in errors.getvalue()
+
+
 @pytest.mark.parametrize("event_name", ["UserPromptSubmit", "user_prompt_submit"])
 def test_hook_accepts_codex_event_name_variants(
     recall_module: ModuleType,
@@ -410,6 +440,7 @@ def test_flush_is_bounded_by_settings(
 
 def test_hook_refuses_redirects(
     recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target_headers: list[dict[str, str]] = []
 
@@ -433,6 +464,7 @@ def test_hook_refuses_redirects(
             def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
                 pass
 
+        monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer secret-token")
         with _serve(RedirectHandler) as source_url:
             settings = recall_module.CodexPluginSettings()
             object.__setattr__(settings, "server_url", source_url)

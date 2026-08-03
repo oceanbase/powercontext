@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated, TypeAlias
 
 import typer
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from powercontext.client.client import PowerContextClient
 from powercontext.client.errors import ClientError
@@ -54,6 +54,7 @@ app.add_typer(candidate_app, name="candidate")
 @dataclass(frozen=True, slots=True)
 class _ClientOptions:
     server_url: str
+    api_token: SecretStr | None
     timeout: float
     json_output: bool
 
@@ -82,6 +83,7 @@ def main(
     settings = ClientSettings()
     context.meta["powercontext.client.options"] = _ClientOptions(
         server_url=settings.server_url if server_url is None else server_url,
+        api_token=settings.api_token,
         timeout=settings.timeout if timeout is None else timeout,
         json_output=json_output,
     )
@@ -204,7 +206,8 @@ def _options(context: typer.Context) -> _ClientOptions:
 async def _execute(context: typer.Context, operation: _ClientOperation) -> None:
     options = _options(context)
     try:
-        async with PowerContextClient(options.server_url, timeout=options.timeout) as client:
+        token = None if options.api_token is None else options.api_token.get_secret_value()
+        async with PowerContextClient(options.server_url, token=token, timeout=options.timeout) as client:
             response = await operation(client)
     except ClientError as exc:
         typer.echo(_error_message(exc), err=True)

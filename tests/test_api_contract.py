@@ -59,6 +59,23 @@ from powercontext.server.factory import create_server_app
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "openapi" / "powercontext.yaml"
 
 
+def test_contract_declares_optional_bearer_authentication() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+
+    assert contract["security"] == [{"BearerAuth": []}, {}]
+    assert contract["components"]["securitySchemes"]["BearerAuth"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Static bearer token used when local Server authentication is enabled.",
+    }
+    for path, path_item in contract["paths"].items():
+        operation = next(iter(path_item.values()))
+        if path.startswith("/health/"):
+            assert operation["security"] == []
+        else:
+            assert operation["responses"]["401"] == {"$ref": "#/components/responses/Unauthorized"}
+
+
 def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]

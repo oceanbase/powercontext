@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.middleware import Middleware
 
 from powercontext.builtin.artifacts.handoff import HandoffGenerationPipeline
 from powercontext.builtin.artifacts.memory import CandidatePipeline
@@ -17,6 +18,7 @@ from powercontext.builtin.sources import CONTENT_SOURCE_NAME
 from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSchema
 from powercontext.server.app import create_app
 from powercontext.server.mcp import mount_mcp
+from powercontext.server.middleware import StaticBearerMiddleware
 from powercontext.server.settings import ServerSettings
 
 
@@ -26,6 +28,7 @@ def create_server_app(
     candidate_pipeline: CandidatePipeline | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
+    middleware: Sequence[Middleware] = (),
 ) -> FastAPI:
     """Build the Server process and mount MCP when configured."""
 
@@ -59,7 +62,15 @@ def create_server_app(
                     context_versions=[],
                 )
 
-    app = create_app(lifespan=lifespan)
+    configured_middleware = list(middleware)
+    auth_token = resolved.auth.token
+    if resolved.auth.enabled and auth_token is not None:
+        configured_middleware.insert(
+            0,
+            Middleware(StaticBearerMiddleware, token=auth_token.get_secret_value()),
+        )
+
+    app = create_app(lifespan=lifespan, middleware=configured_middleware)
     if resolved.mcp.enabled:
         mount_mcp(app, path=resolved.mcp.path)
     return app

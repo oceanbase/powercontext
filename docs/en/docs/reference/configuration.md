@@ -33,11 +33,16 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | Listener port |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP path |
+| `POWERCONTEXT_SERVER_AUTH_ENABLED` | `false` | Require one static bearer token for HTTP and MCP |
+| `POWERCONTEXT_SERVER_AUTH_TOKEN` | unset | Static bearer token; required when authentication is enabled |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async database URL |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Sources processed in one activation |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | unset | Scheduler interval; unset disables scheduling |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model identifier for Memory extraction |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation timeout |
+
+When authentication is enabled, API and MCP requests must include
+`Authorization: Bearer <token>`. The liveness and readiness endpoints remain available without credentials.
 
 Example with a controlled SQLite path and scheduled extraction:
 
@@ -52,6 +57,10 @@ Provider credentials, such as `OPENAI_API_KEY`, are read by the configured infer
 command-line arguments, documentation, or Memory. Replace `provider:model-name` with a model identifier supported by
 Pydantic AI. Scheduled extraction requires both a generation model and
 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`. An explicit Memory write does not require either.
+
+Static bearer authentication is disabled by default. When enabled, it protects the HTTP API and external MCP endpoint;
+the liveness and readiness endpoints remain public. Plain HTTP should remain on a loopback address. Use TLS before
+exposing an authenticated Server over a network.
 
 To use OceanBase, provide its URL through your environment or secret manager:
 
@@ -112,15 +121,18 @@ available without an embedding model or native extension.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `POWERCONTEXT_CLIENT_SERVER_URL` | `http://127.0.0.1:8000` | Server base URL |
+| `POWERCONTEXT_CLIENT_API_TOKEN` | unset | Bearer token sent to an authenticated Server |
 | `POWERCONTEXT_CLIENT_TIMEOUT` | `10` | HTTP timeout in seconds |
 
-Equivalent one-off flags are available on `powercontext client`.
+Equivalent one-off flags are available for the Server URL and timeout on `powercontext client`. The token is accepted
+only through the environment so it does not appear in command-line arguments.
 
 ## Codex plugin
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `POWERCONTEXT_CODEX_SCOPE_ID` | derived from Git remote or project path | Override project scope |
+| `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 | `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request hook timeout |
@@ -128,7 +140,8 @@ Equivalent one-off flags are available on `powercontext client`.
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt |
 
 The outer Codex hook timeout is ten seconds. Recall, capture, and flush fail independently and never block Codex when
-the Server is unavailable.
+the Server is unavailable or rejects authentication. The variable must be present in the environment that starts
+Codex; restart Codex after changing it.
 
 ## Builtin CLI
 

@@ -22,6 +22,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthResponse"}}},
                     }
                 },
+                "security": [],
             }
         },
         "/health/ready": {
@@ -41,6 +42,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReadinessResponse"}}},
                     },
                 },
+                "security": [],
             }
         },
         "/v1/capabilities": {
@@ -53,7 +55,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "description": "Behavior enabled by the assembled runtime.",
                         "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Capabilities"}}},
-                    }
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                 },
             }
         },
@@ -80,6 +83,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         },
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -104,6 +108,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedContext"}}},
                     },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -137,6 +142,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffActivation"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -159,6 +165,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffDraft"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -183,6 +190,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedHandoff"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -206,6 +214,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -230,6 +239,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffResolution"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -254,6 +264,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             "application/json": {"schema": {"$ref": "#/components/schemas/FlushMemoryResponse"}}
                         },
                     },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -281,6 +292,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         },
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -305,6 +317,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             "application/json": {"schema": {"$ref": "#/components/schemas/SearchMemoryResponse"}}
                         },
                     },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -335,6 +348,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         },
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -358,6 +372,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemoryEntry"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -386,6 +401,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -416,6 +432,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -443,6 +460,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         },
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -468,6 +486,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -493,6 +512,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         },
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -519,6 +539,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidatePage"}}
                         },
                     },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -544,6 +565,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -570,6 +592,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -599,6 +622,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -625,6 +649,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1505,6 +1530,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "PreparedHandoffSchema": {"type": "string", "enum": ["powercontext.prepared-handoff.v1"]},
         },
         "responses": {
+            "Unauthorized": {
+                "description": "A valid bearer token is required by this Server deployment.",
+                "headers": {
+                    "WWW-Authenticate": {"$ref": "#/components/headers/BearerChallenge"},
+                    "X-Request-ID": {"$ref": "#/components/headers/RequestId"},
+                },
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+            },
             "Conflict": {
                 "description": "The command conflicts with current immutable state.",
                 "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -1532,7 +1565,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
         },
         "headers": {
-            "RequestId": {"description": "Opaque identifier for correlating one request.", "schema": {"type": "string"}}
+            "BearerChallenge": {
+                "description": "Authentication scheme required by the Server.",
+                "schema": {"type": "string", "example": "Bearer"},
+            },
+            "RequestId": {
+                "description": "Opaque identifier for correlating one request.",
+                "schema": {"type": "string"},
+            },
+        },
+        "securitySchemes": {
+            "BearerAuth": {
+                "type": "http",
+                "description": "Static bearer token used when local Server authentication is enabled.",
+                "scheme": "bearer",
+            }
         },
     },
+    "security": [{"BearerAuth": []}, {}],
 }

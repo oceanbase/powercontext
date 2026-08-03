@@ -228,7 +228,7 @@ def _post_json(
     request = Request(  # noqa: S310 - settings validation enforces the transport policy.
         f"{settings.server_url}{path}",
         data=json.dumps(payload, separators=(",", ":")).encode(),
-        headers=_REQUEST_HEADERS,
+        headers=_request_headers(settings),
         method="POST",
     )
     request_timeout = min(settings.request_timeout_seconds, _remaining_time(deadline))
@@ -247,6 +247,13 @@ def _post_json(
     if not isinstance(result, dict):
         raise _InvalidResponseError
     return cast(dict[str, object], result)
+
+
+def _request_headers(settings: CodexPluginSettings) -> dict[str, str]:
+    headers = dict(_REQUEST_HEADERS)
+    if settings.authorization is not None:
+        headers["Authorization"] = settings.authorization.get_secret_value()
+    return headers
 
 
 def _read_response(response: _Response, *, deadline: float) -> bytes:
@@ -291,7 +298,9 @@ def _recall_context(
     try:
         prepared = _validate_prepared_context(_prepare_context(query, scope_id, settings=settings, deadline=deadline))
     except _HttpStatusError as error:
-        if error.status == 404:
+        if error.status == 401:
+            outcome = "authentication_failed"
+        elif error.status == 404:
             outcome = "version_mismatch"
         elif error.status == 503:
             outcome = "server_unavailable"

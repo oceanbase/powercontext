@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 _MCP_CONFIGURATION_PATH = Path(__file__).with_name(".mcp.json")
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+_AUTHORIZATION_ENVIRONMENT = {"Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"}
 
 
 class _McpEndpoint(BaseModel):
@@ -20,10 +21,13 @@ class _McpEndpoint(BaseModel):
     type: Literal["http"]
     url: str
     required: bool
+    env_http_headers: dict[str, str]
 
     @model_validator(mode="after")
     def validate_url(self) -> _McpEndpoint:
         _http_base_url(self.url)
+        if self.env_http_headers != _AUTHORIZATION_ENVIRONMENT:
+            raise ValueError("MCP authorization must use the PowerContext Codex environment")  # noqa: TRY003
         return self
 
 
@@ -62,6 +66,7 @@ class CodexPluginSettings(BaseSettings):
     )
 
     server_url: str = Field(default="", repr=False)
+    authorization: SecretStr | None = Field(default=None, repr=False)
     scope_id: str | None = None
     capture_prompts: bool = True
     flush_on_capture: bool = False
@@ -74,6 +79,24 @@ class CodexPluginSettings(BaseSettings):
     def require_mcp_endpoint_source(cls, value: str) -> str:
         if not value:
             raise ValueError("PowerContext Server URL must come from MCP configuration")  # noqa: TRY003
+        return value
+
+    @field_validator("authorization")
+    @classmethod
+    def validate_authorization(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None or not value.get_secret_value().strip():
+            return None
+        authorization = value.get_secret_value()
+        scheme, separator, credential = authorization.partition(" ")
+        if (
+            not separator
+            or scheme.casefold() != "bearer"
+            or not credential
+            or not credential.isascii()
+            or not credential.isprintable()
+            or any(character.isspace() for character in credential)
+        ):
+            raise ValueError("Codex authorization must be a valid Bearer header")  # noqa: TRY003
         return value
 
     @classmethod

@@ -56,9 +56,34 @@ export POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true
 
 This adds inference latency to each prompt and is not the normal interactive setting.
 
+## Connect to an authenticated local Server
+
+Load one token from your local secret manager, then start the Server with authentication enabled:
+
+```bash
+export POWERCONTEXT_SERVER_AUTH_ENABLED=true
+export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
+powercontext server run
+```
+
+Start Codex from an environment that contains the matching complete Authorization header:
+
+```bash
+export POWERCONTEXT_CODEX_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
+codex
+```
+
+Restart Codex after changing the variable. The plugin's MCP configuration reads this optional header from the
+environment, and the prompt Hook reads the same value. Do not put the token in `.mcp.json`, the Server URL, or a
+static MCP header.
+
+When the variable is absent or empty and Server authentication is disabled, the plugin behaves exactly as it does by
+default. When Server authentication is enabled but the header is missing or incorrect, the Hook fails open and emits
+an `authentication_failed` diagnostic; MCP tools remain unavailable without blocking the Codex session.
+
 If the Server is unavailable, hook recall and capture fail open. Codex work continues, and explicit Memory tools
 report that the service is unavailable.
 
 For a normal empty result or recall failure, the Hook writes a content-free JSON diagnostic to stderr. Outcomes include
-`empty`, `version_mismatch`, `server_unavailable`, and `invalid_response`. The event never contains the query, scope,
-prepared content, citation, or response body.
+`empty`, `authentication_failed`, `version_mismatch`, `server_unavailable`, and `invalid_response`. The event never
+contains the query, scope, prepared content, citation, response body, or authorization value.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import Field, HttpUrl, TypeAdapter, field_validator
+from pydantic import Field, HttpUrl, SecretStr, TypeAdapter, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _HTTP_URL = TypeAdapter(HttpUrl)
@@ -18,6 +18,7 @@ class ClientSettings(BaseSettings):
     )
 
     server_url: str = "http://127.0.0.1:8000"
+    api_token: SecretStr | None = Field(default=None, repr=False)
     timeout: float = Field(default=10.0, gt=0)
 
     @field_validator("server_url")

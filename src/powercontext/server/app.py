@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from copy import deepcopy
 from functools import wraps
 from re import fullmatch
@@ -15,6 +15,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.middleware import Middleware
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.types import Lifespan
 
@@ -201,7 +202,11 @@ from powercontext.http._generated.operations import (
 )
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
 from powercontext.server import mapping
-from powercontext.server.context import bind_request_id, current_request_id, reset_request_id
+from powercontext.server.context import (
+    bind_request_id,
+    current_request_id,
+    reset_request_id,
+)
 
 REQUEST_ID_HEADER = "X-Request-ID"
 REQUEST_ID_PATTERN = r"[A-Za-z0-9._:-]{1,128}"
@@ -314,6 +319,7 @@ def create_app(
     capability_provider: CapabilityProvider | None = None,
     readiness_probe: ReadinessProbe | None = None,
     lifespan: Lifespan[FastAPI] | None = None,
+    middleware: Sequence[Middleware] = (),
 ) -> FastAPI:
     """Build the HTTP adapter around an optional Runtime application binding."""
 
@@ -322,6 +328,7 @@ def create_app(
         version=API_VERSION,
         description=API_DESCRIPTION,
         lifespan=lifespan,
+        middleware=list(middleware),
     )
     app.openapi_version = OPENAPI_VERSION
     app.state.application = application
