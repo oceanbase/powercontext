@@ -80,6 +80,33 @@ Optional settings are `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` an
 
 Embedding normalization defaults to `unit`.
 
+### SQLite Vec1
+
+SQLite vector and hybrid search additionally require a
+[SQLite Vec1](https://sqlite.org/vec1/doc/trunk/doc/vec1.md) 0.7 or newer loadable extension. PowerContext does not
+download, build, or update this native library. Obtain it for the Server's operating system and architecture, then
+set its path together with the complete embedding profile:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=provider:embedding-model
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=embedding-model-v1
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1024
+export POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION=/opt/sqlite-extensions/vec1
+powercontext server run
+```
+
+The extension path must identify a library that the SQLite loader can open. PowerContext loads and probes the
+extension when the Server opens the database; startup fails if the library is incompatible or older than 0.7.
+
+In another terminal, confirm that the initialized runtime reports vector and hybrid search:
+
+```bash
+powercontext client capabilities
+```
+
+If Vec1 is unavailable, leave `POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION` unset. SQLite full-text search remains
+available without an embedding model or native extension.
+
 ## Client CLI
 
 | Variable | Default | Meaning |

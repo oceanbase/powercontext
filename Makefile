@@ -4,10 +4,6 @@ install: ## Install the virtual environment and install the prek hooks
 	@uv sync
 	@uv run prek install
 
-.PHONY: vec1-install
-vec1-install: ## Build and install the pinned SQLite Vec1 extension locally
-	@./scripts/install_vec1.sh
-
 .PHONY: skills-install
 skills-install: ## Install recommended agent skills from skills-lock.json
 	@echo "🚀 Installing recommended agent skills"

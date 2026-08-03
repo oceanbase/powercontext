@@ -92,7 +92,9 @@ capability.
 
 ## Enable SQLite Vec1
 
-SQLite vector search is enabled only when both a Vec1 extension and an embedding model are supplied:
+SQLite vector search is enabled only when both a Vec1 0.7 or newer loadable extension and an embedding model are
+supplied. PowerContext does not install or build the native extension; provide a compatible library for the target
+operating system and architecture:
 
 ```python
 from pathlib import Path

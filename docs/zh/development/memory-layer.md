@@ -90,7 +90,8 @@ operation 返回相同的 citation 字段。
 
 ## 启用 SQLite Vec1
 
-只有同时提供 Vec1 extension 和 embedding model，SQLite 才会启用向量检索：
+只有同时提供 0.7 或更高版本的 Vec1 loadable extension 和 embedding model，SQLite 才会启用向量检索。
+PowerContext 不负责安装或构建这个 native extension；请提供适用于目标操作系统和架构的 library：
 
 ```python
 from pathlib import Path

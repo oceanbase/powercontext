@@ -79,6 +79,33 @@ export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1024
 
 Embedding normalization 默认为 `unit`。
 
+### SQLite Vec1
+
+SQLite vector 和 hybrid search 还需要 0.7 或更高版本的
+[SQLite Vec1](https://sqlite.org/vec1/doc/trunk/doc/vec1.md) loadable extension。PowerContext 不负责下载、构建或更新
+这个 native library。请先获取适用于 Server 操作系统和架构的构建产物，再同时配置 extension 路径和完整的
+embedding profile：
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=provider:embedding-model
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=embedding-model-v1
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1024
+export POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION=/opt/sqlite-extensions/vec1
+powercontext server run
+```
+
+extension 路径必须指向 SQLite loader 可以打开的 library。Server 打开数据库时，PowerContext 会加载并探测该
+extension；如果 library 不兼容或版本低于 0.7，启动会失败。
+
+在另一个终端确认初始化后的 Runtime 已报告 vector 和 hybrid search：
+
+```bash
+powercontext client capabilities
+```
+
+如果没有可用的 Vec1，请不要设置 `POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION`。即使没有 embedding model 或
+native extension，SQLite full-text search 仍然可用。
+
 ## Client CLI
 
 | 变量 | 默认值 | 含义 |
