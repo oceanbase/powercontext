@@ -27,12 +27,15 @@ from powercontext.http._generated.operations import (
     REVISE_MEMORY_ENTRY,
     SEARCH_MEMORY,
 )
+from powercontext.server.access import McpAccessLogMiddleware
 from powercontext.server.app import REQUEST_ID_HEADER
 from powercontext.server.context import (
     bind_internal_bridge,
     current_request_id,
     reset_internal_bridge,
 )
+from powercontext.server.metrics import McpMetricsMiddleware, ServerMetrics
+from powercontext.server.tracing import McpTracingMiddleware, ServerTracing
 
 MCP_PATH = "/mcp"
 MCP_SERVER_NAME = "PowerContext Server"
@@ -62,9 +65,16 @@ def _select_mcp_type(route: HTTPRoute, _: MCPType) -> MCPType:
     return MCPType.EXCLUDE
 
 
-def create_mcp_server(server_app: FastAPI) -> FastMCP:
+def create_mcp_server(
+    server_app: FastAPI,
+    *,
+    access_log: bool = False,
+    metrics: ServerMetrics | None = None,
+    tracing: ServerTracing | None = None,
+) -> FastMCP:
     """Project the Agent-facing subset of a Server app into MCP components."""
 
+    resolved_tracing = ServerTracing.context_only() if tracing is None else tracing
     client = httpx.AsyncClient(
         transport=_InternalBridgeTransport(app=server_app),
         base_url="http://fastapi",
@@ -77,7 +87,13 @@ def create_mcp_server(server_app: FastAPI) -> FastMCP:
         # pass rejects valid OpenAPI 3.0 nullable references in empty results.
         validate_output=False,
     )
-    return FastMCP(name=MCP_SERVER_NAME, providers=[provider])
+    server = FastMCP(name=MCP_SERVER_NAME, providers=[provider])
+    server.add_middleware(McpTracingMiddleware(resolved_tracing))
+    if access_log:
+        server.add_middleware(McpAccessLogMiddleware())
+    if metrics is not None:
+        server.add_middleware(McpMetricsMiddleware(metrics))
+    return server
 
 
 class _InternalBridgeTransport(httpx.ASGITransport):
@@ -92,10 +108,22 @@ class _InternalBridgeTransport(httpx.ASGITransport):
             reset_internal_bridge(token)
 
 
-def mount_mcp(server_app: FastAPI, *, path: str = MCP_PATH) -> FastAPI:
+def mount_mcp(
+    server_app: FastAPI,
+    *,
+    path: str = MCP_PATH,
+    access_log: bool = False,
+    metrics: ServerMetrics | None = None,
+    tracing: ServerTracing | None = None,
+) -> FastAPI:
     """Mount the MCP transport while preserving the Server HTTP contract."""
 
-    mcp_server = create_mcp_server(server_app)
+    mcp_server = create_mcp_server(
+        server_app,
+        access_log=access_log,
+        metrics=metrics,
+        tracing=tracing,
+    )
     mcp_app = mcp_server.http_app(path="/")
 
     server_app.router.lifespan_context = combine_lifespans(

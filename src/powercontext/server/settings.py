@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -55,6 +57,31 @@ class BearerAuthConfig(BaseModel):
         return self
 
 
+class ServerLoggingConfig(BaseModel):
+    """Operational log output owned by the Server process."""
+
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    format: Literal["console", "json"] = "console"
+    access: bool = True
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def normalize_level(cls, value: object) -> object:
+        return value.upper() if isinstance(value, str) else value
+
+
+class MetricsConfig(BaseModel):
+    """Prometheus metrics exposed by the Server."""
+
+    enabled: bool = True
+
+
+class TracingConfig(BaseModel):
+    """Optional span recording and OTLP export configured through standard OTel environment variables."""
+
+    enabled: bool = False
+
+
 class ServerSettings(BaseSettings):
     """Configuration for the Server process and its built-in runtime."""
 
@@ -71,6 +98,9 @@ class ServerSettings(BaseSettings):
     http: HttpConfig = Field(default_factory=HttpConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
     auth: BearerAuthConfig = Field(default_factory=BearerAuthConfig)
+    logging: ServerLoggingConfig = Field(default_factory=ServerLoggingConfig)
+    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
+    tracing: TracingConfig = Field(default_factory=TracingConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
@@ -82,4 +112,12 @@ class ServerSettings(BaseSettings):
         return normalize_database_discriminator(value)
 
 
-__all__ = ["BearerAuthConfig", "HttpConfig", "McpConfig", "ServerSettings"]
+__all__ = [
+    "BearerAuthConfig",
+    "HttpConfig",
+    "McpConfig",
+    "MetricsConfig",
+    "ServerLoggingConfig",
+    "ServerSettings",
+    "TracingConfig",
+]

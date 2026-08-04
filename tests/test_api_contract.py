@@ -80,6 +80,13 @@ from powercontext.server.factory import create_server_app
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "openapi" / "powercontext.yaml"
 
 
+def test_contract_uses_the_namespaced_request_id_header() -> None:
+    contract = CONTRACT_PATH.read_text()
+
+    assert "X-PowerContext-Request-ID" in contract
+    assert "X-Request-ID" not in contract
+
+
 def test_contract_declares_optional_bearer_authentication() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
 

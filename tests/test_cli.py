@@ -155,7 +155,10 @@ def test_server_command_layers_partial_cli_overrides_over_environment_settings(
     expected_port: int,
 ) -> None:
     run_server = Mock()
+    tracing = Mock()
     monkeypatch.setattr("powercontext.server.cli._run_server", run_server)
+    monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)
+    monkeypatch.setattr("powercontext.server.cli.configure_server_tracing", lambda _config: tracing)
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
 
@@ -168,6 +171,7 @@ def test_server_command_layers_partial_cli_overrides_over_environment_settings(
     run_server.assert_called_once()
     assert run_server.call_args.kwargs["host"] == expected_host
     assert run_server.call_args.kwargs["port"] == expected_port
+    tracing.shutdown.assert_called_once_with()
 
 
 def test_cli_reports_server_errors_with_request_context_without_a_traceback(

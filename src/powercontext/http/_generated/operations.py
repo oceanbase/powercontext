@@ -96,7 +96,7 @@ GET_LIVENESS = Operation[None, HealthResponse](
     responses={
         200: {
             "description": "The API process is alive.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         }
     },
 )
@@ -113,11 +113,11 @@ GET_READINESS = Operation[None, ReadinessResponse](
     responses={
         200: {
             "description": "Required Server bindings are ready.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         503: {
             "description": "Required Server bindings are not ready.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
     },
 )
@@ -134,7 +134,7 @@ GET_CAPABILITIES = Operation[None, Capabilities](
     responses={
         200: {
             "description": "Behavior enabled by the assembled runtime.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
     },
@@ -152,7 +152,7 @@ CAPTURE_CONTENT_SOURCE = Operation[CaptureContentSourceRequest, CaptureContentSo
     responses={
         202: {
             "description": "The Source is durably stored for later processing.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -174,7 +174,7 @@ PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
     responses={
         200: {
             "description": "Final context ready for direct injection, or a normal empty result.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
@@ -195,7 +195,7 @@ ACTIVATE_HANDOFF = Operation[ActivateHandoffRequest, HandoffActivation](
     responses={
         200: {
             "description": "A generated inspectable Draft, or an ignored boundary that was already consumed.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -217,7 +217,7 @@ PREPARE_HANDOFF = Operation[PrepareHandoffRequest, HandoffDraft](
     responses={
         200: {
             "description": "An uncommitted Draft generated from the selected exact evidence.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -239,7 +239,7 @@ FINALIZE_HANDOFF = Operation[FinalizeHandoffRequest, PreparedHandoff](
     responses={
         200: {
             "description": "A temporary Handoff ready for direct transfer or explicit commit.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -261,7 +261,7 @@ COMMIT_HANDOFF = Operation[CommitHandoffRequest, CommittedHandoff](
     responses={
         200: {
             "description": "The committed immutable Handoff Revision.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         409: {"$ref": "#/components/responses/Conflict"},
@@ -284,7 +284,7 @@ CONTINUE_HANDOFF = Operation[ContinueHandoffRequest, HandoffResolution](
     responses={
         200: {
             "description": "Resolved content and per-statement evidence availability.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -306,7 +306,7 @@ FLUSH_MEMORY = Operation[FlushMemoryRequest, FlushMemoryResponse](
     responses={
         200: {
             "description": "The activation completed or found no pending Sources.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
@@ -327,7 +327,7 @@ REMEMBER_MEMORY = Operation[RememberMemoryRequest, MemoryMutationResponse](
     responses={
         200: {
             "description": "The explicit Memory mutation completed.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -349,7 +349,7 @@ SEARCH_MEMORY = Operation[SearchMemoryRequest, SearchMemoryResponse](
     responses={
         200: {
             "description": "Matching Memory entries, or an empty result when the scope has no Memory.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
@@ -370,7 +370,7 @@ LIST_MEMORY_ENTRIES = Operation[ListMemoryEntriesRequest, ListMemoryEntriesRespo
     responses={
         200: {
             "description": "The selected entries from the current Memory head.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -392,7 +392,7 @@ GET_MEMORY_ENTRY = Operation[GetMemoryEntryRequest, MemoryEntry](
     responses={
         200: {
             "description": "The exact Memory entry version.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -414,7 +414,7 @@ REVISE_MEMORY_ENTRY = Operation[ReviseMemoryEntryRequest, MemoryMutationResponse
     responses={
         200: {
             "description": "The Memory entry revision completed.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         409: {"$ref": "#/components/responses/Conflict"},
@@ -437,7 +437,7 @@ RETIRE_MEMORY_ENTRY = Operation[RetireMemoryEntryRequest, MemoryMutationResponse
     responses={
         200: {
             "description": "The Memory entry retirement completed.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         409: {"$ref": "#/components/responses/Conflict"},
@@ -460,7 +460,7 @@ LIST_MEMORY_CHANGES = Operation[ListMemoryChangesRequest, ListMemoryChangesRespo
     responses={
         200: {
             "description": "Compact changes through the selected Memory Revision.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -482,7 +482,7 @@ PROPOSE_EXPERIENCE = Operation[ProposeExperienceRequest, ArtifactCandidate](
     responses={
         201: {
             "description": "The pending Experience Candidate.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -504,7 +504,7 @@ GENERATE_EXPERIENCE = Operation[GenerateExperienceRequest, GeneratedCandidateRes
     responses={
         200: {
             "description": "A pending Candidate or an explicit semantic no-op.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -526,7 +526,7 @@ GET_EXPERIENCE = Operation[GetExperienceRequest, ExperienceArtifact](
     responses={
         200: {
             "description": "The exact approved Experience Revision.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -548,7 +548,7 @@ PROPOSE_SKILL = Operation[ProposeSkillRequest, ArtifactCandidate](
     responses={
         201: {
             "description": "The pending managed Skill Candidate.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -570,7 +570,7 @@ GENERATE_SKILL = Operation[GenerateSkillRequest, GeneratedCandidateResponse](
     responses={
         200: {
             "description": "A pending Candidate or an explicit semantic no-op.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -592,7 +592,7 @@ GET_SKILL = Operation[GetSkillRequest, SkillArtifact](
     responses={
         200: {
             "description": "The exact approved managed Skill Revision.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -614,7 +614,7 @@ SCAN_EXTERNAL_SKILLS = Operation[ScanExternalSkillsRequest, ScanExternalSkillsRe
     responses={
         200: {
             "description": "The rebuildable provider snapshot.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
@@ -635,7 +635,7 @@ LIST_EXTERNAL_SKILLS = Operation[ListExternalSkillsRequest, ListExternalSkillsRe
     responses={
         200: {
             "description": "External Skills resolved against the current Agent, host, scope, and fingerprint.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
@@ -656,7 +656,7 @@ RESOLVE_EXTERNAL_SKILL = Operation[ResolveExternalSkillRequest, ExternalSkillRes
     responses={
         200: {
             "description": "The live exact-resolution result, which may be unavailable.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -678,7 +678,7 @@ IMPORT_EXTERNAL_SKILL = Operation[ImportExternalSkillRequest, GeneratedCandidate
     responses={
         200: {
             "description": "A pending managed Skill Candidate or an explicit semantic no-op.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         409: {"$ref": "#/components/responses/Conflict"},
@@ -701,7 +701,7 @@ LIST_ARTIFACT_CANDIDATES = Operation[ListArtifactCandidatesRequest, ArtifactCand
     responses={
         200: {
             "description": "The selected current Candidate heads.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
@@ -722,7 +722,7 @@ GET_ARTIFACT_CANDIDATE = Operation[GetArtifactCandidateRequest, ArtifactCandidat
     responses={
         200: {
             "description": "The current Candidate head.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         401: {"$ref": "#/components/responses/Unauthorized"},
@@ -744,7 +744,7 @@ APPROVE_ARTIFACT_CANDIDATE = Operation[ApproveArtifactCandidateRequest, Artifact
     responses={
         200: {
             "description": "The approved Candidate and exact result Artifact.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         409: {"$ref": "#/components/responses/Conflict"},
@@ -767,7 +767,7 @@ REJECT_ARTIFACT_CANDIDATE = Operation[RejectArtifactCandidateRequest, ArtifactCa
     responses={
         200: {
             "description": "The rejected Candidate.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         409: {"$ref": "#/components/responses/Conflict"},
@@ -790,7 +790,7 @@ REVISE_ARTIFACT_CANDIDATE = Operation[ReviseArtifactCandidateRequest, ArtifactCa
     responses={
         200: {
             "description": "The next pending Candidate version.",
-            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
         409: {"$ref": "#/components/responses/Conflict"},

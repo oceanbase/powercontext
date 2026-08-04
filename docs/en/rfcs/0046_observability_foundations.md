@@ -15,8 +15,9 @@ provide:
 - Prometheus-compatible metrics;
 - OpenTelemetry tracing and context propagation.
 
-These signals share a stable operation vocabulary and correlation model. `X-Request-ID` remains the always-available
-support identifier. Trace and span identifiers supplement it when tracing is enabled but do not replace it.
+These signals share a stable operation vocabulary and correlation model. `X-PowerContext-Request-ID` remains an always-available,
+Server-owned support identifier derived from the inbound Server span ID. Trace recording and export are optional;
+request context exists even when spans are not sampled.
 
 The proposal establishes behavior and ownership, not a detailed implementation. Internal design and code changes
 should first align the existing HTTP, MCP, Client, and background processing boundaries. Signal-specific features
@@ -54,7 +55,8 @@ PowerContext treats logging, metrics, and tracing as complementary:
 | Metrics | Observe aggregate health, traffic, latency, and background progress |
 | Traces | Follow one execution flow across transport, application, and dependency boundaries |
 
-Logging and metrics are part of the ready-to-run Server. Tracing is optional and uses OpenTelemetry standards.
+Logging and metrics are part of the ready-to-run Server. OpenTelemetry request context is always present, while trace
+recording and export are optional.
 
 ## Correlation
 
@@ -64,8 +66,9 @@ PowerContext uses three identifiers:
 - `trace_id` identifies an execution flow;
 - `span_id` identifies one operation within that flow.
 
-Request IDs remain available without OpenTelemetry and retain the existing caller-supplied request ID behavior.
-Tracing configuration and sampling cannot change request ID semantics.
+The Server derives `request_id` from the inbound transport span ID. Callers propagate standard OpenTelemetry trace
+context rather than a request ID. A non-recording OpenTelemetry context provides the same identifier when trace export
+is disabled. For MCP, the logical protocol request span owns the request ID and the internal HTTP bridge reuses it.
 
 Logs may contain all three identifiers. Metrics never use them as labels.
 
@@ -185,8 +188,10 @@ OpenTelemetry provides tracing and context propagation. The initial integration 
 PowerContext uses W3C Trace Context and supports OTLP export. Vendor-specific tracing configuration is not part of the
 initial design.
 
-OpenTelemetry is optional. When it is absent or disabled, logging, metrics, request IDs, and domain behavior continue
-to work.
+Trace recording and OTLP export are optional. When disabled, the Server uses a non-recording OpenTelemetry context so
+request IDs, propagation, logging, metrics, and domain behavior continue to work without a telemetry backend.
+The OpenTelemetry API and SDK therefore belong to the Server role, while the OTLP exporter is installed through the
+`tracing-otlp` extra.
 
 OTLP export of logs and metrics is outside the first implementation scope. It may be added later without changing the
 signal semantics defined here.
@@ -227,7 +232,8 @@ No-op Source processing is a successful outcome, not a failure.
 
 This RFC does not change Source, Artifact, Trigger, Memory, inference, persistence, or cursor semantics.
 
-The existing `X-Request-ID` behavior remains compatible. A metrics endpoint and new configuration are additive
+The `X-PowerContext-Request-ID` response header and Client error field remain compatible. This RFC refines RFC 0020
+before release: request IDs are Server-owned span identifiers. A metrics endpoint and new configuration are additive
 infrastructure surfaces and remain outside the domain OpenAPI contract.
 
 Documented event names, metric names, labels, and tracing attributes become operational compatibility surfaces once
@@ -241,7 +247,7 @@ Internal observability hooks are not public extension APIs in the initial releas
 - Logging, metrics, and tracing use the same application operation identity and outcome semantics.
 - Direct HTTP and MCP calls to the same behavior produce one application operation.
 - The internal MCP bridge is correlated but not counted as external traffic.
-- Request ID behavior remains available and independent of tracing.
+- Request IDs remain available when trace recording and export are disabled.
 - Metrics have bounded cardinality.
 - Telemetry excludes the prohibited data classes defined by this RFC.
 - Background success, no-op, failure, and cancellation are distinguishable.
@@ -289,13 +295,13 @@ BentoML separates Python logging, Prometheus request metrics, and OpenTelemetry 
 context, records request rate and latency, and propagates context through Server and Client boundaries.
 
 BentoML also writes model monitoring data to rotating files. That facility records inference data and is separate
-from its stream-oriented operational logging. PowerContext adopts the separation of signals but keeps its existing
-request ID, uses operation IDs instead of raw paths, and does not adopt BentoML's multiprocess metrics, model data
-collection, or usage analytics.
+from its stream-oriented operational logging. PowerContext adopts this signal separation and the same
+Server-span-derived request ID model. It uses operation IDs instead of raw paths and does not adopt BentoML's
+multiprocess metrics, model data collection, or usage analytics.
 
 RFC 0016 defines privacy rules for inference telemetry. RFC 0019 defines background Runtime processing. RFC 0020
 defines request IDs, operation IDs, HTTP error behavior, MCP projection, and Server lifecycle. This proposal aligns
-observability with those existing contracts.
+observability with those contracts while refining request ID ownership before release.
 
 # Unresolved questions
 

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Callable, Coroutine
 from types import SimpleNamespace
 from typing import Any, Self, TypeVar
@@ -9,6 +10,7 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
 from powercontext.builtin.runtime import MemoryEntriesPage
+from powercontext.server.access import HttpAccessLogMiddleware
 from powercontext.server.app import create_app
 from powercontext.server.context import is_internal_bridge
 from powercontext.server.mcp import create_mcp_server, mount_mcp
@@ -71,7 +73,7 @@ def test_mcp_exact_entry_tools_use_nested_citations() -> None:
         assert set(properties["citation"]["properties"]) == {"memory_ref", "entry_id", "entry_version_id"}
 
 
-def test_mcp_bridge_reuses_request_id_and_is_marked_internal() -> None:
+def test_mcp_bridge_reuses_logical_request_id_and_is_marked_internal(caplog) -> None:
     class MemoryApplication:
         def for_scope(self, scope_id: str) -> Self:
             del scope_id
@@ -90,7 +92,7 @@ def test_mcp_bridge_reuses_request_id_and_is_marked_internal() -> None:
         requests.append((request.url.path, request.state.request_id, is_internal_bridge()))
         return response
 
-    mount_mcp(app)
+    mount_mcp(app, access_log=True)
 
     def create_http_client(
         headers: dict[str, str] | None = None,
@@ -115,9 +117,61 @@ def test_mcp_bridge_reuses_request_id_and_is_marked_internal() -> None:
         async with app.router.lifespan_context(app), Client(transport) as client:
             await client.call_tool("list_memory_entries", {"scope_id": "project"})
 
-    run_async(call_tool)
+    with caplog.at_level(logging.INFO, logger="powercontext.server.access"):
+        run_async(call_tool)
 
     bridge_request = next(request for request in requests if request[0] == "/v1/memory/entries/list")
-    external_request_ids = {request_id for path, request_id, internal in requests if path == "/mcp/" and not internal}
-    assert bridge_request[1] in external_request_ids
+    tool_call = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "transport.request.completed" and record.operation == "mcp.tools.call"
+    )
+    assert bridge_request[1] == tool_call.request_id
     assert bridge_request[2] is True
+
+
+def test_mcp_access_log_counts_the_logical_tool_call_without_the_bridge(caplog) -> None:
+    class MemoryApplication:
+        def for_scope(self, scope_id: str) -> Self:
+            del scope_id
+            return self
+
+        async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:
+            del include_inactive
+            return MemoryEntriesPage(memory_ref=None)
+
+    app = create_app(application=SimpleNamespace(memory=MemoryApplication(), sources=object()))
+    app.add_middleware(HttpAccessLogMiddleware, skip_paths=("/mcp",))
+    mount_mcp(app, access_log=True)
+
+    def create_http_client(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+        **_: object,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            headers=headers,
+            timeout=timeout,
+            auth=auth,
+            follow_redirects=True,
+        )
+
+    async def call_tool() -> None:
+        transport = StreamableHttpTransport(
+            "http://testserver/mcp/",
+            httpx_client_factory=create_http_client,
+        )
+        async with app.router.lifespan_context(app), Client(transport) as client:
+            await client.call_tool("list_memory_entries", {"scope_id": "project"})
+
+    with caplog.at_level(logging.INFO, logger="powercontext.server.access"):
+        run_async(call_tool)
+
+    records = [record for record in caplog.records if getattr(record, "event", None) == "transport.request.completed"]
+    tool_calls = [record for record in records if record.operation == "mcp.tools.call"]
+    assert len(tool_calls) == 1
+    assert tool_calls[0].transport == "mcp"
+    assert not any(record.transport == "http" and record.operation == "list_memory_entries" for record in records)

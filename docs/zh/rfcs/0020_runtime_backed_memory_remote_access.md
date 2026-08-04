@@ -196,7 +196,7 @@ Revision delta。
 - 使用声明的 request type 序列化 request；
 - 要求 operation 声明的 success status；
 - 校验成功响应的 body；
-- 保留稳定的 Server error 和 `X-Request-ID`；
+- 保留稳定的 Server error 和 `X-PowerContext-Request-ID`；
 - 只关闭由它自己创建的 HTTP client。
 
 Client 不会重试 mutation、推断 scheduler state 或隐藏显式 flush behavior。Retry 需要针对 operation 制定规则，
@@ -346,7 +346,7 @@ static check，不是目标设计。
 
 ## Error contract
 
-每个 response 都包含 `X-Request-ID`。Server 接受安全的调用方提供值，或自行生成该值。Client 将它保存在
+每个 response 都包含 `X-PowerContext-Request-ID`。Server 接受安全的调用方提供值，或自行生成该值。Client 将它保存在
 structured failure 中。
 
 首批稳定 error code 如下：
@@ -519,7 +519,7 @@ Source journal、cursor、scheduler recovery、Memory persistence 和 replay beh
 - 无效 request 返回 `422 invalid_request`。
 - `since_revision: 0` 返回完整且有序的 Revision delta。
 - 不可用的 Runtime binding 返回 `503 runtime_not_ready`。
-- 成功和失败 response 都携带 `X-Request-ID`，且 Client 会保留它。
+- 成功和失败 response 都携带 `X-PowerContext-Request-ID`，且 Client 会保留它。
 - Search result 被描述为 top-k result，entry list 被描述为 snapshot，changes 被描述为 delta。
 - 所有 Memory reference wire model 都精确映射到 Core `ArtifactRef`，精确 entry operation 通过
   `MemoryCitation` 映射。

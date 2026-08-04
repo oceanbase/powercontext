@@ -5,16 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import suppress
 from copy import deepcopy
 from functools import wraps
-from re import fullmatch
 from time import perf_counter
-from typing import Annotated, Any, Protocol, TypeVar
-from uuid import uuid4
+from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypeVar
 
 from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from opentelemetry.trace import SpanKind
 from starlette.middleware import Middleware
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.types import Lifespan
@@ -258,9 +258,13 @@ from powercontext.server.context import (
     current_request_id,
     reset_request_id,
 )
+from powercontext.server.tracing import request_id_from_span
 
-REQUEST_ID_HEADER = "X-Request-ID"
-REQUEST_ID_PATTERN = r"[A-Za-z0-9._:-]{1,128}"
+if TYPE_CHECKING:
+    from powercontext.server.metrics import ServerMetrics
+    from powercontext.server.tracing import ServerTracing
+
+REQUEST_ID_HEADER = "X-PowerContext-Request-ID"
 logger = logging.getLogger(__name__)
 
 CapabilityProvider = Callable[[], Capabilities]
@@ -403,6 +407,8 @@ def create_app(
     readiness_probe: ReadinessProbe | None = None,
     lifespan: Lifespan[FastAPI] | None = None,
     middleware: Sequence[Middleware] = (),
+    metrics: ServerMetrics | None = None,
+    tracing: ServerTracing | None = None,
 ) -> FastAPI:
     """Build the HTTP adapter around an optional Runtime application binding."""
 
@@ -417,6 +423,8 @@ def create_app(
     app.state.application = application
     app.state.capability_provider = capability_provider
     app.state.readiness_probe = readiness_probe
+    app.state.metrics = metrics
+    app.state.tracing = tracing
     app.state.capabilities = Capabilities(
         source_types=[],
         artifact_families=[],
@@ -431,14 +439,15 @@ def create_app(
 
     @app.middleware("http")
     async def attach_request_id(request: Request, call_next: RequestResponseEndpoint) -> Response:
-        request_id = _request_id(request.headers.get(REQUEST_ID_HEADER))
+        request_id = request_id_from_span()
         request.state.request_id = request_id
         token = bind_request_id(request_id)
         try:
             response = await call_next(request)
+            request.state.request_id = getattr(request.state, "request_id", current_request_id() or request_id)
+            response.headers[REQUEST_ID_HEADER] = request.state.request_id
         finally:
             reset_request_id(token)
-        response.headers[REQUEST_ID_HEADER] = request_id
         return response
 
     @app.exception_handler(RequestValidationError)
@@ -458,7 +467,7 @@ def create_app(
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
-        request_id = getattr(request.state, "request_id", _request_id(None))
+        request_id = getattr(request.state, "request_id", request_id_from_span())
         response = _error_response(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="internal_error",
@@ -833,12 +842,6 @@ def _require_application(request: Request) -> ServerApplication:
     return application
 
 
-def _request_id(candidate: str | None) -> str:
-    if candidate is not None and fullmatch(REQUEST_ID_PATTERN, candidate):
-        return candidate
-    return str(uuid4())
-
-
 def _add_route(
     app: FastAPI,
     operation: Operation[_RequestT, _ResponseT],
@@ -846,7 +849,7 @@ def _add_route(
 ) -> None:
     app.add_api_route(
         operation.path,
-        _log_application_operation(operation, endpoint),
+        _observe_application_operation(app, operation, endpoint),
         methods=[operation.method],
         operation_id=operation.operation_id,
         response_model=operation.response_type,
@@ -857,16 +860,19 @@ def _add_route(
     )
 
 
-def _log_application_operation(
+def _observe_application_operation(
+    app: FastAPI,
     operation: Operation[_RequestT, _ResponseT],
     endpoint: Callable[..., Awaitable[_ResponseT | Response]],
 ) -> Callable[..., Awaitable[_ResponseT | Response]]:
     @wraps(endpoint)
     async def observed_endpoint(*args: Any, **kwargs: Any) -> _ResponseT | Response:
         started_at = perf_counter()
+        span = _start_application_span(app, operation)
         try:
-            return await endpoint(*args, **kwargs)
+            result = await endpoint(*args, **kwargs)
         except asyncio.CancelledError:
+            _observe_application(app, operation, "cancelled", started_at)
             _log_operation(
                 logging.INFO,
                 "PowerContext application operation cancelled",
@@ -874,8 +880,10 @@ def _log_application_operation(
                 outcome="cancelled",
                 started_at=started_at,
             )
+            _finish_span(span, "cancelled")
             raise
         except Exception as error:
+            _observe_application(app, operation, "failure", started_at)
             response_status, error_code, _, _ = _map_error(error)
             _log_operation(
                 logging.ERROR if response_status >= status.HTTP_500_INTERNAL_SERVER_ERROR else logging.WARNING,
@@ -886,9 +894,57 @@ def _log_application_operation(
                 error=error,
                 error_code=error_code,
             )
+            _finish_span(span, "failure", error=error)
             raise
+        outcome = _application_outcome(result)
+        _observe_application(app, operation, outcome, started_at)
+        _finish_span(span, outcome)
+        return result
 
     return observed_endpoint
+
+
+def _start_application_span(app: FastAPI, operation: Operation[Any, Any]) -> Any | None:
+    if "health" in operation.tags:
+        return None
+    tracing = app.state.tracing
+    if tracing is None:
+        return None
+    return tracing.start_span(
+        f"powercontext {operation.operation_id}",
+        kind=SpanKind.INTERNAL,
+        attributes={
+            "powercontext.operation.name": operation.operation_id,
+            "powercontext.operation.unit": "application",
+            **({"powercontext.request.id": request_id} if (request_id := current_request_id()) is not None else {}),
+        },
+    )
+
+
+def _finish_span(span: Any | None, outcome: str, *, error: BaseException | None = None) -> None:
+    if span is not None:
+        with suppress(Exception):
+            span.finish(outcome, error=error)
+
+
+def _observe_application(
+    app: FastAPI,
+    operation: Operation[Any, Any],
+    outcome: str,
+    started_at: float,
+) -> None:
+    if "health" in operation.tags:
+        return
+    metrics = app.state.metrics
+    if metrics is not None:
+        with suppress(Exception):
+            metrics.observe_application(operation.operation_id, outcome, started_at)
+
+
+def _application_outcome(result: object) -> str:
+    if isinstance(result, FlushMemoryResponse) and result.status.value == "idle":
+        return "noop"
+    return "success"
 
 
 def _log_operation(

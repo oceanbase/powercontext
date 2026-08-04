@@ -1,4 +1,5 @@
 import logging
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -106,25 +107,22 @@ def test_enabled_bearer_authentication_requires_a_token() -> None:
         BearerAuthConfig(enabled=True)
 
 
-def test_liveness_adds_a_request_id() -> None:
+def test_liveness_adds_a_server_owned_request_id() -> None:
     client = TestClient(create_app())
 
-    generated = client.get("/health/live")
-    supplied = client.get("/health/live", headers={"X-Request-ID": "request-123"})
-
-    assert generated.status_code == 200
-    assert generated.json() == {"status": "ok"}
-    assert generated.headers["X-Request-ID"]
-    assert supplied.headers["X-Request-ID"] == "request-123"
-
-
-def test_liveness_does_not_reflect_an_unsafe_request_id() -> None:
-    client = TestClient(create_app())
-
-    response = client.get("/health/live", headers={"X-Request-ID": "unsafe value"})
+    response = client.get(
+        "/health/live",
+        headers={
+            "X-PowerContext-Request-ID": "caller-request-id",
+            "X-Request-ID": "legacy-request-id",
+        },
+    )
 
     assert response.status_code == 200
-    assert response.headers["X-Request-ID"] != "unsafe value"
+    assert response.json() == {"status": "ok"}
+    assert re.fullmatch(r"[0-9a-f]{16}", response.headers["X-PowerContext-Request-ID"])
+    assert response.headers["X-PowerContext-Request-ID"] != "caller-request-id"
+    assert "X-Request-ID" not in response.headers
 
 
 def test_server_factory_optionally_requires_bearer_authentication() -> None:
@@ -136,14 +134,16 @@ def test_server_factory_optionally_requires_bearer_authentication() -> None:
     )
     client = TestClient(app)
 
-    missing = client.get("/v1/capabilities", headers={"X-Request-ID": "request-missing"})
+    missing = client.get("/v1/capabilities")
     invalid = client.get("/v1/capabilities", headers={"Authorization": "Bearer wrong"})
     accepted = client.get("/v1/capabilities", headers={"Authorization": "Bearer server-secret"})
+    protected_metrics = client.get("/metrics")
+    accepted_metrics = client.get("/metrics", headers={"Authorization": "Bearer server-secret"})
     liveness = client.get("/health/live")
 
     assert missing.status_code == 401
     assert missing.headers["WWW-Authenticate"] == "Bearer"
-    assert missing.headers["X-Request-ID"] == "request-missing"
+    assert re.fullmatch(r"[0-9a-f]{16}", missing.headers["X-PowerContext-Request-ID"])
     assert missing.json() == {
         "error": {
             "code": "unauthorized",
@@ -153,6 +153,8 @@ def test_server_factory_optionally_requires_bearer_authentication() -> None:
     }
     assert invalid.status_code == 401
     assert accepted.status_code == 200
+    assert protected_metrics.status_code == 401
+    assert accepted_metrics.status_code == 200
     assert liveness.status_code == 200
 
 
@@ -170,19 +172,19 @@ def test_readiness_reports_unavailable_bindings() -> None:
         "status": "not_ready",
         "checks": {"database": "unavailable"},
     }
-    assert response.headers["X-Request-ID"]
+    assert response.headers["X-PowerContext-Request-ID"]
 
 
-def test_unhandled_errors_preserve_the_request_id() -> None:
+def test_unhandled_errors_return_the_server_request_id() -> None:
     def fail() -> Capabilities:
         raise RuntimeError("boom")
 
     client = TestClient(create_app(capability_provider=fail), raise_server_exceptions=False)
 
-    response = client.get("/v1/capabilities", headers={"X-Request-ID": "request-123"})
+    response = client.get("/v1/capabilities")
 
     assert response.status_code == 500
-    assert response.headers["X-Request-ID"] == "request-123"
+    assert re.fullmatch(r"[0-9a-f]{16}", response.headers["X-PowerContext-Request-ID"])
 
 
 def test_prepare_context_rejects_memory_specific_tuning_fields(tmp_path) -> None:
@@ -213,15 +215,14 @@ def test_application_failure_log_uses_operation_context(caplog) -> None:
 
     with caplog.at_level(logging.ERROR, logger="powercontext.server.app"):
         response = TestClient(create_app(capability_provider=fail), raise_server_exceptions=False).get(
-            "/v1/capabilities",
-            headers={"X-Request-ID": "request-123"},
+            "/v1/capabilities"
         )
 
     record = next(record for record in caplog.records if record.event == "application.operation.completed")
     assert response.status_code == 500
     assert record.operation == "get_capabilities"
     assert record.outcome == "failure"
-    assert record.request_id == "request-123"
+    assert record.request_id == response.headers["X-PowerContext-Request-ID"]
     assert record.unit == "application"
     assert record.error_code == "internal_error"
 
@@ -236,10 +237,7 @@ def test_logging_failure_does_not_change_the_response(monkeypatch) -> None:
 
     monkeypatch.setattr("powercontext.server.app.logger.log", fail_to_log)
 
-    response = TestClient(create_app(capability_provider=fail), raise_server_exceptions=False).get(
-        "/v1/capabilities",
-        headers={"X-Request-ID": "request-123"},
-    )
+    response = TestClient(create_app(capability_provider=fail), raise_server_exceptions=False).get("/v1/capabilities")
 
     assert response.status_code == 500
-    assert response.headers["X-Request-ID"] == "request-123"
+    assert re.fullmatch(r"[0-9a-f]{16}", response.headers["X-PowerContext-Request-ID"])

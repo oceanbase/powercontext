@@ -80,8 +80,9 @@ inference 配置见[配置 Pydantic AI 推理](pydantic-ai-inference.md)。
 每个领域请求都包含 scope ID。该 ID 选择本地 runtime 使用的 Source journal、Memory head 和 Trigger cursor。
 HTTP request model 是 transport value，与 Core domain model 保持独立。
 
-Server error 使用 OpenAPI error schema，并在 response header 中包含 `X-Request-ID`。validation error、revision
-conflict、entry 不存在、inference unavailable 和内部 failure 会映射为稳定的 HTTP status code。
+Server error 使用 OpenAPI error schema，并在 response header 中包含由 inbound request span 派生的
+Server-owned `X-PowerContext-Request-ID`。validation error、revision conflict、entry 不存在、inference
+unavailable 和内部 failure 会映射为稳定的 HTTP status code。
 
 ## Python Client
 

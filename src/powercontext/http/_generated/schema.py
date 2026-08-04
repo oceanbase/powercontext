@@ -18,7 +18,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The API process is alive.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthResponse"}}},
                     }
                 },
@@ -33,12 +33,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "Required Server bindings are ready.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReadinessResponse"}}},
                     },
                     "503": {
                         "description": "Required Server bindings are not ready.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReadinessResponse"}}},
                     },
                 },
@@ -53,7 +53,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "Behavior enabled by the assembled runtime.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Capabilities"}}},
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -75,7 +75,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "202": {
                         "description": "The Source is durably stored for later processing.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {
                                 "schema": {"$ref": "#/components/schemas/CaptureContentSourceResponse"}
@@ -105,7 +105,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "Final context ready for direct injection, or a normal empty result.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedContext"}}},
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -138,7 +138,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "boundary that "
                         "was already "
                         "consumed.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffActivation"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -161,7 +161,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "An uncommitted Draft generated from the selected exact evidence.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffDraft"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -186,7 +186,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "A temporary Handoff ready for direct transfer or explicit commit.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedHandoff"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -209,7 +209,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The committed immutable Handoff Revision.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CommittedHandoff"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -235,7 +235,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "Resolved content and per-statement evidence availability.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffResolution"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -259,7 +259,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The activation completed or found no pending Sources.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/FlushMemoryResponse"}}
                         },
@@ -286,7 +286,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The explicit Memory mutation completed.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/MemoryMutationResponse"}}
                         },
@@ -312,7 +312,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "Matching Memory entries, or an empty result when the scope has no Memory.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/SearchMemoryResponse"}}
                         },
@@ -342,7 +342,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The selected entries from the current Memory head.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/ListMemoryEntriesResponse"}}
                         },
@@ -368,7 +368,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The exact Memory entry version.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemoryEntry"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -394,7 +394,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The Memory entry revision completed.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/MemoryMutationResponse"}}
                         },
@@ -425,7 +425,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The Memory entry retirement completed.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/MemoryMutationResponse"}}
                         },
@@ -454,7 +454,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "Compact changes through the selected Memory Revision.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/ListMemoryChangesResponse"}}
                         },
@@ -482,7 +482,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "201": {
                         "description": "The pending Experience Candidate.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
@@ -511,7 +511,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "A pending Candidate or an explicit semantic no-op.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/GeneratedCandidateResponse"}}
                         },
@@ -537,7 +537,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The exact approved Experience Revision.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/ExperienceArtifact"}}
                         },
@@ -563,7 +563,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "201": {
                         "description": "The pending managed Skill Candidate.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
@@ -589,7 +589,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "A pending Candidate or an explicit semantic no-op.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/GeneratedCandidateResponse"}}
                         },
@@ -615,7 +615,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The exact approved managed Skill Revision.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillArtifact"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -644,7 +644,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The rebuildable provider snapshot.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/ScanExternalSkillsResponse"}}
                         },
@@ -682,7 +682,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "host, "
                         "scope, and "
                         "fingerprint.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/ListExternalSkillsResponse"}}
                         },
@@ -712,7 +712,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The live exact-resolution result, which may be unavailable.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/ExternalSkillResolution"}}
                         },
@@ -743,7 +743,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "A pending managed Skill Candidate or an explicit semantic no-op.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/GeneratedCandidateResponse"}}
                         },
@@ -772,7 +772,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The selected current Candidate heads.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {
                             "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidatePage"}}
                         },
@@ -799,7 +799,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The current Candidate head.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -825,7 +825,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The approved Candidate and exact result Artifact.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -855,7 +855,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The rejected Candidate.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -882,7 +882,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "responses": {
                     "200": {
                         "description": "The next pending Candidate version.",
-                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -2133,33 +2133,33 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "description": "A valid bearer token is required by this Server deployment.",
                 "headers": {
                     "WWW-Authenticate": {"$ref": "#/components/headers/BearerChallenge"},
-                    "X-Request-ID": {"$ref": "#/components/headers/RequestId"},
+                    "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
                 },
                 "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
             },
             "Conflict": {
                 "description": "The command conflicts with current immutable state.",
-                "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                 "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
             },
             "InvalidRequest": {
                 "description": "The request violates the transport or application contract.",
-                "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                 "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
             },
             "NotFound": {
                 "description": "The requested immutable Memory value was not found.",
-                "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                 "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
             },
             "Unavailable": {
                 "description": "A required Runtime binding or dependency is unavailable.",
-                "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                 "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
             },
             "InternalError": {
                 "description": "The Server failed without exposing internal details.",
-                "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                 "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
             },
         },

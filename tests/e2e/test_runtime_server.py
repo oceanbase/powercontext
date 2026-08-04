@@ -473,13 +473,13 @@ def test_runtime_conflicts_keep_http_and_sdk_error_context(tmp_path: Path) -> No
         )
         conflict = transport.post(
             "/v1/sources/content",
-            headers={"X-Request-ID": "request-123"},
             json={"scope_id": "project", "source_id": "turn-1", "content": "changed"},
         )
 
     assert first.status_code == 202
     assert conflict.status_code == 409
-    assert conflict.headers["X-Request-ID"] == "request-123"
+    assert len(conflict.headers["X-PowerContext-Request-ID"]) == 16
+    assert int(conflict.headers["X-PowerContext-Request-ID"], 16) > 0
     assert conflict.json()["error"]["code"] == "source_conflict"
 
     async def stale_revision() -> None:
@@ -505,6 +505,7 @@ def test_runtime_conflicts_keep_http_and_sdk_error_context(tmp_path: Path) -> No
                 )
         assert caught.value.status_code == 409
         assert caught.value.code == "revision_conflict"
+        assert caught.value.request_id is not None
 
     asyncio.run(stale_revision())
 

@@ -7,7 +7,9 @@ from typing import Annotated, Any
 import typer
 
 from powercontext.server.factory import create_server_app
+from powercontext.server.logging import configure_server_logging
 from powercontext.server.settings import HttpConfig, ServerSettings
+from powercontext.server.tracing import configure_server_tracing
 
 HELP_OPTION_NAMES = ("-h", "--help")
 
@@ -37,14 +39,19 @@ def run(
         port=environment.http.port if port is None else port,
     )
     settings = environment.model_copy(update={"http": http})
-    _run_server(
-        create_server_app(settings=settings),
-        host=settings.http.host,
-        port=settings.http.port,
-    )
+    configure_server_logging(settings.logging)
+    tracing = configure_server_tracing(settings.tracing)
+    try:
+        _run_server(
+            create_server_app(settings=settings, tracing=tracing),
+            host=settings.http.host,
+            port=settings.http.port,
+        )
+    finally:
+        tracing.shutdown()
 
 
 def _run_server(application: Any, *, host: str, port: int) -> None:
     import uvicorn
 
-    uvicorn.run(application, host=host, port=port)
+    uvicorn.run(application, host=host, port=port, access_log=False, log_config=None)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import TracebackType
 from typing import Self, TypeVar
 
@@ -9,6 +10,7 @@ import httpx
 from pydantic import TypeAdapter, ValidationError
 
 from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
+from powercontext.client.tracing import ClientSpan
 from powercontext.http import (
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
@@ -103,7 +105,7 @@ from powercontext.http._generated.operations import (
     Operation,
 )
 
-REQUEST_ID_HEADER = "X-Request-ID"
+REQUEST_ID_HEADER = "X-PowerContext-Request-ID"
 _RequestT = TypeVar("_RequestT")
 _ResponseT = TypeVar("_ResponseT")
 
@@ -327,14 +329,28 @@ class PowerContextClient:
             )
 
         try:
+            span = ClientSpan.start(operation.operation_id)
+            headers = {} if self._headers is None else dict(self._headers)
+            span.inject(headers)
             response = await self._http_client.request(
                 operation.method,
                 f"{self._base_url}{operation.path}",
-                headers=self._headers,
                 json=json_payload,
+                headers=headers,
             )
+        except asyncio.CancelledError as error:
+            span.finish("cancelled", error=error)
+            raise
         except httpx.HTTPError as exc:
+            span.finish("failure", error=exc)
             raise TransportError(operation.path) from exc
+        except BaseException as error:
+            span.finish("failure", error=error)
+            raise
+        span.finish(
+            "success" if response.status_code == operation.success_status else "failure",
+            status_code=response.status_code,
+        )
 
         request_id = response.headers.get(REQUEST_ID_HEADER)
         if response.status_code != operation.success_status:

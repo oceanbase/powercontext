@@ -201,7 +201,7 @@ Revision delta through the current head.
 - serializes requests with the declared request type;
 - requires the operation's declared success status;
 - validates successful response bodies;
-- preserves stable Server errors and `X-Request-ID`;
+- preserves stable Server errors and `X-PowerContext-Request-ID`;
 - closes only an HTTP client that it created.
 
 The Client does not retry mutations, infer scheduler state, or hide explicit flush behavior. Retries need operation
@@ -354,7 +354,7 @@ these routes.
 
 ## Error contract
 
-Every response contains `X-Request-ID`. The Server accepts a safe caller-provided value or generates one. The Client
+Every response contains `X-PowerContext-Request-ID`. The Server accepts a safe caller-provided value or generates one. The Client
 stores it on structured failures.
 
 The first stable error codes are:
@@ -531,7 +531,7 @@ The implementation is complete when:
 - Invalid requests return `422 invalid_request`.
 - `since_revision: 0` returns the complete ordered Revision delta.
 - Unavailable Runtime bindings return `503 runtime_not_ready`.
-- Successful and failed responses carry `X-Request-ID`, and the Client preserves it.
+- Successful and failed responses carry `X-PowerContext-Request-ID`, and the Client preserves it.
 - Search results are described as top-k results, entry lists as snapshots, and changes as deltas.
 - All Memory reference wire models map exactly to Core `ArtifactRef`, and exact entry operations map through
   `MemoryCitation`.

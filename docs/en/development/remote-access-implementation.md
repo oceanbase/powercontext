@@ -82,8 +82,9 @@ The source contract is `openapi/powercontext.yaml`. Generated Pydantic models an
 Every domain request includes a scope ID. That ID selects the Source journal, Memory head, and Trigger cursor used by
 the Builtin runtime. HTTP request models are transport values and remain separate from Core domain models.
 
-Server errors use the OpenAPI error schema and include an `X-Request-ID` response header. Validation errors, revision
-conflicts, missing entries, unavailable inference, and internal failures map to stable HTTP status codes.
+Server errors use the OpenAPI error schema and include a Server-owned `X-PowerContext-Request-ID` response header
+derived from the inbound request span. Validation errors, revision conflicts, missing entries, unavailable inference,
+and internal failures map to stable HTTP status codes.
 
 ## Python Client
 

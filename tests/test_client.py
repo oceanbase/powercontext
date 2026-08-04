@@ -38,7 +38,7 @@ def test_client_preserves_server_error_context() -> None:
     async def scenario() -> None:
         response = httpx.Response(
             503,
-            headers={"X-Request-ID": "request-123"},
+            headers={"X-PowerContext-Request-ID": "request-123"},
             json={
                 "error": {
                     "code": "runtime_not_ready",
@@ -103,7 +103,7 @@ def test_client_rejects_an_invalid_success_response() -> None:
     async def scenario() -> None:
         response = httpx.Response(
             200,
-            headers={"X-Request-ID": "request-123"},
+            headers={"X-PowerContext-Request-ID": "request-123"},
             json={"status": "ok", "unexpected": True},
         )
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: response)) as http_client:

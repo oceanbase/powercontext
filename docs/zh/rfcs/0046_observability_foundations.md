@@ -14,8 +14,9 @@
 - Prometheus-compatible metrics；
 - OpenTelemetry tracing 和 context propagation。
 
-这些信号使用统一、稳定的 operation vocabulary 和 correlation model。`X-Request-ID` 继续作为始终可用的
-支持标识。启用 tracing 后，trace 和 span 标识会补充该上下文，但不会替代 request ID。
+这些信号使用统一、稳定的 operation vocabulary 和 correlation model。`X-PowerContext-Request-ID` 继续作为始终可用、
+由 Server 持有的支持标识，其值来自 inbound Server span ID。Trace recording 和 export 是可选能力；即使
+span 不采样，request context 仍然存在。
 
 本提案界定行为与职责，不规定详细实现。现有 HTTP、MCP、Client 和后台处理边界需要先完成内部设计和代码
 校准。只有这些边界验证完成后，才开始实现各类信号。
@@ -51,7 +52,8 @@ PowerContext 将 logging、metrics 和 tracing 视为互补能力：
 | Metrics | 观察 aggregate health、traffic、latency 和后台进度 |
 | Traces | 跨 transport、application 和 dependency boundary 跟踪一次执行流程 |
 
-Logging 和 metrics 属于 ready-to-run Server。Tracing 是可选能力，并遵循 OpenTelemetry standard。
+Logging 和 metrics 属于 ready-to-run Server。OpenTelemetry request context 始终存在，trace recording 和
+export 则是可选能力。
 
 ## Correlation
 
@@ -61,8 +63,9 @@ PowerContext 使用三种 identifier：
 - `trace_id` 标识一个 execution flow；
 - `span_id` 标识该流程中的一项 operation。
 
-没有 OpenTelemetry 时 request ID 仍然可用，并保留现有 caller-supplied request ID behavior。Tracing
-configuration 和 sampling 不能改变 request ID semantic。
+Server 从 inbound transport span ID 派生 `request_id`。Caller 通过标准 OpenTelemetry trace context 传播
+上下文，而不是传播 request ID。关闭 trace export 时，由 non-recording OpenTelemetry context 提供相同标识。
+对于 MCP，logical protocol request span 持有 request ID，internal HTTP bridge 复用该值。
 
 Logs 可以包含三种 identifier。Metrics 不会把它们作为 label。
 
@@ -179,7 +182,9 @@ OpenTelemetry 提供 tracing 和 context propagation。首批 integration 覆盖
 PowerContext 使用 W3C Trace Context，并支持 OTLP export。Vendor-specific tracing configuration 不属于首批
 设计。
 
-OpenTelemetry 是可选能力。缺失或关闭时，logging、metrics、request ID 和 domain behavior 继续正常工作。
+Trace recording 和 OTLP export 是可选能力。关闭时，Server 使用 non-recording OpenTelemetry context，
+request ID、propagation、logging、metrics 和 domain behavior 无需 telemetry backend 也能继续工作。
+因此 OpenTelemetry API 和 SDK 属于 Server role，OTLP exporter 则通过 `tracing-otlp` extra 安装。
 
 首批实现不包括 logs 和 metrics 的 OTLP export。未来增加该能力时，不应改变本 RFC 定义的 signal semantic。
 
@@ -218,7 +223,8 @@ No-op Source processing 是成功结果，不是 failure。
 
 本 RFC 不修改 Source、Artifact、Trigger、Memory、inference、persistence 或 cursor semantic。
 
-现有 `X-Request-ID` behavior 保持兼容。Metrics endpoint 和新增 configuration 是 additive infrastructure
+`X-PowerContext-Request-ID` response header 和 Client error field 保持兼容。本 RFC 在发布前细化 RFC 0020：
+request ID 是 Server-owned span identifier。Metrics endpoint 和新增 configuration 是 additive infrastructure
 surface，并且不进入 domain OpenAPI contract。
 
 Documented event name、metric name、label 和 tracing attribute 发布后会成为 operational compatibility
@@ -232,7 +238,7 @@ alert。
 - Logging、metrics 和 tracing 使用相同的 application operation identity 和 outcome semantic。
 - 对相同 behavior 的 direct HTTP 和 MCP call 只产生一次 application operation。
 - Internal MCP bridge 可被关联，但不计为 external traffic。
-- Request ID behavior 保持可用，并且独立于 tracing。
+- 关闭 trace recording 和 export 时 request ID 仍然可用。
 - Metrics 具有 bounded cardinality。
 - Telemetry 排除本 RFC 定义的禁止数据类别。
 - Background success、no-op、failure 和 cancellation 可以区分。
@@ -280,12 +286,12 @@ context 关联，记录 request rate 和 latency，并在 Server 与 Client boun
 还会将 model monitoring data 写入 rotating file。该能力记录 inference data，与 stream-oriented
 operational logging 分离。
 
-PowerContext 采用这种信号分离方式，但保留现有 request ID，使用 operation ID 代替 raw path，也不引入
-BentoML 的 multiprocess metrics、model data collection 或 usage analytics。
+PowerContext 采用这种信号分离方式和同样的 Server-span-derived request ID model，使用 operation ID 代替
+raw path，也不引入 BentoML 的 multiprocess metrics、model data collection 或 usage analytics。
 
 RFC 0016 定义 inference telemetry 的 privacy rule。RFC 0019 定义后台 Runtime processing。RFC 0020 定义
-request ID、operation ID、HTTP error behavior、MCP projection 和 Server lifecycle。本提案使 observability
-与这些现有 contract 对齐。
+request ID、operation ID、HTTP error behavior、MCP projection 和 Server lifecycle。本提案在发布前细化
+request ID ownership，并使 observability 与这些 contract 对齐。
 
 # Unresolved questions
 

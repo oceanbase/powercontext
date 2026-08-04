@@ -32,15 +32,22 @@ builtin = [
 ]
 client = [
     "httpx[socks]>=0.28,<1",
+    "opentelemetry-api>=1.30,<2",
     "pydantic-settings>=2.7,<3",
 ]
 server = [
     "fastapi>=0.115,<1",
     "fastmcp>=3.4,<4",
+    "opentelemetry-api>=1.30,<2",
+    "opentelemetry-sdk>=1.30,<2",
     "platformdirs>=4,<5",
     "powercontext[builtin]",
+    "prometheus-client>=0.21,<1",
     "pydantic-settings>=2.7,<3",
     "uvicorn>=0.34,<1",
+]
+tracing-otlp = [
+    "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
 ]
 cli = [
     "platformdirs>=4,<5",

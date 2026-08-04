@@ -17,7 +17,7 @@ paths:
         "200":
           description: The API process is alive.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -33,7 +33,7 @@ paths:
         "200":
           description: Required Server bindings are ready.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -42,7 +42,7 @@ paths:
         "503":
           description: Required Server bindings are not ready.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -57,7 +57,7 @@ paths:
         "200":
           description: Behavior enabled by the assembled runtime.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -81,7 +81,7 @@ paths:
         "202":
           description: The Source is durably stored for later processing.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -113,7 +113,7 @@ paths:
         "200":
           description: Final context ready for direct injection, or a normal empty result.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -143,7 +143,7 @@ paths:
         "200":
           description: A generated inspectable Draft, or an ignored boundary that was already consumed.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -174,7 +174,7 @@ paths:
         "200":
           description: An uncommitted Draft generated from the selected exact evidence.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -205,7 +205,7 @@ paths:
         "200":
           description: A temporary Handoff ready for direct transfer or explicit commit.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -236,7 +236,7 @@ paths:
         "200":
           description: The committed immutable Handoff Revision.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -269,7 +269,7 @@ paths:
         "200":
           description: Resolved content and per-statement evidence availability.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -301,7 +301,7 @@ paths:
         "200":
           description: The activation completed or found no pending Sources.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -331,7 +331,7 @@ paths:
         "200":
           description: The explicit Memory mutation completed.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -363,7 +363,7 @@ paths:
         "200":
           description: Matching Memory entries, or an empty result when the scope has no Memory.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -395,7 +395,7 @@ paths:
         "200":
           description: The selected entries from the current Memory head.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -427,7 +427,7 @@ paths:
         "200":
           description: The exact Memory entry version.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -459,7 +459,7 @@ paths:
         "200":
           description: The Memory entry revision completed.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -493,7 +493,7 @@ paths:
         "200":
           description: The Memory entry retirement completed.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -527,7 +527,7 @@ paths:
         "200":
           description: Compact changes through the selected Memory Revision.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -559,7 +559,7 @@ paths:
         "201":
           description: The pending Experience Candidate.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -591,7 +591,7 @@ paths:
         "200":
           description: A pending Candidate or an explicit semantic no-op.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -623,7 +623,7 @@ paths:
         "200":
           description: The exact approved Experience Revision.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -655,7 +655,7 @@ paths:
         "201":
           description: The pending managed Skill Candidate.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -687,7 +687,7 @@ paths:
         "200":
           description: A pending Candidate or an explicit semantic no-op.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -719,7 +719,7 @@ paths:
         "200":
           description: The exact approved managed Skill Revision.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -751,7 +751,7 @@ paths:
         "200":
           description: The rebuildable provider snapshot.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -781,7 +781,7 @@ paths:
         "200":
           description: External Skills resolved against the current Agent, host, scope, and fingerprint.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -811,7 +811,7 @@ paths:
         "200":
           description: The live exact-resolution result, which may be unavailable.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -843,7 +843,7 @@ paths:
         "200":
           description: A pending managed Skill Candidate or an explicit semantic no-op.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -877,7 +877,7 @@ paths:
         "200":
           description: The selected current Candidate heads.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -907,7 +907,7 @@ paths:
         "200":
           description: The current Candidate head.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -939,7 +939,7 @@ paths:
         "200":
           description: The approved Candidate and exact result Artifact.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -973,7 +973,7 @@ paths:
         "200":
           description: The rejected Candidate.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -1007,7 +1007,7 @@ paths:
         "200":
           description: The next pending Candidate version.
           headers:
-            X-Request-ID:
+            X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
             application/json:
@@ -1047,7 +1047,7 @@ components:
       headers:
         WWW-Authenticate:
           $ref: "#/components/headers/BearerChallenge"
-        X-Request-ID:
+        X-PowerContext-Request-ID:
           $ref: "#/components/headers/RequestId"
       content:
         application/json:
@@ -1056,7 +1056,7 @@ components:
     Conflict:
       description: The command conflicts with current immutable state.
       headers:
-        X-Request-ID:
+        X-PowerContext-Request-ID:
           $ref: "#/components/headers/RequestId"
       content:
         application/json:
@@ -1065,7 +1065,7 @@ components:
     InvalidRequest:
       description: The request violates the transport or application contract.
       headers:
-        X-Request-ID:
+        X-PowerContext-Request-ID:
           $ref: "#/components/headers/RequestId"
       content:
         application/json:
@@ -1074,7 +1074,7 @@ components:
     NotFound:
       description: The requested immutable Memory value was not found.
       headers:
-        X-Request-ID:
+        X-PowerContext-Request-ID:
           $ref: "#/components/headers/RequestId"
       content:
         application/json:
@@ -1083,7 +1083,7 @@ components:
     Unavailable:
       description: A required Runtime binding or dependency is unavailable.
       headers:
-        X-Request-ID:
+        X-PowerContext-Request-ID:
           $ref: "#/components/headers/RequestId"
       content:
         application/json:
@@ -1092,7 +1092,7 @@ components:
     InternalError:
       description: The Server failed without exposing internal details.
       headers:
-        X-Request-ID:
+        X-PowerContext-Request-ID:
           $ref: "#/components/headers/RequestId"
       content:
         application/json:
