@@ -257,8 +257,9 @@ The following invariants must hold:
 - Candidate content is always displayed as untrusted data; body, reason, and evidence previews are not logged.
 - `scope_id` remains a business partition, not authentication or ACL.
 
-PreparedContext currently reads only active Memory. Whether Experience and Skill enter Context Pack is decided by a later
-multi-Artifact Context Profile RFC. Candidate approval does not automatically expand Context Pack.
+PreparedContext v1 now reads active Memory and relevant approved current Experience heads. Approval makes an Experience
+eligible for the scope-local rebuildable FTS projection; it does not guarantee selection under the query and shared byte
+budget. Skill approval still does not expand Context Pack.
 
 ## Acceptance
 
@@ -271,7 +272,7 @@ multi-Artifact Context Profile RFC. Candidate approval does not automatically ex
 | Approve | An expected version succeeds only once; Artifact commit and approved status are atomic |
 | Conflict | A stale Candidate or Artifact target returns a typed conflict without automatic merge |
 | Reject | Write no Artifact; a terminal Candidate cannot be approved or revised again |
-| Compatibility | Existing Memory flush, HTTP, MCP, Hook, and PreparedContext behavior remains unchanged |
+| Compatibility | Existing Memory flush, HTTP, MCP, Hook, and the PreparedContext v1 public envelope remain unchanged |
 | MCP parity | MCP can list, read, revise, approve, and reject Candidates with the same lifecycle and CAS rules |
 
 # Drawbacks
@@ -298,7 +299,7 @@ multi-Artifact Context Profile RFC. Candidate approval does not automatically ex
 - RFC 0014 treats Memory pipeline output as an untrusted candidate but still commits it directly after Memory validation;
   this RFC does not change that path.
 - RFC 0019 defines the Source window, cursor, and Memory flush; this RFC preserves their public behavior.
-- RFC 0028 specifies that PreparedContext currently reads only active Memory; pending Candidates remain isolated from it.
+- RFC 0028 owns PreparedContext selection and the final byte budget; pending Candidates remain isolated from it.
 - PowerMem's Experience and Skill distillation, deduplication, and merging provide a reference for generation, but
   automatic content review is not Artifact approval.
 

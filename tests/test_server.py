@@ -4,8 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.http import (
     Capabilities,
     ReadinessResponse,
@@ -14,6 +16,12 @@ from powercontext.http import (
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
+from powercontext.sources import Source
+
+
+class _NoopExperiencePipeline:
+    async def incubate(self, _sources: tuple[Source, ...], /) -> tuple[ExperienceCandidateInput, ...]:
+        return ()
 
 
 def test_settings_load_server_environment(monkeypatch) -> None:
@@ -24,11 +32,19 @@ def test_settings_load_server_environment(monkeypatch) -> None:
         "sqlite+aiosqlite:////var/lib/powercontext/test.db",
     )
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT", "25")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS", "45")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL", " test ")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS", "12.5")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS", "4")
     monkeypatch.setenv("POWERCONTEXT_SERVER_MCP_ENABLED", "false")
     monkeypatch.setenv("POWERCONTEXT_SERVER_MCP_PATH", "/context/")
+    monkeypatch.setenv(
+        "POWERCONTEXT_SERVER_EXTERNAL_SKILLS",
+        (
+            '{"host_id":"workstation-1","codex_roots":['
+            '{"root_id":"repository","installation_scope":"project","path":"/srv/project/.agents/skills"}]}'
+        ),
+    )
 
     settings = ServerSettings()
 
@@ -36,11 +52,15 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.http.port == 9000
     assert settings.database.url == "sqlite+aiosqlite:////var/lib/powercontext/test.db"
     assert settings.runtime.source_window_limit == 25
+    assert settings.runtime.experience_schedule_seconds == 45
     assert settings.inference.generation_model == "test"
     assert settings.inference.generation_timeout_seconds == 12.5
     assert settings.inference.generation_max_requests == 4
     assert settings.mcp.enabled is False
     assert settings.mcp.path == "/context"
+    assert settings.external_skills.host_id == "workstation-1"
+    assert settings.external_skills.codex_roots[0].root_id == "repository"
+    assert settings.external_skills.codex_roots[0].path.as_posix() == "/srv/project/.agents/skills"
 
 
 def test_server_settings_select_oceanbase(monkeypatch) -> None:
@@ -52,6 +72,21 @@ def test_server_settings_select_oceanbase(monkeypatch) -> None:
 
     assert isinstance(settings.database, OceanBaseConfig)
     assert settings.database.url.get_secret_value() == url
+
+
+def test_server_scheduler_uses_the_powercontext_data_directory(tmp_path, monkeypatch) -> None:
+    data_dir = tmp_path / "powercontext-data"
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
+    app = create_server_app(
+        settings=ServerSettings(
+            runtime=RuntimeConfig(experience_schedule_seconds=3_600),
+            mcp=McpConfig(enabled=False),
+        ),
+        experience_pipeline=_NoopExperiencePipeline(),
+    )
+
+    with TestClient(app):
+        assert (data_dir / "scheduler.db").is_file()
 
 
 def test_settings_load_bearer_authentication_without_exposing_token(monkeypatch) -> None:

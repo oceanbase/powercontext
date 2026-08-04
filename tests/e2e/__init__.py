@@ -1,0 +1,1 @@
+"""Cross-component acceptance tests."""

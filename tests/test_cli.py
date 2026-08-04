@@ -6,6 +6,7 @@ from typing import Self
 from unittest.mock import Mock
 
 import pytest
+from click import unstyle
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
@@ -14,7 +15,23 @@ from powercontext.builtin.runtime.cli import app as builtin_app
 from powercontext.cli.app import create_cli
 from powercontext.client import ServerResponseError
 from powercontext.client.settings import ClientSettings
-from powercontext.http import HealthResponse, ReadinessResponse
+from powercontext.http import (
+    ExperienceProposal,
+    ExternalSkillImportMode,
+    GeneratedCandidateResponse,
+    GeneratedCandidateStatus,
+    GenerateExperienceRequest,
+    GenerateSkillRequest,
+    GetSkillRequest,
+    HealthResponse,
+    ImportExternalSkillRequest,
+    ReadinessResponse,
+    ReviseArtifactCandidateRequest,
+    SkillArtifact,
+    SkillGenerationOrigin,
+    SkillProposal,
+    SkillValidationItem,
+)
 from powercontext.server.cli import app as server_app
 
 
@@ -25,6 +42,9 @@ from powercontext.server.cli import app as server_app
         ["--help"],
         ["client", "-h"],
         ["client", "--help"],
+        ["client", "experience", "--help"],
+        ["client", "skill", "--help"],
+        ["client", "external-skill", "--help"],
     ],
 )
 def test_cli_help_exits_successfully(arguments: list[str]) -> None:
@@ -33,6 +53,21 @@ def test_cli_help_exits_successfully(arguments: list[str]) -> None:
     result = CliRunner().invoke(cli, arguments)
 
     assert result.exit_code == 0
+
+
+def test_skill_cli_exposes_the_target_based_export_command() -> None:
+    cli = create_cli([client_cli.app])
+    runner = CliRunner()
+
+    skill_help = runner.invoke(cli, ["client", "skill", "--help"])
+    export_help = runner.invoke(cli, ["client", "skill", "export", "--help"])
+
+    assert skill_help.exit_code == 0
+    assert "export" in unstyle(skill_help.output)
+    assert export_help.exit_code == 0
+    export_help_text = unstyle(export_help.output)
+    assert "--target" in export_help_text
+    assert "codex" in export_help_text
 
 
 def test_cli_version_reports_the_installed_distribution() -> None:
@@ -67,6 +102,9 @@ def test_builtin_cli_reports_the_configured_instance_capabilities(
     assert json.loads(result.output) == {
         "database": "sqlite",
         "memory_extraction": False,
+        "experience_generation": False,
+        "managed_skill_generation": False,
+        "external_skill_registry": False,
         "handoff_generation": False,
         "memory_search_modes": ["auto", "fts"],
         "context_versions": ["powercontext.prepared-context.v1"],
@@ -180,3 +218,302 @@ def test_client_command_prints_human_readable_output_by_default(monkeypatch: pyt
 
     assert result.exit_code == 0
     assert result.output == "Status: ok\n"
+
+
+def test_client_generation_commands_build_requests_from_explicit_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: list[GenerateExperienceRequest | GenerateSkillRequest] = []
+
+    class GeneratingClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def generate_experience(self, request: GenerateExperienceRequest) -> GeneratedCandidateResponse:
+            received.append(request)
+            return GeneratedCandidateResponse(status=GeneratedCandidateStatus.NO_OP, candidate=None)
+
+        async def generate_skill(self, request: GenerateSkillRequest) -> GeneratedCandidateResponse:
+            received.append(request)
+            return GeneratedCandidateResponse(status=GeneratedCandidateStatus.NO_OP, candidate=None)
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: GeneratingClient())
+    cli = create_cli([client_cli.app])
+
+    experience_result = CliRunner().invoke(
+        cli,
+        [
+            "client",
+            "--json",
+            "experience",
+            "generate",
+            "--scope-id",
+            "project",
+            "--source-ref",
+            "content/task-1",
+            "--source-ref",
+            "content/task-2",
+            "--target",
+            "experience/exp-1@2",
+            "--reason",
+            "incorporate the latest result",
+        ],
+    )
+    skill_result = CliRunner().invoke(
+        cli,
+        [
+            "client",
+            "--json",
+            "skill",
+            "generate",
+            "--scope-id",
+            "project",
+            "--origin",
+            "experience",
+            "--artifact-ref",
+            "experience/exp-2@1",
+        ],
+    )
+
+    assert experience_result.exit_code == 0
+    assert skill_result.exit_code == 0
+    assert [type(request) for request in received] == [GenerateExperienceRequest, GenerateSkillRequest]
+    experience = received[0]
+    assert isinstance(experience, GenerateExperienceRequest)
+    assert [(reference.name, reference.source_id) for reference in experience.source_refs] == [
+        ("content", "task-1"),
+        ("content", "task-2"),
+    ]
+    assert [reference.model_dump() for reference in experience.artifact_refs] == [
+        {"family": "experience", "artifact_id": "exp-1", "revision": 2}
+    ]
+    assert experience.target == experience.artifact_refs[0]
+    assert experience.reason == "incorporate the latest result"
+    skill = received[1]
+    assert isinstance(skill, GenerateSkillRequest)
+    assert skill.origin is SkillGenerationOrigin.EXPERIENCE
+    assert [reference.model_dump() for reference in skill.artifact_refs] == [
+        {"family": "experience", "artifact_id": "exp-2", "revision": 1}
+    ]
+
+
+def test_client_candidate_revision_commands_build_typed_proposals(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: list[ReviseArtifactCandidateRequest] = []
+
+    class RevisingClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def revise_artifact_candidate(
+            self,
+            request: ReviseArtifactCandidateRequest,
+        ) -> GeneratedCandidateResponse:
+            received.append(request)
+            return GeneratedCandidateResponse(status=GeneratedCandidateStatus.NO_OP, candidate=None)
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: RevisingClient())
+    instructions_file = tmp_path / "instructions.md"
+    instructions_file.write_text("Run both backend acceptance scenarios.", encoding="utf-8")
+    cli = create_cli([client_cli.app])
+
+    experience_result = CliRunner().invoke(
+        cli,
+        [
+            "client",
+            "candidate",
+            "revise",
+            "experience",
+            "--scope-id",
+            "project",
+            "--expected-version",
+            "1",
+            "--situation",
+            "Only one backend was tested.",
+            "--action",
+            "Run the same scenario on both backends.",
+            "--outcome",
+            "Both backends passed.",
+            "--lesson",
+            "Keep acceptance behavior backend-neutral.",
+            "--source-ref",
+            "content/task-1",
+            "candidate-experience",
+        ],
+    )
+    skill_result = CliRunner().invoke(
+        cli,
+        [
+            "client",
+            "candidate",
+            "revise",
+            "skill",
+            "--scope-id",
+            "project",
+            "--expected-version",
+            "2",
+            "--name",
+            "backend-validation",
+            "--description",
+            "Validate storage backends consistently.",
+            "--instructions-file",
+            str(instructions_file),
+            "--validation",
+            "SQLite passes.",
+            "--validation",
+            "OceanBase passes.",
+            "--target",
+            "skill/backend-validation@1",
+            "candidate-skill",
+        ],
+    )
+
+    assert experience_result.exit_code == 0
+    assert skill_result.exit_code == 0
+    experience = received[0]
+    assert isinstance(experience.proposal, ExperienceProposal)
+    assert experience.proposal.lesson == "Keep acceptance behavior backend-neutral."
+    skill = received[1]
+    assert isinstance(skill.proposal, SkillProposal)
+    assert skill.proposal.instructions == "Run both backend acceptance scenarios."
+    assert [item.root for item in skill.proposal.validation] == ["SQLite passes.", "OceanBase passes."]
+    assert skill.target == skill.artifact_refs[0]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        (
+            ["client", "experience", "generate", "--scope-id", "project", "--source-ref", "task-1"],
+            "expected TYPE/ID",
+        ),
+        (
+            [
+                "client",
+                "skill",
+                "generate",
+                "--scope-id",
+                "project",
+                "--origin",
+                "source",
+                "--artifact-ref",
+                "experience/exp-1@1",
+            ],
+            "source origin requires only Source refs",
+        ),
+    ],
+)
+def test_client_generation_commands_reject_invalid_reference_options(
+    arguments: list[str],
+    message: str,
+) -> None:
+    result = CliRunner().invoke(create_cli([client_cli.app]), arguments)
+
+    assert result.exit_code == 2
+    assert message in result.output
+
+
+def test_client_external_skill_import_preserves_exact_identity_and_intent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: list[ImportExternalSkillRequest] = []
+
+    class ImportingClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def import_external_skill(self, request: ImportExternalSkillRequest) -> GeneratedCandidateResponse:
+            received.append(request)
+            return GeneratedCandidateResponse(status=GeneratedCandidateStatus.NO_OP, candidate=None)
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: ImportingClient())
+
+    result = CliRunner().invoke(
+        create_cli([client_cli.app]),
+        [
+            "client",
+            "external-skill",
+            "import",
+            "--scope-id",
+            "project",
+            "--fingerprint",
+            "a" * 64,
+            "--mode",
+            "fork",
+            "codex:project:repository/friendly-python",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert received[0].external_skill_id == "codex:project:repository/friendly-python"
+    assert received[0].fingerprint == "a" * 64
+    assert received[0].mode is ExternalSkillImportMode.FORK
+
+
+def test_client_skill_export_uses_configured_authentication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received_tokens: list[str | None] = []
+
+    class ExportingClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def get_skill(self, request: GetSkillRequest) -> SkillArtifact:
+            return SkillArtifact(
+                artifact=request.artifact,
+                content=SkillProposal(
+                    name="safe-skill",
+                    description="Use for a bounded task.",
+                    instructions="Perform the bounded task.",
+                    validation=[SkillValidationItem("The expected result exists.")],
+                ),
+                source_refs=[],
+                artifact_refs=[],
+            )
+
+    def client_factory(_server_url: str, *, token: str | None = None, **_kwargs: object) -> ExportingClient:
+        received_tokens.append(token)
+        return ExportingClient()
+
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_API_TOKEN", "secret-token")
+    monkeypatch.setattr(client_cli, "PowerContextClient", client_factory)
+    destination = tmp_path / "safe-skill"
+
+    result = CliRunner().invoke(
+        create_cli([client_cli.app]),
+        [
+            "client",
+            "skill",
+            "export",
+            "--target",
+            "codex",
+            "--scope-id",
+            "project",
+            "--revision",
+            "1",
+            "--destination",
+            str(destination),
+            "skill-123",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert received_tokens == ["secret-token"]
+    assert "Exported skill-123@1 for codex" in result.output
+    assert (destination / "SKILL.md").is_file()

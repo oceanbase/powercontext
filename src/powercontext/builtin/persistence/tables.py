@@ -19,6 +19,10 @@ from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
     MAX_ARTIFACT_ID_LENGTH,
     MAX_BINDING_NAME_LENGTH,
+    MAX_EXTERNAL_SKILL_DESCRIPTION_LENGTH,
+    MAX_EXTERNAL_SKILL_HOST_ID_LENGTH,
+    MAX_EXTERNAL_SKILL_LOCATOR_LENGTH,
+    MAX_EXTERNAL_SKILL_NAME_LENGTH,
     MAX_SCOPE_ID_LENGTH,
     MAX_SOURCE_ID_LENGTH,
     MAX_SOURCE_TYPE_LENGTH,
@@ -71,6 +75,7 @@ ARTIFACT_HEADS_TABLE = Table(
     Column("family", String(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
     Column("artifact_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, nullable=False),
+    Column("searchable_text", _entry_text_type()),
     ForeignKeyConstraint(
         ("scope_id", "family", "artifact_id", "revision"),
         (
@@ -83,6 +88,7 @@ ARTIFACT_HEADS_TABLE = Table(
     ),
     CheckConstraint("revision > 0", name="ck_pc_artifact_heads_revision_positive"),
 )
+
 
 ARTIFACT_LINEAGE_SOURCES_TABLE = Table(
     "pc_artifact_lineage_sources",
@@ -232,6 +238,34 @@ SOURCE_CURSORS_TABLE = Table(
     CheckConstraint("generation >= 0", name="ck_pc_source_cursors_generation_nonnegative"),
 )
 
+EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
+    "pc_external_skill_registrations",
+    SHARED_METADATA,
+    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("external_skill_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("provider", String(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    Column("agent_kind", String(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    Column("host_id", String(MAX_EXTERNAL_SKILL_HOST_ID_LENGTH), nullable=False),
+    Column("installation_scope", String(16), nullable=False),
+    Column("locator", String(MAX_EXTERNAL_SKILL_LOCATOR_LENGTH), nullable=False),
+    Column("locator_hash", String(64), nullable=False),
+    Column("fingerprint", String(64), nullable=False),
+    Column("name", String(MAX_EXTERNAL_SKILL_NAME_LENGTH), nullable=False),
+    Column("description", String(MAX_EXTERNAL_SKILL_DESCRIPTION_LENGTH), nullable=False),
+    UniqueConstraint(
+        "scope_id",
+        "provider",
+        "host_id",
+        "installation_scope",
+        "locator_hash",
+        name="uq_pc_external_skill_registrations_binding",
+    ),
+    CheckConstraint(
+        "installation_scope IN ('user', 'project', 'plugin')",
+        name="ck_pc_external_skill_registrations_scope",
+    ),
+)
+
 SHARED_TABLES = (
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
@@ -242,6 +276,7 @@ SHARED_TABLES = (
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     SOURCE_CURSORS_TABLE,
+    EXTERNAL_SKILL_REGISTRATIONS_TABLE,
 )
 
 

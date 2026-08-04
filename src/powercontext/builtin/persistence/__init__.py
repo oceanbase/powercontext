@@ -14,11 +14,13 @@ from powercontext.builtin.persistence.errors import (
     RepositoryNotFoundError,
     StoredPayloadConflictError,
 )
+from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
 
 __all__ = (
     "AsyncDatabase",
     "CandidateRepository",
     "DatabaseClosedError",
+    "ExternalSkillRepository",
     "GenerationConflictError",
     "IdentityMismatchError",
     "InvalidRepositoryArgumentError",

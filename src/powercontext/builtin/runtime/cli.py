@@ -26,6 +26,9 @@ app = typer.Typer(
 class _BuiltinCapabilities(BaseModel):
     database: str
     memory_extraction: bool
+    experience_generation: bool
+    managed_skill_generation: bool
+    external_skill_registry: bool
     handoff_generation: bool
     memory_search_modes: tuple[MemorySearchMode, ...]
     context_versions: tuple[PreparedContextSchema, ...]
@@ -53,12 +56,16 @@ async def _show_capabilities(settings: BuiltinSettings, *, json_output: bool) ->
         runtime=settings.runtime,
         database=settings.database,
         inference=settings.inference,
+        external_skills=settings.external_skills,
     )
     async with open_builtin_runtime(config) as runtime:
         runtime_capabilities = await runtime.capabilities()
     capabilities = _BuiltinCapabilities(
         database=settings.database.kind,
         memory_extraction=runtime_capabilities.memory_extraction,
+        experience_generation=runtime_capabilities.experience_generation,
+        managed_skill_generation=runtime_capabilities.managed_skill_generation,
+        external_skill_registry=runtime_capabilities.external_skill_registry,
         handoff_generation=runtime_capabilities.handoff_generation,
         memory_search_modes=runtime_capabilities.memory_search_modes,
         context_versions=runtime_capabilities.context_versions,
@@ -68,6 +75,9 @@ async def _show_capabilities(settings: BuiltinSettings, *, json_output: bool) ->
         return
     typer.echo(f"Database: {capabilities.database}")
     typer.echo(f"Memory extraction: {'enabled' if capabilities.memory_extraction else 'disabled'}")
+    typer.echo(f"Experience generation: {'enabled' if capabilities.experience_generation else 'disabled'}")
+    typer.echo(f"Managed Skill generation: {'enabled' if capabilities.managed_skill_generation else 'disabled'}")
+    typer.echo(f"External Skill Registry: {'enabled' if capabilities.external_skill_registry else 'disabled'}")
     typer.echo(f"Handoff generation: {'enabled' if capabilities.handoff_generation else 'disabled'}")
     modes = ", ".join(capabilities.memory_search_modes) if capabilities.memory_search_modes else "none"
     typer.echo(f"Search modes: {modes}")

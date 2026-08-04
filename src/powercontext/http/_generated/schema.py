@@ -493,6 +493,37 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/experience/generate": {
+            "post": {
+                "tags": ["experience"],
+                "summary": "Generate an Experience Candidate",
+                "description": "Use the configured model and "
+                "caller-selected exact evidence; "
+                "persist only a schema-valid "
+                "pending Candidate.",
+                "operationId": "generate_experience",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GenerateExperienceRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "A pending Candidate or an explicit semantic no-op.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/GeneratedCandidateResponse"}}
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
         "/v1/experience/get": {
             "post": {
                 "tags": ["experience"],
@@ -512,6 +543,213 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         },
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/propose": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Propose managed Skill content",
+                "description": "Persist a pending managed Skill Candidate without creating an Artifact Revision.",
+                "operationId": "propose_skill",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProposeSkillRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "The pending managed Skill Candidate.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/generate": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Generate a managed Skill Candidate",
+                "description": "Use the configured model with an "
+                "explicit provenance shape; persist only "
+                "a schema-valid pending Candidate.",
+                "operationId": "generate_skill",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenerateSkillRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "A pending Candidate or an explicit semantic no-op.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/GeneratedCandidateResponse"}}
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/get": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Get an exact managed Skill Revision",
+                "description": "Read approved managed Skill content and its exact direct evidence.",
+                "operationId": "get_skill",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GetSkillRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The exact approved managed Skill Revision.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillArtifact"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/external-skills/scan": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Scan configured external Skill roots",
+                "description": "Replace the current host-local "
+                "Registry projection without "
+                "copying or rewriting package "
+                "content.",
+                "operationId": "scan_external_skills",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ScanExternalSkillsRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The rebuildable provider snapshot.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ScanExternalSkillsResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/external-skills/list": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "List external Skills visible on this host",
+                "description": "Return live local resolutions; "
+                "unavailable registrations are "
+                "omitted unless explicitly "
+                "requested.",
+                "operationId": "list_external_skills",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ListExternalSkillsRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "External "
+                        "Skills "
+                        "resolved "
+                        "against the "
+                        "current "
+                        "Agent, "
+                        "host, "
+                        "scope, and "
+                        "fingerprint.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ListExternalSkillsResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/external-skills/resolve": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Resolve an exact external Skill fingerprint",
+                "description": "Resolve only the registered "
+                "local package version "
+                "requested by the caller; never "
+                "install or fall back.",
+                "operationId": "resolve_external_skill",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ResolveExternalSkillRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The live exact-resolution result, which may be unavailable.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ExternalSkillResolution"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/external-skills/import": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Import or fork an external Skill into Review",
+                "description": "Capture one exact local "
+                "snapshot and use the configured "
+                "model to propose a new managed "
+                "Skill Candidate.",
+                "operationId": "import_external_skill",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ImportExternalSkillRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "A pending managed Skill Candidate or an explicit semantic no-op.",
+                        "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/GeneratedCandidateResponse"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
@@ -692,7 +930,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "version": {"type": "integer", "minimum": 1.0},
                     "family": {"$ref": "#/components/schemas/CandidateFamily"},
                     "status": {"$ref": "#/components/schemas/CandidateStatus"},
-                    "proposal": {"$ref": "#/components/schemas/ExperienceProposal"},
+                    "proposal": {
+                        "oneOf": [
+                            {"$ref": "#/components/schemas/ExperienceProposal"},
+                            {"$ref": "#/components/schemas/SkillProposal"},
+                        ]
+                    },
                     "source_refs": {
                         "items": {"$ref": "#/components/schemas/SourceReference"},
                         "type": "array",
@@ -776,6 +1019,30 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "memory_extraction": {
                         "type": "boolean",
                         "description": "Whether pending Sources can be extracted into Memory.",
+                    },
+                    "experience_generation": {
+                        "type": "boolean",
+                        "description": "Whether the configured model can generate reviewed Experience Candidates.",
+                        "default": False,
+                    },
+                    "managed_skill_generation": {
+                        "type": "boolean",
+                        "description": "Whether the configured model can generate reviewed managed Skill Candidates.",
+                        "default": False,
+                    },
+                    "external_skill_registry": {
+                        "type": "boolean",
+                        "description": "Whether "
+                        "host-local "
+                        "external "
+                        "Skill "
+                        "discovery "
+                        "and "
+                        "exact "
+                        "resolution "
+                        "are "
+                        "configured.",
+                        "default": False,
                     },
                     "handoff_generation": {
                         "type": "boolean",
@@ -1106,6 +1373,115 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["situation", "action", "outcome", "lesson"],
             },
+            "SkillArtifact": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "content": {"$ref": "#/components/schemas/SkillProposal"},
+                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
+                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "content", "source_refs", "artifact_refs"],
+            },
+            "SkillProposal": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+                    "description": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+                    "instructions": {"type": "string", "maxLength": 32000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "validation": {
+                        "items": {"$ref": "#/components/schemas/SkillValidationItem"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "minItems": 1,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "description", "instructions", "validation"],
+            },
+            "SkillValidationItem": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+            "ExternalSkillRegistration": {
+                "properties": {
+                    "external_skill_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "provider": {"type": "string", "enum": ["codex"]},
+                    "agent_kind": {"type": "string", "enum": ["codex"]},
+                    "host_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+                    "installation_scope": {"$ref": "#/components/schemas/ExternalSkillInstallationScope"},
+                    "locator": {
+                        "type": "string",
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "pattern": "^\\S(?:.*\\S)?$",
+                        "description": "Host-local locator; not a cross-Agent or cross-host contract.",
+                    },
+                    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+                    "description": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "external_skill_id",
+                    "provider",
+                    "agent_kind",
+                    "host_id",
+                    "installation_scope",
+                    "locator",
+                    "fingerprint",
+                    "name",
+                    "description",
+                ],
+            },
+            "ExternalSkillResolution": {
+                "properties": {
+                    "registration": {"$ref": "#/components/schemas/ExternalSkillRegistration"},
+                    "status": {"$ref": "#/components/schemas/ExternalSkillResolutionStatus"},
+                    "entrypoint": {
+                        "type": "string",
+                        "description": "Host-local "
+                        "SKILL.md "
+                        "path; "
+                        "present "
+                        "only "
+                        "when "
+                        "the "
+                        "exact "
+                        "fingerprint "
+                        "is "
+                        "available.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["registration", "status", "entrypoint"],
+            },
+            "ScanExternalSkillsResponse": {
+                "properties": {
+                    "registrations": {
+                        "items": {"$ref": "#/components/schemas/ExternalSkillRegistration"},
+                        "type": "array",
+                    },
+                    "skipped": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["registrations", "skipped"],
+            },
+            "ListExternalSkillsResponse": {
+                "properties": {
+                    "skills": {"items": {"$ref": "#/components/schemas/ExternalSkillResolution"}, "type": "array"}
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["skills"],
+            },
             "ErrorDetail": {
                 "properties": {
                     "code": {"type": "string"},
@@ -1160,6 +1536,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["scope_id", "candidate_id"],
             },
             "GetExperienceRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact"],
+            },
+            "GetSkillRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
@@ -1240,6 +1625,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "family": {"$ref": "#/components/schemas/CandidateFamily", "nullable": True},
                     "cursor": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
                     "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "ListExternalSkillsRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "include_unavailable": {"type": "boolean", "default": False},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -1349,6 +1743,161 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "proposal", "source_refs", "artifact_refs"],
             },
+            "GenerateExperienceRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "source_refs": {
+                        "items": {"$ref": "#/components/schemas/SourceReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Source "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "artifact_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "artifact_refs": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Artifact "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "source_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "target": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "source_refs", "artifact_refs"],
+            },
+            "ProposeSkillRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "proposal": {"$ref": "#/components/schemas/SkillProposal"},
+                    "source_refs": {
+                        "items": {"$ref": "#/components/schemas/SourceReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Source "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "artifact_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "artifact_refs": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Artifact "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "source_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "target": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "proposal", "source_refs", "artifact_refs"],
+            },
+            "SkillGenerationOrigin": {
+                "type": "string",
+                "enum": ["experience", "source", "usage"],
+                "description": "The operation-specific direct provenance shape required for managed Skill generation.",
+            },
+            "GenerateSkillRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "origin": {"$ref": "#/components/schemas/SkillGenerationOrigin"},
+                    "source_refs": {
+                        "items": {"$ref": "#/components/schemas/SourceReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Source "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "artifact_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "artifact_refs": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Artifact "
+                        "evidence. "
+                        "Counted "
+                        "with "
+                        "source_refs "
+                        "toward "
+                        "a "
+                        "combined "
+                        "maximum "
+                        "of "
+                        "32 "
+                        "references.",
+                    },
+                    "target": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "origin", "source_refs", "artifact_refs"],
+            },
+            "GeneratedCandidateStatus": {"type": "string", "enum": ["pending", "no_op"]},
+            "GeneratedCandidateResponse": {
+                "properties": {
+                    "status": {"$ref": "#/components/schemas/GeneratedCandidateStatus"},
+                    "candidate": {"$ref": "#/components/schemas/ArtifactCandidate", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["status", "candidate"],
+            },
             "ReadinessResponse": {
                 "properties": {
                     "status": {"$ref": "#/components/schemas/ReadinessStatus"},
@@ -1401,7 +1950,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                     "expected_version": {"type": "integer", "minimum": 1.0},
-                    "proposal": {"$ref": "#/components/schemas/ExperienceProposal"},
+                    "proposal": {
+                        "oneOf": [
+                            {"$ref": "#/components/schemas/ExperienceProposal"},
+                            {"$ref": "#/components/schemas/SkillProposal"},
+                        ]
+                    },
                     "source_refs": {
                         "items": {"$ref": "#/components/schemas/SourceReference"},
                         "type": "array",
@@ -1490,6 +2044,49 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "query"],
             },
+            "ScanExternalSkillsRequest": {
+                "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "ResolveExternalSkillRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "external_skill_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "external_skill_id", "fingerprint"],
+            },
+            "ExternalSkillImportMode": {"type": "string", "enum": ["import", "fork"]},
+            "ImportExternalSkillRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "external_skill_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "fingerprint": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": "Exact package fingerprint captured into Source lineage.",
+                    },
+                    "mode": {"$ref": "#/components/schemas/ExternalSkillImportMode"},
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "external_skill_id", "fingerprint", "mode"],
+            },
             "SearchMemoryResponse": {
                 "properties": {
                     "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
@@ -1510,7 +2107,9 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["name", "source_id"],
             },
             "CaptureStatus": {"type": "string", "enum": ["accepted"]},
-            "CandidateFamily": {"type": "string", "enum": ["experience"]},
+            "CandidateFamily": {"type": "string", "enum": ["experience", "skill"]},
+            "ExternalSkillInstallationScope": {"type": "string", "enum": ["user", "project", "plugin"]},
+            "ExternalSkillResolutionStatus": {"type": "string", "enum": ["available", "unavailable"]},
             "CandidateStatus": {"type": "string", "enum": ["pending", "approved", "rejected"]},
             "PreparedContextSchema": {"type": "string", "enum": ["powercontext.prepared-context.v1"]},
             "PreparedContextStatus": {"type": "string", "enum": ["ready", "empty"]},

@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
     DatabaseConfig,
+    ExternalSkillsConfig,
     InferenceConfig,
     RuntimeConfig,
     normalize_database_discriminator,
@@ -29,6 +30,7 @@ class BuiltinSettings(BaseSettings):
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteConfig, discriminator="kind")
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
+    external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
 
     @model_validator(mode="before")
     @classmethod

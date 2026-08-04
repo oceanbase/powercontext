@@ -40,8 +40,11 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | 未设置 | Scheduler 间隔；未设置即不启用 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 用于 Memory extraction 的 Pydantic AI 模型标识 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation 超时 |
+| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 孵化间隔；未设置即不启用该 job |
+| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 未设置 | 包含 host identity 和显式 Codex Skill roots 的 JSON object |
 
-启用鉴权后，API 和 MCP 请求必须携带 `Authorization: Bearer <token>`。Liveness 和 readiness 端点无需凭证即可访问。
+静态 Bearer 鉴权默认关闭。启用后，API 和 MCP 请求必须携带 `Authorization: Bearer <token>`；liveness 和
+readiness endpoint 仍然公开。明文 HTTP 应只用于 loopback 地址；通过网络暴露启用鉴权的 Server 前必须配置 TLS。
 
 指定 SQLite 路径并启用定时提取的示例：
 
@@ -56,8 +59,44 @@ powercontext server run
 Memory。请把 `provider:model-name` 替换为 Pydantic AI 支持的模型标识。定时提取需要同时配置 generation
 model 和 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`；显式 Memory 写入不需要这两项配置。
 
-静态 Bearer 鉴权默认关闭。启用后，它保护 HTTP API 和外部 MCP endpoint；liveness 和 readiness endpoint
-仍然公开。明文 HTTP 应只用于 loopback 地址；通过网络暴露启用鉴权的 Server 前必须配置 TLS。
+同一个 generation model 也控制显式 Experience generation、managed Skill generation/evolution，以及
+external Skill import/fork。未配置模型时，这些 operation 会在持久化 Candidate 前返回 capability error；
+Candidate Review、exact read 和 external Skill scan/list/resolve 仍可使用。
+
+Experience 孵化使用独立的 APScheduler job 和持久化 Source cursor，可通过以下配置启用：
+
+```bash
+export POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS=30
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
+powercontext server run
+```
+
+每次 activation 固定检查最多 32 条 Source，并且只把 metadata 包含 `"kind": "task-outcome"` 的 Content Source
+暴露给模型。该 job 会在 Review Inbox 中创建 pending Experience Candidate；它不会自动批准、进入
+PreparedContext、创建 managed Skill、将它导出给 Codex 或执行任何内容。Memory 和 Experience job 共用
+`POWERCONTEXT_HOME` 下的 APScheduler sidecar，但拥有独立的 job identity 和业务 cursor；取消其中一个 interval
+只会移除对应 job。
+
+### 外部 Codex Skill
+
+通过一个 JSON 值配置 host-local roots：
+
+```bash
+export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
+  "host_id": "workstation-1",
+  "codex_roots": [
+    {
+      "root_id": "repository",
+      "installation_scope": "project",
+      "path": "/srv/project/.agents/skills"
+    }
+  ]
+}'
+```
+
+每个 root ID 必须唯一；支持的 installation scope 是 `user`、`project` 和 `plugin`。PowerContext 只扫描这些
+显式 root 的直接 Skill package 子目录，不会推断 home 目录、安装 package 或授予执行权限。`host_id`、locator
+和 registration 都是本地环境状态，不是跨 host 或跨 Agent contract。
 
 使用 OceanBase 时，通过环境或 secret manager 提供 URL：
 

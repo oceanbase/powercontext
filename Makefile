@@ -32,6 +32,13 @@ unit-test: ## Run tests that do not cross the Server boundary end to end.
 e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
 	@uv run python -m pytest tests/e2e
 
+.PHONY: real-e2e-test
+real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE defaults to all.
+	@uv run python -m pytest -s tests/e2e/real_experience_skill --run-real-e2e \
+		--real-e2e-mode="$${REAL_E2E_MODE:-all}" \
+		--real-codex-timeout="$${REAL_CODEX_TIMEOUT:-600}" \
+		--real-e2e-env-file="$${REAL_E2E_ENV_FILE:-.env}"
+
 .PHONY: contract-test
 contract-test: api-generate-check ## Verify generated API code and contract bindings.
 	@uv run python -m pytest tests/test_api_contract.py
@@ -73,6 +80,6 @@ docs: ## Build and serve the documentation
 .PHONY: help
 help:
 	@uv run python -c "import re; \
-	[[print(f'\033[36m{m[0]:<20}\033[0m {m[1]}') for m in re.findall(r'^([a-zA-Z_-]+):.*?## (.*)$$', open(makefile).read(), re.M)] for makefile in ('$(MAKEFILE_LIST)').strip().split()]"
+	[[print(f'\033[36m{m[0]:<20}\033[0m {m[1]}') for m in re.findall(r'^([a-zA-Z0-9_-]+):.*?## (.*)$$', open(makefile).read(), re.M)] for makefile in ('$(MAKEFILE_LIST)').strip().split()]"
 
 .DEFAULT_GOAL := help

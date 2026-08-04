@@ -2,15 +2,32 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
 from powercontext.builtin.artifacts.handoff import HandoffCitation as RuntimeHandoffCitation
+from powercontext.builtin.artifacts.skill import (
+    ExternalSkillProviderScan,
+    Skill,
+    SkillContent,
+)
+from powercontext.builtin.artifacts.skill import (
+    ExternalSkillRegistration as RuntimeExternalSkillRegistration,
+)
+from powercontext.builtin.artifacts.skill import (
+    ExternalSkillResolution as RuntimeExternalSkillResolution,
+)
+from powercontext.builtin.review import ArtifactCandidate as RuntimeArtifactCandidate
+from powercontext.builtin.review import ArtifactCandidatePage as RuntimeArtifactCandidatePage
 from powercontext.builtin.review import CandidateStatus as RuntimeCandidateStatus
+from powercontext.builtin.review.generation import (
+    GeneratedCandidateResult as RuntimeGeneratedCandidateResult,
+)
+from powercontext.builtin.review.generation import SkillGenerationOrigin as RuntimeSkillGenerationOrigin
 from powercontext.builtin.runtime import (
     ActivateHandoff,
     CaptureSource,
-    ExperienceCandidate,
-    ExperienceCandidatePage,
     Handoff,
     HandoffActivation,
     HandoffArtifactCitation,
@@ -42,6 +59,12 @@ from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
 )
 from powercontext.builtin.runtime import (
+    GenerateExperienceRequest as RuntimeGenerateExperienceRequest,
+)
+from powercontext.builtin.runtime import (
+    GenerateSkillRequest as RuntimeGenerateSkillRequest,
+)
+from powercontext.builtin.runtime import (
     GetArtifactCandidateRequest as RuntimeGetArtifactCandidateRequest,
 )
 from powercontext.builtin.runtime import (
@@ -50,9 +73,14 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
 )
+from powercontext.builtin.runtime import GetSkillRequest as RuntimeGetSkillRequest
+from powercontext.builtin.runtime import (
+    ImportExternalSkillRequest as RuntimeImportExternalSkillRequest,
+)
 from powercontext.builtin.runtime import (
     ListArtifactCandidatesRequest as RuntimeListArtifactCandidatesRequest,
 )
+from powercontext.builtin.runtime import ListExternalSkillsRequest as RuntimeListExternalSkillsRequest
 from powercontext.builtin.runtime import (
     MemoryCitation as RuntimeMemoryCitation,
 )
@@ -62,9 +90,11 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     ProposeExperienceRequest as RuntimeProposeExperienceRequest,
 )
+from powercontext.builtin.runtime import ProposeSkillRequest as RuntimeProposeSkillRequest
 from powercontext.builtin.runtime import (
     RejectArtifactCandidateRequest as RuntimeRejectArtifactCandidateRequest,
 )
+from powercontext.builtin.runtime import ResolveExternalSkillRequest as RuntimeResolveExternalSkillRequest
 from powercontext.builtin.runtime import (
     RetireMemoryEntryRequest as RuntimeRetireMemoryEntryRequest,
 )
@@ -77,6 +107,7 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
 )
+from powercontext.builtin.sources import ExternalSkillImportMode as RuntimeExternalSkillImportMode
 from powercontext.http import (
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
@@ -93,11 +124,19 @@ from powercontext.http import (
     EntryChangeOperation,
     ExperienceArtifact,
     ExperienceProposal,
+    ExternalSkillRegistration,
+    ExternalSkillResolution,
+    ExternalSkillResolutionStatus,
     FlushMemoryResponse,
     FlushStatus,
+    GeneratedCandidateResponse,
+    GeneratedCandidateStatus,
+    GenerateExperienceRequest,
+    GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
+    GetSkillRequest,
     HandoffActivationStatus,
     HandoffClaim,
     HandoffDisposition,
@@ -105,7 +144,10 @@ from powercontext.http import (
     HandoffResolutionStatus,
     HandoffSchema,
     HandoffSelection,
+    ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
+    ListExternalSkillsRequest,
+    ListExternalSkillsResponse,
     ListMemoryChangesResponse,
     ListMemoryEntriesResponse,
     MemoryEntry,
@@ -119,13 +161,19 @@ from powercontext.http import (
     PreparedHandoffSchema,
     PrepareHandoffRequest,
     ProposeExperienceRequest,
+    ProposeSkillRequest,
     RejectArtifactCandidateRequest,
+    ResolveExternalSkillRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
+    ScanExternalSkillsResponse,
     SearchMemoryHit,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SkillArtifact,
+    SkillProposal,
+    SkillValidationItem,
     SourceReference,
 )
 from powercontext.http import (
@@ -223,8 +271,41 @@ def propose_experience_request(value: ProposeExperienceRequest) -> RuntimePropos
     )
 
 
+def generate_experience_request(value: GenerateExperienceRequest) -> RuntimeGenerateExperienceRequest:
+    return RuntimeGenerateExperienceRequest(
+        sources=tuple(runtime_source_reference(source) for source in value.source_refs),
+        artifacts=tuple(runtime_artifact_reference(artifact) for artifact in value.artifact_refs),
+        target=None if value.target is None else runtime_artifact_reference(value.target),
+        reason=value.reason,
+    )
+
+
 def get_experience_request(value: GetExperienceRequest) -> RuntimeGetExperienceRequest:
     return RuntimeGetExperienceRequest(artifact=runtime_artifact_reference(value.artifact))
+
+
+def propose_skill_request(value: ProposeSkillRequest) -> RuntimeProposeSkillRequest:
+    return RuntimeProposeSkillRequest(
+        proposal=skill_content(value.proposal),
+        sources=tuple(runtime_source_reference(source) for source in value.source_refs),
+        artifacts=tuple(runtime_artifact_reference(artifact) for artifact in value.artifact_refs),
+        target=None if value.target is None else runtime_artifact_reference(value.target),
+        reason=value.reason,
+    )
+
+
+def generate_skill_request(value: GenerateSkillRequest) -> RuntimeGenerateSkillRequest:
+    return RuntimeGenerateSkillRequest(
+        origin=RuntimeSkillGenerationOrigin(value.origin.value),
+        sources=tuple(runtime_source_reference(source) for source in value.source_refs),
+        artifacts=tuple(runtime_artifact_reference(artifact) for artifact in value.artifact_refs),
+        target=None if value.target is None else runtime_artifact_reference(value.target),
+        reason=value.reason,
+    )
+
+
+def get_skill_request(value: GetSkillRequest) -> RuntimeGetSkillRequest:
+    return RuntimeGetSkillRequest(artifact=runtime_artifact_reference(value.artifact))
 
 
 def list_candidates_request(value: ListArtifactCandidatesRequest) -> RuntimeListArtifactCandidatesRequest:
@@ -259,7 +340,7 @@ def revise_candidate_request(value: ReviseArtifactCandidateRequest) -> RuntimeRe
     return RuntimeReviseArtifactCandidateRequest(
         candidate_id=value.candidate_id,
         expected_version=value.expected_version,
-        proposal=experience_content(value.proposal),
+        proposal=reviewed_content(value.proposal),
         sources=tuple(runtime_source_reference(source) for source in value.source_refs),
         artifacts=tuple(runtime_artifact_reference(artifact) for artifact in value.artifact_refs),
         target=None if value.target is None else runtime_artifact_reference(value.target),
@@ -416,13 +497,13 @@ def changes_response(value: MemoryChangesPage) -> ListMemoryChangesResponse:
     )
 
 
-def candidate_response(value: ExperienceCandidate) -> ArtifactCandidate:
+def candidate_response(value: RuntimeArtifactCandidate[Any]) -> ArtifactCandidate:
     return ArtifactCandidate(
         candidate_id=value.candidate_id,
         version=value.version,
         family=CandidateFamily(value.family),
         status=CandidateStatus(value.status.value),
-        proposal=experience_proposal(value.proposal),
+        proposal=reviewed_proposal(value.proposal),
         source_refs=[source_reference(source) for source in value.sources],
         artifact_refs=[artifact_reference(artifact) for artifact in value.artifacts],
         target=None if value.target is None else artifact_reference(value.target),
@@ -432,7 +513,14 @@ def candidate_response(value: ExperienceCandidate) -> ArtifactCandidate:
     )
 
 
-def candidate_page_response(value: ExperienceCandidatePage) -> ArtifactCandidatePage:
+def generated_candidate_response(value: RuntimeGeneratedCandidateResult) -> GeneratedCandidateResponse:
+    return GeneratedCandidateResponse(
+        status=GeneratedCandidateStatus.PENDING if value.generated else GeneratedCandidateStatus.NO_OP,
+        candidate=None if value.candidate is None else candidate_response(value.candidate),
+    )
+
+
+def candidate_page_response(value: RuntimeArtifactCandidatePage[Any]) -> ArtifactCandidatePage:
     return ArtifactCandidatePage(
         candidates=[candidate_response(candidate) for candidate in value.candidates],
         next_cursor=value.next_cursor,
@@ -446,6 +534,60 @@ def experience_response(value: Experience) -> ExperienceArtifact:
         source_refs=[source_reference(source) for source in value.lineage.sources],
         artifact_refs=[artifact_reference(artifact) for artifact in value.lineage.artifacts],
     )
+
+
+def skill_response(value: Skill) -> SkillArtifact:
+    return SkillArtifact(
+        artifact=artifact_reference(value.as_ref()),
+        content=skill_proposal(value.content),
+        source_refs=[source_reference(source) for source in value.lineage.sources],
+        artifact_refs=[artifact_reference(artifact) for artifact in value.lineage.artifacts],
+    )
+
+
+def list_external_skills_request(value: ListExternalSkillsRequest) -> RuntimeListExternalSkillsRequest:
+    return RuntimeListExternalSkillsRequest(include_unavailable=value.include_unavailable)
+
+
+def resolve_external_skill_request(value: ResolveExternalSkillRequest) -> RuntimeResolveExternalSkillRequest:
+    return RuntimeResolveExternalSkillRequest(
+        external_skill_id=value.external_skill_id,
+        fingerprint=value.fingerprint,
+    )
+
+
+def import_external_skill_request(value: ImportExternalSkillRequest) -> RuntimeImportExternalSkillRequest:
+    return RuntimeImportExternalSkillRequest(
+        external_skill_id=value.external_skill_id,
+        fingerprint=value.fingerprint,
+        mode=RuntimeExternalSkillImportMode(value.mode.value),
+        reason=value.reason,
+    )
+
+
+def scan_external_skills_response(value: ExternalSkillProviderScan) -> ScanExternalSkillsResponse:
+    return ScanExternalSkillsResponse(
+        registrations=[external_skill_registration(registration) for registration in value.registrations],
+        skipped=value.skipped,
+    )
+
+
+def list_external_skills_response(
+    values: tuple[RuntimeExternalSkillResolution, ...],
+) -> ListExternalSkillsResponse:
+    return ListExternalSkillsResponse(skills=[external_skill_resolution(value) for value in values])
+
+
+def external_skill_resolution(value: RuntimeExternalSkillResolution) -> ExternalSkillResolution:
+    return ExternalSkillResolution(
+        registration=external_skill_registration(value.registration),
+        status=ExternalSkillResolutionStatus(value.status.value),
+        entrypoint=value.entrypoint,
+    )
+
+
+def external_skill_registration(value: RuntimeExternalSkillRegistration) -> ExternalSkillRegistration:
+    return ExternalSkillRegistration.model_validate(value.model_dump(mode="json"))
 
 
 def experience_content(value: ExperienceProposal) -> ExperienceContent:
@@ -464,6 +606,38 @@ def experience_proposal(value: ExperienceContent) -> ExperienceProposal:
         outcome=value.outcome,
         lesson=value.lesson,
     )
+
+
+def skill_content(value: SkillProposal) -> SkillContent:
+    return SkillContent(
+        name=value.name,
+        description=value.description,
+        instructions=value.instructions,
+        validation=tuple(item.root for item in value.validation),
+    )
+
+
+def skill_proposal(value: SkillContent) -> SkillProposal:
+    return SkillProposal(
+        name=value.name,
+        description=value.description,
+        instructions=value.instructions,
+        validation=[SkillValidationItem(item) for item in value.validation],
+    )
+
+
+def reviewed_content(value: ExperienceProposal | SkillProposal) -> ExperienceContent | SkillContent:
+    if isinstance(value, ExperienceProposal):
+        return experience_content(value)
+    return skill_content(value)
+
+
+def reviewed_proposal(value: object) -> ExperienceProposal | SkillProposal:
+    if isinstance(value, ExperienceContent):
+        return experience_proposal(value)
+    if isinstance(value, SkillContent):
+        return skill_proposal(value)
+    raise TypeError("Candidate proposal belongs to an unsupported Artifact Family")  # noqa: TRY003
 
 
 def artifact_reference(value: ArtifactRef) -> ArtifactReference:

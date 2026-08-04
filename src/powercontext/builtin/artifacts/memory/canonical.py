@@ -1,4 +1,4 @@
-"""Canonical Memory encodings, hashes, validation, and search analysis."""
+"""Canonical Memory encodings, hashes, and validation."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
-from itertools import pairwise
 from typing import Literal, cast
 
 import rfc8785
@@ -250,51 +249,6 @@ def canonical_embedding(
     return validate_embedding(values, dimension=dimension)
 
 
-def analyze_text(value: str) -> str:
-    """Apply Analyzer v1 and return space-delimited backend-safe terms."""
-
-    normalized = unicodedata.normalize("NFC", value).casefold()
-    terms: list[str] = []
-    word: list[str] = []
-    cjk: list[str] = []
-
-    def flush_word() -> None:
-        if word:
-            terms.append("".join(word))
-            word.clear()
-
-    def flush_cjk() -> None:
-        if not cjk:
-            return
-        points = tuple(ord(character) for character in cjk)
-        terms.extend(f"u_{point:x}" for point in points)
-        terms.extend(f"b_{left:x}_{right:x}" for left, right in pairwise(points))
-        cjk.clear()
-
-    for character in normalized:
-        if _is_cjk(character):
-            flush_word()
-            cjk.append(character)
-        elif character.isalnum() or character == "_":
-            flush_cjk()
-            word.append(character)
-        else:
-            flush_word()
-            flush_cjk()
-    flush_word()
-    flush_cjk()
-    return " ".join(terms)
-
-
-def fts_match_query(value: str) -> str | None:
-    """Build a MATCH expression solely from Analyzer v1 output tokens."""
-
-    analyzed = analyze_text(value)
-    if not analyzed:
-        return None
-    return " OR ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in analyzed.split())
-
-
 def _normalize_non_empty_string(value: str, label: str) -> str:
     if not isinstance(value, str):
         raise _CanonicalTypeError("string", label)
@@ -338,13 +292,3 @@ def _normalize_unicode(value: object) -> object:
     if isinstance(value, Sequence) and not isinstance(value, bytes | bytearray | memoryview):
         return [_normalize_unicode(item) for item in value]
     raise _CanonicalTypeError("json-value", type(value).__name__)
-
-
-def _is_cjk(character: str) -> bool:
-    point = ord(character)
-    return (
-        0x3400 <= point <= 0x4DBF
-        or 0x4E00 <= point <= 0x9FFF
-        or 0xF900 <= point <= 0xFAFF
-        or 0x20000 <= point <= 0x2FA1F
-    )

@@ -18,14 +18,19 @@ from powercontext.cli.app import create_cli
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
     ApproveArtifactCandidateRequest,
+    CandidateFamily,
     CaptureContentSourceRequest,
     ExperienceProposal,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
+    GetSkillRequest,
     ListArtifactCandidatesRequest,
     PrepareContextRequest,
     ProposeExperienceRequest,
+    ProposeSkillRequest,
     ReviseArtifactCandidateRequest,
+    SkillProposal,
+    SkillValidationItem,
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
@@ -46,6 +51,20 @@ def _proposal(lesson: str) -> ExperienceProposal:
         action="Regenerate the Client and run contract tests.",
         outcome="The generated transport matches the contract.",
         lesson=lesson,
+    )
+
+
+def _skill_proposal(
+    instructions: str = "Regenerate the Client, inspect the diff, and run contract tests.",
+) -> SkillProposal:
+    return SkillProposal(
+        name="powercontext-openapi-change",
+        description="Use when changing PowerContext's public HTTP contract.",
+        instructions=instructions,
+        validation=[
+            SkillValidationItem("make api-generate-check passes"),
+            SkillValidationItem("make contract-test passes"),
+        ],
     )
 
 
@@ -124,18 +143,90 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
             experience = await client.get_experience(
                 GetExperienceRequest(scope_id=scope_id, artifact=approved.result_artifact)
             )
+            approved_context = await client.prepare_context(
+                PrepareContextRequest(
+                    scope_id=scope_id,
+                    query="Regenerate and inspect the Client before contract tests.",
+                )
+            )
             exact_candidate = await client.get_artifact_candidate(
                 GetArtifactCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id)
             )
 
-            assert capabilities.artifact_families == ["memory", "experience", "handoff"]
+            skill_candidate = await client.propose_skill(
+                ProposeSkillRequest(
+                    scope_id=scope_id,
+                    proposal=_skill_proposal(),
+                    source_refs=[],
+                    artifact_refs=[experience.artifact],
+                    reason="Incubated from the approved Experience.",
+                )
+            )
+            skill_inbox = await client.list_artifact_candidates(
+                ListArtifactCandidatesRequest(scope_id=scope_id, family=CandidateFamily.SKILL)
+            )
+            skill_approval = await client.approve_artifact_candidate(
+                ApproveArtifactCandidateRequest(
+                    scope_id=scope_id,
+                    candidate_id=skill_candidate.candidate_id,
+                    expected_version=1,
+                )
+            )
+            assert skill_approval.result_artifact is not None
+            first_skill = await client.get_skill(
+                GetSkillRequest(scope_id=scope_id, artifact=skill_approval.result_artifact)
+            )
+            usage = await client.capture_content_source(
+                CaptureContentSourceRequest(
+                    scope_id=scope_id,
+                    source_id="task-2",
+                    content="The managed Skill was used and validation passed.",
+                )
+            )
+            replacement = await client.propose_skill(
+                ProposeSkillRequest(
+                    scope_id=scope_id,
+                    proposal=_skill_proposal(
+                        "Regenerate the Client, inspect the diff, run generation checks, and then run contract tests."
+                    ),
+                    source_refs=[usage.source],
+                    artifact_refs=[first_skill.artifact],
+                    target=first_skill.artifact,
+                    reason="Usage evidence made the generation check explicit.",
+                )
+            )
+            replacement_approval = await client.approve_artifact_candidate(
+                ApproveArtifactCandidateRequest(
+                    scope_id=scope_id,
+                    candidate_id=replacement.candidate_id,
+                    expected_version=1,
+                )
+            )
+            assert replacement_approval.result_artifact is not None
+            second_skill = await client.get_skill(
+                GetSkillRequest(scope_id=scope_id, artifact=replacement_approval.result_artifact)
+            )
+            historical_skill = await client.get_skill(GetSkillRequest(scope_id=scope_id, artifact=first_skill.artifact))
+
+            assert capabilities.artifact_families == ["memory", "experience", "skill", "handoff"]
             assert inbox.candidates == [candidate]
             assert prepared.status == "empty"
             assert revised.version == 2
             assert (stale.value.status_code, stale.value.code) == (409, "candidate_conflict")
             assert experience.content == revised.proposal
             assert experience.source_refs == [captured.source]
+            assert approved_context.status == "ready"
+            assert approved_context.content is not None
+            assert '"kind":"experience"' in approved_context.content
+            assert approved.result_artifact.artifact_id in approved_context.content
             assert exact_candidate == approved
+            assert skill_inbox.candidates == [skill_candidate]
+            assert first_skill.artifact.family == "skill"
+            assert first_skill.artifact_refs == [experience.artifact]
+            assert second_skill.artifact.revision == 2
+            assert second_skill.source_refs == [usage.source]
+            assert second_skill.artifact_refs == [first_skill.artifact]
+            assert historical_skill == first_skill
 
     asyncio.run(scenario())
 
@@ -183,6 +274,10 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
             assert self._client is not None
             return await self._client.revise_artifact_candidate(request)
 
+        async def get_skill(self, request):
+            assert self._client is not None
+            return await self._client.get_skill(request)
+
     monkeypatch.setattr(client_cli, "PowerContextClient", InProcessClient)
     cli = create_cli([client_cli.app])
     runner = CliRunner()
@@ -210,25 +305,35 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
                 "artifact_refs": [],
             },
         ).json()
-        revision_file = tmp_path / "revision.json"
-        revision_file.write_text(
-            ReviseArtifactCandidateRequest(
-                scope_id="project",
-                candidate_id=first["candidate_id"],
-                expected_version=1,
-                proposal=_proposal("Revised lesson."),
-                source_refs=[captured["source"]],
-                artifact_refs=[],
-            ).model_dump_json(),
-            encoding="utf-8",
-        )
-
         listed = runner.invoke(cli, ["client", "candidate", "list", "--scope-id", "project"])
         shown = runner.invoke(
             cli,
             ["client", "candidate", "show", "--scope-id", "project", first["candidate_id"]],
         )
-        revised = runner.invoke(cli, ["client", "candidate", "revise", str(revision_file)])
+        revised = runner.invoke(
+            cli,
+            [
+                "client",
+                "candidate",
+                "revise",
+                "experience",
+                "--scope-id",
+                "project",
+                "--expected-version",
+                "1",
+                "--situation",
+                "The public OpenAPI contract changes.",
+                "--action",
+                "Regenerate the Client and run contract tests.",
+                "--outcome",
+                "The generated transport matches the contract.",
+                "--lesson",
+                "Revised lesson.",
+                "--source-ref",
+                "content/task-1",
+                first["candidate_id"],
+            ],
+        )
         approved = runner.invoke(
             cli,
             [
@@ -257,10 +362,78 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
                 second["candidate_id"],
             ],
         )
+        approved_head = transport.post(
+            "/v1/artifact-candidates/get",
+            json={"scope_id": "project", "candidate_id": first["candidate_id"]},
+        ).json()
+        experience_ref = approved_head["result_artifact"]
+        skill_candidate = transport.post(
+            "/v1/skill/propose",
+            json={
+                "scope_id": "project",
+                "proposal": _skill_proposal().model_dump(mode="json"),
+                "source_refs": [],
+                "artifact_refs": [experience_ref],
+            },
+        ).json()
+        skill_approved = transport.post(
+            "/v1/artifact-candidates/approve",
+            json={
+                "scope_id": "project",
+                "candidate_id": skill_candidate["candidate_id"],
+                "expected_version": 1,
+            },
+        ).json()
+        skill_ref = skill_approved["result_artifact"]
+        projection = tmp_path / "repo" / ".agents" / "skills" / "powercontext-openapi-change"
+        skill_shown = runner.invoke(
+            cli,
+            [
+                "client",
+                "skill",
+                "show",
+                "--scope-id",
+                "project",
+                "--revision",
+                str(skill_ref["revision"]),
+                skill_ref["artifact_id"],
+            ],
+        )
+        skill_projected = runner.invoke(
+            cli,
+            [
+                "client",
+                "skill",
+                "export",
+                "--target",
+                "codex",
+                "--scope-id",
+                "project",
+                "--revision",
+                str(skill_ref["revision"]),
+                "--destination",
+                str(projection),
+                skill_ref["artifact_id"],
+            ],
+        )
 
-    assert all(result.exit_code == 0 for result in (listed, shown, revised, approved, rejected))
+    assert all(
+        result.exit_code == 0
+        for result in (
+            listed,
+            shown,
+            revised,
+            approved,
+            rejected,
+            skill_shown,
+            skill_projected,
+        )
+    )
     assert first["candidate_id"] in listed.output
     assert first["candidate_id"] in shown.output
     assert '"version": 2' in revised.output
     assert '"status": "approved"' in approved.output
     assert '"status": "rejected"' in rejected.output
+    assert skill_ref["artifact_id"] in skill_shown.output
+    assert "Exported" in skill_projected.output
+    assert (projection / "SKILL.md").is_file()

@@ -3,36 +3,66 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, TypeAlias
+from typing import Annotated, Never, TypeAlias
 
 import typer
 from pydantic import SecretStr, ValidationError
 
+from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.client.client import PowerContextClient
 from powercontext.client.errors import ClientError
+from powercontext.client.projections import SkillExportTarget, export_skill
 from powercontext.client.settings import ClientSettings
 from powercontext.http import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
+    ArtifactReference,
     CandidateFamily,
     CandidateStatus,
     Capabilities,
+    ExperienceProposal,
+    ExternalSkillImportMode,
+    ExternalSkillResolution,
+    GeneratedCandidateResponse,
+    GenerateExperienceRequest,
+    GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetSkillRequest,
     HealthResponse,
+    ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
+    ListExternalSkillsRequest,
+    ListExternalSkillsResponse,
     ReadinessResponse,
     RejectArtifactCandidateRequest,
+    ResolveExternalSkillRequest,
     ReviseArtifactCandidateRequest,
+    ScanExternalSkillsRequest,
+    ScanExternalSkillsResponse,
+    SkillArtifact,
+    SkillGenerationOrigin,
+    SkillProposal,
+    SkillValidationItem,
+    SourceReference,
 )
 
 HELP_OPTION_NAMES = ("-h", "--help")
 _ClientResponse: TypeAlias = (
-    ArtifactCandidate | ArtifactCandidatePage | Capabilities | HealthResponse | ReadinessResponse
+    ArtifactCandidate
+    | ArtifactCandidatePage
+    | Capabilities
+    | ExternalSkillResolution
+    | GeneratedCandidateResponse
+    | HealthResponse
+    | ListExternalSkillsResponse
+    | ReadinessResponse
+    | ScanExternalSkillsResponse
+    | SkillArtifact
 )
 _ClientOperation: TypeAlias = Callable[[PowerContextClient], Awaitable[_ClientResponse]]
 
@@ -48,7 +78,35 @@ candidate_app = typer.Typer(
     help="Inspect and review Artifact Candidates.",
     no_args_is_help=True,
 )
+candidate_revise_app = typer.Typer(
+    name="revise",
+    context_settings={"help_option_names": HELP_OPTION_NAMES},
+    help="Append a complete replacement proposal to a Candidate.",
+    no_args_is_help=True,
+)
+experience_app = typer.Typer(
+    name="experience",
+    context_settings={"help_option_names": HELP_OPTION_NAMES},
+    help="Generate reviewed Experience Candidates.",
+    no_args_is_help=True,
+)
+skill_app = typer.Typer(
+    name="skill",
+    context_settings={"help_option_names": HELP_OPTION_NAMES},
+    help="Read and explicitly export approved managed Skills.",
+    no_args_is_help=True,
+)
+external_skill_app = typer.Typer(
+    name="external-skill",
+    context_settings={"help_option_names": HELP_OPTION_NAMES},
+    help="Discover and exactly resolve Agent-native Skills on the Server host.",
+    no_args_is_help=True,
+)
+candidate_app.add_typer(candidate_revise_app, name="revise")
 app.add_typer(candidate_app, name="candidate")
+app.add_typer(experience_app, name="experience")
+app.add_typer(skill_app, name="skill")
+app.add_typer(external_skill_app, name="external-skill")
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,24 +237,290 @@ def reject_candidate(
     asyncio.run(_execute(context, lambda client: client.reject_artifact_candidate(request)))
 
 
-@candidate_app.command("revise")
-def revise_candidate(
+@candidate_revise_app.command("experience")
+def revise_experience_candidate(
     context: typer.Context,
-    request_file: Annotated[
-        Path,
-        typer.Argument(
-            exists=True, dir_okay=False, readable=True, help="JSON file containing the complete revision request."
-        ),
-    ],
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the Candidate.")],
+    candidate_id: Annotated[str, typer.Argument(help="Candidate identity.")],
+    expected_version: Annotated[int, typer.Option(min=1, help="Exact reviewed Candidate version.")],
+    situation: Annotated[str, typer.Option(help="Situation addressed by the replacement proposal.")],
+    action: Annotated[str, typer.Option(help="Action taken in the replacement proposal.")],
+    outcome: Annotated[str, typer.Option(help="Observed outcome in the replacement proposal.")],
+    lesson: Annotated[str, typer.Option(help="Reusable lesson in the replacement proposal.")],
+    source_ref: Annotated[
+        list[str] | None,
+        typer.Option("--source-ref", help="Exact Source as TYPE/ID; repeat for more evidence."),
+    ] = None,
+    artifact_ref: Annotated[
+        list[str] | None,
+        typer.Option("--artifact-ref", help="Exact Artifact as FAMILY/ID@REVISION; repeat for more evidence."),
+    ] = None,
+    target: Annotated[
+        str | None,
+        typer.Option(help="Exact replacement target as FAMILY/ID@REVISION; automatically included as evidence."),
+    ] = None,
+    reason: Annotated[str | None, typer.Option(help="Why this replacement proposal is requested.")] = None,
 ) -> None:
-    """Append a complete replacement proposal from a JSON request file."""
+    """Append a complete Experience replacement proposal."""
 
     try:
-        request = ReviseArtifactCandidateRequest.model_validate_json(request_file.read_text(encoding="utf-8"))
-    except (OSError, ValidationError, json.JSONDecodeError) as error:
-        typer.echo(f"Invalid Candidate revision request: {error}", err=True)
-        raise typer.Exit(code=2) from error
+        sources, artifacts, target_ref = _evidence_references(source_ref, artifact_ref, target)
+        _require_target_family(target_ref, family="experience")
+        request = ReviseArtifactCandidateRequest(
+            scope_id=scope_id,
+            candidate_id=candidate_id,
+            expected_version=expected_version,
+            proposal=ExperienceProposal(
+                situation=situation,
+                action=action,
+                outcome=outcome,
+                lesson=lesson,
+            ),
+            source_refs=sources,
+            artifact_refs=artifacts,
+            target=target_ref,
+            reason=reason,
+        )
+    except ValidationError as error:
+        _raise_invalid_request("Experience Candidate revision", error)
     asyncio.run(_execute(context, lambda client: client.revise_artifact_candidate(request)))
+
+
+@candidate_revise_app.command("skill")
+def revise_skill_candidate(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the Candidate.")],
+    candidate_id: Annotated[str, typer.Argument(help="Candidate identity.")],
+    expected_version: Annotated[int, typer.Option(min=1, help="Exact reviewed Candidate version.")],
+    name: Annotated[str, typer.Option(help="Managed Skill name.")],
+    description: Annotated[str, typer.Option(help="Managed Skill discovery description.")],
+    instructions: Annotated[
+        str | None,
+        typer.Option(help="Managed Skill instructions; mutually exclusive with --instructions-file."),
+    ] = None,
+    instructions_file: Annotated[
+        Path | None,
+        typer.Option(
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="UTF-8 file containing managed Skill instructions; mutually exclusive with --instructions.",
+        ),
+    ] = None,
+    validation: Annotated[
+        list[str] | None,
+        typer.Option("--validation", help="Validation check; repeat for additional checks."),
+    ] = None,
+    source_ref: Annotated[
+        list[str] | None,
+        typer.Option("--source-ref", help="Exact Source as TYPE/ID; repeat for more evidence."),
+    ] = None,
+    artifact_ref: Annotated[
+        list[str] | None,
+        typer.Option("--artifact-ref", help="Exact Artifact as FAMILY/ID@REVISION; repeat for more evidence."),
+    ] = None,
+    target: Annotated[
+        str | None,
+        typer.Option(help="Exact replacement target as FAMILY/ID@REVISION; automatically included as evidence."),
+    ] = None,
+    reason: Annotated[str | None, typer.Option(help="Why this replacement proposal is requested.")] = None,
+) -> None:
+    """Append a complete managed Skill replacement proposal."""
+
+    try:
+        sources, artifacts, target_ref = _evidence_references(source_ref, artifact_ref, target)
+        _require_target_family(target_ref, family="skill")
+        request = ReviseArtifactCandidateRequest(
+            scope_id=scope_id,
+            candidate_id=candidate_id,
+            expected_version=expected_version,
+            proposal=SkillProposal(
+                name=name,
+                description=description,
+                instructions=_instructions(instructions, instructions_file),
+                validation=[SkillValidationItem(item) for item in validation or ()],
+            ),
+            source_refs=sources,
+            artifact_refs=artifacts,
+            target=target_ref,
+            reason=reason,
+        )
+    except ValidationError as error:
+        _raise_invalid_request("managed Skill Candidate revision", error)
+    asyncio.run(_execute(context, lambda client: client.revise_artifact_candidate(request)))
+
+
+@skill_app.command("show")
+def show_skill(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the managed Skill.")],
+    artifact_id: Annotated[str, typer.Argument(help="Managed Skill Artifact identity.")],
+    revision: Annotated[int, typer.Option(min=1, help="Exact managed Skill Revision.")],
+) -> None:
+    """Read one exact approved managed Skill Revision."""
+
+    request = GetSkillRequest(
+        scope_id=scope_id,
+        artifact=ArtifactReference(family="skill", artifact_id=artifact_id, revision=revision),
+    )
+    asyncio.run(_execute(context, lambda client: client.get_skill(request)))
+
+
+@experience_app.command("generate")
+def generate_experience(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope receiving the generated Candidate.")],
+    source_ref: Annotated[
+        list[str] | None,
+        typer.Option("--source-ref", help="Exact Source as TYPE/ID; repeat for more evidence."),
+    ] = None,
+    artifact_ref: Annotated[
+        list[str] | None,
+        typer.Option("--artifact-ref", help="Exact Artifact as FAMILY/ID@REVISION; repeat for more evidence."),
+    ] = None,
+    target: Annotated[
+        str | None,
+        typer.Option(help="Exact replacement target as FAMILY/ID@REVISION; automatically included as evidence."),
+    ] = None,
+    reason: Annotated[str | None, typer.Option(help="Why this generation is requested.")] = None,
+) -> None:
+    """Generate at most one pending Experience Candidate."""
+
+    try:
+        sources, artifacts, target_ref = _evidence_references(source_ref, artifact_ref, target)
+        _require_target_family(target_ref, family="experience")
+        request = GenerateExperienceRequest(
+            scope_id=scope_id,
+            source_refs=sources,
+            artifact_refs=artifacts,
+            target=target_ref,
+            reason=reason,
+        )
+    except ValidationError as error:
+        _raise_invalid_request("Experience generation", error)
+    asyncio.run(_execute(context, lambda client: client.generate_experience(request)))
+
+
+@skill_app.command("generate")
+def generate_skill(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope receiving the generated Candidate.")],
+    origin: Annotated[SkillGenerationOrigin, typer.Option(help="Provenance shape for the generated managed Skill.")],
+    source_ref: Annotated[
+        list[str] | None,
+        typer.Option("--source-ref", help="Exact Source as TYPE/ID; repeat for more evidence."),
+    ] = None,
+    artifact_ref: Annotated[
+        list[str] | None,
+        typer.Option("--artifact-ref", help="Exact Artifact as FAMILY/ID@REVISION; repeat for more evidence."),
+    ] = None,
+    target: Annotated[
+        str | None,
+        typer.Option(help="Exact evolution target as FAMILY/ID@REVISION; automatically included as evidence."),
+    ] = None,
+    reason: Annotated[str | None, typer.Option(help="Why this generation is requested.")] = None,
+) -> None:
+    """Generate at most one pending managed Skill Candidate."""
+
+    try:
+        sources, artifacts, target_ref = _evidence_references(source_ref, artifact_ref, target)
+        _validate_skill_generation_origin(origin, sources, artifacts, target_ref)
+        request = GenerateSkillRequest(
+            scope_id=scope_id,
+            origin=origin,
+            source_refs=sources,
+            artifact_refs=artifacts,
+            target=target_ref,
+            reason=reason,
+        )
+    except ValidationError as error:
+        _raise_invalid_request("managed Skill generation", error)
+    asyncio.run(_execute(context, lambda client: client.generate_skill(request)))
+
+
+@external_skill_app.command("scan")
+def scan_external_skills(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope receiving the local Registry projection.")],
+) -> None:
+    """Refresh explicitly configured local external Skill roots."""
+
+    request = ScanExternalSkillsRequest(scope_id=scope_id)
+    asyncio.run(_execute(context, lambda client: client.scan_external_skills(request)))
+
+
+@external_skill_app.command("list")
+def list_external_skills(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the local Registry projection.")],
+    include_unavailable: Annotated[
+        bool,
+        typer.Option(help="Include stale or missing local bindings for audit."),
+    ] = False,
+) -> None:
+    """List external Skills after live host and fingerprint checks."""
+
+    request = ListExternalSkillsRequest(scope_id=scope_id, include_unavailable=include_unavailable)
+    asyncio.run(_execute(context, lambda client: client.list_external_skills(request)))
+
+
+@external_skill_app.command("resolve")
+def resolve_external_skill(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the local Registry projection.")],
+    external_skill_id: Annotated[str, typer.Argument(help="Stable external Skill identity in the scope.")],
+    fingerprint: Annotated[str, typer.Option(help="Exact observed package SHA-256 fingerprint.")],
+) -> None:
+    """Resolve one exact local package version without fallback or installation."""
+
+    request = ResolveExternalSkillRequest(
+        scope_id=scope_id,
+        external_skill_id=external_skill_id,
+        fingerprint=fingerprint,
+    )
+    asyncio.run(_execute(context, lambda client: client.resolve_external_skill(request)))
+
+
+@external_skill_app.command("import")
+def import_external_skill(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope receiving the managed Candidate.")],
+    external_skill_id: Annotated[str, typer.Argument(help="Stable external Skill identity in the scope.")],
+    fingerprint: Annotated[str, typer.Option(help="Exact observed package SHA-256 fingerprint.")],
+    mode: Annotated[
+        ExternalSkillImportMode,
+        typer.Option(help="Whether to import or intentionally fork the selected package."),
+    ] = ExternalSkillImportMode.IMPORT,
+    reason: Annotated[str | None, typer.Option(help="Why this managed proposal is requested.")] = None,
+) -> None:
+    """Capture an exact local snapshot and propose a new managed Skill."""
+
+    request = ImportExternalSkillRequest(
+        scope_id=scope_id,
+        external_skill_id=external_skill_id,
+        fingerprint=fingerprint,
+        mode=mode,
+        reason=reason,
+    )
+    asyncio.run(_execute(context, lambda client: client.import_external_skill(request)))
+
+
+@skill_app.command("export")
+def export_managed_skill(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope containing the managed Skill.")],
+    artifact_id: Annotated[str, typer.Argument(help="Managed Skill Artifact identity.")],
+    target: Annotated[SkillExportTarget, typer.Option(help="Agent integration target.")],
+    destination: Annotated[
+        Path,
+        typer.Option(help="New target Skill directory to create; existing paths are never replaced."),
+    ],
+    revision: Annotated[int, typer.Option(min=1, help="Exact managed Skill Revision.")],
+) -> None:
+    """Export one exact approved Revision for an Agent integration target."""
+
+    request = _get_skill_request(scope_id, artifact_id, revision)
+    asyncio.run(_export_managed_skill(context, request, target, destination))
 
 
 def _options(context: typer.Context) -> _ClientOptions:
@@ -219,6 +543,172 @@ async def _execute(context: typer.Context, operation: _ClientOperation) -> None:
     _print_human_response(response)
 
 
+def _get_skill_request(scope_id: str, artifact_id: str, revision: int) -> GetSkillRequest:
+    return GetSkillRequest(
+        scope_id=scope_id,
+        artifact=ArtifactReference(family="skill", artifact_id=artifact_id, revision=revision),
+    )
+
+
+def _evidence_references(
+    source_values: list[str] | None,
+    artifact_values: list[str] | None,
+    target_value: str | None,
+) -> tuple[list[SourceReference], list[ArtifactReference], ArtifactReference | None]:
+    sources = _source_references(source_values or [])
+    artifacts = _artifact_references(artifact_values or [], parameter="--artifact-ref")
+    target = None if target_value is None else _artifact_reference(target_value, parameter="--target")
+    if target is not None and target not in artifacts:
+        artifacts.append(target)
+    return sources, artifacts, target
+
+
+def _source_references(values: list[str]) -> list[SourceReference]:
+    references: list[SourceReference] = []
+    seen: set[tuple[str, str]] = set()
+    for value in values:
+        name, separator, source_id = value.partition("/")
+        if not separator or not name or not source_id:
+            _raise_bad_parameter("expected TYPE/ID", parameter="--source-ref")
+        try:
+            reference = SourceReference(name=name, source_id=source_id)
+        except ValidationError as error:
+            _raise_bad_parameter(_validation_message(error), parameter="--source-ref", cause=error)
+        identity = (reference.name, reference.source_id)
+        if identity in seen:
+            _raise_bad_parameter(f"duplicate Source reference: {value}", parameter="--source-ref")
+        references.append(reference)
+        seen.add(identity)
+    return references
+
+
+def _artifact_references(values: list[str], *, parameter: str) -> list[ArtifactReference]:
+    references: list[ArtifactReference] = []
+    seen: set[tuple[str, str, int]] = set()
+    for value in values:
+        reference = _artifact_reference(value, parameter=parameter)
+        identity = (reference.family, reference.artifact_id, reference.revision)
+        if identity in seen:
+            _raise_bad_parameter(f"duplicate Artifact reference: {value}", parameter=parameter)
+        references.append(reference)
+        seen.add(identity)
+    return references
+
+
+def _artifact_reference(value: str, *, parameter: str) -> ArtifactReference:
+    family, family_separator, versioned_id = value.partition("/")
+    artifact_id, revision_separator, revision_text = versioned_id.rpartition("@")
+    if not family_separator or not family or not revision_separator or not artifact_id or not revision_text:
+        _raise_bad_parameter("expected FAMILY/ID@REVISION", parameter=parameter)
+    try:
+        revision = int(revision_text)
+        return ArtifactReference(family=family, artifact_id=artifact_id, revision=revision)
+    except (ValueError, ValidationError) as error:
+        _raise_bad_parameter(_validation_message(error), parameter=parameter, cause=error)
+
+
+def _require_target_family(target: ArtifactReference | None, *, family: str) -> None:
+    if target is not None and target.family != family:
+        _raise_bad_parameter(f"target must identify a {family} Artifact", parameter="--target")
+
+
+def _validate_skill_generation_origin(
+    origin: SkillGenerationOrigin,
+    sources: list[SourceReference],
+    artifacts: list[ArtifactReference],
+    target: ArtifactReference | None,
+) -> None:
+    if origin is SkillGenerationOrigin.EXPERIENCE:
+        if target is not None or not artifacts or any(reference.family != "experience" for reference in artifacts):
+            _raise_bad_parameter("experience origin requires Experience refs and no target", parameter="--origin")
+        return
+    if origin is SkillGenerationOrigin.SOURCE:
+        if target is not None or not sources or artifacts:
+            _raise_bad_parameter("source origin requires only Source refs", parameter="--origin")
+        return
+    if target is None or target.family != "skill" or not sources:
+        _raise_bad_parameter("usage origin requires a target Skill and Source refs", parameter="--origin")
+
+
+def _instructions(value: str | None, path: Path | None) -> str:
+    if value is not None:
+        if path is not None:
+            _raise_bad_parameter(
+                "provide exactly one of --instructions or --instructions-file",
+                parameter="--instructions",
+            )
+        return value
+    if path is None:
+        _raise_bad_parameter(
+            "provide exactly one of --instructions or --instructions-file",
+            parameter="--instructions",
+        )
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        _raise_bad_parameter(
+            f"cannot read UTF-8 instructions: {error}",
+            parameter="--instructions-file",
+            cause=error,
+        )
+
+
+def _raise_invalid_request(name: str, error: ValidationError) -> Never:
+    _raise_bad_parameter(f"invalid {name}: {_validation_message(error)}", cause=error)
+
+
+def _raise_bad_parameter(
+    message: str,
+    *,
+    parameter: str | None = None,
+    cause: BaseException | None = None,
+) -> Never:
+    raise typer.BadParameter(message, param_hint=parameter) from cause
+
+
+def _validation_message(error: ValueError | ValidationError) -> str:
+    if isinstance(error, ValidationError):
+        return "; ".join(item["msg"] for item in error.errors())
+    return str(error)
+
+
+async def _export_managed_skill(
+    context: typer.Context,
+    request: GetSkillRequest,
+    target: SkillExportTarget,
+    destination: Path,
+) -> None:
+    options = _options(context)
+    try:
+        token = None if options.api_token is None else options.api_token.get_secret_value()
+        async with PowerContextClient(options.server_url, token=token, timeout=options.timeout) as client:
+            response = await client.get_skill(request)
+        exported = export_skill(
+            ArtifactRef(
+                family=response.artifact.family,
+                artifact_id=response.artifact.artifact_id,
+                revision=response.artifact.revision,
+            ),
+            SkillContent(
+                name=response.content.name,
+                description=response.content.description,
+                instructions=response.content.instructions,
+                validation=tuple(item.root for item in response.content.validation),
+            ),
+            target,
+            destination,
+        )
+    except ClientError as error:
+        typer.echo(_error_message(error), err=True)
+        raise typer.Exit(code=1) from error
+    except (FileExistsError, OSError, ValueError) as error:
+        typer.echo(f"Cannot export managed Skill for {target.value}: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    typer.echo(
+        f"Exported {response.artifact.artifact_id}@{response.artifact.revision} for {target.value} to {exported}"
+    )
+
+
 def _error_message(error: ClientError) -> str:
     if error.request_id is None:
         return str(error)
@@ -231,6 +721,9 @@ def _print_human_response(response: _ClientResponse) -> None:
             typer.echo(f"Source types: {_items(response.source_types)}")
             typer.echo(f"Artifact families: {_items(response.artifact_families)}")
             typer.echo(f"Memory extraction: {'enabled' if response.memory_extraction else 'disabled'}")
+            typer.echo(f"Experience generation: {'enabled' if response.experience_generation else 'disabled'}")
+            typer.echo(f"Managed Skill generation: {'enabled' if response.managed_skill_generation else 'disabled'}")
+            typer.echo(f"External Skill Registry: {'enabled' if response.external_skill_registry else 'disabled'}")
             typer.echo(f"Handoff generation: {'enabled' if response.handoff_generation else 'disabled'}")
             typer.echo(f"Search modes: {_items(response.search_modes)}")
             typer.echo(f"Context versions: {_items(response.context_versions)}")
@@ -240,7 +733,16 @@ def _print_human_response(response: _ClientResponse) -> None:
                 typer.echo(f"{name}: {status}")
         case HealthResponse():
             typer.echo(f"Status: {response.status}")
-        case ArtifactCandidate() | ArtifactCandidatePage():
+        case (
+            ArtifactCandidate()
+            | ArtifactCandidatePage()
+            | ExternalSkillResolution()
+            | GeneratedCandidateResponse()
+            | ListExternalSkillsResponse()
+            | ScanExternalSkillsResponse()
+        ):
+            typer.echo(response.model_dump_json(indent=2))
+        case SkillArtifact():
             typer.echo(response.model_dump_json(indent=2))
 
 

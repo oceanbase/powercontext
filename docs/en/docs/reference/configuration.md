@@ -40,9 +40,12 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | unset | Scheduler interval; unset disables scheduling |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model identifier for Memory extraction |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation timeout |
+| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | unset | Experience incubation interval; unset disables that job |
+| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | unset | JSON object containing the host identity and explicit Codex Skill roots |
 
-When authentication is enabled, API and MCP requests must include
-`Authorization: Bearer <token>`. The liveness and readiness endpoints remain available without credentials.
+Static bearer authentication is disabled by default. When enabled, API and MCP requests must include
+`Authorization: Bearer <token>`; the liveness and readiness endpoints remain public. Plain HTTP should remain on a
+loopback address. Use TLS before exposing an authenticated Server over a network.
 
 Example with a controlled SQLite path and scheduled extraction:
 
@@ -58,9 +61,45 @@ command-line arguments, documentation, or Memory. Replace `provider:model-name` 
 Pydantic AI. Scheduled extraction requires both a generation model and
 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`. An explicit Memory write does not require either.
 
-Static bearer authentication is disabled by default. When enabled, it protects the HTTP API and external MCP endpoint;
-the liveness and readiness endpoints remain public. Plain HTTP should remain on a loopback address. Use TLS before
-exposing an authenticated Server over a network.
+The same configured generation model gates explicit Experience generation, managed Skill generation and evolution,
+and external Skill import or fork. Without it, these operations return a capability error before persisting a
+Candidate. Candidate Review, exact reads, and external Skill scan/list/resolve continue to work.
+
+Experience incubation is a separate APScheduler job with its own persisted Source cursor. Enable it with:
+
+```bash
+export POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS=30
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
+powercontext server run
+```
+
+Each activation inspects a fixed window of at most 32 Sources and exposes only Content Sources whose metadata contains
+`"kind": "task-outcome"` to the model. It creates pending Experience Candidates in the Review Inbox; it does not
+approve them, place them in PreparedContext, create a managed Skill, export it for Codex, or execute anything.
+The Memory and Experience jobs share the APScheduler sidecar under `POWERCONTEXT_HOME`, but keep independent job
+identities and business cursors. Unsetting one interval removes only that job.
+
+### External Codex Skills
+
+Configure host-local roots as one JSON value:
+
+```bash
+export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
+  "host_id": "workstation-1",
+  "codex_roots": [
+    {
+      "root_id": "repository",
+      "installation_scope": "project",
+      "path": "/srv/project/.agents/skills"
+    }
+  ]
+}'
+```
+
+Root IDs must be unique. Supported installation scopes are `user`, `project`, and `plugin`. PowerContext scans only
+the immediate Skill package directories under these explicit roots; it does not infer a home directory, install
+packages, or grant execution authority. The `host_id`, locator, and registration are local-environment state, not a
+cross-host or cross-Agent contract.
 
 To use OceanBase, provide its URL through your environment or secret manager:
 

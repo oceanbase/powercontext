@@ -129,18 +129,20 @@ Session/task 是可观察边界和触发点。Artifact identity 属于长期 sco
 [现有] SourceRef / ArtifactRef / immutable Artifact Revision / lineage / CAS
 [现有] ArtifactLineage 可以引用多个 exact SourceRef 和 ArtifactRef
 [依赖] RFC 0031 Candidate / Review Inbox
-[现有] Memory 与 Memory-backed PreparedContext
+[现有] Memory 与 PreparedContext v1
 
 [新增] Experience typed content 与跨任务演化规则
 [新增] PowerContext-managed Skill typed content 与演化规则
 [新增] 当前 Agent 环境中的 External Skill registration、可重建索引和本地 binding 语义
+[新增] 可重建的 approved Experience head FTS projection 与 PreparedContext recall
 
-[不改] Memory 写入、flush、MCP、Codex Hook 和当前 PreparedContext
+[不改] Memory 写入、flush、MCP、Codex Hook 和 PreparedContext v1 public envelope
 [不做] 跨 Agent/主机交接、自动安装、自动执行、格式转换、workflow engine 和权限授予
 ```
 
 “本地可用”是相对于当前 Agent kind、当前 host 和当前安装 scope 的判断，不是 Skill 的全局属性。本 RFC 不把本地
-registration 或 binding 序列化成跨 Agent contract，也不要求立即修改当前 Context Pack contract。
+registration 或 binding 序列化成跨 Agent contract。approved Experience recall 复用现有 source-neutral
+PreparedContext v1 envelope，不会让 Skill availability 变得可移植。
 
 ## 例子一：跨三个任务形成 Experience
 
@@ -446,8 +448,10 @@ Experience 与 managed Skill 复用现有 Artifact contract：
 - lineage 保存直接 SourceRef 和 ArtifactRef；
 - ArtifactStore CAS 防止基于过期 head 提交。
 
-External Skill Registry、全文/向量索引和 Agent binding 都是可重建 projection，不是新的内容权威。Builtin Runtime 不创建
-`experiences`、`skills` 等平行真相表；具体 registry persistence 可以复用通用 registry/projection 能力，在实现 RFC 中确定。
+External Skill Registry、全文/向量索引和 Agent binding 都是可重建 projection，不是新的内容权威。approved
+Experience recall 把确定性的 `searchable_text` 保存到现有通用 `pc_artifact_heads` row；SQLite 只额外创建 FTS5
+虚拟索引，OceanBase 直接索引该字段。Builtin Runtime 不创建 `pc_experience_heads`、`experiences`、`skills` 等平行
+真相或 projection 表；具体 registry persistence 可以复用通用 registry/projection 能力，在实现 RFC 中确定。
 
 当前通用 Artifact contract 没有 retire 语义，因此本 RFC 不增加自动淘汰或时间衰减。首版用 reviewed Revision 修正 managed
 内容，用 rescan 刷新 external registration。使用次数、任务数量和向量分数都不能静默删除或覆盖内容。
@@ -457,8 +461,8 @@ External Skill Registry、全文/向量索引和 Agent binding 都是可重建 p
 - pending/rejected Candidate 不进入 Artifact 或 Skill discovery；
 - approved Experience/managed Skill 可以通过 exact ArtifactRef 读取；
 - external registration 只有在当前 scope 可见、本地 binding 可用且 fingerprint 一致时才可被解析；
-- 本 RFC 不为 Experience/Skill 固定 FTS、vector、graph、sparse 或 reranker；
-- 当前 PreparedContext 继续只读取 active Memory；
+- approved Experience 当前 head 具有可重建 FTS projection；managed Skill 没有自动 recall 路径；
+- PreparedContext v1 在同一总 byte 预算内选择 active Memory 和最多两个相关 approved Experience；
 - 发布 managed Skill 只创建 host-local projection/binding，不改变内容权威。
 
 任何 Skill 都是不可信内容。Review、发现或本地 resolve 都不授予以下权限：
@@ -499,8 +503,9 @@ External Skill Registry、全文/向量索引和 Agent binding 都是可重建 p
 | LLM gate | 未配置模型时不生成 Experience/managed Skill Candidate，生成请求返回 typed capability error |
 | No-LLM baseline | 本地 external discovery、已有 Candidate Review 和 approved Artifact exact read 仍可工作 |
 | Retrieval gate | pending/rejected 内容不进入 Artifact 或 Skill discovery |
+| Experience recall | 只有 approved Experience 当前 head 可进入 scope-local FTS recall 与 PreparedContext |
 | Execution boundary | discovered/approved/resolved Skill 都不自动安装、加载、执行或获得权限 |
-| Compatibility | Memory、flush、MCP、Codex Hook 和当前 PreparedContext 行为保持不变 |
+| Compatibility | Memory item rendering、flush、MCP、Codex Hook 和 PreparedContext v1 public envelope 保持不变 |
 
 # Drawbacks
 
@@ -551,7 +556,7 @@ External Skill Registry、全文/向量索引和 Agent binding 都是可重建 p
 - scripts、templates 和 assets 的 managed package format；
 - 跨 Agent/主机 Skill 交接、自动安装、发布、卸载和格式转换；
 - Experience/Skill 的 retire、排序和使用归因；
-- Experience/Skill 进入 multi-Artifact Context Profile 的选择和预算规则。
+- Skill 与后续 contributor 进入 multi-Artifact Context Profile 的选择和预算规则。
 
 # Future possibilities
 
@@ -559,8 +564,8 @@ External Skill Registry、全文/向量索引和 Agent binding 都是可重建 p
 
 - 由 Skill 使用反馈生成新的 Experience 或 managed Skill Candidate；
 - 将 external Skill 显式 import/fork 为可治理的 managed Skill；
-- 为 approved Experience/managed Skill 和 external descriptors 建立可重建搜索 projection；
-- 在 multi-Artifact Context Profile 中统一选择 Memory、Experience 和 Skill，并只预算一次；
+- 为 managed Skill 和 external descriptors 建立可重建搜索 projection；
+- 决定是否让 Skill 加入已有 Memory 与 Experience 的 multi-Artifact Context Profile；
 - 用固定任务评测本地 availability、freshness、conflict 和 useful-use rate；
 - 只有评测证明增益后，再考虑 graph、sparse、reranker、自动推荐和自动发布。
 

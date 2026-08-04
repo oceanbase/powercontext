@@ -145,20 +145,21 @@ written from official documentation or human input without first deriving an Exp
 [existing] SourceRef / ArtifactRef / immutable Artifact Revision / lineage / CAS
 [existing] ArtifactLineage can cite multiple exact SourceRef and ArtifactRef values
 [dependency] RFC 0031 Candidate / Review Inbox
-[existing] Memory and Memory-backed PreparedContext
+[existing] Memory and PreparedContext v1
 
 [new] Experience typed content and cross-task evolution rules
 [new] PowerContext-managed Skill typed content and evolution rules
 [new] External Skill registration, rebuildable index, and local binding semantics in the current Agent environment
+[new] Rebuildable approved Experience head FTS projection and PreparedContext recall
 
-[unchanged] Memory writes, flush, MCP, Codex Hook, and current PreparedContext
+[unchanged] Memory writes, flush, MCP, Codex Hook, and the PreparedContext v1 public envelope
 [not included] Cross-Agent/host handoff, automatic installation, execution, format conversion, workflow engine, or
 permission grants
 ```
 
 "Locally available" is relative to the current Agent kind, host, and installation scope rather than a global property of
-a Skill. This RFC does not serialize a local registration or binding into a cross-Agent contract and does not require an
-immediate change to the current Context Pack contract.
+a Skill. This RFC does not serialize a local registration or binding into a cross-Agent contract. Approved Experience
+recall uses the existing source-neutral PreparedContext v1 envelope; it does not make Skill availability portable.
 
 ## Example 1: build Experience across three tasks
 
@@ -482,8 +483,10 @@ Experience and managed Skill reuse the existing Artifact contract:
 - ArtifactStore CAS prevents a write based on a stale head.
 
 External Skill Registry, text/vector indexes, and Agent bindings are rebuildable projections rather than content
-authorities. Builtin Runtime creates no parallel `experiences` or `skills` truth tables. A later implementation RFC may
-choose persistence for the Registry by reusing general registry/projection capabilities.
+authorities. Approved Experience recall stores deterministic `searchable_text` on the existing generic
+`pc_artifact_heads` row; SQLite adds only its FTS5 virtual index, while OceanBase indexes that field directly. Builtin
+Runtime creates no parallel `pc_experience_heads`, `experiences`, or `skills` truth/projection table. A later
+implementation RFC may choose persistence for the Registry by reusing general registry/projection capabilities.
 
 The current Artifact contract has no retirement semantics, so this RFC adds no automatic retirement or time decay.
 Reviewed Revisions correct managed content, while rescans refresh external registration. Usage counts, task counts, and
@@ -495,8 +498,8 @@ vector scores cannot silently delete or overwrite content.
 - approved Experience and managed Skill can be read through an exact ArtifactRef;
 - external registration resolves only when visible in the current scope, its local binding is available, and its
   fingerprint matches;
-- this RFC does not fix FTS, vector, graph, sparse, or reranking for Experience or Skill;
-- current PreparedContext continues to read only active Memory;
+- approved current Experience heads have a rebuildable FTS projection; managed Skill has no automatic recall path;
+- PreparedContext v1 selects active Memory plus at most two relevant approved Experiences under one total byte budget;
 - publishing a managed Skill only creates a host-local projection or binding and does not change content authority.
 
 Every Skill remains untrusted content. Review, discovery, or local resolution grants no authority to:
@@ -538,8 +541,9 @@ None of the slices requires a generic distillation framework, complex ranking, o
 | LLM gate | Without a configured model, no Experience/managed Skill Candidate is generated and generation returns a typed capability error |
 | No-LLM baseline | Local external discovery, existing Candidate Review, and approved Artifact exact read still work |
 | Retrieval gate | Pending and rejected content never enters Artifact or Skill discovery |
+| Experience recall | Only approved current Experience heads are eligible for scope-local FTS recall and PreparedContext |
 | Execution boundary | Discovered, approved, or resolved Skills are not automatically installed, loaded, executed, or authorized |
-| Compatibility | Memory, flush, MCP, Codex Hook, and current PreparedContext behavior remain unchanged |
+| Compatibility | Memory item rendering, flush, MCP, Codex Hook, and the PreparedContext v1 public envelope remain unchanged |
 
 # Drawbacks
 
@@ -593,7 +597,7 @@ The following do not block this RFC:
 - a managed package format for scripts, templates, and assets;
 - cross-Agent/host Skill handoff, automatic installation, publication, removal, and format conversion;
 - retirement, ranking, and usage attribution for Experience and Skill;
-- selection and budgeting rules for Experience/Skill in a multi-Artifact Context Profile.
+- selection and budgeting rules for Skill and any later contributor in a multi-Artifact Context Profile.
 
 # Future possibilities
 
@@ -601,8 +605,8 @@ After real cross-task data exists, PowerContext may:
 
 - generate new Experience or managed Skill Candidates from Skill usage feedback;
 - explicitly import or fork an external Skill into a governed managed Skill;
-- build rebuildable search projections for approved Experience/managed Skill and external descriptors;
-- select Memory, Experience, and Skill in one multi-Artifact Context Profile with one shared budget;
+- build rebuildable search projections for managed Skill and external descriptors;
+- decide whether Skill should join Memory and Experience in a multi-Artifact Context Profile;
 - evaluate local availability, freshness, conflict, and useful-use rate on fixed tasks;
 - consider graph, sparse retrieval, reranking, automatic recommendation, and automatic publication only after measured
   benefit.

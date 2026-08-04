@@ -28,7 +28,6 @@ from powercontext.builtin.artifacts.memory import (
     MemoryUnitOfWork,
 )
 from powercontext.builtin.artifacts.memory.canonical import (
-    analyze_text,
     canonical_embedding,
     embedding_content_hash,
     entry_content_hash,
@@ -38,6 +37,7 @@ from powercontext.builtin.artifacts.memory.errors import (
     InvalidMemoryCitationError,
     MemoryBackendConfigurationError,
 )
+from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes

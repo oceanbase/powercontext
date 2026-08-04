@@ -9,7 +9,6 @@ from uuid import uuid4
 
 from powercontext.artifacts import Artifact, ArtifactLineage, ArtifactRef
 from powercontext.builtin.artifacts.memory.canonical import (
-    analyze_text,
     canonical_embedding,
     canonical_json,
     embedding_content_hash,
@@ -61,6 +60,7 @@ from powercontext.builtin.artifacts.memory.ranking import (
     admit_vector_candidates,
     fuse_rankings,
 )
+from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import (
     EmbeddingModel,
     EmbeddingVector,

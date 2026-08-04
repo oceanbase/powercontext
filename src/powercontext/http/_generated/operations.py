@@ -18,17 +18,25 @@ from powercontext.http._generated.models import (
     CommittedHandoff,
     ContinueHandoffRequest,
     ExperienceArtifact,
+    ExternalSkillResolution,
     FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    GeneratedCandidateResponse,
+    GenerateExperienceRequest,
+    GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
+    GetSkillRequest,
     HandoffActivation,
     HandoffDraft,
     HandoffResolution,
     HealthResponse,
+    ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
+    ListExternalSkillsRequest,
+    ListExternalSkillsResponse,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -40,14 +48,19 @@ from powercontext.http._generated.models import (
     PreparedHandoff,
     PrepareHandoffRequest,
     ProposeExperienceRequest,
+    ProposeSkillRequest,
     ReadinessResponse,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
+    ResolveExternalSkillRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
+    ScanExternalSkillsRequest,
+    ScanExternalSkillsResponse,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SkillArtifact,
 )
 
 OPENAPI_VERSION = "3.0.3"
@@ -479,6 +492,28 @@ PROPOSE_EXPERIENCE = Operation[ProposeExperienceRequest, ArtifactCandidate](
     },
 )
 
+GENERATE_EXPERIENCE = Operation[GenerateExperienceRequest, GeneratedCandidateResponse](
+    method="POST",
+    path="/v1/experience/generate",
+    operation_id="generate_experience",
+    request_type=GenerateExperienceRequest,
+    response_type=GeneratedCandidateResponse,
+    success_status=200,
+    summary="Generate an Experience Candidate",
+    tags=("experience",),
+    responses={
+        200: {
+            "description": "A pending Candidate or an explicit semantic no-op.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
 GET_EXPERIENCE = Operation[GetExperienceRequest, ExperienceArtifact](
     method="POST",
     path="/v1/experience/get",
@@ -494,6 +529,159 @@ GET_EXPERIENCE = Operation[GetExperienceRequest, ExperienceArtifact](
             "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+PROPOSE_SKILL = Operation[ProposeSkillRequest, ArtifactCandidate](
+    method="POST",
+    path="/v1/skill/propose",
+    operation_id="propose_skill",
+    request_type=ProposeSkillRequest,
+    response_type=ArtifactCandidate,
+    success_status=201,
+    summary="Propose managed Skill content",
+    tags=("skill",),
+    responses={
+        201: {
+            "description": "The pending managed Skill Candidate.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GENERATE_SKILL = Operation[GenerateSkillRequest, GeneratedCandidateResponse](
+    method="POST",
+    path="/v1/skill/generate",
+    operation_id="generate_skill",
+    request_type=GenerateSkillRequest,
+    response_type=GeneratedCandidateResponse,
+    success_status=200,
+    summary="Generate a managed Skill Candidate",
+    tags=("skill",),
+    responses={
+        200: {
+            "description": "A pending Candidate or an explicit semantic no-op.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_SKILL = Operation[GetSkillRequest, SkillArtifact](
+    method="POST",
+    path="/v1/skill/get",
+    operation_id="get_skill",
+    request_type=GetSkillRequest,
+    response_type=SkillArtifact,
+    success_status=200,
+    summary="Get an exact managed Skill Revision",
+    tags=("skill",),
+    responses={
+        200: {
+            "description": "The exact approved managed Skill Revision.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+SCAN_EXTERNAL_SKILLS = Operation[ScanExternalSkillsRequest, ScanExternalSkillsResponse](
+    method="POST",
+    path="/v1/external-skills/scan",
+    operation_id="scan_external_skills",
+    request_type=ScanExternalSkillsRequest,
+    response_type=ScanExternalSkillsResponse,
+    success_status=200,
+    summary="Scan configured external Skill roots",
+    tags=("skill",),
+    responses={
+        200: {
+            "description": "The rebuildable provider snapshot.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+LIST_EXTERNAL_SKILLS = Operation[ListExternalSkillsRequest, ListExternalSkillsResponse](
+    method="POST",
+    path="/v1/external-skills/list",
+    operation_id="list_external_skills",
+    request_type=ListExternalSkillsRequest,
+    response_type=ListExternalSkillsResponse,
+    success_status=200,
+    summary="List external Skills visible on this host",
+    tags=("skill",),
+    responses={
+        200: {
+            "description": "External Skills resolved against the current Agent, host, scope, and fingerprint.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+RESOLVE_EXTERNAL_SKILL = Operation[ResolveExternalSkillRequest, ExternalSkillResolution](
+    method="POST",
+    path="/v1/external-skills/resolve",
+    operation_id="resolve_external_skill",
+    request_type=ResolveExternalSkillRequest,
+    response_type=ExternalSkillResolution,
+    success_status=200,
+    summary="Resolve an exact external Skill fingerprint",
+    tags=("skill",),
+    responses={
+        200: {
+            "description": "The live exact-resolution result, which may be unavailable.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+IMPORT_EXTERNAL_SKILL = Operation[ImportExternalSkillRequest, GeneratedCandidateResponse](
+    method="POST",
+    path="/v1/external-skills/import",
+    operation_id="import_external_skill",
+    request_type=ImportExternalSkillRequest,
+    response_type=GeneratedCandidateResponse,
+    success_status=200,
+    summary="Import or fork an external Skill into Review",
+    tags=("skill",),
+    responses={
+        200: {
+            "description": "A pending managed Skill Candidate or an explicit semantic no-op.",
+            "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},

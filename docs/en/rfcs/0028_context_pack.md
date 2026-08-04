@@ -31,6 +31,33 @@ Every Memory entry remains untrusted historical data. Context Pack preserves the
 that the content is still correct or promote Memory above system, developer, current user, or repository
 instructions.
 
+## Current implementation amendment: approved Experience recall
+
+The Coding Agent profile now has a second implemented source: approved Experience. This section supersedes the
+Memory-only source and deferral statements in the original first-version design below; the trust, host-injection, and
+public request/response contracts remain unchanged.
+
+- Review approval atomically writes deterministic `searchable_text` onto the existing generic Artifact head. Pending
+  and rejected Candidates, historical Experience revisions, and every Skill remain excluded; there is no
+  Experience-specific relational head table.
+- SQLite FTS5 uses a derived virtual index, while OceanBase FULLTEXT indexes the generic Artifact-head field inside the
+  requested scope. Startup can rebuild both from authoritative Artifact revisions; neither is a second content
+  authority.
+- Runtime obtains up to 16 Memory candidates and 8 Experience candidates. The Builder admits at most two Experiences,
+  interleaves Memory first, caps the combined result at eight items, and enforces the existing per-item and total UTF-8
+  byte budgets once.
+- Memory items retain their v1 rendering and exact `MemoryCitation`. An Experience item adds `kind="experience"`, an
+  exact current `ArtifactRef`, and complete situation/action/outcome/lesson content. `get_experience` performs exact
+  re-retrieval.
+- The outer value remains `powercontext.prepared-context.v1`: `status`, `content`, `content_bytes`, wrapper markers,
+  trust precedence, provider behavior, and empty/failure semantics do not change. Provider integrations already treat
+  `content` as an opaque Runtime-prepared value and therefore require no new parsing or selection behavior.
+
+Task value must be evaluated separately from context volume. A valid evaluation uses fixed coding tasks and the same
+Agent/model/settings for control and treatment, injects only the prepared Experience in treatment, scores both arms
+with independent executable checks, and reports success rate together with injected bytes. Approval, retrieval, or
+more tokens alone does not establish benefit.
+
 # Motivation
 
 The current Codex hook calls `POST /v1/memory/search`, takes the first eight hits, collapses consecutive whitespace,

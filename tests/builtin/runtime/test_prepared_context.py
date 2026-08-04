@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceSearchHit
 from powercontext.builtin.artifacts.memory import MemoryHit
 from powercontext.builtin.runtime import PrepareContextRequest
 from powercontext.builtin.runtime.errors import PreparedContextInvariantError
@@ -20,6 +21,7 @@ class _PreparedCitation(TypedDict):
 
 
 class _PreparedItem(TypedDict):
+    kind: str
     citation: _PreparedCitation
     content: str
     truncated: bool
@@ -39,6 +41,18 @@ def _hit(entry_id: str, text: str, *, memory_ref: ArtifactRef = MEMORY_REF) -> M
 def _items(content: str | None) -> list[_PreparedItem]:
     assert content is not None
     return cast(list[_PreparedItem], json.loads(content.splitlines()[-2])["items"])
+
+
+def _experience_hit(artifact_id: str = "experience-1", revision: int = 1) -> ExperienceSearchHit:
+    return ExperienceSearchHit(
+        artifact_ref=ArtifactRef(family="experience", artifact_id=artifact_id, revision=revision),
+        content=ExperienceContent(
+            situation="The generated API client is stale after an OpenAPI change.",
+            action="Regenerate the client before running contract tests.",
+            outcome="The checked-in transport matches the public contract.",
+            lesson="Regenerate and inspect the client before contract tests.",
+        ),
+    )
 
 
 def test_builder_preserves_order_and_filters_duplicate_or_invalid_hits() -> None:
@@ -120,6 +134,58 @@ def test_builder_rejects_a_hit_from_a_different_memory_head() -> None:
             memory_ref=MEMORY_REF,
             hits=(_hit("other", "Other head", memory_ref=other_ref),),
             request=PrepareContextRequest(query="head"),
+        )
+
+
+def test_builder_prepares_experience_without_a_memory_head_and_keeps_v1_envelope() -> None:
+    prepared = PreparedContextBuilder().build(
+        experience_hits=(_experience_hit(),),
+        request=PrepareContextRequest(query="Regenerate client contract tests"),
+    )
+
+    assert prepared.status == "ready"
+    assert prepared.schema_version == "powercontext.prepared-context.v1"
+    assert prepared.content is not None
+    assert "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1" in prepared.content
+    item = _items(prepared.content)[0]
+    assert item["kind"] == "experience"
+    assert item["citation"] == {
+        "artifact_ref": {
+            "family": "experience",
+            "artifact_id": "experience-1",
+            "revision": 1,
+        }
+    }
+    assert item["content"].endswith("Lesson: Regenerate and inspect the client before contract tests.")
+
+
+def test_builder_keeps_memory_primary_and_bounds_experience_share() -> None:
+    experiences = tuple(_experience_hit(f"experience-{index}") for index in range(1, 5))
+    prepared = PreparedContextBuilder().build(
+        memory_ref=MEMORY_REF,
+        hits=(_hit("first", "First Memory entry"), _hit("second", "Second Memory entry")),
+        experience_hits=experiences,
+        request=PrepareContextRequest(query="client"),
+    )
+
+    items = _items(prepared.content)
+    assert [item.get("kind", "memory") for item in items] == [
+        "memory",
+        "experience",
+        "memory",
+        "experience",
+    ]
+
+
+def test_builder_rejects_non_experience_recall_hits() -> None:
+    hit = _experience_hit().model_copy(
+        update={"artifact_ref": ArtifactRef(family="skill", artifact_id="skill-1", revision=1)}
+    )
+
+    with pytest.raises(PreparedContextInvariantError, match="experience-family-mismatch"):
+        PreparedContextBuilder().build(
+            experience_hits=(hit,),
+            request=PrepareContextRequest(query="client"),
         )
 
 

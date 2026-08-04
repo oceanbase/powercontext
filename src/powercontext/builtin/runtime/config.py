@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from powercontext.builtin.artifacts.skill import CodexSkillRoot
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 
@@ -17,7 +17,7 @@ class RuntimeConfig(BaseModel):
 
     source_window_limit: int = Field(default=100, ge=1)
     schedule_seconds: float | None = Field(default=None, gt=0)
-    scheduler_path: Path = Path("powercontext.scheduler.db")
+    experience_schedule_seconds: float | None = Field(default=None, gt=0)
 
 
 class InferenceConfig(BaseModel):
@@ -62,6 +62,28 @@ class InferenceConfig(BaseModel):
         return self
 
 
+class ExternalSkillsConfig(BaseModel):
+    """Explicit host-local roots used by the external Codex Skill provider."""
+
+    host_id: str | None = Field(default=None, min_length=1, max_length=128)
+    codex_roots: tuple[CodexSkillRoot, ...] = ()
+
+    @field_validator("host_id")
+    @classmethod
+    def validate_host_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip() or value != value.strip():
+            raise ValueError("external Skill host_id must be non-empty and trimmed")  # noqa: TRY003
+        return value
+
+    @model_validator(mode="after")
+    def require_host_for_roots(self) -> ExternalSkillsConfig:
+        if self.codex_roots and self.host_id is None:
+            raise ValueError("external Skill host_id is required when Codex roots are configured")  # noqa: TRY003
+        return self
+
+
 DatabaseConfig = SQLiteConfig | OceanBaseConfig
 
 
@@ -84,6 +106,7 @@ class BuiltinConfig(BaseModel):
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteConfig, discriminator="kind")
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
+    external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -94,6 +117,7 @@ class BuiltinConfig(BaseModel):
 __all__ = [
     "BuiltinConfig",
     "DatabaseConfig",
+    "ExternalSkillsConfig",
     "InferenceConfig",
     "RuntimeConfig",
 ]

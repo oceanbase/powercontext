@@ -575,6 +575,38 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/experience/generate:
+    post:
+      tags: [experience]
+      summary: Generate an Experience Candidate
+      description: Use the configured model and caller-selected exact evidence; persist only a schema-valid pending Candidate.
+      operationId: generate_experience
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateExperienceRequest"
+      responses:
+        "200":
+          description: A pending Candidate or an explicit semantic no-op.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedCandidateResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/experience/get:
     post:
       tags: [experience]
@@ -599,6 +631,228 @@ paths:
                 $ref: "#/components/schemas/ExperienceArtifact"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/propose:
+    post:
+      tags: [skill]
+      summary: Propose managed Skill content
+      description: Persist a pending managed Skill Candidate without creating an Artifact Revision.
+      operationId: propose_skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProposeSkillRequest"
+      responses:
+        "201":
+          description: The pending managed Skill Candidate.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactCandidate"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/generate:
+    post:
+      tags: [skill]
+      summary: Generate a managed Skill Candidate
+      description: Use the configured model with an explicit provenance shape; persist only a schema-valid pending Candidate.
+      operationId: generate_skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateSkillRequest"
+      responses:
+        "200":
+          description: A pending Candidate or an explicit semantic no-op.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedCandidateResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/get:
+    post:
+      tags: [skill]
+      summary: Get an exact managed Skill Revision
+      description: Read approved managed Skill content and its exact direct evidence.
+      operationId: get_skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetSkillRequest"
+      responses:
+        "200":
+          description: The exact approved managed Skill Revision.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillArtifact"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/external-skills/scan:
+    post:
+      tags: [skill]
+      summary: Scan configured external Skill roots
+      description: Replace the current host-local Registry projection without copying or rewriting package content.
+      operationId: scan_external_skills
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanExternalSkillsRequest"
+      responses:
+        "200":
+          description: The rebuildable provider snapshot.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanExternalSkillsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/external-skills/list:
+    post:
+      tags: [skill]
+      summary: List external Skills visible on this host
+      description: Return live local resolutions; unavailable registrations are omitted unless explicitly requested.
+      operationId: list_external_skills
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListExternalSkillsRequest"
+      responses:
+        "200":
+          description: External Skills resolved against the current Agent, host, scope, and fingerprint.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListExternalSkillsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/external-skills/resolve:
+    post:
+      tags: [skill]
+      summary: Resolve an exact external Skill fingerprint
+      description: Resolve only the registered local package version requested by the caller; never install or fall back.
+      operationId: resolve_external_skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveExternalSkillRequest"
+      responses:
+        "200":
+          description: The live exact-resolution result, which may be unavailable.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalSkillResolution"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/external-skills/import:
+    post:
+      tags: [skill]
+      summary: Import or fork an external Skill into Review
+      description: Capture one exact local snapshot and use the configured model to propose a new managed Skill Candidate.
+      operationId: import_external_skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportExternalSkillRequest"
+      responses:
+        "200":
+          description: A pending managed Skill Candidate or an explicit semantic no-op.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedCandidateResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "422":
@@ -920,7 +1174,9 @@ components:
         status:
           $ref: "#/components/schemas/CandidateStatus"
         proposal:
-          $ref: "#/components/schemas/ExperienceProposal"
+          oneOf:
+            - $ref: "#/components/schemas/ExperienceProposal"
+            - $ref: "#/components/schemas/SkillProposal"
         source_refs:
           type: array
           maxItems: 32
@@ -996,6 +1252,18 @@ components:
         memory_extraction:
           type: boolean
           description: Whether pending Sources can be extracted into Memory.
+        experience_generation:
+          type: boolean
+          default: false
+          description: Whether the configured model can generate reviewed Experience Candidates.
+        managed_skill_generation:
+          type: boolean
+          default: false
+          description: Whether the configured model can generate reviewed managed Skill Candidates.
+        external_skill_registry:
+          type: boolean
+          default: false
+          description: Whether host-local external Skill discovery and exact resolution are configured.
         handoff_generation:
           type: boolean
           description: Whether exact evidence can be generated into an inspectable Handoff Draft.
@@ -1414,6 +1682,139 @@ components:
           minLength: 1
           maxLength: 8000
           pattern: '.*\S.*'
+    SkillArtifact:
+      type: object
+      additionalProperties: false
+      required: [artifact, content, source_refs, artifact_refs]
+      properties:
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+        content:
+          $ref: "#/components/schemas/SkillProposal"
+        source_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceReference"
+        artifact_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactReference"
+    SkillProposal:
+      type: object
+      additionalProperties: false
+      required: [name, description, instructions, validation]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^\S(?:.*\S)?$'
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          pattern: '^\S(?:.*\S)?$'
+        instructions:
+          type: string
+          minLength: 1
+          maxLength: 32000
+          pattern: '.*\S.*'
+        validation:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/SkillValidationItem"
+    SkillValidationItem:
+      type: string
+      minLength: 1
+      maxLength: 2000
+      pattern: '^\S(?:.*\S)?$'
+    ExternalSkillRegistration:
+      type: object
+      additionalProperties: false
+      required:
+        - external_skill_id
+        - provider
+        - agent_kind
+        - host_id
+        - installation_scope
+        - locator
+        - fingerprint
+        - name
+        - description
+      properties:
+        external_skill_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        provider:
+          type: string
+          enum: [codex]
+        agent_kind:
+          type: string
+          enum: [codex]
+        host_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^\S(?:.*\S)?$'
+        installation_scope:
+          $ref: "#/components/schemas/ExternalSkillInstallationScope"
+        locator:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          pattern: '^\S(?:.*\S)?$'
+          description: Host-local locator; not a cross-Agent or cross-host contract.
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^\S(?:.*\S)?$'
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          pattern: '^\S(?:.*\S)?$'
+    ExternalSkillResolution:
+      type: object
+      additionalProperties: false
+      required: [registration, status, entrypoint]
+      properties:
+        registration:
+          $ref: "#/components/schemas/ExternalSkillRegistration"
+        status:
+          $ref: "#/components/schemas/ExternalSkillResolutionStatus"
+        entrypoint:
+          type: string
+          nullable: true
+          description: Host-local SKILL.md path; present only when the exact fingerprint is available.
+    ScanExternalSkillsResponse:
+      type: object
+      additionalProperties: false
+      required: [registrations, skipped]
+      properties:
+        registrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalSkillRegistration"
+        skipped:
+          type: integer
+          minimum: 0
+    ListExternalSkillsResponse:
+      type: object
+      additionalProperties: false
+      required: [skills]
+      properties:
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalSkillResolution"
     ErrorDetail:
       type: object
       additionalProperties: false
@@ -1494,6 +1895,18 @@ components:
           maxLength: 128
           pattern: '^[\x21-\x7E]+$'
     GetExperienceRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, artifact]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+    GetSkillRequest:
       type: object
       additionalProperties: false
       required: [scope_id, artifact]
@@ -1593,6 +2006,19 @@ components:
           minimum: 1
           maximum: 100
           default: 50
+    ListExternalSkillsRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        include_unavailable:
+          type: boolean
+          default: false
     MemoryEntry:
       type: object
       additionalProperties: false
@@ -1714,6 +2140,117 @@ components:
           minLength: 1
           maxLength: 2000
           nullable: true
+    GenerateExperienceRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, source_refs, artifact_refs]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        source_refs:
+          type: array
+          maxItems: 32
+          description: Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.
+          items:
+            $ref: "#/components/schemas/SourceReference"
+        artifact_refs:
+          type: array
+          maxItems: 32
+          description: Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.
+          items:
+            $ref: "#/components/schemas/ArtifactReference"
+        target:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          nullable: true
+    ProposeSkillRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, proposal, source_refs, artifact_refs]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        proposal:
+          $ref: "#/components/schemas/SkillProposal"
+        source_refs:
+          type: array
+          maxItems: 32
+          description: Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.
+          items:
+            $ref: "#/components/schemas/SourceReference"
+        artifact_refs:
+          type: array
+          maxItems: 32
+          description: Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.
+          items:
+            $ref: "#/components/schemas/ArtifactReference"
+        target:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          nullable: true
+    SkillGenerationOrigin:
+      type: string
+      enum: [experience, source, usage]
+      description: The operation-specific direct provenance shape required for managed Skill generation.
+    GenerateSkillRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, origin, source_refs, artifact_refs]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        origin:
+          $ref: "#/components/schemas/SkillGenerationOrigin"
+        source_refs:
+          type: array
+          maxItems: 32
+          description: Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.
+          items:
+            $ref: "#/components/schemas/SourceReference"
+        artifact_refs:
+          type: array
+          maxItems: 32
+          description: Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.
+          items:
+            $ref: "#/components/schemas/ArtifactReference"
+        target:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          nullable: true
+    GeneratedCandidateStatus:
+      type: string
+      enum: [pending, no_op]
+    GeneratedCandidateResponse:
+      type: object
+      additionalProperties: false
+      required: [status, candidate]
+      properties:
+        status:
+          $ref: "#/components/schemas/GeneratedCandidateStatus"
+        candidate:
+          $ref: "#/components/schemas/ArtifactCandidate"
+          nullable: true
     ReadinessResponse:
       type: object
       additionalProperties: false
@@ -1812,7 +2349,9 @@ components:
           type: integer
           minimum: 1
         proposal:
-          $ref: "#/components/schemas/ExperienceProposal"
+          oneOf:
+            - $ref: "#/components/schemas/ExperienceProposal"
+            - $ref: "#/components/schemas/SkillProposal"
         source_refs:
           type: array
           maxItems: 32
@@ -1896,6 +2435,63 @@ components:
         mode:
           $ref: "#/components/schemas/MemorySearchMode"
           default: auto
+    ScanExternalSkillsRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    ResolveExternalSkillRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, external_skill_id, fingerprint]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        external_skill_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    ExternalSkillImportMode:
+      type: string
+      enum: [import, fork]
+    ImportExternalSkillRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, external_skill_id, fingerprint, mode]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        external_skill_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: Exact package fingerprint captured into Source lineage.
+        mode:
+          $ref: "#/components/schemas/ExternalSkillImportMode"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          nullable: true
     SearchMemoryResponse:
       type: object
       additionalProperties: false
@@ -1926,7 +2522,13 @@ components:
       enum: [accepted]
     CandidateFamily:
       type: string
-      enum: [experience]
+      enum: [experience, skill]
+    ExternalSkillInstallationScope:
+      type: string
+      enum: [user, project, plugin]
+    ExternalSkillResolutionStatus:
+      type: string
+      enum: [available, unavailable]
     CandidateStatus:
       type: string
       enum: [pending, approved, rejected]

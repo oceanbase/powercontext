@@ -232,8 +232,9 @@ Candidate/Review 的代码与第一个 Experience vertical slice 一起实现，
 - Candidate 内容始终按不可信数据展示，body、reason 和 evidence preview 不写日志；
 - `scope_id` 仍是业务分区，不是认证或 ACL。
 
-当前 PreparedContext 仍只读取 active Memory。Experience/Skill 是否进入 Context Pack，由后续 multi-Artifact Context Profile
-RFC 决定；Candidate approval 不会自动扩展 Context Pack。
+PreparedContext v1 当前读取 active Memory 与相关的 approved Experience 当前 head。Experience 获批后会进入
+scope-local 可重建 FTS projection 的候选范围，但是否在 query 和共享 byte 预算下被选中并不保证。Skill approval
+仍不会扩展 Context Pack。
 
 ## Acceptance
 
@@ -246,7 +247,7 @@ RFC 决定；Candidate approval 不会自动扩展 Context Pack。
 | Approve | expected version 只成功一次，Artifact commit 与 approved status 原子提交 |
 | Conflict | stale Candidate 或 stale Artifact target 返回 typed conflict，不自动 merge |
 | Reject | 不写 Artifact，终态 Candidate 不能再次 approve/revise |
-| Compatibility | 现有 Memory flush、HTTP、MCP、Hook 和 PreparedContext 行为不变 |
+| Compatibility | 现有 Memory flush、HTTP、MCP、Hook 和 PreparedContext v1 public envelope 不变 |
 | MCP parity | MCP 可按相同 lifecycle 与 CAS 规则列出、读取、修订、批准和拒绝 Candidate |
 
 # Drawbacks
@@ -272,7 +273,7 @@ RFC 决定；Candidate approval 不会自动扩展 Context Pack。
 
 - RFC 0014 将 Memory pipeline 输出视为不可信候选，但仍由 Memory validation 直接提交；本 RFC 不改变该流程。
 - RFC 0019 定义 Source window、cursor 和 Memory flush；本 RFC 保持其公开行为。
-- RFC 0028 规定 PreparedContext 当前只读取 active Memory；pending Candidate 继续与其隔离。
+- RFC 0028 负责 PreparedContext selection 与最终 byte 预算；pending Candidate 继续与其隔离。
 - PowerMem 的 Experience/Skill distillation、dedup 和 merge 提供生成能力参考，但自动 content review 不等于 Artifact approval。
 
 # Limits and deferred work

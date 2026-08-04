@@ -36,9 +36,9 @@ from powercontext.builtin.artifacts.memory import (
 )
 from powercontext.builtin.artifacts.memory.canonical import (
     embedding_content_hash,
-    fts_match_query,
     validate_embedding,
 )
+from powercontext.builtin.artifacts.search import fts_match_query
 from powercontext.builtin.persistence.memory_index import memory_channel_hits
 from powercontext.builtin.persistence.tables import (
     MAX_MEMORY_ENTRY_ID_LENGTH,

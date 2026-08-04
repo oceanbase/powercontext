@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
+from pathlib import Path
 from typing import TypeVar
 
 from pydantic import JsonValue
 
+from powercontext.builtin.artifacts.experience import ExperienceCandidatePipeline, ExperienceGenerator
 from powercontext.builtin.artifacts.handoff import (
     DefaultHandoffEvidenceProjector,
     HandoffGenerationPipeline,
@@ -17,18 +19,21 @@ from powercontext.builtin.artifacts.memory import (
     DefaultMemoryEvidenceProjector,
     MemoryCapabilities,
 )
+from powercontext.builtin.artifacts.skill import CodexSkillProvider, ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
+from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
 from powercontext.builtin.persistence.oceanbase.memory_index import (
     OceanBaseMemoryFTSIndex,
     OceanBaseMemoryVectorIndex,
 )
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
+from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
 from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVec1Index
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime.application import BuiltinRuntime
-from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig
+from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME, ContentSource
@@ -42,7 +47,9 @@ class BuiltinConfigurationError(RuntimeError):
 
     def __init__(self, issue: str) -> None:
         messages = {
+            "external-skill-host": "external Skill roots require a host identity",
             "inference-profile": "validated inference profile is incomplete",
+            "scheduled-experience-pipeline": "scheduled Experience incubation requires a candidate pipeline",
             "scheduled-pipeline": "scheduled Source processing requires a candidate pipeline",
             "database": "unsupported built-in database",
         }
@@ -77,28 +84,51 @@ class _ContentHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
 async def open_builtin_runtime(
     config: BuiltinConfig,
     *,
+    scheduler_path: str | Path = "powercontext.scheduler.db",
     candidate_pipeline: CandidatePipeline | None = None,
+    experience_pipeline: ExperienceCandidatePipeline | None = None,
+    experience_generator: ExperienceGenerator | None = None,
+    skill_generator: SkillGenerator | None = None,
+    external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
     async with AsyncExitStack() as resources:
-        default_candidate_pipeline, default_handoff_pipeline = (
+        generated_memory, generated_incubation, generated_experience, generated_skill, generated_handoff = (
             await _generation_pipelines(config.inference, resources)
-            if candidate_pipeline is None or handoff_pipeline is None
-            else (None, None)
+            if (
+                candidate_pipeline is None
+                or experience_pipeline is None
+                or experience_generator is None
+                or skill_generator is None
+                or handoff_pipeline is None
+            )
+            else (None, None, None, None, None)
         )
-        configured_pipeline = default_candidate_pipeline if candidate_pipeline is None else candidate_pipeline
-        configured_handoff_pipeline = default_handoff_pipeline if handoff_pipeline is None else handoff_pipeline
+        configured_pipeline = generated_memory if candidate_pipeline is None else candidate_pipeline
+        configured_incubation = generated_incubation if experience_pipeline is None else experience_pipeline
+        configured_experience = generated_experience if experience_generator is None else experience_generator
+        configured_skill = generated_skill if skill_generator is None else skill_generator
+        configured_handoff = generated_handoff if handoff_pipeline is None else handoff_pipeline
         configured_embedding = (
             await _embedding_model(config.inference, resources) if embedding_model is None else embedding_model
+        )
+        configured_external_skills = (
+            _external_skill_provider(config.external_skills)
+            if external_skill_provider is None
+            else external_skill_provider
         )
         contexts = await resources.enter_async_context(
             open_builtin_contexts(
                 config,
                 candidate_pipeline=configured_pipeline,
-                handoff_pipeline=configured_handoff_pipeline,
+                experience_pipeline=configured_incubation,
+                experience_generator=configured_experience,
+                skill_generator=configured_skill,
+                external_skill_provider=configured_external_skills,
+                handoff_pipeline=configured_handoff,
                 embedding_model=configured_embedding,
             )
         )
@@ -107,20 +137,31 @@ async def open_builtin_runtime(
                 provider=contexts,
                 capabilities=RuntimeCapabilities(
                     memory_extraction=contexts.memory_extraction,
+                    experience_generation=contexts.experience_generation,
+                    managed_skill_generation=contexts.managed_skill_generation,
+                    external_skill_registry=contexts.external_skill_registry,
                     memory_search_modes=_search_modes(contexts.index.capabilities),
                     handoff_generation=contexts.handoff_generation,
                 ),
                 source_window_limit=config.runtime.source_window_limit,
                 scope_ids=contexts.scope_ids,
                 review_service=contexts.review,
+                generation_service=contexts.generation,
+                experience_recall=contexts.search_experience,
+                experience_incubator=contexts.incubate_experience if contexts.experience_incubation else None,
+                external_skill_registry=contexts.external_skills if contexts.external_skill_registry else None,
+                external_skill_importer=contexts.import_external_skill if contexts.external_skill_registry else None,
             )
         )
-        if config.runtime.schedule_seconds is not None:
-            if configured_pipeline is None:
-                raise BuiltinConfigurationError("scheduled-pipeline")
+        if config.runtime.schedule_seconds is not None and configured_pipeline is None:
+            raise BuiltinConfigurationError("scheduled-pipeline")
+        if config.runtime.experience_schedule_seconds is not None and configured_incubation is None:
+            raise BuiltinConfigurationError("scheduled-experience-pipeline")
+        if config.runtime.schedule_seconds is not None or config.runtime.experience_schedule_seconds is not None:
             runtime.start_scheduler(
-                config.runtime.scheduler_path,
+                scheduler_path,
                 config.runtime.schedule_seconds,
+                experience_schedule_seconds=config.runtime.experience_schedule_seconds,
             )
         yield runtime
 
@@ -130,6 +171,10 @@ async def open_builtin_contexts(
     config: BuiltinConfig,
     *,
     candidate_pipeline: CandidatePipeline | None = None,
+    experience_pipeline: ExperienceCandidatePipeline | None = None,
+    experience_generator: ExperienceGenerator | None = None,
+    skill_generator: SkillGenerator | None = None,
+    external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
 ) -> AsyncIterator[RelationalContexts]:
@@ -137,19 +182,29 @@ async def open_builtin_contexts(
 
     database = config.database
     if isinstance(database, SQLiteConfig):
+        experience_index = SQLiteExperienceFTSIndex()
         indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
         if database.vec1_extension is not None:
             if embedding_model is None:
                 raise ValueError("SQLite Vec1 requires an embedding model")  # noqa: TRY003
             indexes.append(SQLiteMemoryVec1Index(database.vec1_extension, embedding_model.profile))
         index = CompositeMemoryIndex(*indexes)
-        async with SQLiteProfile.open(database, tables=BUILTIN_TABLES + index.tables) as profile:
+        async with SQLiteProfile.open(
+            database,
+            tables=BUILTIN_TABLES + index.tables,
+        ) as profile:
             async with profile.database.transaction() as connection:
                 await index.initialize(connection)
+                await experience_index.initialize(connection)
             yield RelationalContexts(
                 database=profile.database,
                 index=index,
+                experience_index=experience_index,
                 candidate_pipeline=candidate_pipeline,
+                experience_pipeline=experience_pipeline,
+                experience_generator=experience_generator,
+                skill_generator=skill_generator,
+                external_skill_provider=external_skill_provider,
                 handoff_pipeline=handoff_pipeline,
                 embedding_model=embedding_model,
             )
@@ -157,17 +212,27 @@ async def open_builtin_contexts(
     if not isinstance(database, OceanBaseConfig):
         raise BuiltinConfigurationError("database")
 
+    experience_index = OceanBaseExperienceFTSIndex()
     indexes = [OceanBaseMemoryFTSIndex()]
     if embedding_model is not None:
         indexes.append(OceanBaseMemoryVectorIndex(embedding_model.profile))
     index = CompositeMemoryIndex(*indexes)
-    async with OceanBaseProfile.open(database, tables=BUILTIN_TABLES + index.tables) as profile:
+    async with OceanBaseProfile.open(
+        database,
+        tables=BUILTIN_TABLES + index.tables,
+    ) as profile:
         async with profile.database.transaction() as connection:
             await index.initialize(connection)
+            await experience_index.initialize(connection)
         yield RelationalContexts(
             database=profile.database,
             index=index,
+            experience_index=experience_index,
             candidate_pipeline=candidate_pipeline,
+            experience_pipeline=experience_pipeline,
+            experience_generator=experience_generator,
+            skill_generator=skill_generator,
+            external_skill_provider=external_skill_provider,
             handoff_pipeline=handoff_pipeline,
             embedding_model=embedding_model,
         )
@@ -176,12 +241,28 @@ async def open_builtin_contexts(
 async def _generation_pipelines(
     settings: InferenceConfig,
     resources: AsyncExitStack,
-) -> tuple[CandidatePipeline | None, HandoffGenerationPipeline | None]:
+) -> tuple[
+    CandidatePipeline | None,
+    ExperienceCandidatePipeline | None,
+    ExperienceGenerator | None,
+    SkillGenerator | None,
+    HandoffGenerationPipeline | None,
+]:
     if settings.generation_model is None:
-        return None, None
+        return None, None, None, None, None
 
     from pydantic_ai.models import infer_model
 
+    from powercontext.builtin.artifacts.experience import (
+        EXPERIENCE_GENERATION_INSTRUCTIONS,
+        EXPERIENCE_INCUBATION_INSTRUCTIONS,
+        ExperienceGenerationOutput,
+        ExperienceIncubationInput,
+        ExperienceIncubationOutput,
+        LLMExperienceCandidatePipeline,
+        LLMExperienceGenerator,
+    )
+    from powercontext.builtin.artifacts.generation import ArtifactGenerationInput
     from powercontext.builtin.artifacts.handoff import (
         HANDOFF_GENERATION_INSTRUCTIONS,
         HandoffGenerationInput,
@@ -193,6 +274,11 @@ async def _generation_pipelines(
         LLMMemoryCandidatePipeline,
         MemoryExtractionInput,
         MemoryExtractionOutput,
+    )
+    from powercontext.builtin.artifacts.skill import (
+        SKILL_GENERATION_INSTRUCTIONS,
+        LLMSkillGenerator,
+        SkillGenerationOutput,
     )
     from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
 
@@ -208,6 +294,27 @@ async def _generation_pipelines(
         output_type=MemoryExtractionOutput,
         limits=limits,
     )
+    experience_generator = PydanticAIStructuredGenerator(
+        model=model,
+        instructions=EXPERIENCE_INCUBATION_INSTRUCTIONS,
+        input_type=ExperienceIncubationInput,
+        output_type=ExperienceIncubationOutput,
+        limits=limits,
+    )
+    explicit_experience_generator = PydanticAIStructuredGenerator(
+        model=model,
+        instructions=EXPERIENCE_GENERATION_INSTRUCTIONS,
+        input_type=ArtifactGenerationInput,
+        output_type=ExperienceGenerationOutput,
+        limits=limits,
+    )
+    skill_generator = PydanticAIStructuredGenerator(
+        model=model,
+        instructions=SKILL_GENERATION_INSTRUCTIONS,
+        input_type=ArtifactGenerationInput,
+        output_type=SkillGenerationOutput,
+        limits=limits,
+    )
     handoff_generator = PydanticAIStructuredGenerator(
         model=model,
         instructions=HANDOFF_GENERATION_INSTRUCTIONS,
@@ -217,6 +324,9 @@ async def _generation_pipelines(
     )
     return (
         LLMMemoryCandidatePipeline(memory_generator, evidence_projector=_ContentEvidenceProjector()),
+        LLMExperienceCandidatePipeline(experience_generator),
+        LLMExperienceGenerator(explicit_experience_generator),
+        LLMSkillGenerator(skill_generator),
         LLMHandoffGenerationPipeline(
             handoff_generator,
             evidence_projector=_ContentHandoffEvidenceProjector(),
@@ -262,6 +372,14 @@ def _required(value: ValueT | None) -> ValueT:
     if value is None:
         raise BuiltinConfigurationError("inference-profile")
     return value
+
+
+def _external_skill_provider(settings: ExternalSkillsConfig) -> ExternalSkillProvider | None:
+    if not settings.codex_roots:
+        return None
+    if settings.host_id is None:
+        raise BuiltinConfigurationError("external-skill-host")
+    return CodexSkillProvider(host_id=settings.host_id, roots=settings.codex_roots)
 
 
 def _search_modes(capabilities: MemoryCapabilities) -> tuple[MemorySearchMode, ...]:

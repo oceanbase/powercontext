@@ -16,6 +16,27 @@ Context Pack 的长期定位是通用、provider-neutral 的 Agent 上下文交�
 
 Memory entry 始终是不可信历史数据。Context Pack 保留 `memory_ref + entry_id + entry_version_id` 精确 citation，但 citation 只证明内容可以被定位，不证明它仍然正确，也不把 Memory 提升成 system、developer、当前用户或仓库指令。
 
+## 当前实现修订：approved Experience recall
+
+Coding Agent profile 现在已有第二个实现来源：approved Experience。本节取代下文首版设计中的 Memory-only 来源与延期
+描述；trust、host injection 以及 public request/response contract 保持不变。
+
+- Review approval 在同一事务中把确定性的 `searchable_text` 写入现有通用 Artifact head。pending/rejected
+  Candidate、历史 Experience Revision 和所有 Skill 都不进入检索，也不新增 Experience 专用关系 head 表。
+- SQLite FTS5 使用派生虚拟索引，OceanBase FULLTEXT 则索引通用 Artifact head 字段，并在请求 scope 内检索。
+  Runtime 启动时可从 authoritative Artifact Revision 重建两者；它们都不是第二套内容权威。
+- Runtime 最多取得 16 个 Memory candidate 和 8 个 Experience candidate。Builder 最多接纳两个 Experience，按
+  Memory 优先交错排列，合计最多八个 item，并只执行一次现有 per-item 与总 UTF-8 byte 预算。
+- Memory item 保持 v1 rendering 与精确 `MemoryCitation`。Experience item 增加 `kind="experience"`、精确当前
+  `ArtifactRef` 和完整 situation/action/outcome/lesson；完整内容通过 `get_experience` exact re-retrieval。
+- 外层仍是 `powercontext.prepared-context.v1`：`status`、`content`、`content_bytes`、wrapper marker、trust
+  precedence、provider 行为以及 empty/failure 语义都不改变。Provider integration 本就把 `content` 当作 Runtime
+  已准备好的 opaque value，因此不需要增加解析或二次选择。
+
+任务收益必须与上下文体积分开评估。有效评测需要固定 coding task，并让 control/treatment 使用同一 Agent、model 与
+settings；只有 treatment 注入 prepared Experience；两组都由独立可执行检查评分，同时报告成功率与注入 byte。
+approval、retrieval 或 token 增加本身都不能证明收益。
+
 # Motivation
 
 当前 Codex Hook 直接调用 `POST /v1/memory/search`，取前八条 hit，把连续空白折叠后拼接到

@@ -22,17 +22,25 @@ from powercontext.http import (
     ContinueHandoffRequest,
     ErrorResponse,
     ExperienceArtifact,
+    ExternalSkillResolution,
     FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    GeneratedCandidateResponse,
+    GenerateExperienceRequest,
+    GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
+    GetSkillRequest,
     HandoffActivation,
     HandoffDraft,
     HandoffResolution,
     HealthResponse,
+    ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
+    ListExternalSkillsRequest,
+    ListExternalSkillsResponse,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -44,14 +52,19 @@ from powercontext.http import (
     PreparedHandoff,
     PrepareHandoffRequest,
     ProposeExperienceRequest,
+    ProposeSkillRequest,
     ReadinessResponse,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
+    ResolveExternalSkillRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
+    ScanExternalSkillsRequest,
+    ScanExternalSkillsResponse,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SkillArtifact,
 )
 from powercontext.http._generated.operations import (
     ACTIVATE_HANDOFF,
@@ -61,23 +74,31 @@ from powercontext.http._generated.operations import (
     CONTINUE_HANDOFF,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
+    GENERATE_EXPERIENCE,
+    GENERATE_SKILL,
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
     GET_EXPERIENCE,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
     GET_READINESS,
+    GET_SKILL,
+    IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_EXTERNAL_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
+    PROPOSE_SKILL,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
+    RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
+    SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
     Operation,
 )
@@ -219,10 +240,50 @@ class PowerContextClient:
 
         return await self._request(PROPOSE_EXPERIENCE, request)
 
+    async def generate_experience(self, request: GenerateExperienceRequest) -> GeneratedCandidateResponse:
+        """Generate a reviewed Experience Candidate from exact evidence."""
+
+        return await self._request(GENERATE_EXPERIENCE, request)
+
     async def get_experience(self, request: GetExperienceRequest) -> ExperienceArtifact:
         """Read one exact approved Experience Revision."""
 
         return await self._request(GET_EXPERIENCE, request)
+
+    async def propose_skill(self, request: ProposeSkillRequest) -> ArtifactCandidate:
+        """Submit complete managed Skill content as a pending Candidate."""
+
+        return await self._request(PROPOSE_SKILL, request)
+
+    async def generate_skill(self, request: GenerateSkillRequest) -> GeneratedCandidateResponse:
+        """Generate a reviewed managed Skill Candidate from explicit provenance."""
+
+        return await self._request(GENERATE_SKILL, request)
+
+    async def get_skill(self, request: GetSkillRequest) -> SkillArtifact:
+        """Read one exact approved managed Skill Revision."""
+
+        return await self._request(GET_SKILL, request)
+
+    async def scan_external_skills(self, request: ScanExternalSkillsRequest) -> ScanExternalSkillsResponse:
+        """Refresh the configured host-local external Skill Registry."""
+
+        return await self._request(SCAN_EXTERNAL_SKILLS, request)
+
+    async def list_external_skills(self, request: ListExternalSkillsRequest) -> ListExternalSkillsResponse:
+        """List external Skills after live local availability checks."""
+
+        return await self._request(LIST_EXTERNAL_SKILLS, request)
+
+    async def resolve_external_skill(self, request: ResolveExternalSkillRequest) -> ExternalSkillResolution:
+        """Resolve one exact local external Skill fingerprint without fallback."""
+
+        return await self._request(RESOLVE_EXTERNAL_SKILL, request)
+
+    async def import_external_skill(self, request: ImportExternalSkillRequest) -> GeneratedCandidateResponse:
+        """Snapshot an exact external package and propose a new managed Skill."""
+
+        return await self._request(IMPORT_EXTERNAL_SKILL, request)
 
     async def list_artifact_candidates(self, request: ListArtifactCandidatesRequest) -> ArtifactCandidatePage:
         """Page current Candidate heads in the Review Inbox."""

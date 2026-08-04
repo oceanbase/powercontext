@@ -8,19 +8,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
     DatabaseConfig,
+    ExternalSkillsConfig,
     InferenceConfig,
     RuntimeConfig,
     normalize_database_discriminator,
 )
-from powercontext.paths import default_database_path, default_scheduler_path, sqlite_url
+from powercontext.paths import default_database_path, sqlite_url
 
 
 def _default_database() -> SQLiteConfig:
     return SQLiteConfig(url=sqlite_url(default_database_path()))
-
-
-def _default_runtime() -> RuntimeConfig:
-    return RuntimeConfig(scheduler_path=default_scheduler_path())
 
 
 class HttpConfig(BaseModel):
@@ -74,9 +71,10 @@ class ServerSettings(BaseSettings):
     http: HttpConfig = Field(default_factory=HttpConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
     auth: BearerAuthConfig = Field(default_factory=BearerAuthConfig)
-    runtime: RuntimeConfig = Field(default_factory=_default_runtime)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
+    external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
 
     @model_validator(mode="before")
     @classmethod

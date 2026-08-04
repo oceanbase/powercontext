@@ -93,6 +93,9 @@ extra-paths = ["./integrations/codex/plugins/powercontext"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "real_e2e: uses real Codex, external model providers, and the configured database",
+]
 
 [tool.ruff]
 target-version = "py311"

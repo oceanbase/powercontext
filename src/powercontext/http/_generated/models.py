@@ -81,6 +81,18 @@ class ExperienceProposal(BaseModel):
     lesson: Annotated[StrictStr, Field(max_length=8000, min_length=1, pattern=".*\\S.*")]
 
 
+class SkillValidationItem(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=2000, min_length=1, pattern="^\\S(?:.*\\S)?$")]
+
+
+class Provider(StrEnum):
+    CODEX = "codex"
+
+
+class AgentKind(StrEnum):
+    CODEX = "codex"
+
+
 class ErrorDetail(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -120,6 +132,14 @@ class GetExperienceRequest(BaseModel):
     artifact: ArtifactReference
 
 
+class GetSkillRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    artifact: ArtifactReference
+
+
 class HealthResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -151,6 +171,14 @@ class ListMemoryEntriesRequest(BaseModel):
     ] = False
 
 
+class ListExternalSkillsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    include_unavailable: StrictBool = False
+
+
 class MemoryCitation(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -167,6 +195,17 @@ class PrepareContextRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
+
+
+class SkillGenerationOrigin(StrEnum):
+    EXPERIENCE = "experience"
+    SOURCE = "source"
+    USAGE = "usage"
+
+
+class GeneratedCandidateStatus(StrEnum):
+    PENDING = "pending"
+    NO_OP = "no_op"
 
 
 class ReadinessStatus(StrEnum):
@@ -215,6 +254,41 @@ class ReviseMemoryEntryRequest(BaseModel):
     reason: Annotated[StrictStr | None, Field(max_length=512)] = None
 
 
+class ScanExternalSkillsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class ResolveExternalSkillRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    external_skill_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    fingerprint: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+
+
+class ExternalSkillImportMode(StrEnum):
+    IMPORT = "import"
+    FORK = "fork"
+
+
+class ImportExternalSkillRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    external_skill_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    fingerprint: Annotated[
+        StrictStr,
+        Field(description="Exact package fingerprint captured into Source lineage.", pattern="^[0-9a-f]{64}$"),
+    ]
+    mode: ExternalSkillImportMode
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+
+
 class SourceReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -229,6 +303,18 @@ class CaptureStatus(StrEnum):
 
 class CandidateFamily(StrEnum):
     EXPERIENCE = "experience"
+    SKILL = "skill"
+
+
+class ExternalSkillInstallationScope(StrEnum):
+    USER = "user"
+    PROJECT = "project"
+    PLUGIN = "plugin"
+
+
+class ExternalSkillResolutionStatus(StrEnum):
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
 
 
 class CandidateStatus(StrEnum):
@@ -321,51 +407,6 @@ class PreparedHandoffSchema(StrEnum):
     POWERCONTEXT_PREPARED_HANDOFF_V1 = "powercontext.prepared-handoff.v1"
 
 
-class ArtifactCandidate(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    version: Annotated[StrictInt, Field(ge=1)]
-    family: CandidateFamily
-    status: CandidateStatus
-    proposal: ExperienceProposal
-    source_refs: Annotated[
-        list[SourceReference],
-        Field(
-            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
-            max_length=32,
-        ),
-    ]
-    artifact_refs: Annotated[
-        list[ArtifactReference],
-        Field(
-            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
-            max_length=32,
-        ),
-    ]
-    target: Annotated[ArtifactReference | None, Field(...)]
-    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
-    result_artifact: Annotated[ArtifactReference | None, Field(...)]
-    decision_reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
-
-    @model_validator(mode="after")
-    def _reject_excess_candidate_evidence(self):
-        if len(self.source_refs) + len(self.artifact_refs) > 32:
-            raise ValueError(  # noqa: TRY003
-                "source_refs and artifact_refs together must not exceed 32 references"
-            )
-        return self
-
-
-class ArtifactCandidatePage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    candidates: list[ArtifactCandidate]
-    next_cursor: Annotated[StrictStr | None, Field(...)]
-
-
 class Capabilities(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -373,6 +414,16 @@ class Capabilities(BaseModel):
     source_types: list[StrictStr]
     artifact_families: list[StrictStr]
     memory_extraction: Annotated[StrictBool, Field(description="Whether pending Sources can be extracted into Memory.")]
+    experience_generation: Annotated[
+        StrictBool, Field(description="Whether the configured model can generate reviewed Experience Candidates.")
+    ] = False
+    managed_skill_generation: Annotated[
+        StrictBool, Field(description="Whether the configured model can generate reviewed managed Skill Candidates.")
+    ] = False
+    external_skill_registry: Annotated[
+        StrictBool,
+        Field(description="Whether host-local external Skill discovery and exact resolution are configured."),
+    ] = False
     handoff_generation: Annotated[
         StrictBool, Field(description="Whether exact evidence can be generated into an inspectable Handoff Draft.")
     ]
@@ -434,6 +485,66 @@ class ExperienceArtifact(BaseModel):
     content: ExperienceProposal
     source_refs: list[SourceReference]
     artifact_refs: list[ArtifactReference]
+
+
+class SkillProposal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^\\S(?:.*\\S)?$")]
+    description: Annotated[StrictStr, Field(max_length=2000, min_length=1, pattern="^\\S(?:.*\\S)?$")]
+    instructions: Annotated[StrictStr, Field(max_length=32000, min_length=1, pattern=".*\\S.*")]
+    validation: Annotated[list[SkillValidationItem], Field(max_length=32, min_length=1)]
+
+
+class ExternalSkillRegistration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    external_skill_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    provider: Provider
+    agent_kind: AgentKind
+    host_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^\\S(?:.*\\S)?$")]
+    installation_scope: ExternalSkillInstallationScope
+    locator: Annotated[
+        StrictStr,
+        Field(
+            description="Host-local locator; not a cross-Agent or cross-host contract.",
+            max_length=2000,
+            min_length=1,
+            pattern="^\\S(?:.*\\S)?$",
+        ),
+    ]
+    fingerprint: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    name: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^\\S(?:.*\\S)?$")]
+    description: Annotated[StrictStr, Field(max_length=2000, min_length=1, pattern="^\\S(?:.*\\S)?$")]
+
+
+class ExternalSkillResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    registration: ExternalSkillRegistration
+    status: ExternalSkillResolutionStatus
+    entrypoint: Annotated[
+        StrictStr | None,
+        Field(description="Host-local SKILL.md path; present only when the exact fingerprint is available."),
+    ]
+
+
+class ScanExternalSkillsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    registrations: list[ExternalSkillRegistration]
+    skipped: Annotated[StrictInt, Field(ge=0)]
+
+
+class ListExternalSkillsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    skills: list[ExternalSkillResolution]
 
 
 class FlushMemoryResponse(BaseModel):
@@ -528,6 +639,101 @@ class ProposeExperienceRequest(BaseModel):
         return self
 
 
+class GenerateExperienceRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    source_refs: Annotated[
+        list[SourceReference],
+        Field(
+            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    artifact_refs: Annotated[
+        list[ArtifactReference],
+        Field(
+            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    target: ArtifactReference | None = None
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+
+    @model_validator(mode="after")
+    def _reject_excess_candidate_evidence(self):
+        if len(self.source_refs) + len(self.artifact_refs) > 32:
+            raise ValueError(  # noqa: TRY003
+                "source_refs and artifact_refs together must not exceed 32 references"
+            )
+        return self
+
+
+class ProposeSkillRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    proposal: SkillProposal
+    source_refs: Annotated[
+        list[SourceReference],
+        Field(
+            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    artifact_refs: Annotated[
+        list[ArtifactReference],
+        Field(
+            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    target: ArtifactReference | None = None
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+
+    @model_validator(mode="after")
+    def _reject_excess_candidate_evidence(self):
+        if len(self.source_refs) + len(self.artifact_refs) > 32:
+            raise ValueError(  # noqa: TRY003
+                "source_refs and artifact_refs together must not exceed 32 references"
+            )
+        return self
+
+
+class GenerateSkillRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    origin: SkillGenerationOrigin
+    source_refs: Annotated[
+        list[SourceReference],
+        Field(
+            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    artifact_refs: Annotated[
+        list[ArtifactReference],
+        Field(
+            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    target: ArtifactReference | None = None
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+
+    @model_validator(mode="after")
+    def _reject_excess_candidate_evidence(self):
+        if len(self.source_refs) + len(self.artifact_refs) > 32:
+            raise ValueError(  # noqa: TRY003
+                "source_refs and artifact_refs together must not exceed 32 references"
+            )
+        return self
+
+
 class ReadinessResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -543,7 +749,7 @@ class ReviseArtifactCandidateRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     expected_version: Annotated[StrictInt, Field(ge=1)]
-    proposal: ExperienceProposal
+    proposal: ExperienceProposal | SkillProposal
     source_refs: Annotated[
         list[SourceReference],
         Field(
@@ -599,6 +805,51 @@ class SearchMemoryResponse(BaseModel):
     hits: list[SearchMemoryHit]
 
 
+class ArtifactCandidate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    version: Annotated[StrictInt, Field(ge=1)]
+    family: CandidateFamily
+    status: CandidateStatus
+    proposal: ExperienceProposal | SkillProposal
+    source_refs: Annotated[
+        list[SourceReference],
+        Field(
+            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    artifact_refs: Annotated[
+        list[ArtifactReference],
+        Field(
+            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    target: Annotated[ArtifactReference | None, Field(...)]
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
+    result_artifact: Annotated[ArtifactReference | None, Field(...)]
+    decision_reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
+
+    @model_validator(mode="after")
+    def _reject_excess_candidate_evidence(self):
+        if len(self.source_refs) + len(self.artifact_refs) > 32:
+            raise ValueError(  # noqa: TRY003
+                "source_refs and artifact_refs together must not exceed 32 references"
+            )
+        return self
+
+
+class ArtifactCandidatePage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    candidates: list[ArtifactCandidate]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
+
+
 class HandoffCitation(RootModel[HandoffSourceCitation | HandoffArtifactCitation | HandoffMemoryCitation]):
     root: Annotated[
         HandoffSourceCitation | HandoffArtifactCitation | HandoffMemoryCitation, Field(discriminator="kind")
@@ -641,6 +892,16 @@ class PrepareHandoffRequest(BaseModel):
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
 
 
+class SkillArtifact(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact: ArtifactReference
+    content: SkillProposal
+    source_refs: list[SourceReference]
+    artifact_refs: list[ArtifactReference]
+
+
 class ListMemoryChangesResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -655,6 +916,14 @@ class ListMemoryEntriesResponse(BaseModel):
     )
     memory: ArtifactReference | None = None
     entries: list[MemoryEntry]
+
+
+class GeneratedCandidateResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: GeneratedCandidateStatus
+    candidate: Annotated[ArtifactCandidate | None, Field(...)]
 
 
 class ActivateHandoffRequest(BaseModel):

@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 import powercontext.cli.system as system_cli
 from powercontext.cli.app import create_cli
 from powercontext.cli.system import Diagnostic, doctor_app, setup_app
+from powercontext.paths import default_scheduler_path
 from powercontext.server.settings import ServerSettings
 
 
@@ -23,7 +24,7 @@ def test_server_defaults_to_persistent_user_storage(
 
     assert settings.database.kind == "sqlite"
     assert settings.database.url == f"sqlite+aiosqlite:///{data_dir / 'powercontext.db'}"
-    assert settings.runtime.scheduler_path == data_dir / "scheduler.db"
+    assert default_scheduler_path() == data_dir / "scheduler.db"
 
 
 def test_setup_codex_installs_from_a_remote_ref_and_prepares_storage(

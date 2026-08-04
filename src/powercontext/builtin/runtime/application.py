@@ -12,7 +12,11 @@ from typing import TYPE_CHECKING
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.experience import Experience
+from powercontext.builtin.artifacts.experience import (
+    EXPERIENCE_INCUBATION_WINDOW_LIMIT,
+    Experience,
+    ExperienceSearchHit,
+)
 from powercontext.builtin.artifacts.handoff import (
     ActivateHandoff,
     Handoff,
@@ -32,18 +36,32 @@ from powercontext.builtin.artifacts.memory import (
     MemoryService,
 )
 from powercontext.builtin.artifacts.memory.errors import MemoryEntryNotFoundError
+from powercontext.builtin.artifacts.skill import (
+    ExternalSkillRegistryUnavailableError,
+    ExternalSkillResolution,
+    Skill,
+)
+from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
+from powercontext.builtin.review.generation import GeneratedCandidateResult, ReviewedGenerationService
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
 from powercontext.builtin.runtime.models import (
     ApproveArtifactCandidateRequest,
     CaptureSource,
     ExperienceCandidate,
-    ExperienceCandidatePage,
+    ExperienceIncubationResult,
+    ExternalSkillList,
+    ExternalSkillScanResult,
+    GenerateExperienceRequest,
+    GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
+    GetSkillRequest,
+    ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
+    ListExternalSkillsRequest,
     MemoryChangesPage,
     MemoryEntriesPage,
     MemoryEntryRecord,
@@ -53,18 +71,23 @@ from powercontext.builtin.runtime.models import (
     PrepareContextRequest,
     PreparedContext,
     ProposeExperienceRequest,
+    ProposeSkillRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
+    ResolveExternalSkillRequest,
     RetireMemoryEntryRequest,
+    ReviewedCandidate,
+    ReviewedCandidatePage,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
     RuntimeCapabilities,
     SearchMemoryRequest,
+    SkillCandidate,
     SourceReceipt,
 )
 from powercontext.builtin.runtime.prepared_context import PreparedContextBuilder
 from powercontext.builtin.runtime.protocols import BuiltinTriggers, PowerContextProvider
-from powercontext.builtin.sources import ContentCapture, SourceCursor, validate_scope_id
+from powercontext.builtin.sources import ContentCapture, ExternalSkillImportMode, SourceCursor, validate_scope_id
 from powercontext.context import PowerContext
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
 
@@ -75,6 +98,14 @@ logger = logging.getLogger(__name__)
 
 ScopeIds = Callable[[], Awaitable[tuple[str, ...]]]
 ReviewServiceFactory = Callable[[str], ReviewService]
+GenerationServiceFactory = Callable[[str], ReviewedGenerationService]
+ExternalSkillRegistryFactory = Callable[[str], ExternalSkillRegistryService]
+ExternalSkillImporter = Callable[
+    [str, str, str, ExternalSkillImportMode, str | None],
+    Awaitable[GeneratedCandidateResult],
+]
+ExperienceIncubator = Callable[[str, int], Awaitable[ExperienceIncubationResult]]
+ExperienceRecall = Callable[[str, str, int], Awaitable[tuple[ExperienceSearchHit, ...]]]
 
 
 class _RuntimeConfigurationError(ValueError):
@@ -87,6 +118,8 @@ class _RuntimeStateError(RuntimeError):
         messages = {
             "closed": "Built-in Runtime is closed",
             "empty-write": "explicit Memory write did not produce a Memory",
+            "experience-incubation": "Experience incubation is not configured",
+            "external-skill-registry": "External Skill Registry is not configured",
             "review": "Candidate Review services are not configured",
             "scheduler": "Built-in Runtime scheduler is already started",
         }
@@ -134,20 +167,29 @@ class ScopedContextApplication:
         async with self._runtime._context(self.scope_id) as context, self._runtime._lock(self.scope_id):
             service = context.artifacts.memory
             current = await _head_or_none(service, context.artifacts.memory_artifact_id)
-            if current is None:
-                return builder.empty()
-            result = await service.search(
-                request.query,
-                memories=(current,),
-                limit=builder.candidate_limit,
-                mode="auto",
+            memory_hits = ()
+            if current is not None:
+                result = await service.search(
+                    request.query,
+                    memories=(current,),
+                    limit=builder.memory_candidate_limit,
+                    mode="auto",
+                )
+                memory_hits = result.hits
+            experience_hits = (
+                ()
+                if self._runtime._experience_recall is None
+                else await self._runtime._experience_recall(
+                    self.scope_id,
+                    request.query,
+                    builder.experience_candidate_limit,
+                )
             )
-            if not result.hits:
-                return builder.empty()
             return builder.build(
-                memory_ref=current.as_ref(),
-                hits=result.hits,
                 request=request,
+                memory_ref=None if current is None else current.as_ref(),
+                hits=memory_hits,
+                experience_hits=experience_hits,
             )
 
 
@@ -179,9 +221,30 @@ class ScopedExperienceApplication:
                 reason=request.reason,
             )
 
+    async def generate(self, request: GenerateExperienceRequest, /) -> GeneratedCandidateResult:
+        async with self._runtime._operation(), self._runtime._lock(self.scope_id):
+            return await self._runtime._generation(self.scope_id).experience(
+                sources=request.sources,
+                artifacts=request.artifacts,
+                target=request.target,
+                reason=request.reason,
+            )
+
     async def get(self, request: GetExperienceRequest, /) -> Experience:
         async with self._runtime._operation():
             return await self._runtime._review(self.scope_id).get_experience(request.artifact)
+
+    async def incubate(self, /, *, limit: int | None = None) -> ExperienceIncubationResult:
+        """Process one independent Task Outcome Source window into Review."""
+
+        incubator = self._runtime._experience_incubator
+        if incubator is None:
+            raise _RuntimeStateError("experience-incubation")
+        window_limit = EXPERIENCE_INCUBATION_WINDOW_LIMIT if limit is None else limit
+        if window_limit < 1:
+            raise _RuntimeConfigurationError("limit")
+        async with self._runtime._operation(), self._runtime._lock(self.scope_id):
+            return await incubator(self.scope_id, window_limit)
 
 
 class ExperienceApplication:
@@ -192,6 +255,49 @@ class ExperienceApplication:
 
     def for_scope(self, scope_id: str, /) -> ScopedExperienceApplication:
         return ScopedExperienceApplication(self._runtime, scope_id)
+
+
+class ScopedSkillApplication:
+    """Propose and exactly read managed Skill Artifacts in one scope."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def propose(self, request: ProposeSkillRequest, /) -> SkillCandidate:
+        async with self._runtime._operation(), self._runtime._lock(self.scope_id):
+            service = self._runtime._review(self.scope_id)
+            return await service.propose_skill(
+                request.proposal,
+                sources=request.sources,
+                artifacts=request.artifacts,
+                target=request.target,
+                reason=request.reason,
+            )
+
+    async def generate(self, request: GenerateSkillRequest, /) -> GeneratedCandidateResult:
+        async with self._runtime._operation(), self._runtime._lock(self.scope_id):
+            return await self._runtime._generation(self.scope_id).skill(
+                origin=request.origin,
+                sources=request.sources,
+                artifacts=request.artifacts,
+                target=request.target,
+                reason=request.reason,
+            )
+
+    async def get(self, request: GetSkillRequest, /) -> Skill:
+        async with self._runtime._operation():
+            return await self._runtime._review(self.scope_id).get_skill(request.artifact)
+
+
+class SkillApplication:
+    """Select a scoped managed Skill application service."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedSkillApplication:
+        return ScopedSkillApplication(self._runtime, scope_id)
 
 
 class ScopedHandoffApplication:
@@ -261,6 +367,54 @@ class HandoffApplication:
         return ScopedHandoffApplication(self._runtime, scope_id)
 
 
+class ScopedExternalSkillApplication:
+    """Discover and exactly resolve Agent-native Skills in one local scope."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def scan(self) -> ExternalSkillScanResult:
+        async with self._runtime._operation(), self._runtime._lock(self.scope_id):
+            return await self._runtime._external_skills(self.scope_id).scan()
+
+    async def list(self, request: ListExternalSkillsRequest, /) -> ExternalSkillList:
+        async with self._runtime._operation():
+            return await self._runtime._external_skills(self.scope_id).list(
+                include_unavailable=request.include_unavailable
+            )
+
+    async def resolve(self, request: ResolveExternalSkillRequest, /) -> ExternalSkillResolution:
+        async with self._runtime._operation():
+            return await self._runtime._external_skills(self.scope_id).resolve(
+                request.external_skill_id,
+                request.fingerprint,
+            )
+
+    async def import_managed(self, request: ImportExternalSkillRequest, /) -> GeneratedCandidateResult:
+        importer = self._runtime._external_skill_importer
+        if importer is None:
+            raise ExternalSkillRegistryUnavailableError()
+        async with self._runtime._operation(), self._runtime._lock(self.scope_id):
+            return await importer(
+                self.scope_id,
+                request.external_skill_id,
+                request.fingerprint,
+                request.mode,
+                request.reason,
+            )
+
+
+class ExternalSkillApplication:
+    """Select a scoped host-local external Skill Registry."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedExternalSkillApplication:
+        return ScopedExternalSkillApplication(self._runtime, scope_id)
+
+
 class ScopedReviewApplication:
     """Inspect and decide current Candidate heads in one scope."""
 
@@ -268,7 +422,7 @@ class ScopedReviewApplication:
         self._runtime = runtime
         self.scope_id = validate_scope_id(scope_id)
 
-    async def list(self, request: ListArtifactCandidatesRequest, /) -> ExperienceCandidatePage:
+    async def list(self, request: ListArtifactCandidatesRequest, /) -> ReviewedCandidatePage:
         async with self._runtime._operation():
             return await self._runtime._review(self.scope_id).list_candidates(
                 status=request.status,
@@ -277,18 +431,18 @@ class ScopedReviewApplication:
                 limit=request.limit,
             )
 
-    async def get(self, request: GetArtifactCandidateRequest, /) -> ExperienceCandidate:
+    async def get(self, request: GetArtifactCandidateRequest, /) -> ReviewedCandidate:
         async with self._runtime._operation():
             return await self._runtime._review(self.scope_id).get_candidate(request.candidate_id)
 
-    async def approve(self, request: ApproveArtifactCandidateRequest, /) -> ExperienceCandidate:
+    async def approve(self, request: ApproveArtifactCandidateRequest, /) -> ReviewedCandidate:
         async with self._runtime._operation(), self._runtime._lock(self.scope_id):
             return await self._runtime._review(self.scope_id).approve(
                 request.candidate_id,
                 request.expected_version,
             )
 
-    async def reject(self, request: RejectArtifactCandidateRequest, /) -> ExperienceCandidate:
+    async def reject(self, request: RejectArtifactCandidateRequest, /) -> ReviewedCandidate:
         async with self._runtime._operation(), self._runtime._lock(self.scope_id):
             return await self._runtime._review(self.scope_id).reject(
                 request.candidate_id,
@@ -296,7 +450,7 @@ class ScopedReviewApplication:
                 request.reason,
             )
 
-    async def revise(self, request: ReviseArtifactCandidateRequest, /) -> ExperienceCandidate:
+    async def revise(self, request: ReviseArtifactCandidateRequest, /) -> ReviewedCandidate:
         async with self._runtime._operation(), self._runtime._lock(self.scope_id):
             return await self._runtime._review(self.scope_id).revise(
                 request.candidate_id,
@@ -485,39 +639,94 @@ class ScheduledSourceProcessor:
                 try:
                     result = await self._runtime.memory.for_scope(scope_id).flush()
                 except asyncio.CancelledError:
-                    _log_scheduled_processing("cancelled", started_at=started_at)
+                    _log_scheduled_processing(
+                        "cancelled",
+                        operation="process_source_window",
+                        started_at=started_at,
+                    )
                     raise
                 except Exception as error:
-                    _log_scheduled_processing("failure", started_at=started_at, error=error)
+                    _log_scheduled_processing(
+                        "failure",
+                        operation="process_source_window",
+                        started_at=started_at,
+                        error=error,
+                    )
                 else:
                     _log_scheduled_processing(
                         "success" if result.processed else "noop",
+                        operation="process_source_window",
                         started_at=started_at,
                         source_count=result.source_count,
+                    )
+
+
+class ScheduledExperienceProcessor:
+    """Map APScheduler activations to scoped Experience incubation windows."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_ids: ScopeIds) -> None:
+        self._runtime = runtime
+        self._scope_ids = scope_ids
+
+    async def run(self) -> None:
+        async with self._runtime._processor_lock:
+            if self._runtime._closing or self._runtime._closed:
+                return
+            for scope_id in await self._scope_ids():
+                if self._runtime._closing or self._runtime._closed:
+                    return
+                started_at = perf_counter()
+                try:
+                    result = await self._runtime.experience.for_scope(scope_id).incubate()
+                except asyncio.CancelledError:
+                    _log_scheduled_processing(
+                        "cancelled",
+                        operation="incubate_experience_candidates",
+                        started_at=started_at,
+                    )
+                    raise
+                except Exception as error:
+                    _log_scheduled_processing(
+                        "failure",
+                        operation="incubate_experience_candidates",
+                        started_at=started_at,
+                        error=error,
+                    )
+                else:
+                    _log_scheduled_processing(
+                        "success" if result.processed else "noop",
+                        operation="incubate_experience_candidates",
+                        started_at=started_at,
+                        source_count=result.source_count,
+                        candidate_count=result.candidate_count,
                     )
 
 
 def _log_scheduled_processing(
     outcome: str,
     *,
+    operation: str,
     started_at: float,
     error: Exception | None = None,
     source_count: int | None = None,
+    candidate_count: int | None = None,
 ) -> None:
     extra = {
         "event": "background.operation.completed",
-        "operation": "process_source_window",
+        "operation": operation,
         "outcome": outcome,
         "unit": "background",
         "duration_ms": max(perf_counter() - started_at, 0) * 1_000,
     }
     if source_count is not None:
         extra["source_count"] = source_count
+    if candidate_count is not None:
+        extra["candidate_count"] = candidate_count
     level = logging.ERROR if error is not None else logging.INFO
     log_safely(
         logger,
         level,
-        "Scheduled Source processing completed" if error is None else "Scheduled Source processing failed",
+        "Scheduled background processing completed" if error is None else "Scheduled background processing failed",
         exc_info=error,
         extra=extra,
     )
@@ -534,12 +743,22 @@ class BuiltinRuntime:
         source_window_limit: int = 100,
         scope_ids: ScopeIds | None = None,
         review_service: ReviewServiceFactory | None = None,
+        generation_service: GenerationServiceFactory | None = None,
+        experience_recall: ExperienceRecall | None = None,
+        experience_incubator: ExperienceIncubator | None = None,
+        external_skill_registry: ExternalSkillRegistryFactory | None = None,
+        external_skill_importer: ExternalSkillImporter | None = None,
     ) -> None:
         if source_window_limit < 1:
             raise _RuntimeConfigurationError("source_window_limit")
         self._provider = provider
         self._capabilities = capabilities
         self._review_service = review_service
+        self._generation_service = generation_service
+        self._experience_recall = experience_recall
+        self._experience_incubator = experience_incubator
+        self._external_skill_registry = external_skill_registry
+        self._external_skill_importer = external_skill_importer
         self.source_window_limit = source_window_limit
         self._locks: dict[str, asyncio.Lock] = {}
         self._processor_lock = asyncio.Lock()
@@ -553,10 +772,15 @@ class BuiltinRuntime:
         self.sources = SourceApplication(self)
         self.context = ContextApplication(self)
         self.experience = ExperienceApplication(self)
+        self.external_skills = ExternalSkillApplication(self)
         self.handoff = HandoffApplication(self)
         self.memory = MemoryApplication(self)
         self.review = ReviewApplication(self)
+        self.skill = SkillApplication(self)
         self.processor = None if scope_ids is None else ScheduledSourceProcessor(self, scope_ids)
+        self.experience_processor = (
+            None if scope_ids is None or experience_incubator is None else ScheduledExperienceProcessor(self, scope_ids)
+        )
 
     async def __aenter__(self) -> BuiltinRuntime:
         return self
@@ -568,26 +792,47 @@ class BuiltinRuntime:
         async with self._operation():
             return self._capabilities
 
-    def start_scheduler(self, scheduler_path: str | Path, schedule_seconds: float) -> None:
+    def start_scheduler(
+        self,
+        scheduler_path: str | Path,
+        schedule_seconds: float | None,
+        *,
+        experience_schedule_seconds: float | None = None,
+    ) -> None:
         """Start the APScheduler time adapter for this Runtime."""
 
-        if self.processor is None:
-            raise _RuntimeConfigurationError("scope_ids")
-        if schedule_seconds <= 0:
+        if schedule_seconds is None and experience_schedule_seconds is None:
             raise _RuntimeConfigurationError("schedule_seconds")
+        if schedule_seconds is not None and schedule_seconds <= 0:
+            raise _RuntimeConfigurationError("schedule_seconds")
+        if experience_schedule_seconds is not None and experience_schedule_seconds <= 0:
+            raise _RuntimeConfigurationError("experience_schedule_seconds")
+        if schedule_seconds is not None and self.processor is None:
+            raise _RuntimeConfigurationError("scope_ids")
+        if experience_schedule_seconds is not None and self.experience_processor is None:
+            raise _RuntimeStateError("experience-incubation")
         if self._scheduler is not None:
             raise _RuntimeStateError("scheduler")
         from powercontext.builtin.runtime.scheduler import (
+            configure_experience_incubation_job,
             configure_source_window_job,
             create_scheduler,
-            register_processor,
+            register_processors,
             scheduler_runtime_key,
             unregister_processor,
         )
 
         runtime_key = scheduler_runtime_key(scheduler_path)
         scheduler: AsyncIOScheduler | None = None
-        register_processor(runtime_key, self.processor.run)
+        register_processors(
+            runtime_key,
+            source_window=None if schedule_seconds is None or self.processor is None else self.processor.run,
+            experience_incubation=(
+                None
+                if experience_schedule_seconds is None or self.experience_processor is None
+                else self.experience_processor.run
+            ),
+        )
         self._scheduler_runtime_key = runtime_key
         try:
             scheduler = create_scheduler(scheduler_path)
@@ -597,6 +842,11 @@ class BuiltinRuntime:
                 scheduler,
                 runtime_key=runtime_key,
                 schedule_seconds=schedule_seconds,
+            )
+            configure_experience_incubation_job(
+                scheduler,
+                runtime_key=runtime_key,
+                schedule_seconds=experience_schedule_seconds,
             )
             scheduler.resume()
         except BaseException:
@@ -662,6 +912,16 @@ class BuiltinRuntime:
         if self._review_service is None:
             raise _RuntimeStateError("review")
         return self._review_service(validate_scope_id(scope_id))
+
+    def _generation(self, scope_id: str) -> ReviewedGenerationService:
+        if self._generation_service is None:
+            raise _RuntimeStateError("review")
+        return self._generation_service(validate_scope_id(scope_id))
+
+    def _external_skills(self, scope_id: str) -> ExternalSkillRegistryService:
+        if self._external_skill_registry is None:
+            raise ExternalSkillRegistryUnavailableError
+        return self._external_skill_registry(validate_scope_id(scope_id))
 
 
 async def _head_or_none(service: MemoryService, artifact_id: str) -> Memory | None:

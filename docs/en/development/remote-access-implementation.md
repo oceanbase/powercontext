@@ -61,9 +61,9 @@ and OceanBase uses HNSW for `vector` and `hybrid` searches.
 
 Inference configuration is documented in [Configure Pydantic AI inference](pydantic-ai-inference.md).
 
-Set `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` to process pending Source windows on a persisted interval and
-`POWERCONTEXT_SERVER_RUNTIME_SCHEDULER_PATH` to choose its SQLite sidecar. Scheduling works with either application
-database and requires a configured generation pipeline.
+Set `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` to process pending Source windows on a persisted interval. Scheduled
+jobs use the SQLite sidecar at `POWERCONTEXT_HOME/scheduler.db`. Scheduling works with either application database and
+requires a configured generation pipeline.
 
 ## HTTP surface
 

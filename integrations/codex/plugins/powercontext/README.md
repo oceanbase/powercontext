@@ -10,6 +10,24 @@ The integration uses each public surface for the job it fits:
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives Codex the curated
   memory tools.
 
+Managed Skills use a separate, explicit handoff. A reviewer approves the exact
+Candidate through HTTP or the Client CLI, then the user exports that immutable
+Skill Revision into a Codex Skill directory:
+
+```bash
+powercontext client skill export \
+  --target codex \
+  --scope-id project:example \
+  --revision 1 \
+  --destination .agents/skills/example-skill \
+  SKILL_ID
+```
+
+The command creates `SKILL.md` and a `powercontext.json` manifest containing the
+exact Artifact reference and content hash. It never replaces an existing path.
+Approval alone neither installs nor executes a Skill, and Review operations are
+not exposed to the agent through MCP.
+
 Start a local server before using the integration:
 
 ```bash
@@ -44,9 +62,17 @@ put the token in `.mcp.json`, the Server URL, or a static MCP header.
 
 Prompt capture is enabled by default. Set `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false`
 when prompts must not be persisted. Captured Sources are normally processed by
-the Server scheduler. For tests or read-your-write workflows, set
+the Server's Memory extraction job. They remain ordinary prompt evidence: the
+hook does not label a user request as a completed Task Outcome.
+For tests or read-your-write workflows, set
 `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true`; the hook then flushes until the captured
 Source position is processed.
+
+Scheduled Experience incubation is a separate Server job. It consumes only
+Content Sources captured by a completion-aware integration with metadata
+`{"kind": "task-outcome"}` and creates pending Experience Candidates for the
+Review Inbox. It never approves an Experience, creates or installs a managed
+Skill, or grants Codex execution authority.
 
 All hook configuration uses the `POWERCONTEXT_CODEX_` prefix. The default
 request timeout is one second, the shared HTTP budget is four seconds, and a

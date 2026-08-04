@@ -59,8 +59,8 @@ export POWERCONTEXT_SERVER_DATABASE_URL="mysql+aoceanbase://user:password@host:2
 
 inference 配置见[配置 Pydantic AI 推理](pydantic-ai-inference.md)。
 
-设置 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` 可以按持久化 interval 处理待消费的 Source window，
-`POWERCONTEXT_SERVER_RUNTIME_SCHEDULER_PATH` 用于指定 SQLite sidecar。调度可以配合任一 application database
+设置 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` 可以按持久化 interval 处理待消费的 Source window。
+定时 job 使用 `POWERCONTEXT_HOME/scheduler.db` 作为 SQLite sidecar。调度可以配合任一 application database
 使用，但必须配置 generation pipeline。
 
 ## HTTP 接口

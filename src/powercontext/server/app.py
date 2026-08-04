@@ -37,6 +37,15 @@ from powercontext.builtin.artifacts.memory.errors import (
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
 )
+from powercontext.builtin.artifacts.skill import (
+    ExternalSkillNotFoundError,
+    ExternalSkillRegistryUnavailableError,
+    ExternalSkillSnapshotUnavailableError,
+    Skill,
+)
+from powercontext.builtin.artifacts.skill import (
+    ExternalSkillResolution as RuntimeExternalSkillResolution,
+)
 from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
 from powercontext.builtin.review import (
     ArtifactTargetConflictError,
@@ -45,11 +54,16 @@ from powercontext.builtin.review import (
     CandidateTerminalError,
     InvalidCandidateError,
 )
+from powercontext.builtin.review.generation import (
+    GeneratedCandidateResult as RuntimeGeneratedCandidateResult,
+)
+from powercontext.builtin.review.generation import GenerationCapabilityUnavailableError
 from powercontext.builtin.runtime import (
     ActivateHandoff,
     CaptureSource,
     ExperienceCandidate,
-    ExperienceCandidatePage,
+    ExternalSkillList,
+    ExternalSkillScanResult,
     Handoff,
     HandoffActivation,
     HandoffDraft,
@@ -63,10 +77,19 @@ from powercontext.builtin.runtime import (
     MemorySearchPage,
     PreparedHandoff,
     PrepareHandoff,
+    ReviewedCandidate,
+    ReviewedCandidatePage,
+    SkillCandidate,
     SourceReceipt,
 )
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
+)
+from powercontext.builtin.runtime import (
+    GenerateExperienceRequest as RuntimeGenerateExperienceRequest,
+)
+from powercontext.builtin.runtime import (
+    GenerateSkillRequest as RuntimeGenerateSkillRequest,
 )
 from powercontext.builtin.runtime import (
     GetArtifactCandidateRequest as RuntimeGetArtifactCandidateRequest,
@@ -77,9 +100,14 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
 )
+from powercontext.builtin.runtime import GetSkillRequest as RuntimeGetSkillRequest
+from powercontext.builtin.runtime import (
+    ImportExternalSkillRequest as RuntimeImportExternalSkillRequest,
+)
 from powercontext.builtin.runtime import (
     ListArtifactCandidatesRequest as RuntimeListArtifactCandidatesRequest,
 )
+from powercontext.builtin.runtime import ListExternalSkillsRequest as RuntimeListExternalSkillsRequest
 from powercontext.builtin.runtime import (
     PrepareContextRequest as RuntimePrepareContextRequest,
 )
@@ -89,12 +117,14 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     ProposeExperienceRequest as RuntimeProposeExperienceRequest,
 )
+from powercontext.builtin.runtime import ProposeSkillRequest as RuntimeProposeSkillRequest
 from powercontext.builtin.runtime import (
     RejectArtifactCandidateRequest as RuntimeRejectArtifactCandidateRequest,
 )
 from powercontext.builtin.runtime import (
     RememberMemoryRequest as RuntimeRememberMemoryRequest,
 )
+from powercontext.builtin.runtime import ResolveExternalSkillRequest as RuntimeResolveExternalSkillRequest
 from powercontext.builtin.runtime import (
     RetireMemoryEntryRequest as RuntimeRetireMemoryEntryRequest,
 )
@@ -127,15 +157,23 @@ from powercontext.http import (
     ErrorDetail,
     ErrorResponse,
     ExperienceArtifact,
+    ExternalSkillResolution,
     FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    GeneratedCandidateResponse,
+    GenerateExperienceRequest,
+    GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
+    GetSkillRequest,
     HandoffSelection,
     HealthResponse,
+    ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
+    ListExternalSkillsRequest,
+    ListExternalSkillsResponse,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -146,15 +184,20 @@ from powercontext.http import (
     PreparedContext,
     PrepareHandoffRequest,
     ProposeExperienceRequest,
+    ProposeSkillRequest,
     ReadinessResponse,
     ReadinessStatus,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
+    ResolveExternalSkillRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
+    ScanExternalSkillsRequest,
+    ScanExternalSkillsResponse,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SkillArtifact,
 )
 from powercontext.http import (
     HandoffActivation as TransportHandoffActivation,
@@ -179,24 +222,32 @@ from powercontext.http._generated.operations import (
     CONTINUE_HANDOFF,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
+    GENERATE_EXPERIENCE,
+    GENERATE_SKILL,
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
     GET_EXPERIENCE,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
     GET_READINESS,
+    GET_SKILL,
+    IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_EXTERNAL_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     OPENAPI_VERSION,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
+    PROPOSE_SKILL,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
+    RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
+    SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
     Operation,
 )
@@ -237,6 +288,8 @@ class _ContextApplication(Protocol):
 class _ScopedExperienceApplication(Protocol):
     async def propose(self, request: RuntimeProposeExperienceRequest, /) -> ExperienceCandidate: ...
 
+    async def generate(self, request: RuntimeGenerateExperienceRequest, /) -> RuntimeGeneratedCandidateResult: ...
+
     async def get(self, request: RuntimeGetExperienceRequest, /) -> Experience: ...
 
 
@@ -244,16 +297,44 @@ class _ExperienceApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedExperienceApplication: ...
 
 
+class _ScopedSkillApplication(Protocol):
+    async def propose(self, request: RuntimeProposeSkillRequest, /) -> SkillCandidate: ...
+
+    async def generate(self, request: RuntimeGenerateSkillRequest, /) -> RuntimeGeneratedCandidateResult: ...
+
+    async def get(self, request: RuntimeGetSkillRequest, /) -> Skill: ...
+
+
+class _SkillApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedSkillApplication: ...
+
+
+class _ScopedExternalSkillApplication(Protocol):
+    async def scan(self) -> ExternalSkillScanResult: ...
+
+    async def list(self, request: RuntimeListExternalSkillsRequest, /) -> ExternalSkillList: ...
+
+    async def resolve(self, request: RuntimeResolveExternalSkillRequest, /) -> RuntimeExternalSkillResolution: ...
+
+    async def import_managed(
+        self, request: RuntimeImportExternalSkillRequest, /
+    ) -> RuntimeGeneratedCandidateResult: ...
+
+
+class _ExternalSkillApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedExternalSkillApplication: ...
+
+
 class _ScopedReviewApplication(Protocol):
-    async def list(self, request: RuntimeListArtifactCandidatesRequest, /) -> ExperienceCandidatePage: ...
+    async def list(self, request: RuntimeListArtifactCandidatesRequest, /) -> ReviewedCandidatePage: ...
 
-    async def get(self, request: RuntimeGetArtifactCandidateRequest, /) -> ExperienceCandidate: ...
+    async def get(self, request: RuntimeGetArtifactCandidateRequest, /) -> ReviewedCandidate: ...
 
-    async def approve(self, request: RuntimeApproveArtifactCandidateRequest, /) -> ExperienceCandidate: ...
+    async def approve(self, request: RuntimeApproveArtifactCandidateRequest, /) -> ReviewedCandidate: ...
 
-    async def reject(self, request: RuntimeRejectArtifactCandidateRequest, /) -> ExperienceCandidate: ...
+    async def reject(self, request: RuntimeRejectArtifactCandidateRequest, /) -> ReviewedCandidate: ...
 
-    async def revise(self, request: RuntimeReviseArtifactCandidateRequest, /) -> ExperienceCandidate: ...
+    async def revise(self, request: RuntimeReviseArtifactCandidateRequest, /) -> ReviewedCandidate: ...
 
 
 class _ReviewApplication(Protocol):
@@ -304,9 +385,11 @@ class ServerApplication(Protocol):
     sources: _SourceApplication
     context: _ContextApplication
     experience: _ExperienceApplication
+    external_skills: _ExternalSkillApplication
     handoff: _HandoffApplication
     memory: _MemoryApplication
     review: _ReviewApplication
+    skill: _SkillApplication
 
 
 class _RuntimeNotReadyError(RuntimeError):
@@ -338,6 +421,9 @@ def create_app(
         source_types=[],
         artifact_families=[],
         memory_extraction=False,
+        experience_generation=False,
+        managed_skill_generation=False,
+        external_skill_registry=False,
         handoff_generation=False,
         search_modes=[],
         context_versions=[],
@@ -401,7 +487,15 @@ def create_app(
     _add_route(app, RETIRE_MEMORY_ENTRY, retire_memory_entry)
     _add_route(app, LIST_MEMORY_CHANGES, list_memory_changes)
     _add_route(app, PROPOSE_EXPERIENCE, propose_experience)
+    _add_route(app, GENERATE_EXPERIENCE, generate_experience)
     _add_route(app, GET_EXPERIENCE, get_experience)
+    _add_route(app, PROPOSE_SKILL, propose_skill)
+    _add_route(app, GENERATE_SKILL, generate_skill)
+    _add_route(app, GET_SKILL, get_skill)
+    _add_route(app, SCAN_EXTERNAL_SKILLS, scan_external_skills)
+    _add_route(app, LIST_EXTERNAL_SKILLS, list_external_skills)
+    _add_route(app, RESOLVE_EXTERNAL_SKILL, resolve_external_skill)
+    _add_route(app, IMPORT_EXTERNAL_SKILL, import_external_skill)
     _add_route(app, LIST_ARTIFACT_CANDIDATES, list_artifact_candidates)
     _add_route(app, GET_ARTIFACT_CANDIDATE, get_artifact_candidate)
     _add_route(app, APPROVE_ARTIFACT_CANDIDATE, approve_artifact_candidate)
@@ -590,12 +684,84 @@ async def propose_experience(
     return mapping.candidate_response(result)
 
 
+async def generate_experience(
+    request: GenerateExperienceRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> GeneratedCandidateResponse:
+    result = await application.experience.for_scope(request.scope_id).generate(
+        mapping.generate_experience_request(request)
+    )
+    return mapping.generated_candidate_response(result)
+
+
 async def get_experience(
     request: GetExperienceRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ExperienceArtifact:
     result = await application.experience.for_scope(request.scope_id).get(mapping.get_experience_request(request))
     return mapping.experience_response(result)
+
+
+async def propose_skill(
+    request: ProposeSkillRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ArtifactCandidate:
+    result = await application.skill.for_scope(request.scope_id).propose(mapping.propose_skill_request(request))
+    return mapping.candidate_response(result)
+
+
+async def generate_skill(
+    request: GenerateSkillRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> GeneratedCandidateResponse:
+    result = await application.skill.for_scope(request.scope_id).generate(mapping.generate_skill_request(request))
+    return mapping.generated_candidate_response(result)
+
+
+async def get_skill(
+    request: GetSkillRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> SkillArtifact:
+    result = await application.skill.for_scope(request.scope_id).get(mapping.get_skill_request(request))
+    return mapping.skill_response(result)
+
+
+async def scan_external_skills(
+    request: ScanExternalSkillsRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ScanExternalSkillsResponse:
+    result = await application.external_skills.for_scope(request.scope_id).scan()
+    return mapping.scan_external_skills_response(result)
+
+
+async def list_external_skills(
+    request: ListExternalSkillsRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ListExternalSkillsResponse:
+    result = await application.external_skills.for_scope(request.scope_id).list(
+        mapping.list_external_skills_request(request)
+    )
+    return mapping.list_external_skills_response(result)
+
+
+async def resolve_external_skill(
+    request: ResolveExternalSkillRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ExternalSkillResolution:
+    result = await application.external_skills.for_scope(request.scope_id).resolve(
+        mapping.resolve_external_skill_request(request)
+    )
+    return mapping.external_skill_resolution(result)
+
+
+async def import_external_skill(
+    request: ImportExternalSkillRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> GeneratedCandidateResponse:
+    result = await application.external_skills.for_scope(request.scope_id).import_managed(
+        mapping.import_external_skill_request(request)
+    )
+    return mapping.generated_candidate_response(result)
 
 
 async def list_artifact_candidates(
@@ -762,6 +928,29 @@ def _error_response(
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     if isinstance(error, _RuntimeNotReadyError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "runtime_not_ready", "The Runtime is not ready.", None
+    if isinstance(error, ExternalSkillRegistryUnavailableError):
+        return (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "external_skill_registry_unavailable",
+            "The external Skill Registry is unavailable.",
+            None,
+        )
+    if isinstance(error, ExternalSkillNotFoundError):
+        return status.HTTP_404_NOT_FOUND, "external_skill_not_found", "The external Skill was not found.", None
+    if isinstance(error, ExternalSkillSnapshotUnavailableError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "external_skill_snapshot_unavailable",
+            "The exact external Skill snapshot is unavailable.",
+            None,
+        )
+    if isinstance(error, GenerationCapabilityUnavailableError):
+        return (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "generation_unavailable",
+            "Artifact generation is not configured.",
+            {"family": error.family},
+        )
     candidate_error = _map_candidate_error(error)
     if candidate_error is not None:
         return candidate_error
@@ -831,9 +1020,9 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
     ):
         return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_request", "The request is invalid.", None
     if isinstance(error, InferenceTimeoutError):
-        return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_timeout", "Memory inference timed out.", None
+        return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_timeout", "Model inference timed out.", None
     if isinstance(error, InferenceUnavailableError):
-        return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Memory inference is unavailable.", None
+        return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Model inference is unavailable.", None
     return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
 
 

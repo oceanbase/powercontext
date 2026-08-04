@@ -19,17 +19,26 @@ from powercontext.builtin.artifacts.memory.models import (
     MemorySearchMode,
     MemoryUsedSearchMode,
 )
+from powercontext.builtin.artifacts.skill import (
+    ExternalSkillProviderScan,
+    ExternalSkillResolution,
+    SkillContent,
+)
 from powercontext.builtin.review import (
     DEFAULT_CANDIDATE_PAGE_SIZE,
+    MAX_CANDIDATE_EVIDENCE,
     MAX_CANDIDATE_PAGE_SIZE,
     ArtifactCandidate,
     ArtifactCandidatePage,
     CandidateStatus,
 )
+from powercontext.builtin.review.generation import SkillGenerationOrigin
+from powercontext.builtin.sources import ExternalSkillImportMode
 from powercontext.sources import SourceRef
 
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
 PreparedContextStatus: TypeAlias = Literal["ready", "empty"]
+ReviewedProposal: TypeAlias = ExperienceContent | SkillContent
 
 PREPARED_CONTEXT_SCHEMA: PreparedContextSchema = "powercontext.prepared-context.v1"
 
@@ -57,6 +66,9 @@ class RuntimeCapabilities(BaseModel):
     """Behavior available from the assembled Source-to-Memory Runtime."""
 
     memory_extraction: bool
+    experience_generation: bool = False
+    managed_skill_generation: bool = False
+    external_skill_registry: bool = False
     memory_search_modes: tuple[MemorySearchMode, ...]
     handoff_generation: bool = False
     context_versions: tuple[PreparedContextSchema, ...] = (PREPARED_CONTEXT_SCHEMA,)
@@ -70,6 +82,20 @@ class MemoryFlushResult(BaseModel):
     current_cursor: int
     source_count: int
     memory_ref: ArtifactRef | None
+
+    @property
+    def processed(self) -> bool:
+        return self.current_cursor > self.previous_cursor
+
+
+class ExperienceIncubationResult(BaseModel):
+    """Result of incubating one scoped Task Outcome Source window."""
+
+    previous_cursor: int = Field(ge=0)
+    high_watermark: int = Field(ge=0)
+    current_cursor: int = Field(ge=0)
+    source_count: int = Field(ge=0)
+    candidate_count: int = Field(ge=0)
 
     @property
     def processed(self) -> bool:
@@ -194,17 +220,88 @@ class ProposeExperienceRequest(BaseModel):
     reason: str | None = None
 
 
+class GenerateExperienceRequest(BaseModel):
+    """Generate a reviewed Experience Candidate from exact evidence."""
+
+    sources: tuple[SourceRef, ...] = Field(default=(), max_length=MAX_CANDIDATE_EVIDENCE)
+    artifacts: tuple[ArtifactRef, ...] = Field(default=(), max_length=MAX_CANDIDATE_EVIDENCE)
+    target: ArtifactRef | None = None
+    reason: str | None = None
+
+    @model_validator(mode="after")
+    def validate_evidence_bound(self):
+        if len(self.sources) + len(self.artifacts) > MAX_CANDIDATE_EVIDENCE:
+            raise ValueError("generation evidence exceeds the combined reference bound")  # noqa: TRY003
+        return self
+
+
 class GetExperienceRequest(BaseModel):
     """Read one exact approved Experience revision."""
 
     artifact: ArtifactRef
 
 
+class ProposeSkillRequest(BaseModel):
+    """Submit a complete managed Skill proposal with exact evidence."""
+
+    proposal: SkillContent
+    sources: tuple[SourceRef, ...] = ()
+    artifacts: tuple[ArtifactRef, ...] = ()
+    target: ArtifactRef | None = None
+    reason: str | None = None
+
+
+class GenerateSkillRequest(BaseModel):
+    """Generate a reviewed managed Skill Candidate from an explicit lineage shape."""
+
+    origin: SkillGenerationOrigin
+    sources: tuple[SourceRef, ...] = Field(default=(), max_length=MAX_CANDIDATE_EVIDENCE)
+    artifacts: tuple[ArtifactRef, ...] = Field(default=(), max_length=MAX_CANDIDATE_EVIDENCE)
+    target: ArtifactRef | None = None
+    reason: str | None = None
+
+    @model_validator(mode="after")
+    def validate_evidence_bound(self):
+        if len(self.sources) + len(self.artifacts) > MAX_CANDIDATE_EVIDENCE:
+            raise ValueError("generation evidence exceeds the combined reference bound")  # noqa: TRY003
+        return self
+
+
+class GetSkillRequest(BaseModel):
+    """Read one exact approved managed Skill revision."""
+
+    artifact: ArtifactRef
+
+
+class ListExternalSkillsRequest(BaseModel):
+    """Discover registrations currently available in this host environment."""
+
+    include_unavailable: bool = False
+
+
+class ResolveExternalSkillRequest(BaseModel):
+    """Resolve one exact external Skill fingerprint on the current host."""
+
+    external_skill_id: str
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ImportExternalSkillRequest(ResolveExternalSkillRequest):
+    """Explicitly snapshot and propose an external Skill as a new managed Candidate."""
+
+    mode: ExternalSkillImportMode
+    reason: str | None = Field(default=None, min_length=1, max_length=2_000)
+
+
+ExternalSkillScanResult = ExternalSkillProviderScan
+ExternalSkillList = tuple[ExternalSkillResolution, ...]
+
+
 class ListArtifactCandidatesRequest(BaseModel):
     """Filter and page the current Review Inbox."""
 
     status: CandidateStatus = CandidateStatus.PENDING
-    family: Literal["experience"] | None = None
+    family: Literal["experience", "skill"] | None = None
     cursor: str | None = None
     limit: Annotated[int, Field(ge=1, le=MAX_CANDIDATE_PAGE_SIZE)] = DEFAULT_CANDIDATE_PAGE_SIZE
 
@@ -223,7 +320,7 @@ class RejectArtifactCandidateRequest(ApproveArtifactCandidateRequest):
 
 
 class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
-    proposal: ExperienceContent
+    proposal: ReviewedProposal
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
     target: ArtifactRef | None = None
@@ -232,3 +329,6 @@ class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
 
 ExperienceCandidate = ArtifactCandidate[ExperienceContent]
 ExperienceCandidatePage = ArtifactCandidatePage[ExperienceContent]
+SkillCandidate = ArtifactCandidate[SkillContent]
+ReviewedCandidate = ArtifactCandidate[ReviewedProposal]
+ReviewedCandidatePage = ArtifactCandidatePage[ReviewedProposal]
