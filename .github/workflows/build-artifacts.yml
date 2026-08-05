@@ -1,0 +1,424 @@
+name: Build customer artifact
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit SHA to package; blank uses the selected workflow ref
+        required: false
+        type: string
+      artifact_label:
+        description: Optional label used in the uploaded artifact name
+        required: false
+        type: string
+      python_version:
+        description: Python version for the offline bundle
+        required: true
+        default: "3.11"
+        type: choice
+        options:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+          - "3.14"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: customer-artifact-${{ github.event.pull_request.number || inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  ARTIFACT_PLATFORM: linux-x86_64
+  UV_VERSION: "0.10.12"
+
+jobs:
+  build:
+    name: Build Linux x86_64 / Python ${{ inputs.python_version || '3.11' }} bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHON_VERSION: ${{ inputs.python_version || '3.11' }}
+
+    steps:
+      - name: Check out requested source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Verify locked dependencies
+        run: uv lock --locked
+
+      - name: Resolve artifact metadata
+        id: metadata
+        env:
+          ARTIFACT_LABEL: ${{ inputs.artifact_label }}
+          SOURCE_REF: ${{ inputs.ref || github.head_ref || github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          label = os.environ.get("ARTIFACT_LABEL") or os.environ.get("SOURCE_REF") or "source"
+          slug = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-.").lower() or "source"
+          slug = slug[:48].rstrip("-.")
+          python_version = os.environ["PYTHON_VERSION"]
+          if python_version not in {"3.11", "3.12", "3.13", "3.14"}:
+              raise SystemExit(f"unsupported Python version: {python_version}")
+          python_tag = f"py{python_version.replace('.', '')}"
+          artifact_name = f"powercontext-{version}-{slug}-{source_sha[:12]}-linux-x86_64-{python_tag}"
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              output.write(f"artifact_name={artifact_name}\n")
+              output.write(f"package_version={version}\n")
+              output.write(f"source_sha={source_sha}\n")
+              output.write(f"source_ref={os.environ.get('SOURCE_REF') or source_sha}\n")
+          PY
+
+      - name: Build Python distributions
+        run: |
+          mkdir -p build/artifact-input/distributions
+          uv build --out-dir build/artifact-input/distributions
+          uvx --from twine twine check build/artifact-input/distributions/*
+
+      - name: Export locked runtime dependencies
+        run: |
+          uv export \
+            --locked \
+            --no-dev \
+            --extra cli \
+            --extra server \
+            --no-emit-project \
+            --no-header \
+            --no-annotate \
+            --format requirements-txt \
+            --output-file build/artifact-input/requirements.lock
+
+          uv export \
+            --project integrations/codex/plugins/powercontext \
+            --locked \
+            --no-dev \
+            --no-emit-project \
+            --no-header \
+            --no-annotate \
+            --format requirements-txt \
+            --output-file build/artifact-input/plugin-requirements.lock
+
+      - name: Download Linux x86_64 dependency wheels
+        run: |
+          python -m pip download \
+            --require-hashes \
+            --only-binary=:all: \
+            --dest build/artifact-input/wheelhouse \
+            --requirement build/artifact-input/requirements.lock
+
+          python -m pip download \
+            --require-hashes \
+            --only-binary=:all: \
+            --dest build/artifact-input/plugin-wheelhouse \
+            --requirement build/artifact-input/plugin-requirements.lock
+
+      - name: Assemble customer bundle
+        id: bundle
+        env:
+          ARTIFACT_NAME: ${{ steps.metadata.outputs.artifact_name }}
+          PACKAGE_VERSION: ${{ steps.metadata.outputs.package_version }}
+          SOURCE_REF: ${{ steps.metadata.outputs.source_ref }}
+          SOURCE_SHA: ${{ steps.metadata.outputs.source_sha }}
+        run: |
+          bundle_root="$PWD/build/output/${ARTIFACT_NAME}"
+          mkdir -p \
+            "$bundle_root/distributions" \
+            "$bundle_root/docs" \
+            "$bundle_root/openapi"
+
+          cp build/artifact-input/distributions/* "$bundle_root/distributions/"
+          cp -R build/artifact-input/wheelhouse "$bundle_root/wheelhouse"
+          cp -R build/artifact-input/plugin-wheelhouse "$bundle_root/plugin-wheelhouse"
+          cp build/artifact-input/requirements.lock "$bundle_root/requirements.lock"
+          cp build/artifact-input/plugin-requirements.lock "$bundle_root/plugin-requirements.lock"
+          cp -R integrations/codex "$bundle_root/integrations"
+          cp openapi/powercontext.yaml "$bundle_root/openapi/powercontext.yaml"
+          cp LICENSE README.md "$bundle_root/"
+
+          BUNDLE_ROOT="$bundle_root" python - <<'PY'
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["BUNDLE_ROOT"])
+          python_version = os.environ["PYTHON_VERSION"]
+          install_guide = rf"""# Install the PowerContext Offline Bundle
+
+          Target: Linux x86_64 with Python {python_version}. Python and the Codex CLI are not included.
+
+          ## 1. Verify
+
+          ```bash
+          sha256sum --check powercontext-*.tar.gz.sha256
+          tar -xzf powercontext-*.tar.gz
+          cd powercontext-*/
+          sha256sum --check SHA256SUMS
+          ```
+
+          Confirm the source SHA, version, and platform in `MANIFEST.json`.
+
+          ## 2. Install
+
+          ```bash
+          python{python_version} -m venv .venv
+          .venv/bin/python -m pip install \
+            --no-index \
+            --find-links wheelhouse \
+            --require-hashes \
+            --requirement requirements.lock
+          .venv/bin/python -m pip install \
+            --no-index \
+            --no-deps \
+            distributions/powercontext-*.whl
+          .venv/bin/powercontext --help
+          .venv/bin/powercontext server --help
+          ```
+
+          ## 3. Install the Codex plugin
+
+          ```bash
+          .venv/bin/powercontext setup codex --source "$(pwd)/integrations"
+          ```
+
+          Start a new Codex session after installation. Plugin dependencies are bundled under `vendor/`.
+
+          ## 4. Start and verify
+
+          ```bash
+          set -a
+          . ./powercontext.env.example
+          set +a
+          .venv/bin/powercontext server run
+          ```
+
+          In another terminal, from the same bundle directory:
+
+          ```bash
+          .venv/bin/powercontext doctor
+          .venv/bin/powercontext client ready
+          .venv/bin/powercontext client capabilities
+          ```
+
+          `doctor` should pass and readiness should be `ready`. Vector search and AI features require separate
+          model and extension configuration.
+          """
+          environment_example = """POWERCONTEXT_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/powercontext"
+          POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1
+          POWERCONTEXT_SERVER_HTTP_PORT=8000
+          POWERCONTEXT_SERVER_AUTH_ENABLED=false
+          # POWERCONTEXT_SERVER_AUTH_TOKEN=replace-with-a-secret-from-your-secret-manager
+          POWERCONTEXT_SERVER_LOGGING_LEVEL=INFO
+          POWERCONTEXT_SERVER_LOGGING_FORMAT=json
+          """
+          (root / "docs/INSTALL.md").write_text(install_guide)
+          (root / "powercontext.env.example").write_text(environment_example)
+          PY
+
+          plugin_root="$bundle_root/integrations/plugins/powercontext"
+          python -m pip install \
+            --no-index \
+            --find-links "$bundle_root/plugin-wheelhouse" \
+            --require-hashes \
+            --requirement "$bundle_root/plugin-requirements.lock" \
+            --target "$plugin_root/vendor"
+
+          PLUGIN_ROOT="$plugin_root" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["PLUGIN_ROOT"])
+          python_executable = f"python{os.environ['PYTHON_VERSION']}"
+          hooks_path = root / "hooks/hooks.json"
+          hooks = json.loads(hooks_path.read_text())
+          recall_hook = hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+          expected = (
+              'uv run --locked --quiet --project "${PLUGIN_ROOT}" '
+              'python "${PLUGIN_ROOT}/hooks/recall.py"'
+          )
+          if recall_hook["command"] != expected:
+              raise SystemExit("unexpected Codex recall command")
+          recall_hook["command"] = (
+              'PYTHONPATH="${PLUGIN_ROOT}/vendor" '
+              + python_executable
+              + ' "${PLUGIN_ROOT}/hooks/recall.py"'
+          )
+          hooks_path.write_text(json.dumps(hooks, indent=2) + "\n")
+
+          skill_path = root / "skills/project-context/SKILL.md"
+          skill = skill_path.read_text()
+          expected_skill = (
+              'uv run --locked --quiet --project "$PLUGIN_ROOT" python '
+              '"$PLUGIN_ROOT/scripts/project_scope.py" --cwd "$PWD"'
+          )
+          replacement_skill = (
+              f'PYTHONPATH="$PLUGIN_ROOT/vendor" {python_executable} '
+              '"$PLUGIN_ROOT/scripts/project_scope.py" --cwd "$PWD"'
+          )
+          if skill.count(expected_skill) != 1:
+              raise SystemExit("unexpected project-context Skill command")
+          skill_path.write_text(skill.replace(expected_skill, replacement_skill))
+
+          readme_path = root / "README.md"
+          readme = readme_path.read_text()
+          expected_readme = (
+              "The hook runtime is declared by the plugin's `pyproject.toml` and launched with\n"
+              "`uv`; this keeps its `pydantic-settings` dependency isolated and reproducible."
+          )
+          replacement_readme = (
+              "This customer artifact vendors the hook's locked Python dependencies under `vendor/`;\n"
+              f"the hook therefore starts with `{python_executable}` without accessing a package index."
+          )
+          if readme.count(expected_readme) != 1:
+              raise SystemExit("unexpected plugin runtime documentation")
+          readme_path.write_text(readme.replace(expected_readme, replacement_readme))
+          PY
+
+          find "$bundle_root" -type d -name __pycache__ -prune -exec rm -rf {} +
+          find "$bundle_root" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+
+          BUNDLE_ROOT="$bundle_root" python - <<'PY'
+          import json
+          import os
+          import platform
+          from pathlib import Path
+
+          root = Path(os.environ["BUNDLE_ROOT"])
+          configured_python = os.environ["PYTHON_VERSION"]
+          actual_python = platform.python_version()
+          if not actual_python.startswith(f"{configured_python}."):
+              raise SystemExit(
+                  f"configured Python {configured_python} does not match runner Python {actual_python}"
+              )
+          python_major, python_minor = (int(part) for part in configured_python.split("."))
+          plugin = json.loads(
+              (root / "integrations/plugins/powercontext/.codex-plugin/plugin.json").read_text()
+          )
+          manifest = {
+              "schema": "powercontext.customer-artifact.v1",
+              "package_version": os.environ["PACKAGE_VERSION"],
+              "plugin_version": plugin["version"],
+              "source": {
+                  "repository": os.environ["GITHUB_REPOSITORY"],
+                  "ref": os.environ["SOURCE_REF"],
+                  "sha": os.environ["SOURCE_SHA"],
+              },
+              "build": {
+                  "event": os.environ["GITHUB_EVENT_NAME"],
+                  "run_id": os.environ["GITHUB_RUN_ID"],
+                  "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+                  "python_version": actual_python,
+                  "platform": os.environ["ARTIFACT_PLATFORM"],
+              },
+              "installation": {
+                  "python": f">={configured_python},<{python_major}.{python_minor + 1}",
+                  "operating_system": "Linux",
+                  "architecture": "x86_64",
+                  "default_database": "SQLite",
+                  "codex_plugin_runtime": "vendored",
+              },
+          }
+          (root / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
+
+          (
+            cd "$bundle_root"
+            find . -type f ! -name SHA256SUMS -print0 \
+              | LC_ALL=C sort -z \
+              | xargs -0 sha256sum > SHA256SUMS
+          )
+
+          echo "bundle_root=$bundle_root" >> "$GITHUB_OUTPUT"
+
+      - name: Verify offline installation
+        env:
+          BUNDLE_ROOT: ${{ steps.bundle.outputs.bundle_root }}
+        run: |
+          (
+            cd "$BUNDLE_ROOT"
+            sha256sum --check SHA256SUMS
+          )
+
+          python -m venv build/smoke-venv
+          build/smoke-venv/bin/python -m pip install \
+            --no-index \
+            --find-links "$BUNDLE_ROOT/wheelhouse" \
+            --require-hashes \
+            --requirement "$BUNDLE_ROOT/requirements.lock"
+          build/smoke-venv/bin/python -m pip install \
+            --no-index \
+            --no-deps \
+            "$BUNDLE_ROOT"/distributions/*.whl
+          build/smoke-venv/bin/powercontext --help
+          build/smoke-venv/bin/powercontext server --help
+
+          plugin_root="$BUNDLE_ROOT/integrations/plugins/powercontext"
+          (
+            cd "$plugin_root"
+            PYTHONPATH="$plugin_root/vendor" \
+              "python${PYTHON_VERSION}" scripts/project_scope.py --cwd "$GITHUB_WORKSPACE"
+          )
+
+      - name: Create compressed artifact
+        env:
+          ARTIFACT_NAME: ${{ steps.metadata.outputs.artifact_name }}
+        run: |
+          tar \
+            --create \
+            --gzip \
+            --file "build/output/${ARTIFACT_NAME}.tar.gz" \
+            --directory build/output \
+            "$ARTIFACT_NAME"
+          sha256sum "build/output/${ARTIFACT_NAME}.tar.gz" \
+            > "build/output/${ARTIFACT_NAME}.tar.gz.sha256"
+
+      - name: Upload customer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          path: |
+            build/output/${{ steps.metadata.outputs.artifact_name }}.tar.gz
+            build/output/${{ steps.metadata.outputs.artifact_name }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summarize artifact
+        env:
+          ARTIFACT_NAME: ${{ steps.metadata.outputs.artifact_name }}
+          SOURCE_REF: ${{ steps.metadata.outputs.source_ref }}
+          SOURCE_SHA: ${{ steps.metadata.outputs.source_sha }}
+        run: |
+          {
+            echo "## Customer artifact"
+            echo
+            echo "- Name: \`$ARTIFACT_NAME\`"
+            echo "- Source ref: \`$SOURCE_REF\`"
+            echo "- Source SHA: \`$SOURCE_SHA\`"
+            echo "- Target: Linux x86_64 / Python $PYTHON_VERSION"
+            echo "- Retention: 30 days"
+          } >> "$GITHUB_STEP_SUMMARY"
