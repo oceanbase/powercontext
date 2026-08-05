@@ -157,13 +157,13 @@ extension；如果 library 不兼容或版本低于 0.7，启动会失败。
 在另一个终端确认初始化后的 Runtime 已报告 vector 和 hybrid search：
 
 ```bash
-powercontext client capabilities
+powercontext capabilities
 ```
 
 如果没有可用的 Vec1，请不要设置 `POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION`。即使没有 embedding model 或
 native extension，SQLite full-text search 仍然可用。
 
-## Client CLI
+## CLI Server 连接
 
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
@@ -171,7 +171,7 @@ native extension，SQLite full-text search 仍然可用。
 | `POWERCONTEXT_CLIENT_API_TOKEN` | 未设置 | 发送给启用鉴权的 Server 的 Bearer token |
 | `POWERCONTEXT_CLIENT_TIMEOUT` | `10` | HTTP 超时秒数 |
 
-`powercontext client` 为 Server URL 和 timeout 提供对应的单次命令参数。Token 只能通过环境变量提供，避免出现在
+`powercontext` 为 Server URL 和 timeout 提供对应的单次命令参数。Token 只能通过环境变量提供，避免出现在
 命令行参数中。
 
 ## Codex 插件
@@ -188,9 +188,3 @@ native extension，SQLite full-text search 仍然可用。
 
 Codex Hook 外层超时为十秒。Server 不可用或拒绝鉴权时，恢复、采集和 flush 独立降级，不会阻塞 Codex。
 该变量必须存在于启动 Codex 的进程环境中；修改后需要重启 Codex。
-
-## Builtin CLI
-
-`powercontext builtin` 使用相同的 database、runtime 和 inference 字段，前缀为
-`POWERCONTEXT_BUILTIN_`。它默认使用内存 SQLite；如需让多次 CLI 调用共享状态，请设置
-`POWERCONTEXT_BUILTIN_DATABASE_URL`。

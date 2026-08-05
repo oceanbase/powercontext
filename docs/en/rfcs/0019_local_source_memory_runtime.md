@@ -450,8 +450,8 @@ The accepted implementation is distributed as one Builtin role:
 | `builtin` | Runtime, SQLite, OceanBase, APScheduler, SQLAlchemy, and Pydantic AI integration |
 
 Server, Client, and CLI dependencies remain outside `builtin`. The Server extra includes Builtin because every standard
-Server process owns one configured Builtin runtime. The CLI extra also includes Builtin as its default command;
-installed Client and Server roles contribute their own commands through entry-point discovery.
+Server process owns one configured Builtin runtime. The CLI extra includes Client and exposes Server-backed content
+commands at the root; an installed Server role contributes process-control commands through entry-point discovery.
 
 # Drawbacks
 

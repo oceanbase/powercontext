@@ -15,7 +15,7 @@ Candidate through HTTP or the Client CLI, then the user exports that immutable
 Skill Revision into a Codex Skill directory:
 
 ```bash
-powercontext client skill export \
+powercontext skill export \
   --target codex \
   --scope-id project:example \
   --revision 1 \

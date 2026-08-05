@@ -10,7 +10,7 @@ description: 从 Git 安装 PowerContext，并运行本地 Server。
 先安装 `uv`，再从指定 Git ref 直接安装 PowerContext：
 
 ```bash
-uv tool install "powercontext[cli,client,server] @ git+https://github.com/oceanbase/powercontext.git@main"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@main"
 ```
 
 该方式支持 macOS 和 Linux，不需要用户自行管理仓库工作副本。Git 会沿用本机的凭据配置，包括 credential
@@ -41,18 +41,18 @@ powercontext server run
 
 ```bash
 powercontext doctor
-powercontext client ready
-powercontext client capabilities
+powercontext ready
+powercontext capabilities
 ```
 
-`doctor` 检查已安装的包、Codex 插件、Server 就绪状态和数据库。Client 命令会经过公开 HTTP SDK 路径。
+`doctor` 检查已安装的包、Codex 插件和 Server 就绪状态。内容命令会经过公开 HTTP SDK 路径。
 
 ## 更新或替换安装
 
 使用指定 ref 替换现有工具：
 
 ```bash
-uv tool install --force "powercontext[cli,client,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
 ```
 
@@ -67,5 +67,5 @@ powercontext setup codex --source oceanbase/powercontext --ref <ref>
 uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@main"
 ```
 
-进程内存储和 Runtime 组合使用 `builtin`，服务使用 `server`，命令发现使用 `cli`。只安装在 `uv tool`
-隔离环境中的 extra 不能被另一个 Python 项目直接导入。
+进程内 Python 组合使用 `builtin`，服务使用 `server`，Python SDK 使用 `client`，基于 Server 的命令行使用
+`cli`。只安装在 `uv tool` 隔离环境中的 extra 不能被另一个 Python 项目直接导入。

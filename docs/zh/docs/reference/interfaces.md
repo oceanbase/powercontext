@@ -10,7 +10,7 @@ description: 在 Codex 插件、CLI、Python SDK、HTTP 和 MCP 之间选择。
 | 接口 | 适用场景 | 安装 |
 | --- | --- | --- |
 | Codex 插件 | 在 Codex 中跨会话恢复和显式维护 Memory | `powercontext setup codex` |
-| CLI | 配置、诊断、Server 控制、能力检查和人工 Candidate 审核 | `powercontext[cli,client,server]` |
+| CLI | 配置、诊断、Server 控制、能力检查和人工 Candidate 审核 | `powercontext[cli,server]` |
 | Python Client SDK | 对运行中的 Server 发起类型化异步调用 | `powercontext[client]` |
 | Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | 基础包 |
 | HTTP | 从任意语言集成服务 | `powercontext[server]` |
@@ -27,32 +27,32 @@ project-context skill 指导 Codex 何时检索、记忆、修订或停用 Memor
 powercontext setup codex
 powercontext doctor
 powercontext server run
-powercontext client ready
-powercontext client capabilities
-powercontext client candidate list --scope-id project:example
-powercontext client candidate list --scope-id project:example --family skill
-powercontext client candidate show --scope-id project:example CANDIDATE_ID
-powercontext client candidate approve --scope-id project:example --expected-version 1 CANDIDATE_ID
-powercontext client candidate reject --scope-id project:example --expected-version 1 --reason unsupported CANDIDATE_ID
-powercontext client candidate revise experience --scope-id project:example --expected-version 1 \
+powercontext ready
+powercontext capabilities
+powercontext candidate list --scope-id project:example
+powercontext candidate list --scope-id project:example --family skill
+powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate approve --scope-id project:example --expected-version 1 CANDIDATE_ID
+powercontext candidate reject --scope-id project:example --expected-version 1 --reason unsupported CANDIDATE_ID
+powercontext candidate revise experience --scope-id project:example --expected-version 1 \
   --situation SITUATION --action ACTION --outcome OUTCOME --lesson LESSON CANDIDATE_ID
-powercontext client candidate revise skill --scope-id project:example --expected-version 1 \
+powercontext candidate revise skill --scope-id project:example --expected-version 1 \
   --name NAME --description DESCRIPTION --instructions-file instructions.md --validation CHECK CANDIDATE_ID
-powercontext client experience generate --scope-id project:example --source-ref content/SOURCE_ID
-powercontext client skill generate --scope-id project:example --origin experience \
+powercontext experience generate --scope-id project:example --source-ref content/SOURCE_ID
+powercontext skill generate --scope-id project:example --origin experience \
   --artifact-ref experience/EXPERIENCE_ID@REVISION
-powercontext client skill show --scope-id project:example --revision 1 SKILL_ID
-powercontext client skill export --target codex --scope-id project:example --revision 1 \
+powercontext skill show --scope-id project:example --revision 1 SKILL_ID
+powercontext skill export --target codex --scope-id project:example --revision 1 \
   --destination .agents/skills/example-skill SKILL_ID
-powercontext client external-skill scan --scope-id project:example
-powercontext client external-skill list --scope-id project:example
-powercontext client external-skill resolve --scope-id project:example --fingerprint SHA256 EXTERNAL_SKILL_ID
-powercontext client external-skill import --scope-id project:example --fingerprint SHA256 \
+powercontext external-skill scan --scope-id project:example
+powercontext external-skill list --scope-id project:example
+powercontext external-skill resolve --scope-id project:example --fingerprint SHA256 EXTERNAL_SKILL_ID
+powercontext external-skill import --scope-id project:example --fingerprint SHA256 \
   --mode import EXTERNAL_SKILL_ID
-powercontext builtin capabilities
 ```
 
-CLI 只显示已安装 extra 所提供的命令。
+所有内容命令都调用已配置的 Server。可选的 `server` role 会增加 `powercontext server run`，但不会在 CLI
+中创建第二套内容 profile。
 
 Generation 和 revision 命令通过可重复的 `--source-ref TYPE/ID` 与
 `--artifact-ref FAMILY/ID@REVISION` 接收精确引用，不再读取序列化请求文件。

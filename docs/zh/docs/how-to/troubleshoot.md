@@ -60,14 +60,14 @@ powercontext server run
 
 ```bash
 powercontext doctor --server-url http://127.0.0.1:9000
-powercontext client --server-url http://127.0.0.1:9000 ready
+powercontext --server-url http://127.0.0.1:9000 ready
 ```
 
 随附的 Codex 插件默认使用 8000 端口。
 
-## 数据库检查失败
+## Server 无法打开数据库
 
-数据库在 Server 启动时创建，而不是在工具安装时创建。先启动一次 Server，再运行
+数据库在 Server 启动时创建，而不是在工具安装时创建。先检查 Server 的启动错误，再运行
 `powercontext doctor`。
 
 如需指定位置：
@@ -86,7 +86,7 @@ powercontext server run
 provider 凭据，然后启用 scheduler 或显式 flush 对应 scope。查看 Server 当前提供的能力：
 
 ```bash
-powercontext client capabilities
+powercontext capabilities
 ```
 
 `Memory extraction: disabled` 表示 Server 没有 generation model。
@@ -103,5 +103,5 @@ powercontext client capabilities
 并重启 Server。`server_unavailable` 和 `invalid_response` 分别表示传输与 contract 问题。诊断事件会刻意
 省略 query 与准备好的上下文正文。
 
-执行 `powercontext client capabilities`，确认 Context versions 中包含
+执行 `powercontext capabilities`，确认 Context versions 中包含
 `powercontext.prepared-context.v1`。

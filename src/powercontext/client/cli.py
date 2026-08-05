@@ -12,7 +12,6 @@ import typer
 from pydantic import SecretStr, ValidationError
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.client.client import PowerContextClient
 from powercontext.client.errors import ClientError
 from powercontext.client.projections import SkillExportTarget, export_skill
@@ -66,12 +65,6 @@ _ClientResponse: TypeAlias = (
 )
 _ClientOperation: TypeAlias = Callable[[PowerContextClient], Awaitable[_ClientResponse]]
 
-app = typer.Typer(
-    name="client",
-    context_settings={"help_option_names": HELP_OPTION_NAMES},
-    help="Inspect a remote PowerContext Server.",
-    no_args_is_help=True,
-)
 candidate_app = typer.Typer(
     name="candidate",
     context_settings={"help_option_names": HELP_OPTION_NAMES},
@@ -103,10 +96,6 @@ external_skill_app = typer.Typer(
     no_args_is_help=True,
 )
 candidate_app.add_typer(candidate_revise_app, name="revise")
-app.add_typer(candidate_app, name="candidate")
-app.add_typer(experience_app, name="experience")
-app.add_typer(skill_app, name="skill")
-app.add_typer(external_skill_app, name="external-skill")
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,51 +106,41 @@ class _ClientOptions:
     json_output: bool
 
 
-@app.callback()
-def main(
-    context: typer.Context,
-    server_url: Annotated[
-        str | None,
-        typer.Option(help="PowerContext Server base URL."),
-    ] = None,
-    timeout: Annotated[
-        float | None,
-        typer.Option(
-            help="HTTP timeout in seconds.",
-            min=0.1,
-        ),
-    ] = None,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help="Write the response as JSON."),
-    ] = False,
-) -> None:
-    """Configure remote Client commands."""
+@dataclass(frozen=True, slots=True)
+class _ClientOverrides:
+    server_url: str | None = None
+    timeout: float | None = None
+    json_output: bool = False
 
-    settings = ClientSettings()
-    context.meta["powercontext.client.options"] = _ClientOptions(
-        server_url=settings.server_url if server_url is None else server_url,
-        api_token=settings.api_token,
-        timeout=settings.timeout if timeout is None else timeout,
+
+def configure_client(
+    context: typer.Context,
+    *,
+    server_url: str | None,
+    timeout: float | None,
+    json_output: bool,
+) -> None:
+    """Store lazy Server connection overrides for content commands."""
+
+    context.meta["powercontext.client.overrides"] = _ClientOverrides(
+        server_url=server_url,
+        timeout=timeout,
         json_output=json_output,
     )
 
 
-@app.command()
 def capabilities(context: typer.Context) -> None:
     """Show behavior enabled by the remote Server runtime."""
 
     asyncio.run(_execute(context, lambda client: client.get_capabilities()))
 
 
-@app.command()
 def live(context: typer.Context) -> None:
     """Check whether the remote API process is alive."""
 
     asyncio.run(_execute(context, lambda client: client.get_liveness()))
 
 
-@app.command()
 def ready(context: typer.Context) -> None:
     """Check whether remote Server bindings are ready."""
 
@@ -524,7 +503,14 @@ def export_managed_skill(
 
 
 def _options(context: typer.Context) -> _ClientOptions:
-    return context.meta["powercontext.client.options"]
+    overrides = context.meta.get("powercontext.client.overrides", _ClientOverrides())
+    settings = ClientSettings()
+    return _ClientOptions(
+        server_url=settings.server_url if overrides.server_url is None else overrides.server_url,
+        api_token=settings.api_token,
+        timeout=settings.timeout if overrides.timeout is None else overrides.timeout,
+        json_output=overrides.json_output,
+    )
 
 
 async def _execute(context: typer.Context, operation: _ClientOperation) -> None:
@@ -689,12 +675,7 @@ async def _export_managed_skill(
                 artifact_id=response.artifact.artifact_id,
                 revision=response.artifact.revision,
             ),
-            SkillContent(
-                name=response.content.name,
-                description=response.content.description,
-                instructions=response.content.instructions,
-                validation=tuple(item.root for item in response.content.validation),
-            ),
+            response.content,
             target,
             destination,
         )
@@ -748,3 +729,19 @@ def _print_human_response(response: _ClientResponse) -> None:
 
 def _items(values: Sequence[str]) -> str:
     return ", ".join(values) if values else "none"
+
+
+def register_commands(cli: typer.Typer) -> set[str]:
+    """Register Server-backed content commands on the product CLI root."""
+
+    cli.command()(capabilities)
+    cli.command()(live)
+    cli.command()(ready)
+    cli.add_typer(candidate_app, name="candidate")
+    cli.add_typer(experience_app, name="experience")
+    cli.add_typer(skill_app, name="skill")
+    cli.add_typer(external_skill_app, name="external-skill")
+    return {"capabilities", "live", "ready", "candidate", "experience", "skill", "external-skill"}
+
+
+__all__ = ["configure_client", "register_commands"]

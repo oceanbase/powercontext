@@ -160,13 +160,13 @@ extension when the Server opens the database; startup fails if the library is in
 In another terminal, confirm that the initialized runtime reports vector and hybrid search:
 
 ```bash
-powercontext client capabilities
+powercontext capabilities
 ```
 
 If Vec1 is unavailable, leave `POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION` unset. SQLite full-text search remains
 available without an embedding model or native extension.
 
-## Client CLI
+## CLI Server connection
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -174,7 +174,7 @@ available without an embedding model or native extension.
 | `POWERCONTEXT_CLIENT_API_TOKEN` | unset | Bearer token sent to an authenticated Server |
 | `POWERCONTEXT_CLIENT_TIMEOUT` | `10` | HTTP timeout in seconds |
 
-Equivalent one-off flags are available for the Server URL and timeout on `powercontext client`. The token is accepted
+Equivalent one-off flags are available for the Server URL and timeout on `powercontext`. The token is accepted
 only through the environment so it does not appear in command-line arguments.
 
 ## Codex plugin
@@ -192,9 +192,3 @@ only through the environment so it does not appear in command-line arguments.
 The outer Codex hook timeout is ten seconds. Recall, capture, and flush fail independently and never block Codex when
 the Server is unavailable or rejects authentication. The variable must be present in the environment that starts
 Codex; restart Codex after changing it.
-
-## Builtin CLI
-
-`powercontext builtin` uses the same database, runtime, and inference field names under the
-`POWERCONTEXT_BUILTIN_` prefix. Its default SQLite database is in memory; configure
-`POWERCONTEXT_BUILTIN_DATABASE_URL` when CLI invocations must share state.

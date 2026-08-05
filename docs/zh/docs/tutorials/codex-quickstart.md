@@ -17,7 +17,7 @@ description: 安装 PowerContext，并在多个 Codex 会话之间传递项目�
 在任意目录执行：
 
 ```bash
-uv tool install "powercontext[cli,client,server] @ git+https://github.com/oceanbase/powercontext.git@main"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@main"
 powercontext setup codex --source oceanbase/powercontext --ref main
 ```
 

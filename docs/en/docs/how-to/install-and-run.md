@@ -10,7 +10,7 @@ description: Install PowerContext from Git and run the local Server.
 Install `uv`, then install PowerContext directly from a Git ref:
 
 ```bash
-uv tool install "powercontext[cli,client,server] @ git+https://github.com/oceanbase/powercontext.git@main"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@main"
 ```
 
 This works on macOS and Linux and does not require a user-managed repository checkout. Git uses its normal credential
@@ -42,19 +42,19 @@ With no environment variables, the Server:
 
 ```bash
 powercontext doctor
-powercontext client ready
-powercontext client capabilities
+powercontext ready
+powercontext capabilities
 ```
 
-`doctor` checks the installed package, Codex plugin, Server readiness, and configured database. The Client commands
-exercise the public HTTP SDK path.
+`doctor` checks the installed package, Codex plugin, and Server readiness. The content commands exercise the public
+HTTP SDK path.
 
 ## Update or replace an installation
 
 To replace the installed tool with a chosen ref:
 
 ```bash
-uv tool install --force "powercontext[cli,client,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
 ```
 
@@ -69,5 +69,6 @@ An application that imports the async Client SDK should add it to that applicati
 uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@main"
 ```
 
-Use `builtin` for in-process storage and runtime composition, `server` for the service, or `cli` for command discovery.
+Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for
+the Server-backed command line.
 An extra that is only present in the isolated `uv tool` environment is not importable by an unrelated Python project.

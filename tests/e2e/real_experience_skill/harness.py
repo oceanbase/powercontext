@@ -1778,7 +1778,6 @@ def _project_via_cli(
             uv,
             "run",
             "powercontext",
-            "client",
             "--server-url",
             server_url,
             "skill",

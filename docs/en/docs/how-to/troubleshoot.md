@@ -61,15 +61,15 @@ base URL when checking it:
 
 ```bash
 powercontext doctor --server-url http://127.0.0.1:9000
-powercontext client --server-url http://127.0.0.1:9000 ready
+powercontext --server-url http://127.0.0.1:9000 ready
 ```
 
 The bundled Codex plugin uses port 8000 by default.
 
-## The database check fails
+## The Server cannot open its database
 
-The database is created when the Server starts, not when the tool is installed. Start the Server once, then rerun
-`powercontext doctor`.
+The database is created when the Server starts, not when the tool is installed. Inspect the Server startup error before
+rerunning `powercontext doctor`.
 
 To use a controlled location:
 
@@ -88,7 +88,7 @@ generation model and its provider credentials, then either enable the scheduler 
 the Server's advertised behavior:
 
 ```bash
-powercontext client capabilities
+powercontext capabilities
 ```
 
 `Memory extraction: disabled` means the Server has no generation model.
@@ -106,5 +106,5 @@ Inspect the Hook's single-line JSON event on stderr. `empty` means the Runtime p
 restart the Server. `server_unavailable` and `invalid_response` distinguish transport and contract failures. These
 events intentionally omit the query and prepared content.
 
-Run `powercontext client capabilities` and confirm that `powercontext.prepared-context.v1` appears under Context
+Run `powercontext capabilities` and confirm that `powercontext.prepared-context.v1` appears under Context
 versions.

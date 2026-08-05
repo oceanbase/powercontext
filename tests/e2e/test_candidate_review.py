@@ -279,7 +279,7 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
             return await self._client.get_skill(request)
 
     monkeypatch.setattr(client_cli, "PowerContextClient", InProcessClient)
-    cli = create_cli([client_cli.app])
+    cli = create_cli([])
     runner = CliRunner()
     with TestClient(app) as transport:
         captured = transport.post(
@@ -305,15 +305,14 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
                 "artifact_refs": [],
             },
         ).json()
-        listed = runner.invoke(cli, ["client", "candidate", "list", "--scope-id", "project"])
+        listed = runner.invoke(cli, ["candidate", "list", "--scope-id", "project"])
         shown = runner.invoke(
             cli,
-            ["client", "candidate", "show", "--scope-id", "project", first["candidate_id"]],
+            ["candidate", "show", "--scope-id", "project", first["candidate_id"]],
         )
         revised = runner.invoke(
             cli,
             [
-                "client",
                 "candidate",
                 "revise",
                 "experience",
@@ -337,7 +336,6 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
         approved = runner.invoke(
             cli,
             [
-                "client",
                 "candidate",
                 "approve",
                 "--scope-id",
@@ -350,7 +348,6 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
         rejected = runner.invoke(
             cli,
             [
-                "client",
                 "candidate",
                 "reject",
                 "--scope-id",
@@ -389,7 +386,6 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
         skill_shown = runner.invoke(
             cli,
             [
-                "client",
                 "skill",
                 "show",
                 "--scope-id",
@@ -402,7 +398,6 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
         skill_projected = runner.invoke(
             cli,
             [
-                "client",
                 "skill",
                 "export",
                 "--target",

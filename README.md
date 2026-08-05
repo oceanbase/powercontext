@@ -19,7 +19,7 @@ Prerequisites:
 Install the tool and configure the Codex plugin:
 
 ```bash
-uv tool install "powercontext[cli,client,server] @ git+https://github.com/oceanbase/powercontext.git@main"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@main"
 powercontext setup codex --source oceanbase/powercontext --ref main
 ```
 
@@ -45,7 +45,7 @@ See the [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) for a fir
 | Interface | Use it for |
 | --- | --- |
 | Codex plugin | Restore relevant project memory and explicitly remember, revise, or retire entries while coding |
-| CLI | Install the plugin, run the Server, inspect capabilities, and diagnose an installation |
+| CLI | Install the plugin, run or connect to the Server, inspect content, and diagnose an installation |
 | Python client | Call the Server's Source and Memory API from an application |
 | Core SDK | Embed PowerContext contracts or supply custom adapters in a Python system |
 | HTTP and MCP | Integrate a non-Python process or an agent host with the running Server |
@@ -61,8 +61,8 @@ Add only the role the project imports:
 uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@main"
 ```
 
-Available extras are `builtin`, `client`, `server`, and `cli`. The CLI discovers commands from installed entry points,
-so a role that is not installed does not appear in its help.
+Available extras are `builtin`, `client`, `server`, and `cli`. The CLI always includes Server-backed content commands;
+installing the `server` role also makes local Server process management available.
 
 ## Development
 

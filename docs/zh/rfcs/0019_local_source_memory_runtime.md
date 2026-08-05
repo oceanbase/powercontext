@@ -424,8 +424,8 @@ manifest 时抛出 `MemoryEntryNotFoundError`。changes request 晚于 current h
 | `builtin` | Runtime、SQLite、OceanBase、APScheduler、SQLAlchemy 和 Pydantic AI integration |
 
 Server、Client 和 CLI 依赖不进入 `builtin`。Server extra 包含 Builtin，因为每个标准 Server process 都持有一个
-配置好的 Builtin runtime。CLI extra 也将 Builtin 作为默认 command；安装 Client 或 Server role 后，它们通过
-entry point discovery 提供各自的 command。
+配置好的 Builtin runtime。CLI extra 包含 Client，并在根级提供基于 Server 的内容命令；安装 Server role 后，它通过
+entry point discovery 提供进程控制命令。
 
 # Drawbacks
 

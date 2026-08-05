@@ -130,10 +130,10 @@ uv add "powercontext[cli,client]"
 The `client` command provides process and capability checks:
 
 ```bash
-uv run powercontext client live
-uv run powercontext client ready
-uv run powercontext client capabilities
-uv run powercontext client --json capabilities
+uv run powercontext live
+uv run powercontext ready
+uv run powercontext capabilities
+uv run powercontext --json capabilities
 ```
 
 Use `POWERCONTEXT_CLIENT_SERVER_URL` and `POWERCONTEXT_CLIENT_TIMEOUT` for client defaults.

@@ -1,4 +1,3 @@
-import json
 from importlib.metadata import version
 from pathlib import Path
 from types import TracebackType
@@ -11,7 +10,6 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 import powercontext.client.cli as client_cli
-from powercontext.builtin.runtime.cli import app as builtin_app
 from powercontext.cli.app import create_cli
 from powercontext.client import ServerResponseError
 from powercontext.client.settings import ClientSettings
@@ -40,15 +38,13 @@ from powercontext.server.cli import app as server_app
     [
         ["-h"],
         ["--help"],
-        ["client", "-h"],
-        ["client", "--help"],
-        ["client", "experience", "--help"],
-        ["client", "skill", "--help"],
-        ["client", "external-skill", "--help"],
+        ["experience", "--help"],
+        ["skill", "--help"],
+        ["external-skill", "--help"],
     ],
 )
 def test_cli_help_exits_successfully(arguments: list[str]) -> None:
-    cli = create_cli([client_cli.app, server_app])
+    cli = create_cli([server_app])
 
     result = CliRunner().invoke(cli, arguments)
 
@@ -56,11 +52,11 @@ def test_cli_help_exits_successfully(arguments: list[str]) -> None:
 
 
 def test_skill_cli_exposes_the_target_based_export_command() -> None:
-    cli = create_cli([client_cli.app])
+    cli = create_cli([])
     runner = CliRunner()
 
-    skill_help = runner.invoke(cli, ["client", "skill", "--help"])
-    export_help = runner.invoke(cli, ["client", "skill", "export", "--help"])
+    skill_help = runner.invoke(cli, ["skill", "--help"])
+    export_help = runner.invoke(cli, ["skill", "export", "--help"])
 
     assert skill_help.exit_code == 0
     assert "export" in unstyle(skill_help.output)
@@ -81,34 +77,9 @@ def test_cli_exposes_installed_role_commands() -> None:
     result = CliRunner().invoke(create_cli(), ["--help"])
 
     assert result.exit_code == 0
-    assert all(command in result.output for command in ("builtin", "client", "server"))
-
-
-def test_builtin_cli_reports_the_configured_instance_capabilities(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(
-        "POWERCONTEXT_BUILTIN_DATABASE_URL",
-        f"sqlite+aiosqlite:///{tmp_path / 'builtin.db'}",
-    )
-
-    result = CliRunner().invoke(
-        create_cli([builtin_app]),
-        ["builtin", "capabilities", "--json"],
-    )
-
-    assert result.exit_code == 0
-    assert json.loads(result.output) == {
-        "database": "sqlite",
-        "memory_extraction": False,
-        "experience_generation": False,
-        "managed_skill_generation": False,
-        "external_skill_registry": False,
-        "handoff_generation": False,
-        "memory_search_modes": ["auto", "fts"],
-        "context_versions": ["powercontext.prepared-context.v1"],
-    }
+    assert all(command in result.output for command in ("capabilities", "candidate", "server"))
+    assert "builtin" not in result.output
+    assert "client" not in result.output
 
 
 def test_client_settings_load_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -174,6 +145,19 @@ def test_server_command_layers_partial_cli_overrides_over_environment_settings(
     tracing.shutdown.assert_called_once_with()
 
 
+def test_server_command_does_not_load_client_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_server = Mock()
+    tracing = Mock()
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "not-a-url")
+    monkeypatch.setattr("powercontext.server.cli._run_server", run_server)
+    monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)
+    monkeypatch.setattr("powercontext.server.cli.configure_server_tracing", lambda _config: tracing)
+
+    result = CliRunner().invoke(create_cli([server_app]), ["server", "run"])
+
+    assert result.exit_code == 0
+
+
 def test_cli_reports_server_errors_with_request_context_without_a_traceback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -194,7 +178,7 @@ def test_cli_reports_server_errors_with_request_context_without_a_traceback(
 
     monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: FailingClient())
 
-    result = CliRunner().invoke(create_cli([client_cli.app]), ["client", "ready"])
+    result = CliRunner().invoke(create_cli([]), ["ready"])
 
     assert result.exit_code == 1
     assert result.output == "PowerContext Server returned HTTP 503 (request ID: request-123)\n"
@@ -218,7 +202,7 @@ def test_client_command_prints_human_readable_output_by_default(monkeypatch: pyt
 
     monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: HealthyClient())
 
-    result = CliRunner().invoke(create_cli([client_cli.app]), ["client", "live"])
+    result = CliRunner().invoke(create_cli([]), ["live"])
 
     assert result.exit_code == 0
     assert result.output == "Status: ok\n"
@@ -245,12 +229,11 @@ def test_client_generation_commands_build_requests_from_explicit_options(
             return GeneratedCandidateResponse(status=GeneratedCandidateStatus.NO_OP, candidate=None)
 
     monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: GeneratingClient())
-    cli = create_cli([client_cli.app])
+    cli = create_cli([])
 
     experience_result = CliRunner().invoke(
         cli,
         [
-            "client",
             "--json",
             "experience",
             "generate",
@@ -269,7 +252,6 @@ def test_client_generation_commands_build_requests_from_explicit_options(
     skill_result = CliRunner().invoke(
         cli,
         [
-            "client",
             "--json",
             "skill",
             "generate",
@@ -327,12 +309,11 @@ def test_client_candidate_revision_commands_build_typed_proposals(
     monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: RevisingClient())
     instructions_file = tmp_path / "instructions.md"
     instructions_file.write_text("Run both backend acceptance scenarios.", encoding="utf-8")
-    cli = create_cli([client_cli.app])
+    cli = create_cli([])
 
     experience_result = CliRunner().invoke(
         cli,
         [
-            "client",
             "candidate",
             "revise",
             "experience",
@@ -356,7 +337,6 @@ def test_client_candidate_revision_commands_build_typed_proposals(
     skill_result = CliRunner().invoke(
         cli,
         [
-            "client",
             "candidate",
             "revise",
             "skill",
@@ -396,12 +376,11 @@ def test_client_candidate_revision_commands_build_typed_proposals(
     ("arguments", "message"),
     [
         (
-            ["client", "experience", "generate", "--scope-id", "project", "--source-ref", "task-1"],
+            ["experience", "generate", "--scope-id", "project", "--source-ref", "task-1"],
             "expected TYPE/ID",
         ),
         (
             [
-                "client",
                 "skill",
                 "generate",
                 "--scope-id",
@@ -419,7 +398,7 @@ def test_client_generation_commands_reject_invalid_reference_options(
     arguments: list[str],
     message: str,
 ) -> None:
-    result = CliRunner().invoke(create_cli([client_cli.app]), arguments)
+    result = CliRunner().invoke(create_cli([]), arguments)
 
     assert result.exit_code == 2
     assert message in result.output
@@ -444,9 +423,8 @@ def test_client_external_skill_import_preserves_exact_identity_and_intent(
     monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: ImportingClient())
 
     result = CliRunner().invoke(
-        create_cli([client_cli.app]),
+        create_cli([]),
         [
-            "client",
             "external-skill",
             "import",
             "--scope-id",
@@ -500,9 +478,8 @@ def test_client_skill_export_uses_configured_authentication(
     destination = tmp_path / "safe-skill"
 
     result = CliRunner().invoke(
-        create_cli([client_cli.app]),
+        create_cli([]),
         [
-            "client",
             "skill",
             "export",
             "--target",

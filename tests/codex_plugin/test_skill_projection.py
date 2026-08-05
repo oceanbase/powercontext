@@ -4,17 +4,20 @@ import json
 import pytest
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.client.projections.codex import project_skill
+from powercontext.http import SkillProposal, SkillValidationItem
 
 
 def test_exact_managed_skill_projects_to_a_new_codex_skill_directory(tmp_path) -> None:
     artifact = ArtifactRef(family="skill", artifact_id="skill-123", revision=2)
-    content = SkillContent(
+    content = SkillProposal(
         name="powercontext-openapi-change",
         description="Use when changing PowerContext's public HTTP contract.",
         instructions="Regenerate clients, inspect the diff, and run contract tests.",
-        validation=("make api-generate-check passes", "make contract-test passes"),
+        validation=[
+            SkillValidationItem("make api-generate-check passes"),
+            SkillValidationItem("make contract-test passes"),
+        ],
     )
     destination = tmp_path / ".agents" / "skills" / content.name
 
@@ -39,11 +42,11 @@ def test_projection_never_overwrites_an_existing_directory(tmp_path) -> None:
     with pytest.raises(FileExistsError):
         project_skill(
             ArtifactRef(family="skill", artifact_id="skill-123", revision=1),
-            SkillContent(
+            SkillProposal(
                 name="safe-skill",
                 description="Use for a bounded task.",
                 instructions="Perform the bounded task.",
-                validation=("The expected result exists.",),
+                validation=[SkillValidationItem("The expected result exists.")],
             ),
             destination,
         )
@@ -64,11 +67,11 @@ def test_projection_rejects_managed_content_that_is_not_a_valid_codex_skill(
     with pytest.raises(ValueError):
         project_skill(
             ArtifactRef(family="skill", artifact_id="skill-123", revision=1),
-            SkillContent(
+            SkillProposal(
                 name=name,
                 description=description,
                 instructions="Perform the bounded task.",
-                validation=("The expected result exists.",),
+                validation=[SkillValidationItem("The expected result exists.")],
             ),
             tmp_path / name,
         )

@@ -121,7 +121,7 @@ def doctor(
         typer.Option("--json", help="Write the result as JSON."),
     ] = False,
 ) -> None:
-    """Check the package, Codex plugin, Server, and configured database."""
+    """Check the package, Codex plugin, and configured Server."""
 
     diagnostics = run_diagnostics(server_url=server_url)
     is_healthy = all(diagnostic.ok for diagnostic in diagnostics.values())
@@ -177,13 +177,11 @@ def run_diagnostics(*, server_url: str) -> dict[str, Diagnostic]:
     package = Diagnostic(ok=True, detail=f"powercontext {version('powercontext')}")
     codex, plugin = _codex_diagnostics()
     server = _server_diagnostic(server_url)
-    database = _database_diagnostic()
     return {
         "package": package,
         "codex": codex,
         "plugin": plugin,
         "server": server,
-        "database": database,
     }
 
 
@@ -250,21 +248,6 @@ def _server_diagnostic(server_url: str) -> Diagnostic:
         return Diagnostic(ok=False, detail=f"cannot reach {server_url}: {error}")
     status = payload.get("status") if isinstance(payload, dict) else None
     return Diagnostic(ok=status == "ready", detail=f"{server_url} status={status}")
-
-
-def _database_diagnostic() -> Diagnostic:
-    try:
-        from sqlalchemy.engine import make_url
-
-        from powercontext.server.settings import ServerSettings
-
-        database = ServerSettings().database
-    except (ImportError, ValueError) as error:
-        return Diagnostic(ok=False, detail=f"cannot load Server settings: {error}")
-    if database.kind != "sqlite":
-        return Diagnostic(ok=True, detail=f"configured backend={database.kind}")
-    path = Path(make_url(database.url).database or "")
-    return Diagnostic(ok=path.is_file(), detail=str(path))
 
 
 def _normalize_marketplace_source(source: str) -> tuple[str, bool]:

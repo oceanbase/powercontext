@@ -7,8 +7,8 @@ from enum import StrEnum
 from pathlib import Path
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.client.projections.codex import project_skill as export_codex_skill
+from powercontext.http import SkillProposal
 
 
 class SkillExportTarget(StrEnum):
@@ -17,7 +17,7 @@ class SkillExportTarget(StrEnum):
     CODEX = "codex"
 
 
-_SkillExporter = Callable[[ArtifactRef, SkillContent, Path], Path]
+_SkillExporter = Callable[[ArtifactRef, SkillProposal, Path], Path]
 _SKILL_EXPORTERS: dict[SkillExportTarget, _SkillExporter] = {
     SkillExportTarget.CODEX: export_codex_skill,
 }
@@ -25,7 +25,7 @@ _SKILL_EXPORTERS: dict[SkillExportTarget, _SkillExporter] = {
 
 def export_skill(
     artifact: ArtifactRef,
-    content: SkillContent,
+    content: SkillProposal,
     target: SkillExportTarget,
     destination: Path,
     /,

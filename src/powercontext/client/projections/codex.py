@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.skill import SkillContent
+from powercontext.http import SkillProposal
 
 PROJECTION_SCHEMA = "powercontext.codex-skill-projection.v1"
 MAX_CODEX_SKILL_NAME_LENGTH = 64
@@ -20,7 +20,7 @@ _CODEX_SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 def project_skill(
     artifact: ArtifactRef,
-    content: SkillContent,
+    content: SkillProposal,
     destination: Path,
     /,
 ) -> Path:
@@ -51,7 +51,7 @@ def project_skill(
     return target
 
 
-def _validate_codex_projection(content: SkillContent, destination: Path) -> None:
+def _validate_codex_projection(content: SkillProposal, destination: Path) -> None:
     if len(content.name) > MAX_CODEX_SKILL_NAME_LENGTH or _CODEX_SKILL_NAME.fullmatch(content.name) is None:
         raise ValueError(  # noqa: TRY003
             "managed Skill name must be at most 64 lowercase letters, digits, and single hyphens for Codex"
@@ -66,8 +66,8 @@ def _validate_codex_projection(content: SkillContent, destination: Path) -> None
         )
 
 
-def _skill_markdown(artifact: ArtifactRef, content: SkillContent) -> str:
-    validation = "\n".join(f"- {item}" for item in content.validation)
+def _skill_markdown(artifact: ArtifactRef, content: SkillProposal) -> str:
+    validation = "\n".join(f"- {item.root}" for item in content.validation)
     exact_ref = f"artifact:{artifact.family}/{artifact.artifact_id}@{artifact.revision}"
     return (
         "---\n"

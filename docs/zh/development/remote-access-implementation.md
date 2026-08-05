@@ -128,10 +128,10 @@ uv add "powercontext[cli,client]"
 `client` command 提供进程和 capability 检查：
 
 ```bash
-uv run powercontext client live
-uv run powercontext client ready
-uv run powercontext client capabilities
-uv run powercontext client --json capabilities
+uv run powercontext live
+uv run powercontext ready
+uv run powercontext capabilities
+uv run powercontext --json capabilities
 ```
 
 可以通过 `POWERCONTEXT_CLIENT_SERVER_URL` 和 `POWERCONTEXT_CLIENT_TIMEOUT` 设置 client 默认值。

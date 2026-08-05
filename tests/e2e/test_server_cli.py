@@ -51,7 +51,7 @@ def test_capabilities_flow_through_server_sdk_and_cli(monkeypatch: pytest.Monkey
             return await self._sdk.get_capabilities()
 
     monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: InProcessClient())
-    result = CliRunner().invoke(create_cli([client_cli.app]), ["client", "--json", "capabilities"])
+    result = CliRunner().invoke(create_cli([]), ["--json", "capabilities"])
 
     assert result.exit_code == 0
     assert json.loads(result.output) == {

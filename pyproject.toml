@@ -51,7 +51,7 @@ tracing-otlp = [
 ]
 cli = [
     "platformdirs>=4,<5",
-    "powercontext[builtin]",
+    "powercontext[client]",
     "typer>=0.16,<1",
 ]
 
@@ -59,8 +59,6 @@ cli = [
 powercontext = "powercontext.cli.app:main"
 
 [project.entry-points."powercontext.cli"]
-builtin = "powercontext.builtin.runtime.cli:app"
-client = "powercontext.client.cli:app"
 doctor = "powercontext.cli.system:doctor_app"
 server = "powercontext.server.cli:app"
 setup = "powercontext.cli.system:setup_app"
@@ -73,7 +71,7 @@ Documentation = "https://github.com/oceanbase/powercontext/tree/main/docs/en/doc
 [dependency-groups]
 dev = [
     "datamodel-code-generator==0.64.0",
-    "powercontext[cli,client,server]",
+    "powercontext[cli,server]",
     "pytest>=9.0.2",
     "pytest-cov>=7,<8",
     "pyyaml>=6,<7",

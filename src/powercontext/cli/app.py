@@ -8,6 +8,8 @@ from typing import Annotated
 
 import typer
 
+from powercontext.client.cli import configure_client, register_commands
+
 COMMAND_PROVIDER_GROUP = "powercontext.cli"
 HELP_OPTION_NAMES = ("-h", "--help")
 DOCUMENTATION_URL = "https://github.com/oceanbase/powercontext/tree/main/docs/en/docs"
@@ -21,7 +23,7 @@ def _show_version(value: bool) -> None:
 
 
 def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
-    """Create the CLI from command providers installed with each role."""
+    """Create the Server-backed CLI with optional process command providers."""
 
     cli = typer.Typer(
         context_settings={"help_option_names": HELP_OPTION_NAMES},
@@ -32,6 +34,19 @@ def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
 
     @cli.callback()
     def main(
+        context: typer.Context,
+        server_url: Annotated[
+            str | None,
+            typer.Option(help="PowerContext Server base URL used by content commands."),
+        ] = None,
+        timeout: Annotated[
+            float | None,
+            typer.Option(min=0.1, help="HTTP timeout in seconds used by content commands."),
+        ] = None,
+        json_output: Annotated[
+            bool,
+            typer.Option("--json", help="Write content command responses as JSON."),
+        ] = False,
         version_requested: Annotated[
             bool,
             typer.Option(
@@ -42,7 +57,16 @@ def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
             ),
         ] = False,
     ) -> None:
-        """Run commands supplied by installed PowerContext roles."""
+        """Operate one PowerContext Server and its integrations."""
+
+        configure_client(
+            context,
+            server_url=server_url,
+            timeout=timeout,
+            json_output=json_output,
+        )
+
+    registered_names = register_commands(cli)
 
     if commands is None:
         installed_commands: list[typer.Typer] = []
@@ -58,7 +82,6 @@ def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
             installed_commands.append(command)
         commands = installed_commands
 
-    registered_names: set[str] = set()
     for command in commands:
         name = command.info.name
         if not isinstance(name, str) or not name:
