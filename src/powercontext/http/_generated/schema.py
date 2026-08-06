@@ -894,6 +894,44 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/stats": {
+            "get": {
+                "tags": ["stats"],
+                "summary": "Get scoped product statistics",
+                "operationId": "get_stats",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "query",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "period",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"$ref": "#/components/schemas/StatsPeriod"},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Current inventory, model usage, and recall token estimates for the scope.",
+                        "headers": {
+                            "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+                            "Cache-Control": {
+                                "description": "Prevent caches from retaining scoped statistics.",
+                                "schema": {"type": "string", "enum": ["no-store"]},
+                            },
+                        },
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopedStats"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
     },
     "components": {
         "schemas": {
@@ -1064,6 +1102,254 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "search_modes",
                     "context_versions",
                 ],
+            },
+            "FamilyCount": {
+                "properties": {
+                    "family": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "total": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "total"],
+            },
+            "CandidateFamilyCount": {
+                "properties": {
+                    "family": {"$ref": "#/components/schemas/CandidateFamily"},
+                    "total": {"type": "integer", "minimum": 0.0},
+                    "pending": {"type": "integer", "minimum": 0.0},
+                    "approved": {"type": "integer", "minimum": 0.0},
+                    "rejected": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "total", "pending", "approved", "rejected"],
+            },
+            "MemoryKindCount": {
+                "properties": {
+                    "kind": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "total": {"type": "integer", "minimum": 0.0},
+                    "active": {"type": "integer", "minimum": 0.0},
+                    "inactive": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "total", "active", "inactive"],
+            },
+            "SourceInventoryStatistics": {
+                "properties": {
+                    "total": {"type": "integer", "minimum": 0.0},
+                    "memory_processed": {"type": "integer", "minimum": 0.0},
+                    "memory_pending": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["total", "memory_processed", "memory_pending"],
+            },
+            "ArtifactInventoryStatistics": {
+                "properties": {
+                    "total": {"type": "integer", "minimum": 0.0},
+                    "by_family": {"items": {"$ref": "#/components/schemas/FamilyCount"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["total", "by_family"],
+            },
+            "CandidateInventoryStatistics": {
+                "properties": {
+                    "total": {"type": "integer", "minimum": 0.0},
+                    "pending": {"type": "integer", "minimum": 0.0},
+                    "approved": {"type": "integer", "minimum": 0.0},
+                    "rejected": {"type": "integer", "minimum": 0.0},
+                    "by_family": {"items": {"$ref": "#/components/schemas/CandidateFamilyCount"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["total", "pending", "approved", "rejected", "by_family"],
+            },
+            "MemoryEntryInventoryStatistics": {
+                "properties": {
+                    "total": {"type": "integer", "minimum": 0.0},
+                    "active": {"type": "integer", "minimum": 0.0},
+                    "inactive": {"type": "integer", "minimum": 0.0},
+                    "by_kind": {"items": {"$ref": "#/components/schemas/MemoryKindCount"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["total", "active", "inactive", "by_kind"],
+            },
+            "MemoryInventoryStatistics": {
+                "properties": {"entries": {"$ref": "#/components/schemas/MemoryEntryInventoryStatistics"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["entries"],
+            },
+            "InventoryStatistics": {
+                "properties": {
+                    "sources": {"$ref": "#/components/schemas/SourceInventoryStatistics"},
+                    "artifacts": {"$ref": "#/components/schemas/ArtifactInventoryStatistics"},
+                    "candidates": {"$ref": "#/components/schemas/CandidateInventoryStatistics"},
+                    "memory": {"$ref": "#/components/schemas/MemoryInventoryStatistics"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["sources", "artifacts", "candidates", "memory"],
+            },
+            "ModelUsageValue": {
+                "properties": {
+                    "requests": {"type": "integer", "minimum": 0.0},
+                    "input_tokens": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "output_tokens": {"type": "integer", "minimum": 0.0, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["requests", "input_tokens", "output_tokens"],
+            },
+            "ModelUsageStatistics": {
+                "properties": {
+                    "generation": {"$ref": "#/components/schemas/ModelUsageValue"},
+                    "embedding": {"$ref": "#/components/schemas/ModelUsageValue"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["generation", "embedding"],
+            },
+            "ModelUsagePurposeBreakdown": {
+                "properties": {
+                    "purpose": {"type": "string", "maxLength": 64, "minLength": 1},
+                    "generation": {"$ref": "#/components/schemas/ModelUsageValue"},
+                    "embedding": {"$ref": "#/components/schemas/ModelUsageValue"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["purpose", "generation", "embedding"],
+            },
+            "ModelUsageDay": {
+                "properties": {
+                    "date": {"type": "string", "format": "date"},
+                    "generation": {"$ref": "#/components/schemas/ModelUsageValue"},
+                    "embedding": {"$ref": "#/components/schemas/ModelUsageValue"},
+                    "by_purpose": {
+                        "items": {"$ref": "#/components/schemas/ModelUsagePurposeBreakdown"},
+                        "type": "array",
+                        "maxItems": 16,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["date", "generation", "embedding", "by_purpose"],
+            },
+            "ResolvedUsagePeriod": {
+                "properties": {
+                    "preset": {"$ref": "#/components/schemas/StatsPeriod"},
+                    "start_date": {"type": "string", "format": "date"},
+                    "end_date": {"type": "string", "format": "date"},
+                    "timezone": {"type": "string", "enum": ["UTC"]},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["preset", "start_date", "end_date", "timezone"],
+            },
+            "UsageStatistics": {
+                "properties": {
+                    "period": {"$ref": "#/components/schemas/ResolvedUsagePeriod"},
+                    "totals": {"$ref": "#/components/schemas/ModelUsageStatistics"},
+                    "by_purpose": {
+                        "items": {"$ref": "#/components/schemas/ModelUsagePurposeBreakdown"},
+                        "type": "array",
+                        "maxItems": 16,
+                    },
+                    "daily": {"items": {"$ref": "#/components/schemas/ModelUsageDay"}, "type": "array", "maxItems": 30},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["period", "totals", "by_purpose", "daily"],
+            },
+            "TokenEstimatorProfile": {
+                "properties": {
+                    "estimator_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "version": {"type": "string", "maxLength": 64, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["estimator_id", "version"],
+            },
+            "RecallTokenValue": {
+                "properties": {
+                    "preparations": {"type": "integer", "minimum": 0.0},
+                    "ready_preparations": {"type": "integer", "minimum": 0.0},
+                    "comparable_preparations": {"type": "integer", "minimum": 0.0},
+                    "baseline_tokens": {"type": "integer", "minimum": 0.0},
+                    "recalled_tokens": {"type": "integer", "minimum": 0.0},
+                    "token_reduction": {"type": "integer"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "preparations",
+                    "ready_preparations",
+                    "comparable_preparations",
+                    "baseline_tokens",
+                    "recalled_tokens",
+                    "token_reduction",
+                ],
+            },
+            "RecallTokenDay": {
+                "properties": {
+                    "date": {"type": "string", "format": "date"},
+                    "preparations": {"type": "integer", "minimum": 0.0},
+                    "ready_preparations": {"type": "integer", "minimum": 0.0},
+                    "comparable_preparations": {"type": "integer", "minimum": 0.0},
+                    "baseline_tokens": {"type": "integer", "minimum": 0.0},
+                    "recalled_tokens": {"type": "integer", "minimum": 0.0},
+                    "token_reduction": {"type": "integer"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "date",
+                    "preparations",
+                    "ready_preparations",
+                    "comparable_preparations",
+                    "baseline_tokens",
+                    "recalled_tokens",
+                    "token_reduction",
+                ],
+            },
+            "RecallTokenStatistics": {
+                "properties": {
+                    "period": {"$ref": "#/components/schemas/ResolvedUsagePeriod"},
+                    "estimator": {"$ref": "#/components/schemas/TokenEstimatorProfile", "nullable": True},
+                    "totals": {"$ref": "#/components/schemas/RecallTokenValue"},
+                    "daily": {
+                        "items": {"$ref": "#/components/schemas/RecallTokenDay"},
+                        "type": "array",
+                        "maxItems": 30,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["period", "estimator", "totals", "daily"],
+            },
+            "ScopedStats": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "as_of": {"type": "string", "format": "date-time"},
+                    "inventory": {"$ref": "#/components/schemas/InventoryStatistics"},
+                    "usage": {"$ref": "#/components/schemas/UsageStatistics"},
+                    "recall": {"$ref": "#/components/schemas/RecallTokenStatistics"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "as_of", "inventory", "usage", "recall"],
+            },
+            "GetStatsRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "period": {"$ref": "#/components/schemas/StatsPeriod", "default": "30d"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
             },
             "CaptureContentSourceRequest": {
                 "properties": {
@@ -2107,6 +2393,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["name", "source_id"],
             },
             "CaptureStatus": {"type": "string", "enum": ["accepted"]},
+            "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
             "CandidateFamily": {"type": "string", "enum": ["experience", "skill"]},
             "ExternalSkillInstallationScope": {"type": "string", "enum": ["user", "project", "plugin"]},
             "ExternalSkillResolutionStatus": {"type": "string", "enum": ["available", "unavailable"]},

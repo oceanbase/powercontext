@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from pprint import pformat
+from typing import Literal
 
 import yaml
 from datamodel_code_generator import GenerateConfig, InputFileType, generate
@@ -120,6 +121,8 @@ def _generate_operations(
     imports: set[tuple[str, str]] = set()
     operations: list[str] = []
     for path, path_item in (contract.paths or {}).items():
+        if isinstance(path_item, dict):
+            path_item = PathItem.model_validate(path_item)
         if not isinstance(path_item, PathItem):
             raise ContractGenerationError("path item", path)  # noqa: TRY003
         for method, operation in path_item:
@@ -128,7 +131,7 @@ def _generate_operations(
             if operation.operationId is None or operation.summary is None:
                 raise ContractGenerationError("operation metadata", path)  # noqa: TRY003
             operation_id = operation.operationId
-            request_model = _request_model(operation.requestBody, schemas)
+            request_model = _request_model(operation, schemas)
             if request_model is not None:
                 imports.add(request_model[:2])
 
@@ -142,6 +145,7 @@ def _generate_operations(
                     path=path,
                     operation_id=operation_id,
                     request_model=None if request_model is None else request_model[1],
+                    request_location=None if request_model is None else request_model[2],
                     response_model=response_model[1],
                     success_status=success_status,
                     summary=operation.summary,
@@ -159,7 +163,7 @@ def _generate_operations(
 
 from __future__ import annotations
 
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, JsonValue
 
@@ -179,6 +183,7 @@ class Operation(BaseModel, Generic[RequestT, ResponseT]):
     path: str
     operation_id: str
     request_type: type[RequestT] | None
+    request_location: Literal["body", "query"] | None
     response_type: type[ResponseT]
     success_status: int
     summary: str
@@ -234,13 +239,7 @@ def _with_candidate_evidence_limits(source: str, model_names: tuple[str, ...]) -
 
     if not model_names:
         return source
-    updated = source.replace(
-        "from pydantic import BaseModel, ConfigDict, Field,",
-        "from pydantic import BaseModel, ConfigDict, Field, model_validator,",
-        1,
-    )
-    if updated == source:
-        raise ContractGenerationError("pydantic import line", source.splitlines()[0:20])  # noqa: TRY003
+    updated = _with_model_validator_import(source)
     for model_name in model_names:
         class_header = f"class {model_name}(BaseModel):"
         start = updated.find(class_header)
@@ -258,15 +257,46 @@ def _with_candidate_evidence_limits(source: str, model_names: tuple[str, ...]) -
     return f"{formatter.format_code(updated).rstrip()}\n"
 
 
+def _with_model_validator_import(source: str) -> str:
+    single_line_import = "from pydantic import BaseModel, ConfigDict, Field,"
+    if single_line_import in source:
+        return source.replace(
+            single_line_import,
+            f"{single_line_import} model_validator,",
+            1,
+        )
+
+    multiline_import = "from pydantic import (\n"
+    import_start = source.find(multiline_import)
+    import_end = source.find("\n)", import_start + len(multiline_import))
+    field_import = "    Field,\n"
+    field_position = source.find(field_import, import_start, import_end)
+    if import_start < 0 or import_end < 0 or field_position < 0:
+        raise ContractGenerationError("pydantic import line", source.splitlines()[0:20])  # noqa: TRY003
+    insert_at = field_position + len(field_import)
+    return f"{source[:insert_at]}    model_validator,\n{source[insert_at:]}"
+
+
 def _request_model(
-    request_body: RequestBody | Reference | None,
+    operation: OpenAPIOperation,
     schemas: dict[str, Schema | Reference],
-) -> tuple[str, str] | None:
-    if request_body is None:
+) -> tuple[str, str, Literal["body", "query"]] | None:
+    request_body = operation.requestBody
+    if request_body is not None:
+        if not isinstance(request_body, RequestBody):
+            raise ContractGenerationError("request body reference", request_body)  # noqa: TRY003
+        module, name = _model_for_json_content(request_body.content, schemas, "request body")
+        return module, name, "body"
+
+    if not operation.parameters:
         return None
-    if not isinstance(request_body, RequestBody):
-        raise ContractGenerationError("request body reference", request_body)  # noqa: TRY003
-    return _model_for_json_content(request_body.content, schemas, "request body")
+    operation_id = operation.operationId
+    if operation_id is None:
+        raise ContractGenerationError("query request operation", operation_id)  # noqa: TRY003
+    query_model = f"{''.join(part.title() for part in operation_id.split('_'))}Request"
+    if query_model not in schemas:
+        raise ContractGenerationError("query request model", query_model)  # noqa: TRY003
+    return "powercontext.http._generated.models", query_model, "query"
 
 
 def _success_response(
@@ -316,6 +346,7 @@ def _render_operation(
     path: str,
     operation_id: str,
     request_model: str | None,
+    request_location: Literal["body", "query"] | None,
     response_model: str,
     success_status: int,
     summary: str,
@@ -328,6 +359,7 @@ def _render_operation(
     path={path!r},
     operation_id={operation_id!r},
     request_type={request_type},
+    request_location={request_location!r},
     response_type={response_model},
     success_status={success_status},
     summary={summary!r},

@@ -35,6 +35,7 @@ from powercontext.http import (
     GetExperienceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
+    GetStatsRequest,
     HandoffActivation,
     HandoffDraft,
     HandoffResolution,
@@ -64,6 +65,7 @@ from powercontext.http import (
     ReviseMemoryEntryRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
+    ScopedStats,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SkillArtifact,
@@ -85,6 +87,7 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
+    GET_STATS,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
@@ -161,6 +164,11 @@ class PowerContextClient:
         """Read behavior enabled by the assembled runtime."""
 
         return await self._request(GET_CAPABILITIES)
+
+    async def get_stats(self, request: GetStatsRequest) -> ScopedStats:
+        """Read current inventory and bounded usage for one scope."""
+
+        return await self._request(GET_STATS, request)
 
     async def capture_content_source(self, request: CaptureContentSourceRequest) -> CaptureContentSourceResponse:
         """Capture raw content as durable Source evidence."""
@@ -318,15 +326,20 @@ class PowerContextClient:
         request: _RequestT | None = None,
     ) -> _ResponseT:
         json_payload = None
+        query_parameters = None
         if request is not None:
             if operation.request_type is None:
-                message = f"{operation.operation_id} does not accept a request body"
+                message = f"{operation.operation_id} does not accept a request"
                 raise TypeError(message)
-            json_payload = TypeAdapter(operation.request_type).dump_python(
+            payload = TypeAdapter(operation.request_type).dump_python(
                 request,
                 mode="json",
                 by_alias=True,
             )
+            if operation.request_location == "query":
+                query_parameters = {key: value for key, value in payload.items() if value is not None}
+            else:
+                json_payload = payload
 
         try:
             span = ClientSpan.start(operation.operation_id)
@@ -337,6 +350,7 @@ class PowerContextClient:
                 f"{self._base_url}{operation.path}",
                 json=json_payload,
                 headers=headers,
+                params=query_parameters,
             )
         except asyncio.CancelledError as error:
             span.finish("cancelled", error=error)

@@ -27,27 +27,32 @@ from powercontext.http import (
     ExperienceProposal,
     ExternalSkillImportMode,
     ExternalSkillResolution,
+    FamilyCount,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetSkillRequest,
+    GetStatsRequest,
     HealthResponse,
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
+    ModelUsageValue,
     ReadinessResponse,
     RejectArtifactCandidateRequest,
     ResolveExternalSkillRequest,
     ReviseArtifactCandidateRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
+    ScopedStats,
     SkillArtifact,
     SkillGenerationOrigin,
     SkillProposal,
     SkillValidationItem,
     SourceReference,
+    StatsPeriod,
 )
 
 HELP_OPTION_NAMES = ("-h", "--help")
@@ -62,6 +67,7 @@ _ClientResponse: TypeAlias = (
     | ReadinessResponse
     | ScanExternalSkillsResponse
     | SkillArtifact
+    | ScopedStats
 )
 _ClientOperation: TypeAlias = Callable[[PowerContextClient], Awaitable[_ClientResponse]]
 
@@ -133,6 +139,17 @@ def capabilities(context: typer.Context) -> None:
     """Show behavior enabled by the remote Server runtime."""
 
     asyncio.run(_execute(context, lambda client: client.get_capabilities()))
+
+
+def stats(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Application scope to inspect.")],
+    period: Annotated[StatsPeriod, typer.Option(help="Bounded UTC statistics period.")] = StatsPeriod.FIELD_30D,
+) -> None:
+    """Show current inventory and bounded usage for one scope."""
+
+    request = GetStatsRequest(scope_id=scope_id, period=period)
+    asyncio.run(_execute(context, lambda client: client.get_stats(request)))
 
 
 def live(context: typer.Context) -> None:
@@ -714,6 +731,8 @@ def _print_human_response(response: _ClientResponse) -> None:
                 typer.echo(f"{name}: {status}")
         case HealthResponse():
             typer.echo(f"Status: {response.status}")
+        case ScopedStats():
+            _print_stats(response)
         case (
             ArtifactCandidate()
             | ArtifactCandidatePage()
@@ -727,6 +746,68 @@ def _print_human_response(response: _ClientResponse) -> None:
             typer.echo(response.model_dump_json(indent=2))
 
 
+def _print_stats(response: ScopedStats) -> None:
+    inventory = response.inventory
+    typer.echo(f"Scope: {response.scope_id}")
+    typer.echo(f"As of: {response.as_of.isoformat()}")
+    typer.echo(
+        "Sources: "
+        f"{inventory.sources.total} total, "
+        f"{inventory.sources.memory_processed} memory processed, "
+        f"{inventory.sources.memory_pending} memory pending"
+    )
+    typer.echo(f"Artifacts: {inventory.artifacts.total} ({_family_counts(inventory.artifacts.by_family)})")
+    typer.echo(
+        "Candidates: "
+        f"{inventory.candidates.total} total, "
+        f"{inventory.candidates.pending} pending, "
+        f"{inventory.candidates.approved} approved, "
+        f"{inventory.candidates.rejected} rejected"
+    )
+    entries = inventory.memory.entries
+    typer.echo(f"Memory entries: {entries.total} total, {entries.active} active, {entries.inactive} inactive")
+    period = response.usage.period
+    typer.echo(f"Model usage: {period.start_date} to {period.end_date} ({period.timezone})")
+    _print_model_usage("Generation", response.usage.totals.generation)
+    _print_model_usage("Embedding", response.usage.totals.embedding)
+    for item in response.usage.by_purpose:
+        if item.generation.requests:
+            _print_model_usage(f"  {item.purpose} generation", item.generation)
+        if item.embedding.requests:
+            _print_model_usage(f"  {item.purpose} embedding", item.embedding)
+    recall = response.recall
+    if recall.estimator is None:
+        typer.echo("Recall token estimation: disabled")
+    else:
+        totals = recall.totals
+        typer.echo(f"Recall token estimator: {recall.estimator.estimator_id}@{recall.estimator.version}")
+        typer.echo(
+            "Recall tokens: "
+            f"{totals.preparations} preparations "
+            f"({totals.ready_preparations} ready, {totals.comparable_preparations} comparable), "
+            f"{totals.baseline_tokens} baseline, "
+            f"{totals.recalled_tokens} recalled, "
+            f"{totals.token_reduction} reduction"
+        )
+
+
+def _family_counts(values: Sequence[FamilyCount]) -> str:
+    counts = [f"{value.family}={value.total}" for value in values]
+    return ", ".join(counts) if counts else "none"
+
+
+def _print_model_usage(name: str, value: ModelUsageValue) -> None:
+    typer.echo(
+        f"{name}: {value.requests} requests, "
+        f"{_token_count(value.input_tokens)} input tokens, "
+        f"{_token_count(value.output_tokens)} output tokens"
+    )
+
+
+def _token_count(value: int | None) -> str:
+    return "unknown" if value is None else str(value)
+
+
 def _items(values: Sequence[str]) -> str:
     return ", ".join(values) if values else "none"
 
@@ -735,13 +816,14 @@ def register_commands(cli: typer.Typer) -> set[str]:
     """Register Server-backed content commands on the product CLI root."""
 
     cli.command()(capabilities)
+    cli.command()(stats)
     cli.command()(live)
     cli.command()(ready)
     cli.add_typer(candidate_app, name="candidate")
     cli.add_typer(experience_app, name="experience")
     cli.add_typer(skill_app, name="skill")
     cli.add_typer(external_skill_app, name="external-skill")
-    return {"capabilities", "live", "ready", "candidate", "experience", "skill", "external-skill"}
+    return {"capabilities", "stats", "live", "ready", "candidate", "experience", "skill", "external-skill"}
 
 
 __all__ = ["configure_client", "register_commands"]

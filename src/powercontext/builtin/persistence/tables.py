@@ -2,8 +2,10 @@
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
+    Date,
     ForeignKeyConstraint,
     Integer,
     LargeBinary,
@@ -266,6 +268,51 @@ EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
     ),
 )
 
+MODEL_USAGE_DAILY_TABLE = Table(
+    "pc_model_usage_daily",
+    SHARED_METADATA,
+    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("usage_date", Date, primary_key=True),
+    Column("purpose", String(64), primary_key=True),
+    Column("operation", String(16), primary_key=True),
+    Column("requests", BigInteger, nullable=False),
+    Column("input_tokens", BigInteger, nullable=False),
+    Column("output_tokens", BigInteger, nullable=False),
+    Column("input_complete", Boolean, nullable=False),
+    Column("output_complete", Boolean, nullable=False),
+    CheckConstraint(
+        "operation IN ('generation', 'embedding')",
+        name="ck_pc_model_usage_daily_operation",
+    ),
+    CheckConstraint("requests >= 0", name="ck_pc_model_usage_daily_requests_nonnegative"),
+    CheckConstraint("input_tokens >= 0", name="ck_pc_model_usage_daily_input_nonnegative"),
+    CheckConstraint("output_tokens >= 0", name="ck_pc_model_usage_daily_output_nonnegative"),
+)
+
+RECALL_TOKEN_DAILY_TABLE = Table(
+    "pc_recall_token_daily",
+    SHARED_METADATA,
+    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("usage_date", Date, primary_key=True),
+    Column("estimator_id", String(128), primary_key=True),
+    Column("estimator_version", String(64), primary_key=True),
+    Column("preparations", BigInteger, nullable=False),
+    Column("ready_preparations", BigInteger, nullable=False),
+    Column("comparable_preparations", BigInteger, nullable=False),
+    Column("baseline_tokens", BigInteger, nullable=False),
+    Column("recalled_tokens", BigInteger, nullable=False),
+    CheckConstraint("preparations >= 0", name="ck_pc_recall_token_daily_preparations_nonnegative"),
+    CheckConstraint("ready_preparations >= 0", name="ck_pc_recall_token_daily_ready_nonnegative"),
+    CheckConstraint("comparable_preparations >= 0", name="ck_pc_recall_token_daily_comparable_nonnegative"),
+    CheckConstraint(
+        "comparable_preparations <= ready_preparations",
+        name="ck_pc_recall_token_daily_comparable_ready",
+    ),
+    CheckConstraint("ready_preparations <= preparations", name="ck_pc_recall_token_daily_ready_total"),
+    CheckConstraint("baseline_tokens >= 0", name="ck_pc_recall_token_daily_baseline_nonnegative"),
+    CheckConstraint("recalled_tokens >= 0", name="ck_pc_recall_token_daily_recalled_nonnegative"),
+)
+
 SHARED_TABLES = (
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
@@ -369,4 +416,6 @@ MEMORY_ENTRY_HEADS_TABLE = Table(
 
 MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
 
-BUILTIN_TABLES = SHARED_TABLES + MEMORY_TABLES
+STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
+
+BUILTIN_TABLES = SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES

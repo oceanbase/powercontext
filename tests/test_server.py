@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -207,6 +208,61 @@ def test_prepare_context_rejects_memory_specific_tuning_fields(tmp_path) -> None
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "invalid_request"
+
+
+def test_stats_returns_inclusive_utc_periods_for_empty_scope(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        responses = []
+        for requested_period, expected_preset, expected_days in (
+            (None, "30d", 30),
+            ("today", "today", 1),
+            ("7d", "7d", 7),
+            ("30d", "30d", 30),
+        ):
+            params = {"scope_id": "project:test"}
+            if requested_period is not None:
+                params["period"] = requested_period
+            responses.append((client.get("/v1/stats", params=params), expected_preset, expected_days))
+        invalid = client.get(
+            "/v1/stats",
+            params={"scope_id": "project:test", "period": "all"},
+        )
+
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "invalid_request"
+
+    for response, expected_preset, expected_days in responses:
+        assert response.status_code == 200
+        body = response.json()
+        as_of = datetime.fromisoformat(body["as_of"])
+        assert as_of.utcoffset() == timedelta(0)
+        end_date = as_of.date()
+        start_date = end_date - timedelta(days=expected_days - 1)
+        expected_period = {
+            "preset": expected_preset,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "timezone": "UTC",
+        }
+        expected_dates = [(start_date + timedelta(days=offset)).isoformat() for offset in range(expected_days)]
+
+        assert body["scope_id"] == "project:test"
+        assert body["usage"]["period"] == expected_period
+        assert body["recall"]["period"] == expected_period
+        assert [day["date"] for day in body["usage"]["daily"]] == expected_dates
+        assert [day["date"] for day in body["recall"]["daily"]] == expected_dates
+        assert all(day["generation"]["requests"] == 0 for day in body["usage"]["daily"])
+        assert all(day["embedding"]["requests"] == 0 for day in body["usage"]["daily"])
+        assert all(day["preparations"] == 0 for day in body["recall"]["daily"])
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["X-PowerContext-Request-ID"]
 
 
 def test_application_failure_log_uses_operation_context(caplog) -> None:

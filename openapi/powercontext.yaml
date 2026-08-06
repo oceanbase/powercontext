@@ -1025,6 +1025,48 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/stats:
+    get:
+      tags: [stats]
+      summary: Get scoped product statistics
+      operationId: get_stats
+      parameters:
+        - name: scope_id
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: period
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/StatsPeriod"
+      responses:
+        "200":
+          description: Current inventory, model usage, and recall token estimates for the scope.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              description: Prevent caches from retaining scoped statistics.
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopedStats"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
 components:
   securitySchemes:
     BearerAuth:
@@ -1275,6 +1317,337 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PreparedContextSchema"
+    FamilyCount:
+      type: object
+      additionalProperties: false
+      required: [family, total]
+      properties:
+        family:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        total:
+          type: integer
+          minimum: 0
+    CandidateFamilyCount:
+      type: object
+      additionalProperties: false
+      required: [family, total, pending, approved, rejected]
+      properties:
+        family:
+          $ref: "#/components/schemas/CandidateFamily"
+        total:
+          type: integer
+          minimum: 0
+        pending:
+          type: integer
+          minimum: 0
+        approved:
+          type: integer
+          minimum: 0
+        rejected:
+          type: integer
+          minimum: 0
+    MemoryKindCount:
+      type: object
+      additionalProperties: false
+      required: [kind, total, active, inactive]
+      properties:
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+        total:
+          type: integer
+          minimum: 0
+        active:
+          type: integer
+          minimum: 0
+        inactive:
+          type: integer
+          minimum: 0
+    SourceInventoryStatistics:
+      type: object
+      additionalProperties: false
+      required: [total, memory_processed, memory_pending]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        memory_processed:
+          type: integer
+          minimum: 0
+        memory_pending:
+          type: integer
+          minimum: 0
+    ArtifactInventoryStatistics:
+      type: object
+      additionalProperties: false
+      required: [total, by_family]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        by_family:
+          type: array
+          items:
+            $ref: "#/components/schemas/FamilyCount"
+    CandidateInventoryStatistics:
+      type: object
+      additionalProperties: false
+      required: [total, pending, approved, rejected, by_family]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        pending:
+          type: integer
+          minimum: 0
+        approved:
+          type: integer
+          minimum: 0
+        rejected:
+          type: integer
+          minimum: 0
+        by_family:
+          type: array
+          items:
+            $ref: "#/components/schemas/CandidateFamilyCount"
+    MemoryEntryInventoryStatistics:
+      type: object
+      additionalProperties: false
+      required: [total, active, inactive, by_kind]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        active:
+          type: integer
+          minimum: 0
+        inactive:
+          type: integer
+          minimum: 0
+        by_kind:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoryKindCount"
+    MemoryInventoryStatistics:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        entries:
+          $ref: "#/components/schemas/MemoryEntryInventoryStatistics"
+    InventoryStatistics:
+      type: object
+      additionalProperties: false
+      required: [sources, artifacts, candidates, memory]
+      properties:
+        sources:
+          $ref: "#/components/schemas/SourceInventoryStatistics"
+        artifacts:
+          $ref: "#/components/schemas/ArtifactInventoryStatistics"
+        candidates:
+          $ref: "#/components/schemas/CandidateInventoryStatistics"
+        memory:
+          $ref: "#/components/schemas/MemoryInventoryStatistics"
+    ModelUsageValue:
+      type: object
+      additionalProperties: false
+      required: [requests, input_tokens, output_tokens]
+      properties:
+        requests:
+          type: integer
+          minimum: 0
+        input_tokens:
+          type: integer
+          minimum: 0
+          nullable: true
+        output_tokens:
+          type: integer
+          minimum: 0
+          nullable: true
+    ModelUsageStatistics:
+      type: object
+      additionalProperties: false
+      required: [generation, embedding]
+      properties:
+        generation:
+          $ref: "#/components/schemas/ModelUsageValue"
+        embedding:
+          $ref: "#/components/schemas/ModelUsageValue"
+    ModelUsagePurposeBreakdown:
+      type: object
+      additionalProperties: false
+      required: [purpose, generation, embedding]
+      properties:
+        purpose:
+          type: string
+          minLength: 1
+          maxLength: 64
+        generation:
+          $ref: "#/components/schemas/ModelUsageValue"
+        embedding:
+          $ref: "#/components/schemas/ModelUsageValue"
+    ModelUsageDay:
+      type: object
+      additionalProperties: false
+      required: [date, generation, embedding, by_purpose]
+      properties:
+        date:
+          type: string
+          format: date
+        generation:
+          $ref: "#/components/schemas/ModelUsageValue"
+        embedding:
+          $ref: "#/components/schemas/ModelUsageValue"
+        by_purpose:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/ModelUsagePurposeBreakdown"
+    ResolvedUsagePeriod:
+      type: object
+      additionalProperties: false
+      required: [preset, start_date, end_date, timezone]
+      properties:
+        preset:
+          $ref: "#/components/schemas/StatsPeriod"
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        timezone:
+          type: string
+          enum: [UTC]
+    UsageStatistics:
+      type: object
+      additionalProperties: false
+      required: [period, totals, by_purpose, daily]
+      properties:
+        period:
+          $ref: "#/components/schemas/ResolvedUsagePeriod"
+        totals:
+          $ref: "#/components/schemas/ModelUsageStatistics"
+        by_purpose:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/ModelUsagePurposeBreakdown"
+        daily:
+          type: array
+          maxItems: 30
+          items:
+            $ref: "#/components/schemas/ModelUsageDay"
+    TokenEstimatorProfile:
+      type: object
+      additionalProperties: false
+      required: [estimator_id, version]
+      properties:
+        estimator_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        version:
+          type: string
+          minLength: 1
+          maxLength: 64
+    RecallTokenValue:
+      type: object
+      additionalProperties: false
+      required: [preparations, ready_preparations, comparable_preparations, baseline_tokens, recalled_tokens, token_reduction]
+      properties:
+        preparations:
+          type: integer
+          minimum: 0
+        ready_preparations:
+          type: integer
+          minimum: 0
+        comparable_preparations:
+          type: integer
+          minimum: 0
+        baseline_tokens:
+          type: integer
+          minimum: 0
+        recalled_tokens:
+          type: integer
+          minimum: 0
+        token_reduction:
+          type: integer
+    RecallTokenDay:
+      type: object
+      additionalProperties: false
+      required: [date, preparations, ready_preparations, comparable_preparations, baseline_tokens, recalled_tokens, token_reduction]
+      properties:
+        date:
+          type: string
+          format: date
+        preparations:
+          type: integer
+          minimum: 0
+        ready_preparations:
+          type: integer
+          minimum: 0
+        comparable_preparations:
+          type: integer
+          minimum: 0
+        baseline_tokens:
+          type: integer
+          minimum: 0
+        recalled_tokens:
+          type: integer
+          minimum: 0
+        token_reduction:
+          type: integer
+    RecallTokenStatistics:
+      type: object
+      additionalProperties: false
+      required: [period, estimator, totals, daily]
+      properties:
+        period:
+          $ref: "#/components/schemas/ResolvedUsagePeriod"
+        estimator:
+          $ref: "#/components/schemas/TokenEstimatorProfile"
+          nullable: true
+        totals:
+          $ref: "#/components/schemas/RecallTokenValue"
+        daily:
+          type: array
+          maxItems: 30
+          items:
+            $ref: "#/components/schemas/RecallTokenDay"
+    ScopedStats:
+      type: object
+      additionalProperties: false
+      required: [scope_id, as_of, inventory, usage, recall]
+      properties:
+        scope_id:
+          type: string
+        as_of:
+          type: string
+          format: date-time
+        inventory:
+          $ref: "#/components/schemas/InventoryStatistics"
+        usage:
+          $ref: "#/components/schemas/UsageStatistics"
+        recall:
+          $ref: "#/components/schemas/RecallTokenStatistics"
+    GetStatsRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        period:
+          $ref: "#/components/schemas/StatsPeriod"
+          default: 30d
     CaptureContentSourceRequest:
       type: object
       additionalProperties: false
@@ -2520,6 +2893,9 @@ components:
     CaptureStatus:
       type: string
       enum: [accepted]
+    StatsPeriod:
+      type: string
+      enum: [today, 7d, 30d]
     CandidateFamily:
       type: string
       enum: [experience, skill]

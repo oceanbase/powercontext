@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Integer, String
+from sqlalchemy import BigInteger, Date, Integer, String
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
@@ -26,6 +26,8 @@ def _column_budget(column) -> int:
         return 8
     if isinstance(column.type, Integer):
         return 4
+    if isinstance(column.type, Date):
+        return 3
     raise _UnbudgetedColumnTypeError(column.type)
 
 

@@ -21,16 +21,84 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetSkillRequest,
+    GetStatsRequest,
     HealthResponse,
     ImportExternalSkillRequest,
     ReadinessResponse,
     ReviseArtifactCandidateRequest,
+    ScopedStats,
     SkillArtifact,
     SkillGenerationOrigin,
     SkillProposal,
     SkillValidationItem,
 )
 from powercontext.server.cli import app as server_app
+
+
+def _empty_inventory() -> dict[str, object]:
+    return {
+        "sources": {"total": 0, "memory_processed": 0, "memory_pending": 0},
+        "artifacts": {"total": 0, "by_family": []},
+        "candidates": {"total": 0, "pending": 0, "approved": 0, "rejected": 0, "by_family": []},
+        "memory": {"entries": {"total": 0, "active": 0, "inactive": 0, "by_kind": []}},
+    }
+
+
+def _stats_response() -> ScopedStats:
+    return ScopedStats.model_validate({
+        "scope_id": "project",
+        "as_of": "2026-08-04T12:00:00Z",
+        "inventory": _empty_inventory(),
+        "usage": {
+            "period": {
+                "preset": "today",
+                "start_date": "2026-08-04",
+                "end_date": "2026-08-04",
+                "timezone": "UTC",
+            },
+            "totals": {
+                "generation": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
+                "embedding": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
+            },
+            "by_purpose": [],
+            "daily": [
+                {
+                    "date": "2026-08-04",
+                    "generation": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
+                    "embedding": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
+                    "by_purpose": [],
+                }
+            ],
+        },
+        "recall": {
+            "period": {
+                "preset": "today",
+                "start_date": "2026-08-04",
+                "end_date": "2026-08-04",
+                "timezone": "UTC",
+            },
+            "estimator": {"estimator_id": "character:weighted", "version": "1"},
+            "totals": {
+                "preparations": 3,
+                "ready_preparations": 2,
+                "comparable_preparations": 1,
+                "baseline_tokens": 100,
+                "recalled_tokens": 40,
+                "token_reduction": 60,
+            },
+            "daily": [
+                {
+                    "date": "2026-08-04",
+                    "preparations": 3,
+                    "ready_preparations": 2,
+                    "comparable_preparations": 1,
+                    "baseline_tokens": 100,
+                    "recalled_tokens": 40,
+                    "token_reduction": 60,
+                }
+            ],
+        },
+    })
 
 
 @pytest.mark.parametrize(
@@ -77,7 +145,7 @@ def test_cli_exposes_installed_role_commands() -> None:
     result = CliRunner().invoke(create_cli(), ["--help"])
 
     assert result.exit_code == 0
-    assert all(command in result.output for command in ("capabilities", "candidate", "server"))
+    assert all(command in result.output for command in ("capabilities", "candidate", "stats", "server"))
     assert "builtin" not in result.output
     assert "client" not in result.output
 
@@ -206,6 +274,40 @@ def test_client_command_prints_human_readable_output_by_default(monkeypatch: pyt
 
     assert result.exit_code == 0
     assert result.output == "Status: ok\n"
+
+
+def test_stats_command_builds_request_and_prints_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: list[GetStatsRequest] = []
+
+    class StatsClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def get_stats(self, request: GetStatsRequest) -> ScopedStats:
+            received.append(request)
+            return _stats_response()
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: StatsClient())
+
+    result = CliRunner().invoke(
+        create_cli([]),
+        ["stats", "--scope-id", "project", "--period", "today"],
+    )
+
+    assert result.exit_code == 0
+    assert received[0].model_dump(mode="json") == {"scope_id": "project", "period": "today"}
+    assert "Sources: 0 total, 0 memory processed, 0 memory pending" in result.output
+    assert "Generation: 0 requests, 0 input tokens, 0 output tokens" in result.output
+    assert "Recall token estimator: character:weighted@1" in result.output
+    assert (
+        "Recall tokens: 3 preparations (2 ready, 1 comparable), 100 baseline, 40 recalled, 60 reduction"
+        in result.output
+    )
 
 
 def test_client_generation_commands_build_requests_from_explicit_options(

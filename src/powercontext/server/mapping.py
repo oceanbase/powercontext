@@ -107,6 +107,9 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
 )
+from powercontext.builtin.runtime import (
+    Statistics as RuntimeStatistics,
+)
 from powercontext.builtin.sources import ExternalSkillImportMode as RuntimeExternalSkillImportMode
 from powercontext.http import (
     ActivateHandoffRequest,
@@ -168,6 +171,7 @@ from powercontext.http import (
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
     ScanExternalSkillsResponse,
+    ScopedStats,
     SearchMemoryHit,
     SearchMemoryRequest,
     SearchMemoryResponse,
@@ -241,6 +245,10 @@ def capture_response(value: SourceReceipt) -> CaptureContentSourceResponse:
         source=SourceReference(name=value.source_ref.source_type, source_id=value.source_ref.source_id),
         position=value.sequence,
     )
+
+
+def statistics_response(value: RuntimeStatistics) -> ScopedStats:
+    return ScopedStats.model_validate(value.model_dump(mode="json"))
 
 
 def flush_response(value: MemoryFlushResult) -> FlushMemoryResponse:

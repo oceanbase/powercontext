@@ -11,7 +11,7 @@ from functools import wraps
 from time import perf_counter
 from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypeVar
 
-from fastapi import Depends, FastAPI, Request, Response, status
+from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from opentelemetry.trace import SpanKind
@@ -137,6 +137,12 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
 )
+from powercontext.builtin.runtime import (
+    Statistics as RuntimeStatistics,
+)
+from powercontext.builtin.runtime import (
+    StatisticsPeriod as RuntimeStatisticsPeriod,
+)
 from powercontext.errors import (
     ArtifactNotFoundError,
     PowerContextError,
@@ -168,6 +174,7 @@ from powercontext.http import (
     GetExperienceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
+    GetStatsRequest,
     HandoffSelection,
     HealthResponse,
     ImportExternalSkillRequest,
@@ -195,6 +202,7 @@ from powercontext.http import (
     ReviseMemoryEntryRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
+    ScopedStats,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SkillArtifact,
@@ -231,6 +239,7 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
+    GET_STATS,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
@@ -385,6 +394,14 @@ class _MemoryApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedMemoryApplication: ...
 
 
+class _ScopedStatisticsApplication(Protocol):
+    async def overview(self, *, period: RuntimeStatisticsPeriod) -> RuntimeStatistics: ...
+
+
+class _StatisticsApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedStatisticsApplication: ...
+
+
 class ServerApplication(Protocol):
     sources: _SourceApplication
     context: _ContextApplication
@@ -394,6 +411,7 @@ class ServerApplication(Protocol):
     memory: _MemoryApplication
     review: _ReviewApplication
     skill: _SkillApplication
+    statistics: _StatisticsApplication
 
 
 class _RuntimeNotReadyError(RuntimeError):
@@ -480,6 +498,7 @@ def create_app(
     _add_route(app, GET_LIVENESS, get_liveness)
     _add_route(app, GET_READINESS, get_readiness)
     _add_route(app, GET_CAPABILITIES, get_capabilities)
+    _add_route(app, GET_STATS, get_stats)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
     _add_route(app, FLUSH_MEMORY, flush_memory)
     _add_route(app, REMEMBER_MEMORY, remember_memory)
@@ -540,6 +559,18 @@ async def get_capabilities(request: Request) -> Capabilities:
     if capability_provider is not None:
         return capability_provider()
     return request.app.state.capabilities
+
+
+async def get_stats(
+    request: Annotated[GetStatsRequest, Query()],
+    response: Response,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ScopedStats:
+    response.headers["Cache-Control"] = "no-store"
+    result = await application.statistics.for_scope(request.scope_id).overview(
+        period=RuntimeStatisticsPeriod(request.period.value)
+    )
+    return mapping.statistics_response(result)
 
 
 async def capture_content_source(

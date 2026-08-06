@@ -20,6 +20,7 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetMemoryEntryRequest,
+    GetStatsRequest,
     HandoffActivation,
     HandoffDraft,
     HandoffResolution,
@@ -37,9 +38,11 @@ from powercontext.http import (
     ReviseArtifactCandidateRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
+    ScopedStats,
     SearchMemoryRequest,
     SkillProposal,
     SkillValidationItem,
+    StatsPeriod,
 )
 from powercontext.http._generated.operations import (
     ACTIVATE_HANDOFF,
@@ -56,6 +59,7 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
+    GET_STATS,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
@@ -131,6 +135,34 @@ def test_capture_operation_declares_its_typed_accepted_exchange() -> None:
     assert CAPTURE_CONTENT_SOURCE.request_type is CaptureContentSourceRequest
     assert CAPTURE_CONTENT_SOURCE.response_type is CaptureContentSourceResponse
     assert CAPTURE_CONTENT_SOURCE.success_status == 202
+
+
+def test_stats_operation_exposes_dashboard_ready_scoped_values() -> None:
+    assert GET_STATS.method == "GET"
+    assert GET_STATS.path == "/v1/stats"
+    assert GET_STATS.request_type is GetStatsRequest
+    assert GET_STATS.request_location == "query"
+    assert GET_STATS.response_type is ScopedStats
+    assert GET_STATS.success_status == 200
+    assert GetStatsRequest(scope_id="project").period is StatsPeriod.FIELD_30D
+
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schemas = contract["components"]["schemas"]
+    stats = schemas["ScopedStats"]
+    usage = schemas["UsageStatistics"]
+    usage_value = schemas["ModelUsageValue"]
+    recall = schemas["RecallTokenStatistics"]
+
+    operation = contract["paths"]["/v1/stats"]["get"]
+    assert "requestBody" not in operation
+    assert [parameter["name"] for parameter in operation["parameters"]] == ["scope_id", "period"]
+    assert set(stats["properties"]) == {"scope_id", "as_of", "inventory", "usage", "recall"}
+    assert usage["properties"]["by_purpose"]["maxItems"] == 16
+    assert usage["properties"]["daily"]["maxItems"] == 30
+    assert usage_value["properties"]["input_tokens"]["nullable"] is True
+    assert usage_value["properties"]["output_tokens"]["nullable"] is True
+    assert recall["properties"]["estimator"]["nullable"] is True
+    assert recall["properties"]["daily"]["maxItems"] == 30
 
 
 def test_memory_operations_use_family_prefixed_paths_and_typed_requests() -> None:

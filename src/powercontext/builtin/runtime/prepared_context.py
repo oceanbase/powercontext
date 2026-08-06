@@ -25,10 +25,19 @@ _TRUST_POLICY = (
 
 @dataclass(frozen=True)
 class _PreparedContextEntry:
+    origin: MemoryCitation | ArtifactRef
     kind: str
     citation: dict[str, object]
     content: str
     truncated: bool
+
+
+@dataclass(frozen=True)
+class PreparedContextBuild:
+    """Final public context and the exact origins selected to produce it."""
+
+    context: PreparedContext
+    origins: tuple[MemoryCitation | ArtifactRef, ...]
 
 
 class PreparedContextBuilder:
@@ -52,6 +61,21 @@ class PreparedContextBuilder:
         hits: Sequence[MemoryHit] = (),
         experience_hits: Sequence[ExperienceSearchHit] = (),
     ) -> PreparedContext:
+        return self.build_result(
+            request=request,
+            memory_ref=memory_ref,
+            hits=hits,
+            experience_hits=experience_hits,
+        ).context
+
+    def build_result(
+        self,
+        *,
+        request: PrepareContextRequest,
+        memory_ref: ArtifactRef | None = None,
+        hits: Sequence[MemoryHit] = (),
+        experience_hits: Sequence[ExperienceSearchHit] = (),
+    ) -> PreparedContextBuild:
         if len(hits) > self.memory_candidate_limit:
             raise PreparedContextInvariantError("memory-candidate-limit")
         if len(experience_hits) > self.experience_candidate_limit:
@@ -64,12 +88,15 @@ class PreparedContextBuilder:
         entries = self._fit_entries(request, memory_entries, experience_entries)
 
         if not entries:
-            return self.empty()
+            return PreparedContextBuild(context=self.empty(), origins=())
         content = _render(entries)
         content_bytes = len(content.encode("utf-8"))
         if content_bytes > request.max_bytes:
             raise PreparedContextInvariantError("output-budget")
-        return PreparedContext(status="ready", content=content, content_bytes=content_bytes)
+        return PreparedContextBuild(
+            context=PreparedContext(status="ready", content=content, content_bytes=content_bytes),
+            origins=tuple(entry.origin for entry in entries),
+        )
 
     def _memory_entries(
         self,
@@ -90,14 +117,16 @@ class PreparedContextBuilder:
                 continue
             if len(memory_entries) >= self.entry_limit:
                 break
+            citation = MemoryCitation(
+                memory_ref=hit.memory_ref,
+                entry_id=hit.entry_id,
+                entry_version_id=hit.entry_version_id,
+            )
             memory_entries.append(
                 _PreparedContextEntry(
+                    origin=citation,
                     kind="memory",
-                    citation=MemoryCitation(
-                        memory_ref=hit.memory_ref,
-                        entry_id=hit.entry_id,
-                        entry_version_id=hit.entry_version_id,
-                    ).model_dump(mode="json"),
+                    citation=citation.model_dump(mode="json"),
                     content=hit.text,
                     truncated=False,
                 )
@@ -121,6 +150,7 @@ class PreparedContextBuilder:
                 break
             experience_entries.append(
                 _PreparedContextEntry(
+                    origin=hit.artifact_ref,
                     kind="experience",
                     citation={"artifact_ref": hit.artifact_ref.model_dump(mode="json")},
                     content=render_experience(hit.content),
@@ -141,6 +171,7 @@ class PreparedContextBuilder:
                 break
             fitted = self._fit_entry(
                 entries,
+                origin=candidate.origin,
                 kind=candidate.kind,
                 citation=candidate.citation,
                 text=candidate.content,
@@ -154,6 +185,7 @@ class PreparedContextBuilder:
         self,
         entries: Sequence[_PreparedContextEntry],
         *,
+        origin: MemoryCitation | ArtifactRef,
         kind: str,
         citation: dict[str, object],
         text: str,
@@ -162,6 +194,7 @@ class PreparedContextBuilder:
         source_bytes = len(text.encode("utf-8"))
         entry_budget = min(source_bytes, self.max_entry_content_bytes)
         candidate = _PreparedContextEntry(
+            origin=origin,
             kind=kind,
             citation=citation,
             content=text if source_bytes <= entry_budget else _truncate_utf8(text, entry_budget),
@@ -178,6 +211,7 @@ class PreparedContextBuilder:
         while lower <= upper:
             byte_budget = (lower + upper) // 2
             candidate = _PreparedContextEntry(
+                origin=origin,
                 kind=kind,
                 citation=citation,
                 content=_truncate_utf8(text, byte_budget),

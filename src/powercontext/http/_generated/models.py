@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+from datetime import date as date_aliased
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -35,6 +37,131 @@ class ApproveArtifactCandidateRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     expected_version: Annotated[StrictInt, Field(ge=1)]
+
+
+class FamilyCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    total: Annotated[StrictInt, Field(ge=0)]
+
+
+class MemoryKindCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    total: Annotated[StrictInt, Field(ge=0)]
+    active: Annotated[StrictInt, Field(ge=0)]
+    inactive: Annotated[StrictInt, Field(ge=0)]
+
+
+class SourceInventoryStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    total: Annotated[StrictInt, Field(ge=0)]
+    memory_processed: Annotated[StrictInt, Field(ge=0)]
+    memory_pending: Annotated[StrictInt, Field(ge=0)]
+
+
+class ArtifactInventoryStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    total: Annotated[StrictInt, Field(ge=0)]
+    by_family: list[FamilyCount]
+
+
+class MemoryEntryInventoryStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    total: Annotated[StrictInt, Field(ge=0)]
+    active: Annotated[StrictInt, Field(ge=0)]
+    inactive: Annotated[StrictInt, Field(ge=0)]
+    by_kind: list[MemoryKindCount]
+
+
+class MemoryInventoryStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    entries: MemoryEntryInventoryStatistics
+
+
+class ModelUsageValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    requests: Annotated[StrictInt, Field(ge=0)]
+    input_tokens: Annotated[StrictInt | None, Field(ge=0)]
+    output_tokens: Annotated[StrictInt | None, Field(ge=0)]
+
+
+class ModelUsageStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    generation: ModelUsageValue
+    embedding: ModelUsageValue
+
+
+class ModelUsagePurposeBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    purpose: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+    generation: ModelUsageValue
+    embedding: ModelUsageValue
+
+
+class ModelUsageDay(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date: date_aliased
+    generation: ModelUsageValue
+    embedding: ModelUsageValue
+    by_purpose: Annotated[list[ModelUsagePurposeBreakdown], Field(max_length=16)]
+
+
+class Timezone(StrEnum):
+    UTC = "UTC"
+
+
+class TokenEstimatorProfile(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    estimator_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    version: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+
+
+class RecallTokenValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preparations: Annotated[StrictInt, Field(ge=0)]
+    ready_preparations: Annotated[StrictInt, Field(ge=0)]
+    comparable_preparations: Annotated[StrictInt, Field(ge=0)]
+    baseline_tokens: Annotated[StrictInt, Field(ge=0)]
+    recalled_tokens: Annotated[StrictInt, Field(ge=0)]
+    token_reduction: StrictInt
+
+
+class RecallTokenDay(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date: date_aliased
+    preparations: Annotated[StrictInt, Field(ge=0)]
+    ready_preparations: Annotated[StrictInt, Field(ge=0)]
+    comparable_preparations: Annotated[StrictInt, Field(ge=0)]
+    baseline_tokens: Annotated[StrictInt, Field(ge=0)]
+    recalled_tokens: Annotated[StrictInt, Field(ge=0)]
+    token_reduction: StrictInt
 
 
 class CaptureContentSourceRequest(BaseModel):
@@ -301,6 +428,12 @@ class CaptureStatus(StrEnum):
     ACCEPTED = "accepted"
 
 
+class StatsPeriod(StrEnum):
+    TODAY = "today"
+    FIELD_7D = "7d"
+    FIELD_30D = "30d"
+
+
 class CandidateFamily(StrEnum):
     EXPERIENCE = "experience"
     SKILL = "skill"
@@ -429,6 +562,87 @@ class Capabilities(BaseModel):
     ]
     search_modes: list[MemorySearchMode]
     context_versions: list[PreparedContextSchema]
+
+
+class CandidateFamilyCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: CandidateFamily
+    total: Annotated[StrictInt, Field(ge=0)]
+    pending: Annotated[StrictInt, Field(ge=0)]
+    approved: Annotated[StrictInt, Field(ge=0)]
+    rejected: Annotated[StrictInt, Field(ge=0)]
+
+
+class CandidateInventoryStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    total: Annotated[StrictInt, Field(ge=0)]
+    pending: Annotated[StrictInt, Field(ge=0)]
+    approved: Annotated[StrictInt, Field(ge=0)]
+    rejected: Annotated[StrictInt, Field(ge=0)]
+    by_family: list[CandidateFamilyCount]
+
+
+class InventoryStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    sources: SourceInventoryStatistics
+    artifacts: ArtifactInventoryStatistics
+    candidates: CandidateInventoryStatistics
+    memory: MemoryInventoryStatistics
+
+
+class ResolvedUsagePeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preset: StatsPeriod
+    start_date: date_aliased
+    end_date: date_aliased
+    timezone: Timezone
+
+
+class UsageStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    period: ResolvedUsagePeriod
+    totals: ModelUsageStatistics
+    by_purpose: Annotated[list[ModelUsagePurposeBreakdown], Field(max_length=16)]
+    daily: Annotated[list[ModelUsageDay], Field(max_length=30)]
+
+
+class RecallTokenStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    period: ResolvedUsagePeriod
+    estimator: Annotated[TokenEstimatorProfile | None, Field(...)]
+    totals: RecallTokenValue
+    daily: Annotated[list[RecallTokenDay], Field(max_length=30)]
+
+
+class ScopedStats(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    as_of: AwareDatetime
+    inventory: InventoryStatistics
+    usage: UsageStatistics
+    recall: RecallTokenStatistics
+
+
+class GetStatsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    period: StatsPeriod = StatsPeriod.FIELD_30D
 
 
 class CaptureContentSourceResponse(BaseModel):

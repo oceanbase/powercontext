@@ -15,6 +15,12 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
+from powercontext.builtin.persistence.statistics import (
+    StatisticsRepository,
+    StoredInventoryCounts,
+    StoredModelUsage,
+    StoredRecallTokenUsage,
+)
 
 __all__ = (
     "AsyncDatabase",
@@ -29,5 +35,9 @@ __all__ = (
     "PersistenceError",
     "RepositoryError",
     "RepositoryNotFoundError",
+    "StatisticsRepository",
+    "StoredInventoryCounts",
+    "StoredModelUsage",
     "StoredPayloadConflictError",
+    "StoredRecallTokenUsage",
 )

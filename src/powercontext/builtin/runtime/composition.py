@@ -20,7 +20,11 @@ from powercontext.builtin.artifacts.memory import (
     MemoryCapabilities,
 )
 from powercontext.builtin.artifacts.skill import CodexSkillProvider, ExternalSkillProvider, SkillGenerator
-from powercontext.builtin.inference import EmbeddingModel
+from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
+from powercontext.builtin.inference.usage import (
+    UsageReportingEmbeddingModel,
+    UsageReportingStructuredGenerator,
+)
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
 from powercontext.builtin.persistence.oceanbase.memory_index import (
@@ -92,6 +96,7 @@ async def open_builtin_runtime(
     external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
+    token_estimator: TokenEstimator | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
@@ -112,8 +117,11 @@ async def open_builtin_runtime(
         configured_experience = generated_experience if experience_generator is None else experience_generator
         configured_skill = generated_skill if skill_generator is None else skill_generator
         configured_handoff = generated_handoff if handoff_pipeline is None else handoff_pipeline
-        configured_embedding = (
+        configured_embedding_source = (
             await _embedding_model(config.inference, resources) if embedding_model is None else embedding_model
+        )
+        configured_embedding = (
+            None if configured_embedding_source is None else UsageReportingEmbeddingModel(configured_embedding_source)
         )
         configured_external_skills = (
             _external_skill_provider(config.external_skills)
@@ -130,6 +138,7 @@ async def open_builtin_runtime(
                 external_skill_provider=configured_external_skills,
                 handoff_pipeline=configured_handoff,
                 embedding_model=configured_embedding,
+                token_estimator=token_estimator,
             )
         )
         runtime = await resources.enter_async_context(
@@ -151,6 +160,8 @@ async def open_builtin_runtime(
                 experience_incubator=contexts.incubate_experience if contexts.experience_incubation else None,
                 external_skill_registry=contexts.external_skills if contexts.external_skill_registry else None,
                 external_skill_importer=contexts.import_external_skill if contexts.external_skill_registry else None,
+                statistics_service=contexts.statistics,
+                recall_token_estimator=contexts.estimate_recall_tokens,
             )
         )
         if config.runtime.schedule_seconds is not None and configured_pipeline is None:
@@ -177,10 +188,12 @@ async def open_builtin_contexts(
     external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
+    token_estimator: TokenEstimator | None = None,
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
     database = config.database
+    configured_token_estimator = character_token_estimator() if token_estimator is None else token_estimator
     if isinstance(database, SQLiteConfig):
         experience_index = SQLiteExperienceFTSIndex()
         indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
@@ -207,6 +220,7 @@ async def open_builtin_contexts(
                 external_skill_provider=external_skill_provider,
                 handoff_pipeline=handoff_pipeline,
                 embedding_model=embedding_model,
+                token_estimator=configured_token_estimator,
             )
         return
     if not isinstance(database, OceanBaseConfig):
@@ -235,6 +249,7 @@ async def open_builtin_contexts(
             external_skill_provider=external_skill_provider,
             handoff_pipeline=handoff_pipeline,
             embedding_model=embedding_model,
+            token_estimator=configured_token_estimator,
         )
 
 
@@ -323,12 +338,15 @@ async def _generation_pipelines(
         limits=limits,
     )
     return (
-        LLMMemoryCandidatePipeline(memory_generator, evidence_projector=_ContentEvidenceProjector()),
-        LLMExperienceCandidatePipeline(experience_generator),
-        LLMExperienceGenerator(explicit_experience_generator),
-        LLMSkillGenerator(skill_generator),
+        LLMMemoryCandidatePipeline(
+            UsageReportingStructuredGenerator(memory_generator),
+            evidence_projector=_ContentEvidenceProjector(),
+        ),
+        LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator)),
+        LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator)),
+        LLMSkillGenerator(UsageReportingStructuredGenerator(skill_generator)),
         LLMHandoffGenerationPipeline(
-            handoff_generator,
+            UsageReportingStructuredGenerator(handoff_generator),
             evidence_projector=_ContentHandoffEvidenceProjector(),
         ),
     )

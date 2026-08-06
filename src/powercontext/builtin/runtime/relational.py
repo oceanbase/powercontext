@@ -45,7 +45,7 @@ from powercontext.builtin.artifacts.skill import (
 )
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
-from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError
+from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError, TokenEstimator
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
@@ -60,6 +60,7 @@ from powercontext.builtin.persistence.handoff import (
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
+from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
@@ -69,7 +70,10 @@ from powercontext.builtin.review.generation import (
 )
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime.models import ExperienceIncubationResult, MemoryFlushResult
+from powercontext.builtin.runtime.prepared_context import PreparedContextBuild
 from powercontext.builtin.runtime.protocols import BuiltinTriggers
+from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
+from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_ADAPTER,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
@@ -78,6 +82,7 @@ from powercontext.builtin.sources import (
     SourceCursor,
     validate_scope_id,
 )
+from powercontext.builtin.statistics import RecallTokenMeasurement
 from powercontext.builtin.triggers import (
     HANDOFF_BOUNDARY_TRIGGER_NAME,
     SOURCE_WINDOW_TRIGGER_NAME,
@@ -112,6 +117,7 @@ class _Repositories:
     candidates: CandidateRepository
     cursors: SourceCursorRepository
     external_skills: ExternalSkillRepository
+    statistics: StatisticsRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +139,7 @@ class _ScopedServices:
     handoff_artifact_id: str
     memory_artifact_id: str
     source_lock: asyncio.Lock
+    token_estimator: TokenEstimator | None
 
     def sources(
         self,
@@ -219,6 +226,40 @@ class _ScopedServices:
             generation_pipeline=self.handoff_pipeline,
         )
 
+    def statistics(self) -> RelationalScopedStatistics:
+        """Return the scoped statistics service over shared repositories."""
+
+        def memory_service(connection: AsyncConnection) -> MemoryService:
+            _, source_catalog = self.sources(connection)
+            return self.memory(source_catalog, connection)
+
+        return RelationalScopedStatistics(
+            database=self.database,
+            scope_id=self.scope_id,
+            memory_artifact_id=self.memory_artifact_id,
+            memory_service=memory_service,
+            cursors=self.repositories.cursors,
+            repository=self.repositories.statistics,
+            token_estimator=None if self.token_estimator is None else self.token_estimator.profile,
+        )
+
+    def recall_tokens(self) -> RelationalRecallTokenEstimator | None:
+        if self.token_estimator is None:
+            return None
+
+        def memory_service(connection: AsyncConnection) -> MemoryService:
+            _, source_catalog = self.sources(connection)
+            return self.memory(source_catalog, connection)
+
+        return RelationalRecallTokenEstimator(
+            database=self.database,
+            scope_id=self.scope_id,
+            sources=self.repositories.sources,
+            artifacts=self.repositories.artifacts,
+            memory_service=memory_service,
+            estimator=self.token_estimator,
+        )
+
 
 class RelationalContexts:
     """Compose typed, scope-bound contexts without owning the database lifecycle."""
@@ -236,6 +277,7 @@ class RelationalContexts:
         external_skill_provider: ExternalSkillProvider | None = None,
         handoff_pipeline: HandoffGenerationPipeline | None = None,
         embedding_model: EmbeddingModel | None = None,
+        token_estimator: TokenEstimator | None = None,
         id_factory: IdFactory | None = None,
         handoff_artifact_id: str = "handoff",
         memory_artifact_id: str = "memory",
@@ -252,6 +294,7 @@ class RelationalContexts:
             }),
             cursors=SourceCursorRepository(),
             external_skills=ExternalSkillRepository(),
+            statistics=StatisticsRepository(),
         )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None
@@ -266,6 +309,7 @@ class RelationalContexts:
         self._handoff_pipeline = handoff_pipeline
         self.handoff_generation = handoff_pipeline is not None
         self._embedding_model = embedding_model
+        self._token_estimator = token_estimator
         self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
         self._handoff_artifact_id = handoff_artifact_id
         self._memory_artifact_id = memory_artifact_id
@@ -286,6 +330,20 @@ class RelationalContexts:
         """Return model-backed reviewed generation bound to one scope."""
 
         return self._services_for(scope_id).generation()
+
+    def statistics(self, scope_id: str, /) -> RelationalScopedStatistics:
+        """Return product statistics bound to one scope."""
+
+        return self._services_for(scope_id).statistics()
+
+    async def estimate_recall_tokens(
+        self,
+        scope_id: str,
+        build: PreparedContextBuild,
+        /,
+    ) -> RecallTokenMeasurement | None:
+        estimator = self._services_for(scope_id).recall_tokens()
+        return None if estimator is None else await estimator.estimate(build)
 
     async def search_experience(
         self,
@@ -414,6 +472,7 @@ class RelationalContexts:
             handoff_artifact_id=self._handoff_artifact_id,
             memory_artifact_id=self._memory_artifact_id,
             source_lock=self._source_locks.setdefault(scope, asyncio.Lock()),
+            token_estimator=self._token_estimator,
         )
 
 
