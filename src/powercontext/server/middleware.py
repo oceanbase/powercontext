@@ -11,7 +11,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from powercontext.http import ErrorDetail, ErrorResponse
 from powercontext.server.context import is_internal_bridge
 
-_PUBLIC_PATHS = frozenset({"/health/live", "/health/ready"})
+_PUBLIC_PATHS = frozenset({"/", "/health/live", "/health/ready"})
+_PUBLIC_PATH_PREFIXES = ("/static/",)
 
 
 class StaticBearerMiddleware:
@@ -43,7 +44,12 @@ class StaticBearerMiddleware:
         await response(scope, receive, send)
 
     def _allows(self, scope: Scope) -> bool:
-        if scope["type"] != "http" or scope["path"] in _PUBLIC_PATHS or is_internal_bridge():
+        if (
+            scope["type"] != "http"
+            or scope["path"] in _PUBLIC_PATHS
+            or scope["path"].startswith(_PUBLIC_PATH_PREFIXES)
+            or is_internal_bridge()
+        ):
             return True
 
         authorization = Headers(scope=scope).get("authorization")

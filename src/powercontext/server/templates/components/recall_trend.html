@@ -1,0 +1,28 @@
+<section class="data-section" aria-labelledby="trend-title">
+  <div class="section-heading">
+    <div>
+      <h2 id="trend-title" data-i18n="recallTrend">Recall savings trend</h2>
+      <p data-i18n="trendSubtitle">Estimated token reduction over the last 30 days</p>
+    </div>
+    <div class="series-legend" aria-hidden="true">
+      <span data-i18n="estimatedReductionSeries">Estimated reduction</span>
+    </div>
+  </div>
+  <div class="trend-wrap">
+    <svg
+      class="trend-chart"
+      id="trend-chart"
+      viewBox="0 0 720 220"
+      preserveAspectRatio="none"
+      role="img"
+      aria-labelledby="trend-title trend-description"
+    ></svg>
+    <span class="screen-reader-only" id="trend-description"></span>
+    <div class="trend-labels">
+      <span id="trend-start"></span>
+      <span id="trend-middle"></span>
+      <span id="trend-end"></span>
+    </div>
+    <div class="chart-tooltip" id="trend-tooltip" role="tooltip" hidden></div>
+  </div>
+</section>

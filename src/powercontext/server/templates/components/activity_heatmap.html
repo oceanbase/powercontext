@@ -1,0 +1,19 @@
+<section class="data-section" aria-labelledby="activity-title">
+  <div class="section-heading">
+    <div>
+      <h2 id="activity-title" data-i18n="dailyActivity">Daily recall</h2>
+      <p id="activity-summary"></p>
+    </div>
+  </div>
+  <div class="heatmap-scroll">
+    <div class="heatmap" id="heatmap" role="img" aria-label="30 days of scoped recall hits and estimated token reduction"></div>
+  </div>
+  <div class="legend heatmap-legend" aria-hidden="true">
+    <span><i class="legend-cell"></i><span data-i18n="noRecall">No hit</span></span>
+    <span><i class="legend-cell level-1"></i><span data-i18n="hitNoReduction">Hit · ≤0</span></span>
+    <span><i class="legend-cell level-2"></i><span data-i18n="reductionLow">1–255</span></span>
+    <span><i class="legend-cell level-3"></i><span data-i18n="reductionMedium">256–1,023</span></span>
+    <span><i class="legend-cell level-4"></i><span data-i18n="reductionHigh">1,024+</span></span>
+  </div>
+  <div class="chart-tooltip" id="activity-tooltip" role="tooltip" hidden></div>
+</section>

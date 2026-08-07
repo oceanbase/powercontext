@@ -1,0 +1,18 @@
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="{{ url_for('dashboard_home') }}" aria-label="PowerContext Dashboard">
+      <img class="brand-mark" src="{{ url_for('web_static', path='/oceanbase-logo.svg') }}" alt="">
+      <span class="brand-owner">OceanBase</span>
+      <span class="brand-divider" aria-hidden="true">|</span>
+      <span class="brand-product">PowerContext</span>
+    </a>
+    <nav class="primary-nav" aria-label="Primary navigation">
+      <a href="{{ url_for('dashboard_home') }}" aria-current="page" data-i18n="dashboardTitle">Dashboard</a>
+    </nav>
+    <div class="header-tools">
+      <button class="theme-toggle" id="theme-toggle" type="button"></button>
+      <button class="language-toggle" id="language-toggle" type="button">&#20013;&#25991;</button>
+      <button class="secondary-button" id="sign-out" type="button" data-i18n="signOut" hidden>Sign out</button>
+    </div>
+  </div>
+</header>

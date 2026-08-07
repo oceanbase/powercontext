@@ -30,6 +30,7 @@ from powercontext.server.metrics import CONTENT_TYPE_LATEST, HttpMetricsMiddlewa
 from powercontext.server.middleware import StaticBearerMiddleware
 from powercontext.server.settings import ServerSettings
 from powercontext.server.tracing import HttpTracingMiddleware, ServerTracing
+from powercontext.server.web import mount_web_ui
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,11 @@ def create_server_app(
         metrics=metrics,
         tracing=resolved_tracing,
     )
+    if resolved.dashboard.enabled:
+        mount_web_ui(
+            app,
+            scopes={scope.scope_id: scope.display_name for scope in resolved.dashboard.scopes},
+        )
     if metrics is not None:
         app.add_api_route(
             "/metrics",

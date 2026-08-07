@@ -1,0 +1,12 @@
+<section class="auth-shell" id="auth-shell">
+  <form class="auth-panel" id="auth-form">
+    <h1 data-i18n="authTitle">Connect to PowerContext</h1>
+    <p data-i18n="authIntro">Enter the bearer token configured for this PowerContext Server. The token stays in this browser tab.</p>
+    <label class="field-label" for="token" data-i18n="tokenLabel">Server token</label>
+    <div class="token-row">
+      <input id="token" name="token" type="password" autocomplete="current-password" required>
+      <button class="primary-button" type="submit" data-i18n="continue">Continue</button>
+    </div>
+    <div class="auth-error" id="auth-error" role="alert" aria-live="polite"></div>
+  </form>
+</section>

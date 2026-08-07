@@ -57,6 +57,37 @@ class BearerAuthConfig(BaseModel):
         return self
 
 
+class DashboardScopeConfig(BaseModel):
+    """One scope exposed by the personal Dashboard."""
+
+    scope_id: str = Field(min_length=1, max_length=255)
+    display_name: str = Field(min_length=1, max_length=80)
+
+    @field_validator("scope_id", "display_name")
+    @classmethod
+    def strip_non_empty_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Dashboard scope values must not be empty")  # noqa: TRY003
+        return stripped
+
+
+class DashboardConfig(BaseModel):
+    """Optional personal Dashboard served by the local Server."""
+
+    enabled: bool = False
+    scopes: list[DashboardScopeConfig] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_scopes(self) -> DashboardConfig:
+        if self.enabled and not self.scopes:
+            raise ValueError("Enabled Dashboard requires at least one scope")  # noqa: TRY003
+        scope_ids = [scope.scope_id for scope in self.scopes]
+        if len(scope_ids) != len(set(scope_ids)):
+            raise ValueError("Dashboard scope IDs must be unique")  # noqa: TRY003
+        return self
+
+
 class ServerLoggingConfig(BaseModel):
     """Operational log output owned by the Server process."""
 
@@ -98,6 +129,7 @@ class ServerSettings(BaseSettings):
     http: HttpConfig = Field(default_factory=HttpConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
     auth: BearerAuthConfig = Field(default_factory=BearerAuthConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     logging: ServerLoggingConfig = Field(default_factory=ServerLoggingConfig)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     tracing: TracingConfig = Field(default_factory=TracingConfig)
@@ -111,9 +143,17 @@ class ServerSettings(BaseSettings):
     def default_database_to_sqlite(cls, value: object) -> object:
         return normalize_database_discriminator(value)
 
+    @model_validator(mode="after")
+    def require_authentication_for_dashboard(self) -> ServerSettings:
+        if self.dashboard.enabled and not self.auth.enabled:
+            raise ValueError("Dashboard requires Server bearer authentication")  # noqa: TRY003
+        return self
+
 
 __all__ = [
     "BearerAuthConfig",
+    "DashboardConfig",
+    "DashboardScopeConfig",
     "HttpConfig",
     "McpConfig",
     "MetricsConfig",
