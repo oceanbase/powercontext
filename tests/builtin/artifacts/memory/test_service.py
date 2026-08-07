@@ -11,12 +11,57 @@ from powercontext.builtin.artifacts.memory import (
     MemoryManifest,
     MemoryManifestEntry,
     MemoryProjection,
+    MemoryRerankDecision,
     MemoryService,
 )
 from powercontext.builtin.artifacts.memory.canonical import entry_content_hash, memory_content_hash
+from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
+from powercontext.builtin.runtime.config import RuntimeConfig
+
+
+class _SelectingReranker:
+    policy_id = "test.memory.rerank.v1"
+
+    def __init__(self) -> None:
+        self.candidates = ()
+
+    async def rerank(self, query, candidates, limit, /) -> MemoryRerankDecision:
+        assert query == "project"
+        assert limit == 2
+        self.candidates = candidates
+        return MemoryRerankDecision(
+            selected_ranks=(3, 1),
+            usage=InferenceUsage(requests=1, input_tokens=20, output_tokens=2),
+        )
+
+
+def test_memory_search_applies_injected_reranker_after_coarse_fusion() -> None:
+    async def scenario() -> None:
+        reranker = _SelectingReranker()
+        config = BuiltinConfig(runtime=RuntimeConfig(memory_rerank_candidate_limit=4))
+        async with open_builtin_contexts(config, memory_reranker=reranker) as contexts:
+            service = (await contexts.get("rerank")).artifacts.memory
+            memory = await service.remember(
+                memory=None,
+                entries=tuple(MemoryEntryInput(kind="fact", text=f"Project fact {number}.") for number in range(1, 5)),
+                mode="append",
+            )
+            assert memory is not None
+
+            result = await service.search("project", memories=(memory,), limit=2, mode="fts")
+
+            assert len(reranker.candidates) == 4
+            assert result.hits == (reranker.candidates[2], reranker.candidates[0])
+            assert result.rerank is not None
+            assert result.rerank.policy_id == reranker.policy_id
+            assert result.rerank.candidate_hits == reranker.candidates
+            assert result.rerank.selected_ranks == (3, 1)
+            assert result.rerank.usage.requests == 1
+
+    asyncio.run(scenario())
 
 
 def test_memory_entry_can_be_deactivated_and_reactivated_without_rewriting_content() -> None:

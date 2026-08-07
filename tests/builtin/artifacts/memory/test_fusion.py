@@ -4,7 +4,7 @@ import pytest
 
 from powercontext import ArtifactRef
 from powercontext.builtin.artifacts.memory import MemoryChannelHit
-from powercontext.builtin.artifacts.memory.ranking import (
+from powercontext.builtin.artifacts.memory.fusion import (
     admit_fts_candidates,
     admit_vector_candidates,
     fuse_rankings,

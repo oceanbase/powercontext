@@ -18,6 +18,7 @@ from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     DefaultMemoryEvidenceProjector,
     MemoryCapabilities,
+    MemoryReranker,
 )
 from powercontext.builtin.artifacts.skill import CodexSkillProvider, ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
@@ -37,7 +38,7 @@ from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTS
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime.application import BuiltinRuntime
-from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig
+from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME, ContentSource
@@ -53,6 +54,7 @@ class BuiltinConfigurationError(RuntimeError):
         messages = {
             "external-skill-host": "external Skill roots require a host identity",
             "inference-profile": "validated inference profile is incomplete",
+            "memory-reranker": "Memory reranking requires a configured generation model or injected reranker",
             "scheduled-experience-pipeline": "scheduled Experience incubation requires a candidate pipeline",
             "scheduled-pipeline": "scheduled Source processing requires a candidate pipeline",
             "database": "unsupported built-in database",
@@ -97,26 +99,36 @@ async def open_builtin_runtime(
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
     token_estimator: TokenEstimator | None = None,
+    memory_reranker: MemoryReranker | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
     async with AsyncExitStack() as resources:
-        generated_memory, generated_incubation, generated_experience, generated_skill, generated_handoff = (
-            await _generation_pipelines(config.inference, resources)
+        (
+            generated_memory,
+            generated_incubation,
+            generated_experience,
+            generated_skill,
+            generated_handoff,
+            generated_reranker,
+        ) = (
+            await _generation_pipelines(config.inference, config.runtime, resources)
             if (
                 candidate_pipeline is None
                 or experience_pipeline is None
                 or experience_generator is None
                 or skill_generator is None
                 or handoff_pipeline is None
+                or (config.runtime.memory_rerank_enabled and memory_reranker is None)
             )
-            else (None, None, None, None, None)
+            else (None, None, None, None, None, None)
         )
         configured_pipeline = generated_memory if candidate_pipeline is None else candidate_pipeline
         configured_incubation = generated_incubation if experience_pipeline is None else experience_pipeline
         configured_experience = generated_experience if experience_generator is None else experience_generator
         configured_skill = generated_skill if skill_generator is None else skill_generator
         configured_handoff = generated_handoff if handoff_pipeline is None else handoff_pipeline
+        configured_reranker = generated_reranker if memory_reranker is None else memory_reranker
         configured_embedding_source = (
             await _embedding_model(config.inference, resources) if embedding_model is None else embedding_model
         )
@@ -139,6 +151,7 @@ async def open_builtin_runtime(
                 handoff_pipeline=configured_handoff,
                 embedding_model=configured_embedding,
                 token_estimator=token_estimator,
+                memory_reranker=configured_reranker,
             )
         )
         runtime = await resources.enter_async_context(
@@ -168,6 +181,8 @@ async def open_builtin_runtime(
             raise BuiltinConfigurationError("scheduled-pipeline")
         if config.runtime.experience_schedule_seconds is not None and configured_incubation is None:
             raise BuiltinConfigurationError("scheduled-experience-pipeline")
+        if config.runtime.memory_rerank_enabled and configured_reranker is None:
+            raise BuiltinConfigurationError("memory-reranker")
         if config.runtime.schedule_seconds is not None or config.runtime.experience_schedule_seconds is not None:
             runtime.start_scheduler(
                 scheduler_path,
@@ -189,6 +204,7 @@ async def open_builtin_contexts(
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
     token_estimator: TokenEstimator | None = None,
+    memory_reranker: MemoryReranker | None = None,
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
@@ -221,6 +237,8 @@ async def open_builtin_contexts(
                 handoff_pipeline=handoff_pipeline,
                 embedding_model=embedding_model,
                 token_estimator=configured_token_estimator,
+                memory_reranker=memory_reranker,
+                memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
             )
         return
     if not isinstance(database, OceanBaseConfig):
@@ -250,11 +268,14 @@ async def open_builtin_contexts(
             handoff_pipeline=handoff_pipeline,
             embedding_model=embedding_model,
             token_estimator=configured_token_estimator,
+            memory_reranker=memory_reranker,
+            memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
         )
 
 
 async def _generation_pipelines(
     settings: InferenceConfig,
+    runtime: RuntimeConfig,
     resources: AsyncExitStack,
 ) -> tuple[
     CandidatePipeline | None,
@@ -262,11 +283,13 @@ async def _generation_pipelines(
     ExperienceGenerator | None,
     SkillGenerator | None,
     HandoffGenerationPipeline | None,
+    MemoryReranker | None,
 ]:
     if settings.generation_model is None:
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
     from pydantic_ai.models import infer_model
+    from pydantic_ai.settings import ModelSettings
 
     from powercontext.builtin.artifacts.experience import (
         EXPERIENCE_GENERATION_INSTRUCTIONS,
@@ -285,10 +308,14 @@ async def _generation_pipelines(
         LLMHandoffGenerationPipeline,
     )
     from powercontext.builtin.artifacts.memory import (
-        MEMORY_EXTRACTION_INSTRUCTIONS,
+        MEMORY_RERANK_INSTRUCTIONS,
         LLMMemoryCandidatePipeline,
+        LLMMemoryReranker,
         MemoryExtractionInput,
         MemoryExtractionOutput,
+        MemoryRerankInput,
+        MemoryRerankOutput,
+        memory_extraction_instructions,
     )
     from powercontext.builtin.artifacts.skill import (
         SKILL_GENERATION_INSTRUCTIONS,
@@ -304,7 +331,7 @@ async def _generation_pipelines(
     )
     memory_generator = PydanticAIStructuredGenerator(
         model=model,
-        instructions=MEMORY_EXTRACTION_INSTRUCTIONS,
+        instructions=memory_extraction_instructions(runtime.memory_extraction_profile),
         input_type=MemoryExtractionInput,
         output_type=MemoryExtractionOutput,
         limits=limits,
@@ -337,6 +364,18 @@ async def _generation_pipelines(
         output_type=HandoffGenerationOutput,
         limits=limits,
     )
+    rerank_generator = (
+        PydanticAIStructuredGenerator(
+            model=model,
+            instructions=MEMORY_RERANK_INSTRUCTIONS,
+            input_type=MemoryRerankInput,
+            output_type=MemoryRerankOutput,
+            limits=limits,
+            model_settings=ModelSettings(temperature=0.0),
+        )
+        if runtime.memory_rerank_enabled
+        else None
+    )
     return (
         LLMMemoryCandidatePipeline(
             UsageReportingStructuredGenerator(memory_generator),
@@ -349,6 +388,7 @@ async def _generation_pipelines(
             UsageReportingStructuredGenerator(handoff_generator),
             evidence_projector=_ContentHandoffEvidenceProjector(),
         ),
+        (None if rerank_generator is None else LLMMemoryReranker(UsageReportingStructuredGenerator(rerank_generator))),
     )
 
 
@@ -375,6 +415,7 @@ async def _embedding_model(settings: InferenceConfig, resources: AsyncExitStack)
         await resources.enter_async_context(provider)
     return PydanticAIEmbeddingModel(
         embedder=Embedder(model),
+        batch_size=settings.embedding_batch_size,
         profile=EmbeddingProfile(
             profile_id=_required(settings.embedding_profile_id),
             model=settings.embedding_model,

@@ -15,6 +15,7 @@ def test_embedding_settings_load_one_complete_environment_profile(
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID", " test-profile-v1 ")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION", "3")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION", " unit ")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE", "7")
 
     settings = ServerSettings()
 
@@ -22,10 +23,12 @@ def test_embedding_settings_load_one_complete_environment_profile(
     assert settings.inference.embedding_profile_id == "test-profile-v1"
     assert settings.inference.embedding_dimension == 3
     assert settings.inference.embedding_normalization == "unit"
+    assert settings.inference.embedding_batch_size == 7
 
 
 def test_embedding_normalization_defaults_to_unit() -> None:
     assert InferenceConfig().embedding_normalization == "unit"
+    assert InferenceConfig().embedding_batch_size == 10
 
 
 def test_embedding_settings_reject_unknown_normalization() -> None:

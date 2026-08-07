@@ -19,6 +19,7 @@ from powercontext.builtin.artifacts.handoff import (
     PrepareHandoff,
 )
 from powercontext.builtin.artifacts.memory.models import MemoryChange
+from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
     GenerationCapabilityUnavailableError,
@@ -187,6 +188,7 @@ __all__ = [
     "MemoryEntryInventoryStatistics",
     "MemoryEntryRecord",
     "MemoryEntryVersion",
+    "MemoryExtractionProfile",
     "MemoryFlushResult",
     "MemoryHit",
     "MemoryInventoryStatistics",

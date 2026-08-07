@@ -15,6 +15,7 @@ from powercontext.builtin.artifacts.memory.models import (
     MemoryEntryState,
     MemoryEntryVersion,
     MemoryHit,
+    MemoryRerankTrace,
     MemoryRevisionChanges,
     MemorySearchMode,
     MemoryUsedSearchMode,
@@ -123,6 +124,7 @@ class MemorySearchPage(BaseModel):
     memory_ref: ArtifactRef | None
     mode: MemoryUsedSearchMode | None
     hits: tuple[MemoryHit, ...] = ()
+    rerank: MemoryRerankTrace | None = None
 
 
 class PrepareContextRequest(_PreparedContextModel):

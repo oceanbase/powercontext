@@ -42,9 +42,13 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | 启用 span recording 和 OTLP export |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLAlchemy 异步数据库 URL |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 单次 activation 最多处理的 Source 数量 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory 选择策略：`coding` 或 `conversation` |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | 在 Memory 粗召回后应用 listwise rerank |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | 未设置 | Scheduler 间隔；未设置即不启用 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 用于 Memory extraction 的 Pydantic AI 模型标识 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation 超时 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | 单次 embedding 请求最多发送的文本数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 孵化间隔；未设置即不启用该 job |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 未设置 | 包含 host identity 和显式 Codex Skill roots 的 JSON object |
 
@@ -63,6 +67,30 @@ powercontext server run
 `OPENAI_API_KEY` 等 provider 凭据由所配置的推理 provider 读取。不要把密钥放入命令行参数、文档或
 Memory。请把 `provider:model-name` 替换为 Pydantic AI 支持的模型标识。定时提取需要同时配置 generation
 model 和 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`；显式 Memory 写入不需要这两项配置。
+
+默认的 `coding` 抽取 profile 保留跨任务工作上下文，例如偏好、决策、约束、昂贵事实和未完成进度。当产品
+需要从对话证据中保留可独立回答的人物事实、关系、事件、精确日期、列表和历史状态时，可选择
+`conversation`：
+
+```bash
+export POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE=conversation
+```
+
+profile 只影响后续 Source 处理，不会重新解释已有的 Memory revision。
+
+当宽范围 Hybrid recall 比一次额外结构化 generation request 的延迟和 token 成本更重要时，可以启用面向回答的 Memory
+rerank：
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
+export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true
+export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT=30
+```
+
+Rerank 默认关闭。启用后，Runtime 会召回并融合配置的候选池，再使用 temperature 为 0 的 generation model，选择不超过
+search request 最终 `limit` 的结果。它不会修改已存储 Memory 或索引。Provider 与结构化输出失败仍作为 inference error
+显式返回；如果搜索必须独立于模型可用性，请关闭 rerank。算法、并发与 API 边界见
+[RFC 0080](../../rfcs/0080_memory_search_reranking.md)。
 
 同一个 generation model 也控制显式 Experience generation、managed Skill generation/evolution，以及
 external Skill import/fork。未配置模型时，这些 operation 会在持久化 Candidate 前返回 capability error；

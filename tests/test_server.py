@@ -9,7 +9,7 @@ from pydantic import SecretStr
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import RuntimeConfig
+from powercontext.builtin.runtime import MemoryExtractionProfile, RuntimeConfig
 from powercontext.http import (
     Capabilities,
     ReadinessResponse,
@@ -34,6 +34,9 @@ def test_settings_load_server_environment(monkeypatch) -> None:
         "sqlite+aiosqlite:////var/lib/powercontext/test.db",
     )
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT", "25")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE", "conversation")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT", "40")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS", "45")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL", " test ")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS", "12.5")
@@ -54,6 +57,9 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.http.port == 9000
     assert settings.database.url == "sqlite+aiosqlite:////var/lib/powercontext/test.db"
     assert settings.runtime.source_window_limit == 25
+    assert settings.runtime.memory_extraction_profile is MemoryExtractionProfile.CONVERSATION
+    assert settings.runtime.memory_rerank_enabled is True
+    assert settings.runtime.memory_rerank_candidate_limit == 40
     assert settings.runtime.experience_schedule_seconds == 45
     assert settings.inference.generation_model == "test"
     assert settings.inference.generation_timeout_seconds == 12.5

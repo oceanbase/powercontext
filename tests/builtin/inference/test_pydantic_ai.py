@@ -18,9 +18,10 @@ from pydantic_ai.embeddings import (
 )
 from pydantic_ai.embeddings.result import EmbedInputType
 from pydantic_ai.exceptions import ModelHTTPError
-from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.usage import RequestUsage
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import (
@@ -94,6 +95,38 @@ class ResultEmbeddingModel(PydanticAIEmbeddingModelBase):
         )
 
 
+class RecordingEmbeddingModel(PydanticAIEmbeddingModelBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[tuple[str, ...]] = []
+
+    @property
+    def model_name(self) -> str:
+        return "recording-model"
+
+    @property
+    def system(self) -> str:
+        return "test"
+
+    async def embed(
+        self,
+        inputs: str | Sequence[str],
+        *,
+        input_type: EmbedInputType,
+        settings: EmbeddingSettings | None = None,
+    ) -> PydanticAIEmbeddingResult:
+        prepared, _ = self.prepare_embed(inputs, settings)
+        self.calls.append(tuple(prepared))
+        return PydanticAIEmbeddingResult(
+            embeddings=((1.0, 2.0, 3.0),) * len(prepared),
+            inputs=prepared,
+            input_type=input_type,
+            model_name=self.model_name,
+            provider_name=self.system,
+            usage=RequestUsage(input_tokens=len(prepared)),
+        )
+
+
 def test_structured_generator_binds_schema_and_usage() -> None:
     async def scenario() -> None:
         generator = PydanticAIStructuredGenerator(
@@ -109,6 +142,31 @@ def test_structured_generator_binds_schema_and_usage() -> None:
         assert result.usage.requests == 1
         assert result.usage.input_tokens is not None
         assert result.usage.output_tokens is not None
+
+    asyncio.run(scenario())
+
+
+def test_structured_generator_passes_explicit_model_settings() -> None:
+    observed_temperatures: list[float | None] = []
+
+    async def record_settings(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        del messages
+        observed_temperatures.append(None if info.model_settings is None else info.model_settings.get("temperature"))
+        return ModelResponse(parts=[TextPart('{"value":"stable"}')])
+
+    async def scenario() -> None:
+        generator = PydanticAIStructuredGenerator(
+            model=FunctionModel(record_settings),
+            instructions="Return a value.",
+            input_type=Question,
+            output_type=Answer,
+            model_settings={"temperature": 0.0},
+        )
+
+        result = await generator.generate(Question("bounded evidence"))
+
+        assert result.output == Answer("stable")
+        assert observed_temperatures == [0.0]
 
     asyncio.run(scenario())
 
@@ -192,6 +250,25 @@ def test_embedding_adapter_returns_validated_vectors_and_usage() -> None:
 
         assert result.vectors == ((1.0, 1.0, 1.0), (1.0, 1.0, 1.0))
         assert result.usage.requests == 1
+
+    asyncio.run(scenario())
+
+
+def test_embedding_adapter_preserves_order_across_bounded_provider_batches() -> None:
+    async def scenario() -> None:
+        provider = RecordingEmbeddingModel()
+        model = PydanticAIEmbeddingModel(
+            embedder=Embedder(provider),
+            profile=TEST_PROFILE,
+            batch_size=2,
+        )
+
+        result = await model.embed(("alpha", "beta", "gamma", "delta", "epsilon"))
+
+        assert provider.calls == [("alpha", "beta"), ("gamma", "delta"), ("epsilon",)]
+        assert result.vectors == ((1.0, 2.0, 3.0),) * 5
+        assert result.usage.requests == 3
+        assert result.usage.input_tokens == 5
 
     asyncio.run(scenario())
 

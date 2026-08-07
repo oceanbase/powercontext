@@ -33,6 +33,7 @@ from powercontext.builtin.artifacts.handoff import (
 from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     Memory,
+    MemoryReranker,
     MemoryService,
     MemoryWritePlan,
 )
@@ -135,6 +136,8 @@ class _ScopedServices:
     skill_generator: SkillGenerator | None
     handoff_pipeline: HandoffGenerationPipeline | None
     embedding_model: EmbeddingModel | None
+    memory_reranker: MemoryReranker | None
+    memory_rerank_candidate_limit: int
     id_factory: IdFactory
     handoff_artifact_id: str
     memory_artifact_id: str
@@ -170,6 +173,8 @@ class _ScopedServices:
             ),
             candidate_pipeline=self.candidate_pipeline,
             embedding_model=self.embedding_model,
+            reranker=self.memory_reranker,
+            rerank_candidate_limit=self.memory_rerank_candidate_limit,
             source_resolver=source_resolver,
             artifact_resolver=_RelationalArtifactResolver(
                 database=self.database,
@@ -278,6 +283,8 @@ class RelationalContexts:
         handoff_pipeline: HandoffGenerationPipeline | None = None,
         embedding_model: EmbeddingModel | None = None,
         token_estimator: TokenEstimator | None = None,
+        memory_reranker: MemoryReranker | None = None,
+        memory_rerank_candidate_limit: int = 30,
         id_factory: IdFactory | None = None,
         handoff_artifact_id: str = "handoff",
         memory_artifact_id: str = "memory",
@@ -310,6 +317,8 @@ class RelationalContexts:
         self.handoff_generation = handoff_pipeline is not None
         self._embedding_model = embedding_model
         self._token_estimator = token_estimator
+        self._memory_reranker = memory_reranker
+        self._memory_rerank_candidate_limit = memory_rerank_candidate_limit
         self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
         self._handoff_artifact_id = handoff_artifact_id
         self._memory_artifact_id = memory_artifact_id
@@ -468,6 +477,8 @@ class RelationalContexts:
             skill_generator=self._skill_generator,
             handoff_pipeline=self._handoff_pipeline,
             embedding_model=self._embedding_model,
+            memory_reranker=self._memory_reranker,
+            memory_rerank_candidate_limit=self._memory_rerank_candidate_limit,
             id_factory=self._id_factory,
             handoff_artifact_id=self._handoff_artifact_id,
             memory_artifact_id=self._memory_artifact_id,

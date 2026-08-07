@@ -38,6 +38,7 @@ class PydanticAIConfigurationError(InferenceError, RuntimeError):
             "serialize": "generation input could not be serialized",
             "embedder-instance": "embedder must contain an already constructed Pydantic AI embedding model",
             "embedding-model": "embedder does not contain a Pydantic AI embedding model",
+            "embedding-batch-size": "embedding batch size must be positive",
             "dimension-positive": "embedding profile dimension must be positive",
             "profile-identifiers": "embedding profile identifiers must not be empty",
             "provider-rejected": "provider rejected the configured Pydantic AI request",
@@ -59,6 +60,7 @@ try:
         UserError,
     )
     from pydantic_ai.models import Model
+    from pydantic_ai.settings import ModelSettings
     from pydantic_ai.usage import RunUsage, UsageLimits
     from pydantic_core import PydanticSerializationError
 except ModuleNotFoundError as error:  # pragma: no cover - exercised in a dependency-free environment
@@ -88,6 +90,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         input_type: type[InputT],
         output_type: type[OutputT],
         limits: InferenceLimits | None = None,
+        model_settings: ModelSettings | None = None,
     ) -> None:
         if isinstance(model, str) or not isinstance(model, Model):
             raise PydanticAIConfigurationError("model-instance")
@@ -101,6 +104,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 model,
                 output_type=PromptedOutput(output_type),
                 instructions=instructions,
+                model_settings=model_settings,
                 retries=self._limits.max_requests - 1,
             )
         except (PydanticSchemaGenerationError, PydanticUserError, UserError) as error:
@@ -146,6 +150,7 @@ class PydanticAIEmbeddingModel:
         *,
         embedder: Embedder,
         profile: EmbeddingProfile,
+        batch_size: int = 10,
         limits: InferenceLimits | None = None,
     ) -> None:
         if not isinstance(embedder, Embedder) or isinstance(embedder.model, str):
@@ -154,10 +159,13 @@ class PydanticAIEmbeddingModel:
             raise PydanticAIConfigurationError("embedding-model")
         if profile.dimension < 1:
             raise PydanticAIConfigurationError("dimension-positive")
+        if batch_size < 1:
+            raise PydanticAIConfigurationError("embedding-batch-size")
         if not profile.profile_id.strip() or not profile.model.strip() or not profile.normalization.strip():
             raise PydanticAIConfigurationError("profile-identifiers")
         self._embedder = embedder
         self.profile = profile
+        self._batch_size = batch_size
         self._limits = InferenceLimits() if limits is None else limits
 
     async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
@@ -167,10 +175,7 @@ class PydanticAIEmbeddingModel:
             return EmbeddingResult(vectors=())
 
         try:
-            result = await asyncio.wait_for(
-                self._embedder.embed_documents(texts),
-                timeout=self._limits.timeout_seconds,
-            )
+            result = await asyncio.wait_for(self._embed_batches(texts), timeout=self._limits.timeout_seconds)
         except asyncio.CancelledError:
             raise
         except ValueError as error:
@@ -183,13 +188,22 @@ class PydanticAIEmbeddingModel:
                 raise
             raise mapped from error
 
-        vectors = self._validated_vectors(texts, result.inputs, result.input_type, result.embeddings)
-        usage = InferenceUsage(
-            requests=1,
-            input_tokens=result.usage.input_tokens,
-            output_tokens=None,
+        return result
+
+    async def _embed_batches(self, texts: tuple[str, ...]) -> EmbeddingResult:
+        vectors: list[tuple[float, ...]] = []
+        requests = 0
+        input_tokens = 0
+        for start in range(0, len(texts), self._batch_size):
+            batch = texts[start : start + self._batch_size]
+            result = await self._embedder.embed_documents(batch)
+            vectors.extend(self._validated_vectors(batch, result.inputs, result.input_type, result.embeddings))
+            requests += 1
+            input_tokens += result.usage.input_tokens
+        return EmbeddingResult(
+            vectors=tuple(vectors),
+            usage=InferenceUsage(requests=requests, input_tokens=input_tokens, output_tokens=None),
         )
-        return EmbeddingResult(vectors=vectors, usage=usage)
 
     def _validated_vectors(
         self,

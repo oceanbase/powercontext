@@ -42,9 +42,13 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | Enable span recording and OTLP export |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async database URL |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Sources processed in one activation |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory selection policy: `coding` or `conversation` |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | Apply listwise reranking after coarse Memory retrieval |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | Coarse candidate pool supplied to the reranker |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | unset | Scheduler interval; unset disables scheduling |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model identifier for Memory extraction |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation timeout |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | Maximum texts sent in one embedding request |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | unset | Experience incubation interval; unset disables that job |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | unset | JSON object containing the host identity and explicit Codex Skill roots |
 
@@ -65,6 +69,31 @@ Provider credentials, such as `OPENAI_API_KEY`, are read by the configured infer
 command-line arguments, documentation, or Memory. Replace `provider:model-name` with a model identifier supported by
 Pydantic AI. Scheduled extraction requires both a generation model and
 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`. An explicit Memory write does not require either.
+
+The default `coding` extraction profile keeps cross-task work context such as preferences, decisions, constraints,
+expensive facts, and unfinished progress. Select `conversation` when the product must preserve independently
+answerable personal facts, relationships, events, exact dates, lists, and historical states from dialogue evidence:
+
+```bash
+export POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE=conversation
+```
+
+The profile affects future Source processing only. It does not reinterpret existing Memory revisions.
+
+Enable answer-oriented Memory reranking when broad Hybrid recall is more important than the latency and token cost of
+one additional structured generation request:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
+export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true
+export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT=30
+```
+
+Reranking is disabled by default. When enabled, the Runtime retrieves and fuses the configured candidate pool, then
+uses the generation model at temperature zero to select no more than the search request's final `limit`. It does not
+change stored Memory or indexes. Provider and structured-output failures remain visible as inference errors; disable
+reranking when search must remain independent of model availability. See
+[RFC 0080](../../rfcs/0080_memory_search_reranking.md) for the algorithm, concurrency, and API boundaries.
 
 The same configured generation model gates explicit Experience generation, managed Skill generation and evolution,
 and external Skill import or fork. Without it, these operations return a capability error before persisting a

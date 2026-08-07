@@ -643,23 +643,24 @@ class ScopedMemoryApplication:
     async def search(self, request: SearchMemoryRequest, /) -> MemorySearchPage:
         async with self._runtime._context(
             self.scope_id,
+            generation_purpose=ModelUsagePurpose.MEMORY_RECALL,
             embedding_purpose=ModelUsagePurpose.MEMORY_RECALL,
         ) as context:
-            async with self._runtime._lock(self.scope_id):
-                service = context.artifacts.memory
-                current = await _head_or_none(service, context.artifacts.memory_artifact_id)
-                if current is None:
-                    return MemorySearchPage(memory_ref=None, mode=None)
-                result = await service.search(
-                    request.query,
-                    memories=(current,),
-                    limit=request.limit,
-                    mode=request.mode,
-                )
+            service = context.artifacts.memory
+            current = await _head_or_none(service, context.artifacts.memory_artifact_id)
+            if current is None:
+                return MemorySearchPage(memory_ref=None, mode=None)
+            result = await service.search(
+                request.query,
+                memories=(current,),
+                limit=request.limit,
+                mode=request.mode,
+            )
             return MemorySearchPage(
                 memory_ref=current.as_ref(),
                 mode=result.mode,
                 hits=result.hits,
+                rerank=result.rerank,
             )
 
     async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:

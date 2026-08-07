@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Literal, Protocol, TypeAlias, TypeVar, overload
 from uuid import uuid4
 
@@ -29,6 +30,11 @@ from powercontext.builtin.artifacts.memory.errors import (
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
 )
+from powercontext.builtin.artifacts.memory.fusion import (
+    admit_fts_candidates,
+    admit_vector_candidates,
+    fuse_rankings,
+)
 from powercontext.builtin.artifacts.memory.models import (
     EmbeddingProfile,
     Memory,
@@ -41,6 +47,7 @@ from powercontext.builtin.artifacts.memory.models import (
     MemoryHit,
     MemoryManifest,
     MemoryManifestEntry,
+    MemoryRerankTrace,
     MemoryRevisionChanges,
     MemorySearchMode,
     MemorySearchResult,
@@ -55,11 +62,7 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemorySearchRequest,
     MemoryWritePlan,
 )
-from powercontext.builtin.artifacts.memory.ranking import (
-    admit_fts_candidates,
-    admit_vector_candidates,
-    fuse_rankings,
-)
+from powercontext.builtin.artifacts.memory.reranking import MemoryReranker
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import (
     EmbeddingModel,
@@ -128,6 +131,8 @@ class MemoryService:
         backend: MemoryBackend,
         candidate_pipeline: CandidatePipeline | None = None,
         embedding_model: EmbeddingModel | None = None,
+        reranker: MemoryReranker | None = None,
+        rerank_candidate_limit: int = 30,
         source_resolver: _SourceResolver | None = None,
         artifact_resolver: _ArtifactResolver | None = None,
         id_factory: IdFactory | None = None,
@@ -135,6 +140,10 @@ class MemoryService:
         self._backend = backend
         self._candidate_pipeline = candidate_pipeline
         self._embedding_model = embedding_model
+        if rerank_candidate_limit < 1:
+            raise _InvalidMemoryOperationError("search-limit")
+        self._reranker = reranker
+        self._rerank_candidate_limit = rerank_candidate_limit
         self._source_resolver = source_resolver
         self._artifact_resolver = artifact_resolver
         self._id_factory = _default_id if id_factory is None else id_factory
@@ -402,11 +411,12 @@ class MemoryService:
                         selected_mode,
                         "embedding model is temporarily unavailable",
                     ) from error
+        coarse_limit = limit if self._reranker is None else max(limit, self._rerank_candidate_limit)
         request = MemorySearchRequest(
             query=normalized_query,
             analyzed_query=analyze_text(normalized_query),
             memories=selected_memories,
-            candidate_limit=max(limit * 4, 32),
+            candidate_limit=max(coarse_limit * 4, 32),
             mode=selected_mode,
             query_vector=query_vector,
             embedding_profile=profile,
@@ -417,9 +427,46 @@ class MemoryService:
         hits = fuse_rankings(
             fts=admitted_fts if selected_mode in {"fts", "hybrid"} else (),
             vector=admitted_vector if selected_mode in {"vector", "hybrid"} else (),
+            limit=coarse_limit,
+        )
+        return await self._reranked_search_result(
+            mode=selected_mode,
+            query=normalized_query,
+            hits=hits,
             limit=limit,
         )
-        return MemorySearchResult(mode=selected_mode, hits=hits)
+
+    async def _reranked_search_result(
+        self,
+        *,
+        mode: MemoryUsedSearchMode,
+        query: str,
+        hits: tuple[MemoryHit, ...],
+        limit: int,
+    ) -> MemorySearchResult:
+        if self._reranker is None or not hits:
+            return MemorySearchResult(mode=mode, hits=hits[:limit])
+        rerank_started = perf_counter()
+        decision = await self._reranker.rerank(
+            query,
+            hits,
+            min(limit, len(hits)),
+        )
+        rerank_latency_ms = (perf_counter() - rerank_started) * 1_000
+        selected = tuple(hits[rank - 1] for rank in decision.selected_ranks)
+        return MemorySearchResult(
+            mode=mode,
+            hits=selected,
+            rerank=MemoryRerankTrace(
+                policy_id=self._reranker.policy_id,
+                candidate_hits=hits,
+                selected_ranks=decision.selected_ranks,
+                discarded_rank_count=decision.discarded_rank_count,
+                used_fallback=decision.used_fallback,
+                latency_ms=rerank_latency_ms,
+                usage=decision.usage,
+            ),
+        )
 
     async def expand(
         self,

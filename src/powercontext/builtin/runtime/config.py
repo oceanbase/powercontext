@@ -7,6 +7,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.artifacts.skill import CodexSkillRoot
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -16,6 +17,9 @@ class RuntimeConfig(BaseModel):
     """Built-in runtime policy and scheduler configuration."""
 
     source_window_limit: int = Field(default=100, ge=1)
+    memory_extraction_profile: MemoryExtractionProfile = MemoryExtractionProfile.CODING
+    memory_rerank_enabled: bool = False
+    memory_rerank_candidate_limit: int = Field(default=30, ge=1, le=100)
     schedule_seconds: float | None = Field(default=None, gt=0)
     experience_schedule_seconds: float | None = Field(default=None, gt=0)
 
@@ -31,6 +35,7 @@ class InferenceConfig(BaseModel):
     embedding_dimension: int | None = Field(default=None, ge=1)
     embedding_normalization: Literal["none", "unit"] = "unit"
     embedding_timeout_seconds: float = Field(default=30.0, gt=0)
+    embedding_batch_size: int = Field(default=10, ge=1)
 
     @field_validator("generation_model", "embedding_model", "embedding_profile_id")
     @classmethod

@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 
-from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput, MemoryRerankDecision
+from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     CaptureSource,
     PrepareContextRequest,
+    RememberMemoryRequest,
     SearchMemoryRequest,
     open_builtin_runtime,
 )
@@ -66,5 +68,41 @@ def test_builtin_runtime_uses_the_selected_sqlite_database() -> None:
             assert no_memory.content is None
             assert no_match.status == "empty"
             assert no_match.content is None
+
+    asyncio.run(scenario())
+
+
+class _ConcurrentReranker:
+    policy_id = "test.concurrent-rerank.v1"
+
+    def __init__(self) -> None:
+        self._entered = 0
+        self._both_entered = asyncio.Event()
+
+    async def rerank(self, query, candidates, limit, /) -> MemoryRerankDecision:
+        self._entered += 1
+        if self._entered == 2:
+            self._both_entered.set()
+        await self._both_entered.wait()
+        return MemoryRerankDecision(
+            selected_ranks=(1,),
+            usage=InferenceUsage(requests=1),
+        )
+
+
+def test_same_scope_read_only_searches_do_not_serialize_reranking() -> None:
+    async def scenario() -> None:
+        reranker = _ConcurrentReranker()
+        async with open_builtin_runtime(BuiltinConfig(), memory_reranker=reranker) as runtime:
+            memory = runtime.memory.for_scope("parallel-search")
+            await memory.remember(
+                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Parallel search fact."),))
+            )
+
+            first = asyncio.create_task(memory.search(SearchMemoryRequest(query="parallel", mode="fts", limit=1)))
+            second = asyncio.create_task(memory.search(SearchMemoryRequest(query="parallel", mode="fts", limit=1)))
+            pages = await asyncio.wait_for(asyncio.gather(first, second), timeout=5)
+
+            assert all(page.rerank is not None for page in pages)
 
     asyncio.run(scenario())

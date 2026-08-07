@@ -39,14 +39,20 @@ from powercontext.builtin.artifacts.memory.models import (
     MemoryManifest,
     MemoryManifestEntry,
     MemoryMatchedBy,
+    MemoryRerankTrace,
     MemoryRevisionChanges,
     MemorySearchMode,
     MemorySearchResult,
     MemoryUsedSearchMode,
 )
 from powercontext.builtin.artifacts.memory.prompts import (
+    CONVERSATION_MEMORY_EXTRACTION_INSTRUCTIONS,
+    CONVERSATION_MEMORY_EXTRACTION_INSTRUCTIONS_VERSION,
     MEMORY_EXTRACTION_INSTRUCTIONS,
     MEMORY_EXTRACTION_INSTRUCTIONS_VERSION,
+    MemoryExtractionProfile,
+    memory_extraction_instructions,
+    memory_extraction_instructions_version,
 )
 from powercontext.builtin.artifacts.memory.protocols import (
     CandidatePipeline,
@@ -59,11 +65,26 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemoryUnitOfWork,
     MemoryWritePlan,
 )
+from powercontext.builtin.artifacts.memory.reranking import (
+    MEMORY_RERANK_INSTRUCTIONS,
+    MEMORY_RERANK_INSTRUCTIONS_VERSION,
+    LLMMemoryReranker,
+    MemoryRerankCandidate,
+    MemoryRerankDecision,
+    MemoryReranker,
+    MemoryRerankInput,
+    MemoryRerankMode,
+    MemoryRerankOutput,
+)
 from powercontext.builtin.artifacts.memory.service import MemoryRememberMode, MemoryService
 
 __all__ = [
+    "CONVERSATION_MEMORY_EXTRACTION_INSTRUCTIONS",
+    "CONVERSATION_MEMORY_EXTRACTION_INSTRUCTIONS_VERSION",
     "MEMORY_EXTRACTION_INSTRUCTIONS",
     "MEMORY_EXTRACTION_INSTRUCTIONS_VERSION",
+    "MEMORY_RERANK_INSTRUCTIONS",
+    "MEMORY_RERANK_INSTRUCTIONS_VERSION",
     "CandidatePipeline",
     "CapabilityNotSupportedError",
     "DefaultMemoryEvidenceProjector",
@@ -74,6 +95,7 @@ __all__ = [
     "InvalidMemoryEvidenceError",
     "KnownMemoryEntryKind",
     "LLMMemoryCandidatePipeline",
+    "LLMMemoryReranker",
     "Memory",
     "MemoryBackend",
     "MemoryBackendConfigurationError",
@@ -97,6 +119,7 @@ __all__ = [
     "MemoryExtractionInput",
     "MemoryExtractionIntent",
     "MemoryExtractionOutput",
+    "MemoryExtractionProfile",
     "MemoryHit",
     "MemoryLayerError",
     "MemoryManifest",
@@ -104,6 +127,13 @@ __all__ = [
     "MemoryMatchedBy",
     "MemoryProjection",
     "MemoryRememberMode",
+    "MemoryRerankCandidate",
+    "MemoryRerankDecision",
+    "MemoryRerankInput",
+    "MemoryRerankMode",
+    "MemoryRerankOutput",
+    "MemoryRerankTrace",
+    "MemoryReranker",
     "MemoryRevisionChanges",
     "MemorySearchChannels",
     "MemorySearchMode",
@@ -113,4 +143,6 @@ __all__ = [
     "MemoryUnitOfWork",
     "MemoryUsedSearchMode",
     "MemoryWritePlan",
+    "memory_extraction_instructions",
+    "memory_extraction_instructions_version",
 ]

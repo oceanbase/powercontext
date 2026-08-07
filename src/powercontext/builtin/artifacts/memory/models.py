@@ -7,6 +7,7 @@ from typing import ClassVar, Literal, TypeAlias
 from pydantic import BaseModel, Field
 
 from powercontext.artifacts import Artifact, ArtifactRef
+from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.sources import Source, SourceRef
 
 MemoryEntryState: TypeAlias = Literal["active", "inactive"]
@@ -133,11 +134,24 @@ class MemoryHit(BaseModel):
     matched_by: tuple[MemoryMatchedBy, ...]
 
 
+class MemoryRerankTrace(BaseModel):
+    """Observable listwise selection over one coarse retrieval pool."""
+
+    policy_id: str = Field(min_length=1)
+    candidate_hits: tuple[MemoryHit, ...]
+    selected_ranks: tuple[int, ...]
+    discarded_rank_count: int = 0
+    used_fallback: bool = False
+    latency_ms: float = Field(ge=0.0, allow_inf_nan=False)
+    usage: InferenceUsage
+
+
 class MemorySearchResult(BaseModel):
     """Search hits together with the mode actually executed."""
 
     mode: MemoryUsedSearchMode
     hits: tuple[MemoryHit, ...] = ()
+    rerank: MemoryRerankTrace | None = None
 
 
 class MemoryCitation(BaseModel):

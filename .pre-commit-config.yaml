@@ -9,9 +9,10 @@ repos:
       - id: check-json
         exclude: ^.devcontainer/devcontainer.json
       - id: pretty-format-json
-        exclude: ^.devcontainer/devcontainer.json
+        exclude: ^(?:\.devcontainer/devcontainer\.json|benchmark/locomo/dataset/locomo10\.json)$
         args: [--autofix, --no-sort-keys]
       - id: end-of-file-fixer
+        exclude: ^benchmark/locomo/dataset/locomo10\.json$
       - id: trailing-whitespace
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
