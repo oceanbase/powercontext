@@ -2,12 +2,16 @@
 .github
 .agents
 .venv
+**/.venv
 .tox
 .pytest_cache
+**/.pytest_cache
 .ruff_cache
+**/.ruff_cache
 .mypy_cache
 .powercontext
 __pycache__
+**/__pycache__
 *.py[cod]
 *.db
 *.sqlite*
@@ -17,6 +21,8 @@ build
 dist
 site
 docs
-integrations
+integrations/*
+!integrations/bub
+!integrations/bub/**
 openapi
 tests

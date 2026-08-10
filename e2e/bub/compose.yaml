@@ -1,0 +1,65 @@
+name: powercontext-e2e
+
+services:
+  powercontext:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    environment:
+      - ANTHROPIC_API_KEY
+      - DEEPSEEK_API_KEY
+      - OPENAI_API_KEY
+      - OPENAI_BASE_URL
+      - OPENROUTER_API_KEY
+      - OPENROUTER_APP_TITLE
+      - OPENROUTER_APP_URL
+      - POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION
+      - POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL
+      - POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION
+      - POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID
+      - POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS
+      - POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS
+      - POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL
+      - POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS
+      - POWERCONTEXT_SERVER_DATABASE_KIND=sqlite
+      - POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:////data/powercontext.db
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    volumes:
+      - powercontext-data:/data
+
+  harness:
+    build:
+      context: ../..
+      dockerfile: e2e/bub/Dockerfile
+    depends_on:
+      powercontext:
+        condition: service_healthy
+    environment:
+      - BUB_API_BASE
+      - BUB_API_KEY
+      - BUB_CLIENT_ARGS
+      - BUB_MAX_STEPS=${BUB_MAX_STEPS:-8}
+      - BUB_MAX_TOKENS=${BUB_MAX_TOKENS:-4096}
+      - BUB_MODEL
+      - BUB_MODEL_TIMEOUT_SECONDS=${BUB_MODEL_TIMEOUT_SECONDS:-600}
+      - GITHUB_SHA
+      - POWERCONTEXT_E2E_DATABASE
+      - POWERCONTEXT_E2E_JUDGE_MODEL
+      - POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID
+      - POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL
+      - POWERCONTEXT_BUB_BASE_URL=http://powercontext:8000
+      - BUB_HOME=/tmp/bub
+    volumes:
+      - ${POWERCONTEXT_E2E_OUTPUT}:/evidence
+
+volumes:
+  powercontext-data:

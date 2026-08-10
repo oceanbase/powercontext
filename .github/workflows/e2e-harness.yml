@@ -1,0 +1,122 @@
+name: E2E harness
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-harness-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Validate harness and Compose definitions
+        run: |
+          make harness-sync
+          make harness-check
+          make harness-compose-check
+
+  acceptance:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, oceanbase]
+    name: Acceptance (${{ matrix.database }})
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Run deterministic scenarios
+        env:
+          POWERCONTEXT_E2E_DATABASE: ${{ matrix.database }}
+          POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/acceptance
+        run: make harness-compose-acceptance
+
+      - name: Upload replay evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-acceptance-${{ matrix.database }}-${{ github.sha }}
+          path: .powercontext-e2e/${{ matrix.database }}/acceptance
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Stop harness environment
+        if: always()
+        env:
+          POWERCONTEXT_E2E_DATABASE: ${{ matrix.database }}
+        run: e2e/bub/run.sh down
+
+  live-replay:
+    needs: acceptance
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, oceanbase]
+    name: Live replay (${{ matrix.database }})
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Check provider configuration
+        id: provider
+        env:
+          API_KEY: ${{ secrets.POWERCONTEXT_E2E_API_KEY }}
+          MODEL: ${{ vars.POWERCONTEXT_E2E_MODEL }}
+        run: |
+          if [[ -n "${API_KEY}" && -n "${MODEL}" ]]; then
+            echo "configured=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "configured=false" >> "${GITHUB_OUTPUT}"
+            echo "Live replay skipped because provider credentials are not configured." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Run live replay
+        if: steps.provider.outputs.configured == 'true'
+        env:
+          BUB_API_BASE: ${{ vars.POWERCONTEXT_E2E_API_BASE }}
+          BUB_API_KEY: ${{ secrets.POWERCONTEXT_E2E_API_KEY }}
+          BUB_MODEL: ${{ vars.POWERCONTEXT_E2E_MODEL }}
+          POWERCONTEXT_E2E_DATABASE: ${{ matrix.database }}
+          POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/live
+        run: make harness-compose-live
+
+      - name: Publish replay summary
+        if: always() && steps.provider.outputs.configured == 'true'
+        run: cat ".powercontext-e2e/${{ matrix.database }}/live/report.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload replay evidence
+        if: always() && steps.provider.outputs.configured == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-live-${{ matrix.database }}-${{ github.sha }}
+          path: .powercontext-e2e/${{ matrix.database }}/live
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Stop harness environment
+        if: always()
+        env:
+          POWERCONTEXT_E2E_DATABASE: ${{ matrix.database }}
+        run: e2e/bub/run.sh down
