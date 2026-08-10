@@ -4,7 +4,7 @@ repo_url = "https://github.com/oceanbase/powercontext"
 site_url = "https://oceanbase.github.io/powercontext"
 site_description = "PowerContext turns human-agent work into handoff-ready context."
 site_author = "PowerContext Team"
-edit_uri = "edit/main/docs/"
+edit_uri = "edit/master/docs/"
 repo_name = "oceanbase/powercontext"
 copyright = 'Maintained by <a href="https://oceanbase.com">OceanBase</a>.'
 

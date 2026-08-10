@@ -29,7 +29,7 @@
       "Write",
       "Handoff"
     ],
-    "websiteURL": "https://github.com/oceanbase/powercontext/tree/main/docs/en/docs",
+    "websiteURL": "https://github.com/oceanbase/powercontext/tree/master/docs/en/docs",
     "defaultPrompt": [
       "Restore relevant project memory for this task.",
       "Prepare an inspectable Handoff for another task.",

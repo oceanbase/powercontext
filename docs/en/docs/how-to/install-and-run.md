@@ -10,14 +10,14 @@ description: Install PowerContext from Git and run the local Server.
 Install `uv`, then install PowerContext directly from a Git ref:
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@main"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 This works on macOS and Linux and does not require a user-managed repository checkout. Git uses its normal credential
 configuration, including credential helpers and SSH settings. For an SSH-based install, replace the HTTPS URL with the
 Git URL approved for your environment.
 
-To install a tested branch or tag, replace `main` after the final `@`. Use the same ref when configuring integrations:
+To install a tested branch or tag, replace `master` after the final `@`. Use the same ref when configuring integrations:
 
 ```bash
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
@@ -66,7 +66,7 @@ directory unless `POWERCONTEXT_HOME` or the database URL changes.
 An application that imports the async Client SDK should add it to that application's environment:
 
 ```bash
-uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@main"
+uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for

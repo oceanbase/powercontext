@@ -5,7 +5,7 @@
 Install the PowerContext tool first, then configure the plugin:
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref main
+powercontext setup codex --source oceanbase/powercontext --ref master
 powercontext server run
 ```
 

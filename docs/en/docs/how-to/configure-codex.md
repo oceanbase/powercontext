@@ -10,7 +10,7 @@ description: Install the PowerContext Codex plugin and control its local behavio
 Run:
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref main
+powercontext setup codex --source oceanbase/powercontext --ref master
 ```
 
 The command adds the repository as a Codex marketplace, installs the PowerContext plugin, and creates the user data

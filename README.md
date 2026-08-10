@@ -19,8 +19,8 @@ Prerequisites:
 Install the tool and configure the Codex plugin:
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@main"
-powercontext setup codex --source oceanbase/powercontext --ref main
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup codex --source oceanbase/powercontext --ref master
 ```
 
 You do not need to create or manage a repository checkout. Start the local service in a terminal:
@@ -58,7 +58,7 @@ surfaces. Installation, configuration, and troubleshooting live under [`docs/en/
 Add only the role the project imports:
 
 ```bash
-uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@main"
+uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 Available extras are `builtin`, `client`, `server`, and `cli`. The CLI always includes Server-backed content commands;

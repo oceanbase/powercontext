@@ -67,7 +67,7 @@ setup = "powercontext.cli.system:setup_app"
 [project.urls]
 Homepage = "https://github.com/oceanbase/powercontext"
 Repository = "https://github.com/oceanbase/powercontext"
-Documentation = "https://github.com/oceanbase/powercontext/tree/main/docs/en/docs"
+Documentation = "https://github.com/oceanbase/powercontext/tree/master/docs/en/docs"
 
 [dependency-groups]
 dev = [

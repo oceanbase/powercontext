@@ -10,7 +10,7 @@ description: 安装 PowerContext Codex 插件并控制其本地行为。
 执行：
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref main
+powercontext setup codex --source oceanbase/powercontext --ref master
 ```
 
 该命令会把仓库添加为 Codex marketplace，安装 PowerContext 插件，并创建用户数据目录。重复执行是安全的。

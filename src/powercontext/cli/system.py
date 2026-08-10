@@ -19,7 +19,7 @@ from powercontext.paths import powercontext_data_dir
 
 HELP_OPTION_NAMES = ("-h", "--help")
 DEFAULT_MARKETPLACE_SOURCE = "oceanbase/powercontext"
-DEFAULT_MARKETPLACE_REF = "main"
+DEFAULT_MARKETPLACE_REF = "master"
 PLUGIN_NAME = "powercontext"
 
 setup_app = typer.Typer(

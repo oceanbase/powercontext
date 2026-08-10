@@ -19,6 +19,6 @@ hide:
   <div class="pc-release__body">
     <h2>No tagged release yet.</h2>
     <p>The repository does not have a version tag, so there is no release entry to publish.</p>
-    <p><a href="https://github.com/oceanbase/powercontext/commits/main">Commit history</a> · <a href="https://github.com/oceanbase/powercontext/releases">GitHub Releases</a></p>
+    <p><a href="https://github.com/oceanbase/powercontext/commits/master">Commit history</a> · <a href="https://github.com/oceanbase/powercontext/releases">GitHub Releases</a></p>
   </div>
 </section>

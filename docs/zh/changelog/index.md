@@ -19,6 +19,6 @@ hide:
   <div class="pc-release__body">
     <h2>尚无正式版本。</h2>
     <p>当前仓库还没有版本标签，因此没有可发布的 release 条目。</p>
-    <p><a href="https://github.com/oceanbase/powercontext/commits/main">提交历史</a> · <a href="https://github.com/oceanbase/powercontext/releases">GitHub Releases</a></p>
+    <p><a href="https://github.com/oceanbase/powercontext/commits/master">提交历史</a> · <a href="https://github.com/oceanbase/powercontext/releases">GitHub Releases</a></p>
   </div>
 </section>

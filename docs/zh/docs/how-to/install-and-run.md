@@ -10,13 +10,13 @@ description: 从 Git 安装 PowerContext，并运行本地 Server。
 先安装 `uv`，再从指定 Git ref 直接安装 PowerContext：
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@main"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 该方式支持 macOS 和 Linux，不需要用户自行管理仓库工作副本。Git 会沿用本机的凭据配置，包括 credential
 helper 和 SSH 设置。如需使用 SSH，请把 HTTPS URL 换成当前环境允许的 Git URL。
 
-安装指定分支或 tag 时，替换最后一个 `@` 后的 `main`。配置集成时应使用同一个 ref：
+安装指定分支或 tag 时，替换最后一个 `@` 后的 `master`。配置集成时应使用同一个 ref：
 
 ```bash
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
@@ -64,7 +64,7 @@ powercontext setup codex --source oceanbase/powercontext --ref <ref>
 如果应用需要导入异步 Client SDK，应把它加入该应用自己的环境：
 
 ```bash
-uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@main"
+uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 进程内 Python 组合使用 `builtin`，服务使用 `server`，Python SDK 使用 `client`，基于 Server 的命令行使用
