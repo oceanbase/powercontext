@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -34,23 +35,31 @@ from .metrics import (
     bleu1,
     diagnose_observations,
     exact_match,
+    normalize_answer,
     retrieval_metrics,
     set_token_f1,
     summarize_observations,
     token_f1,
 )
 from .prompts import (
-    ANSWER_INSTRUCTIONS,
-    ANSWER_INSTRUCTIONS_VERSION,
-    ANSWER_SOURCE_INSTRUCTIONS,
+    ANSWER_SOURCE_INFERENCE_INSTRUCTIONS,
+    ANSWER_SOURCE_INFERENCE_INSTRUCTIONS_VERSION,
     ANSWER_SOURCE_INSTRUCTIONS_VERSION,
     JudgeProfile,
+    answer_instructions,
+    answer_policy_version,
     judge_instructions,
 )
 
 Progress = Callable[[str], None]
 ResultT = TypeVar("ResultT")
-BENCHMARK_MODEL_SETTINGS = ModelSettings(temperature=0.0)
+BENCHMARK_TEMPERATURE = 0.0
+
+
+def _benchmark_model_settings() -> ModelSettings:
+    """Return a fresh mapping because model adapters may remove unsupported settings in place."""
+
+    return ModelSettings(temperature=BENCHMARK_TEMPERATURE)
 
 
 class _StrictModel(BaseModel):
@@ -138,6 +147,8 @@ def prepare_run(
     answer_k: int | None = None,
     rerank_mode: MemoryRerankMode = MemoryRerankMode.NONE,
     answer_source_content: bool = False,
+    answer_inference_aware: bool = False,
+    answer_unknown_fallback_inference: bool = False,
     judge_profile: JudgeProfile = JudgeProfile.STRICT,
     categories: tuple[int, ...],
     conversation_limit: int | None,
@@ -151,6 +162,11 @@ def prepare_run(
         raise ValueError("top_k must be between 1 and 50")  # noqa: TRY003
     if selected_answer_k < 1 or selected_answer_k > top_k:
         raise ValueError("answer_k must be between 1 and top_k")  # noqa: TRY003
+    answer_instructions_version = answer_policy_version(
+        source_content=answer_source_content,
+        inference_aware=answer_inference_aware,
+        unknown_fallback_inference=answer_unknown_fallback_inference,
+    )
     normalized_run_id = normalize_run_id(run_id)
     selected_conversations = (
         dataset.conversations if conversation_limit is None else dataset.conversations[:conversation_limit]
@@ -161,7 +177,13 @@ def prepare_run(
         question_limit=question_limit,
     )
     manifest = {
-        "schema": "powercontext.benchmark.locomo.run.v5",
+        "schema": (
+            "powercontext.benchmark.locomo.run.v7"
+            if answer_unknown_fallback_inference
+            else "powercontext.benchmark.locomo.run.v6"
+            if answer_inference_aware
+            else "powercontext.benchmark.locomo.run.v5"
+        ),
         "run_id": normalized_run_id,
         "dataset_path": str(dataset.path),
         "dataset_sha256": dataset.sha256,
@@ -177,15 +199,24 @@ def prepare_run(
         "rerank_mode": rerank_mode.value,
         "rerank_instructions": (MEMORY_RERANK_INSTRUCTIONS_VERSION if rerank_mode is MemoryRerankMode.LLM else None),
         "answer_source_content": answer_source_content,
+        **({"answer_inference_aware": True} if answer_inference_aware else {}),
+        **({"answer_unknown_fallback_inference": True} if answer_unknown_fallback_inference else {}),
+        **(
+            {
+                "answer_fallback_trigger": "normalized-answer-equals-unknown",
+                "direct_answer_instructions": ANSWER_SOURCE_INSTRUCTIONS_VERSION,
+                "fallback_answer_instructions": ANSWER_SOURCE_INFERENCE_INSTRUCTIONS_VERSION,
+            }
+            if answer_unknown_fallback_inference
+            else {}
+        ),
         "conversation_limit": conversation_limit,
         "question_limit": question_limit,
         "operation_retries": operation_retries,
-        "generation_temperature": BENCHMARK_MODEL_SETTINGS["temperature"],
+        "generation_temperature": BENCHMARK_TEMPERATURE,
         "ingestion": "source-capture-and-memory-extraction",
         "retrieval_mode": "hybrid",
-        "answer_instructions": (
-            ANSWER_SOURCE_INSTRUCTIONS_VERSION if answer_source_content else ANSWER_INSTRUCTIONS_VERSION
-        ),
+        "answer_instructions": answer_instructions_version,
         "judge_profile": judge_profile.value,
         "judge_instructions": judge_instructions(judge_profile)[1],
         "configuration": public_configuration(settings),
@@ -325,6 +356,8 @@ async def evaluate_dataset(  # noqa: C901
     answer_k: int | None = None,
     rerank_mode: MemoryRerankMode = MemoryRerankMode.NONE,
     answer_source_content: bool = False,
+    answer_inference_aware: bool = False,
+    answer_unknown_fallback_inference: bool = False,
     judge_profile: JudgeProfile = JudgeProfile.STRICT,
     categories: tuple[int, ...] = (1, 2, 3, 4),
     conversation_limit: int | None = None,
@@ -345,6 +378,15 @@ async def evaluate_dataset(  # noqa: C901
         raise ValueError("evaluation concurrency must be positive")  # noqa: TRY003
     if operation_retries < 1:
         raise ValueError("operation_retries must be positive")  # noqa: TRY003
+    answer_policy_version(
+        source_content=answer_source_content,
+        inference_aware=answer_inference_aware,
+        unknown_fallback_inference=answer_unknown_fallback_inference,
+    )
+    selected_answer_instructions = answer_instructions(
+        source_content=answer_source_content,
+        inference_aware=answer_inference_aware,
+    )[0]
     generation_model = settings.inference.generation_model
     if generation_model is None:
         raise ValueError("LoCoMo answer evaluation requires a configured generation model")  # noqa: TRY003
@@ -382,11 +424,23 @@ async def evaluate_dataset(  # noqa: C901
             model = await resources.enter_async_context(infer_model(generation_model))
             answer_generator = PydanticAIStructuredGenerator(
                 model=model,
-                instructions=ANSWER_SOURCE_INSTRUCTIONS if answer_source_content else ANSWER_INSTRUCTIONS,
+                instructions=selected_answer_instructions,
                 input_type=AnswerInput,
                 output_type=AnswerOutput,
                 limits=limits,
-                model_settings=BENCHMARK_MODEL_SETTINGS,
+                model_settings=_benchmark_model_settings(),
+            )
+            fallback_answer_generator = (
+                PydanticAIStructuredGenerator(
+                    model=model,
+                    instructions=ANSWER_SOURCE_INFERENCE_INSTRUCTIONS,
+                    input_type=AnswerInput,
+                    output_type=AnswerOutput,
+                    limits=limits,
+                    model_settings=_benchmark_model_settings(),
+                )
+                if answer_unknown_fallback_inference
+                else None
             )
             judge_generator = PydanticAIStructuredGenerator(
                 model=model,
@@ -394,7 +448,7 @@ async def evaluate_dataset(  # noqa: C901
                 input_type=JudgeInput,
                 output_type=JudgeOutput,
                 limits=limits,
-                model_settings=BENCHMARK_MODEL_SETTINGS,
+                model_settings=_benchmark_model_settings(),
             )
             entry_sources = await _entry_source_maps(runtime, dataset, run_id, conversation_limit)
 
@@ -403,6 +457,7 @@ async def evaluate_dataset(  # noqa: C901
                     return await _evaluate_question(
                         runtime=runtime,
                         answer_generator=answer_generator,
+                        fallback_answer_generator=fallback_answer_generator,
                         judge_generator=judge_generator,
                         question=question,
                         conversation=conversation_by_id[question.sample_id],
@@ -443,6 +498,8 @@ async def evaluate_dataset(  # noqa: C901
         "answer_k": selected_answer_k,
         "rerank_mode": rerank_mode.value,
         "answer_source_content": answer_source_content,
+        **({"answer_inference_aware": True} if answer_inference_aware else {}),
+        **({"answer_unknown_fallback_inference": True} if answer_unknown_fallback_inference else {}),
         "judge_profile": judge_profile.value,
         "categories": list(categories),
         "metrics": summarize_observations(ordered),
@@ -458,6 +515,315 @@ async def evaluate_dataset(  # noqa: C901
     _write_json(output_directory / "summary.json", summary)
     (output_directory / "summary.md").write_text(render_summary(summary), encoding="utf-8")
     return summary
+
+
+def prepare_rejudge(
+    *,
+    dataset: LoCoMoDataset,
+    source_directory: Path,
+    output_directory: Path,
+    run_id: str,
+    judge_model: str,
+    judge_profile: JudgeProfile = JudgeProfile.TOPICAL,
+    operation_retries: int = 3,
+) -> dict[str, Any]:
+    """Freeze one independent-judge run over an existing set of generated answers."""
+
+    if not judge_model.strip():
+        raise ValueError("judge_model must not be empty")  # noqa: TRY003
+    if operation_retries < 1:
+        raise ValueError("operation_retries must be positive")  # noqa: TRY003
+    source_manifest_path = source_directory / "run.json"
+    source_observations_path = source_directory / "observations.jsonl"
+    if not source_manifest_path.is_file():
+        raise FileNotFoundError(source_manifest_path)
+    if not source_observations_path.is_file():
+        raise FileNotFoundError(source_observations_path)
+    source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+    if source_manifest.get("dataset_sha256") != dataset.sha256:
+        raise ValueError("source run dataset does not match the requested dataset")  # noqa: TRY003
+    selected = _source_selected_questions(dataset, source_manifest)
+    source_observations = _read_observations(source_observations_path)
+    _validate_source_observations(selected, source_observations)
+    answer_model = source_manifest.get("configuration", {}).get("generation_model")
+    if not isinstance(answer_model, str) or not answer_model:
+        raise ValueError("source run does not identify its answer model")  # noqa: TRY003
+    answer_contract_keys = (
+        "top_k",
+        "candidate_k",
+        "answer_k",
+        "rerank_mode",
+        "rerank_instructions",
+        "answer_source_content",
+        "answer_inference_aware",
+        "answer_unknown_fallback_inference",
+        "answer_fallback_trigger",
+        "direct_answer_instructions",
+        "fallback_answer_instructions",
+        "answer_instructions",
+        "categories",
+        "conversation_limit",
+        "question_limit",
+    )
+    manifest = {
+        "schema": "powercontext.benchmark.locomo.rejudge.run.v1",
+        "run_id": normalize_run_id(run_id),
+        "dataset_path": str(dataset.path),
+        "dataset_sha256": dataset.sha256,
+        "selected_question_count": len(selected),
+        "source": {
+            "directory": str(source_directory.resolve()),
+            "run_id": source_manifest.get("run_id"),
+            "observations_sha256": _file_sha256(source_observations_path),
+            "observation_count": len(source_observations),
+            "successful_observation_count": sum(
+                observation.get("status") == "ok" for observation in source_observations.values()
+            ),
+            "answer_model": answer_model,
+            "answer_contract": {key: source_manifest[key] for key in answer_contract_keys if key in source_manifest},
+            "memory_configuration": source_manifest.get("configuration"),
+            "previous_judge_profile": source_manifest.get("judge_profile"),
+            "previous_judge_instructions": source_manifest.get("judge_instructions"),
+        },
+        "judge_model": judge_model,
+        "judge_temperature": BENCHMARK_TEMPERATURE,
+        "judge_profile": judge_profile.value,
+        "judge_instructions": judge_instructions(judge_profile)[1],
+        "operation_retries": operation_retries,
+    }
+    output_directory.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_directory / "run.json"
+    if manifest_path.is_file():
+        observed = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if observed != manifest:
+            raise ValueError(f"rejudge manifest does not match requested benchmark: {manifest_path}")  # noqa: TRY003
+    else:
+        _write_json(manifest_path, manifest)
+    return manifest
+
+
+async def rejudge_dataset(
+    dataset: LoCoMoDataset,
+    *,
+    settings: ServerSettings,
+    source_directory: Path,
+    output_directory: Path,
+    run_id: str,
+    judge_model: str,
+    judge_profile: JudgeProfile = JudgeProfile.TOPICAL,
+    concurrency: int = 8,
+    operation_retries: int = 3,
+    retry_errors: bool = True,
+    progress: Progress = print,
+) -> dict[str, Any]:
+    """Judge frozen generated answers with a separately configured model."""
+
+    if concurrency < 1:
+        raise ValueError("rejudge concurrency must be positive")  # noqa: TRY003
+    manifest = prepare_rejudge(
+        dataset=dataset,
+        source_directory=source_directory,
+        output_directory=output_directory,
+        run_id=run_id,
+        judge_model=judge_model,
+        judge_profile=judge_profile,
+        operation_retries=operation_retries,
+    )
+    source_manifest = json.loads((source_directory / "run.json").read_text(encoding="utf-8"))
+    selected = _source_selected_questions(dataset, source_manifest)
+    source_observations = _read_observations(source_directory / "observations.jsonl")
+    observations_path = output_directory / "observations.jsonl"
+    observed = _read_observations(observations_path)
+    pending = tuple(
+        question
+        for question in selected
+        if question.question_id not in observed
+        or (retry_errors and observed[question.question_id].get("status") != "ok")
+    )
+    progress(f"[rejudge] selected={len(selected)} resumed={len(selected) - len(pending)} pending={len(pending)}")
+    summary_path = output_directory / "summary.json"
+    if not pending and summary_path.is_file():
+        return json.loads(summary_path.read_text(encoding="utf-8"))
+    if pending:
+        limits = InferenceLimits(
+            timeout_seconds=settings.inference.generation_timeout_seconds,
+            max_requests=settings.inference.generation_max_requests,
+        )
+        semaphore = asyncio.Semaphore(concurrency)
+        async with AsyncExitStack() as resources:
+            model = await resources.enter_async_context(infer_model(judge_model))
+            judge_generator = PydanticAIStructuredGenerator(
+                model=model,
+                instructions=judge_instructions(judge_profile)[0],
+                input_type=JudgeInput,
+                output_type=JudgeOutput,
+                limits=limits,
+                model_settings=_benchmark_model_settings(),
+            )
+
+            async def judge_one(question: LoCoMoQuestion) -> dict[str, Any]:
+                async with semaphore:
+                    return await _rejudge_question(
+                        source_observation=source_observations[question.question_id],
+                        source_run_id=str(source_manifest.get("run_id")),
+                        judge_generator=judge_generator,
+                        judge_model=judge_model,
+                        judge_profile=judge_profile,
+                        operation_retries=operation_retries,
+                    )
+
+            tasks = tuple(asyncio.create_task(judge_one(question)) for question in pending)
+            completed = len(selected) - len(pending)
+            for task in asyncio.as_completed(tasks):
+                observation = await task
+                _append_jsonl(observations_path, observation)
+                observed[observation["question_id"]] = observation
+                completed += 1
+                if completed % 10 == 0 or completed == len(selected):
+                    error_count = sum(
+                        observed[question.question_id].get("status") != "ok"
+                        for question in selected
+                        if question.question_id in observed
+                    )
+                    progress(f"[rejudge] {completed}/{len(selected)} questions; errors={error_count}")
+
+    ordered = tuple(observed[question.question_id] for question in selected if question.question_id in observed)
+    if len(ordered) != len(selected):
+        raise RuntimeError("rejudge did not produce every selected observation")  # noqa: TRY003
+    summary = {
+        "schema": "powercontext.benchmark.locomo.rejudge.summary.v1",
+        "run_id": normalize_run_id(run_id),
+        "completed_at": datetime.now(UTC).isoformat(),
+        "question_count": len(ordered),
+        "source": manifest["source"],
+        "judge_model": judge_model,
+        "judge_temperature": BENCHMARK_TEMPERATURE,
+        "judge_profile": judge_profile.value,
+        "judge_instructions": judge_instructions(judge_profile)[1],
+        "metrics": summarize_observations(ordered),
+        "diagnostics": diagnose_observations(ordered),
+        "metric_notes": {
+            "llm_judge": "Frozen answers are graded by the independently configured judge model.",
+            "errors": "Failed judge requests remain in the denominator and score zero.",
+            "latency": "Only the new independent-judge request is timed; source retrieval and answer latency are excluded.",
+        },
+    }
+    _write_json(summary_path, summary)
+    (output_directory / "summary.md").write_text(render_rejudge_summary(summary), encoding="utf-8")
+    return summary
+
+
+async def _rejudge_question(
+    *,
+    source_observation: Mapping[str, Any],
+    source_run_id: str,
+    judge_generator: PydanticAIStructuredGenerator[JudgeInput, JudgeOutput],
+    judge_model: str,
+    judge_profile: JudgeProfile,
+    operation_retries: int,
+) -> dict[str, Any]:
+    started = perf_counter()
+    question_id = str(source_observation["question_id"])
+    base = {
+        "schema": "powercontext.benchmark.locomo.rejudge.observation.v1",
+        "question_id": question_id,
+        "sample_id": source_observation.get("sample_id"),
+        "category": source_observation["category"],
+        "question": source_observation["question"],
+        "gold_answer": source_observation["gold_answer"],
+        "generated_answer": source_observation.get("generated_answer"),
+        "source_observation": {
+            "run_id": source_run_id,
+            "schema": source_observation.get("schema"),
+            "previous_llm_judge": source_observation.get("metrics", {}).get("llm_judge"),
+        },
+    }
+    if source_observation.get("status") != "ok":
+        return {
+            **base,
+            "status": "error",
+            "error_type": "SourceObservationError",
+            "error_stage": "source",
+            "latency_ms": {"total": (perf_counter() - started) * 1_000},
+        }
+    try:
+        judge_result, judge_retries = await _retry_transient(
+            lambda: judge_generator.generate(
+                JudgeInput(
+                    question=str(source_observation["question"]),
+                    gold_answer=str(source_observation["gold_answer"]),
+                    generated_answer=str(source_observation["generated_answer"]),
+                )
+            ),
+            attempts=operation_retries,
+        )
+    except Exception as error:  # Each failed judge request remains an explicit zero in the denominator.
+        return {
+            **base,
+            "status": "error",
+            "error_type": type(error).__name__,
+            "error_stage": "judge",
+            "latency_ms": {"total": (perf_counter() - started) * 1_000},
+        }
+    latency_ms = (perf_counter() - started) * 1_000
+    return {
+        **base,
+        "status": "ok",
+        "metrics": {
+            **source_observation["metrics"],
+            "llm_judge": float(judge_result.output.label == "CORRECT"),
+        },
+        "judge": {
+            "model": judge_model,
+            "profile": judge_profile.value,
+            "instructions": judge_instructions(judge_profile)[1],
+            "label": judge_result.output.label,
+        },
+        "latency_ms": {"judge": latency_ms, "total": latency_ms},
+        "usage": {"judge": judge_result.usage.model_dump(mode="json")},
+        "transient_retries": {"judge": judge_retries},
+    }
+
+
+def render_rejudge_summary(summary: Mapping[str, Any]) -> str:
+    """Render one independent-judge result without implying that answers were regenerated."""
+
+    overall = summary["metrics"]["overall"]
+    source = summary["source"]
+    answer_contract = source["answer_contract"]
+    lines = [
+        "# PowerContext LoCoMo independent-judge result",
+        "",
+        f"- Frozen answer model: `{source['answer_model']}`",
+        f"- Independent judge model: `{summary['judge_model']}`",
+        f"- Judge profile: `{summary['judge_profile']}` (`{summary['judge_instructions']}`)",
+        f"- Questions / completed / errors: `{overall['question_count']}` / "
+        f"`{overall['completed_count']}` / `{overall['error_count']}`",
+        f"- LLM-judge accuracy: `{overall['llm_judge']:.4f}`",
+        f"- Exact match / token F1 / reference-set F1: `{overall['exact_match']:.4f}` / "
+        f"`{overall['token_f1']:.4f}` / `{overall['reference_set_f1']:.4f}`",
+        f"- Evidence hit / recall: `{overall['evidence_hit']:.4f}` / `{overall['evidence_recall']:.4f}`",
+        f"- Top K / Answer K / Source expansion: `{answer_contract['top_k']}` / "
+        f"`{answer_contract['answer_k']}` / `{answer_contract['answer_source_content']}`",
+        f"- Judge latency p50 / p95: `{_format_latency(overall['judge_latency_ms_p50'])}` / "
+        f"`{_format_latency(overall['judge_latency_ms_p95'])}`",
+        "",
+        "| Category | Questions | Judge accuracy | Token F1 | Evidence hit |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for name, value in summary["metrics"].items():
+        if not name.startswith("category_"):
+            continue
+        lines.append(
+            f"| {name.removeprefix('category_')} | {value['question_count']} | {value['llm_judge']:.4f} | "
+            f"{value['token_f1']:.4f} | {value['evidence_hit']:.4f} |"
+        )
+    lines.extend(("", f"- {summary['metric_notes']['llm_judge']}", f"- {summary['metric_notes']['errors']}", ""))
+    return "\n".join(lines)
+
+
+def _format_latency(value: float | int | None) -> str:
+    return "n/a" if value is None else f"{float(value):.2f} ms"
 
 
 def render_summary(summary: Mapping[str, Any]) -> str:
@@ -478,6 +844,8 @@ def render_summary(summary: Mapping[str, Any]) -> str:
         f"- Coarse candidates / Answer context: `{summary['candidate_k']}` / `{summary['answer_k']}`",
         f"- Rerank mode: `{summary['rerank_mode']}`",
         f"- Exact cited Source expansion: `{summary['answer_source_content']}`",
+        f"- Inference-aware answering: `{summary.get('answer_inference_aware', False)}`",
+        f"- Unknown-fallback inference: `{summary.get('answer_unknown_fallback_inference', False)}`",
         f"- Judge profile: `{summary['judge_profile']}`",
         f"- Answer-context evidence Hit: `{overall['evidence_hit']:.4f}`",
         f"- Answer-context evidence Recall: `{overall['evidence_recall']:.4f}`",
@@ -512,6 +880,7 @@ async def _evaluate_question(
     *,
     runtime,
     answer_generator: PydanticAIStructuredGenerator[AnswerInput, AnswerOutput],
+    fallback_answer_generator: PydanticAIStructuredGenerator[AnswerInput, AnswerOutput] | None,
     judge_generator: PydanticAIStructuredGenerator[JudgeInput, JudgeOutput],
     question: LoCoMoQuestion,
     conversation: LoCoMoConversation,
@@ -569,22 +938,38 @@ async def _evaluate_question(
         rerank_metadata = _rerank_metadata(rerank_mode, result.rerank, len(candidates), len(memories))
         rerank_usage = _empty_usage() if result.rerank is None else result.rerank.usage.model_dump(mode="json")
         source_sessions = _answer_source_sessions(conversation, memories) if answer_source_content else ()
+        answer_input = AnswerInput(
+            speaker_a=conversation.speaker_a,
+            speaker_b=conversation.speaker_b,
+            question=question.question,
+            memories=memories,
+            source_sessions=source_sessions,
+        )
         phase = "answer"
         answer_started = perf_counter()
         answer_result, answer_retries = await _retry_transient(
-            lambda: answer_generator.generate(
-                AnswerInput(
-                    speaker_a=conversation.speaker_a,
-                    speaker_b=conversation.speaker_b,
-                    question=question.question,
-                    memories=memories,
-                    source_sessions=source_sessions,
-                )
-            ),
+            lambda: answer_generator.generate(answer_input),
             attempts=operation_retries,
         )
+        initial_answer = answer_result.output.answer.strip()
+        answer_usage = answer_result.usage.model_dump(mode="json")
         answer_latency = (perf_counter() - answer_started) * 1_000
-        generated_answer = answer_result.output.answer.strip()
+        generated_answer = initial_answer
+        answer_fallback_triggered = False
+        fallback_answer_latency = 0.0
+        fallback_answer_retries = 0
+        fallback_answer_usage = _empty_usage()
+        if fallback_answer_generator is not None and normalize_answer(initial_answer) == "unknown":
+            answer_fallback_triggered = True
+            phase = "answer_fallback"
+            fallback_answer_started = perf_counter()
+            fallback_answer_result, fallback_answer_retries = await _retry_transient(
+                lambda: fallback_answer_generator.generate(answer_input),
+                attempts=operation_retries,
+            )
+            fallback_answer_latency = (perf_counter() - fallback_answer_started) * 1_000
+            fallback_answer_usage = fallback_answer_result.usage.model_dump(mode="json")
+            generated_answer = fallback_answer_result.output.answer.strip()
         phase = "judge"
         judge_started = perf_counter()
         judge_result, judge_retries = await _retry_transient(
@@ -626,6 +1011,18 @@ async def _evaluate_question(
                 "source_content": answer_source_content,
                 "source_ids": [source.source_id for source in source_sessions],
             },
+            **(
+                {
+                    "answer_fallback": {
+                        "trigger": "normalized-answer-equals-unknown",
+                        "triggered": answer_fallback_triggered,
+                        "initial_answer": initial_answer,
+                        "instructions": ANSWER_SOURCE_INFERENCE_INSTRUCTIONS_VERSION,
+                    }
+                }
+                if fallback_answer_generator is not None
+                else {}
+            ),
             "metrics": {
                 "exact_match": exact_match(generated_answer, question.answer),
                 "token_f1": token_f1(generated_answer, question.answer),
@@ -641,17 +1038,20 @@ async def _evaluate_question(
                 "answer": answer_latency,
                 "judge": judge_latency,
                 "total": (perf_counter() - total_started) * 1_000,
+                **({"answer_fallback": fallback_answer_latency} if answer_fallback_triggered else {}),
             },
             "usage": {
                 "rerank": rerank_usage,
-                "answer": answer_result.usage.model_dump(mode="json"),
+                "answer": answer_usage,
                 "judge": judge_result.usage.model_dump(mode="json"),
+                **({"answer_fallback": fallback_answer_usage} if answer_fallback_triggered else {}),
             },
             "transient_retries": {
                 "search": search_retries,
                 "rerank": 0,
                 "answer": answer_retries,
                 "judge": judge_retries,
+                **({"answer_fallback": fallback_answer_retries} if answer_fallback_triggered else {}),
             },
         }
     except Exception as error:  # Each failed benchmark item remains an explicit zero in the denominator.
@@ -832,6 +1232,43 @@ def _read_observations(path: Path) -> dict[str, dict[str, Any]]:
     return values
 
 
+def _source_selected_questions(
+    dataset: LoCoMoDataset,
+    source_manifest: Mapping[str, Any],
+) -> tuple[LoCoMoQuestion, ...]:
+    categories = tuple(int(category) for category in source_manifest.get("categories", ()))
+    selected = dataset.selected_questions(
+        categories=categories,
+        conversation_limit=source_manifest.get("conversation_limit"),
+        question_limit=source_manifest.get("question_limit"),
+    )
+    expected_count = source_manifest.get("selected_question_count")
+    if expected_count != len(selected):
+        raise ValueError("source run selection does not match the requested dataset")  # noqa: TRY003
+    return selected
+
+
+def _validate_source_observations(
+    selected: Sequence[LoCoMoQuestion],
+    observations: Mapping[str, Mapping[str, Any]],
+) -> None:
+    for question in selected:
+        try:
+            observation = observations[question.question_id]
+        except KeyError as error:
+            raise ValueError(f"source run is missing question {question.question_id}") from error  # noqa: TRY003
+        if observation.get("question") != question.question or observation.get("gold_answer") != question.answer:
+            raise ValueError(f"source observation does not match dataset question {question.question_id}")  # noqa: TRY003
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _append_jsonl(path: Path, value: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as stream:
@@ -869,8 +1306,11 @@ __all__ = [
     "load_benchmark_dataset",
     "load_settings",
     "normalize_run_id",
+    "prepare_rejudge",
     "prepare_run",
     "public_configuration",
+    "rejudge_dataset",
+    "render_rejudge_summary",
     "render_summary",
     "scope_id",
 ]

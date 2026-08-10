@@ -18,8 +18,10 @@ from .runner import (
     load_benchmark_dataset,
     load_settings,
     normalize_run_id,
+    prepare_rejudge,
     prepare_run,
     public_configuration,
+    rejudge_dataset,
 )
 
 BENCHMARK_DIRECTORY = Path(__file__).resolve().parent
@@ -69,6 +71,20 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="expand selected Memory citations with their exact captured dialogue sessions",
     )
+    answer_inference = run.add_mutually_exclusive_group()
+    answer_inference.add_argument(
+        "--answer-inference-aware",
+        action="store_true",
+        help="use the inference Answer policy for every question; requires --answer-source-content",
+    )
+    answer_inference.add_argument(
+        "--answer-unknown-fallback-inference",
+        action="store_true",
+        help=(
+            "retry only an exact normalized Unknown answer with the inference Answer policy; "
+            "requires --answer-source-content"
+        ),
+    )
     run.add_argument(
         "--judge-profile",
         type=JudgeProfile,
@@ -97,6 +113,31 @@ def _parser() -> argparse.ArgumentParser:
         help="do not retry error observations already present in the JSONL checkpoint",
     )
     run.set_defaults(handler=_run)
+
+    rejudge = commands.add_parser("rejudge", help="grade frozen generated answers with an independent judge model")
+    rejudge.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    rejudge.add_argument("--env-file", type=Path, default=Path(".env"))
+    rejudge.add_argument("--source-directory", type=Path, required=True)
+    rejudge.add_argument("--output-directory", type=Path, required=True)
+    rejudge.add_argument("--run-id", required=True)
+    rejudge.add_argument(
+        "--judge-model", required=True, help="explicit independent judge model, for example openai:qwen"
+    )
+    rejudge.add_argument(
+        "--judge-profile",
+        type=JudgeProfile,
+        choices=tuple(JudgeProfile),
+        default=JudgeProfile.TOPICAL,
+        help="existing LLM correctness policy; defaults to topical",
+    )
+    rejudge.add_argument("--concurrency", type=_positive_int, default=8)
+    rejudge.add_argument("--operation-retries", type=_positive_int, default=3)
+    rejudge.add_argument(
+        "--keep-errors",
+        action="store_true",
+        help="do not retry failed judge observations already present in the JSONL checkpoint",
+    )
+    rejudge.set_defaults(handler=_rejudge)
     return parser
 
 
@@ -156,6 +197,8 @@ def _run(arguments: argparse.Namespace) -> int:
         answer_k=arguments.answer_k,
         rerank_mode=arguments.rerank_mode,
         answer_source_content=arguments.answer_source_content,
+        answer_inference_aware=arguments.answer_inference_aware,
+        answer_unknown_fallback_inference=arguments.answer_unknown_fallback_inference,
         judge_profile=arguments.judge_profile,
         categories=arguments.categories,
         conversation_limit=arguments.conversation_limit,
@@ -186,6 +229,8 @@ def _run(arguments: argparse.Namespace) -> int:
                 answer_k=arguments.answer_k,
                 rerank_mode=arguments.rerank_mode,
                 answer_source_content=arguments.answer_source_content,
+                answer_inference_aware=arguments.answer_inference_aware,
+                answer_unknown_fallback_inference=arguments.answer_unknown_fallback_inference,
                 judge_profile=arguments.judge_profile,
                 categories=arguments.categories,
                 conversation_limit=arguments.conversation_limit,
@@ -197,6 +242,39 @@ def _run(arguments: argparse.Namespace) -> int:
             print(json.dumps({"summary": summary}, ensure_ascii=False, indent=2))
 
     asyncio.run(scenario())
+    return 0
+
+
+def _rejudge(arguments: argparse.Namespace) -> int:
+    dataset = load_benchmark_dataset(arguments.dataset)
+    settings = load_settings(arguments.env_file)
+    source_directory = arguments.source_directory.resolve()
+    output_directory = arguments.output_directory.resolve()
+    manifest = prepare_rejudge(
+        dataset=dataset,
+        source_directory=source_directory,
+        output_directory=output_directory,
+        run_id=arguments.run_id,
+        judge_model=arguments.judge_model,
+        judge_profile=arguments.judge_profile,
+        operation_retries=arguments.operation_retries,
+    )
+    print(json.dumps({"run": manifest, "output_directory": str(output_directory)}, ensure_ascii=False, indent=2))
+    summary = asyncio.run(
+        rejudge_dataset(
+            dataset,
+            settings=settings,
+            source_directory=source_directory,
+            output_directory=output_directory,
+            run_id=arguments.run_id,
+            judge_model=arguments.judge_model,
+            judge_profile=arguments.judge_profile,
+            concurrency=arguments.concurrency,
+            operation_retries=arguments.operation_retries,
+            retry_errors=not arguments.keep_errors,
+        )
+    )
+    print(json.dumps({"summary": summary}, ensure_ascii=False, indent=2))
     return 0
 
 

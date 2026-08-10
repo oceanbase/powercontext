@@ -121,6 +121,12 @@ def diagnose_observations(observations: Iterable[Mapping[str, Any]]) -> dict[str
     hit = tuple(value for value in completed if float(value["metrics"]["evidence_hit"]) == 1.0)
     miss = tuple(value for value in completed if float(value["metrics"]["evidence_hit"]) == 0.0)
     wrong = tuple(value for value in completed if float(value["metrics"]["llm_judge"]) == 0.0)
+    has_answer_fallback = any("answer_fallback" in value for value in completed)
+    retry_phases = ("search", "rerank", "answer", "judge")
+    usage_stages = ("rerank", "answer", "judge")
+    if has_answer_fallback:
+        retry_phases = (*retry_phases, "answer_fallback")
+        usage_stages = (*usage_stages, "answer_fallback")
     buckets = (
         ("rank_1", lambda score: score == 1.0),
         ("rank_2_5", lambda score: 0.2 <= score < 1.0),
@@ -128,7 +134,7 @@ def diagnose_observations(observations: Iterable[Mapping[str, Any]]) -> dict[str
         ("rank_11_30", lambda score: 0.0 < score < 0.1),
         ("miss", lambda score: score == 0.0),
     )
-    return {
+    diagnostics: dict[str, Any] = {
         "unknown_answer_count": sum(
             normalize_answer(value.get("generated_answer", "")) == "unknown" for value in completed
         ),
@@ -154,16 +160,31 @@ def diagnose_observations(observations: Iterable[Mapping[str, Any]]) -> dict[str
         },
         "transient_retries": {
             phase: sum(int(value.get("transient_retries", {}).get(phase, 0)) for value in completed)
-            for phase in ("search", "rerank", "answer", "judge")
+            for phase in retry_phases
         },
         "model_usage": {
             stage: {
                 field: sum(int(value.get("usage", {}).get(stage, {}).get(field) or 0) for value in completed)
                 for field in ("requests", "input_tokens", "output_tokens")
             }
-            for stage in ("rerank", "answer", "judge")
+            for stage in usage_stages
         },
     }
+    if has_answer_fallback:
+        triggered = tuple(value for value in completed if value["answer_fallback"]["triggered"])
+        resolved_count = sum(normalize_answer(value.get("generated_answer", "")) != "unknown" for value in triggered)
+        diagnostics["answer_fallback"] = {
+            "trigger": "normalized-answer-equals-unknown",
+            "triggered_count": len(triggered),
+            "triggered_rate": _rate(len(triggered), len(completed)),
+            "resolved_count": resolved_count,
+            "resolved_rate": _rate(resolved_count, len(triggered)),
+            "llm_judge_accuracy": _rate(
+                sum(float(value["metrics"]["llm_judge"]) for value in triggered),
+                len(triggered),
+            ),
+        }
+    return diagnostics
 
 
 def percentile(values: Sequence[float], percentage: float) -> float | None:
@@ -208,7 +229,10 @@ def _summarize_group(values: tuple[Mapping[str, Any], ...]) -> dict[str, Any]:
             float(value.get("metrics", {}).get(metric, 0.0)) if value.get("status") == "ok" else 0.0 for value in values
         ]
         summary[metric] = statistics.fmean(scores) if scores else 0.0
-    for phase in ("search", "rerank", "answer", "judge", "total"):
+    phases = ("search", "rerank", "answer", "judge", "total")
+    if any("answer_fallback" in value.get("latency_ms", {}) for value in completed):
+        phases = ("answer_fallback", *phases)
+    for phase in phases:
         latencies = [float(value["latency_ms"][phase]) for value in completed if phase in value.get("latency_ms", {})]
         summary[f"{phase}_latency_ms_p50"] = percentile(latencies, 0.50)
         summary[f"{phase}_latency_ms_p95"] = percentile(latencies, 0.95)

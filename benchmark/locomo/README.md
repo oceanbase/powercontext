@@ -26,6 +26,10 @@ timestamped dialogue Source
   reranker or reorder hits. Reranking remains opt-in, so existing runs retain the original retrieval order.
 - Answer: the configured generation model sees only the question, speaker names, retrieved Memory text, and cited
   Source dates. It does not see the gold answer.
+- Inference-aware answer A/B: `--answer-inference-aware` applies the inference policy to every question.
+  `--answer-unknown-fallback-inference` first uses the original Source Answer policy and retries only when its
+  normalized answer is exactly `Unknown`. Both modes require `--answer-source-content`, are mutually exclusive and
+  disabled by default, and record versioned contracts in `run.json`.
 - Accuracy: normalized exact match, normalized token F1, reference-set F1, BLEU-1, and a binary LLM
   judge. Errors remain in the denominator and score zero.
 - Retrieval: Hit, Recall, and MRR over cited evidence sessions. PowerContext Memory cites a Source session (`D1`),
@@ -95,6 +99,40 @@ When extracted Memory has identified the right session but compressed away an ex
 item, `--answer-source-content` expands only the Source sessions cited by the selected Memory entries. This remains
 gold-free and does not search the full conversation; it is opt-in and records the exact Source IDs supplied to the
 answer model.
+
+For an isolated inference-answering treatment, keep retrieval fixed and enable the versioned prompt explicitly:
+
+```bash
+uv run python -m benchmark.locomo run \
+  --env-file .env \
+  --run-id locomo-inference-aware \
+  --top-k 30 \
+  --answer-k 10 \
+  --answer-source-content \
+  --answer-inference-aware \
+  --categories 3
+```
+
+The inference-aware option does not change extraction, retrieval, or the Judge policy. Use a separate output directory
+and an independent `rejudge` run when comparing it with a baseline.
+
+To preserve direct-answer behavior while giving abstentions one inference attempt, enable the exact-Unknown fallback:
+
+```bash
+uv run python -m benchmark.locomo run \
+  --env-file .env \
+  --run-id locomo-unknown-fallback-inference \
+  --top-k 30 \
+  --answer-k 10 \
+  --answer-source-content \
+  --answer-unknown-fallback-inference \
+  --categories 1,2,3,4
+```
+
+The fallback reuses the same retrieved Memory and Source context; it does not search again and never sees the gold
+answer or dataset category. Each observation records whether the direct answer triggered the fallback, the initial
+answer, the fallback instruction identity, and any extra latency, usage, and retries. Trigger rate, resolved-Unknown
+rate, fallback-answer accuracy, and model usage are aggregated in `summary.json`.
 
 Run an isolated extraction-profile A/B with distinct database scopes and output directories while keeping every
 other setting fixed:
