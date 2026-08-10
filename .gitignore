@@ -1,6 +1,13 @@
+docs/source
+
+# Agent skills are restored from skills-lock.json.
+.agents/skills/
+
+# From https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
+*.py[codz]
 *$py.class
 
 # C extensions
@@ -46,7 +53,7 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
-*.py,cover
+*.py.cover
 .hypothesis/
 .pytest_cache/
 cover/
@@ -94,20 +101,35 @@ ipython_config.py
 #   install all needed dependencies.
 #Pipfile.lock
 
+# UV
+#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
+#   This is especially recommended for binary packages to ensure reproducibility, and is more
+#   commonly ignored for libraries.
+#uv.lock
+
 # poetry
 #   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
 #   This is especially recommended for binary packages to ensure reproducibility, and is more
 #   commonly ignored for libraries.
 #   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
 #poetry.lock
+#poetry.toml
 
 # pdm
 #   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
+#   pdm recommends including project-wide configuration in pdm.toml, but excluding .pdm-python.
+#   https://pdm-project.org/en/latest/usage/project/#working-with-version-control
 #pdm.lock
-#   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
-#   in version control.
-#   https://pdm.fming.dev/#use-with-ide
-.pdm.toml
+#pdm.toml
+.pdm-python
+.pdm-build/
+
+# pixi
+#   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
+#pixi.lock
+#   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
+#   in the .venv directory. It is recommended not to include this directory in version control.
+.pixi
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
@@ -121,10 +143,10 @@ celerybeat.pid
 
 # Environments
 .env
+.envrc
+.powercontext/
+.powercontext-e2e/
 .venv
-
-# PowerMem backup / local data
-data/
 env/
 venv/
 ENV/
@@ -138,8 +160,9 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
+# mkdocs/zensical documentation
 /site
+e2e/bub/results/
 
 # mypy
 .mypy_cache/
@@ -157,83 +180,38 @@ cython_debug/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be added to the global gitignore or merged into this project gitignore.  For a PyCharm
-#  project, it is recommended to ignore the entire .idea directory.
-.idea/
+#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+#  and can be added to the global gitignore or merged into this file.  For a more nuclear
+#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
+#.idea/
 
-# VS Code
-.vscode/
+# Abstra
+# Abstra is an AI-powered process automation framework.
+# Ignore directories containing user credentials, local state, and settings.
+# Learn more at https://abstra.io/docs
+.abstra/
 
-# macOS
-.DS_Store
+# Visual Studio Code
+#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
+#  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
+#  and can be added to the global gitignore or merged into this file. However, if you prefer,
+#  you could uncomment the following to ignore the entire vscode folder
+# .vscode/
 
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
+# Ruff stuff:
+.ruff_cache/
 
-# Database files
-*.db
-*.sqlite
-*.sqlite3
+# PyPI configuration file
+.pypirc
 
-# Log files
-*.log
-logs/
+# Cursor
+#  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
+#  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
+#  refer to https://docs.cursor.com/context/ignore-files
+.cursorignore
+.cursorindexingignore
 
-# Temporary files
-*.tmp
-*.temp
-
-# Configuration files with secrets
-config/secrets.yaml
-config/production.yaml
-.env.local
-.env.production
-.env.bak*
-
-# Test data
-test_data/
-test_output/
-
-# Benchmark results
-benchmark_results/
-performance_logs/
-
-# Docker
-.dockerignore
-
-# PowerMem API Server
-.server.pid
-server.log
-*.pid
-server_*.log
-api_server.log
-
-# Server runtime files
-.pid
-*.pid.lock
-
-# Server data directories (if any)
-server_data/
-api_data/
-seekdb_data/
-
-# Server backups
-server_backup/
-*.backup
-
-# apps/vscode-extension (Node / VS Code)
-apps/vscode-extension/node_modules/
-apps/vscode-extension/out/
-apps/vscode-extension/*.vsix
-
-# Docusaurus documentation site (docs/website)
-# Source docs live under docs/; scripts/deploy-frontend.sh syncs them into docs/website/docs at build time.
-docs/website/docs/
-docs/website/.docusaurus/
-docs/website/node_modules/
-# docs/website/build/ is already covered by build/ above
-
-.codefuse/
-apps/vscode-extension/package-lock.json
+# Marimo
+marimo/_static/
+marimo/_lsp/
+__marimo__/

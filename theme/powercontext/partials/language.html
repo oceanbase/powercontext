@@ -1,0 +1,4 @@
+{% set language = "zh" if page.canonical_url and "/zh/" in page.canonical_url else "en" %}
+{% import "partials/languages/" ~ language ~ ".html" as lang %}
+{% import "partials/languages/en.html" as fallback %}
+{% macro t(key) %}{{ lang.t(key) or fallback.t(key) or key }}{% endmacro %}

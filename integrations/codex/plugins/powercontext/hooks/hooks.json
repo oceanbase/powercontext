@@ -1,0 +1,17 @@
+{
+  "description": "Recall relevant memory and capture the current Codex prompt as a Source.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --locked --quiet --project \"${PLUGIN_ROOT}\" python \"${PLUGIN_ROOT}/hooks/recall.py\"",
+            "timeout": 10,
+            "statusMessage": "Syncing PowerContext"
+          }
+        ]
+      }
+    ]
+  }
+}

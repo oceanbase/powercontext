@@ -1,3 +1,0 @@
-"""
-Integration tests module initialization
-"""

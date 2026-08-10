@@ -1,3 +1,1 @@
-"""
-End-to-end tests module initialization
-"""
+"""Cross-component acceptance tests."""

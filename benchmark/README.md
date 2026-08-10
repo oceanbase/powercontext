@@ -1,13 +1,7 @@
-# PowerMem Benchmark
+# PowerContext benchmarks
 
-This directory contains the benchmarking suite for PowerMem, including a REST API server for memory management and comprehensive load testing tools.
+Benchmarks in this directory exercise public PowerContext behavior against fixed datasets. They are kept outside
+`tests/` because they use real databases and model providers, create durable benchmark namespaces, and may take a
+long time or incur inference cost.
 
-## Documentation
-
-- **[Benchmark Overview](../docs/benchmark/overview.md)**: Complete documentation covering setup, configuration, and usage of the benchmark suite
-- **[LOCOMO Benchmark](locomo/README.md)**: Details about the LOCOMO load testing tool and evaluation metrics
-
-## Quick Links
-
-- **Benchmark Server**: FastAPI-based REST API server for memory operations (`server/`)
-- **LOCOMO Load Testing**: Comprehensive benchmarking tool using the LOCOMO dataset (`locomo/`)
+- [`locomo/`](locomo/README.md): conversation-memory retrieval and end-to-end question-answer accuracy.

@@ -1,0 +1,67 @@
+{% set canonical = page.canonical_url | string %}
+{% set is_zh = "/zh/" in canonical %}
+{% set home_url = "zh/" if is_zh else "en/" %}
+{% set is_docs = "/docs/" in canonical or "/development/" in canonical or "/modules/" in canonical %}
+{% set is_rfcs = "/rfcs/" in canonical %}
+{% set previous_url = (page.previous_page.url | string) if page.previous_page else "" %}
+{% set next_url = (page.next_page.url | string) if page.next_page else "" %}
+{% set language_path = "/zh/" if is_zh else "/en/" %}
+{% set previous_same_language = language_path in "/" ~ previous_url %}
+{% set next_same_language = language_path in "/" ~ next_url %}
+{% set previous_is_docs = "/docs/" in "/" ~ previous_url or "/development/" in "/" ~ previous_url or "/modules/" in "/" ~ previous_url %}
+{% set next_is_docs = "/docs/" in "/" ~ next_url or "/development/" in "/" ~ next_url or "/modules/" in "/" ~ next_url %}
+{% set previous_is_rfcs = "/rfcs/" in "/" ~ previous_url %}
+{% set next_is_rfcs = "/rfcs/" in "/" ~ next_url %}
+{% set show_previous = page.previous_page and previous_same_language and ((is_docs and previous_is_docs) or (is_rfcs and previous_is_rfcs) or (not is_docs and not is_rfcs)) %}
+{% set show_next = page.next_page and next_same_language and ((is_docs and next_is_docs) or (is_rfcs and next_is_rfcs) or (not is_docs and not is_rfcs)) %}
+<footer class="md-footer pc-footer">
+  {% if "navigation.footer" in features %}
+    {% if show_previous or show_next %}
+      {% if page.meta and page.meta.hide %}
+        {% set hidden = "hidden" if "footer" in page.meta.hide %}
+      {% endif %}
+      <nav class="md-footer__inner md-grid" aria-label="{{ lang.t('footer') }}" {{ hidden }}>
+        {% if show_previous %}
+          {% set direction = lang.t("footer.previous") %}
+          <a href="{{ page.previous_page.url | url }}" class="md-footer__link md-footer__link--prev" aria-label="{{ direction }}: {{ page.previous_page.title | e }}">
+            <div class="md-footer__button md-icon">
+              {% set icon = config.theme.icon.previous or "material/arrow-left" %}
+              {% include ".icons/" ~ icon ~ ".svg" %}
+            </div>
+            <div class="md-footer__title"><span class="md-footer__direction">{{ direction }}</span><div class="md-ellipsis">{{ page.previous_page.title }}</div></div>
+          </a>
+        {% endif %}
+        {% if show_next %}
+          {% set direction = lang.t("footer.next") %}
+          <a href="{{ page.next_page.url | url }}" class="md-footer__link md-footer__link--next" aria-label="{{ direction }}: {{ page.next_page.title | e }}">
+            <div class="md-footer__title"><span class="md-footer__direction">{{ direction }}</span><div class="md-ellipsis">{{ page.next_page.title }}</div></div>
+            <div class="md-footer__button md-icon">
+              {% set icon = config.theme.icon.next or "material/arrow-right" %}
+              {% include ".icons/" ~ icon ~ ".svg" %}
+            </div>
+          </a>
+        {% endif %}
+      </nav>
+    {% endif %}
+  {% endif %}
+  <div class="pc-footer__meta md-typeset">
+    <div class="pc-footer__inner md-grid">
+      <a class="pc-footer__wordmark" href="{{ home_url | url }}" aria-label="{{ 'OceanBase PowerContext 首页' if is_zh else 'OceanBase PowerContext home' }}">
+        <img src="{{ 'assets/images/oceanbase-logo.svg' | url }}" alt="">
+        <span class="pc-brand__owner">OceanBase</span>
+        <span class="pc-brand__divider" aria-hidden="true">|</span>
+        <span class="pc-footer__product">PowerContext</span>
+      </a>
+      <nav class="pc-footer__nav" aria-label="{{ '页脚导航' if is_zh else 'Footer navigation' }}">
+        <a href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ "文档" if is_zh else "Docs" }}</a>
+        <a href="{{ ('zh/blog/' if is_zh else 'en/blog/') | url }}">{{ "博客" if is_zh else "Blog" }}</a>
+        <a href="{{ ('zh/changelog/' if is_zh else 'en/changelog/') | url }}">{{ "更新日志" if is_zh else "Changelog" }}</a>
+        <a href="{{ ('zh/rfcs/' if is_zh else 'en/rfcs/') | url }}">{{ "RFC" if is_zh else "RFCs" }}</a>
+      </nav>
+      <div class="pc-footer__end">
+        <div class="pc-footer__copyright">{{ config.copyright }}</div>
+        {% if config.extra.social %}{% include "partials/social.html" %}{% endif %}
+      </div>
+    </div>
+  </div>
+</footer>

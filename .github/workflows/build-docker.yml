@@ -1,0 +1,226 @@
+name: Build Docker image
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - .github/workflows/build-docker.yml
+      - docker/**
+      - src/**
+      - .dockerignore
+      - LICENSE
+      - README.md
+      - pyproject.toml
+      - uv.lock
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-docker.yml
+      - docker/**
+      - src/**
+      - .dockerignore
+      - LICENSE
+      - README.md
+      - pyproject.toml
+      - uv.lock
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.event.release.tag_name || github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+
+env:
+  IMAGE_NAME: powercontext-server
+
+jobs:
+  build:
+    name: Build Linux amd64 and arm64 images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image metadata
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads(Path("pyproject.toml").read_text())
+          package_version = project["project"]["version"]
+          source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          release_tag = os.environ.get("RELEASE_TAG", "")
+
+          if release_tag:
+              release_version = release_tag.removeprefix("v")
+              if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", release_version):
+                  raise SystemExit("Release tag must use vX.Y.Z or X.Y.Z semantic versioning")
+              package_version = release_version
+
+              pyproject_path = Path("pyproject.toml")
+              pyproject_text = pyproject_path.read_text()
+              updated = re.sub(
+                  r'^version = ".*"$',
+                  f'version = "{release_version}"',
+                  pyproject_text,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              if updated == pyproject_text:
+                  raise SystemExit("Could not update the project version for the Release image")
+              pyproject_path.write_text(updated)
+
+          safe_version = re.sub(r"[^A-Za-z0-9_.-]+", "-", package_version).strip("-.")
+          if not safe_version:
+              raise SystemExit("Project version does not produce a valid Docker tag")
+          image_tag = f"{safe_version}-{source_sha[:12]}"
+          artifact_name = f"powercontext-server-{image_tag}-docker-images"
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              output.write(f"package_version={package_version}\n")
+              output.write(f"source_sha={source_sha}\n")
+              output.write(f"image_tag={image_tag}\n")
+              output.write(f"artifact_name={artifact_name}\n")
+          PY
+
+      - name: Build Docker image archives
+        if: github.event_name != 'release'
+        env:
+          IMAGE_TAG: ${{ steps.metadata.outputs.image_tag }}
+        run: |
+          mkdir -p docker-images
+
+          for platform in linux/amd64 linux/arm64; do
+            platform_suffix="${platform//\//-}"
+            output_file="docker-images/${IMAGE_NAME}-${IMAGE_TAG}-${platform_suffix}.tar"
+
+            docker buildx build \
+              --file docker/Dockerfile \
+              --platform "$platform" \
+              --tag "${IMAGE_NAME}:${IMAGE_TAG}" \
+              --cache-from "type=gha,scope=docker-${platform_suffix}" \
+              --cache-to "type=gha,mode=max,scope=docker-${platform_suffix}" \
+              --output "type=docker,dest=${output_file}" \
+              .
+          done
+
+      - name: Smoke test Linux amd64 image
+        if: github.event_name != 'release'
+        env:
+          IMAGE_TAG: ${{ steps.metadata.outputs.image_tag }}
+        run: |
+          image_archive="docker-images/${IMAGE_NAME}-${IMAGE_TAG}-linux-amd64.tar"
+          container_name="powercontext-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          cleanup() {
+            docker rm --force "$container_name" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker load --input "$image_archive"
+          docker run \
+            --detach \
+            --name "$container_name" \
+            --publish 127.0.0.1::8000 \
+            "${IMAGE_NAME}:${IMAGE_TAG}"
+
+          endpoint="$(docker port "$container_name" 8000/tcp)"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error "http://${endpoint}/health/ready"; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs "$container_name"
+          exit 1
+
+      - name: Upload Docker image archives
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          path: docker-images/*.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Validate Docker Hub configuration
+        if: github.event_name == 'release'
+        env:
+          DOCKER_PUSH_BASE: ${{ vars.DOCKER_PUSH_BASE }}
+        run: |
+          if [ -z "$DOCKER_PUSH_BASE" ]; then
+            echo "Repository variable DOCKER_PUSH_BASE is required for Release publishing" >&2
+            exit 1
+          fi
+
+      - name: Resolve Release image tags
+        if: github.event_name == 'release'
+        id: release-tags
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.DOCKER_PUSH_BASE }}/powercontext-server
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.event.release.tag_name }}
+            type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}
+
+      - name: Log in to Docker Hub
+        if: github.event_name == 'release'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Release image
+        if: github.event_name == 'release'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.release-tags.outputs.tags }}
+          labels: ${{ steps.release-tags.outputs.labels }}
+          cache-from: type=gha,scope=docker-release
+          cache-to: type=gha,mode=max,scope=docker-release
+
+      - name: Summarize build
+        env:
+          ARTIFACT_NAME: ${{ steps.metadata.outputs.artifact_name }}
+          IMAGE_TAGS: ${{ steps.release-tags.outputs.tags }}
+          SOURCE_SHA: ${{ steps.metadata.outputs.source_sha }}
+        run: |
+          {
+            echo "## Docker image"
+            echo
+            echo "- Source SHA: \`$SOURCE_SHA\`"
+            if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+              echo "- Published tags:"
+              while IFS= read -r tag; do
+                echo "  - \`$tag\`"
+              done <<< "$IMAGE_TAGS"
+              echo "- Platforms: \`linux/amd64\`, \`linux/arm64\`"
+            else
+              echo "- Artifact: \`$ARTIFACT_NAME\`"
+              echo "- Retention: 30 days"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

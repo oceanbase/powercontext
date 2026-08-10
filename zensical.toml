@@ -1,0 +1,159 @@
+[project]
+site_name = "PowerContext"
+repo_url = "https://github.com/oceanbase/powercontext"
+site_url = "https://oceanbase.github.io/powercontext"
+site_description = "PowerContext turns human-agent work into handoff-ready context."
+site_author = "PowerContext Team"
+edit_uri = "edit/main/docs/"
+repo_name = "oceanbase/powercontext"
+copyright = 'Maintained by <a href="https://oceanbase.com">OceanBase</a>.'
+
+nav = [
+    { "English" = [
+        { "Home" = "en/index.md" },
+        { "Docs" = [
+            { "Overview" = "en/docs/index.md" },
+            { "Codex quickstart" = "en/docs/tutorials/codex-quickstart.md" },
+            { "Install and run" = "en/docs/how-to/install-and-run.md" },
+            { "Configure Codex" = "en/docs/how-to/configure-codex.md" },
+            { "Troubleshoot" = "en/docs/how-to/troubleshoot.md" },
+            { "Interfaces" = "en/docs/reference/interfaces.md" },
+            { "Configuration" = "en/docs/reference/configuration.md" },
+        ] },
+        { "Development" = [
+            { "Core Protocol" = "en/development/core-protocol.md" },
+            { "Memory Layer" = "en/development/memory-layer.md" },
+            { "Pydantic AI Inference" = "en/development/pydantic-ai-inference.md" },
+            { "Remote Access Implementation" = "en/development/remote-access-implementation.md" },
+            { "Server Web UI" = "en/development/server-web-ui.md" },
+            { "API Reference" = "en/modules.md" },
+        ] },
+        { "Blog" = "en/blog/index.md" },
+        { "Changelog" = "en/changelog/index.md" },
+        { "RFCs" = [
+            { "Overview" = "en/rfcs/README.md" },
+            { "RFC Template" = "en/rfcs/0000_example.md" },
+            { "0050 Artifact Candidate and Review Inbox" = "en/rfcs/0050_artifact_candidate_review_inbox.md" },
+            { "0001 Product Definition and Vision" = "en/rfcs/0001_product_definition_and_vision.md" },
+            { "0002 Core SDK Product Model" = "en/rfcs/0002_core_sdk_product_model.md" },
+            { "0011 Remote Access Architecture" = "en/rfcs/0011_remote_access_architecture.md" },
+            { "0014 Memory Layer Design" = "en/rfcs/0014_memory_layer_design.md" },
+            { "0016 Pydantic AI Inference Integration" = "en/rfcs/0016_pydantic_ai_inference_integration.md" },
+            { "0019 Local Source-to-Memory Runtime" = "en/rfcs/0019_local_source_memory_runtime.md" },
+            { "0020 Runtime-backed Memory Remote Access" = "en/rfcs/0020_runtime_backed_memory_remote_access.md" },
+            { "0028 Context Pack" = "en/rfcs/0028_context_pack.md" },
+            { "0048 Handoff Artifact" = "en/rfcs/0048_handoff_artifact.md" },
+            { "0051 Experience and Skill Artifact Families" = "en/rfcs/0051_experience_skill_artifact_families.md" },
+            { "0080 Memory Search Reranking" = "en/rfcs/0080_memory_search_reranking.md" },
+            { "0081 End-to-end Evaluation Architecture" = "en/rfcs/0081_end_to_end_evaluation_architecture.md" },
+            { "0072 Scoped Statistics and Usage" = "en/rfcs/0072_scoped_statistics_and_usage.md" },
+        ] },
+    ] },
+    { "中文" = [
+        { "首页" = "zh/index.md" },
+        { "文档" = [
+            { "概览" = "zh/docs/index.md" },
+            { "Codex 快速入门" = "zh/docs/tutorials/codex-quickstart.md" },
+            { "安装和运行" = "zh/docs/how-to/install-and-run.md" },
+            { "配置 Codex" = "zh/docs/how-to/configure-codex.md" },
+            { "排查问题" = "zh/docs/how-to/troubleshoot.md" },
+            { "接口" = "zh/docs/reference/interfaces.md" },
+            { "配置" = "zh/docs/reference/configuration.md" },
+        ] },
+        { "开发" = [
+            { "Core Protocol" = "zh/development/core-protocol.md" },
+            { "Memory Layer" = "zh/development/memory-layer.md" },
+            { "Pydantic AI 推理" = "zh/development/pydantic-ai-inference.md" },
+            { "远程访问实现" = "zh/development/remote-access-implementation.md" },
+            { "Server Web UI" = "zh/development/server-web-ui.md" },
+            { "API 参考" = "zh/modules.md" },
+        ] },
+        { "博客" = "zh/blog/index.md" },
+        { "更新日志" = "zh/changelog/index.md" },
+        { "RFC" = [
+            { "概览" = "zh/rfcs/README.md" },
+            { "RFC 模板" = "zh/rfcs/0000_example.md" },
+            { "0050 Artifact Candidate 与 Review Inbox" = "zh/rfcs/0050_artifact_candidate_review_inbox.md" },
+            { "0001 产品定义与构想" = "zh/rfcs/0001_product_definition_and_vision.md" },
+            { "0002 Core SDK 产品模型" = "zh/rfcs/0002_core_sdk_product_model.md" },
+            { "0011 远程访问架构" = "zh/rfcs/0011_remote_access_architecture.md" },
+            { "0014 Memory Layer 设计" = "zh/rfcs/0014_memory_layer_design.md" },
+            { "0016 Pydantic AI 推理层与 Memory 集成" = "zh/rfcs/0016_pydantic_ai_inference_integration.md" },
+            { "0019 本地 Source-to-Memory Runtime" = "zh/rfcs/0019_local_source_memory_runtime.md" },
+            { "0020 基于 Runtime 的 Memory 远程访问" = "zh/rfcs/0020_runtime_backed_memory_remote_access.md" },
+            { "0028 Context Pack" = "zh/rfcs/0028_context_pack.md" },
+            { "0048 Handoff Artifact" = "zh/rfcs/0048_handoff_artifact.md" },
+            { "0051 Experience 与 Skill Artifact Family" = "zh/rfcs/0051_experience_skill_artifact_families.md" },
+            { "0080 Memory 搜索 Rerank" = "zh/rfcs/0080_memory_search_reranking.md" },
+            { "0081 端到端评估架构" = "zh/rfcs/0081_end_to_end_evaluation_architecture.md" },
+            { "0072 Scoped Statistics 与 Usage" = "zh/rfcs/0072_scoped_statistics_and_usage.md" },
+        ] },
+    ] },
+]
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src/powercontext"]
+
+[project.plugins.search]
+lang = ["en", "zh"]
+
+[project.theme]
+custom_dir = "theme/powercontext"
+language = "en"
+variant = "modern"
+font = false
+features = [
+    "announce.dismiss",
+    "content.code.annotate",
+    "content.action.edit",
+    "content.action.view",
+    "content.code.copy",
+    "content.code.select",
+    "content.footnote.tooltips",
+    "content.tabs.link",
+    "content.tooltips",
+    "navigation.footer",
+    "navigation.indexes",
+    "navigation.path",
+    "navigation.top",
+    "navigation.tracking",
+    "search.highlight",
+]
+
+
+[project.theme.icon]
+previous = "fontawesome/solid/angle-left"
+next = "fontawesome/solid/angle-right"
+repo = "fontawesome/brands/github"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "white"
+accent = "blue"
+toggle.icon =  "material/brightness-7"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "black"
+accent = "blue"
+toggle.icon =  "material/brightness-4"
+toggle.name = "Switch to system preference"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/oceanbase/powercontext"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/python"
+link = "https://pypi.org/project/powercontext"
+
+[project.markdown_extensions.pymdownx.superfences]
+
+[project.markdown_extensions.pymdownx.arithmatex]
+generic = true
+
+[project.markdown_extensions.toc]
+permalink = true

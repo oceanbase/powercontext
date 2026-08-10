@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "skills": {
+    "documentation-writer": {
+      "source": "github/awesome-copilot",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/documentation-writer/SKILL.md",
+      "computedHash": "ee53d65b163cd7eb953a930c95841cfe398cc2c0bd24c06508bbaa07c432be35"
+    },
+    "friendly-python": {
+      "source": "PsiACE/skills",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/friendly-python/SKILL.md",
+      "computedHash": "58c1a5576fc50e68a94a17ee9b4d43b9847826982dd74dc8c68e027a2de39751"
+    },
+    "humanizer": {
+      "source": "blader/humanizer",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "71a65e340e413dc6828da29eff38d9e2c6868e93898303bd062a06bed9f95102"
+    },
+    "kill-ai-slop": {
+      "source": "yetone/kill-ai-slop",
+      "sourceType": "github",
+      "skillPath": "skill/SKILL.md",
+      "computedHash": "bece0e23b22176d36a1d07c9c01b448b8458affd5c17328fb780b88b08018939"
+    },
+    "piglet": {
+      "source": "PsiACE/skills",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/piglet/SKILL.md",
+      "computedHash": "a7adc8efc1fb003644573b886f7405e97e5d8c94a11bb2d607693f93e7cc6a86"
+    }
+  }
+}

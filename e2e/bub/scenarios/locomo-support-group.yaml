@@ -1,0 +1,45 @@
+schema: powercontext.session-replay/v1
+id: locomo-support-group
+provenance:
+  source: benchmark/locomo/dataset/locomo10.json
+  revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
+  selection: first-conversation-first-question/v1
+  case_ids:
+    - conv-26
+    - conv-26:q001
+    - D1
+sessions:
+  - id: capture
+    input: |-
+      Remember the durable facts in this complete chronological conversation session.
+      LoCoMo conversation conv-26, session D1
+      Date and time: 1:56 pm on 8 May, 2023
+      Speakers: Caroline and Melanie
+      Dialogue:
+      [D1:1] Caroline: Hey Mel! Good to see you! How have you been?
+      [D1:2] Melanie: Hey Caroline! Good to see you! I'm swamped with the kids & work. What's up with you? Anything new?
+      [D1:3] Caroline: I went to a LGBTQ support group yesterday and it was so powerful.
+      [D1:4] Melanie: Wow, that's cool, Caroline! What happened that was so awesome? Did you hear any inspiring stories?
+      [D1:5] Caroline: The transgender stories were so inspiring! I was so happy and thankful for all the support.
+      [D1:6] Melanie: Wow, love that painting! So cool you found such a helpful group. What's it done for you?
+      [D1:7] Caroline: The support group has made me feel accepted and given me courage to embrace myself.
+      [D1:8] Melanie: That's really cool. You've got guts. What now?
+      [D1:9] Caroline: Gonna continue my edu and check out career options, which is pretty exciting!
+      [D1:10] Melanie: Wow, Caroline! What kinda jobs are you thinkin' of? Anything that stands out?
+      [D1:11] Caroline: I'm keen on counseling or working in mental health - I'd love to support those with similar issues.
+      [D1:12] Melanie: You'd be a great counselor! Your empathy and understanding will really help the people you work with.
+      [D1:13] Caroline: Thanks, Melanie! That's really sweet. Is this your own painting?
+      [D1:14] Melanie: Yeah, I painted that lake sunrise last year! It's special to me.
+      [D1:15] Caroline: Wow, Melanie! The colors really blend nicely. Painting looks like a great outlet for expressing yourself.
+      [D1:16] Melanie: Thanks, Caroline! Painting's a fun way to express my feelings and get creative.
+      [D1:17] Caroline: Totally agree, Mel. Relaxing and expressing ourselves is key. Well, I'm off to go do some research.
+      [D1:18] Melanie: Yep, Caroline. Taking care of ourselves is vital. Talk to you soon!
+    expected_memory:
+      - LGBTQ support group
+      - 8 May, 2023
+  - id: recall
+    input: When did Caroline go to the LGBTQ support group?
+    expected_context:
+      - LGBTQ support group
+      - 8 May, 2023
+    expected_answer: 7 May 2023

@@ -1,0 +1,72 @@
+"""Stable public exports for PowerContext clients."""
+
+from powercontext.artifacts import (
+    Artifact,
+    ArtifactCatalog,
+    ArtifactDraft,
+    ArtifactLineage,
+    ArtifactRef,
+    ArtifactStore,
+)
+from powercontext.context import Artifacts, PowerContext, Sources
+from powercontext.errors import (
+    ArtifactError,
+    ArtifactFamilyMismatchError,
+    ArtifactNotFoundError,
+    InvalidArtifactReferenceError,
+    InvalidSourceAdapterError,
+    InvalidSourceEntryError,
+    InvalidSourceReferenceError,
+    InvalidSourceResultError,
+    PowerContextError,
+    RevisionConflictError,
+    SourceAdapterNotFoundError,
+    SourceConflictError,
+    SourceError,
+    SourceNotFoundError,
+)
+from powercontext.sources import (
+    Source,
+    SourceAdapter,
+    SourceCatalog,
+    SourceCatalogBackend,
+    SourceMaterialization,
+    SourceRef,
+    SourceStore,
+)
+from powercontext.triggers import PolicyTransition, Trigger
+
+__all__ = [
+    "Artifact",
+    "ArtifactCatalog",
+    "ArtifactDraft",
+    "ArtifactError",
+    "ArtifactFamilyMismatchError",
+    "ArtifactLineage",
+    "ArtifactNotFoundError",
+    "ArtifactRef",
+    "ArtifactStore",
+    "Artifacts",
+    "InvalidArtifactReferenceError",
+    "InvalidSourceAdapterError",
+    "InvalidSourceEntryError",
+    "InvalidSourceReferenceError",
+    "InvalidSourceResultError",
+    "PolicyTransition",
+    "PowerContext",
+    "PowerContextError",
+    "RevisionConflictError",
+    "Source",
+    "SourceAdapter",
+    "SourceAdapterNotFoundError",
+    "SourceCatalog",
+    "SourceCatalogBackend",
+    "SourceConflictError",
+    "SourceError",
+    "SourceMaterialization",
+    "SourceNotFoundError",
+    "SourceRef",
+    "SourceStore",
+    "Sources",
+    "Trigger",
+]

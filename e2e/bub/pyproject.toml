@@ -1,0 +1,42 @@
+[project]
+name = "powercontext-e2e"
+version = "0.0.1"
+description = "Bub-driven PowerContext session replay harness."
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "bub>=0.4.0,<0.5.0",
+    "loguru>=0.7,<1",
+    "opentelemetry-sdk>=1.30,<2",
+    "powercontext[client]",
+    "powercontext-bub",
+    "pydantic-evals>=2.14,<3",
+    "pyyaml>=6,<7",
+]
+
+[project.scripts]
+powercontext-e2e = "powercontext_e2e.__main__:main"
+
+[project.entry-points."bub"]
+powercontext_e2e_tracing = "powercontext_e2e.tracing:BubTracingPlugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/powercontext_e2e"]
+
+[tool.uv.sources]
+powercontext = { path = "../..", editable = true }
+powercontext-bub = { path = "../../integrations/bub", editable = true }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["A", "B", "C4", "C90", "E", "F", "I", "PGH", "RUF", "S", "SIM", "T10", "TRY", "UP", "W", "YTT"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+preview = true

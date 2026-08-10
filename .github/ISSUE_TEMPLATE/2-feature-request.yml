@@ -1,0 +1,51 @@
+name: Feature Request
+description: Suggest an improvement or new capability for PowerContext
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thank you for suggesting an improvement. Substantial changes may be asked to go through the RFC process under `docs/rfcs` before implementation."
+
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Feature description
+      description: "Describe the capability you would like to see."
+      placeholder: "Describe the feature..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem-solution
+    attributes:
+      label: Problem and proposed solution
+      description: "Explain the problem this solves and how you expect the solution to work."
+      placeholder: "What problem does this solve? What should the user experience or API look like?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: "List any alternative designs, workarounds, or tradeoffs you have considered."
+      placeholder: "Describe alternatives or explain why they are not enough..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: "Add any other context, examples, screenshots, or links."
+      placeholder: "Add supporting details here..."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: willing-to-contribute
+    attributes:
+      label: Are you willing to contribute to this feature?
+      options:
+        - label: "Yes, I am willing to contribute code, docs, or design feedback."

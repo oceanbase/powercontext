@@ -1,3 +1,1 @@
-"""
-Test module initialization
-"""
+"""PowerContext test suite."""

@@ -1,0 +1,19 @@
+{
+  "name": "powercontext",
+  "interface": {
+    "displayName": "PowerContext"
+  },
+  "plugins": [
+    {
+      "name": "powercontext",
+      "source": {
+        "source": "local",
+        "path": "./integrations/codex/plugins/powercontext"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

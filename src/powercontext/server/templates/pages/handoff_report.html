@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}PowerContext Handoff Report{% endblock %}
+
+{% block content %}
+{% include "components/login.html" %}
+
+<section id="handoff-report" hidden>
+  <div class="hero report-hero">
+    <div>
+      <p class="page-kind" data-i18n="handoffReportTitle">Handoff Report</p>
+      <h1 id="project-name"></h1>
+      <p class="project-identity" id="project-identity"></p>
+    </div>
+    <div class="report-actions">
+      <button class="secondary-button page-button" id="refresh-report" type="button" data-i18n="refresh">Refresh</button>
+      <button class="primary-button" id="download-report" type="button" data-i18n="downloadMarkdown">Download Markdown</button>
+      <div class="hero-meta"><span id="report-updated"></span></div>
+    </div>
+  </div>
+
+  <div class="project-tabs-shell" aria-labelledby="project-tabs-label">
+    <div class="field-label" id="project-tabs-label" data-i18n="projects">Projects</div>
+    <div class="project-tabs" id="project-tabs" role="tablist"></div>
+  </div>
+
+  <section class="report-toolbar" aria-labelledby="period-filter-label">
+    <div class="period-toolbar-main">
+      <div class="field-label" id="period-filter-label" data-i18n="reportPeriod">Report period</div>
+      <div class="period-filter-controls">
+        <div class="period-presets" role="group" aria-labelledby="period-filter-label">
+          <button class="period-preset" type="button" data-period-mode="day" data-i18n="day">Day</button>
+          <button class="period-preset" type="button" data-period-mode="week" data-i18n="week">Week</button>
+          <button class="period-preset" type="button" data-period-mode="month" data-i18n="month">Month</button>
+        </div>
+        <form class="custom-period-form" id="custom-period-form">
+          <label class="screen-reader-only" for="period-start" data-i18n="periodStart">Start date</label>
+          <input class="period-date-input" id="period-start" type="date">
+          <span class="period-separator" aria-hidden="true">–</span>
+          <label class="screen-reader-only" for="period-end" data-i18n="periodEnd">End date</label>
+          <input class="period-date-input" id="period-end" type="date">
+          <button class="secondary-button page-button" id="apply-custom-period" type="submit" data-i18n="apply">Apply</button>
+        </form>
+      </div>
+      <div class="period-error" id="period-error" role="alert" aria-live="polite"></div>
+    </div>
+    <div class="period-summary" aria-live="polite">
+      <strong id="period-summary-label"></strong>
+      <span id="period-comparison"></span>
+      <span class="period-boundary-note" id="period-boundary-note"></span>
+    </div>
+  </section>
+
+  <div class="report-error" id="report-error" role="alert" aria-live="polite"></div>
+
+  <section class="report-overview" aria-label="Handoff summary">
+    <div class="report-metric status-continuable">
+      <span data-i18n="continuable">Continuable</span>
+      <strong id="continuable-count">0</strong>
+    </div>
+    <div class="report-metric status-blocked">
+      <span data-i18n="blocked">Blocked</span>
+      <strong id="blocked-count">0</strong>
+    </div>
+    <div class="report-metric status-complete">
+      <span data-i18n="complete">Complete</span>
+      <strong id="complete-count">0</strong>
+    </div>
+    <div class="report-metric status-no-handoff">
+      <span data-i18n="noHandoff">No Handoff</span>
+      <strong id="no-handoff-count">0</strong>
+    </div>
+  </section>
+
+  <section class="coverage-strip" aria-labelledby="coverage-title">
+    <div>
+      <h2 id="coverage-title" data-i18n="coverage">Report coverage</h2>
+      <p id="coverage-description"></p>
+    </div>
+    <dl>
+      <div><dt data-i18n="workstreams">Workstreams</dt><dd id="selected-workstreams">0</dd></div>
+      <div><dt data-i18n="activities">Activities</dt><dd id="activity-count">0</dd></div>
+      <div><dt data-i18n="evidenceUnavailable">Evidence unavailable</dt><dd id="evidence-unavailable">0</dd></div>
+    </dl>
+  </section>
+
+  <section class="data-section" id="blockers-section" aria-labelledby="blockers-title" hidden>
+    <div class="section-heading">
+      <div>
+        <h2 id="blockers-title" data-i18n="blockers">Blockers</h2>
+        <p data-i18n="blockersSubtitle">Workstreams that cannot be continued without intervention</p>
+      </div>
+    </div>
+    <div class="blocker-list" id="blocker-list"></div>
+  </section>
+
+  <section class="data-section" aria-labelledby="workstreams-title">
+    <div class="section-heading">
+      <div>
+        <h2 id="workstreams-title" data-i18n="workstreams">Workstreams</h2>
+        <p data-i18n="workstreamsSubtitle">Exact Handoff state and the next action for each scope</p>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table class="family-table report-table">
+        <thead>
+          <tr>
+            <th scope="col" data-i18n="workstream">Workstream</th>
+            <th scope="col" data-i18n="status">Status</th>
+            <th scope="col" data-i18n="reporting">Reporting</th>
+            <th scope="col" data-i18n="activities">Activities</th>
+            <th scope="col" data-i18n="nextAction">Next action</th>
+          </tr>
+        </thead>
+        <tbody id="workstream-rows"></tbody>
+      </table>
+    </div>
+    <div class="empty-state" id="workstream-empty" data-i18n="noWorkstreams" hidden>No Workstreams are registered.</div>
+  </section>
+
+  <section class="data-section" aria-labelledby="handoff-contents-title">
+    <div class="section-heading">
+      <div>
+        <h2 id="handoff-contents-title" data-i18n="handoffContents">Handoff content</h2>
+        <p data-i18n="handoffContentsSubtitle">Objective, current state, next action, and known omissions for continuation</p>
+      </div>
+    </div>
+    <div class="handoff-content-list" id="handoff-content-list"></div>
+  </section>
+
+  <section class="report-metadata" aria-labelledby="metadata-title">
+    <h2 id="metadata-title" data-i18n="metadata">Report metadata</h2>
+    <dl>
+      <div><dt data-i18n="selectionConsistency">Selection consistency</dt><dd id="selection-consistency"></dd></div>
+      <div><dt data-i18n="activityCoverage">Activity coverage</dt><dd id="activity-coverage"></dd></div>
+      <div><dt data-i18n="selectionDigest">Selection digest</dt><dd><code id="selection-digest"></code></dd></div>
+      <div><dt data-i18n="reportDigest">Report digest</dt><dd><code id="report-digest"></code></dd></div>
+    </dl>
+  </section>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}"></script>
+{% endblock %}

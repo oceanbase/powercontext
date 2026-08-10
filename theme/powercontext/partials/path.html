@@ -1,0 +1,14 @@
+{% import "partials/path-item.html" as item with context %}
+{% if page.meta and page.meta.hide %}
+  {% set hidden = "hidden" if "path" in page.meta.hide %}
+{% endif %}
+{% if nav.homepage or page.ancestors %}
+  <nav class="md-path" aria-label="{{ lang.t('nav') }}" {{ hidden }}>
+    <ol class="md-path__list">
+      {% if nav.homepage %}{{ item.render(nav.homepage) }}{% endif %}
+      {% for ancestor in page.ancestors | reverse %}
+        {% if ancestor.title not in ["English", "中文"] %}{{ item.render(ancestor) }}{% endif %}
+      {% endfor %}
+    </ol>
+  </nav>
+{% endif %}

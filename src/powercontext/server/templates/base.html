@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}PowerContext{% endblock %}</title>
+  <script>
+    try {
+      const savedTheme = localStorage.getItem("powercontext.dashboard.theme");
+      const initialTheme = savedTheme === "light" || savedTheme === "dark"
+        ? savedTheme
+        : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.dataset.theme = initialTheme;
+      const savedLocale = localStorage.getItem("powercontext.dashboard.locale");
+      document.documentElement.lang = savedLocale === "zh" || savedLocale === "en"
+        ? savedLocale
+        : (navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en");
+    } catch (error) {
+      // Theme persistence is optional when browser storage is unavailable.
+    }
+  </script>
+  <link rel="stylesheet" href="{{ url_for('web_static', path='/site.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  {% include "components/header.html" %}
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+  {% include "components/footer.html" %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

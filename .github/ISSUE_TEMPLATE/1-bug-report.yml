@@ -1,0 +1,66 @@
+name: Bug Report
+description: Report a reproducible problem in PowerContext
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thank you for taking the time to report a bug. Please provide enough detail for maintainers to reproduce and diagnose the issue."
+
+  - type: textarea
+    id: describe-bug
+    attributes:
+      label: Describe the bug
+      description: "A clear and concise description of the problem."
+      placeholder: "Describe what went wrong..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to reproduce
+      description: "List the exact steps, commands, inputs, or environment state needed to reproduce the behavior."
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: "Describe what you expected to happen."
+      placeholder: "Explain the expected result..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual behavior
+      description: "Describe what actually happened. Include relevant logs, stack traces, or screenshots."
+      placeholder: "Paste logs or error output here..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: "Share the version, Python runtime, operating system, and any relevant dependency versions."
+      placeholder: |
+        - PowerContext version:
+        - Python version:
+        - OS:
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: willing-to-submit-pr
+    attributes:
+      label: Are you willing to submit a PR to fix this bug?
+      options:
+        - label: "Yes, I would like to submit a PR."

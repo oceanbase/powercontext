@@ -1,0 +1,37 @@
+services:
+  oceanbase:
+    image: ${POWERCONTEXT_E2E_OCEANBASE_IMAGE:-ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916}
+    environment:
+      MODE: MINI
+      OB_DATABASE: powercontext
+      OB_DATAFILE_SIZE: 2G
+      OB_LOG_DISK_SIZE: 4G
+      OB_TENANT_PASSWORD: powercontext-e2e
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          obclient -h127.0.0.1 -P2881 -uroot@test -p$${OB_TENANT_PASSWORD}
+          -D$${OB_DATABASE} -e 'SELECT 1' >/dev/null 2>&1
+      interval: 5s
+      timeout: 5s
+      retries: 120
+      start_period: 30s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - oceanbase-data:/root/ob
+
+  powercontext:
+    depends_on:
+      oceanbase:
+        condition: service_healthy
+    environment:
+      POWERCONTEXT_SERVER_DATABASE_KIND: oceanbase
+      POWERCONTEXT_SERVER_DATABASE_URL: >-
+        mysql+aoceanbase://root%40test:powercontext-e2e@oceanbase:2881/powercontext?charset=utf8mb4
+
+volumes:
+  oceanbase-data:

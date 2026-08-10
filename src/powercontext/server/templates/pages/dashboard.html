@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}PowerContext Dashboard{% endblock %}
+
+{% block content %}
+{% include "components/login.html" %}
+
+<section id="dashboard" hidden>
+  <div class="hero">
+    <div>
+      <p class="page-kind" data-i18n="dashboardTitle">Dashboard</p>
+      <h1 id="dashboard-name"></h1>
+    </div>
+    <div>
+      <div class="scope-picker">
+        <label for="scope-select" data-i18n="selectScope">Select scope</label>
+        <select id="scope-select"></select>
+      </div>
+      <div class="hero-meta">
+        <span class="period-note" data-i18n="period30">30 days</span>
+        <span aria-hidden="true"> · </span><span id="as-of"></span>
+      </div>
+    </div>
+  </div>
+
+  <section class="overview" aria-label="Scope overview">
+    <div class="key-metric">
+      <div class="metric-label" data-i18n="estimatedReduction">Estimated token reduction</div>
+      <div class="metric-value" id="token-reduction">0</div>
+      <div class="metric-note" id="recall-hits"></div>
+    </div>
+    <dl class="inventory">
+      <div>
+        <dt data-i18n="sources">Sources</dt>
+        <dd id="sources">0</dd>
+      </div>
+      <div>
+        <dt data-i18n="memoryEntries">Memory entries</dt>
+        <dd id="memory-entries">0</dd>
+      </div>
+      <div>
+        <dt data-i18n="artifacts">Artifacts</dt>
+        <dd id="artifacts">0</dd>
+      </div>
+      <div>
+        <dt data-i18n="pendingReview">Pending review</dt>
+        <dd id="pending-reviews">0</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="data-section" aria-labelledby="families-title">
+    <div class="section-heading">
+      <div>
+        <h2 id="families-title" data-i18n="artifactFamilies">Artifact families</h2>
+        <p data-i18n="artifactSubtitle">Current Artifacts and Candidates awaiting review</p>
+      </div>
+    </div>
+    <table class="family-table">
+      <thead>
+        <tr>
+          <th scope="col" data-i18n="family">Family</th>
+          <th scope="col" data-i18n="currentArtifacts">Current Artifacts</th>
+          <th scope="col" data-i18n="pendingCandidates">Pending Candidates</th>
+        </tr>
+      </thead>
+      <tbody id="family-rows"></tbody>
+    </table>
+  </section>
+
+  {% include "components/activity_heatmap.html" %}
+  {% include "components/recall_trend.html" %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}"></script>
+{% endblock %}

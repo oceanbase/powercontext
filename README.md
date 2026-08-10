@@ -1,359 +1,75 @@
-# PowerMem
+# PowerContext
 
-**Persistent, self-evolving memory for AI agents and applications.**
+PowerContext gives agents durable, project-scoped context. A later session can recover a decision, outcome, current
+state, or next step without relying on chat history. PowerContext includes a local Server, SQLite storage, an
+async Python client, a Core SDK, a CLI, and a Codex plugin.
 
-[![PyPI version](https://img.shields.io/pypi/v/powermem)](https://pypi.org/project/powermem/)
-[![PyPI downloads](https://img.shields.io/pypi/dm/powermem)](https://pypi.org/project/powermem/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://pypi.org/project/powermem/)
-[![License Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![GitHub](https://img.shields.io/badge/GitHub-oceanbase%2Fpowermem-181717?logo=github)](https://github.com/oceanbase/powermem)
-[![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/74cF8vbNEs)
+PowerContext can be installed directly from its Git URL. Users need read access to that URL, but they do not need to
+clone the repository or run commands from its working tree.
 
-*English · [中文](README_CN.md) · [日本語](README_JP.md)*
+## Install for Codex
 
-PowerMem combines vector, full-text, and graph retrieval with LLM-driven memory extraction and Ebbinghaus-style time decay. It ships **two-layer Experience + Skill distillation** for self-evolving memory, multi-agent isolation, user profiles, and multimodal signals (text, image, audio).
+Prerequisites:
 
-## Why PowerMem
+- macOS or Linux;
+- [uv](https://docs.astral.sh/uv/getting-started/installation/);
+- Codex CLI;
+- read access to `oceanbase/powercontext`.
 
-AI agents need more than chat history. Context windows are finite, and naive "save everything" memory quickly becomes noisy, expensive, and hard to retrieve from. PowerMem turns conversations, actions, and feedback into structured long-term memory that can be searched, updated, decayed, and shared across agents.
-
-What makes PowerMem different:
-
-- **Intelligent memory lifecycle** — LLM-driven extraction, update, merge, and Ebbinghaus-style decay keep memories useful instead of becoming static note dumps.
-- **Self-evolving two-layer memory** — Experience + Skill distillation lets agents learn reusable workflows from interactions, not just recall facts. See [Experience + Skill distillation](docs/examples/scenario_6_sub_stores.md).
-- **Hybrid retrieval out of the box** — vector, full-text, graph, and recency signals work together in one memory layer without custom glue.
-- **Production-ready integration surface** — the same backend supports the Python SDK, HTTP server, MCP, CLI, and AI client plugins. See the [architecture overview](docs/architecture/overview.md).
-
-Use PowerMem when you are building long-running agents, copilots, or multi-agent systems that must remember users, projects, decisions, preferences, and learned workflows across sessions.
-
----
-
-## Benchmarks
-
-### [LOCOMO](https://github.com/snap-research/locomo)
-
-| Metric | PowerMem | Baseline | Improvement |
-|--------|----------|-------------------------|-------------|
-| Accuracy | **87.79%** | 52.9% | **+65.9%** |
-| Search p95 latency | **1.44 s** | 17.12 s | **-91.6%** |
-| Tokens | **~0.9 k** | 26 k | **-96.5%** |
-
-### [AppWorld](https://github.com/StonyBrookNLP/appworld)
-
-| Metric | PowerMem | Baseline | Improvement |
-|--------|----------|-------------------------|-------------|
-| Pass | **39%** | 24% | **+62.5%** |
-| Avg steps | **6.2** | 9.5 | **-34.7%** |
-| Total tokens | **1.74 M** | 2.56 M | **-32.0%** |
-
-Reproduce: [`benchmark/`](benchmark/). Under the hood: **two-layer Experience + Skill distillation + 4-way hybrid retrieval + LLM auto-merge** (API: `memory.distill_all() / add_skill / add_experience / search_*`, demo [`examples/experience_skill_usage.py`](examples/experience_skill_usage.py)).
-
----
-
-## Integrations — pick your client, copy one line
-
-PowerMem ships first-party plugins and setup guides for the most common AI clients. All of them point at the same backend (HTTP server, MCP server, or local `pmem` CLI) — no per-client schema rewrites. All agents share the same memory server.
-
-### AI agents & IDEs
-
-<table>
-<tr>
-<td align="center" width="120"><a href="#claude-code"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /></a><br /><a href="#claude-code"><sub><b>Claude Code</b></sub></a></td>
-<td align="center" width="120"><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/cursor_dark.svg"><img src="https://svgl.app/library/cursor_light.svg" alt="Cursor" width="48" height="48" /></picture></a><br /><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><sub><b>Cursor</b></sub></a></td>
-<td align="center" width="120"><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><img src="https://svgl.app/library/vscode.svg" alt="VS Code" width="48" height="48" /></a><br /><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><sub><b>VS Code</b></sub></a></td>
-<td align="center" width="120"><a href="#any-mcp-client"><img src="https://github.com/openai.png?size=120" alt="Codex" width="48" height="48" /></a><br /><a href="#any-mcp-client"><sub><b>Codex</b></sub></a></td>
-<td align="center" width="120"><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/windsurf-dark.svg"><img src="https://svgl.app/library/windsurf-light.svg" alt="Windsurf" width="48" height="48" /></picture></a><br /><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><sub><b>Windsurf</b></sub></a></td>
-<td align="center" width="120"><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><img src="https://github.githubassets.com/images/modules/site/copilot/copilot.png" alt="GitHub Copilot" width="48" height="48" /></a><br /><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><sub><b>GitHub Copilot</b></sub></a></td>
-</tr>
-<tr>
-<td align="center" width="120"><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><img src="https://github.com/QoderAI.png?size=120" alt="Qoder" width="48" height="48" /></a><br /><a href="#cursor-vs-code-windsurf-github-copilot-qoder"><sub><b>Qoder</b></sub></a></td>
-<td align="center" width="120"><a href="#any-mcp-client"><picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/opencode-dark.svg"><img src="https://svgl.app/library/opencode.svg" alt="OpenCode" width="48" height="48" /></picture></a><br /><a href="#any-mcp-client"><sub><b>OpenCode</b></sub></a></td>
-<td align="center" width="120"><a href="#openclaw-clawdbot"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /></a><br /><a href="#openclaw-clawdbot"><sub><b>OpenClaw</b></sub></a></td>
-<td align="center" width="120"><a href="#any-mcp-client"><img src="https://github.com/anthropics.png?size=120" alt="Claude Desktop" width="48" height="48" /></a><br /><a href="#any-mcp-client"><sub><b>Claude Desktop</b></sub></a></td>
-<td align="center" width="120"><a href="#any-mcp-client"><img src="https://github.com/cline.png?size=120" alt="Cline" width="48" height="48" /></a><br /><a href="#any-mcp-client"><sub><b>Cline</b></sub></a></td>
-<td></td>
-</tr>
-</table>
-
-### SDKs & apps
-
-| App / framework | Details |
-|-----------------|---------|
-| Python SDK | `pip install powermem`, see [Quick start](#quick-start-python-sdk) |
-| LangChain / LangGraph | `pip install powermem`, see [LangChain guide](docs/integrations/langchain.md) |
-| AgentScope | Connect to `powermem-mcp` with AgentScope's MCP client, see [AgentScope guide](docs/integrations/agentscope.md) |
-| Go apps | [SDKs](#sdks) |
-| Java apps | [SDKs](#sdks) |
-| TypeScript apps | [SDKs](#sdks) |
-| Any MCP client | `powermem-mcp sse` (default :8848), see [MCP client guide](docs/integrations/mcp_client.md) |
-| HTTP REST apps | `powermem-server --host 0.0.0.0 --port 8848`, see [API server](docs/api/0005-api_server.md) |
-
-### OpenClaw (ClawdBot)
-
-[OpenClaw](https://github.com/openclaw/openclaw) gains long-term memory through the [`memory-powermem`](https://github.com/ob-labs/memory-powermem) plugin.
+Install the tool and configure the Codex plugin:
 
 ```bash
-openclaw plugins install memory-powermem
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@main"
+powercontext setup codex --source oceanbase/powercontext --ref main
 ```
 
-Defaults to **CLI mode** — the plugin invokes a bundled `pmem` against SQLite under `~/.openclaw/`, using the model OpenClaw already injects. No separate server, no extra `.env`. Switch to **HTTP mode** when a team-shared PowerMem API is preferred (see the plugin's README for `requestConfig.memory_db`).
-
-Full guide: [OpenClaw integration](docs/integrations/openclaw.md).
-
-<div align="center">
-
-<img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem with OpenClaw" width="640"/>
-
-</div>
-
-### Claude Code
-
-#### Fastest path — let Claude Code set itself up
-
-First download the code and enter the directory:
+You do not need to create or manage a repository checkout. Start the local service in a terminal:
 
 ```bash
-git clone https://github.com/oceanbase/powermem
-cd powermem
+powercontext server run
 ```
 
-Then open Claude Code in your terminal and paste this one line:
-
-```text
-Read and follow apps/claude-code-plugin/SETUP.md to set up PowerMem memory for Claude Code.
-```
-
-Claude Code reads [`apps/claude-code-plugin/SETUP.md`](apps/claude-code-plugin/SETUP.md), asks you for the few required secrets, and wires everything up end-to-end.
-
-#### Manual setup
-
-Prefer to wire it by hand? See the full walkthrough — environment variables, MCP mode, the `remember` / `recall` skills, Windows hooks, troubleshooting, and uninstall — in **[docs/integrations/claude_code.md](docs/integrations/claude_code.md)**.
-
-### Cursor, VS Code, Windsurf, GitHub Copilot, Qoder
-
-#### Recommended setup — let your IDE agent set it up
-
-First download the code and enter the directory:
+In another terminal, verify the package, plugin, Server, and database:
 
 ```bash
-git clone https://github.com/oceanbase/powermem
-cd powermem
+powercontext doctor
 ```
 
-Then open the AI agent window in your IDE and paste this one line:
+Start a new Codex session after installation. Open `/hooks` once and approve the PowerContext hook if Codex asks for
+trust. The default database is persistent and requires no configuration.
 
-```text
-Read and follow apps/vscode-extension/SETUP.md to setup PowerMem
-```
+See the [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) for a first cross-session workflow.
 
-The agent follows [`apps/vscode-extension/SETUP.md`](apps/vscode-extension/SETUP.md): it prefers a reusable `powermem-server` HTTP API backend, falls back to MCP-only only when HTTP is unavailable, and configures the current IDE/client instead of unrelated tools.
+## Choose an interface
 
-#### Manual setup
+| Interface | Use it for |
+| --- | --- |
+| Codex plugin | Restore relevant project memory and explicitly remember, revise, or retire entries while coding |
+| CLI | Install the plugin, run or connect to the Server, inspect content, and diagnose an installation |
+| Python client | Call the Server's Source and Memory API from an application |
+| Core SDK | Embed PowerContext contracts or supply custom adapters in a Python system |
+| HTTP and MCP | Integrate a non-Python process or an agent host with the running Server |
 
-Prefer to wire it by hand? Use the per-IDE guide:
+The [interface reference](docs/en/docs/reference/interfaces.md) explains the ownership boundary between these
+surfaces. Installation, configuration, and troubleshooting live under [`docs/en/docs/`](docs/en/docs/index.md).
 
-| Client | Details |
-|--------|---------|
-| VS Code | [`docs/integrations/vs_code.md`](docs/integrations/vs_code.md) |
-| Cursor | [`docs/integrations/cursor.md`](docs/integrations/cursor.md) |
-| Windsurf | [`docs/integrations/windsurf.md`](docs/integrations/windsurf.md) |
-| GitHub Copilot | [`docs/integrations/github_copilot.md`](docs/integrations/github_copilot.md) |
-| Qoder | [`docs/integrations/qoder.md`](docs/integrations/qoder.md) |
+## Python projects
 
-The same extension also provides **Query memories**, **Add selection to memory**, **Quick note**, and a status-bar **Dashboard**. See [`apps/vscode-extension/README.md`](apps/vscode-extension/README.md) and the full [VS Code guide](docs/integrations/vs_code.md).
-
-### Any MCP client 
-
-For Claude Desktop, Codex, Cline, OpenCode, Roo Code, Goose, or any other MCP-compatible client. please use MCP Client mode. 
-First download the code and enter the directory:
+Add only the role the project imports:
 
 ```bash
-git clone https://github.com/oceanbase/powermem
-cd powermem
+uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@main"
 ```
 
-Then open the AI agent window in your MCP client or IDE and paste this one line:
+Available extras are `builtin`, `client`, `server`, and `cli`. The CLI always includes Server-backed content commands;
+installing the `server` role also makes local Server process management available.
 
-```text
-Read and follow apps/mcp-client/SETUP.md to setup PowerMem
-```
+## Development
 
-The agent follows [`apps/mcp-client/SETUP.md`](apps/mcp-client/SETUP.md): it uses `powermem-mcp` directly, prefers SSE on port `8848`, falls back to streamable HTTP or stdio only when needed, and configures only the target MCP client.
-
-Prefer to wire it by hand? Use the [Generic MCP client guide](docs/integrations/mcp_client.md). To remove the integration later, follow [`apps/mcp-client/UNINSTALL.md`](apps/mcp-client/UNINSTALL.md). Exposed tools: `add_memory`, `search_memories`, `get_memory_by_id`, `update_memory`, `delete_memory`, `delete_all_memories`, `list_memories`. Full reference: [MCP Server](docs/api/0004-mcp.md). Client-specific notes: [Cline](docs/integrations/cline.md), [Codex](docs/integrations/codex.md), and [OpenCode](docs/integrations/opencode.md).
-
-### LangChain & LangGraph
-
-```bash
-pip install powermem langchain langchain-openai
-```
-
-End-to-end runnable demos:
-
-- [LangChain healthcare bot](examples/langchain/README.md)
-- [LangGraph customer service bot](examples/langgraph/README.md)
-
-Full framework guide: [LangChain and LangGraph integration](docs/integrations/langchain.md).
-
-### AgentScope
-
-PowerMem works with AgentScope through MCP. Start `powermem-mcp`, then connect
-to it with AgentScope's MCP client so AgentScope workflows can use `add_memory`,
-`search_memories`, and the other memory tools.
-
-Full framework guide: [AgentScope integration](docs/integrations/agentscope.md).
-
-### SDKs
-
-| Language | Package |
-|----------|---------|
-| Python | `pip install powermem` (this repo) |
-| Go | [`ob-labs/powermem-go`](https://github.com/ob-labs/powermem-go) |
-| Java | [`ob-labs/powermem-java`](https://github.com/ob-labs/powermem-java) |
-| TypeScript | [`ob-labs/powermem-ts`](https://github.com/ob-labs/powermem-ts) |
-
----
-
-## Quick start (Python SDK)
-
-**Prerequisites:** Copy [.env.example](.env.example) to `.env` and set your **LLM** API key — that is the only required credential. For zero-config local storage, install the `seekdb` extra (`pip install "powermem[seekdb]"`, or combine it with `server`) so the default **OceanBase** provider can boot **embedded seekdb** on disk. Without `seekdb`, set `OCEANBASE_HOST` to point at a remote OceanBase cluster, or switch to `sqlite` / `postgres`. The default embedder is a local `all-MiniLM-L6-v2` model (384 dims) that needs no API key and auto-downloads on first use. Need to tune providers or unlock advanced features? Copy [.env.example.full](.env.example.full) instead — it documents every available knob, grouped by component. After install, `pmem config init` walks you through the same setup interactively. See [Getting started](docs/guides/0001-getting_started.md).
-
-### Install
-
-```bash
-# Core only (SDK; no optional CLI/server/seekdb)
-pip install powermem
-
-# With CLI (pmem / powermem-cli)
-pip install "powermem[cli]"
-
-# With HTTP API server and MCP support (powermem-server / powermem-mcp; does not install seekdb)
-pip install "powermem[server]"
-
-# With seekdb for zero-config local storage/embedder
-pip install "powermem[seekdb]"
-
-# HTTP API server + MCP support + seekdb
-pip install "powermem[server,seekdb]"
-
-# Common full local install
-pip install "powermem[cli,server,seekdb]"
-```
-
-For zero-install MCP clients such as Cursor, Codex, Claude Desktop, Cline, or
-Goose, use the wrapper package:
-
-```bash
-uvx powermem-mcp
-```
-
-The `powermem-mcp` wrapper is version-locked to the main `powermem` release and
-installs `powermem[server,seekdb]` for the same version. If `uv` has cached an older
-tool environment, refresh it explicitly:
-
-```bash
-uvx --refresh --upgrade powermem-mcp
-```
-
-### SDK
-
-Run from a directory that contains your configured `.env`:
-
-```python
-from powermem import Memory, auto_config
-
-memory = Memory(config=auto_config())
-
-memory.add("User likes coffee", user_id="user123")
-
-for r in memory.search("user preferences", user_id="user123").get("results", []):
-    print("-", r.get("memory"))
-```
-
-More patterns: [Getting Started](docs/guides/0001-getting_started.md).
-
-### CLI (`pmem`, 1.0+)
-
-```bash
-pmem memory add "User prefers dark mode" --user-id user123
-pmem memory search "preferences" --user-id user123
-pmem shell                           # interactive REPL
-```
-
-Full reference: [CLI usage](docs/guides/0012-cli_usage.md).
-
-### HTTP API server + Dashboard
-
-Uses the same `.env` as the SDK. Dashboard is served under `/dashboard/`.
-
-```bash
-powermem-server --host 0.0.0.0 --port 8848
-```
-
-On an interactive local terminal, the server automatically opens the Dashboard in your default browser once it is ready. You can also open `http://localhost:8848/dashboard/` manually to browse memories, view analytics, and monitor system health. Use `--no-open-browser` to disable auto-open, or `--open-browser` when output is redirected. Browser opening is skipped in CI, containers, SSH sessions, headless environments, and when Dashboard assets are unavailable. See the [Web Dashboard Guide](docs/guides/0013-dashboard.md) for a complete walkthrough.
-
-Docker / Compose: see [API Server](docs/api/0005-api_server.md) and [Docker & deployment](docker/README.md). The official image is `oceanbase/powermem-server:latest`.
-
----
-
-## Capabilities
-
-**Memory pipeline and retrieval** — [Smart extraction and updates](docs/examples/scenario_2_intelligent_memory.md); [Experience + Skill distillation (self-evolving)](docs/examples/scenario_6_sub_stores.md); [Ebbinghaus-style decay](docs/examples/scenario_8_ebbinghaus_forgetting_curve.md); [Hybrid retrieval (vector / full-text / graph)](docs/examples/scenario_2_intelligent_memory.md); [Sub stores and routing](docs/examples/scenario_6_sub_stores.md).
-
-**Profiles and multi-agent** — [User profile](docs/examples/scenario_9_user_memory.md); [Shared / isolated memory and scopes](docs/examples/scenario_3_multi_agent.md).
-
-**Multimodal** — [Text, image, audio](docs/examples/scenario_7_multimodal.md).
-
-**Provider matrix**
-
-| Layer | Providers (built in) |
-|-------|----------------------|
-| LLM | Anthropic, OpenAI, Azure OpenAI, Gemini, Qwen (+ ASR), DeepSeek, Ollama, vLLM, SiliconFlow, Z.AI, LangChain-wrapped |
-| Embedding | OpenAI, Azure OpenAI, Qwen (+ VL multimodal, sparse), Gemini, Vertex AI, AWS Bedrock, Ollama, LM Studio, HuggingFace, Together, SiliconFlow, Z.AI, OceanBase MASS, LangChain-wrapped |
-| Rerank | Jina, Qwen, Z.AI, generic |
-| Storage | OceanBase (+ graph), embedded seekdb, PostgreSQL/pgvector, SQLite |
-
----
-
-## Docs
-
-- [Getting started](docs/guides/0001-getting_started.md) — install, `.env`, and first `Memory` usage
-- [Configuration](docs/guides/0003-configuration.md) — settings model, storage backends, environment variables
-- [Web Dashboard](docs/guides/0013-dashboard.md) — visual interface for memory inspection, analytics, and system monitoring
-- [Architecture](docs/architecture/overview.md) — major components, storage layout, and retrieval flow
-- [API & services](docs/api/overview.md) — REST, MCP, HTTP server, and Python-facing APIs
-- [CLI](docs/guides/0012-cli_usage.md) — `pmem` commands, interactive shell, backup and migration
-- [Multi-agent](docs/guides/0005-multi_agent.md) — scopes, isolation, and cross-agent sharing
-- [Integrations](docs/guides/0009-integrations.md) — LangChain and other framework wiring
-- [Ecosystem integrations](docs/integrations/overview.md) — AI clients & IDEs ([Claude Code](docs/integrations/claude_code.md), …)
-- [Docker & deployment](docker/README.md) — images, Compose, and running the API server
-- [Development](docs/development/overview.md) — local setup, tests, and contributing
-
-More topics: [Sub stores](docs/guides/0006-sub_stores.md), [guides index](docs/guides/overview.md).
-
-## Examples
-
-- [Scenarios & notebooks](docs/examples/overview.md) — walkthroughs by use case (basic usage, multimodal, forgetting curve, sparse vectors, sub stores, and more)
-- See [Integrations](#integrations--pick-your-client-copy-one-line) above for client-side and IDE-side entry points (OpenClaw, Claude Code, VS Code extension, MCP, LangChain, LangGraph).
-
-## Release highlights
-
-| Version | Date | Notes |
-|---------|------|--------|
-| 1.2.0 | 2026-04 | Experience + Skill two-layer distillation and `distill_all()` (self-evolving memory; AppWorld +15 pts); OB MASS embedding; Qwen VL multimodal embedding; OceanBase Zero Mode compatibility; LOCOMO accuracy lifted to 87.79% |
-| 1.1.0 | 2026-04-02 | Embedded seekdb for OceanBase storage without a separate database service; [IDE integrations](apps/README.md) (VS Code extension, Claude Code plugin) |
-| 1.0.0 | 2026-03-16 | CLI (`pmem`): memory ops, config, backup/restore/migrate, interactive shell, completions; Web Dashboard |
-| 0.5.0 | 2026-02-06 | Unified SDK/API config (pydantic-settings); OceanBase native hybrid search; memory query + list sorting; user-profile language customization |
-| 0.4.0 | 2026-01-20 | Sparse vectors for hybrid retrieval; profile-based query rewriting; schema upgrade & migration tools |
-| 0.3.0 | 2026-01-09 | Production HTTP API Server; Docker |
-| 0.2.0 | 2025-12-16 | Advanced profiles; multimodal (text/image/audio) |
-| 0.1.0 | 2025-11-14 | Core memory + hybrid retrieval; LLM extraction; forgetting curve; multi-agent; OceanBase/PostgreSQL/SQLite; graph search |
-
-## Support
-
-- [GitHub Issues](https://github.com/oceanbase/powermem/issues)
-- [GitHub Discussions](https://github.com/oceanbase/powermem/discussions)
+Repository contributors can install the locked environment and hooks with `make install`. Use `make test`,
+`make check`, and `make docs-test` before opening a pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full
+workflow and [`docs/en/development/`](docs/en/development/core-protocol.md) for implementation guides.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+PowerContext is licensed under the [Apache License 2.0](LICENSE).

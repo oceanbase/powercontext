@@ -1,119 +1,57 @@
-# Multi-stage build for PowerMem Server
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.9.28
-FROM ${UV_IMAGE} as uv
+# syntax=docker/dockerfile:1.7
 
-FROM node:20-slim as frontend-builder
-WORKDIR /dashboard-build
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
-COPY dashboard/package.json dashboard/pnpm-lock.yaml ./
-RUN pnpm install
-COPY dashboard/ ./
-RUN pnpm build
+FROM ghcr.io/astral-sh/uv:0.10.12 AS uv
 
-FROM python:3.11-slim as builder
-COPY --from=uv /uv /uvx /usr/local/bin/
 
-# Build argument for Python package index URL (optional, for using mirror sources)
-# Usage: docker build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-ARG PIP_INDEX_URL=""
-ARG PIP_TRUSTED_HOST=""
+FROM python:3.11-slim-bookworm AS builder
 
-# Build argument for Debian mirror (optional, for faster apt-get)
-# Usage: docker build --build-arg DEBIAN_MIRROR=mirrors.aliyun.com
-ARG DEBIAN_MIRROR=""
+COPY --from=uv /uv /uvx /bin/
 
-# Set working directory
-WORKDIR /build
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_CONCURRENT_DOWNLOADS=4 \
+    UV_HTTP_RETRIES=5 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never
 
-# Configure Debian mirror if provided, then install build dependencies
-RUN if [ -n "$DEBIAN_MIRROR" ]; then \
-        sed -i "s|http://deb.debian.org/debian|http://$DEBIAN_MIRROR/debian|g" /etc/apt/sources.list.d/debian.sources || \
-        sed -i "s|http://deb.debian.org/debian|http://$DEBIAN_MIRROR/debian|g" /etc/apt/sources.list || true; \
-        sed -i "s|http://security.debian.org/debian-security|http://$DEBIAN_MIRROR/debian-security|g" /etc/apt/sources.list.d/debian.sources || \
-        sed -i "s|http://security.debian.org/debian-security|http://$DEBIAN_MIRROR/debian-security|g" /etc/apt/sources.list || true; \
-    fi && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-        gcc \
-        g++ \
-        postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy dependency files and source code needed for building
-COPY pyproject.toml ./
-COPY README.md ./
-COPY src/ ./src/
-
-# Inject frontend assets before Python package install
-COPY --from=frontend-builder /dashboard-build/dist/ ./src/server/dashboard/
-
-# Install the package in build stage
-# Increase timeout to handle slow network connections
-# Configure uv with optional mirror source
-RUN if [ -n "$PIP_INDEX_URL" ]; then \
-        export UV_DEFAULT_INDEX="$PIP_INDEX_URL"; \
-    fi && \
-    if [ -n "$PIP_TRUSTED_HOST" ]; then \
-        export UV_INSECURE_HOST="$PIP_TRUSTED_HOST"; \
-    fi && \
-    uv pip install --system --no-cache '.[server,seekdb]'
-
-# Final stage
-FROM python:3.11-slim
-
-# Build argument for Debian mirror (needs to be redeclared in each stage)
-ARG DEBIAN_MIRROR=""
-
-# Set working directory
 WORKDIR /app
 
-# Configure Debian mirror if provided, then install runtime dependencies
-RUN if [ -n "$DEBIAN_MIRROR" ]; then \
-        sed -i "s|http://deb.debian.org/debian|http://$DEBIAN_MIRROR/debian|g" /etc/apt/sources.list.d/debian.sources || \
-        sed -i "s|http://deb.debian.org/debian|http://$DEBIAN_MIRROR/debian|g" /etc/apt/sources.list || true; \
-        sed -i "s|http://security.debian.org/debian-security|http://$DEBIAN_MIRROR/debian-security|g" /etc/apt/sources.list.d/debian.sources || \
-        sed -i "s|http://security.debian.org/debian-security|http://$DEBIAN_MIRROR/debian-security|g" /etc/apt/sources.list || true; \
-    fi && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-        postgresql-client \
-        curl \
-    && rm -rf /var/lib/apt/lists/*
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY src/ ./src/
 
-# Create non-root user
-RUN useradd -m -u 1000 powermem && \
-    chown -R powermem:powermem /app
+RUN --mount=type=cache,id=powercontext-uv,target=/root/.cache/uv \
+    uv sync \
+    --frozen \
+    --no-dev \
+    --no-editable \
+    --extra cli \
+    --extra server
 
-# Copy installed package from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Copy application source code
-COPY --chown=powermem:powermem src/ ./src/
-COPY --chown=powermem:powermem pyproject.toml ./
+FROM python:3.11-slim-bookworm AS runtime
 
-# Copy entrypoint script
-COPY --chown=powermem:powermem docker/docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN groupadd --gid 10001 powercontext \
+    && useradd --uid 10001 --gid powercontext --home-dir /app --no-create-home --shell /usr/sbin/nologin powercontext \
+    && mkdir -p /data \
+    && chown powercontext:powercontext /data
 
-# Switch to non-root user
-USER powermem
+WORKDIR /app
 
-# Expose default port
-EXPOSE 8848
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    POWERMEM_SERVER_HOST=0.0.0.0 \
-    POWERMEM_SERVER_PORT=8848
+    POWERCONTEXT_HOME=/data \
+    POWERCONTEXT_SERVER_HTTP_HOST=0.0.0.0 \
+    POWERCONTEXT_SERVER_HTTP_PORT=8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8848/api/v1/system/health || exit 1
+COPY --from=builder --chown=powercontext:powercontext /app/.venv /app/.venv
 
-# Use entrypoint script
-ENTRYPOINT ["docker-entrypoint.sh"]
+USER powercontext
 
-# Default command: API server + PMem Dashboard on port 8848
-CMD ["powermem-server", "--host", "0.0.0.0", "--port", "8848"]
+VOLUME ["/data"]
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+
+ENTRYPOINT ["powercontext"]
+CMD ["server", "run"]

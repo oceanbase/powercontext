@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from sqlalchemy import insert
+from sqlalchemy.exc import IntegrityError
+
+from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.persistence.tables import (
+    ARTIFACT_HEADS_TABLE,
+)
+from powercontext.errors import RevisionConflictError
+from powercontext.sources import SourceMaterialization, SourceRef
+from tests.builtin.persistence.contract import (
+    Handoff,
+    HandoffContent,
+    HandoffDraft,
+    NoteSource,
+    Report,
+    ReportContent,
+    ReportDraft,
+    repository_profile,
+)
+
+
+def test_two_artifact_families_share_revisions_and_ordered_direct_lineage() -> None:
+    async def scenario() -> None:
+        async with repository_profile() as (profile, repositories):
+            first_source = NoteSource(
+                name="note-1",
+                materialization=SourceMaterialization.CAPTURED,
+                body="first",
+            )
+            second_source = NoteSource(
+                name="note-2",
+                materialization=SourceMaterialization.CAPTURED,
+                body="second",
+            )
+            async with profile.database.transaction() as connection:
+                first = await repositories.sources.add(connection, "scope-a", first_source)
+                second = await repositories.sources.add(connection, "scope-a", second_source)
+                report = await repositories.artifacts.create(
+                    connection,
+                    "scope-a",
+                    "report-1",
+                    ReportDraft(content=ReportContent(status="green")),
+                )
+                handoff = await repositories.artifacts.create(
+                    connection,
+                    "scope-a",
+                    "handoff-1",
+                    HandoffDraft(
+                        content=HandoffContent(summary="Ready"),
+                        sources=(second.ref, first.ref),
+                        artifacts=(report.as_ref(),),
+                    ),
+                )
+                revised = await repositories.artifacts.revise(
+                    connection,
+                    "scope-a",
+                    handoff,
+                    HandoffDraft(
+                        content=HandoffContent(summary="Ready for review"),
+                        sources=(first.ref, second.ref),
+                        artifacts=(report.as_ref(),),
+                    ),
+                )
+
+                assert type(report) is Report
+                assert type(revised) is Handoff
+                assert revised.as_ref() == ArtifactRef(family="handoff", artifact_id="handoff-1", revision=2)
+                assert revised.lineage.sources == (first.ref, second.ref)
+                assert revised.lineage.artifacts == (report.as_ref(),)
+                assert await repositories.artifacts.revisions(
+                    connection,
+                    "scope-a",
+                    "handoff",
+                    "handoff-1",
+                ) == (handoff, revised)
+
+    asyncio.run(scenario())
+
+
+def test_stale_artifact_revision_fails_optimistic_head_cas() -> None:
+    async def scenario() -> None:
+        async with (
+            repository_profile() as (profile, repositories),
+            profile.database.transaction() as connection,
+        ):
+            original = await repositories.artifacts.create(
+                connection,
+                "scope-a",
+                "handoff-1",
+                HandoffDraft(content=HandoffContent(summary="v1")),
+            )
+            current = await repositories.artifacts.revise(
+                connection,
+                "scope-a",
+                original,
+                HandoffDraft(content=HandoffContent(summary="v2")),
+            )
+            with pytest.raises(RevisionConflictError) as error:
+                await repositories.artifacts.revise(
+                    connection,
+                    "scope-a",
+                    original,
+                    HandoffDraft(content=HandoffContent(summary="stale")),
+                )
+
+            assert error.value.artifact == original
+            assert error.value.current == current
+
+    asyncio.run(scenario())
+
+
+def test_artifact_lineage_and_head_foreign_keys_are_enforced() -> None:
+    async def scenario() -> None:
+        async with repository_profile() as (profile, repositories):
+            with pytest.raises(IntegrityError):
+                async with profile.database.transaction() as connection:
+                    await repositories.artifacts.create(
+                        connection,
+                        "scope-a",
+                        "handoff-1",
+                        HandoffDraft(
+                            content=HandoffContent(summary="invalid"),
+                            sources=(SourceRef(source_type="note", source_id="missing"),),
+                        ),
+                    )
+
+            with pytest.raises(IntegrityError):
+                async with profile.database.transaction() as connection:
+                    await repositories.artifacts.create(
+                        connection,
+                        "scope-a",
+                        "handoff-2",
+                        HandoffDraft(
+                            content=HandoffContent(summary="invalid"),
+                            artifacts=(ArtifactRef(family="report", artifact_id="missing", revision=1),),
+                        ),
+                    )
+
+            with pytest.raises(IntegrityError):
+                async with profile.database.transaction() as connection:
+                    await connection.execute(
+                        insert(ARTIFACT_HEADS_TABLE).values(
+                            scope_id="scope-a",
+                            family="handoff",
+                            artifact_id="missing",
+                            revision=1,
+                        )
+                    )
+
+    asyncio.run(scenario())
