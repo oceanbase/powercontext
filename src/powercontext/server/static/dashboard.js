@@ -13,6 +13,7 @@ const translations = {
   en: {
     pageTitle: "PowerContext Dashboard",
     dashboardTitle: "Dashboard",
+    handoffReportTitle: "Handoff Report",
     maintainedBy: "Maintained by OceanBase.",
     signOut: "Sign out",
     authTitle: "Connect to PowerContext",
@@ -66,6 +67,7 @@ const translations = {
   zh: {
     pageTitle: "PowerContext \u4eea\u8868\u76d8",
     dashboardTitle: "\u4eea\u8868\u76d8",
+    handoffReportTitle: "\u4ea4\u63a5\u62a5\u544a",
     maintainedBy: "\u7531 OceanBase \u7ef4\u62a4\u3002",
     signOut: "\u9000\u51fa",
     authTitle: "\u8fde\u63a5 PowerContext",

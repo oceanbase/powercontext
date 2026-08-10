@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -8,6 +9,7 @@ from powercontext.client import InvalidResponseError, PowerContextClient, Server
 from powercontext.client.settings import ClientSettings
 from powercontext.http import (
     CaptureContentSourceRequest,
+    GetHandoffReportRequest,
 )
 
 
@@ -131,6 +133,29 @@ def test_client_wraps_http_transport_failures() -> None:
 
         assert caught.value.path == "/health/live"
         assert isinstance(caught.value.__cause__, httpx.ConnectError)
+
+    asyncio.run(scenario())
+
+
+def test_client_downloads_handoff_report_bytes_and_sets_download_flag() -> None:
+    async def scenario() -> None:
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, content=b"# Handoff Report\n", headers={"content-type": "text/markdown"})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            request = GetHandoffReportRequest(project_id="project-1")
+            rendered = await client.get_handoff_report(request)
+            content = await client.download_handoff_report(request)
+
+        assert rendered == "# Handoff Report\n"
+        assert content == b"# Handoff Report\n"
+        assert len(requests) == 2
+        assert json.loads(requests[0].content)["download"] is False
+        assert json.loads(requests[1].content)["download"] is True
 
     asyncio.run(scenario())
 

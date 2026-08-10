@@ -16,12 +16,15 @@ from powercontext.http import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
+    AttachHandoffReportWorkspaceRequest,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CommitHandoffRequest,
     CommittedHandoff,
     ContinueHandoffRequest,
+    CreateHandoffReportProjectRequest,
+    DetachHandoffReportWorkspaceRequest,
     ErrorResponse,
     ExperienceArtifact,
     ExternalSkillResolution,
@@ -33,17 +36,26 @@ from powercontext.http import (
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
+    GetHandoffReportProjectRequest,
+    GetHandoffReportRequest,
+    GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
     GetStatsRequest,
     HandoffActivation,
     HandoffDraft,
+    HandoffReportActivityPage,
+    HandoffReportResponse,
+    HandoffReportWorkspaceBinding,
     HandoffResolution,
     HealthResponse,
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
+    ListHandoffReportActivitiesRequest,
+    ListHandoffReportProjectsRequest,
+    ListHandoffReportWorkstreamsRequest,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -54,9 +66,15 @@ from powercontext.http import (
     PreparedContext,
     PreparedHandoff,
     PrepareHandoffRequest,
+    ProjectDescriptor,
+    ProjectPage,
     ProposeExperienceRequest,
     ProposeSkillRequest,
+    PurgeHandoffReportActivitiesRequest,
+    PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
+    RecordHandoffReportActivityRequest,
+    RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
@@ -69,13 +87,21 @@ from powercontext.http import (
     SearchMemoryRequest,
     SearchMemoryResponse,
     SkillArtifact,
+    StoredHandoffReportActivity,
+    UpdateHandoffReportProjectRequest,
+    UpdateHandoffReportWorkstreamRequest,
+    WorkstreamDescriptor,
+    WorkstreamPage,
 )
 from powercontext.http._generated.operations import (
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
+    ATTACH_HANDOFF_REPORT_WORKSPACE,
     CAPTURE_CONTENT_SOURCE,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_HANDOFF_REPORT_PROJECT,
+    DETACH_HANDOFF_REPORT_WORKSPACE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
@@ -83,6 +109,9 @@ from powercontext.http._generated.operations import (
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
     GET_EXPERIENCE,
+    GET_HANDOFF_REPORT,
+    GET_HANDOFF_REPORT_PROJECT,
+    GET_HANDOFF_REPORT_WORKSPACE,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
     GET_READINESS,
@@ -91,12 +120,18 @@ from powercontext.http._generated.operations import (
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
+    LIST_HANDOFF_REPORT_ACTIVITIES,
+    LIST_HANDOFF_REPORT_PROJECTS,
+    LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
+    PURGE_HANDOFF_REPORT_ACTIVITIES,
+    RECORD_HANDOFF_REPORT_ACTIVITY,
+    REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RESOLVE_EXTERNAL_SKILL,
@@ -105,6 +140,8 @@ from powercontext.http._generated.operations import (
     REVISE_MEMORY_ENTRY,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    UPDATE_HANDOFF_REPORT_PROJECT,
+    UPDATE_HANDOFF_REPORT_WORKSTREAM,
     Operation,
 )
 
@@ -169,6 +206,165 @@ class PowerContextClient:
         """Read current inventory and bounded usage for one scope."""
 
         return await self._request(GET_STATS, request)
+
+    async def create_handoff_report_project(
+        self,
+        request: CreateHandoffReportProjectRequest,
+    ) -> ProjectDescriptor:
+        """Create one explicit Report Project."""
+
+        return await self._request(CREATE_HANDOFF_REPORT_PROJECT, request)
+
+    async def get_handoff_report_project(
+        self,
+        request: GetHandoffReportProjectRequest,
+    ) -> ProjectDescriptor:
+        """Read one current Report Project descriptor."""
+
+        return await self._request(GET_HANDOFF_REPORT_PROJECT, request)
+
+    async def update_handoff_report_project(
+        self,
+        request: UpdateHandoffReportProjectRequest,
+    ) -> ProjectDescriptor:
+        """CAS-update one Report Project descriptor."""
+
+        return await self._request(UPDATE_HANDOFF_REPORT_PROJECT, request)
+
+    async def list_handoff_report_projects(
+        self,
+        request: ListHandoffReportProjectsRequest,
+    ) -> ProjectPage:
+        """List Report Projects with cursor pagination."""
+
+        return await self._request(LIST_HANDOFF_REPORT_PROJECTS, request)
+
+    async def register_handoff_report_workstream(
+        self,
+        request: RegisterHandoffReportWorkstreamRequest,
+    ) -> WorkstreamDescriptor:
+        """Register one existing scope as a Report Workstream."""
+
+        return await self._request(REGISTER_HANDOFF_REPORT_WORKSTREAM, request)
+
+    async def list_handoff_report_workstreams(
+        self,
+        request: ListHandoffReportWorkstreamsRequest,
+    ) -> WorkstreamPage:
+        """List Workstreams belonging to one Report Project."""
+
+        return await self._request(LIST_HANDOFF_REPORT_WORKSTREAMS, request)
+
+    async def update_handoff_report_workstream(
+        self,
+        request: UpdateHandoffReportWorkstreamRequest,
+    ) -> WorkstreamDescriptor:
+        """CAS-update one Report Workstream descriptor."""
+
+        return await self._request(UPDATE_HANDOFF_REPORT_WORKSTREAM, request)
+
+    async def record_handoff_report_activity(
+        self,
+        request: RecordHandoffReportActivityRequest,
+    ) -> StoredHandoffReportActivity:
+        """Record one explicit Report-owned Activity observation."""
+
+        return await self._request(RECORD_HANDOFF_REPORT_ACTIVITY, request)
+
+    async def list_handoff_report_activities(
+        self,
+        request: ListHandoffReportActivitiesRequest,
+    ) -> HandoffReportActivityPage:
+        """List one frozen cursor page of Report-owned Activities."""
+
+        return await self._request(LIST_HANDOFF_REPORT_ACTIVITIES, request)
+
+    async def purge_handoff_report_activities(
+        self,
+        request: PurgeHandoffReportActivitiesRequest,
+    ) -> PurgeHandoffReportActivitiesResponse:
+        """Purge Report-owned Activities before an observation boundary."""
+
+        return await self._request(PURGE_HANDOFF_REPORT_ACTIVITIES, request)
+
+    async def get_handoff_report_workspace(
+        self,
+        request: GetHandoffReportWorkspaceRequest,
+    ) -> HandoffReportWorkspaceBinding:
+        """Read one confirmed Workspace-to-Project binding."""
+
+        return await self._request(GET_HANDOFF_REPORT_WORKSPACE, request)
+
+    async def attach_handoff_report_workspace(
+        self,
+        request: AttachHandoffReportWorkspaceRequest,
+    ) -> HandoffReportWorkspaceBinding:
+        """Attach a Workspace to an exact Report Project using CAS."""
+
+        return await self._request(ATTACH_HANDOFF_REPORT_WORKSPACE, request)
+
+    async def detach_handoff_report_workspace(
+        self,
+        request: DetachHandoffReportWorkspaceRequest,
+    ) -> HandoffReportWorkspaceBinding:
+        """Detach a Workspace binding using its exact version."""
+
+        return await self._request(DETACH_HANDOFF_REPORT_WORKSPACE, request)
+
+    async def get_handoff_report(self, request: GetHandoffReportRequest) -> HandoffReportResponse | str:
+        """Generate the current canonical Handoff Report projection."""
+
+        if request.download:
+            raise ValueError("use download_handoff_report when download is true")  # noqa: TRY003
+        if request.format.value == "markdown":
+            return (await self._request_handoff_report_content(request)).decode("utf-8")
+        return await self._request(GET_HANDOFF_REPORT, request)
+
+    async def download_handoff_report(self, request: GetHandoffReportRequest) -> bytes:
+        """Download a Markdown or canonical JSON report file."""
+
+        prepared = request.model_copy(update={"download": True})
+        return await self._request_handoff_report_content(prepared)
+
+    async def _request_handoff_report_content(self, request: GetHandoffReportRequest) -> bytes:
+        payload = TypeAdapter(GET_HANDOFF_REPORT.request_type).dump_python(
+            request,
+            mode="json",
+            by_alias=True,
+        )
+        try:
+            span = ClientSpan.start(GET_HANDOFF_REPORT.operation_id)
+            headers = {} if self._headers is None else dict(self._headers)
+            span.inject(headers)
+            response = await self._http_client.request(
+                GET_HANDOFF_REPORT.method,
+                f"{self._base_url}{GET_HANDOFF_REPORT.path}",
+                json=payload,
+                headers=headers,
+            )
+        except asyncio.CancelledError as error:
+            span.finish("cancelled", error=error)
+            raise
+        except httpx.HTTPError as exc:
+            span.finish("failure", error=exc)
+            raise TransportError(GET_HANDOFF_REPORT.path) from exc
+        except BaseException as error:
+            span.finish("failure", error=error)
+            raise
+        span.finish(
+            "success" if response.status_code == GET_HANDOFF_REPORT.success_status else "failure",
+            status_code=response.status_code,
+        )
+        if response.status_code != GET_HANDOFF_REPORT.success_status:
+            error = _decode_error(response.content)
+            raise ServerResponseError(
+                status_code=response.status_code,
+                request_id=response.headers.get(REQUEST_ID_HEADER),
+                code=None if error is None else error.error.code,
+                message=None if error is None else error.error.message,
+                details=None if error is None else error.error.details,
+            )
+        return response.content
 
     async def capture_content_source(self, request: CaptureContentSourceRequest) -> CaptureContentSourceResponse:
         """Capture raw content as durable Source evidence."""

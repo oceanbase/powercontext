@@ -55,6 +55,7 @@ def create_server_app(
     config = BuiltinConfig(
         runtime=resolved.runtime,
         database=resolved.database,
+        handoff_report=resolved.handoff_report,
         inference=resolved.inference,
         external_skills=resolved.external_skills,
     )
@@ -115,11 +116,13 @@ def create_server_app(
         middleware=configured_middleware,
         metrics=metrics,
         tracing=resolved_tracing,
+        handoff_report_enabled=resolved.handoff_report.enabled,
     )
     if resolved.dashboard.enabled:
         mount_web_ui(
             app,
             scopes={scope.scope_id: scope.display_name for scope in resolved.dashboard.scopes},
+            handoff_report_enabled=resolved.handoff_report.enabled,
         )
     if metrics is not None:
         app.add_api_route(

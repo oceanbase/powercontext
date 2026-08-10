@@ -11,6 +11,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
     DatabaseConfig,
     ExternalSkillsConfig,
+    HandoffReportConfig,
     InferenceConfig,
     RuntimeConfig,
     normalize_database_discriminator,
@@ -135,6 +136,7 @@ class ServerSettings(BaseSettings):
     tracing: TracingConfig = Field(default_factory=TracingConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
+    handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
 
@@ -154,6 +156,7 @@ __all__ = [
     "BearerAuthConfig",
     "DashboardConfig",
     "DashboardScopeConfig",
+    "HandoffReportConfig",
     "HttpConfig",
     "McpConfig",
     "MetricsConfig",

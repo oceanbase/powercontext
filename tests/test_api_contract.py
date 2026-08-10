@@ -80,6 +80,7 @@ from powercontext.http._generated.operations import (
 )
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
+from powercontext.server.settings import HandoffReportConfig, ServerSettings
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "openapi" / "powercontext.yaml"
 
@@ -431,5 +432,8 @@ def test_generated_transport_rejects_values_outside_openapi(
 def test_server_publishes_the_canonical_openapi_schema() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
 
-    assert create_app().openapi() == contract
-    assert create_server_app().openapi() == contract
+    assert create_app(handoff_report_enabled=True).openapi() == contract
+    assert (
+        create_server_app(settings=ServerSettings(handoff_report=HandoffReportConfig(enabled=True))).openapi()
+        == contract
+    )

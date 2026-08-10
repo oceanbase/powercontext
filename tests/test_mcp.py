@@ -54,6 +54,19 @@ def test_mcp_exposes_only_the_agent_facing_server_operations() -> None:
     assert prompt_count == 0
 
 
+def test_mcp_exposes_read_only_handoff_report_tools_only_when_feature_routes_are_enabled() -> None:
+    async def inspect_components() -> set[str]:
+        async with Client(create_mcp_server(create_app(handoff_report_enabled=True))) as client:
+            return {tool.name for tool in await client.list_tools()}
+
+    tool_names = run_async(inspect_components)
+
+    assert "get_handoff_report" in tool_names
+    assert "get_handoff_report_workspace" in tool_names
+    assert "record_handoff_report_activity" not in tool_names
+    assert "attach_handoff_report_workspace" not in tool_names
+
+
 def test_mcp_exact_entry_tools_use_nested_citations() -> None:
     async def exact_entry_tool_schemas() -> dict[str, dict[str, Any]]:
         server = create_mcp_server(create_app())

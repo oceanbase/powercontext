@@ -267,6 +267,231 @@ class GetSkillRequest(BaseModel):
     artifact: ArtifactReference
 
 
+class ListHandoffReportProjectsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cursor: StrictStr | None = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    include_archived: StrictBool = False
+
+
+class GetHandoffReportProjectRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class Label(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+
+
+class ListHandoffReportWorkstreamsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    cursor: StrictStr | None = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    include_archived: StrictBool = False
+
+
+class HandoffReportPeriodRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    start: AwareDatetime
+    end: AwareDatetime
+    timezone: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    compare_to_previous_period: StrictBool = False
+
+
+class ReportActivitySource(StrEnum):
+    HANDOFF_OBSERVATION = "handoff_observation"
+    GIT_COMMIT = "git_commit"
+    GIT_WORKTREE = "git_worktree"
+    CODING_SESSION = "coding_session"
+    OTHER = "other"
+
+
+class ReportTimeBasis(StrEnum):
+    SOURCE_REPORTED = "source_reported"
+    HOST_OBSERVED = "host_observed"
+    FIRST_SEEN = "first_seen"
+    CURRENT_ONLY = "current_only"
+    UNKNOWN = "unknown"
+
+
+class HandoffReportActivityAgent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    provider: Annotated[StrictStr | None, Field(max_length=64, min_length=1)] = None
+    label: Annotated[StrictStr | None, Field(max_length=128, min_length=1)] = None
+
+
+class HandoffReportActivityVcsContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    branch: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    head_revision: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+
+
+class Schema(StrEnum):
+    POWERCONTEXT_HANDOFF_REPORT_ACTIVITY_V1 = "powercontext.handoff-report-activity.v1"
+
+
+class Trust1(StrEnum):
+    UNTRUSTED_OBSERVATION = "untrusted_observation"
+
+
+class ListHandoffReportActivitiesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    period_start: AwareDatetime | None = None
+    period_end: AwareDatetime | None = None
+    sources: Annotated[list[ReportActivitySource] | None, Field(max_length=5)] = None
+    after_cursor: Annotated[StrictInt, Field(ge=0)] = 0
+    through_cursor: Annotated[StrictInt | None, Field(ge=0)] = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+
+
+class PurgeHandoffReportActivitiesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    observed_before: AwareDatetime
+
+
+class PurgeHandoffReportActivitiesResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    deleted_count: Annotated[StrictInt, Field(ge=0)]
+
+
+class Provider1(StrEnum):
+    GITHUB = "github"
+    GITLAB = "gitlab"
+    LOCAL = "local"
+    OTHER = "other"
+
+
+class HandoffReportRepositoryRef(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    provider: Provider1
+    repository_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)]
+    normalized_remote: Annotated[StrictStr | None, Field(max_length=2048, min_length=1)]
+    subpath: Annotated[StrictStr | None, Field(max_length=1024, min_length=1)]
+
+
+class Schema1(StrEnum):
+    POWERCONTEXT_WORKSPACE_BINDING_V1 = "powercontext.workspace-binding.v1"
+
+
+class State(StrEnum):
+    CONFIRMED = "confirmed"
+    DETACHED = "detached"
+
+
+class HandoffReportWorkspaceBinding(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema1, Field(alias="schema")]
+    workspace_instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    repository_ref: HandoffReportRepositoryRef
+    state: State
+    confirmed_at: AwareDatetime
+    version: Annotated[StrictInt, Field(ge=1)]
+
+
+class GetHandoffReportWorkspaceRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    workspace_instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class AttachHandoffReportWorkspaceRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    workspace_instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    repository_ref: HandoffReportRepositoryRef
+    expected_version: Annotated[StrictInt | None, Field(ge=1)]
+
+
+class DetachHandoffReportWorkspaceRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    workspace_instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+
+
+class Schema2(StrEnum):
+    POWERCONTEXT_PROJECT_V1 = "powercontext.project.v1"
+
+
+class Schema3(StrEnum):
+    POWERCONTEXT_WORKSTREAM_V1 = "powercontext.workstream.v1"
+
+
+class Kind3(StrEnum):
+    ISSUE = "issue"
+    TASK = "task"
+    PULL_REQUEST = "pull_request"
+    BRANCH = "branch"
+    FEATURE = "feature"
+    RELEASE = "release"
+    PROGRAM = "program"
+    OTHER = "other"
+
+
+class HandoffReportExternalReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Kind3
+    provider: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+    external_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    url: Annotated[StrictStr | None, Field(max_length=2048)]
+
+
+class ReportLocale(StrEnum):
+    ZH_CN = "zh-CN"
+    EN = "en"
+
+
+class ReportFormat(StrEnum):
+    JSON = "json"
+    MARKDOWN = "markdown"
+
+
+class ReportCatalogState(StrEnum):
+    INCLUDED = "included"
+    ARCHIVED = "archived"
+
+
+class WorkstreamKind(StrEnum):
+    FEATURE = "feature"
+    BUG = "bug"
+    REFACTOR = "refactor"
+    OPERATIONS = "operations"
+    RESEARCH = "research"
+    OTHER = "other"
+
+
 class HealthResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -781,6 +1006,161 @@ class GetMemoryEntryRequest(BaseModel):
     citation: MemoryCitation
 
 
+class CreateHandoffReportProjectRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project_key: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+    title: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    description: Annotated[StrictStr | None, Field(max_length=2000)] = None
+    default_locale: ReportLocale = ReportLocale.ZH_CN
+    timezone: Annotated[StrictStr, Field(max_length=256, min_length=1)] = "UTC"
+
+
+class RegisterHandoffReportWorkstreamRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    key: Annotated[StrictStr | None, Field(max_length=64, min_length=1)] = None
+    title: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    kind: WorkstreamKind
+    catalog_state: ReportCatalogState = ReportCatalogState.INCLUDED
+    external_refs: Annotated[list[HandoffReportExternalReference], Field(max_length=32, validate_default=True)] = []
+    labels: Annotated[list[Label], Field(max_length=32, validate_default=True)] = []
+
+
+class GetHandoffReportRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    locale: ReportLocale | None = None
+    include_evidence_checks: StrictBool = True
+    format: ReportFormat = ReportFormat.MARKDOWN
+    include_archived: StrictBool = False
+    download: StrictBool = False
+    period: HandoffReportPeriodRequest | None = None
+
+
+class HandoffReportResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    format: ReportFormat
+    report: Annotated[dict[str, Any] | None, Field(...)]
+    markdown: Annotated[StrictStr | None, Field(...)]
+    selection_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    report_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+
+
+class RecordHandoffReportActivityRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    source: ReportActivitySource
+    source_event_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    source_ref: HandoffReportExternalReference | None = None
+    occurred_at: AwareDatetime | None = None
+    time_basis: ReportTimeBasis
+    title: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    summary: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+    agent: HandoffReportActivityAgent | None = None
+    session_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    vcs_context: HandoffReportActivityVcsContext | None = None
+    evidence_refs: Annotated[list[HandoffReportExternalReference], Field(max_length=32, validate_default=True)] = []
+
+
+class HandoffReportActivity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema, Field(alias="schema")]
+    event_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)]
+    source: ReportActivitySource
+    source_event_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    source_ref: Annotated[HandoffReportExternalReference | None, Field(...)]
+    occurred_at: Annotated[AwareDatetime | None, Field(...)]
+    observed_at: AwareDatetime
+    time_basis: ReportTimeBasis
+    title: Annotated[StrictStr | None, Field(max_length=256, min_length=1)]
+    summary: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
+    agent: Annotated[HandoffReportActivityAgent | None, Field(...)]
+    session_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)]
+    vcs_context: Annotated[HandoffReportActivityVcsContext | None, Field(...)]
+    evidence_refs: Annotated[list[HandoffReportExternalReference], Field(max_length=32)]
+    trust: Trust1
+
+
+class StoredHandoffReportActivity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cursor: Annotated[StrictInt, Field(ge=1)]
+    event: HandoffReportActivity
+
+
+class HandoffReportActivityPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: Annotated[list[HandoffReportActivity], Field(max_length=100)]
+    next_cursor: Annotated[StrictInt | None, Field(ge=1)]
+    high_watermark: Annotated[StrictInt, Field(ge=0)]
+
+
+class ProjectDescriptor(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema2, Field(alias="schema")]
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    project_key: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+    title: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    description: Annotated[StrictStr | None, Field(max_length=2000)]
+    default_locale: ReportLocale
+    timezone: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    catalog_state: ReportCatalogState
+    version: Annotated[StrictInt, Field(ge=1)]
+
+
+class ProjectPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: Annotated[list[ProjectDescriptor], Field(max_length=100)]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
+
+
+class WorkstreamDescriptor(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema3, Field(alias="schema")]
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    key: Annotated[StrictStr | None, Field(max_length=64)]
+    title: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    kind: WorkstreamKind
+    catalog_state: ReportCatalogState
+    external_refs: Annotated[list[HandoffReportExternalReference], Field(max_length=32)]
+    labels: Annotated[list[Label], Field(max_length=32)]
+    version: Annotated[StrictInt, Field(ge=1)]
+
+
+class WorkstreamPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: Annotated[list[WorkstreamDescriptor], Field(max_length=100)]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
+
+
 class ListArtifactCandidatesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1114,6 +1494,22 @@ class SkillArtifact(BaseModel):
     content: SkillProposal
     source_refs: list[SourceReference]
     artifact_refs: list[ArtifactReference]
+
+
+class UpdateHandoffReportProjectRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project: ProjectDescriptor
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+
+
+class UpdateHandoffReportWorkstreamRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    workstream: WorkstreamDescriptor
+    expected_version: Annotated[StrictInt, Field(ge=1)]
 
 
 class ListMemoryChangesResponse(BaseModel):

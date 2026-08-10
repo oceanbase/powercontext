@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime.config import HandoffReportConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     BearerAuthConfig,
@@ -60,3 +63,40 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
         {"scope_id": "person:psiace", "display_name": "PsiACE"},
         {"scope_id": "project:powercontext", "display_name": "PowerContext"},
     ]
+
+
+def test_handoff_report_page_is_available_only_when_both_features_are_enabled(tmp_path) -> None:
+    database_path = tmp_path / "handoff-dashboard.db"
+    disabled_app = create_server_app(settings=_dashboard_settings(database_path, handoff_report_enabled=False))
+    enabled_app = create_server_app(settings=_dashboard_settings(database_path, handoff_report_enabled=True))
+
+    with TestClient(disabled_app) as client:
+        disabled_page = client.get("/handoff-reports")
+    with TestClient(enabled_app) as client:
+        enabled_page = client.get("/handoff-reports")
+        protected_projects = client.post(
+            "/v1/handoff-reports/projects/list",
+            json={"limit": 100, "include_archived": False},
+        )
+
+    assert disabled_page.status_code == 404
+    assert enabled_page.status_code == 200
+    assert 'data-period-mode="day"' in enabled_page.text
+    assert 'data-period-mode="week"' in enabled_page.text
+    assert 'data-period-mode="month"' in enabled_page.text
+    assert 'id="period-start" type="date"' in enabled_page.text
+    assert 'id="period-end" type="date"' in enabled_page.text
+    assert protected_projects.status_code == 401
+
+
+def _dashboard_settings(database_path: Path, *, handoff_report_enabled: bool) -> ServerSettings:
+    return ServerSettings(
+        auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-secret")),
+        dashboard=DashboardConfig(
+            enabled=True,
+            scopes=[DashboardScopeConfig(scope_id="project:powercontext", display_name="PowerContext")],
+        ),
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
+        mcp=McpConfig(enabled=False),
+        handoff_report=HandoffReportConfig(enabled=handoff_report_enabled),
+    )

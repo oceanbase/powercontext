@@ -30,7 +30,12 @@ class DashboardScope(BaseModel):
     display_name: str
 
 
-def mount_web_ui(app: FastAPI, *, scopes: Mapping[str, str]) -> None:
+def mount_web_ui(
+    app: FastAPI,
+    *,
+    scopes: Mapping[str, str],
+    handoff_report_enabled: bool = False,
+) -> None:
     """Mount Server-owned pages, static assets, and UI support endpoints."""
 
     dashboard_scopes = tuple(DashboardScope(scope_id=scope_id, display_name=name) for scope_id, name in scopes.items())
@@ -43,6 +48,21 @@ def mount_web_ui(app: FastAPI, *, scopes: Mapping[str, str]) -> None:
         return _templates().TemplateResponse(
             request=request,
             name="pages/dashboard.html",
+            context={
+                "active_page": "dashboard",
+                "handoff_report_enabled": handoff_report_enabled,
+            },
+            headers=_PAGE_HEADERS,
+        )
+
+    async def handoff_report_page(request: Request) -> Response:
+        return _templates().TemplateResponse(
+            request=request,
+            name="pages/handoff_report.html",
+            context={
+                "active_page": "handoff_report",
+                "handoff_report_enabled": True,
+            },
             headers=_PAGE_HEADERS,
         )
 
@@ -64,6 +84,14 @@ def mount_web_ui(app: FastAPI, *, scopes: Mapping[str, str]) -> None:
         response_model=list[DashboardScope],
         name="dashboard_scopes",
     )
+    if handoff_report_enabled:
+        router.add_api_route(
+            "/handoff-reports",
+            handoff_report_page,
+            methods=["GET"],
+            response_class=HTMLResponse,
+            name="handoff_report_dashboard",
+        )
 
     app.include_router(router)
     app.mount(

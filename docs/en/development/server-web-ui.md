@@ -99,6 +99,16 @@ page-specific sign-in errors, data loading, and rendering in that page's static 
 Do not create a generic chart abstraction from one chart type. Share markup and styles first. Extract a JavaScript data
 or rendering contract only after a second page needs the same behavior.
 
+## Add the Handoff Report page
+
+When both the Dashboard and Handoff Report are enabled, the Server hosts the project handoff page at `/handoff-reports`. The existing scoped-statistics Dashboard remains at `/`. The pages share only `base.html`, the header and footer, `auth.js`, theme state, and locale state; their statistics and report calculations remain independent.
+
+The Handoff Report page obtains Projects from `POST /v1/handoff-reports/projects/list` and uses immutable `project_id` values for its tabs. Each tab shows both the Project title and full `project_id` so duplicate titles remain distinguishable. Selecting a tab requests canonical JSON for that Project through `POST /v1/handoff-reports/get`. The browser formats and displays the returned `summary`, `coverage`, Workstream state, Activity count, objective, current state, next action, known omissions, and digests without recalculating report semantics.
+
+The page requests the current day in the Project timezone by default and provides current-day, ISO-week, calendar-month, and custom date-range filters. The custom end date is inclusive in the UI and is converted to the exclusive start of the next day for the API. Every request enables comparison with the preceding period of equal length, and the Markdown download uses the same `period` request. Because Handoff has no authoritative commit timestamp, the page must explain that Handoff status comes from the current exact selection when `handoff_boundary_coverage=unavailable`; the selected period precisely filters Activity but must not present current Handoff state as a historical period-end state.
+
+The overview request may disable evidence checks for lower latency. A Markdown download makes a separate request with `format=markdown`, `download=true`, and evidence checks enabled by default. The browser never reconstructs Markdown from rendered DOM or canonical JSON. Disabling Handoff Report removes the `/handoff-reports` page and its API while leaving the original Dashboard route, scope selection, and statistics request unchanged.
+
 ## Preserve the security boundary
 
 The Dashboard shell and static assets are public so a browser can render the sign-in form. They must not contain bearer

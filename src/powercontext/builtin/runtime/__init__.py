@@ -55,6 +55,7 @@ from powercontext.builtin.runtime.config import (
     BuiltinConfig,
     DatabaseConfig,
     ExternalSkillsConfig,
+    HandoffReportConfig,
     InferenceConfig,
     RuntimeConfig,
 )
@@ -170,6 +171,7 @@ __all__ = [
     "HandoffGenerationPipeline",
     "HandoffMemoryCitation",
     "HandoffOmission",
+    "HandoffReportConfig",
     "HandoffResolution",
     "HandoffSourceCitation",
     "HandoffStatement",

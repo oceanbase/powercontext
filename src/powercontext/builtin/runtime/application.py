@@ -105,6 +105,8 @@ from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
 if TYPE_CHECKING:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+    from powercontext.builtin.handoff_report.application import HandoffReportApplication
+
 logger = logging.getLogger(__name__)
 
 ScopeIds = Callable[[], Awaitable[tuple[str, ...]]]
@@ -939,6 +941,7 @@ class BuiltinRuntime:
         self.review = ReviewApplication(self)
         self.skill = SkillApplication(self)
         self.statistics = StatisticsApplication(self)
+        self.handoff_report: HandoffReportApplication | None = None
         self.processor = None if scope_ids is None else ScheduledSourceProcessor(self, scope_ids)
         self.experience_processor = (
             None if scope_ids is None or experience_incubator is None else ScheduledExperienceProcessor(self, scope_ids)

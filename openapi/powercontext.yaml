@@ -1067,6 +1067,448 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/projects/create:
+    post:
+      tags: [handoff-reports]
+      summary: Create a Handoff Report Project
+      operationId: create_handoff_report_project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateHandoffReportProjectRequest"
+      responses:
+        "201":
+          description: The created Report Project.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDescriptor"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/projects/list:
+    post:
+      tags: [handoff-reports]
+      summary: List Handoff Report Projects
+      operationId: list_handoff_report_projects
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListHandoffReportProjectsRequest"
+      responses:
+        "200":
+          description: A cursor-paginated page of Report Projects.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/projects/get:
+    post:
+      tags: [handoff-reports]
+      summary: Get a Handoff Report Project
+      operationId: get_handoff_report_project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetHandoffReportProjectRequest"
+      responses:
+        "200":
+          description: The exact current Report Project descriptor.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDescriptor"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/projects/update:
+    post:
+      tags: [handoff-reports]
+      summary: Update a Handoff Report Project
+      operationId: update_handoff_report_project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateHandoffReportProjectRequest"
+      responses:
+        "200":
+          description: The updated Report Project descriptor.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDescriptor"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/workstreams/register:
+    post:
+      tags: [handoff-reports]
+      summary: Register a Handoff Report Workstream
+      operationId: register_handoff_report_workstream
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterHandoffReportWorkstreamRequest"
+      responses:
+        "201":
+          description: The registered Report Workstream.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkstreamDescriptor"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/workstreams/list:
+    post:
+      tags: [handoff-reports]
+      summary: List Handoff Report Workstreams
+      operationId: list_handoff_report_workstreams
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListHandoffReportWorkstreamsRequest"
+      responses:
+        "200":
+          description: A cursor-paginated page of Report Workstreams.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkstreamPage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/workstreams/update:
+    post:
+      tags: [handoff-reports]
+      summary: Update a Handoff Report Workstream
+      operationId: update_handoff_report_workstream
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateHandoffReportWorkstreamRequest"
+      responses:
+        "200":
+          description: The updated Report Workstream descriptor.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkstreamDescriptor"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/get:
+    post:
+      tags: [handoff-reports]
+      summary: Generate a Handoff Report
+      operationId: get_handoff_report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetHandoffReportRequest"
+      responses:
+        "200":
+          description: A canonical JSON report, optionally accompanied by Markdown.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              description: Prevent caches from retaining scoped report data.
+              schema:
+                type: string
+                enum: [no-store]
+            X-PowerContext-Selection-Digest:
+              description: Digest of the exact report selection.
+              schema:
+                type: string
+                pattern: '^sha256:[0-9a-f]{64}$'
+            X-PowerContext-Report-Digest:
+              description: Digest of the selected output projection.
+              schema:
+                type: string
+                pattern: '^sha256:[0-9a-f]{64}$'
+            Content-Disposition:
+              description: Safe attachment filename when download is true.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffReportResponse"
+            text/markdown:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "413":
+          $ref: "#/components/responses/ReportTooLarge"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/activities/record:
+    post:
+      tags: [handoff-reports]
+      summary: Record a Handoff Report Activity
+      operationId: record_handoff_report_activity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordHandoffReportActivityRequest"
+      responses:
+        "201":
+          description: The idempotently recorded Report Activity.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoredHandoffReportActivity"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/activities/list:
+    post:
+      tags: [handoff-reports]
+      summary: List Handoff Report Activities
+      operationId: list_handoff_report_activities
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListHandoffReportActivitiesRequest"
+      responses:
+        "200":
+          description: A frozen cursor page of Report Activities.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffReportActivityPage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/activities/purge:
+    post:
+      tags: [handoff-reports]
+      summary: Purge Handoff Report Activities
+      operationId: purge_handoff_report_activities
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurgeHandoffReportActivitiesRequest"
+      responses:
+        "200":
+          description: The number of deleted Report-owned Activity rows.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurgeHandoffReportActivitiesResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/workspace-bindings/get:
+    post:
+      tags: [handoff-reports]
+      summary: Get a Handoff Report Workspace Binding
+      operationId: get_handoff_report_workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetHandoffReportWorkspaceRequest"
+      responses:
+        "200":
+          description: The confirmed Workspace binding.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffReportWorkspaceBinding"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/workspace-bindings/attach:
+    post:
+      tags: [handoff-reports]
+      summary: Attach a Handoff Report Workspace Binding
+      operationId: attach_handoff_report_workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachHandoffReportWorkspaceRequest"
+      responses:
+        "200":
+          description: The confirmed Workspace binding.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffReportWorkspaceBinding"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/workspace-bindings/detach:
+    post:
+      tags: [handoff-reports]
+      summary: Detach a Handoff Report Workspace Binding
+      operationId: detach_handoff_report_workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DetachHandoffReportWorkspaceRequest"
+      responses:
+        "200":
+          description: The detached Workspace binding record.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffReportWorkspaceBinding"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
 components:
   securitySchemes:
     BearerAuth:
@@ -1106,6 +1548,15 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     InvalidRequest:
       description: The request violates the transport or application contract.
+      headers:
+        X-PowerContext-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ReportTooLarge:
+      description: The selected Handoff Report exceeds the deterministic output limit.
       headers:
         X-PowerContext-Request-ID:
           $ref: "#/components/headers/RequestId"
@@ -2291,6 +2742,669 @@ components:
           pattern: '.*\S.*'
         artifact:
           $ref: "#/components/schemas/ArtifactReference"
+    CreateHandoffReportProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [project_key, title]
+      properties:
+        project_key:
+          type: string
+          minLength: 1
+          maxLength: 64
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+        default_locale:
+          $ref: "#/components/schemas/ReportLocale"
+          default: zh-CN
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 256
+          default: UTC
+    ListHandoffReportProjectsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        cursor:
+          type: string
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        include_archived:
+          type: boolean
+          default: false
+    GetHandoffReportProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [project_id]
+      properties:
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+    UpdateHandoffReportProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [project, expected_version]
+      properties:
+        project:
+          $ref: "#/components/schemas/ProjectDescriptor"
+        expected_version:
+          type: integer
+          minimum: 1
+    RegisterHandoffReportWorkstreamRequest:
+      type: object
+      additionalProperties: false
+      required: [project_id, scope_id, title, kind]
+      properties:
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        key:
+          type: string
+          minLength: 1
+          maxLength: 64
+          nullable: true
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+        kind:
+          $ref: "#/components/schemas/WorkstreamKind"
+        catalog_state:
+          $ref: "#/components/schemas/ReportCatalogState"
+          default: included
+        external_refs:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/HandoffReportExternalReference"
+          default: []
+        labels:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+          default: []
+    ListHandoffReportWorkstreamsRequest:
+      type: object
+      additionalProperties: false
+      required: [project_id]
+      properties:
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        cursor:
+          type: string
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        include_archived:
+          type: boolean
+          default: false
+    UpdateHandoffReportWorkstreamRequest:
+      type: object
+      additionalProperties: false
+      required: [workstream, expected_version]
+      properties:
+        workstream:
+          $ref: "#/components/schemas/WorkstreamDescriptor"
+        expected_version:
+          type: integer
+          minimum: 1
+    GetHandoffReportRequest:
+      type: object
+      additionalProperties: false
+      required: [project_id]
+      properties:
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        locale:
+          $ref: "#/components/schemas/ReportLocale"
+          nullable: true
+        include_evidence_checks:
+          type: boolean
+          default: true
+        format:
+          $ref: "#/components/schemas/ReportFormat"
+          default: markdown
+        include_archived:
+          type: boolean
+          default: false
+        download:
+          type: boolean
+          default: false
+        period:
+          $ref: "#/components/schemas/HandoffReportPeriodRequest"
+          nullable: true
+    HandoffReportPeriodRequest:
+      type: object
+      additionalProperties: false
+      required: [start, end]
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 256
+          nullable: true
+        compare_to_previous_period:
+          type: boolean
+          default: false
+    HandoffReportResponse:
+      type: object
+      additionalProperties: false
+      required: [format, report, markdown, selection_digest, report_digest]
+      properties:
+        format:
+          $ref: "#/components/schemas/ReportFormat"
+        report:
+          type: object
+          additionalProperties: true
+          nullable: true
+        markdown:
+          type: string
+          nullable: true
+        selection_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+        report_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+    ReportActivitySource:
+      type: string
+      enum: [handoff_observation, git_commit, git_worktree, coding_session, other]
+    ReportTimeBasis:
+      type: string
+      enum: [source_reported, host_observed, first_seen, current_only, unknown]
+    HandoffReportActivityAgent:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 64
+          nullable: true
+        label:
+          type: string
+          minLength: 1
+          maxLength: 128
+          nullable: true
+    HandoffReportActivityVcsContext:
+      type: object
+      additionalProperties: false
+      properties:
+        branch:
+          type: string
+          minLength: 1
+          maxLength: 256
+          nullable: true
+        head_revision:
+          type: string
+          minLength: 1
+          maxLength: 256
+          nullable: true
+    RecordHandoffReportActivityRequest:
+      type: object
+      additionalProperties: false
+      required: [project_id, source, source_event_id, time_basis]
+      properties:
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          nullable: true
+        source:
+          $ref: "#/components/schemas/ReportActivitySource"
+        source_event_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        source_ref:
+          $ref: "#/components/schemas/HandoffReportExternalReference"
+          nullable: true
+        occurred_at:
+          type: string
+          format: date-time
+          nullable: true
+        time_basis:
+          $ref: "#/components/schemas/ReportTimeBasis"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+          nullable: true
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          nullable: true
+        agent:
+          $ref: "#/components/schemas/HandoffReportActivityAgent"
+          nullable: true
+        session_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          nullable: true
+        vcs_context:
+          $ref: "#/components/schemas/HandoffReportActivityVcsContext"
+          nullable: true
+        evidence_refs:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/HandoffReportExternalReference"
+          default: []
+    HandoffReportActivity:
+      type: object
+      additionalProperties: false
+      required: [schema, event_id, project_id, scope_id, source, source_event_id, source_ref, occurred_at, observed_at, time_basis, title, summary, agent, session_id, vcs_context, evidence_refs, trust]
+      properties:
+        schema:
+          type: string
+          enum: [powercontext.handoff-report-activity.v1]
+        event_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          nullable: true
+        source:
+          $ref: "#/components/schemas/ReportActivitySource"
+        source_event_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        source_ref:
+          $ref: "#/components/schemas/HandoffReportExternalReference"
+          nullable: true
+        occurred_at:
+          type: string
+          format: date-time
+          nullable: true
+        observed_at:
+          type: string
+          format: date-time
+        time_basis:
+          $ref: "#/components/schemas/ReportTimeBasis"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+          nullable: true
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          nullable: true
+        agent:
+          $ref: "#/components/schemas/HandoffReportActivityAgent"
+          nullable: true
+        session_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          nullable: true
+        vcs_context:
+          $ref: "#/components/schemas/HandoffReportActivityVcsContext"
+          nullable: true
+        evidence_refs:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/HandoffReportExternalReference"
+        trust:
+          type: string
+          enum: [untrusted_observation]
+    StoredHandoffReportActivity:
+      type: object
+      additionalProperties: false
+      required: [cursor, event]
+      properties:
+        cursor:
+          type: integer
+          minimum: 1
+        event:
+          $ref: "#/components/schemas/HandoffReportActivity"
+    ListHandoffReportActivitiesRequest:
+      type: object
+      additionalProperties: false
+      required: [project_id]
+      properties:
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        period_start:
+          type: string
+          format: date-time
+          nullable: true
+        period_end:
+          type: string
+          format: date-time
+          nullable: true
+        sources:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/ReportActivitySource"
+          nullable: true
+        after_cursor:
+          type: integer
+          minimum: 0
+          default: 0
+        through_cursor:
+          type: integer
+          minimum: 0
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+    HandoffReportActivityPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, high_watermark]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/HandoffReportActivity"
+        next_cursor:
+          type: integer
+          minimum: 1
+          nullable: true
+        high_watermark:
+          type: integer
+          minimum: 0
+    PurgeHandoffReportActivitiesRequest:
+      type: object
+      additionalProperties: false
+      required: [project_id, observed_before]
+      properties:
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        observed_before:
+          type: string
+          format: date-time
+    PurgeHandoffReportActivitiesResponse:
+      type: object
+      additionalProperties: false
+      required: [deleted_count]
+      properties:
+        deleted_count:
+          type: integer
+          minimum: 0
+    HandoffReportRepositoryRef:
+      type: object
+      additionalProperties: false
+      required: [provider, repository_id, normalized_remote, subpath]
+      properties:
+        provider:
+          type: string
+          enum: [github, gitlab, local, other]
+        repository_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          nullable: true
+        normalized_remote:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          nullable: true
+        subpath:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          nullable: true
+    HandoffReportWorkspaceBinding:
+      type: object
+      additionalProperties: false
+      required: [schema, workspace_instance_id, project_id, repository_ref, state, confirmed_at, version]
+      properties:
+        schema:
+          type: string
+          enum: [powercontext.workspace-binding.v1]
+        workspace_instance_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        repository_ref:
+          $ref: "#/components/schemas/HandoffReportRepositoryRef"
+        state:
+          type: string
+          enum: [confirmed, detached]
+        confirmed_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+    GetHandoffReportWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      required: [workspace_instance_id]
+      properties:
+        workspace_instance_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+    AttachHandoffReportWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      required: [workspace_instance_id, project_id, repository_ref, expected_version]
+      properties:
+        workspace_instance_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        repository_ref:
+          $ref: "#/components/schemas/HandoffReportRepositoryRef"
+        expected_version:
+          type: integer
+          minimum: 1
+          nullable: true
+    DetachHandoffReportWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      required: [workspace_instance_id, expected_version]
+      properties:
+        workspace_instance_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        expected_version:
+          type: integer
+          minimum: 1
+    ProjectDescriptor:
+      type: object
+      additionalProperties: false
+      required: [schema, project_id, project_key, title, description, default_locale, timezone, catalog_state, version]
+      properties:
+        schema:
+          type: string
+          enum: [powercontext.project.v1]
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        project_key:
+          type: string
+          minLength: 1
+          maxLength: 64
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+        default_locale:
+          $ref: "#/components/schemas/ReportLocale"
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 256
+        catalog_state:
+          $ref: "#/components/schemas/ReportCatalogState"
+        version:
+          type: integer
+          minimum: 1
+    ProjectPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ProjectDescriptor"
+        next_cursor:
+          type: string
+          nullable: true
+    WorkstreamDescriptor:
+      type: object
+      additionalProperties: false
+      required: [schema, scope_id, project_id, key, title, kind, catalog_state, external_refs, labels, version]
+      properties:
+        schema:
+          type: string
+          enum: [powercontext.workstream.v1]
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        project_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        key:
+          type: string
+          maxLength: 64
+          nullable: true
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+        kind:
+          $ref: "#/components/schemas/WorkstreamKind"
+        catalog_state:
+          $ref: "#/components/schemas/ReportCatalogState"
+        external_refs:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/HandoffReportExternalReference"
+        labels:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        version:
+          type: integer
+          minimum: 1
+    WorkstreamPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/WorkstreamDescriptor"
+        next_cursor:
+          type: string
+          nullable: true
+    HandoffReportExternalReference:
+      type: object
+      additionalProperties: false
+      required: [kind, provider, external_id, url]
+      properties:
+        kind:
+          type: string
+          enum: [issue, task, pull_request, branch, feature, release, program, other]
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 64
+        external_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        url:
+          type: string
+          maxLength: 2048
+          nullable: true
+    ReportLocale:
+      type: string
+      enum: [zh-CN, en]
+    ReportFormat:
+      type: string
+      enum: [json, markdown]
+    ReportCatalogState:
+      type: string
+      enum: [included, archived]
+    WorkstreamKind:
+      type: string
+      enum: [feature, bug, refactor, operations, research, other]
     HealthResponse:
       type: object
       additionalProperties: false

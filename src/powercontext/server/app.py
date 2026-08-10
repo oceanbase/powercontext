@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import suppress
 from copy import deepcopy
+from datetime import UTC, datetime
 from functools import wraps
 from time import perf_counter
-from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypeVar, cast
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -45,6 +48,38 @@ from powercontext.builtin.artifacts.skill import (
 )
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillResolution as RuntimeExternalSkillResolution,
+)
+from powercontext.builtin.handoff_report import (
+    HandoffReportApplication,
+    HandoffReportBusyError,
+    HandoffReportCatalogArgumentError,
+    HandoffReportError,
+    HandoffReportInconsistentError,
+    HandoffReportTooLargeError,
+    ProjectConflictError,
+    ProjectNotFoundError,
+    ReportPeriodInput,
+    ScopeAlreadyGroupedError,
+    WorkspaceBindingConflictError,
+    WorkspaceBindingNotFoundError,
+    WorkstreamConflictError,
+    WorkstreamNotFoundError,
+)
+from powercontext.builtin.handoff_report.models import (
+    ExternalReference as ReportExternalReference,
+)
+from powercontext.builtin.handoff_report.models import (
+    ProjectDescriptor as DomainProjectDescriptor,
+)
+from powercontext.builtin.handoff_report.models import ReportActivityEvent as DomainReportActivityEvent
+from powercontext.builtin.handoff_report.models import RepositoryRef as DomainRepositoryRef
+from powercontext.builtin.handoff_report.models import (
+    WorkstreamDescriptor as DomainWorkstreamDescriptor,
+)
+from powercontext.builtin.handoff_report.repository import (
+    ActivityEventConflictError,
+    InvalidActivityEventError,
+    InvalidActivityRepositoryArgumentError,
 )
 from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
 from powercontext.builtin.review import (
@@ -154,12 +189,15 @@ from powercontext.http import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
+    AttachHandoffReportWorkspaceRequest,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CommitHandoffRequest,
     CommittedHandoff,
     ContinueHandoffRequest,
+    CreateHandoffReportProjectRequest,
+    DetachHandoffReportWorkspaceRequest,
     ErrorDetail,
     ErrorResponse,
     ExperienceArtifact,
@@ -172,15 +210,25 @@ from powercontext.http import (
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
+    GetHandoffReportProjectRequest,
+    GetHandoffReportRequest,
+    GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
     GetStatsRequest,
+    HandoffReportActivity,
+    HandoffReportActivityPage,
+    HandoffReportResponse,
+    HandoffReportWorkspaceBinding,
     HandoffSelection,
     HealthResponse,
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
+    ListHandoffReportActivitiesRequest,
+    ListHandoffReportProjectsRequest,
+    ListHandoffReportWorkstreamsRequest,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -190,10 +238,16 @@ from powercontext.http import (
     PrepareContextRequest,
     PreparedContext,
     PrepareHandoffRequest,
+    ProjectDescriptor,
+    ProjectPage,
     ProposeExperienceRequest,
     ProposeSkillRequest,
+    PurgeHandoffReportActivitiesRequest,
+    PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
     ReadinessStatus,
+    RecordHandoffReportActivityRequest,
+    RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
@@ -206,6 +260,11 @@ from powercontext.http import (
     SearchMemoryRequest,
     SearchMemoryResponse,
     SkillArtifact,
+    StoredHandoffReportActivity,
+    UpdateHandoffReportProjectRequest,
+    UpdateHandoffReportWorkstreamRequest,
+    WorkstreamDescriptor,
+    WorkstreamPage,
 )
 from powercontext.http import (
     HandoffActivation as TransportHandoffActivation,
@@ -225,9 +284,12 @@ from powercontext.http._generated.operations import (
     API_TITLE,
     API_VERSION,
     APPROVE_ARTIFACT_CANDIDATE,
+    ATTACH_HANDOFF_REPORT_WORKSPACE,
     CAPTURE_CONTENT_SOURCE,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_HANDOFF_REPORT_PROJECT,
+    DETACH_HANDOFF_REPORT_WORKSPACE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
@@ -235,6 +297,9 @@ from powercontext.http._generated.operations import (
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
     GET_EXPERIENCE,
+    GET_HANDOFF_REPORT,
+    GET_HANDOFF_REPORT_PROJECT,
+    GET_HANDOFF_REPORT_WORKSPACE,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
     GET_READINESS,
@@ -243,6 +308,9 @@ from powercontext.http._generated.operations import (
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
+    LIST_HANDOFF_REPORT_ACTIVITIES,
+    LIST_HANDOFF_REPORT_PROJECTS,
+    LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     OPENAPI_VERSION,
@@ -250,6 +318,9 @@ from powercontext.http._generated.operations import (
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
+    PURGE_HANDOFF_REPORT_ACTIVITIES,
+    RECORD_HANDOFF_REPORT_ACTIVITY,
+    REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RESOLVE_EXTERNAL_SKILL,
@@ -258,6 +329,8 @@ from powercontext.http._generated.operations import (
     REVISE_MEMORY_ENTRY,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    UPDATE_HANDOFF_REPORT_PROJECT,
+    UPDATE_HANDOFF_REPORT_WORKSTREAM,
     Operation,
 )
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
@@ -274,6 +347,9 @@ if TYPE_CHECKING:
     from powercontext.server.tracing import ServerTracing
 
 REQUEST_ID_HEADER = "X-PowerContext-Request-ID"
+REPORT_SELECTION_DIGEST_HEADER = "X-PowerContext-Selection-Digest"
+REPORT_DIGEST_HEADER = "X-PowerContext-Report-Digest"
+MAX_HANDOFF_REPORT_BYTES = 10 * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 CapabilityProvider = Callable[[], Capabilities]
@@ -412,6 +488,7 @@ class ServerApplication(Protocol):
     review: _ReviewApplication
     skill: _SkillApplication
     statistics: _StatisticsApplication
+    handoff_report: HandoffReportApplication | None
 
 
 class _RuntimeNotReadyError(RuntimeError):
@@ -427,6 +504,7 @@ def create_app(
     middleware: Sequence[Middleware] = (),
     metrics: ServerMetrics | None = None,
     tracing: ServerTracing | None = None,
+    handoff_report_enabled: bool = False,
 ) -> FastAPI:
     """Build the HTTP adapter around an optional Runtime application binding."""
 
@@ -499,6 +577,21 @@ def create_app(
     _add_route(app, GET_READINESS, get_readiness)
     _add_route(app, GET_CAPABILITIES, get_capabilities)
     _add_route(app, GET_STATS, get_stats)
+    if handoff_report_enabled:
+        _add_route(app, CREATE_HANDOFF_REPORT_PROJECT, create_handoff_report_project)
+        _add_route(app, GET_HANDOFF_REPORT_PROJECT, get_handoff_report_project)
+        _add_route(app, UPDATE_HANDOFF_REPORT_PROJECT, update_handoff_report_project)
+        _add_route(app, LIST_HANDOFF_REPORT_PROJECTS, list_handoff_report_projects)
+        _add_route(app, REGISTER_HANDOFF_REPORT_WORKSTREAM, register_handoff_report_workstream)
+        _add_route(app, LIST_HANDOFF_REPORT_WORKSTREAMS, list_handoff_report_workstreams)
+        _add_route(app, UPDATE_HANDOFF_REPORT_WORKSTREAM, update_handoff_report_workstream)
+        _add_route(app, RECORD_HANDOFF_REPORT_ACTIVITY, record_handoff_report_activity)
+        _add_route(app, LIST_HANDOFF_REPORT_ACTIVITIES, list_handoff_report_activities)
+        _add_route(app, PURGE_HANDOFF_REPORT_ACTIVITIES, purge_handoff_report_activities)
+        _add_route(app, GET_HANDOFF_REPORT_WORKSPACE, get_handoff_report_workspace)
+        _add_route(app, ATTACH_HANDOFF_REPORT_WORKSPACE, attach_handoff_report_workspace)
+        _add_route(app, DETACH_HANDOFF_REPORT_WORKSPACE, detach_handoff_report_workspace)
+        _add_route(app, GET_HANDOFF_REPORT, get_handoff_report)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
     _add_route(app, FLUSH_MEMORY, flush_memory)
     _add_route(app, REMEMBER_MEMORY, remember_memory)
@@ -533,6 +626,11 @@ def create_app(
     def canonical_openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
             app.openapi_schema = deepcopy(OPENAPI_SCHEMA)
+            if not handoff_report_enabled:
+                paths = cast(dict[str, Any], app.openapi_schema["paths"])
+                app.openapi_schema["paths"] = {
+                    path: value for path, value in paths.items() if not path.startswith("/v1/handoff-reports/")
+                }
         return app.openapi_schema
 
     app.openapi = canonical_openapi  # ty: ignore[invalid-assignment]
@@ -571,6 +669,247 @@ async def get_stats(
         period=RuntimeStatisticsPeriod(request.period.value)
     )
     return mapping.statistics_response(result)
+
+
+async def create_handoff_report_project(
+    request: CreateHandoffReportProjectRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> ProjectDescriptor:
+    result = await report.create_project(
+        project_key=request.project_key,
+        title=request.title,
+        description=request.description,
+        default_locale=request.default_locale.value,
+        timezone=request.timezone,
+    )
+    return _project_descriptor_response(result)
+
+
+async def get_handoff_report_project(
+    request: GetHandoffReportProjectRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> ProjectDescriptor:
+    return _project_descriptor_response(await report.get_project(request.project_id))
+
+
+async def update_handoff_report_project(
+    request: UpdateHandoffReportProjectRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> ProjectDescriptor:
+    descriptor = DomainProjectDescriptor.model_validate_json(request.project.model_dump_json(by_alias=True))
+    return _project_descriptor_response(await report.update_project(descriptor, request.expected_version))
+
+
+async def list_handoff_report_projects(
+    request: ListHandoffReportProjectsRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> ProjectPage:
+    result = await report.list_projects(
+        cursor=request.cursor,
+        limit=request.limit,
+        include_archived=request.include_archived,
+    )
+    return ProjectPage(
+        items=[_project_descriptor_response(item) for item in result.items],
+        next_cursor=result.next_cursor,
+    )
+
+
+async def register_handoff_report_workstream(
+    request: RegisterHandoffReportWorkstreamRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> WorkstreamDescriptor:
+    values = request.model_dump(mode="json")
+    result = await report.register_workstream(
+        project_id=request.project_id,
+        scope_id=request.scope_id,
+        title=request.title,
+        kind=request.kind.value,
+        key=request.key,
+        catalog_state=request.catalog_state.value,
+        external_refs=tuple(ReportExternalReference.model_validate(value) for value in values["external_refs"]),
+        labels=tuple(str(value) for value in values["labels"]),
+    )
+    return _workstream_descriptor_response(result)
+
+
+async def list_handoff_report_workstreams(
+    request: ListHandoffReportWorkstreamsRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> WorkstreamPage:
+    result = await report.list_workstreams(
+        request.project_id,
+        cursor=request.cursor,
+        limit=request.limit,
+        include_archived=request.include_archived,
+    )
+    return WorkstreamPage(
+        items=[_workstream_descriptor_response(item) for item in result.items],
+        next_cursor=result.next_cursor,
+    )
+
+
+async def update_handoff_report_workstream(
+    request: UpdateHandoffReportWorkstreamRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> WorkstreamDescriptor:
+    descriptor = DomainWorkstreamDescriptor.model_validate_json(request.workstream.model_dump_json(by_alias=True))
+    return _workstream_descriptor_response(await report.update_workstream(descriptor, request.expected_version))
+
+
+async def record_handoff_report_activity(
+    request: RecordHandoffReportActivityRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> StoredHandoffReportActivity:
+    values = request.model_dump(mode="json")
+    event = DomainReportActivityEvent.model_validate_json(
+        json.dumps({
+            **values,
+            "event_id": f"evt_{uuid4().hex}",
+            "observed_at": datetime.now(UTC).isoformat(),
+            "trust": "untrusted_observation",
+        })
+    )
+    stored = await report.record_activity(event)
+    return StoredHandoffReportActivity(
+        cursor=stored.cursor,
+        event=HandoffReportActivity.model_validate(stored.payload),
+    )
+
+
+async def list_handoff_report_activities(
+    request: ListHandoffReportActivitiesRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> HandoffReportActivityPage:
+    page = await report.list_activities(
+        request.project_id,
+        period_start=request.period_start,
+        period_end=request.period_end,
+        sources=None if request.sources is None else tuple(value.value for value in request.sources),
+        after_cursor=request.after_cursor,
+        through_cursor=request.through_cursor,
+        limit=request.limit,
+    )
+    return HandoffReportActivityPage(
+        items=[
+            HandoffReportActivity.model_validate(item.model_dump(mode="json", by_alias=True)) for item in page.items
+        ],
+        next_cursor=page.next_cursor,
+        high_watermark=page.high_watermark,
+    )
+
+
+async def purge_handoff_report_activities(
+    request: PurgeHandoffReportActivitiesRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> PurgeHandoffReportActivitiesResponse:
+    deleted = await report.purge_activities(request.project_id, request.observed_before)
+    return PurgeHandoffReportActivitiesResponse(deleted_count=deleted)
+
+
+async def get_handoff_report_workspace(
+    request: GetHandoffReportWorkspaceRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> HandoffReportWorkspaceBinding:
+    binding = await report.get_workspace_binding(request.workspace_instance_id)
+    return HandoffReportWorkspaceBinding.model_validate(binding.model_dump(mode="json", by_alias=True))
+
+
+async def attach_handoff_report_workspace(
+    request: AttachHandoffReportWorkspaceRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> HandoffReportWorkspaceBinding:
+    binding = await report.attach_workspace_binding(
+        workspace_instance_id=request.workspace_instance_id,
+        project_id=request.project_id,
+        repository_ref=DomainRepositoryRef.model_validate(request.repository_ref.model_dump(mode="json")),
+        expected_version=request.expected_version,
+    )
+    return HandoffReportWorkspaceBinding.model_validate(binding.model_dump(mode="json", by_alias=True))
+
+
+async def detach_handoff_report_workspace(
+    request: DetachHandoffReportWorkspaceRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> HandoffReportWorkspaceBinding:
+    binding = await report.detach_workspace_binding(request.workspace_instance_id, request.expected_version)
+    return HandoffReportWorkspaceBinding.model_validate(binding.model_dump(mode="json", by_alias=True))
+
+
+async def get_handoff_report(
+    request: GetHandoffReportRequest,
+    response: Response,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> HandoffReportResponse | Response:
+    result = await report.get_report(
+        request.project_id,
+        locale=None if request.locale is None else request.locale.value,
+        include_evidence_checks=request.include_evidence_checks,
+        report_format=request.format.value,
+        include_archived=request.include_archived,
+        period=(
+            None
+            if request.period is None
+            else ReportPeriodInput(
+                start=request.period.start,
+                end=request.period.end,
+                timezone=request.period.timezone,
+                compare_to_previous_period=request.period.compare_to_previous_period,
+            )
+        ),
+    )
+    selection_digest = cast(str, result.selection_digest)
+    report_digest = cast(str, result.report_digest)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers[REPORT_SELECTION_DIGEST_HEADER] = selection_digest
+    response.headers[REPORT_DIGEST_HEADER] = report_digest
+    payload = result.model_dump(mode="json", by_alias=True)
+    markdown = None
+    if request.format.value == "markdown":
+        from powercontext.builtin.handoff_report.rendering import render_markdown
+
+        markdown = render_markdown(result)
+        payload = None
+    if markdown is not None:
+        _require_report_size(len(markdown.encode("utf-8")), result)
+        headers = {
+            "Cache-Control": "no-store",
+            REPORT_SELECTION_DIGEST_HEADER: selection_digest,
+            REPORT_DIGEST_HEADER: report_digest,
+        }
+        if request.download:
+            headers["Content-Disposition"] = 'attachment; filename="handoff-report.md"'
+        return Response(markdown, media_type="text/markdown; charset=utf-8", headers=headers)
+    if request.download:
+        headers = {
+            "Cache-Control": "no-store",
+            REPORT_SELECTION_DIGEST_HEADER: selection_digest,
+            REPORT_DIGEST_HEADER: report_digest,
+            "Content-Disposition": 'attachment; filename="handoff-report.json"',
+        }
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        _require_report_size(len(encoded), result)
+        return Response(encoded, media_type="application/json", headers=headers)
+    response_payload = HandoffReportResponse(
+        format=request.format,
+        report=payload,
+        markdown=markdown,
+        selection_digest=selection_digest,
+        report_digest=report_digest,
+    )
+    encoded_response = response_payload.model_dump_json(by_alias=True).encode("utf-8")
+    _require_report_size(len(encoded_response), result)
+    return response_payload
+
+
+def _require_report_size(estimated_bytes: int, report: Any) -> None:
+    if estimated_bytes <= MAX_HANDOFF_REPORT_BYTES:
+        return
+    raise HandoffReportTooLargeError(
+        estimated_bytes=estimated_bytes,
+        selected_workstreams=report.coverage.selected_workstreams,
+        selected_activities=len(report.activity_selection),
+    )
 
 
 async def capture_content_source(
@@ -873,6 +1212,21 @@ def _require_application(request: Request) -> ServerApplication:
     return application
 
 
+def _require_handoff_report_application(request: Request) -> HandoffReportApplication:
+    application = _require_application(request)
+    if application.handoff_report is None:
+        raise _RuntimeNotReadyError
+    return application.handoff_report
+
+
+def _project_descriptor_response(value: DomainProjectDescriptor) -> ProjectDescriptor:
+    return ProjectDescriptor.model_validate(value.model_dump(mode="json", by_alias=True))
+
+
+def _workstream_descriptor_response(value: DomainWorkstreamDescriptor) -> WorkstreamDescriptor:
+    return WorkstreamDescriptor.model_validate(value.model_dump(mode="json", by_alias=True))
+
+
 def _add_route(
     app: FastAPI,
     operation: Operation[_RequestT, _ResponseT],
@@ -1044,6 +1398,9 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     availability_error = _map_availability_error(error)
     if availability_error is not None:
         return availability_error
+    report_error = _map_report_error(error)
+    if report_error is not None:
+        return report_error
     return _map_domain_error(error)
 
 
@@ -1073,6 +1430,66 @@ def _map_candidate_error(error: Exception) -> tuple[int, str, str, dict[str, Any
         )
     if isinstance(error, InvalidCandidateError):
         return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_request", "The request is invalid.", None
+    return None
+
+
+def _map_report_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, (ProjectNotFoundError, WorkstreamNotFoundError, WorkspaceBindingNotFoundError)):
+        return status.HTTP_404_NOT_FOUND, error.code, "The requested Handoff Report catalog value was not found.", None
+    if isinstance(
+        error,
+        (ProjectConflictError, WorkstreamConflictError, ScopeAlreadyGroupedError, WorkspaceBindingConflictError),
+    ):
+        details = {
+            name: getattr(error, name)
+            for name in ("expected_version", "current_version", "project_id", "scope_id", "workspace_instance_id")
+            if hasattr(error, name)
+        }
+        return (
+            status.HTTP_409_CONFLICT,
+            error.code,
+            "The Handoff Report catalog value is stale or conflicting.",
+            details,
+        )
+    if isinstance(error, ActivityEventConflictError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "activity_event_conflict",
+            "The Activity idempotency key already identifies different content.",
+            {"source": error.source, "source_event_id": error.source_event_id},
+        )
+    if isinstance(error, HandoffReportBusyError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "handoff_report_busy",
+            "Handoff heads changed while the report was being assembled.",
+            {"attempts": error.attempts},
+        )
+    if isinstance(error, HandoffReportTooLargeError):
+        return (
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "handoff_report_too_large",
+            "The Handoff Report is too large; narrow the Workstream or Activity selection.",
+            {
+                "estimated_bytes": error.estimated_bytes,
+                "selected_workstreams": error.selected_workstreams,
+                "selected_activities": error.selected_activities,
+            },
+        )
+    if isinstance(error, HandoffReportInconsistentError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "handoff_report_inconsistent",
+            "The frozen Handoff selection could not be read consistently.",
+            {"scope_id": error.scope_id},
+        )
+    if isinstance(
+        error,
+        (HandoffReportCatalogArgumentError, InvalidActivityEventError, InvalidActivityRepositoryArgumentError),
+    ):
+        return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_request", "The request is invalid.", None
+    if isinstance(error, HandoffReportError):
+        return status.HTTP_503_SERVICE_UNAVAILABLE, "handoff_report_unavailable", "Handoff Report is unavailable.", None
     return None
 
 

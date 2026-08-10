@@ -7,7 +7,10 @@
       <span class="brand-product">PowerContext</span>
     </a>
     <nav class="primary-nav" aria-label="Primary navigation">
-      <a href="{{ url_for('dashboard_home') }}" aria-current="page" data-i18n="dashboardTitle">Dashboard</a>
+      <a href="{{ url_for('dashboard_home') }}"{% if active_page == "dashboard" %} aria-current="page"{% endif %} data-i18n="dashboardTitle">Dashboard</a>
+      {% if handoff_report_enabled %}
+      <a href="{{ url_for('handoff_report_dashboard') }}"{% if active_page == "handoff_report" %} aria-current="page"{% endif %} data-i18n="handoffReportTitle">Handoff Report</a>
+      {% endif %}
     </nav>
     <div class="header-tools">
       <button class="theme-toggle" id="theme-toggle" type="button"></button>

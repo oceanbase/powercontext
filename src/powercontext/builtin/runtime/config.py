@@ -24,6 +24,12 @@ class RuntimeConfig(BaseModel):
     experience_schedule_seconds: float | None = Field(default=None, gt=0)
 
 
+class HandoffReportConfig(BaseModel):
+    """Optional Handoff Report feature registration."""
+
+    enabled: bool = False
+
+
 class InferenceConfig(BaseModel):
     """Optional generation and embedding configuration."""
 
@@ -110,6 +116,7 @@ class BuiltinConfig(BaseModel):
 
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteConfig, discriminator="kind")
+    handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
 
@@ -123,6 +130,7 @@ __all__ = [
     "BuiltinConfig",
     "DatabaseConfig",
     "ExternalSkillsConfig",
+    "HandoffReportConfig",
     "InferenceConfig",
     "RuntimeConfig",
 ]

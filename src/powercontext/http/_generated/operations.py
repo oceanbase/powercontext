@@ -11,12 +11,15 @@ from powercontext.http._generated.models import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
+    AttachHandoffReportWorkspaceRequest,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CommitHandoffRequest,
     CommittedHandoff,
     ContinueHandoffRequest,
+    CreateHandoffReportProjectRequest,
+    DetachHandoffReportWorkspaceRequest,
     ExperienceArtifact,
     ExternalSkillResolution,
     FinalizeHandoffRequest,
@@ -27,17 +30,26 @@ from powercontext.http._generated.models import (
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
+    GetHandoffReportProjectRequest,
+    GetHandoffReportRequest,
+    GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
     GetStatsRequest,
     HandoffActivation,
     HandoffDraft,
+    HandoffReportActivityPage,
+    HandoffReportResponse,
+    HandoffReportWorkspaceBinding,
     HandoffResolution,
     HealthResponse,
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
+    ListHandoffReportActivitiesRequest,
+    ListHandoffReportProjectsRequest,
+    ListHandoffReportWorkstreamsRequest,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -48,9 +60,15 @@ from powercontext.http._generated.models import (
     PreparedContext,
     PreparedHandoff,
     PrepareHandoffRequest,
+    ProjectDescriptor,
+    ProjectPage,
     ProposeExperienceRequest,
     ProposeSkillRequest,
+    PurgeHandoffReportActivitiesRequest,
+    PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
+    RecordHandoffReportActivityRequest,
+    RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
@@ -63,6 +81,11 @@ from powercontext.http._generated.models import (
     SearchMemoryRequest,
     SearchMemoryResponse,
     SkillArtifact,
+    StoredHandoffReportActivity,
+    UpdateHandoffReportProjectRequest,
+    UpdateHandoffReportWorkstreamRequest,
+    WorkstreamDescriptor,
+    WorkstreamPage,
 )
 
 OPENAPI_VERSION = "3.0.3"
@@ -861,6 +884,339 @@ GET_STATS = Operation[GetStatsRequest, ScopedStats](
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+CREATE_HANDOFF_REPORT_PROJECT = Operation[CreateHandoffReportProjectRequest, ProjectDescriptor](
+    method="POST",
+    path="/v1/handoff-reports/projects/create",
+    operation_id="create_handoff_report_project",
+    request_type=CreateHandoffReportProjectRequest,
+    request_location="body",
+    response_type=ProjectDescriptor,
+    success_status=201,
+    summary="Create a Handoff Report Project",
+    tags=("handoff-reports",),
+    responses={
+        201: {
+            "description": "The created Report Project.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+LIST_HANDOFF_REPORT_PROJECTS = Operation[ListHandoffReportProjectsRequest, ProjectPage](
+    method="POST",
+    path="/v1/handoff-reports/projects/list",
+    operation_id="list_handoff_report_projects",
+    request_type=ListHandoffReportProjectsRequest,
+    request_location="body",
+    response_type=ProjectPage,
+    success_status=200,
+    summary="List Handoff Report Projects",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "A cursor-paginated page of Report Projects.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_HANDOFF_REPORT_PROJECT = Operation[GetHandoffReportProjectRequest, ProjectDescriptor](
+    method="POST",
+    path="/v1/handoff-reports/projects/get",
+    operation_id="get_handoff_report_project",
+    request_type=GetHandoffReportProjectRequest,
+    request_location="body",
+    response_type=ProjectDescriptor,
+    success_status=200,
+    summary="Get a Handoff Report Project",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "The exact current Report Project descriptor.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+UPDATE_HANDOFF_REPORT_PROJECT = Operation[UpdateHandoffReportProjectRequest, ProjectDescriptor](
+    method="POST",
+    path="/v1/handoff-reports/projects/update",
+    operation_id="update_handoff_report_project",
+    request_type=UpdateHandoffReportProjectRequest,
+    request_location="body",
+    response_type=ProjectDescriptor,
+    success_status=200,
+    summary="Update a Handoff Report Project",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "The updated Report Project descriptor.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+REGISTER_HANDOFF_REPORT_WORKSTREAM = Operation[RegisterHandoffReportWorkstreamRequest, WorkstreamDescriptor](
+    method="POST",
+    path="/v1/handoff-reports/workstreams/register",
+    operation_id="register_handoff_report_workstream",
+    request_type=RegisterHandoffReportWorkstreamRequest,
+    request_location="body",
+    response_type=WorkstreamDescriptor,
+    success_status=201,
+    summary="Register a Handoff Report Workstream",
+    tags=("handoff-reports",),
+    responses={
+        201: {
+            "description": "The registered Report Workstream.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+LIST_HANDOFF_REPORT_WORKSTREAMS = Operation[ListHandoffReportWorkstreamsRequest, WorkstreamPage](
+    method="POST",
+    path="/v1/handoff-reports/workstreams/list",
+    operation_id="list_handoff_report_workstreams",
+    request_type=ListHandoffReportWorkstreamsRequest,
+    request_location="body",
+    response_type=WorkstreamPage,
+    success_status=200,
+    summary="List Handoff Report Workstreams",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "A cursor-paginated page of Report Workstreams.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+UPDATE_HANDOFF_REPORT_WORKSTREAM = Operation[UpdateHandoffReportWorkstreamRequest, WorkstreamDescriptor](
+    method="POST",
+    path="/v1/handoff-reports/workstreams/update",
+    operation_id="update_handoff_report_workstream",
+    request_type=UpdateHandoffReportWorkstreamRequest,
+    request_location="body",
+    response_type=WorkstreamDescriptor,
+    success_status=200,
+    summary="Update a Handoff Report Workstream",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "The updated Report Workstream descriptor.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_HANDOFF_REPORT = Operation[GetHandoffReportRequest, HandoffReportResponse](
+    method="POST",
+    path="/v1/handoff-reports/get",
+    operation_id="get_handoff_report",
+    request_type=GetHandoffReportRequest,
+    request_location="body",
+    response_type=HandoffReportResponse,
+    success_status=200,
+    summary="Generate a Handoff Report",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "A canonical JSON report, optionally accompanied by Markdown.",
+            "headers": {
+                "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+                "Cache-Control": {
+                    "description": "Prevent caches from retaining scoped report data.",
+                    "schema": {"type": "string", "enum": ["no-store"]},
+                },
+                "X-PowerContext-Selection-Digest": {
+                    "description": "Digest of the exact report selection.",
+                    "schema": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                },
+                "X-PowerContext-Report-Digest": {
+                    "description": "Digest of the selected output projection.",
+                    "schema": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                },
+                "Content-Disposition": {
+                    "description": "Safe attachment filename when download is true.",
+                    "schema": {"type": "string"},
+                },
+            },
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        413: {"$ref": "#/components/responses/ReportTooLarge"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+RECORD_HANDOFF_REPORT_ACTIVITY = Operation[RecordHandoffReportActivityRequest, StoredHandoffReportActivity](
+    method="POST",
+    path="/v1/handoff-reports/activities/record",
+    operation_id="record_handoff_report_activity",
+    request_type=RecordHandoffReportActivityRequest,
+    request_location="body",
+    response_type=StoredHandoffReportActivity,
+    success_status=201,
+    summary="Record a Handoff Report Activity",
+    tags=("handoff-reports",),
+    responses={
+        201: {
+            "description": "The idempotently recorded Report Activity.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+LIST_HANDOFF_REPORT_ACTIVITIES = Operation[ListHandoffReportActivitiesRequest, HandoffReportActivityPage](
+    method="POST",
+    path="/v1/handoff-reports/activities/list",
+    operation_id="list_handoff_report_activities",
+    request_type=ListHandoffReportActivitiesRequest,
+    request_location="body",
+    response_type=HandoffReportActivityPage,
+    success_status=200,
+    summary="List Handoff Report Activities",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "A frozen cursor page of Report Activities.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+PURGE_HANDOFF_REPORT_ACTIVITIES = Operation[PurgeHandoffReportActivitiesRequest, PurgeHandoffReportActivitiesResponse](
+    method="POST",
+    path="/v1/handoff-reports/activities/purge",
+    operation_id="purge_handoff_report_activities",
+    request_type=PurgeHandoffReportActivitiesRequest,
+    request_location="body",
+    response_type=PurgeHandoffReportActivitiesResponse,
+    success_status=200,
+    summary="Purge Handoff Report Activities",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "The number of deleted Report-owned Activity rows.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_HANDOFF_REPORT_WORKSPACE = Operation[GetHandoffReportWorkspaceRequest, HandoffReportWorkspaceBinding](
+    method="POST",
+    path="/v1/handoff-reports/workspace-bindings/get",
+    operation_id="get_handoff_report_workspace",
+    request_type=GetHandoffReportWorkspaceRequest,
+    request_location="body",
+    response_type=HandoffReportWorkspaceBinding,
+    success_status=200,
+    summary="Get a Handoff Report Workspace Binding",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "The confirmed Workspace binding.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+ATTACH_HANDOFF_REPORT_WORKSPACE = Operation[AttachHandoffReportWorkspaceRequest, HandoffReportWorkspaceBinding](
+    method="POST",
+    path="/v1/handoff-reports/workspace-bindings/attach",
+    operation_id="attach_handoff_report_workspace",
+    request_type=AttachHandoffReportWorkspaceRequest,
+    request_location="body",
+    response_type=HandoffReportWorkspaceBinding,
+    success_status=200,
+    summary="Attach a Handoff Report Workspace Binding",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "The confirmed Workspace binding.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+DETACH_HANDOFF_REPORT_WORKSPACE = Operation[DetachHandoffReportWorkspaceRequest, HandoffReportWorkspaceBinding](
+    method="POST",
+    path="/v1/handoff-reports/workspace-bindings/detach",
+    operation_id="detach_handoff_report_workspace",
+    request_type=DetachHandoffReportWorkspaceRequest,
+    request_location="body",
+    response_type=HandoffReportWorkspaceBinding,
+    success_status=200,
+    summary="Detach a Handoff Report Workspace Binding",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "The detached Workspace binding record.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
         500: {"$ref": "#/components/responses/InternalError"},
     },
 )
