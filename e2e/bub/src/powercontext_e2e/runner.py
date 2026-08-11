@@ -151,6 +151,7 @@ async def evaluate_scenario(
 ) -> bool:
     _configure_tracing()
     judge = _judge_model() if mode == "live" else None
+    redactor = EvidenceRedactor.from_environment()
     evaluator = ReplayEvaluator(judge_model=judge)
     dataset = Dataset[ScenarioSpec, ReplayObservation, dict[str, str]](
         name="powercontext-session-replay",
@@ -159,16 +160,17 @@ async def evaluate_scenario(
     )
 
     async def run(inputs: ScenarioSpec) -> ReplayObservation:
-        return await _run_replay(inputs, mode=mode, judge_model=_judge_model_name(judge))
+        return await _run_replay(inputs, mode=mode, judge_model=_judge_model_name(judge), redactor=redactor)
 
     report = await dataset.evaluate(run, name=f"{mode}:{scenario.id}", max_concurrency=1, progress=False)
     observation = report.cases[0].output
-    write_artifacts(observation, report, output_dir)
+    write_artifacts(observation, report, output_dir, redactor=redactor)
     return not report.failures and all(result.value for result in report.cases[0].assertions.values())
 
 
 async def rescore_replay(replay_path: Path, output_dir: Path) -> bool:
     _configure_tracing()
+    redactor = EvidenceRedactor.from_environment()
     observation = ReplayObservation.model_validate_json(replay_path.read_text(encoding="utf-8"))
     environment = observation.environment.model_copy(update={"mode": "offline-rescore"})
     observation = observation.model_copy(update={"environment": environment})
@@ -183,7 +185,7 @@ async def rescore_replay(replay_path: Path, output_dir: Path) -> bool:
         return observation
 
     report = await dataset.evaluate(recorded, name=f"offline:{observation.scenario.id}", progress=False)
-    write_artifacts(report.cases[0].output, report, output_dir)
+    write_artifacts(report.cases[0].output, report, output_dir, redactor=redactor)
     return not report.failures and all(result.value for result in report.cases[0].assertions.values())
 
 
@@ -192,6 +194,7 @@ async def _run_replay(
     *,
     mode: Literal["acceptance", "live"],
     judge_model: str | None,
+    redactor: EvidenceRedactor,
 ) -> ReplayObservation:
     run_id = f"{scenario.id}-{uuid4().hex[:12]}"
     scope_id = f"e2e:{run_id}"
@@ -224,7 +227,7 @@ async def _run_replay(
                 except Exception as exc:
                     output = ""
                     status = "failed"
-                    error = _redact(f"{type(exc).__name__}: {exc}")
+                    error = redactor.redact_text(f"{type(exc).__name__}: {exc}")
                     errors.append(f"Session {session.id}: {error}")
                 memory_after_session = await _memory_snapshot(client, scope_id)
                 observations.append(
@@ -234,7 +237,7 @@ async def _run_replay(
                         status=status,
                         error=error,
                         prepared_context=prepared,
-                        output=_redact(output),
+                        output=redactor.redact_text(output),
                         memory_after=memory_after_session,
                     )
                 )
@@ -242,7 +245,7 @@ async def _run_replay(
                     break
             memory_after = await _memory_snapshot(client, scope_id)
     except Exception as exc:
-        errors.append(_redact(f"{type(exc).__name__}: {exc}"))
+        errors.append(redactor.redact_text(f"{type(exc).__name__}: {exc}"))
         memory_after = observations[-1].memory_after if observations else memory_before
 
     return ReplayObservation(
@@ -391,14 +394,17 @@ def _commit() -> str:
     return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
-def _redact(value: str) -> str:
-    return EvidenceRedactor.from_environment().redact_text(value)
-
-
-def write_artifacts(observation: ReplayObservation, report: Report, output_dir: Path) -> None:
-    redactor = EvidenceRedactor.from_environment()
+def write_artifacts(
+    observation: ReplayObservation,
+    report: Report,
+    output_dir: Path,
+    *,
+    redactor: EvidenceRedactor | None = None,
+) -> None:
+    if redactor is None:
+        redactor = EvidenceRedactor.from_environment()
     output_dir.mkdir(parents=True, exist_ok=True)
-    replay_payload = json.loads(observation.model_dump_json(by_alias=True))
+    replay_payload = observation.model_dump(mode="json", by_alias=True)
     _write_evidence(
         output_dir / "replay.json",
         json.dumps(redactor.redact(replay_payload), indent=2, ensure_ascii=False) + "\n",
