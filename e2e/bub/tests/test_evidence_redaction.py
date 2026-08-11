@@ -20,68 +20,37 @@ from powercontext_e2e.models import (
 from powercontext_e2e.runner import write_artifacts
 
 
-def test_write_artifacts_redacts_every_evidence_sink(monkeypatch, tmp_path: Path) -> None:
-    credentials = {
-        "BUB_API_KEY": "sk-bub-evidence-sentinel",
-        "OPENAI_API_KEY": "sk-openai-evidence-sentinel",
-        "POWERCONTEXT_SERVER_AUTH_TOKEN": "server-auth-evidence-sentinel",
-        "POWERCONTEXT_CODEX_AUTHORIZATION": "Bearer codex-auth-evidence-sentinel",
-        "POWERCONTEXT_SERVER_DATABASE_URL": (
-            "mysql+aoceanbase://root:database-evidence-sentinel@db.example/powercontext"
-        ),
-    }
-    for name, value in credentials.items():
-        monkeypatch.setenv(name, value)
+def test_write_artifacts_redacts_known_runtime_secrets_at_every_sink(monkeypatch, tmp_path: Path) -> None:
+    runtime_secrets = ("provider-runtime-secret-sentinel", "server-runtime-secret-sentinel")
+    monkeypatch.setenv("BUB_API_KEY", runtime_secrets[0])
+    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_TOKEN", runtime_secrets[1])
 
-    extra_sentinels = (
-        "header-evidence-sentinel",
-        "span-database-evidence-sentinel",
-        "query-evidence-sentinel",
-        "attribute-evidence-sentinel",
-        "failure-evidence-sentinel",
-        "basic-evidence-sentinel",
-        "sk-unregistered-evidence-sentinel",
-    )
     observation = _observation(
-        session_input=f"Question containing {credentials['BUB_API_KEY']}",
-        memory_text=f"Memory containing {credentials['OPENAI_API_KEY']}",
-        context=f"Context containing {credentials['POWERCONTEXT_SERVER_AUTH_TOKEN']}",
-        output=f"Output containing {credentials['POWERCONTEXT_CODEX_AUTHORIZATION']}",
-        error=f"Database failed at {credentials['POWERCONTEXT_SERVER_DATABASE_URL']}",
-        span_attributes={
-            "http.request.header.authorization": f"Bearer {extra_sentinels[0]}",
-            "db.connection_string": (f"postgresql://user:{extra_sentinels[1]}@db.example/powercontext"),
-            "http.url": f"https://provider.example/v1?access_token={extra_sentinels[2]}&mode=live",
-        },
+        session_input=f"Question containing {runtime_secrets[0]}",
+        memory_text="The project selected OceanBase.",
+        context="OceanBase supports shared persistent context.",
+        output=f"Output containing {runtime_secrets[0]}",
+        error=f"Request failed with {runtime_secrets[1]}",
+        span_attributes={"gen_ai.operation.name": "chat"},
     )
     report = _report(
-        assertion_reason=f"Judge echoed {credentials['OPENAI_API_KEY']} and {extra_sentinels[6]}",
-        score_reason=f"Authorization: {credentials['POWERCONTEXT_CODEX_AUTHORIZATION']}",
-        label_reason=f"Provider URL used api_key={extra_sentinels[2]}",
-        attributes={"api_key": extra_sentinels[3]},
-        failure=f"password={extra_sentinels[4]}",
-        rendered=f"Authorization: Basic {extra_sentinels[5]} and {credentials['BUB_API_KEY']}",
+        assertion_reason=f"Judge echoed {runtime_secrets[0]}",
+        score_reason="The expected fact was present.",
+        label_reason="pass",
+        attributes={"mode": "live"},
+        failure=f"Request failed with {runtime_secrets[1]}",
+        rendered=f"Run contained {runtime_secrets[0]} and {runtime_secrets[1]}",
     )
 
     write_artifacts(observation, report, tmp_path)
 
     artifacts = {path.name: path.read_text(encoding="utf-8") for path in tmp_path.iterdir()}
     assert set(artifacts) == {"eval-report.json", "replay.json", "report.md"}
-    sentinels = (
-        credentials["BUB_API_KEY"],
-        credentials["OPENAI_API_KEY"],
-        credentials["POWERCONTEXT_SERVER_AUTH_TOKEN"],
-        "codex-auth-evidence-sentinel",
-        "database-evidence-sentinel",
-        *extra_sentinels,
-    )
     for artifact_name, content in artifacts.items():
-        for sentinel in sentinels:
-            assert sentinel not in content, f"{sentinel!r} leaked into {artifact_name}"
+        for secret in runtime_secrets:
+            assert secret not in content, f"{secret!r} leaked into {artifact_name}"
         assert "[REDACTED]" in content
 
-    assert "mysql+aoceanbase://" not in artifacts["replay.json"]
-    assert "postgresql://" not in artifacts["replay.json"]
     json.loads(artifacts["replay.json"])
     json.loads(artifacts["eval-report.json"])
 

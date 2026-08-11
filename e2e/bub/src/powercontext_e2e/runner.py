@@ -36,11 +36,21 @@ from .models import (
     ScenarioSpec,
     SessionObservation,
 )
-from .redaction import EvidenceRedactor
 
 Mode = Literal["acceptance", "live", "offline-rescore"]
 Report = EvaluationReport[ScenarioSpec, ReplayObservation, dict[str, str]]
 Context = EvaluatorContext[ScenarioSpec, ReplayObservation, dict[str, str]]
+_EVIDENCE_SECRET_ENVIRONMENT_NAMES = (
+    "ANTHROPIC_API_KEY",
+    "BUB_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "POWERCONTEXT_CLIENT_API_TOKEN",
+    "POWERCONTEXT_SERVER_AUTH_TOKEN",
+    "POWERCONTEXT_SERVER_DATABASE_URL",
+)
+_REDACTED = "[REDACTED]"
 
 
 @dataclass
@@ -151,7 +161,6 @@ async def evaluate_scenario(
 ) -> bool:
     _configure_tracing()
     judge = _judge_model() if mode == "live" else None
-    redactor = EvidenceRedactor.from_environment()
     evaluator = ReplayEvaluator(judge_model=judge)
     dataset = Dataset[ScenarioSpec, ReplayObservation, dict[str, str]](
         name="powercontext-session-replay",
@@ -160,17 +169,16 @@ async def evaluate_scenario(
     )
 
     async def run(inputs: ScenarioSpec) -> ReplayObservation:
-        return await _run_replay(inputs, mode=mode, judge_model=_judge_model_name(judge), redactor=redactor)
+        return await _run_replay(inputs, mode=mode, judge_model=_judge_model_name(judge))
 
     report = await dataset.evaluate(run, name=f"{mode}:{scenario.id}", max_concurrency=1, progress=False)
     observation = report.cases[0].output
-    write_artifacts(observation, report, output_dir, redactor=redactor)
+    write_artifacts(observation, report, output_dir)
     return not report.failures and all(result.value for result in report.cases[0].assertions.values())
 
 
 async def rescore_replay(replay_path: Path, output_dir: Path) -> bool:
     _configure_tracing()
-    redactor = EvidenceRedactor.from_environment()
     observation = ReplayObservation.model_validate_json(replay_path.read_text(encoding="utf-8"))
     environment = observation.environment.model_copy(update={"mode": "offline-rescore"})
     observation = observation.model_copy(update={"environment": environment})
@@ -185,7 +193,7 @@ async def rescore_replay(replay_path: Path, output_dir: Path) -> bool:
         return observation
 
     report = await dataset.evaluate(recorded, name=f"offline:{observation.scenario.id}", progress=False)
-    write_artifacts(report.cases[0].output, report, output_dir, redactor=redactor)
+    write_artifacts(report.cases[0].output, report, output_dir)
     return not report.failures and all(result.value for result in report.cases[0].assertions.values())
 
 
@@ -194,7 +202,6 @@ async def _run_replay(
     *,
     mode: Literal["acceptance", "live"],
     judge_model: str | None,
-    redactor: EvidenceRedactor,
 ) -> ReplayObservation:
     run_id = f"{scenario.id}-{uuid4().hex[:12]}"
     scope_id = f"e2e:{run_id}"
@@ -227,7 +234,7 @@ async def _run_replay(
                 except Exception as exc:
                     output = ""
                     status = "failed"
-                    error = redactor.redact_text(f"{type(exc).__name__}: {exc}")
+                    error = f"{type(exc).__name__}: {exc}"
                     errors.append(f"Session {session.id}: {error}")
                 memory_after_session = await _memory_snapshot(client, scope_id)
                 observations.append(
@@ -237,7 +244,7 @@ async def _run_replay(
                         status=status,
                         error=error,
                         prepared_context=prepared,
-                        output=redactor.redact_text(output),
+                        output=output,
                         memory_after=memory_after_session,
                     )
                 )
@@ -245,7 +252,7 @@ async def _run_replay(
                     break
             memory_after = await _memory_snapshot(client, scope_id)
     except Exception as exc:
-        errors.append(redactor.redact_text(f"{type(exc).__name__}: {exc}"))
+        errors.append(f"{type(exc).__name__}: {exc}")
         memory_after = observations[-1].memory_after if observations else memory_before
 
     return ReplayObservation(
@@ -394,21 +401,14 @@ def _commit() -> str:
     return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
-def write_artifacts(
-    observation: ReplayObservation,
-    report: Report,
-    output_dir: Path,
-    *,
-    redactor: EvidenceRedactor | None = None,
-) -> None:
-    if redactor is None:
-        redactor = EvidenceRedactor.from_environment()
+def write_artifacts(observation: ReplayObservation, report: Report, output_dir: Path) -> None:
+    secrets = _runtime_secrets()
     output_dir.mkdir(parents=True, exist_ok=True)
     replay_payload = observation.model_dump(mode="json", by_alias=True)
     _write_evidence(
         output_dir / "replay.json",
-        json.dumps(redactor.redact(replay_payload), indent=2, ensure_ascii=False) + "\n",
-        redactor,
+        json.dumps(replay_payload, indent=2, ensure_ascii=False) + "\n",
+        secrets,
     )
 
     cases = [
@@ -439,8 +439,8 @@ def write_artifacts(
     }
     _write_evidence(
         output_dir / "eval-report.json",
-        json.dumps(redactor.redact(report_payload), indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        redactor,
+        json.dumps(report_payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        secrets,
     )
     _write_evidence(
         output_dir / "report.md",
@@ -451,9 +451,16 @@ def write_artifacts(
         f"- Status: `{observation.status}`\n\n"
         "## Evaluation\n\n"
         f"```text\n{report.render(include_reasons=True)}\n```\n",
-        redactor,
+        secrets,
     )
 
 
-def _write_evidence(path: Path, content: str, redactor: EvidenceRedactor) -> None:
-    path.write_text(redactor.redact_text(content), encoding="utf-8")
+def _runtime_secrets() -> tuple[str, ...]:
+    secrets = {value for name in _EVIDENCE_SECRET_ENVIRONMENT_NAMES if (value := os.getenv(name))}
+    return tuple(sorted(secrets, key=lambda value: (-len(value), value)))
+
+
+def _write_evidence(path: Path, content: str, secrets: tuple[str, ...]) -> None:
+    for secret in secrets:
+        content = content.replace(secret, _REDACTED)
+    path.write_text(content, encoding="utf-8")

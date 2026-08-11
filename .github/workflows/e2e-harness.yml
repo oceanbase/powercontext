@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  TRUFFLEHOG_IMAGE: ghcr.io/trufflesecurity/trufflehog:3.96.0
+
 concurrency:
   group: e2e-harness-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
   cancel-in-progress: false
@@ -50,8 +53,31 @@ jobs:
           POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/acceptance
         run: make harness-compose-acceptance
 
-      - name: Upload replay evidence
+      - name: Scan replay evidence
+        id: evidence_scan
         if: always()
+        continue-on-error: true
+        env:
+          EVIDENCE_PATH: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/acceptance
+        run: |
+          test -d "${EVIDENCE_PATH}"
+          docker run --rm \
+            --volume "${EVIDENCE_PATH}:/evidence:ro" \
+            "${TRUFFLEHOG_IMAGE}" \
+            filesystem /evidence \
+            --no-verification \
+            --results=verified,unknown,unverified \
+            --fail \
+            --fail-on-scan-errors \
+            --no-update \
+            --json > "${RUNNER_TEMP}/trufflehog-acceptance-${{ matrix.database }}.jsonl"
+
+      - name: Report suppressed replay evidence
+        if: always() && steps.evidence_scan.outcome != 'success'
+        run: echo "::warning::Replay evidence was not published because secret scanning did not complete cleanly."
+
+      - name: Upload replay evidence
+        if: always() && steps.evidence_scan.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: e2e-acceptance-${{ matrix.database }}-${{ github.sha }}
@@ -102,12 +128,44 @@ jobs:
           POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/live
         run: make harness-compose-live
 
-      - name: Publish replay summary
+      - name: Scan replay evidence
+        id: evidence_scan
         if: always() && steps.provider.outputs.configured == 'true'
+        continue-on-error: true
+        env:
+          EVIDENCE_PATH: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/live
+        run: |
+          test -d "${EVIDENCE_PATH}"
+          docker run --rm \
+            --volume "${EVIDENCE_PATH}:/evidence:ro" \
+            "${TRUFFLEHOG_IMAGE}" \
+            filesystem /evidence \
+            --no-verification \
+            --results=verified,unknown,unverified \
+            --fail \
+            --fail-on-scan-errors \
+            --no-update \
+            --json > "${RUNNER_TEMP}/trufflehog-live-${{ matrix.database }}.jsonl"
+
+      - name: Report suppressed replay evidence
+        if: >-
+          always() &&
+          steps.provider.outputs.configured == 'true' &&
+          steps.evidence_scan.outcome != 'success'
+        run: echo "::warning::Replay evidence was not published because secret scanning did not complete cleanly."
+
+      - name: Publish replay summary
+        if: >-
+          always() &&
+          steps.provider.outputs.configured == 'true' &&
+          steps.evidence_scan.outcome == 'success'
         run: cat ".powercontext-e2e/${{ matrix.database }}/live/report.md" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload replay evidence
-        if: always() && steps.provider.outputs.configured == 'true'
+        if: >-
+          always() &&
+          steps.provider.outputs.configured == 'true' &&
+          steps.evidence_scan.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: e2e-live-${{ matrix.database }}-${{ github.sha }}
