@@ -51,4 +51,5 @@ POWERCONTEXT_E2E_DATABASE=oceanbase make harness-compose-acceptance
 ```
 
 `make harness-compose-live` uses the provider variables above. Evidence is written below `.powercontext-e2e/bub/`;
-set `POWERCONTEXT_E2E_OUTPUT` to keep it elsewhere. `make harness-compose-down` removes containers and database volumes.
+set `POWERCONTEXT_E2E_OUTPUT` to keep it elsewhere. Compose containers, networks, and volumes are removed after both
+successful and failed runs. `make harness-compose-down` remains available as an idempotent manual cleanup.

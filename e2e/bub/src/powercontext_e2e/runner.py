@@ -36,6 +36,7 @@ from .models import (
     ScenarioSpec,
     SessionObservation,
 )
+from .redaction import EvidenceRedactor
 
 Mode = Literal["acceptance", "live", "offline-rescore"]
 Report = EvaluationReport[ScenarioSpec, ReplayObservation, dict[str, str]]
@@ -391,15 +392,17 @@ def _commit() -> str:
 
 
 def _redact(value: str) -> str:
-    secret = os.getenv("BUB_API_KEY")
-    return value.replace(secret, "[REDACTED]") if secret else value
+    return EvidenceRedactor.from_environment().redact_text(value)
 
 
 def write_artifacts(observation: ReplayObservation, report: Report, output_dir: Path) -> None:
+    redactor = EvidenceRedactor.from_environment()
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "replay.json").write_text(
-        observation.model_dump_json(by_alias=True, indent=2) + "\n",
-        encoding="utf-8",
+    replay_payload = json.loads(observation.model_dump_json(by_alias=True))
+    _write_evidence(
+        output_dir / "replay.json",
+        json.dumps(redactor.redact(replay_payload), indent=2, ensure_ascii=False) + "\n",
+        redactor,
     )
 
     cases = [
@@ -428,11 +431,13 @@ def write_artifacts(observation: ReplayObservation, report: Report, output_dir: 
         "cases": cases,
         "failures": [{"name": failure.name, "error": failure.error_message} for failure in report.failures],
     }
-    (output_dir / "eval-report.json").write_text(
-        json.dumps(report_payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    _write_evidence(
+        output_dir / "eval-report.json",
+        json.dumps(redactor.redact(report_payload), indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        redactor,
     )
-    (output_dir / "report.md").write_text(
+    _write_evidence(
+        output_dir / "report.md",
         "# PowerContext session replay\n\n"
         f"- Scenario: `{observation.scenario.id}`\n"
         f"- Mode: `{observation.environment.mode}`\n"
@@ -440,5 +445,9 @@ def write_artifacts(observation: ReplayObservation, report: Report, output_dir: 
         f"- Status: `{observation.status}`\n\n"
         "## Evaluation\n\n"
         f"```text\n{report.render(include_reasons=True)}\n```\n",
-        encoding="utf-8",
+        redactor,
     )
+
+
+def _write_evidence(path: Path, content: str, redactor: EvidenceRedactor) -> None:
+    path.write_text(redactor.redact_text(content), encoding="utf-8")
