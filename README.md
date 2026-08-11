@@ -69,11 +69,11 @@ installing the `server` role also makes local Server process management availabl
 
 ### [LOCOMO](https://github.com/snap-research/locomo)
 
-| Metric | PowerContext | [PowerMem](https://www.powermem.ai/benchmark) | Full-context baseline | PowerContext vs baseline |
-| --- | ---: | ---: | ---: | ---: |
-| Accuracy | **90.78%** (1,398/1,540) | 87.79% | 52.9% | **+60.7%** |
-| Search p95 latency | **1.38 s** | 1.44 s | 17.12 s | **-92.0%** |
-| Answer tokens / question | **~1.65 k** | ~0.9 k | 26 k | **-89.8%** |
+| Metric | PowerContext | [PowerMem](https://www.powermem.ai/benchmark) | Full-context baseline |
+| --- | ---: | ---: | ---: |
+| Accuracy | **90.78%** (1,398/1,540) | 87.79% | 52.9% |
+| Search p95 latency | **1.38 s** | 1.44 s | 17.12 s |
+| Answer tokens / question | **~1.65 k** | ~0.9 k | 26 k |
 
 The PowerContext results come from a full 1,540-question run across all 10 LOCOMO conversations.
 
