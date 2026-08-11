@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  release-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Set package version from Release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          release_tag = os.environ["RELEASE_TAG"]
+          release_version = release_tag.removeprefix("v")
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", release_version):
+              raise SystemExit("Release tag must use vX.Y.Z or X.Y.Z semantic versioning")
+
+          pyproject_path = Path("pyproject.toml")
+          pyproject_text = pyproject_path.read_text()
+          updated, replacements = re.subn(
+              r'^version = ".*"$',
+              f'version = "{release_version}"',
+              pyproject_text,
+              count=1,
+              flags=re.MULTILINE,
+          )
+          if replacements != 1:
+              raise SystemExit("Could not update the project version for the Release package")
+          pyproject_path.write_text(updated)
+          PY
+
+      - name: Build release distributions
+        run: |
+          uv build --out-dir dist
+          uvx --from twine twine check dist/*
+
+      - name: Upload release distributions
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-dists
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  pypi-publish:
+    runs-on: ubuntu-latest
+    needs: release-build
+    permissions:
+      id-token: write
+    steps:
+      - name: Download release distributions
+        uses: actions/download-artifact@v8
+        with:
+          name: release-dists
+          path: dist/
+
+      - name: Publish release distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  deploy-docs:
+    needs: pypi-publish
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Build documentation
+        run: uv run zensical build --clean
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
