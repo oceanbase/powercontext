@@ -1,8 +1,9 @@
 # PowerContext
 
-PowerContext gives agents durable, project-scoped context. A later session can recover a decision, outcome, current
-state, or next step without relying on chat history. PowerContext includes a local Server, SQLite storage, an
-async Python client, a Core SDK, a CLI, and a Codex plugin.
+PowerContext is PowerMem 2.0, the upgraded version of [PowerMem](https://www.powermem.ai/). It gives agents durable,
+project-scoped context. A later session can recover a decision, outcome, current state, or next step without relying
+on chat history. PowerContext includes a local Server, SQLite storage, an async Python client, a Core SDK, a CLI, and
+a Codex plugin.
 
 PowerContext can be installed directly from its Git URL. Users need read access to that URL, but they do not need to
 clone the repository or run commands from its working tree.
@@ -63,6 +64,18 @@ uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git
 
 Available extras are `builtin`, `client`, `server`, and `cli`. The CLI always includes Server-backed content commands;
 installing the `server` role also makes local Server process management available.
+
+## Benchmarks
+
+### [LOCOMO](https://github.com/snap-research/locomo)
+
+| Metric | PowerContext | [PowerMem](https://www.powermem.ai/benchmark) | Full-context baseline |
+| --- | ---: | ---: | ---: |
+| Accuracy | **90.78%** (1,398/1,540) | 87.79% | 52.9% |
+| Search p95 latency | **1.38 s** | 1.44 s | 17.12 s |
+| Answer tokens / question | **~1.65 k** | ~0.9 k | 26 k |
+
+The PowerContext results come from a full 1,540-question run across all 10 LOCOMO conversations.
 
 ## Development
 
