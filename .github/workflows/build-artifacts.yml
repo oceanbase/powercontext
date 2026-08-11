@@ -1,8 +1,6 @@
 name: Build customer artifact
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       ref:
@@ -28,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: customer-artifact-${{ github.event.pull_request.number || inputs.ref || github.ref }}
+  group: customer-artifact-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -47,7 +45,7 @@ jobs:
       - name: Check out requested source
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -68,7 +66,7 @@ jobs:
         id: metadata
         env:
           ARTIFACT_LABEL: ${{ inputs.artifact_label }}
-          SOURCE_REF: ${{ inputs.ref || github.head_ref || github.ref_name }}
+          SOURCE_REF: ${{ inputs.ref || github.ref_name }}
         run: |
           python - <<'PY'
           import os
