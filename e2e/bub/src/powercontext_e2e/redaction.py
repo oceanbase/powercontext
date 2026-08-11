@@ -78,7 +78,7 @@ _DATABASE_URL = re.compile(
 )
 _URL_PASSWORD = re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://[^/\s:@]+:)[^@/\s\"'`<>]+(@)")
 _URL_QUERY_CREDENTIAL = re.compile(
-    r"(?i)([?&](?:access[_-]?token|api[_-]?key|auth[_-]?token|client[_-]?secret|password|secret|token)=)"
+    r"(?i)([?&](?:access[_-]?token|api[_-]?key|auth[_-]?token|client[_-]?secret|password|refresh[_-]?token|secret|token)=)"
     r"[^&#\s\"'`]+"
 )
 _CREDENTIAL_ASSIGNMENT = re.compile(
