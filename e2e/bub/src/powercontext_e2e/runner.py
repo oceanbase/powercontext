@@ -463,4 +463,5 @@ def _runtime_secrets() -> tuple[str, ...]:
 def _write_evidence(path: Path, content: str, secrets: tuple[str, ...]) -> None:
     for secret in secrets:
         content = content.replace(secret, _REDACTED)
+        content = content.replace(json.dumps(secret, ensure_ascii=False)[1:-1], _REDACTED)
     path.write_text(content, encoding="utf-8")
