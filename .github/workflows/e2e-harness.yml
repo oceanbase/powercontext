@@ -82,6 +82,7 @@ jobs:
         with:
           name: e2e-acceptance-${{ matrix.database }}-${{ github.sha }}
           path: .powercontext-e2e/${{ matrix.database }}/acceptance
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
 
