@@ -12,8 +12,10 @@ It supports three evidence modes:
 - `rescore` reads `replay.json` and runs the same Pydantic Evals oracle without rerunning Bub or PowerContext.
 
 Each run writes `replay.json`, `eval-report.json`, and `report.md`. The replay is self-contained and contains the
-scenario, public Memory snapshots, prepared context, outputs, and Pydantic Evals-compatible spans. It never records
-API keys, authorization headers, or database URLs.
+scenario, public Memory snapshots, prepared context, outputs, and Pydantic Evals-compatible spans. Known runtime
+secrets are redacted when these files are written. CI also scans the complete evidence directory with TruffleHog
+before publishing a summary or artifact; evidence is not published when that scan does not complete cleanly. Treat
+local evidence as potentially sensitive until it has been inspected.
 
 ## Run against an existing Server
 
@@ -51,4 +53,5 @@ POWERCONTEXT_E2E_DATABASE=oceanbase make harness-compose-acceptance
 ```
 
 `make harness-compose-live` uses the provider variables above. Evidence is written below `.powercontext-e2e/bub/`;
-set `POWERCONTEXT_E2E_OUTPUT` to keep it elsewhere. `make harness-compose-down` removes containers and database volumes.
+set `POWERCONTEXT_E2E_OUTPUT` to keep it elsewhere. Compose containers, networks, and volumes are removed after both
+successful and failed runs. `make harness-compose-down` remains available as an idempotent manual cleanup.

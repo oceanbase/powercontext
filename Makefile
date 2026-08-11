@@ -48,6 +48,7 @@ harness-check: ## Validate the Bub replay harness and committed scenarios.
 	@uv run ruff check e2e/bub
 	@uv run ruff format --check e2e/bub
 	@uv run ty check --project e2e/bub --python e2e/bub/.venv e2e/bub/src integrations/bub/src
+	@uv run --project e2e/bub python -m pytest e2e/bub/tests
 	@uv run --project e2e/bub powercontext-e2e --help >/dev/null
 
 .PHONY: harness-acceptance

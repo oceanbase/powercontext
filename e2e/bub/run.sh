@@ -68,6 +68,26 @@ if [ -z "${GITHUB_SHA:-}" ]; then
     export GITHUB_SHA
 fi
 
+cleanup() {
+    status=$?
+    trap - EXIT INT TERM
+    set +e
+
+    docker compose $compose_files down --volumes --remove-orphans
+    cleanup_status=$?
+    if [ "$cleanup_status" -ne 0 ]; then
+        echo "Compose cleanup failed with exit code $cleanup_status" >&2
+        if [ "$status" -eq 0 ]; then
+            status=$cleanup_status
+        fi
+    fi
+    exit "$status"
+}
+
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 docker compose $compose_files build powercontext harness
 docker compose $compose_files up --detach --wait powercontext
 
@@ -81,5 +101,3 @@ else
     scenario=${POWERCONTEXT_E2E_SCENARIO:-e2e/bub/scenarios/project-database-decision.yaml}
     docker compose $compose_files run --rm harness live "$scenario" --output /evidence
 fi
-
-docker compose $compose_files down --volumes --remove-orphans

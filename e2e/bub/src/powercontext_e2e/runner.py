@@ -40,6 +40,17 @@ from .models import (
 Mode = Literal["acceptance", "live", "offline-rescore"]
 Report = EvaluationReport[ScenarioSpec, ReplayObservation, dict[str, str]]
 Context = EvaluatorContext[ScenarioSpec, ReplayObservation, dict[str, str]]
+_EVIDENCE_SECRET_ENVIRONMENT_NAMES = (
+    "ANTHROPIC_API_KEY",
+    "BUB_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "POWERCONTEXT_CLIENT_API_TOKEN",
+    "POWERCONTEXT_SERVER_AUTH_TOKEN",
+    "POWERCONTEXT_SERVER_DATABASE_URL",
+)
+_REDACTED = "[REDACTED]"
 
 
 @dataclass
@@ -223,7 +234,7 @@ async def _run_replay(
                 except Exception as exc:
                     output = ""
                     status = "failed"
-                    error = _redact(f"{type(exc).__name__}: {exc}")
+                    error = f"{type(exc).__name__}: {exc}"
                     errors.append(f"Session {session.id}: {error}")
                 memory_after_session = await _memory_snapshot(client, scope_id)
                 observations.append(
@@ -233,7 +244,7 @@ async def _run_replay(
                         status=status,
                         error=error,
                         prepared_context=prepared,
-                        output=_redact(output),
+                        output=output,
                         memory_after=memory_after_session,
                     )
                 )
@@ -241,7 +252,7 @@ async def _run_replay(
                     break
             memory_after = await _memory_snapshot(client, scope_id)
     except Exception as exc:
-        errors.append(_redact(f"{type(exc).__name__}: {exc}"))
+        errors.append(f"{type(exc).__name__}: {exc}")
         memory_after = observations[-1].memory_after if observations else memory_before
 
     return ReplayObservation(
@@ -390,16 +401,14 @@ def _commit() -> str:
     return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
-def _redact(value: str) -> str:
-    secret = os.getenv("BUB_API_KEY")
-    return value.replace(secret, "[REDACTED]") if secret else value
-
-
 def write_artifacts(observation: ReplayObservation, report: Report, output_dir: Path) -> None:
+    secrets = _runtime_secrets()
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "replay.json").write_text(
-        observation.model_dump_json(by_alias=True, indent=2) + "\n",
-        encoding="utf-8",
+    replay_payload = observation.model_dump(mode="json", by_alias=True)
+    _write_evidence(
+        output_dir / "replay.json",
+        json.dumps(replay_payload, indent=2, ensure_ascii=False) + "\n",
+        secrets,
     )
 
     cases = [
@@ -428,11 +437,13 @@ def write_artifacts(observation: ReplayObservation, report: Report, output_dir: 
         "cases": cases,
         "failures": [{"name": failure.name, "error": failure.error_message} for failure in report.failures],
     }
-    (output_dir / "eval-report.json").write_text(
-        json.dumps(report_payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    _write_evidence(
+        output_dir / "eval-report.json",
+        json.dumps(report_payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        secrets,
     )
-    (output_dir / "report.md").write_text(
+    _write_evidence(
+        output_dir / "report.md",
         "# PowerContext session replay\n\n"
         f"- Scenario: `{observation.scenario.id}`\n"
         f"- Mode: `{observation.environment.mode}`\n"
@@ -440,5 +451,17 @@ def write_artifacts(observation: ReplayObservation, report: Report, output_dir: 
         f"- Status: `{observation.status}`\n\n"
         "## Evaluation\n\n"
         f"```text\n{report.render(include_reasons=True)}\n```\n",
-        encoding="utf-8",
+        secrets,
     )
+
+
+def _runtime_secrets() -> tuple[str, ...]:
+    secrets = {value for name in _EVIDENCE_SECRET_ENVIRONMENT_NAMES if (value := os.getenv(name))}
+    return tuple(sorted(secrets, key=lambda value: (-len(value), value)))
+
+
+def _write_evidence(path: Path, content: str, secrets: tuple[str, ...]) -> None:
+    for secret in secrets:
+        content = content.replace(secret, _REDACTED)
+        content = content.replace(json.dumps(secret, ensure_ascii=False)[1:-1], _REDACTED)
+    path.write_text(content, encoding="utf-8")
