@@ -103,7 +103,9 @@ def _processor(runtime_key: str, name: str) -> Processor:
 def create_scheduler(scheduler_path: str | Path) -> AsyncIOScheduler:
     """Create an APScheduler instance with an isolated SQLite job-store."""
 
-    url = URL.create("sqlite+pysqlite", database=scheduler_database_path(scheduler_path))
+    database = Path(scheduler_database_path(scheduler_path))
+    database.parent.mkdir(parents=True, exist_ok=True)
+    url = URL.create("sqlite+pysqlite", database=str(database))
     return AsyncIOScheduler(
         jobstores={
             "default": SQLAlchemyJobStore(
