@@ -106,6 +106,11 @@ from powercontext.builtin.runtime.models import (
     SourceReceipt,
 )
 from powercontext.builtin.runtime.protocols import PowerContextProvider
+from powercontext.builtin.runtime.readiness import (
+    ReadinessCheckStatus,
+    RuntimeReadiness,
+    RuntimeReadinessChecks,
+)
 from powercontext.builtin.statistics import (
     ArtifactInventoryStatistics,
     CandidateFamilyCount,
@@ -211,6 +216,7 @@ __all__ = [
     "PreparedHandoff",
     "ProposeExperienceRequest",
     "ProposeSkillRequest",
+    "ReadinessCheckStatus",
     "RecallTokenDay",
     "RecallTokenMeasurement",
     "RecallTokenStatistics",
@@ -227,6 +233,8 @@ __all__ = [
     "ReviseMemoryEntryRequest",
     "RuntimeCapabilities",
     "RuntimeConfig",
+    "RuntimeReadiness",
+    "RuntimeReadinessChecks",
     "ScheduledExperienceProcessor",
     "ScheduledSourceProcessor",
     "ScopedExperienceApplication",

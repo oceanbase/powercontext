@@ -7,9 +7,11 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import MemoryExtractionProfile, RuntimeConfig
+from powercontext.builtin.runtime import InferenceConfig, MemoryExtractionProfile, RuntimeConfig
 from powercontext.http import (
     Capabilities,
     ReadinessResponse,
@@ -24,6 +26,23 @@ from powercontext.sources import Source
 class _NoopExperiencePipeline:
     async def incubate(self, _sources: tuple[Source, ...], /) -> tuple[ExperienceCandidateInput, ...]:
         return ()
+
+
+class _MisconfiguredEmbeddingModel:
+    profile = EmbeddingProfile(
+        profile_id="readiness-test",
+        model="test:embedding",
+        dimension=3,
+        distance="l2",
+        normalization="none",
+    )
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def embed(self, _texts: tuple[str, ...], /) -> EmbeddingResult:
+        self.calls += 1
+        raise InferenceConfigurationError("secret provider response")  # noqa: TRY003 - verifies redaction
 
 
 def test_settings_load_server_environment(monkeypatch) -> None:
@@ -180,6 +199,64 @@ def test_readiness_reports_unavailable_bindings() -> None:
         "checks": {"database": "unavailable"},
     }
     assert response.headers["X-PowerContext-Request-ID"]
+
+
+def test_server_factory_reports_database_and_configured_generation_readiness(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            inference=InferenceConfig(generation_model="test"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "checks": {
+            "runtime": "ready",
+            "database": "ready",
+            "inference.generation": "ready",
+        },
+    }
+
+
+def test_server_factory_caches_and_redacts_failed_embedding_readiness(caplog, tmp_path) -> None:
+    embedding = _MisconfiguredEmbeddingModel()
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        embedding_model=embedding,
+    )
+
+    with caplog.at_level(logging.INFO, logger="powercontext.server.factory"), TestClient(app) as client:
+        first = client.get("/health/ready")
+        second = client.get("/health/ready")
+        metrics = client.get("/metrics")
+
+    assert first.status_code == second.status_code == 503
+    assert (
+        first.json()
+        == second.json()
+        == {
+            "status": "not_ready",
+            "checks": {
+                "runtime": "ready",
+                "database": "ready",
+                "inference.embedding": "misconfigured",
+            },
+        }
+    )
+    assert embedding.calls == 1
+    assert "powercontext_server_runtime_ready 0.0" in metrics.text
+    assert [getattr(record, "event", None) for record in caplog.records].count("server.not_ready") == 1
+    assert "secret provider response" not in first.text
+    assert "secret provider response" not in caplog.text
 
 
 def test_unhandled_errors_return_the_server_request_id() -> None:

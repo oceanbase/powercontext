@@ -11,7 +11,12 @@ description: 诊断 PowerContext 安装、Server、数据库和 Codex 插件问�
 powercontext doctor
 ```
 
-任一检查失败时，命令会以状态码 1 退出。自动化场景可添加 `--json`。
+该命令检查安装包、Server liveness 和 Server readiness；任一检查失败时会以状态码 1 退出。自动化场景可添加
+`--json`。可单独检查可选的 Codex 集成：
+
+```bash
+powercontext doctor codex
+```
 
 ## 安装时无法读取 Git 地址
 
@@ -39,6 +44,12 @@ command -v codex
 
 ## 插件缺失或版本不一致
 
+先在不涉及 Server 的情况下确认集成故障：
+
+```bash
+powercontext doctor codex
+```
+
 使用与工具一致的 ref 重新安装：
 
 ```bash
@@ -63,7 +74,9 @@ powercontext doctor --server-url http://127.0.0.1:9000
 powercontext --server-url http://127.0.0.1:9000 ready
 ```
 
-随附的 Codex 插件默认使用 8000 端口。
+随附的 Codex 插件默认使用 8000 端口。liveness 失败表示进程无法响应健康请求，此时不会继续检查
+readiness；readiness 失败表示进程仍存活，但至少一个 Runtime 依赖不可用、超时或配置错误。Human 与 JSON
+输出都会保留 Server 返回的各项检查状态。
 
 ## Server 无法打开数据库
 
@@ -79,6 +92,15 @@ powercontext server run
 
 每次启动或诊断该实例时都应使用同一个环境变量。对于文件型 SQLite 数据库，PowerContext 会创建缺失的父
 目录。
+
+## 推理服务 readiness 检查失败
+
+配置 generation 或 embedding 后，Server readiness 会向 provider 发起一次最小化真实请求。这样可以发现只有
+实际请求时才能确认的凭据或 endpoint 问题，包括 base URL 遗漏 provider API 前缀。稳定状态包括 `ready`、
+`unavailable`、`timeout` 和 `misconfigured`；响应不会包含凭据、provider 响应正文或已配置 URL。
+
+Provider 的成功和失败结果都会缓存 300 秒，并发健康请求共用同一次刷新。修改配置后如需立即检查，请重启
+Server；否则等待缓存过期。
 
 ## Memory 可以显式写入，但采集的提示词没有生成 Memory
 

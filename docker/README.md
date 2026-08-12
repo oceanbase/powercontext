@@ -17,7 +17,9 @@ docker run --rm \
 ```
 
 The image listens on `0.0.0.0:8000`, stores its default data under `/data`, and exposes a Docker health check backed
-by `GET /health/ready`. Configure another database or inference provider with the same
+by `GET /health/ready`. Readiness verifies the database and each configured inference provider. Provider checks make
+one minimal real request at startup and refresh at most once every 300 seconds; they use the same credentials as the
+Runtime and never expose them in the response. Configure another database or inference provider with the same
 `POWERCONTEXT_SERVER_*` environment variables used by a regular Server installation.
 
 The `Build Docker image` GitHub workflow builds downloadable Linux amd64 and arm64 image archives for pull requests,

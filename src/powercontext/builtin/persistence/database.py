@@ -69,6 +69,12 @@ class AsyncDatabase:
 
         return self.transaction() if bound is None else nullcontext(bound)
 
+    async def ping(self) -> None:
+        """Verify that the configured database can execute a trivial query."""
+
+        async with self.transaction() as connection:
+            await connection.exec_driver_sql("SELECT 1")
+
     async def close(self) -> None:
         """Drain active transactions, then dispose only an owned engine."""
 

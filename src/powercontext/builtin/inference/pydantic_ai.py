@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
 from powercontext.builtin.inference.errors import (
+    InferenceConfigurationError,
     InferenceError,
     InferenceTimeoutError,
     InferenceUnavailableError,
@@ -23,7 +24,7 @@ from powercontext.builtin.inference.models import (
 )
 
 
-class PydanticAIConfigurationError(InferenceError, RuntimeError):
+class PydanticAIConfigurationError(InferenceConfigurationError):
     """Raised when the Pydantic AI adapter cannot be configured safely."""
 
     def __init__(self, code: str, detail: object | None = None) -> None:
@@ -59,7 +60,8 @@ try:
         UsageLimitExceeded,
         UserError,
     )
-    from pydantic_ai.models import Model
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+    from pydantic_ai.models import Model, ModelRequestParameters
     from pydantic_ai.settings import ModelSettings
     from pydantic_ai.usage import RunUsage, UsageLimits
     from pydantic_core import PydanticSerializationError
@@ -236,6 +238,36 @@ class PydanticAIEmbeddingModel:
         return tuple(vectors)
 
 
+async def probe_pydantic_ai_model(
+    model: Model,
+    /,
+    *,
+    timeout_seconds: float,
+) -> None:
+    """Send one minimal text request through an assembled generation model."""
+
+    if isinstance(model, str) or not isinstance(model, Model):
+        raise PydanticAIConfigurationError("model-instance")
+    try:
+        await asyncio.wait_for(
+            model.request(
+                [ModelRequest(parts=[UserPromptPart("Reply with one token.")])],
+                ModelSettings(max_tokens=1),
+                ModelRequestParameters(),
+            ),
+            timeout=timeout_seconds,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        mapped = _map_error(error, operation="generate", timeout_seconds=timeout_seconds)
+        if mapped is None:
+            raise
+        if mapped is error:
+            raise
+        raise mapped from error
+
+
 def _generation_usage(value: RunUsage) -> InferenceUsage:
     return InferenceUsage(
         requests=value.requests,
@@ -274,4 +306,5 @@ __all__ = [
     "PydanticAIConfigurationError",
     "PydanticAIEmbeddingModel",
     "PydanticAIStructuredGenerator",
+    "probe_pydantic_ai_model",
 ]

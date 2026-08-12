@@ -30,10 +30,11 @@ You do not need to create or manage a repository checkout. Start the local servi
 powercontext server run
 ```
 
-In another terminal, verify the package, plugin, Server, and database:
+In another terminal, verify the package and Server dependencies, then the optional Codex integration:
 
 ```bash
 powercontext doctor
+powercontext doctor codex
 ```
 
 Start a new Codex session after installation. Open `/hooks` once and approve the PowerContext hook if Codex asks for

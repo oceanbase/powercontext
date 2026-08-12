@@ -37,9 +37,10 @@ powercontext server run
 
 ```bash
 powercontext doctor
+powercontext doctor codex
 ```
 
-每项都应显示 `ok`。
+两个命令的每项检查都应显示 `ok`。第一个命令检查安装包和 Server 依赖，第二个命令检查可选的 Codex 集成。
 
 ## 3. 保存交接信息
 
@@ -69,5 +70,5 @@ Codex 应使用 project-context skill，并在 Memory 写入成功后确认。�
 ## 5. 检查降级行为
 
 按 `Ctrl-C` 停止 Server，再让 Codex 执行一项普通任务。PowerContext 可以报告 Memory 不可用，但不能阻塞
-任务。此时 `powercontext doctor` 会因 Server 检查失败而返回非零状态，同时仍能报告已安装的包、插件和
-数据库。
+任务。此时 `powercontext doctor` 会报告 liveness 失败、跳过 readiness，同时仍能报告已安装的包；
+`powercontext doctor codex` 会继续独立报告 Codex 集成状态。

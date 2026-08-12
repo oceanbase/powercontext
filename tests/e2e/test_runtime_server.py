@@ -166,7 +166,7 @@ def test_server_databases_share_source_to_memory_search_behavior(
             )
             entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
 
-        assert readiness.checks == {"runtime": "ready"}
+        assert readiness.checks == {"runtime": "ready", "database": "ready"}
         assert capabilities.source_types == ["content"]
         assert capabilities.memory_extraction is True
         assert capabilities.search_modes == ["auto", "fts"]

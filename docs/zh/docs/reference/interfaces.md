@@ -26,6 +26,7 @@ project-context skill 指导 Codex 何时检索、记忆、修订或停用 Memor
 ```text
 powercontext setup codex
 powercontext doctor
+powercontext doctor codex
 powercontext server run
 powercontext ready
 powercontext capabilities
@@ -53,6 +54,9 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 
 所有内容命令都调用已配置的 Server。可选的 `server` role 会增加 `powercontext server run`，但不会在 CLI
 中创建第二套内容 profile。
+
+`powercontext doctor` 检查安装包和 Server，不要求任何集成；`powercontext doctor codex` 显式检查 Codex CLI
+和 PowerContext 插件。
 
 Generation 和 revision 命令通过可重复的 `--source-ref TYPE/ID` 与
 `--artifact-ref FAMILY/ID@REVISION` 接收精确引用，不再读取序列化请求文件。

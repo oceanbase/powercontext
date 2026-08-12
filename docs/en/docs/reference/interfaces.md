@@ -27,6 +27,7 @@ starts or embeds the Server.
 ```text
 powercontext setup codex
 powercontext doctor
+powercontext doctor codex
 powercontext server run
 powercontext ready
 powercontext capabilities
@@ -54,6 +55,9 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 
 All content commands call the configured Server. The optional `server` role adds `powercontext server run`; it does
 not create a second content profile inside the CLI.
+
+`powercontext doctor` checks the package and Server without requiring an integration. `powercontext doctor codex`
+checks the Codex CLI and PowerContext plugin explicitly.
 
 Generation and revision commands accept repeatable `--source-ref TYPE/ID` and
 `--artifact-ref FAMILY/ID@REVISION` options instead of serialized request files. `--target FAMILY/ID@REVISION`
