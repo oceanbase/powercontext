@@ -2,10 +2,8 @@ services:
   oceanbase:
     image: ${POWERCONTEXT_E2E_OCEANBASE_IMAGE:-ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916}
     environment:
-      MODE: MINI
+      MODE: slim
       OB_DATABASE: powercontext
-      OB_DATAFILE_SIZE: 2G
-      OB_LOG_DISK_SIZE: 4G
       OB_TENANT_PASSWORD: powercontext-e2e
     healthcheck:
       test:
