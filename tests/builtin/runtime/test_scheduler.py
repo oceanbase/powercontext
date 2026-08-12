@@ -109,6 +109,21 @@ def test_scheduler_persists_one_stable_source_window_job(tmp_path) -> None:
     asyncio.run(scenario())
 
 
+def test_scheduler_creates_missing_database_parent_directory(tmp_path) -> None:
+    async def scenario() -> None:
+        database = tmp_path / "missing" / "nested" / "scheduler.db"
+        assert not database.parent.exists()
+
+        runtime = _runtime(_ScheduledTriggers())
+        try:
+            runtime.start_scheduler(database, 3_600)
+            assert database.is_file()
+        finally:
+            await runtime.close()
+
+    asyncio.run(scenario())
+
+
 def test_scheduler_interval_activates_the_source_window_policy(tmp_path) -> None:
     async def scenario() -> None:
         triggers = _ScheduledTriggers()
