@@ -154,11 +154,13 @@ def test_doctor_reports_each_check_and_exits_nonzero_on_failure(monkeypatch) -> 
     assert result.exit_code == 1
     assert json.loads(result.output) == {
         "ok": False,
+        "status": "failed",
         "checks": {
-            "package": {"ok": True, "detail": "powercontext 0.0.1"},
-            "server_liveness": {"ok": False, "detail": "cannot connect"},
+            "package": {"ok": True, "status": "ok", "detail": "powercontext 0.0.1"},
+            "server_liveness": {"ok": False, "status": "failed", "detail": "cannot connect"},
             "server_readiness": {
                 "ok": False,
+                "status": "skipped",
                 "detail": "not checked because Server liveness failed",
             },
         },
@@ -196,6 +198,7 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["ok"] is True
+    assert payload["status"] == "ok"
     assert list(payload["checks"]) == ["package", "server_liveness", "server_readiness"]
 
 
@@ -224,8 +227,7 @@ def test_default_doctor_preserves_not_ready_checks_in_human_and_json_output(monk
                     "status": "not_ready",
                     "checks": {
                         "runtime": "ready",
-                        "database": "ready",
-                        "inference.embedding": "misconfigured",
+                        "database": "unavailable",
                     },
                 },
             ),
@@ -239,15 +241,70 @@ def test_default_doctor_preserves_not_ready_checks_in_human_and_json_output(monk
 
     assert human.exit_code == 1
     assert "server readiness: failed - http://127.0.0.1:8000 status=not_ready" in human.output
-    assert "  inference.embedding: misconfigured" in human.output
+    assert "  database: unavailable" in human.output
     assert machine.exit_code == 1
+    assert json.loads(machine.output)["status"] == "failed"
     assert json.loads(machine.output)["checks"]["server_readiness"] == {
         "ok": False,
+        "status": "failed",
         "detail": "http://127.0.0.1:8000 status=not_ready",
         "checks": {
             "runtime": "ready",
-            "database": "ready",
-            "inference.embedding": "misconfigured",
+            "database": "unavailable",
+        },
+    }
+
+
+def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monkeypatch) -> None:
+    def responses() -> list[_Response]:
+        return [
+            _Response(200, {"status": "ok"}),
+            _Response(
+                200,
+                {
+                    "status": "degraded",
+                    "checks": {
+                        "runtime": "ready",
+                        "database": "ready",
+                        "inference.embedding": "misconfigured",
+                    },
+                },
+            ),
+        ]
+
+    monkeypatch.setattr(system_cli, "urlopen", Mock(side_effect=responses()))
+    human = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
+    monkeypatch.setattr(system_cli, "urlopen", Mock(side_effect=responses()))
+    machine = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "--json"])
+
+    assert human.exit_code == 1
+    assert "server readiness: degraded - http://127.0.0.1:8000 status=degraded" in human.output
+    assert "  inference.embedding: misconfigured" in human.output
+    assert machine.exit_code == 1
+    assert json.loads(machine.output) == {
+        "ok": False,
+        "status": "degraded",
+        "checks": {
+            "package": {
+                "ok": True,
+                "status": "ok",
+                "detail": "powercontext 0.0.1",
+            },
+            "server_liveness": {
+                "ok": True,
+                "status": "ok",
+                "detail": "http://127.0.0.1:8000 status=ok",
+            },
+            "server_readiness": {
+                "ok": False,
+                "status": "degraded",
+                "detail": "http://127.0.0.1:8000 status=degraded",
+                "checks": {
+                    "runtime": "ready",
+                    "database": "ready",
+                    "inference.embedding": "misconfigured",
+                },
+            },
         },
     }
 
@@ -260,9 +317,18 @@ def test_doctor_codex_reports_missing_cli_and_skipped_plugin(monkeypatch) -> Non
     assert result.exit_code == 1
     assert json.loads(result.output) == {
         "ok": False,
+        "status": "failed",
         "checks": {
-            "codex": {"ok": False, "detail": "Codex CLI is not installed or is not on PATH"},
-            "plugin": {"ok": False, "detail": "not checked because Codex CLI is unavailable"},
+            "codex": {
+                "ok": False,
+                "status": "failed",
+                "detail": "Codex CLI is not installed or is not on PATH",
+            },
+            "plugin": {
+                "ok": False,
+                "status": "skipped",
+                "detail": "not checked because Codex CLI is unavailable",
+            },
         },
     }
 

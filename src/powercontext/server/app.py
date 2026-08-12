@@ -647,7 +647,7 @@ async def get_readiness(request: Request) -> JSONResponse:
         await readiness_probe() if readiness_probe is not None else _runtime_readiness(request.app.state.application)
     )
     response_status = (
-        status.HTTP_200_OK if readiness.status is ReadinessStatus.READY else status.HTTP_503_SERVICE_UNAVAILABLE
+        status.HTTP_503_SERVICE_UNAVAILABLE if readiness.status is ReadinessStatus.NOT_READY else status.HTTP_200_OK
     )
     return JSONResponse(content=readiness.model_dump(mode="json"), status_code=response_status)
 

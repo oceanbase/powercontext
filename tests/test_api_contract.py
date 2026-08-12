@@ -34,6 +34,7 @@ from powercontext.http import (
     PrepareHandoffRequest,
     ProposeExperienceRequest,
     ProposeSkillRequest,
+    ReadinessStatus,
     ResolveExternalSkillRequest,
     ReviseArtifactCandidateRequest,
     ScanExternalSkillsRequest,
@@ -130,6 +131,11 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
 
 def test_readiness_operation_declares_the_unavailable_response() -> None:
     assert 503 in GET_READINESS.responses
+    assert tuple(ReadinessStatus) == (
+        ReadinessStatus.READY,
+        ReadinessStatus.DEGRADED,
+        ReadinessStatus.NOT_READY,
+    )
 
 
 def test_capture_operation_declares_its_typed_accepted_exchange() -> None:

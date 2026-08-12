@@ -37,6 +37,9 @@ powercontext doctor
 powercontext doctor codex
 ```
 
+Runtime or database failures make the Server not ready. A configured inference failure is reported as degraded
+without removing the Server from traffic; the separate Codex command does not affect Server health.
+
 Start a new Codex session after installation. Open `/hooks` once and approve the PowerContext hook if Codex asks for
 trust. The default database is persistent and requires no configuration.
 

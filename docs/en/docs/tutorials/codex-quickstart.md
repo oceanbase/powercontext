@@ -79,3 +79,5 @@ active list.
 Stop the Server with `Ctrl-C`, then give Codex an ordinary task. PowerContext may report that Memory is unavailable,
 but it must not block the task. `powercontext doctor` now exits with a liveness failure, skips readiness, and still
 reports the installed package. `powercontext doctor codex` continues to report the Codex integration independently.
+If only a configured inference provider fails, the Server remains in traffic and reports readiness as `degraded`;
+`doctor` surfaces that non-OK status without reading provider credentials.

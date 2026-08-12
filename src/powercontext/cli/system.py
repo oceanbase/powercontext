@@ -79,6 +79,7 @@ class DiagnosticStatus(StrEnum):
     """Outcome of one installation diagnostic."""
 
     OK = "ok"
+    DEGRADED = "degraded"
     FAILED = "failed"
     SKIPPED = "skipped"
 
@@ -98,7 +99,11 @@ class Diagnostic:
     def as_json(self) -> dict[str, object]:
         """Return the stable external diagnostic representation."""
 
-        result: dict[str, object] = {"ok": self.ok, "detail": self.detail}
+        result: dict[str, object] = {
+            "ok": self.ok,
+            "status": self.status.value,
+            "detail": self.detail,
+        }
         if self.checks is not None:
             result["checks"] = self.checks
         return result
@@ -306,12 +311,14 @@ def _server_readiness_diagnostic(server_url: str) -> Diagnostic:
         readiness = ReadinessResponse.model_validate(payload)
     except ValidationError:
         return Diagnostic(status=DiagnosticStatus.FAILED, detail="readiness returned an invalid response")
+    if status_code == 200 and readiness.status is ReadinessStatus.READY:
+        diagnostic_status = DiagnosticStatus.OK
+    elif status_code == 200 and readiness.status is ReadinessStatus.DEGRADED:
+        diagnostic_status = DiagnosticStatus.DEGRADED
+    else:
+        diagnostic_status = DiagnosticStatus.FAILED
     return Diagnostic(
-        status=(
-            DiagnosticStatus.OK
-            if status_code == 200 and readiness.status is ReadinessStatus.READY
-            else DiagnosticStatus.FAILED
-        ),
+        status=diagnostic_status,
         detail=f"{server_url} status={readiness.status.value}",
         checks=readiness.checks,
     )
@@ -354,15 +361,25 @@ def _load_json(response: Any) -> object | None:
 
 
 def _diagnostics_ok(diagnostics: dict[str, Diagnostic]) -> bool:
-    return all(diagnostic.ok for diagnostic in diagnostics.values())
+    return _diagnostics_status(diagnostics) is DiagnosticStatus.OK
+
+
+def _diagnostics_status(diagnostics: dict[str, Diagnostic]) -> DiagnosticStatus:
+    statuses = {diagnostic.status for diagnostic in diagnostics.values()}
+    for status in (DiagnosticStatus.FAILED, DiagnosticStatus.DEGRADED, DiagnosticStatus.SKIPPED):
+        if status in statuses:
+            return status
+    return DiagnosticStatus.OK
 
 
 def _write_diagnostics(diagnostics: dict[str, Diagnostic], *, json_output: bool) -> None:
     if json_output:
+        status = _diagnostics_status(diagnostics)
         typer.echo(
             json.dumps(
                 {
-                    "ok": _diagnostics_ok(diagnostics),
+                    "ok": status is DiagnosticStatus.OK,
+                    "status": status.value,
                     "checks": {name: diagnostic.as_json() for name, diagnostic in diagnostics.items()},
                 },
                 indent=2,

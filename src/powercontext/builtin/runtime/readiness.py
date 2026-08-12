@@ -12,6 +12,7 @@ from powercontext.builtin.inference import InferenceConfigurationError
 
 READINESS_PROBE_TIMEOUT_SECONDS = 2.0
 READINESS_PROBE_CACHE_SECONDS = 300.0
+READINESS_PROBE_TRANSIENT_CACHE_SECONDS = 30.0
 
 DependencyOperation = Callable[[], Awaitable[object]]
 Clock = Callable[[], float]
@@ -29,31 +30,58 @@ class ReadinessCheckStatus(StrEnum):
 ReadinessProbe = Callable[[], Awaitable[ReadinessCheckStatus]]
 
 
+class RuntimeReadinessStatus(StrEnum):
+    """Aggregate availability of one Runtime and its dependencies."""
+
+    READY = "ready"
+    DEGRADED = "degraded"
+    NOT_READY = "not_ready"
+
+
+@dataclass(frozen=True, slots=True)
+class ReadinessProbeDefinition:
+    """Bind one probe to whether its failure blocks Runtime readiness."""
+
+    probe: ReadinessProbe
+    blocking: bool
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeReadiness:
     """Aggregate the safe readiness outcomes for one Runtime."""
 
+    status: RuntimeReadinessStatus
     checks: Mapping[str, ReadinessCheckStatus]
 
     @property
     def ready(self) -> bool:
-        """Return whether every registered dependency is ready."""
+        """Return whether every registered dependency is fully ready."""
 
-        return all(status is ReadinessCheckStatus.READY for status in self.checks.values())
+        return self.status is RuntimeReadinessStatus.READY
 
 
 class RuntimeReadinessChecks:
     """Run independent dependency probes concurrently."""
 
-    def __init__(self, probes: Mapping[str, ReadinessProbe] | None = None) -> None:
+    def __init__(self, probes: Mapping[str, ReadinessProbeDefinition] | None = None) -> None:
         self._probes = {} if probes is None else dict(probes)
 
     async def run(self) -> RuntimeReadiness:
         """Return safe results in registration order without exposing failures."""
 
         names = tuple(self._probes)
-        results = await asyncio.gather(*(self._run(self._probes[name]) for name in names))
-        return RuntimeReadiness(checks=dict(zip(names, results, strict=True)))
+        results = await asyncio.gather(*(self._run(self._probes[name].probe) for name in names))
+        checks = dict(zip(names, results, strict=True))
+        blocking_failure = any(
+            checks[name] is not ReadinessCheckStatus.READY and self._probes[name].blocking for name in names
+        )
+        if blocking_failure:
+            status = RuntimeReadinessStatus.NOT_READY
+        elif any(result is not ReadinessCheckStatus.READY for result in results):
+            status = RuntimeReadinessStatus.DEGRADED
+        else:
+            status = RuntimeReadinessStatus.READY
+        return RuntimeReadiness(status=status, checks=checks)
 
     @staticmethod
     async def _run(probe: ReadinessProbe) -> ReadinessCheckStatus:
@@ -73,11 +101,13 @@ class CachedReadinessProbe:
         probe: ReadinessProbe,
         *,
         ttl_seconds: float = READINESS_PROBE_CACHE_SECONDS,
-        clock: Clock = monotonic,
+        transient_ttl_seconds: float = READINESS_PROBE_TRANSIENT_CACHE_SECONDS,
+        clock: Clock | None = None,
     ) -> None:
         self._probe = probe
         self._ttl_seconds = ttl_seconds
-        self._clock = clock
+        self._transient_ttl_seconds = transient_ttl_seconds
+        self._clock = monotonic if clock is None else clock
         self._lock = asyncio.Lock()
         self._result: ReadinessCheckStatus | None = None
         self._expires_at = 0.0
@@ -94,7 +124,12 @@ class CachedReadinessProbe:
                 return result
             result = await self._probe()
             self._result = result
-            self._expires_at = self._clock() + self._ttl_seconds
+            ttl_seconds = (
+                self._transient_ttl_seconds
+                if result in {ReadinessCheckStatus.TIMEOUT, ReadinessCheckStatus.UNAVAILABLE}
+                else self._ttl_seconds
+            )
+            self._expires_at = self._clock() + ttl_seconds
             return result
 
     def _fresh_result(self) -> ReadinessCheckStatus | None:
@@ -127,10 +162,13 @@ def dependency_readiness_probe(
 __all__ = [
     "READINESS_PROBE_CACHE_SECONDS",
     "READINESS_PROBE_TIMEOUT_SECONDS",
+    "READINESS_PROBE_TRANSIENT_CACHE_SECONDS",
     "CachedReadinessProbe",
     "ReadinessCheckStatus",
     "ReadinessProbe",
+    "ReadinessProbeDefinition",
     "RuntimeReadiness",
     "RuntimeReadinessChecks",
+    "RuntimeReadinessStatus",
     "dependency_readiness_probe",
 ]

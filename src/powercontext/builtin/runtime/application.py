@@ -970,6 +970,7 @@ class BuiltinRuntime:
         async with self._operation():
             dependencies = await self._readiness.run()
         return RuntimeReadiness(
+            status=dependencies.status,
             checks={"runtime": ReadinessCheckStatus.READY, **dependencies.checks},
         )
 

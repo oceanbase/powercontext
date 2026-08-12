@@ -164,14 +164,14 @@ class _ServerReadinessProbe:
     def __init__(self, metrics: ServerMetrics | None) -> None:
         self._metrics = metrics
         self._runtime: BuiltinRuntime | None = None
-        self._last_ready: bool | None = None
+        self._last_status: ReadinessStatus | None = None
 
     def bind(self, runtime: BuiltinRuntime) -> None:
         self._runtime = runtime
 
     def unbind(self) -> None:
         self._runtime = None
-        self._last_ready = None
+        self._last_status = None
         if self._metrics is not None:
             self._metrics.set_ready(False)
 
@@ -184,7 +184,7 @@ class _ServerReadinessProbe:
             )
         else:
             response = await self._check(runtime)
-        self._observe(response.status is ReadinessStatus.READY)
+        self._observe(response.status)
         return response
 
     async def _check(self, runtime: BuiltinRuntime) -> ReadinessResponse:
@@ -198,20 +198,22 @@ class _ServerReadinessProbe:
                 checks={"runtime": "unavailable"},
             )
         return ReadinessResponse(
-            status=ReadinessStatus.READY if readiness.ready else ReadinessStatus.NOT_READY,
+            status=ReadinessStatus(readiness.status.value),
             checks={name: status.value for name, status in readiness.checks.items()},
         )
 
-    def _observe(self, ready: bool) -> None:
+    def _observe(self, status: ReadinessStatus) -> None:
         if self._metrics is not None:
-            self._metrics.set_ready(ready)
-        if ready == self._last_ready:
+            self._metrics.set_ready(status is not ReadinessStatus.NOT_READY)
+        if status is self._last_status:
             return
-        self._last_ready = ready
-        _log_lifecycle(
-            "server.ready" if ready else "server.not_ready",
-            "PowerContext Server is ready" if ready else "PowerContext Server is not ready",
-        )
+        self._last_status = status
+        event, message = {
+            ReadinessStatus.READY: ("server.ready", "PowerContext Server is ready"),
+            ReadinessStatus.DEGRADED: ("server.degraded", "PowerContext Server is degraded"),
+            ReadinessStatus.NOT_READY: ("server.not_ready", "PowerContext Server is not ready"),
+        }[status]
+        _log_lifecycle(event, message)
 
 
 def _log_lifecycle(event: str, message: str) -> None:

@@ -11,8 +11,9 @@ Start with:
 powercontext doctor
 ```
 
-The command checks the package, Server liveness, and Server readiness. It exits with status 1 if any check fails. Add
-`--json` for automation. Check the optional Codex integration separately:
+The command checks the package, Server liveness, and Server readiness. It exits with status 1 unless every check is
+`ok`; a `degraded` readiness result is usable but is not a complete diagnostic success. Add `--json` for automation;
+the top-level result and every check include `ok` and `status`. Check the optional Codex integration separately:
 
 ```bash
 powercontext doctor codex
@@ -76,9 +77,9 @@ powercontext --server-url http://127.0.0.1:9000 ready
 ```
 
 The bundled Codex plugin uses port 8000 by default. A liveness failure means the process cannot answer health
-requests, so readiness is not checked. A readiness failure means the process is alive but at least one Runtime
-dependency is unavailable, timed out, or misconfigured. Human and JSON output retain the Server's individual check
-statuses.
+requests, so readiness is not checked. `not_ready` with HTTP 503 means the Runtime or database cannot accept work.
+`degraded` with HTTP 200 means a configured inference capability failed while database-backed operations remain
+available. Human and JSON output retain the Server's individual check statuses.
 
 ## The Server cannot open its database
 
@@ -102,8 +103,10 @@ credentials and endpoints that can be validated only by sending a request, inclu
 provider's API prefix. Stable statuses are `ready`, `unavailable`, `timeout`, and `misconfigured`; responses never
 include credentials, provider response bodies, or configured URLs.
 
-Provider results, including failures, are cached for 300 seconds and concurrent health requests share one refresh.
-Restart the Server to check a corrected configuration immediately, or wait for the cached result to expire.
+An inference failure makes overall readiness `degraded` with HTTP 200 instead of removing the whole Server from
+traffic. `ready` and `misconfigured` results are cached for 300 seconds; temporary `timeout` and `unavailable` results
+are retried after 30 seconds. Concurrent health requests share one refresh. Restart the Server to apply corrected
+static configuration immediately, or wait for the cached result to expire.
 
 ## Memory writes work but captured prompts do not become Memory
 

@@ -47,6 +47,7 @@ from powercontext.builtin.runtime.readiness import (
     READINESS_PROBE_TIMEOUT_SECONDS,
     CachedReadinessProbe,
     ReadinessProbe,
+    ReadinessProbeDefinition,
     RuntimeReadinessChecks,
     dependency_readiness_probe,
 )
@@ -165,13 +166,22 @@ async def open_builtin_runtime(
                 memory_reranker=configured_reranker,
             )
         )
-        readiness_probes: dict[str, ReadinessProbe] = {
-            "database": dependency_readiness_probe(contexts.database.ping),
+        readiness_probes: dict[str, ReadinessProbeDefinition] = {
+            "database": ReadinessProbeDefinition(
+                probe=dependency_readiness_probe(contexts.database.ping),
+                blocking=True,
+            ),
         }
         if generation_readiness is not None:
-            readiness_probes["inference.generation"] = generation_readiness
+            readiness_probes["inference.generation"] = ReadinessProbeDefinition(
+                probe=generation_readiness,
+                blocking=False,
+            )
         if configured_embedding_source is not None:
-            readiness_probes["inference.embedding"] = _embedding_readiness_probe(configured_embedding_source)
+            readiness_probes["inference.embedding"] = ReadinessProbeDefinition(
+                probe=_embedding_readiness_probe(configured_embedding_source),
+                blocking=False,
+            )
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
                 provider=contexts,

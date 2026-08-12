@@ -32,7 +32,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "operationId": "get_readiness",
                 "responses": {
                     "200": {
-                        "description": "Required Server bindings are ready.",
+                        "description": "Required Server bindings are ready; optional capabilities may be degraded.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReadinessResponse"}}},
                     },
@@ -3043,7 +3043,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["status", "checks"],
             },
-            "ReadinessStatus": {"type": "string", "enum": ["ready", "not_ready"]},
+            "ReadinessStatus": {"type": "string", "enum": ["ready", "degraded", "not_ready"]},
             "RememberMemoryRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},

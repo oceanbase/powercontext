@@ -189,6 +189,9 @@ The Server publishes its OpenAPI document at `/openapi.json`, readiness at `/hea
 `/v1/capabilities`, and Streamable HTTP MCP at `/mcp` by default. HTTP is the complete application contract. MCP is a
 curated agent-facing projection of Memory and Candidate Review operations. The five Candidate Review operations use the
 same validation, `expected_version` concurrency checks, and approval transaction over HTTP and MCP.
+Readiness is `ready` with HTTP 200 when all checks pass, `degraded` with HTTP 200 when only configured inference checks
+fail, and `not_ready` with HTTP 503 when the Runtime or database fails. Individual checks use `ready`, `unavailable`,
+`timeout`, or `misconfigured`.
 Experience and Skill generation, exact reads, external Registry operations, and low-level proposal operations remain
 HTTP-only.
 `POST /v1/context/prepare` and the matching Python Client method expose final ephemeral `PreparedContext` over HTTP;

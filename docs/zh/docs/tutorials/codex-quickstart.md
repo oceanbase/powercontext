@@ -72,3 +72,5 @@ Codex 应使用 project-context skill，并在 Memory 写入成功后确认。�
 按 `Ctrl-C` 停止 Server，再让 Codex 执行一项普通任务。PowerContext 可以报告 Memory 不可用，但不能阻塞
 任务。此时 `powercontext doctor` 会报告 liveness 失败、跳过 readiness，同时仍能报告已安装的包；
 `powercontext doctor codex` 会继续独立报告 Codex 集成状态。
+如果只有已配置的推理服务失败，Server 会继续接收流量并把 readiness 报告为 `degraded`；`doctor` 会在不读取
+provider 凭据的前提下显示该非 `ok` 状态。
