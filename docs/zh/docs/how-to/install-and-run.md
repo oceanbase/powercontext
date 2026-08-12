@@ -41,11 +41,15 @@ powercontext server run
 
 ```bash
 powercontext doctor
+powercontext doctor codex
 powercontext ready
 powercontext capabilities
 ```
 
-`doctor` 检查已安装的包、Codex 插件和 Server 就绪状态。内容命令会经过公开 HTTP SDK 路径。
+`doctor` 检查已安装的包、Server 存活状态和 Server 就绪状态，不要求安装 Codex。Server 就绪检查涵盖数据库和
+每个已配置的推理服务。Runtime 或数据库故障返回 `not_ready`；推理服务故障返回 `degraded`，不会使数据库
+操作退出流量。`doctor codex` 单独检查可选的 Codex CLI 与 PowerContext 插件。内容命令会经过公开 HTTP SDK
+路径。
 
 ## 更新或替换安装
 

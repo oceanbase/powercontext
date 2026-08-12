@@ -140,7 +140,7 @@ GET_READINESS = Operation[None, ReadinessResponse](
     tags=("health",),
     responses={
         200: {
-            "description": "Required Server bindings are ready.",
+            "description": "Required Server bindings are ready; optional capabilities may be degraded.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         503: {

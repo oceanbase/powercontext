@@ -31,8 +31,10 @@ from powercontext.builtin.inference import (
 )
 from powercontext.builtin.inference.pydantic_ai import (
     InferenceLimits,
+    PydanticAIConfigurationError,
     PydanticAIEmbeddingModel,
     PydanticAIStructuredGenerator,
+    probe_pydantic_ai_model,
 )
 
 
@@ -219,6 +221,32 @@ def test_structured_generator_times_out_and_cancels_underlying_call() -> None:
         with pytest.raises(InferenceTimeoutError):
             await generation
         assert cleaned_up.is_set()
+
+    asyncio.run(scenario())
+
+
+def test_generation_readiness_probe_uses_one_bounded_text_request() -> None:
+    observed_max_tokens: list[int | None] = []
+
+    async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        assert messages
+        observed_max_tokens.append(None if info.model_settings is None else info.model_settings.get("max_tokens"))
+        return ModelResponse(parts=[TextPart("ok")])
+
+    asyncio.run(probe_pydantic_ai_model(FunctionModel(respond), timeout_seconds=1))
+
+    assert observed_max_tokens == [1]
+
+
+def test_generation_readiness_probe_maps_bad_provider_endpoint_without_leaking_body() -> None:
+    async def reject(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        del messages, info
+        raise ModelHTTPError(404, "test-model", {"api_key": "secret-provider-body"})
+
+    async def scenario() -> None:
+        with pytest.raises(PydanticAIConfigurationError) as error:
+            await probe_pydantic_ai_model(FunctionModel(reject), timeout_seconds=1)
+        assert "secret-provider-body" not in str(error.value)
 
     asyncio.run(scenario())
 

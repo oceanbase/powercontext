@@ -90,6 +90,11 @@ from powercontext.builtin.runtime.models import (
 )
 from powercontext.builtin.runtime.prepared_context import PreparedContextBuild, PreparedContextBuilder
 from powercontext.builtin.runtime.protocols import BuiltinTriggers, PowerContextProvider
+from powercontext.builtin.runtime.readiness import (
+    ReadinessCheckStatus,
+    RuntimeReadiness,
+    RuntimeReadinessChecks,
+)
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.sources import ContentCapture, ExternalSkillImportMode, SourceCursor, validate_scope_id
 from powercontext.builtin.statistics import (
@@ -907,6 +912,7 @@ class BuiltinRuntime:
         external_skill_importer: ExternalSkillImporter | None = None,
         statistics_service: StatisticsServiceFactory | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
+        readiness: RuntimeReadinessChecks | None = None,
         clock: Clock | None = None,
     ) -> None:
         if source_window_limit < 1:
@@ -921,6 +927,7 @@ class BuiltinRuntime:
         self._external_skill_importer = external_skill_importer
         self._statistics_service = statistics_service
         self._recall_token_estimator = recall_token_estimator
+        self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
         self._clock = _utc_now if clock is None else clock
         self.source_window_limit = source_window_limit
         self._locks: dict[str, asyncio.Lock] = {}
@@ -956,6 +963,16 @@ class BuiltinRuntime:
     async def capabilities(self) -> RuntimeCapabilities:
         async with self._operation():
             return self._capabilities
+
+    async def readiness(self) -> RuntimeReadiness:
+        """Check whether the Runtime and its assembled dependencies can accept work."""
+
+        async with self._operation():
+            dependencies = await self._readiness.run()
+        return RuntimeReadiness(
+            status=dependencies.status,
+            checks={"runtime": ReadinessCheckStatus.READY, **dependencies.checks},
+        )
 
     def start_scheduler(
         self,

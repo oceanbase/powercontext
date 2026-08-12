@@ -9,6 +9,10 @@ class InferenceError(PowerContextError):
     """Base exception for stable PowerContext inference failures."""
 
 
+class InferenceConfigurationError(InferenceError, RuntimeError):
+    """Raised when a configured inference provider rejects a request."""
+
+
 class InferenceUnavailableError(InferenceError, RuntimeError):
     """Raised when a transient provider failure prevents inference."""
 

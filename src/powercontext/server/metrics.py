@@ -51,7 +51,7 @@ class ServerMetrics:
         )
         self.runtime_ready = Gauge(
             "powercontext_server_runtime_ready",
-            "Whether the built-in Runtime is ready.",
+            "Whether the built-in Runtime can accept operations.",
             registry=self.registry,
         )
 

@@ -68,6 +68,43 @@ if [ -z "${GITHUB_SHA:-}" ]; then
     export GITHUB_SHA
 fi
 
+show_startup_diagnostics() {
+    echo "Compose startup failed; service state:" >&2
+    docker compose $compose_files ps --all >&2 || true
+    echo "Compose service logs (last 200 lines):" >&2
+    docker compose $compose_files logs --no-color --timestamps --tail 200 >&2 || true
+}
+
+start_services() {
+    attempt=1
+    max_attempts=1
+    if [ "$database" = oceanbase ]; then
+        max_attempts=2
+    fi
+
+    while :; do
+        if docker compose $compose_files up --detach --wait powercontext; then
+            return
+        else
+            status=$?
+        fi
+
+        show_startup_diagnostics
+        if [ "$attempt" -ge "$max_attempts" ]; then
+            return "$status"
+        fi
+
+        attempt=$((attempt + 1))
+        echo "Retrying OceanBase Compose startup (attempt $attempt of $max_attempts)." >&2
+        if docker compose $compose_files down --volumes --remove-orphans; then
+            continue
+        fi
+
+        echo "Compose reset failed; startup will not be retried." >&2
+        return "$status"
+    done
+}
+
 cleanup() {
     status=$?
     trap - EXIT INT TERM
@@ -89,7 +126,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 docker compose $compose_files build powercontext harness
-docker compose $compose_files up --detach --wait powercontext
+start_services
 
 if [ "$mode" = acceptance ]; then
     docker compose $compose_files run --rm harness \

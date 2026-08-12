@@ -25,7 +25,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryCandidateRequest,
     MemoryEntryInput,
 )
-from powercontext.builtin.inference import EmbeddingResult
+from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
@@ -43,6 +43,7 @@ from powercontext.http import (
     ListMemoryChangesRequest,
     ListMemoryEntriesRequest,
     PrepareContextRequest,
+    ReadinessStatus,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
     ReviseMemoryEntryRequest,
@@ -83,6 +84,13 @@ class KeywordEmbeddingModel:
         return EmbeddingResult(
             vectors=tuple((1.0, 0.0, 0.0) if "alpha" in text.casefold() else (0.0, 1.0, 0.0) for text in texts)
         )
+
+
+class MisconfiguredEmbeddingModel:
+    profile = EMBEDDING_PROFILE
+
+    async def embed(self, _texts: tuple[str, ...], /) -> EmbeddingResult:
+        raise InferenceConfigurationError("secret provider response")  # noqa: TRY003 - verifies redaction
 
 
 class DeterministicHandoffPipeline:
@@ -166,7 +174,7 @@ def test_server_databases_share_source_to_memory_search_behavior(
             )
             entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
 
-        assert readiness.checks == {"runtime": "ready"}
+        assert readiness.checks == {"runtime": "ready", "database": "ready"}
         assert capabilities.source_types == ["content"]
         assert capabilities.memory_extraction is True
         assert capabilities.search_modes == ["auto", "fts"]
@@ -185,6 +193,41 @@ def test_server_databases_share_source_to_memory_search_behavior(
         assert unrelated.hits == []
         assert entries.memory == flushed.memory
         assert entries.entries[0].source_refs[0].source_id == "turn-1"
+
+    asyncio.run(scenario())
+
+
+def test_inference_failure_degrades_readiness_without_blocking_database_operations(tmp_path: Path) -> None:
+    app = create_server_app(
+        settings=_server_settings(tmp_path / "degraded.db"),
+        embedding_model=MisconfiguredEmbeddingModel(),
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+            ) as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport)
+            readiness = await client.get_readiness()
+            captured = await client.capture_content_source(
+                CaptureContentSourceRequest(
+                    scope_id="degraded-readiness",
+                    source_id="turn-1",
+                    content="Database-backed capture remains available.",
+                )
+            )
+
+        assert readiness.status is ReadinessStatus.DEGRADED
+        assert readiness.checks == {
+            "runtime": "ready",
+            "database": "ready",
+            "inference.embedding": "misconfigured",
+        }
+        assert captured.position == 1
 
     asyncio.run(scenario())
 

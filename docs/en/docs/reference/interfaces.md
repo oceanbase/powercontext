@@ -27,6 +27,7 @@ starts or embeds the Server.
 ```text
 powercontext setup codex
 powercontext doctor
+powercontext doctor codex
 powercontext server run
 powercontext ready
 powercontext capabilities
@@ -54,6 +55,9 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 
 All content commands call the configured Server. The optional `server` role adds `powercontext server run`; it does
 not create a second content profile inside the CLI.
+
+`powercontext doctor` checks the package and Server without requiring an integration. `powercontext doctor codex`
+checks the Codex CLI and PowerContext plugin explicitly.
 
 Generation and revision commands accept repeatable `--source-ref TYPE/ID` and
 `--artifact-ref FAMILY/ID@REVISION` options instead of serialized request files. `--target FAMILY/ID@REVISION`
@@ -185,6 +189,9 @@ The Server publishes its OpenAPI document at `/openapi.json`, readiness at `/hea
 `/v1/capabilities`, and Streamable HTTP MCP at `/mcp` by default. HTTP is the complete application contract. MCP is a
 curated agent-facing projection of Memory and Candidate Review operations. The five Candidate Review operations use the
 same validation, `expected_version` concurrency checks, and approval transaction over HTTP and MCP.
+Readiness is `ready` with HTTP 200 when all checks pass, `degraded` with HTTP 200 when only configured inference checks
+fail, and `not_ready` with HTTP 503 when the Runtime or database fails. Dependency checks use `ready`, `unavailable`,
+`timeout`, or `misconfigured`; an intentionally unbound Runtime reports `not_ready` for the `runtime` check.
 Experience and Skill generation, exact reads, external Registry operations, and low-level proposal operations remain
 HTTP-only.
 `POST /v1/context/prepare` and the matching Python Client method expose final ephemeral `PreparedContext` over HTTP;

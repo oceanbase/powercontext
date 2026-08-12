@@ -5,6 +5,7 @@ Pydantic AI remains optional and is imported only from
 """
 
 from powercontext.builtin.inference.errors import (
+    InferenceConfigurationError,
     InferenceError,
     InferenceTimeoutError,
     InferenceUnavailableError,
@@ -24,6 +25,7 @@ __all__ = [
     "EmbeddingResult",
     "EmbeddingVector",
     "GenerationResult",
+    "InferenceConfigurationError",
     "InferenceError",
     "InferenceTimeoutError",
     "InferenceUnavailableError",

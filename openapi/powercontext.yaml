@@ -31,7 +31,7 @@ paths:
       operationId: get_readiness
       responses:
         "200":
-          description: Required Server bindings are ready.
+          description: Required Server bindings are ready; optional capabilities may be degraded.
           headers:
             X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
@@ -3751,7 +3751,7 @@ components:
             type: string
     ReadinessStatus:
       type: string
-      enum: [ready, not_ready]
+      enum: [ready, degraded, not_ready]
     RememberMemoryRequest:
       type: object
       additionalProperties: false

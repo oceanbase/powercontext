@@ -42,12 +42,16 @@ With no environment variables, the Server:
 
 ```bash
 powercontext doctor
+powercontext doctor codex
 powercontext ready
 powercontext capabilities
 ```
 
-`doctor` checks the installed package, Codex plugin, and Server readiness. The content commands exercise the public
-HTTP SDK path.
+`doctor` checks the installed package, Server liveness, and Server readiness without requiring Codex. Server
+readiness covers the database and each configured inference provider. Runtime or database failures return
+`not_ready`; an inference failure returns `degraded` without removing database-backed operations from traffic.
+`doctor codex` separately checks the optional Codex CLI and PowerContext plugin. The content commands exercise the
+public HTTP SDK path.
 
 ## Update or replace an installation
 
