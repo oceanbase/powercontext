@@ -5,9 +5,11 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
+    CaptureSource,
     HandoffContent,
     HandoffSourceCitation,
     HandoffStatement,
@@ -18,10 +20,26 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.work import (
     AcknowledgeHandoff,
     CreateWorkContract,
+    CurrentWorkHandoff,
+    HandoffCurrentWork,
+    ReceiverChecks,
+    RecordTaskOutcome,
+    TaskOutcome,
     WorkClaim,
     WorkContract,
 )
 from powercontext.sources import SourceRef
+
+CONFIRMED_RECEIVER_CHECKS = ReceiverChecks(
+    live_state="confirmed",
+    capability="confirmed",
+    authorization="confirmed",
+)
+UNCHECKED_RECEIVER_CHECKS = ReceiverChecks(
+    live_state="not_checked",
+    capability="not_checked",
+    authorization="not_checked",
+)
 
 
 def test_verified_work_claims_require_exact_evidence() -> None:
@@ -76,6 +94,7 @@ def test_acknowledgement_cannot_accept_unavailable_handoff_evidence() -> None:
                         receiver="receiver-agent",
                         status="accepted",
                         selection="prepared",
+                        receiver_checks=CONFIRMED_RECEIVER_CHECKS,
                         prepared=prepared,
                     )
                 )
@@ -96,6 +115,38 @@ def test_acknowledgement_cannot_accept_unavailable_handoff_evidence() -> None:
         assert clarification.receipt.position == 1
 
     asyncio.run(scenario())
+
+
+def test_acknowledgement_requires_an_inspected_target_and_receiver_checks() -> None:
+    revision = ArtifactRef(family="handoff", artifact_id="handoff", revision=1)
+
+    with pytest.raises(ValidationError, match="Input should be 'prepared' or 'exact'"):
+        AcknowledgeHandoff.model_validate({
+            "source_id": "receipt-latest",
+            "receiver": "receiver-agent",
+            "status": "accepted",
+            "selection": "latest",
+            "receiver_checks": CONFIRMED_RECEIVER_CHECKS.model_dump(),
+        })
+
+    with pytest.raises(ValidationError, match="requires all receiver checks"):
+        AcknowledgeHandoff(
+            source_id="receipt-missing-checks",
+            receiver="receiver-agent",
+            status="accepted",
+            selection="exact",
+            revision=revision,
+        )
+
+    with pytest.raises(ValidationError, match="requires all receiver checks"):
+        AcknowledgeHandoff(
+            source_id="receipt-unchecked",
+            receiver="receiver-agent",
+            status="accepted",
+            selection="exact",
+            receiver_checks=UNCHECKED_RECEIVER_CHECKS,
+            revision=revision,
+        )
 
 
 def test_work_contract_rejects_a_verified_cross_record_claim_when_evidence_is_missing() -> None:
@@ -121,5 +172,168 @@ def test_work_contract_rejects_a_verified_cross_record_claim_when_evidence_is_mi
                 await runtime.work.for_scope("project").create_contract(
                     CreateWorkContract(source_id="contract-1", contract=contract)
                 )
+
+    asyncio.run(scenario())
+
+
+def test_continuity_projects_the_result_loop_in_stable_journal_order() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            work = runtime.work.for_scope("project")
+            await work.create_contract(
+                CreateWorkContract(
+                    source_id="contract-1",
+                    contract=WorkContract(
+                        objective="Transfer an implementation safely.",
+                        in_scope=("Implement the requested change.",),
+                        completion_criteria=("Record the receiver's result.",),
+                    ),
+                )
+            )
+            prepared = await work.handoff_current(
+                HandoffCurrentWork(
+                    source_id="handoff-1",
+                    handoff=CurrentWorkHandoff(
+                        objective="Transfer an implementation safely.",
+                        state=(WorkClaim(text="The implementation is ready for review."),),
+                        disposition="continuable",
+                        next_action=WorkClaim(text="Run the focused acceptance test."),
+                    ),
+                )
+            )
+            committed = await runtime.handoff.for_scope("project").commit(prepared.handoff)
+            before_acceptance = await work.continuity()
+            acknowledgement = await work.acknowledge(
+                AcknowledgeHandoff(
+                    source_id="receipt-1",
+                    receiver="receiver-agent",
+                    status="accepted",
+                    selection="exact",
+                    receiver_checks=CONFIRMED_RECEIVER_CHECKS,
+                    revision=committed.as_ref(),
+                )
+            )
+            before_outcome = await work.continuity()
+            await work.record_outcome(
+                RecordTaskOutcome(
+                    source_id="outcome-1",
+                    outcome=TaskOutcome(
+                        objective="Transfer an implementation safely.",
+                        status="succeeded",
+                        summary="The receiver completed the focused acceptance test.",
+                        handoff_receipt_ref=acknowledgement.receipt.source_ref,
+                        observations=(WorkClaim(text="The acceptance test passed."),),
+                    ),
+                )
+            )
+            complete = await work.continuity()
+
+        assert before_acceptance.coverage.transfer_state == "awaiting_receipt"
+        assert before_acceptance.coverage.outcome_state == "not_expected"
+        assert before_outcome.coverage.transfer_state == "accepted"
+        assert before_outcome.coverage.outcome_state == "awaiting_outcome"
+        assert before_outcome.coverage.active_receipt_ref == acknowledgement.receipt.source_ref
+        assert complete.coverage.transfer_state == "accepted"
+        assert complete.coverage.outcome_state == "covered"
+        assert complete.coverage.handoff_result_covered is True
+        assert complete.coverage.active_receipt_ref == acknowledgement.receipt.source_ref
+        assert complete.coverage.contract_records == 1
+        assert complete.coverage.handoff_records == 1
+        assert complete.coverage.acknowledgement_records == 1
+        assert complete.coverage.outcome_records == 1
+        assert [event.position for event in complete.events] == [1, 2, 3, 4]
+        assert [event.kind for event in complete.events] == [
+            "work-contract",
+            "handoff-boundary",
+            "handoff-receipt",
+            "task-outcome",
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_continuity_does_not_cover_an_acceptance_with_an_unlinked_outcome() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            work = runtime.work.for_scope("project")
+            prepared = await work.handoff_current(
+                HandoffCurrentWork(
+                    source_id="handoff-1",
+                    handoff=CurrentWorkHandoff(
+                        objective="Transfer one exact attempt.",
+                        state=(WorkClaim(text="The attempt is ready."),),
+                        disposition="continuable",
+                    ),
+                )
+            )
+            committed = await runtime.handoff.for_scope("project").commit(prepared.handoff)
+            await work.acknowledge(
+                AcknowledgeHandoff(
+                    source_id="receipt-1",
+                    receiver="receiver-agent",
+                    status="accepted",
+                    selection="exact",
+                    receiver_checks=CONFIRMED_RECEIVER_CHECKS,
+                    revision=committed.as_ref(),
+                )
+            )
+            await work.record_outcome(
+                RecordTaskOutcome(
+                    source_id="unlinked-outcome",
+                    outcome=TaskOutcome(
+                        objective="Complete unrelated work.",
+                        status="succeeded",
+                        summary="An unrelated attempt completed.",
+                        observations=(WorkClaim(text="This result does not identify the accepted receipt."),),
+                    ),
+                )
+            )
+
+            continuity = await work.continuity()
+
+        assert continuity.coverage.transfer_state == "accepted"
+        assert continuity.coverage.outcome_state == "awaiting_outcome"
+        assert continuity.coverage.handoff_result_covered is False
+
+    asyncio.run(scenario())
+
+
+def test_task_outcome_rejects_a_non_receipt_result_link() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            with pytest.raises(InvalidRuntimeRequestError, match="task-outcome-handoff-receipt"):
+                await runtime.work.for_scope("project").record_outcome(
+                    RecordTaskOutcome(
+                        source_id="outcome-1",
+                        outcome=TaskOutcome(
+                            objective="Link one exact accepted receipt.",
+                            status="unknown",
+                            summary="The requested Receipt does not exist.",
+                            handoff_receipt_ref=SourceRef(
+                                source_type="content",
+                                source_id="missing-receipt",
+                            ),
+                            observations=(WorkClaim(text="No accepted Receipt was found."),),
+                        ),
+                    )
+                )
+
+    asyncio.run(scenario())
+
+
+def test_continuity_excludes_malformed_work_records_without_failing_the_report() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            sources = runtime.sources.for_scope("project")
+            await sources.capture(CaptureSource(source_id="ordinary-1", content="ordinary", metadata={"kind": []}))
+            await sources.capture(
+                CaptureSource(source_id="malformed-1", content="{}", metadata={"kind": "task-outcome"})
+            )
+
+            continuity = await runtime.work.for_scope("project").continuity()
+
+        assert continuity.total_event_count == 0
+        assert continuity.invalid_record_count == 1
+        assert continuity.events == ()
 
     asyncio.run(scenario())

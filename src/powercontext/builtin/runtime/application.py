@@ -11,7 +11,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
@@ -103,7 +103,13 @@ from powercontext.builtin.runtime.readiness import (
     RuntimeReadinessChecks,
 )
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
-from powercontext.builtin.sources import ContentCapture, ExternalSkillImportMode, SourceCursor, validate_scope_id
+from powercontext.builtin.sources import (
+    ContentCapture,
+    ContentSource,
+    ExternalSkillImportMode,
+    SourceCursor,
+    validate_scope_id,
+)
 from powercontext.builtin.statistics import (
     ModelUsageOperation,
     ModelUsagePurpose,
@@ -125,13 +131,16 @@ from powercontext.builtin.work import (
     RecordTaskOutcome,
     TaskOutcome,
     WorkClaim,
+    WorkContinuity,
     WorkContract,
     WorkSourceKind,
     WorkSourceReceipt,
     content_digest,
+    project_work_continuity,
 )
 from powercontext.context import PowerContext
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
+from powercontext.sources import SourceRef
 
 if TYPE_CHECKING:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -549,8 +558,20 @@ class ScopedWorkApplication:
         await self._validate(_contract_evidence(request.contract))
         return await self._capture(WORK_CONTRACT_SOURCE_KIND, request.source_id, request.contract)
 
+    async def continuity(self, selected_handoff: ArtifactRef | None = None) -> WorkContinuity:
+        """Read a bounded timeline and loop coverage from the scoped Source journal."""
+
+        async with self._runtime._context(self.scope_id) as context:
+            entries = await context.sources.journal.entries()
+            if selected_handoff is None:
+                latest = await context.artifacts.handoff.latest()
+                selected_handoff = None if latest is None else latest.as_ref()
+        return project_work_continuity(self.scope_id, entries, selected_handoff=selected_handoff)
+
     async def record_outcome(self, request: RecordTaskOutcome, /) -> WorkSourceReceipt:
         await self._validate(_outcome_evidence(request.outcome))
+        if request.outcome.handoff_receipt_ref is not None:
+            await self._validate_outcome_receipt(request.outcome.handoff_receipt_ref)
         return await self._capture(TASK_OUTCOME_SOURCE_KIND, request.source_id, request.outcome)
 
     async def handoff_current(self, request: HandoffCurrentWork, /) -> PreparedWorkHandoff:
@@ -577,12 +598,10 @@ class ScopedWorkApplication:
             if request.prepared is None:
                 raise InvalidRuntimeRequestError("handoff-selection")
             resolution = await handoff.continue_from(request.prepared)
-        elif request.selection == "exact":
+        else:
             if request.revision is None:
                 raise InvalidRuntimeRequestError("handoff-selection")
             resolution = await handoff.continue_from(request.revision)
-        else:
-            resolution = await handoff.continue_latest()
         if resolution.status == "empty":
             raise InvalidRuntimeRequestError("handoff-empty")
 
@@ -595,12 +614,28 @@ class ScopedWorkApplication:
             selection=request.selection,
             selected_revision=resolution.selected_revision,
             prepared_digest=(None if request.prepared is None else content_digest(request.prepared)),
+            receiver_checks=request.receiver_checks,
             evidence_status="unavailable" if unavailable else "available",
             unavailable_evidence=unavailable,
             message=request.message,
         )
         receipt = await self._capture(HANDOFF_RECEIPT_SOURCE_KIND, request.source_id, receipt_record)
         return HandoffAcknowledgement(resolution=resolution, receipt=receipt)
+
+    async def _validate_outcome_receipt(self, receipt_ref: SourceRef) -> None:
+        async with self._runtime._context(self.scope_id) as context:
+            entries = await context.sources.journal.entries()
+        matching_entry = next((entry for entry in entries if entry.source_ref == receipt_ref), None)
+        if matching_entry is None or not isinstance(matching_entry.source, ContentSource):
+            raise InvalidRuntimeRequestError("task-outcome-handoff-receipt")
+        if matching_entry.source.metadata.get("kind") != HANDOFF_RECEIPT_SOURCE_KIND:
+            raise InvalidRuntimeRequestError("task-outcome-handoff-receipt")
+        try:
+            receipt = HandoffReceipt.model_validate_json(matching_entry.source.content)
+        except ValidationError as error:
+            raise InvalidRuntimeRequestError("task-outcome-handoff-receipt") from error
+        if receipt.status != "accepted" or receipt.selection != "exact" or receipt.selected_revision is None:
+            raise InvalidRuntimeRequestError("task-outcome-handoff-receipt")
 
     async def _validate(self, citations: tuple[HandoffCitation, ...]) -> None:
         if citations:

@@ -37,16 +37,23 @@ create_work_contract
 检查的当前状态并返回临时 Prepared Handoff；它不会发布里程碑。只有用户需要持久化里程碑时，才另行调用
 `commit_handoff`。
 
-接收方先用 prepared、exact 或 latest selection 调用 `continue_handoff`，再记录回执。
-`acknowledge_handoff(status="accepted")` 会重新解析该 selection；任一 Handoff evidence 不可用时都会拒绝 accepted。
-接收方也可以记录 `needs_clarification` 或 `declined`。回执只记录观察，不能授予工具或执行权限。
+接收方先用 prepared、exact 或 latest selection 调用 `continue_handoff`；如果从 latest 开始，必须把返回的 exact Revision
+展示并检查后再记录回执。`acknowledge_handoff` 只接受 prepared 或 exact，不接受 latest。任一 Handoff evidence 不可用，
+或 live-state、capability、authorization 没有全部确认为 `confirmed` 时，都会拒绝 accepted。接收方也可以记录
+`needs_clarification` 或 `declined`。回执及三项确认只记录不可信观察，不能授予身份、工具或执行权限。
 
 `record_task_outcome` 原样保留 `succeeded`、`partial`、`blocked`、`failed`、`cancelled` 或 `unknown`，以及精确检查
-状态。它保存现有 Experience 孵化可读取的 `task-outcome` Source，但不会自行生成或批准 Experience。Integration 只应
-在真实完成或中断边界调用它，不能仅因 Prompt、Stop 或 Session 结束而调用。
+状态。需要关闭 committed Handoff 结果时，`handoff_receipt_ref` 必须引用当前 accepted exact Receipt；同 scope 中无关联的
+Outcome 不会覆盖它。该 operation 保存现有 Experience 孵化可读取的 `task-outcome` Source，但不会自行生成或批准
+Experience。Integration 只应在真实完成或中断边界调用它，不能仅因 Prompt、Stop 或 Session 结束而调用。
 
 Claim 和 check 要么是没有 evidence 的 `declared`，要么是拥有同 scope 精确 citation 的 `verified`。Citation 可读只证明
 身份和可用性，不证明事实仍然新鲜。当前指令、实时 workspace、能力和授权始终优先于 Work 与 Handoff 记录。
+
+Handoff Report 的 JSON Workstream projection 同时返回 `handoff_revision_count`、`handoff_history_truncated` 和
+`handoff_history`。History 最多包含 frozen selection 之前最近 20 个 Revision 摘要，按 Revision 升序返回；页面按最新
+优先展示，并每 5 秒自动刷新。未发送编辑或正在执行的交接动作会暂停自动刷新。Codex scope resolver 支持把当前 Git
+工作区一次绑定到固定 Workstream scope，绑定优先于 Git remote 和路径推导，但低于显式 scope 配置。
 
 ## CLI
 

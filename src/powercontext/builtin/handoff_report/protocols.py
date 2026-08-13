@@ -6,6 +6,7 @@ from typing import Protocol
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.handoff import Handoff, HandoffEvidenceCheck
+from powercontext.builtin.work import WorkContinuity
 
 
 class HandoffReadAdapter(Protocol):
@@ -37,4 +38,10 @@ class HandoffReadAdapter(Protocol):
         ...
 
 
-__all__ = ["HandoffReadAdapter"]
+class WorkContinuityReadAdapter(Protocol):
+    """Read the high-level Work loop projection for one scope."""
+
+    async def get(self, scope_id: str, reference: ArtifactRef | None, /) -> WorkContinuity: ...
+
+
+__all__ = ["HandoffReadAdapter", "WorkContinuityReadAdapter"]

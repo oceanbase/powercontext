@@ -28,7 +28,7 @@ from powercontext.builtin.handoff_report.models import (
     WorkstreamDescriptor,
     WorkstreamKind,
 )
-from powercontext.builtin.handoff_report.protocols import HandoffReadAdapter
+from powercontext.builtin.handoff_report.protocols import HandoffReadAdapter, WorkContinuityReadAdapter
 from powercontext.builtin.handoff_report.report import (
     MAX_REPORT_ACTIVITIES,
     MAX_REPORT_WORKSTREAMS,
@@ -74,12 +74,13 @@ class HandoffReportApplication:
         *,
         activities: ActivityEventRepository | None = None,
         workspace_bindings: WorkspaceBindingService | None = None,
+        continuity: WorkContinuityReadAdapter | None = None,
     ) -> None:
         self._database = database
         self._catalog = HandoffReportCatalog()
         self._activities = SQLiteActivityEventRepository() if activities is None else activities
         self._workspace_bindings = WorkspaceBindingService() if workspace_bindings is None else workspace_bindings
-        self._reports = HandoffReportService(handoffs)
+        self._reports = HandoffReportService(handoffs, continuity=continuity)
 
     async def create_project(
         self,

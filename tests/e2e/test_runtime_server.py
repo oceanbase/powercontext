@@ -28,7 +28,7 @@ from powercontext.builtin.artifacts.memory import (
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig
+from powercontext.builtin.runtime import HandoffReportConfig, InferenceConfig
 from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
@@ -37,9 +37,11 @@ from powercontext.http import (
     CaptureContentSourceRequest,
     CommitHandoffRequest,
     ContinueHandoffRequest,
+    CreateHandoffReportProjectRequest,
     CreateWorkContractRequest,
     FinalizeHandoffRequest,
     FlushMemoryRequest,
+    GetHandoffReportRequest,
     GetMemoryEntryRequest,
     HandoffCurrentWorkRequest,
     HandoffSelection,
@@ -47,12 +49,15 @@ from powercontext.http import (
     ListMemoryChangesRequest,
     ListMemoryEntriesRequest,
     PrepareContextRequest,
-    RecordTaskOutcomeRequest,
     ReadinessStatus,
+    RecordTaskOutcomeRequest,
+    RegisterHandoffReportWorkstreamRequest,
     RememberMemoryRequest,
+    ReportFormat,
     RetireMemoryEntryRequest,
     ReviseMemoryEntryRequest,
     SearchMemoryRequest,
+    WorkstreamKind,
 )
 from powercontext.http import MemorySearchMode as HttpMemorySearchMode
 from powercontext.server.factory import create_server_app
@@ -122,10 +127,12 @@ def _server_settings(
     *,
     generation_model: str | None = None,
     mcp: bool = False,
+    handoff_report: bool = False,
 ) -> ServerSettings:
     return ServerSettings(
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
         inference=InferenceConfig(generation_model=generation_model),
+        handoff_report=HandoffReportConfig(enabled=handoff_report),
         mcp=McpConfig(enabled=mcp),
     )
 
@@ -332,7 +339,7 @@ def test_sdk_handoff_lifecycle_reaches_generation_and_persistence(tmp_path: Path
 
 def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> None:
     scope_id = "work-continuity-e2e"
-    app = create_server_app(settings=_server_settings(tmp_path / "work-continuity.db"))
+    app = create_server_app(settings=_server_settings(tmp_path / "work-continuity.db", handoff_report=True))
 
     async def scenario() -> None:
         async with (
@@ -343,6 +350,17 @@ def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> N
             ) as transport,
         ):
             client = PowerContextClient("http://testserver", http_client=transport)
+            project = await client.create_handoff_report_project(
+                CreateHandoffReportProjectRequest(project_key="work-continuity", title="Work continuity")
+            )
+            await client.register_handoff_report_workstream(
+                RegisterHandoffReportWorkstreamRequest(
+                    project_id=project.project_id,
+                    scope_id=scope_id,
+                    title="Work continuity implementation",
+                    kind=WorkstreamKind.FEATURE,
+                )
+            )
             contract = await client.create_work_contract(
                 CreateWorkContractRequest.model_validate({
                     "scope_id": scope_id,
@@ -398,6 +416,11 @@ def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> N
                     "receiver": "codex-receiver",
                     "status": "accepted",
                     "selection": HandoffSelection.PREPARED,
+                    "receiver_checks": {
+                        "live_state": "confirmed",
+                        "capability": "confirmed",
+                        "authorization": "confirmed",
+                    },
                     "prepared": prepared.handoff,
                 })
             )
@@ -408,7 +431,13 @@ def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> N
                     "source_id": "receipt-durable-1",
                     "receiver": "human-reviewer",
                     "status": "accepted",
-                    "selection": HandoffSelection.LATEST,
+                    "selection": "exact",
+                    "receiver_checks": {
+                        "live_state": "confirmed",
+                        "capability": "confirmed",
+                        "authorization": "confirmed",
+                    },
+                    "revision": committed.reference,
                 })
             )
             outcome = await client.record_task_outcome(
@@ -421,6 +450,7 @@ def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> N
                         "objective": "Implement and verify the work-continuity loop.",
                         "status": "succeeded",
                         "summary": "The public SQLite Server journey completed.",
+                        "handoff_receipt_ref": durable_acknowledgement.receipt.source.model_dump(),
                         "observations": [
                             {
                                 "text": "Both temporary and committed Handoffs were acknowledged.",
@@ -441,6 +471,13 @@ def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> N
                     },
                 })
             )
+            report = await client.get_handoff_report(
+                GetHandoffReportRequest(
+                    project_id=project.project_id,
+                    include_evidence_checks=False,
+                    format=ReportFormat.JSON,
+                )
+            )
 
         assert contract.kind == "work-contract"
         assert contract.position == 1
@@ -453,11 +490,24 @@ def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> N
         assert temporary_acknowledgement.receipt.kind == "handoff-receipt"
         assert temporary_acknowledgement.receipt.position == 3
         assert committed.source_refs == [prepared.boundary.source]
-        assert durable_acknowledgement.resolution.selection == "latest"
+        assert durable_acknowledgement.resolution.selection == "exact"
         assert durable_acknowledgement.resolution.selected_revision == committed.reference
         assert durable_acknowledgement.receipt.position == 4
         assert outcome.kind == "task-outcome"
         assert outcome.position == 5
+        assert not isinstance(report, str)
+        assert report.report is not None
+        continuity = report.report["workstreams"][0]["continuity"]
+        assert continuity["coverage"]["transfer_state"] == "accepted"
+        assert continuity["coverage"]["outcome_state"] == "covered"
+        assert continuity["coverage"]["handoff_result_covered"] is True
+        assert [event["kind"] for event in continuity["events"]] == [
+            "work-contract",
+            "handoff-boundary",
+            "handoff-receipt",
+            "handoff-receipt",
+            "task-outcome",
+        ]
 
     asyncio.run(scenario())
 

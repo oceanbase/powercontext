@@ -24,6 +24,7 @@ MAX_WORK_ITEMS = 64
 MAX_WORK_EVIDENCE = 32
 MAX_WORK_CLAIM_EVIDENCE = MAX_HANDOFF_CITATIONS - 1
 MAX_HANDOFF_RECEIPT_EVIDENCE = (MAX_HANDOFF_STATE_STATEMENTS + 1) * MAX_HANDOFF_CITATIONS
+MAX_WORK_CONTINUITY_EVENTS = 64
 
 WORK_CONTRACT_SOURCE_KIND = "work-contract"
 HANDOFF_BOUNDARY_SOURCE_KIND = "handoff-boundary"
@@ -41,8 +42,33 @@ TaskCheckStatus: TypeAlias = Literal[
     "unknown",
 ]
 HandoffReceiptStatus: TypeAlias = Literal["accepted", "needs_clarification", "declined"]
+HandoffAcknowledgementSelection: TypeAlias = Literal["prepared", "exact"]
+LiveStateCheckStatus: TypeAlias = Literal["confirmed", "mismatch", "not_checked"]
+ReceiverReadinessCheckStatus: TypeAlias = Literal["confirmed", "insufficient", "not_checked"]
 ReceiptEvidenceStatus: TypeAlias = Literal["available", "unavailable"]
 WorkSourceKind: TypeAlias = Literal["work-contract", "handoff-boundary", "handoff-receipt", "task-outcome"]
+WorkContinuityEventStatus: TypeAlias = Literal[
+    "delegated",
+    "continuable",
+    "blocked",
+    "complete",
+    "accepted",
+    "needs_clarification",
+    "declined",
+    "succeeded",
+    "partial",
+    "failed",
+    "cancelled",
+    "unknown",
+]
+WorkTransferState: TypeAlias = Literal[
+    "not_applicable",
+    "awaiting_receipt",
+    "needs_clarification",
+    "declined",
+    "accepted",
+]
+WorkOutcomeState: TypeAlias = Literal["not_expected", "awaiting_outcome", "covered"]
 
 
 class _WorkValue(BaseModel):
@@ -131,6 +157,7 @@ class TaskOutcome(_WorkValue):
     objective: Annotated[str, Field(max_length=MAX_WORK_TEXT_LENGTH)]
     status: TaskOutcomeStatus
     summary: Annotated[str, Field(max_length=MAX_WORK_TEXT_LENGTH)]
+    handoff_receipt_ref: SourceRef | None = None
     observations: Annotated[tuple[WorkClaim, ...], Field(min_length=1, max_length=MAX_WORK_ITEMS)]
     checks: Annotated[tuple[TaskCheck, ...], Field(max_length=MAX_WORK_ITEMS)] = ()
     produced_artifacts: Annotated[tuple[ArtifactRef, ...], Field(max_length=MAX_WORK_EVIDENCE)] = ()
@@ -202,11 +229,23 @@ class HandoffCurrentWork(_WorkValue):
         return _require_text("source_id", value)
 
 
+class ReceiverChecks(_WorkValue):
+    """Receiver self-attestation kept separate from citation availability."""
+
+    live_state: LiveStateCheckStatus
+    capability: ReceiverReadinessCheckStatus
+    authorization: ReceiverReadinessCheckStatus
+
+    def all_confirmed(self) -> bool:
+        return self.live_state == self.capability == self.authorization == "confirmed"
+
+
 class AcknowledgeHandoff(_WorkValue):
     source_id: Annotated[str, Field(max_length=256)]
     receiver: Annotated[str, Field(max_length=256)]
     status: HandoffReceiptStatus
-    selection: HandoffResolutionSelection
+    selection: HandoffAcknowledgementSelection
+    receiver_checks: ReceiverChecks | None = None
     prepared: PreparedHandoff | None = None
     revision: ArtifactRef | None = None
     message: Annotated[str, Field(max_length=MAX_WORK_TEXT_LENGTH)] | None = None
@@ -220,12 +259,12 @@ class AcknowledgeHandoff(_WorkValue):
     def validate_selection_and_message(self) -> AcknowledgeHandoff:
         if self.selection == "prepared":
             valid_selection = self.prepared is not None and self.revision is None
-        elif self.selection == "exact":
-            valid_selection = self.prepared is None and self.revision is not None
         else:
-            valid_selection = self.prepared is None and self.revision is None
+            valid_selection = self.prepared is None and self.revision is not None
         if not valid_selection:
             raise ValueError("Handoff acknowledgement selection does not match its exact input")  # noqa: TRY003
+        if self.status == "accepted" and (self.receiver_checks is None or not self.receiver_checks.all_confirmed()):
+            raise ValueError("accepted Handoff acknowledgement requires all receiver checks")  # noqa: TRY003
         if self.status != "accepted" and self.message is None:
             raise ValueError("non-accepted Handoff acknowledgement requires a message")  # noqa: TRY003
         return self
@@ -244,6 +283,7 @@ class HandoffReceipt(_WorkValue):
     selection: HandoffResolutionSelection
     selected_revision: ArtifactRef | None = None
     prepared_digest: str | None = None
+    receiver_checks: ReceiverChecks | None = None
     evidence_status: ReceiptEvidenceStatus
     unavailable_evidence: Annotated[
         tuple[HandoffCitation, ...],
@@ -265,6 +305,8 @@ class HandoffReceipt(_WorkValue):
             raise ValueError("unavailable Handoff receipt must identify unavailable evidence")  # noqa: TRY003
         if self.status == "accepted" and self.evidence_status == "unavailable":
             raise ValueError("a Handoff with unavailable evidence cannot be accepted")  # noqa: TRY003
+        if self.status == "accepted" and self.receiver_checks is not None and not self.receiver_checks.all_confirmed():
+            raise ValueError("accepted Handoff receipt requires all recorded receiver checks")  # noqa: TRY003
         return self
 
 
@@ -289,6 +331,77 @@ class HandoffAcknowledgement(_WorkValue):
 
     resolution: HandoffResolution
     receipt: WorkSourceReceipt
+
+
+class WorkContinuityEvent(_WorkValue):
+    """One readable Work record projected in stable Source journal order."""
+
+    position: Annotated[int, Field(ge=1)]
+    kind: WorkSourceKind
+    source_ref: SourceRef
+    record_schema: Annotated[str, Field(max_length=256)]
+    status: WorkContinuityEventStatus
+    summary: Annotated[str, Field(max_length=MAX_WORK_TEXT_LENGTH)] | None = None
+    actor: Annotated[str, Field(max_length=256)] | None = None
+    selected_revision: ArtifactRef | None = None
+    handoff_receipt_ref: SourceRef | None = None
+    receiver_checks: ReceiverChecks | None = None
+
+
+class WorkContinuityCoverage(_WorkValue):
+    """Record coverage for the delegation, handoff, acknowledgement, and outcome loop."""
+
+    contract_records: Annotated[int, Field(ge=0)] = 0
+    handoff_records: Annotated[int, Field(ge=0)] = 0
+    acknowledgement_records: Annotated[int, Field(ge=0)] = 0
+    outcome_records: Annotated[int, Field(ge=0)] = 0
+    transfer_state: WorkTransferState = "not_applicable"
+    outcome_state: WorkOutcomeState = "not_expected"
+    active_receipt_ref: SourceRef | None = None
+    handoff_result_covered: bool = False
+
+    @model_validator(mode="after")
+    def validate_result_coverage(self) -> WorkContinuityCoverage:
+        if self.handoff_result_covered != (self.outcome_state == "covered"):
+            raise ValueError("handoff_result_covered must match covered outcome state")  # noqa: TRY003
+        if self.transfer_state != "accepted" and self.outcome_state != "not_expected":
+            raise ValueError("only an accepted transfer can expect or cover an outcome")  # noqa: TRY003
+        if (self.active_receipt_ref is not None) != (self.transfer_state == "accepted"):
+            raise ValueError("active_receipt_ref must identify the accepted transfer")  # noqa: TRY003
+        return self
+
+
+class WorkContinuity(_WorkValue):
+    """A bounded timeline and complete coverage projection for one scope."""
+
+    schema_version: Literal["powercontext.work-continuity.v1"] = Field(
+        default="powercontext.work-continuity.v1",
+        alias="schema",
+    )
+    trust: Literal["untrusted_history"] = "untrusted_history"
+    scope_id: Annotated[str, Field(max_length=256)]
+    selected_handoff: ArtifactRef | None = None
+    total_event_count: Annotated[int, Field(ge=0)] = 0
+    invalid_record_count: Annotated[int, Field(ge=0)] = 0
+    truncated: bool = False
+    events: Annotated[tuple[WorkContinuityEvent, ...], Field(max_length=MAX_WORK_CONTINUITY_EVENTS)] = ()
+    coverage: WorkContinuityCoverage = Field(default_factory=WorkContinuityCoverage)
+
+    @field_validator("scope_id")
+    @classmethod
+    def require_scope_id(cls, value: str) -> str:
+        return _require_text("scope_id", value)
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> WorkContinuity:
+        if self.total_event_count < len(self.events):
+            raise ValueError("total_event_count cannot be smaller than projected events")  # noqa: TRY003
+        if self.truncated != (self.total_event_count > len(self.events)):
+            raise ValueError("truncated must match omitted continuity events")  # noqa: TRY003
+        positions = tuple(event.position for event in self.events)
+        if positions != tuple(sorted(set(positions))):
+            raise ValueError("continuity events must have unique ascending positions")  # noqa: TRY003
+        return self
 
 
 def content_digest(value: BaseModel) -> str:
@@ -330,6 +443,9 @@ __all__ = [
     "TaskCheck",
     "TaskOutcome",
     "WorkClaim",
+    "WorkContinuity",
+    "WorkContinuityCoverage",
+    "WorkContinuityEvent",
     "WorkContract",
     "WorkSourceKind",
     "WorkSourceReceipt",

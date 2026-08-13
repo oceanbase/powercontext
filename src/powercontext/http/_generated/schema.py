@@ -179,10 +179,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "post": {
                 "tags": ["work"],
                 "summary": "Resolve and acknowledge a Handoff",
-                "description": "Resolve untrusted Handoff "
-                "history, check exact "
+                "description": "Re-resolve one prepared or "
+                "exact Handoff, check "
                 "evidence, and capture the "
-                "receiver's acknowledgement.",
+                "receiver's explicit "
+                "live-state, capability, and "
+                "authorization checks.",
                 "operationId": "acknowledge_handoff",
                 "requestBody": {
                     "content": {
@@ -211,7 +213,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "post": {
                 "tags": ["work"],
                 "summary": "Record a completion-aware Task Outcome",
-                "description": "Preserve one attempt's status and checks without converting uncertainty into success.",
+                "description": "Preserve one attempt's status and "
+                "checks, optionally linked to the "
+                "exact accepted Handoff Receipt "
+                "that the result covers.",
                 "operationId": "record_task_outcome",
                 "requestBody": {
                     "content": {
@@ -2027,13 +2032,32 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["boundary", "handoff"],
             },
             "HandoffReceiptStatus": {"type": "string", "enum": ["accepted", "needs_clarification", "declined"]},
+            "HandoffAcknowledgementSelection": {"type": "string", "enum": ["prepared", "exact"]},
+            "LiveStateCheckStatus": {"type": "string", "enum": ["confirmed", "mismatch", "not_checked"]},
+            "ReceiverReadinessCheckStatus": {"type": "string", "enum": ["confirmed", "insufficient", "not_checked"]},
+            "ReceiverChecks": {
+                "properties": {
+                    "live_state": {"$ref": "#/components/schemas/LiveStateCheckStatus"},
+                    "capability": {"$ref": "#/components/schemas/ReceiverReadinessCheckStatus"},
+                    "authorization": {"$ref": "#/components/schemas/ReceiverReadinessCheckStatus"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["live_state", "capability", "authorization"],
+                "description": "Untrusted receiver self-attestation "
+                "kept separate from citation "
+                "availability. All three values must "
+                "be confirmed when status is "
+                "accepted.",
+            },
             "AcknowledgeHandoffRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "receiver": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "status": {"$ref": "#/components/schemas/HandoffReceiptStatus"},
-                    "selection": {"$ref": "#/components/schemas/HandoffSelection"},
+                    "selection": {"$ref": "#/components/schemas/HandoffAcknowledgementSelection"},
+                    "receiver_checks": {"$ref": "#/components/schemas/ReceiverChecks", "nullable": True},
                     "prepared": {"$ref": "#/components/schemas/PreparedHandoff", "nullable": True},
                     "revision": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
                     "message": {
@@ -2094,6 +2118,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "objective": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
                     "status": {"$ref": "#/components/schemas/TaskOutcomeStatus"},
                     "summary": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "handoff_receipt_ref": {"$ref": "#/components/schemas/SourceReference", "nullable": True},
                     "observations": {
                         "items": {"$ref": "#/components/schemas/WorkClaim"},
                         "type": "array",

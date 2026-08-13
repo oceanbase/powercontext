@@ -218,6 +218,32 @@ class HandoffReceiptStatus(StrEnum):
     DECLINED = "declined"
 
 
+class HandoffAcknowledgementSelection(StrEnum):
+    PREPARED = "prepared"
+    EXACT = "exact"
+
+
+class LiveStateCheckStatus(StrEnum):
+    CONFIRMED = "confirmed"
+    MISMATCH = "mismatch"
+    NOT_CHECKED = "not_checked"
+
+
+class ReceiverReadinessCheckStatus(StrEnum):
+    CONFIRMED = "confirmed"
+    INSUFFICIENT = "insufficient"
+    NOT_CHECKED = "not_checked"
+
+
+class ReceiverChecks(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    live_state: LiveStateCheckStatus
+    capability: ReceiverReadinessCheckStatus
+    authorization: ReceiverReadinessCheckStatus
+
+
 class TaskOutcomeStatus(StrEnum):
     SUCCEEDED = "succeeded"
     PARTIAL = "partial"
@@ -1718,6 +1744,7 @@ class TaskOutcome(BaseModel):
     objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     status: TaskOutcomeStatus
     summary: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    handoff_receipt_ref: SourceReference | None = None
     observations: Annotated[list[WorkClaim], Field(max_length=64, min_length=1)]
     checks: Annotated[list[TaskCheck], Field(max_length=64)]
     produced_artifacts: Annotated[list[ArtifactReference], Field(max_length=32)]
@@ -1796,7 +1823,8 @@ class AcknowledgeHandoffRequest(BaseModel):
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     receiver: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     status: HandoffReceiptStatus
-    selection: HandoffSelection
+    selection: HandoffAcknowledgementSelection
+    receiver_checks: ReceiverChecks | None = None
     prepared: PreparedHandoff | None = None
     revision: ArtifactReference | None = None
     message: Annotated[StrictStr | None, Field(max_length=8192, min_length=1, pattern=".*\\S.*")] = None

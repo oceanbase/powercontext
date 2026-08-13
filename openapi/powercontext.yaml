@@ -199,7 +199,7 @@ paths:
     post:
       tags: [work]
       summary: Resolve and acknowledge a Handoff
-      description: Resolve untrusted Handoff history, check exact evidence, and capture the receiver's acknowledgement.
+      description: Re-resolve one prepared or exact Handoff, check evidence, and capture the receiver's explicit live-state, capability, and authorization checks.
       operationId: acknowledge_handoff
       requestBody:
         required: true
@@ -233,7 +233,7 @@ paths:
     post:
       tags: [work]
       summary: Record a completion-aware Task Outcome
-      description: Preserve one attempt's status and checks without converting uncertainty into success.
+      description: Preserve one attempt's status and checks, optionally linked to the exact accepted Handoff Receipt that the result covers.
       operationId: record_task_outcome
       requestBody:
         required: true
@@ -2419,6 +2419,27 @@ components:
     HandoffReceiptStatus:
       type: string
       enum: [accepted, needs_clarification, declined]
+    HandoffAcknowledgementSelection:
+      type: string
+      enum: [prepared, exact]
+    LiveStateCheckStatus:
+      type: string
+      enum: [confirmed, mismatch, not_checked]
+    ReceiverReadinessCheckStatus:
+      type: string
+      enum: [confirmed, insufficient, not_checked]
+    ReceiverChecks:
+      type: object
+      additionalProperties: false
+      description: Untrusted receiver self-attestation kept separate from citation availability. All three values must be confirmed when status is accepted.
+      required: [live_state, capability, authorization]
+      properties:
+        live_state:
+          $ref: "#/components/schemas/LiveStateCheckStatus"
+        capability:
+          $ref: "#/components/schemas/ReceiverReadinessCheckStatus"
+        authorization:
+          $ref: "#/components/schemas/ReceiverReadinessCheckStatus"
     AcknowledgeHandoffRequest:
       type: object
       additionalProperties: false
@@ -2442,7 +2463,10 @@ components:
         status:
           $ref: "#/components/schemas/HandoffReceiptStatus"
         selection:
-          $ref: "#/components/schemas/HandoffSelection"
+          $ref: "#/components/schemas/HandoffAcknowledgementSelection"
+        receiver_checks:
+          $ref: "#/components/schemas/ReceiverChecks"
+          nullable: true
         prepared:
           $ref: "#/components/schemas/PreparedHandoff"
           nullable: true
@@ -2518,6 +2542,9 @@ components:
           minLength: 1
           maxLength: 8192
           pattern: '.*\S.*'
+        handoff_receipt_ref:
+          $ref: "#/components/schemas/SourceReference"
+          nullable: true
         observations:
           type: array
           minItems: 1

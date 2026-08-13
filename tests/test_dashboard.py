@@ -86,6 +86,21 @@ def test_handoff_report_page_is_available_only_when_both_features_are_enabled(tm
     assert 'data-period-mode="month"' in enabled_page.text
     assert 'id="period-start" type="date"' in enabled_page.text
     assert 'id="period-end" type="date"' in enabled_page.text
+    assert 'id="handoff-editor"' in enabled_page.text
+    assert 'id="send-handoff"' in enabled_page.text
+    assert 'data-handoff-choice="accepted"' in enabled_page.text
+    assert 'data-handoff-choice="needs_clarification"' in enabled_page.text
+    assert 'data-handoff-choice="declined"' in enabled_page.text
+    assert 'id="receiver-live-state"' in enabled_page.text
+    assert 'id="receiver-capability"' in enabled_page.text
+    assert 'id="receiver-authorization"' in enabled_page.text
+    assert 'id="continuity-timeline"' in enabled_page.text
+    assert 'id="auto-refresh-status"' in enabled_page.text
+    assert 'id="handoff-revision-history"' in enabled_page.text
+    assert 'id="revision-history-summary"' in enabled_page.text
+    assert 'id="transfer-state-status"' in enabled_page.text
+    assert 'id="outcome-state-status"' in enabled_page.text
+    assert 'id="task-outcome-form"' in enabled_page.text
     assert protected_projects.status_code == 401
 
 

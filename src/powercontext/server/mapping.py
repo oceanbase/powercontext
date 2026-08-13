@@ -130,6 +130,7 @@ from powercontext.builtin.work import (
     HandoffCurrentWork as RuntimeHandoffCurrentWork,
 )
 from powercontext.builtin.work import PreparedWorkHandoff as RuntimePreparedWorkHandoff
+from powercontext.builtin.work import ReceiverChecks as RuntimeReceiverChecks
 from powercontext.builtin.work import RecordTaskOutcome as RuntimeRecordTaskOutcome
 from powercontext.builtin.work import TaskCheck as RuntimeTaskCheck
 from powercontext.builtin.work import TaskOutcome as RuntimeTaskOutcome
@@ -318,6 +319,11 @@ def record_task_outcome_request(value: RecordTaskOutcomeRequest) -> RuntimeRecor
                 objective=value.outcome.objective,
                 status=value.outcome.status.value,
                 summary=value.outcome.summary,
+                handoff_receipt_ref=(
+                    None
+                    if value.outcome.handoff_receipt_ref is None
+                    else runtime_source_reference(value.outcome.handoff_receipt_ref)
+                ),
                 observations=tuple(_runtime_work_claim(claim) for claim in value.outcome.observations),
                 checks=tuple(_runtime_task_check(check) for check in value.outcome.checks),
                 produced_artifacts=tuple(runtime_artifact_reference(ref) for ref in value.outcome.produced_artifacts),
@@ -335,6 +341,15 @@ def acknowledge_handoff_request(value: AcknowledgeHandoffRequest) -> RuntimeAckn
             receiver=value.receiver,
             status=value.status.value,
             selection=value.selection.value,
+            receiver_checks=(
+                None
+                if value.receiver_checks is None
+                else RuntimeReceiverChecks(
+                    live_state=value.receiver_checks.live_state.value,
+                    capability=value.receiver_checks.capability.value,
+                    authorization=value.receiver_checks.authorization.value,
+                )
+            ),
             prepared=None if value.prepared is None else runtime_prepared_handoff(value.prepared),
             revision=None if value.revision is None else runtime_artifact_reference(value.revision),
             message=value.message,

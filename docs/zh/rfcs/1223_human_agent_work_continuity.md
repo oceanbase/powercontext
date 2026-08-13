@@ -32,7 +32,7 @@ RFC 0051 已有的 Experience 孵化与 Review 路径。
 首版提供四个高层 operation：
 
 - `create_work_contract`：把人的目标落成可检查的委托基线；
-- `handoff_current_work`：一次完成当前状态采集和 Prepared Handoff 准备；
+- `handoff_current_work`：保存集成层已经检查的当前状态，并准备 Prepared Handoff；
 - `acknowledge_handoff`：重新解析 exact Handoff evidence 并记录接收、澄清或拒绝回执；
 - `record_task_outcome`：在真实完成或中断边界记录结果和检查状态。
 
@@ -65,8 +65,8 @@ PowerContext 已经具备单个 Workstream 的 Handoff 生命周期和 Project �
 
 ## 委托不等于交接
 
-人第一次提出一个尚未开展的新目标时，这是 Delegation，不是 Handoff。PowerContext 根据当前仓库、已有 Handoff、
-项目约束和用户输入形成 Work Contract：
+人第一次提出一个尚未开展的新目标时，这是 Delegation，不是 Handoff。Codex 或其他集成层检查当前仓库、已有 Handoff、
+项目约束和用户输入，再由 PowerContext 校验并保存 Work Contract：
 
 ```text
 Human intent
@@ -99,7 +99,7 @@ Report 中选择 Workstream，读取人类 Markdown 视图，再通过同一个 
 
 接收人最后记录以下一种回执：
 
-- `accepted`：已理解交接，且 PowerContext 引用的 evidence 当前可读；
+- `accepted`：已理解交接、PowerContext 引用当前可读，并已逐项确认实时工作区、能力与授权；
 - `needs_clarification`：缺少事实、证据或必要决策；
 - `declined`：范围、能力或授权不匹配。
 
@@ -141,9 +141,38 @@ receive exact Prepared Handoff or Revision
   -> record_task_outcome or create the next Handoff
 ```
 
-`acknowledge_handoff(status="accepted")` 会再次解析同一个 exact selection。任一 statement 或 next action 的 evidence
-不可用时，Server 拒绝 `accepted`；接收方只能记录 `needs_clarification` 或 `declined`。Evidence 可读仍不证明陈述现在
-为真，因此 workspace、当前请求、能力和授权检查继续由接收方或宿主负责。
+`acknowledge_handoff(status="accepted")` 会再次解析同一个 prepared 或 exact selection。它不接受 `latest`：接收方必须
+先用 Continue 解析并检查，再用已检查的 exact Revision 回执。任一 statement 或 next action 的 evidence 不可用，或实时
+工作区、能力、授权三项没有全部确认为 `confirmed` 时，Server 拒绝 `accepted`。这些确认仍是
+`untrusted_observation`，不构成身份认证或 ACL。
+
+## 一屏交接工作台
+
+Handoff Report 为每个 Workstream 提供同一个一屏工作台，而不是把交接拆成多步向导：
+
+- 左侧交接卡从当前 committed Handoff 预填目标、状态、disposition、下一步和缺失项；全部字段在发送前可修改；
+- “发送交接”是明确的持久化动作：先调用 `handoff_current_work` 固化已检查的边界，再调用 `commit_handoff`
+  发布不可变 Revision；只在浏览器里编辑不会写 Source 或 Handoff；
+- 页面为一次发送保留稳定的 `source_id` 和 Prepared Handoff。若边界已经准备但 commit 未确认成功，页面明确显示部分成功，
+  重试只提交同一个 Prepared Handoff，不再次创建边界 Source；
+- 右侧在接手前自动调用 Continue 检查最新 committed Handoff 和 exact evidence。预检结束后锁定返回的 exact
+  Revision；如果它与当前 Report 卡片不同，必须先刷新，不能对未展示的新版本做选择；
+- 接手方只有三个明确选择：`accepted`、`needs_clarification`、`declined`。Evidence 不可用时禁用 accepted；
+  accepted 还要求实时 workspace、能力、授权全部确认，后两个选择必须写明原因；
+- 自动预检分别显示“引用可读取”和接手方的实时检查，不能用 Evidence 绿色状态暗示陈述已经验证；
+- accepted 后若结果尚未覆盖，时间线直接提供 Task Outcome 表单，并将结果精确关联到当前 accepted Receipt。
+- 页面在已认证且可见时每 5 秒重新读取同一个 Project。卡片存在未发送修改或交接动作执行中时自动暂停；后台刷新不禁用
+  页面控件、不清空错误区，也不覆盖当前或已切换 Workstream 的未发送草稿；
+- 工作台展示当前 Workstream 的 Handoff Revision 轨迹。Report 返回 frozen selection 之前的 Revision 总数和最近 20 个
+  有界摘要，页面按最新优先显示并标出当前 exact Revision；并发产生的更晚 Revision 不进入旧报告；
+- Codex 可以把当前 Git 工作区一次性绑定到该 Workstream 的 `scope_id`。绑定保存在 Git 私有目录，后续会话优先复用，
+  因此一句“交接”沿同一 Artifact lifecycle 产生下一个 Revision；显式配置仍优先，多个候选不能静默选择。
+
+工作台底部按 Source journal position 展示 Delegation、Handoff、Receipt 和 Task Outcome 的连续性时间线。position
+只表达稳定先后顺序，不伪造记录时间。投影分别返回交接状态
+`not_applicable/awaiting_receipt/needs_clarification/declined/accepted` 和结果状态
+`not_expected/awaiting_outcome/covered`。只有 Task Outcome 的 `handoff_receipt_ref` 精确引用当前 accepted Receipt，结果才是
+`covered`；同 scope 中较晚出现但没有该引用的 Outcome 不会关闭交接。
 
 ## Task Outcome
 
@@ -154,6 +183,7 @@ Task Outcome 记录一次尝试实际发生了什么，而不是保存可复用�
 | `objective` | 本次尝试对应的目标 |
 | `status` | `succeeded/partial/blocked/failed/cancelled/unknown` |
 | `summary` | 有界结果摘要 |
+| `handoff_receipt_ref` | 可选；本结果精确覆盖的 accepted committed Handoff Receipt SourceRef |
 | `observations` | 实际观察，并区分 declared/verified |
 | `checks` | 检查名称、精确状态、依据和 evidence |
 | `produced_artifacts` | 已形成的 exact Artifact Revision |
@@ -174,6 +204,8 @@ PreparedContext。
 - evidence-gated acknowledgement；
 - Task Outcome 与现有 Experience incubation 的兼容；
 - Codex `project-context` skill 的低侵入使用流程。
+- Handoff Report 的可编辑一屏交接卡、自动接手预检、三个接手选择和只读连续性时间线。
+- Handoff Report 的自动刷新、Revision 轨迹，以及 Codex 工作区到 Workstream scope 的 Git 私有持久绑定。
 
 首版不包括：
 
@@ -228,13 +260,28 @@ position 和 canonical content digest。新增能力不增加业务表，也不�
 `handoff_current_work` 不调用生成模型。每个 state 和 next action 都引用边界 Source；verified claim 的原 exact evidence
 作为额外 citation 保留。该 operation 不 commit。`commit_handoff` 仍是唯一发布持久化里程碑的入口。
 
-`acknowledge_handoff` 接受与 Continue 相同的 `prepared/exact/latest` selection。Prepared target 以 canonical digest
-定位；exact/latest target 保存 resolved exact Handoff Revision。回执带上 evidence availability 和不可用 citation。
-`accepted + unavailable evidence` 是非法组合。
+`acknowledge_handoff` 只接受 `prepared/exact` selection，不接受 `latest`。Prepared target 以 canonical digest 定位；exact
+target 保存 resolved exact Handoff Revision。回执分别保存 evidence availability、不可用 citation，以及接收方声明的
+live-state、capability、authorization 检查。`accepted` 要求 Evidence 可用且三项检查全部为 `confirmed`。
+
+Prepared Receipt 可以表达临时载体已被观察，但首版只有 committed exact Handoff Receipt 能被 Task Outcome 引用并进入
+结果覆盖计算。
+
+## 连续性投影
+
+`WorkContinuity` 是从同一 scope 的 Source journal 动态生成的只读投影，不建立新业务表。投影只解析四种已验证 schema
+的 Work record；普通 Content Source 被忽略，声明为 Work kind 但内容无法通过对应 schema 的记录计入
+`invalid_record_count`，不会被当作有效历史。
+
+投影返回完整记录计数和最多最近 64 个时间线事件。超过上限时 `truncated=true`，但 `coverage` 仍基于本次读取到的全部
+有效 Work record 计算。投影以当前 exact Handoff 的最后一条 Receipt 得出 transfer state；只有该 Receipt 为 accepted，才
+进入 `awaiting_outcome`。Outcome 必须通过 `handoff_receipt_ref` 精确引用它才变为 `covered`。另一个 Revision、较早 Receipt
+或无关联 Outcome 都不能覆盖当前选择；Outcome 的 succeeded 或 failed 不影响“是否已有精确结果记录”的判断。
 
 ## 一致性与失败
 
 - Source capture 继续使用现有稳定 `source_id` 幂等/冲突行为；
+- 一屏工作台在一次发送重试期间保留同一 `source_id` 和 Prepared Handoff；
 - Prepared Handoff 的 `base` 仍记录 finalize 时观察到的 committed head；
 - Handoff commit 继续使用 RFC 0048 CAS，不因高层 API 改变；
 - acknowledgement 对相同 selection 重新执行 Continue，不能复用调用方伪造的 evidence result；
@@ -276,7 +323,7 @@ metadata 或归因，不进入 Work/Handoff identity。
 - `time_to_first_verified_action`：接手到第一个 verified action 的时间；
 - `clarification_rate`：因信息或 evidence 缺口退回的交接比例；
 - `evidence_availability_rate`：接手时仍可解析的 Handoff claim 比例；
-- `closed_loop_rate`：同时拥有 Handoff acknowledgement 和后续 Task Outcome 的交接比例；
+- `handoff_result_coverage_rate`：拥有 accepted exact Receipt，且有 Outcome 精确引用该 Receipt 的交接比例；
 - `unauthorized_action_count`：历史交接导致的越权执行次数，目标必须为零。
 
 指标不能把 `accepted` 当作完成，也不能把 `succeeded` 的 producer 声明当作独立验证通过。
@@ -291,10 +338,19 @@ metadata 或归因，不进入 Work/Handoff identity。
 | High-level handoff | 一个 operation 保存 boundary Source 并返回未提交 Prepared Handoff |
 | Evidence gate | 任一 Handoff evidence unavailable 时不能记录 `accepted` |
 | Clarification | unavailable evidence 可以记录带原因的 `needs_clarification` |
+| Editable card | 切换语言或在当前标签页刷新相同 Handoff Revision 的报告时，发送前编辑不会被 Report 重绘覆盖 |
+| Automatic refresh | 页面每 5 秒读取同一 Project；有未发送修改或执行中动作时暂停，后台刷新不锁住页面控件 |
+| Revision history | Report 返回 frozen selection 之前的总 Revision 数和最近 20 个摘要，当前 exact Revision 明确可见 |
+| Workstream binding | Git 工作区绑定一次固定 `scope_id` 后，后续 Codex 会话和一句交接继续同一 Artifact lifecycle |
+| Retryable send | prepare 成功而 commit 未确认时，重试复用同一 `source_id` 和 Prepared Handoff |
+| Exact preflight | 自动预检解析 latest；若与 Report 卡片不一致则阻止选择，否则三个选择绑定 exact Revision |
+| Three choices | 接手方始终看到三个动作；accepted 要求 Evidence 可用和三项接收检查确认，另两个动作要求原因 |
+| Continuity | Report 按 journal position 展示四类 Work record，不把 position 表示为时间戳 |
+| Result coverage | accepted 后为 awaiting_outcome；只有精确引用该 Receipt 的 Outcome 才变为 covered |
 | Outcome status | failed/skipped/timed_out/unavailable/cancelled/unknown 不会升级为 passed |
 | Experience boundary | 只有 `task-outcome` Source 进入已有 Experience incubation，且结果仍为 pending Candidate |
 | Persistence | Work records 复用 Source journal；Handoff 继续使用不可变 Revision 和 CAS |
-| Compatibility | 旧 Handoff、Memory、PreparedContext、Report 和 Client 行为保持不变 |
+| Compatibility | 历史 Work record 仍可读；新的 accepted 请求必须使用 prepared/exact 并携带 receiver checks |
 | MCP | 四个高层 operation 可供 Agent 使用，但 tool visibility 不授予执行权限 |
 | Codex | Skill 不再要求用户或 Agent手动拼接 capture/activate/finalize 生命周期 |
 
@@ -302,7 +358,7 @@ metadata 或归因，不进入 Work/Handoff identity。
 
 1. 在 SQLite/Codex dogfood 中启用四个 operation，验证单 Workstream 完整闭环；
 2. 把 completion-aware Task Outcome producer 接到稳定、公开的 integration boundary；
-3. 在 Handoff Report 中只读展示 Receipt 和 Outcome coverage，不改变 Handoff Core；
+3. 通过 Handoff Report 一屏工作台 dogfood 发送、exact 预检、三种回执和 Outcome coverage，不改变 Handoff Core；
 4. 用真实多人和多 Agent 任务收集 success metrics，再决定是否扩展其他 Agent provider。
 
 # Drawbacks
@@ -314,7 +370,7 @@ metadata 或归因，不进入 Work/Handoff identity。
 
 # Unresolved questions
 
-- Handoff Report 首版应只展示 Receipt/Outcome coverage，还是提供按 receiver/status 的筛选；
+- Handoff Report 何时需要增加按 receiver/status 的连续性筛选，而不让主工作台变成审计控制台；
 - 不同 Agent provider 是否能提供足够稳定的 completion signal，而无需读取私有 Session 数据库；
 - 跨 Runtime Prepared Handoff 传输需要怎样的签名、撤销和 authorization contract；
 - 何时值得把 Work Contract 作为独立可查询 projection，而不是继续保留为 Source-backed evidence。

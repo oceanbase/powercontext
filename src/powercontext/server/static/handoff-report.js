@@ -11,6 +11,7 @@ import {formatDateRange, resolvePeriodSelection, validateDateRange} from "./hand
 const themeKey = "powercontext.dashboard.theme";
 const localeKey = "powercontext.dashboard.locale";
 const selectedProjectKey = "powercontext.handoff-report.project";
+const autoRefreshIntervalMilliseconds = 5_000;
 const translations = {
   en: {
     pageTitle: "PowerContext Handoff Report",
@@ -33,7 +34,7 @@ const translations = {
     periodStart: "Start date",
     periodEnd: "End date",
     apply: "Apply",
-    periodSummary: "{preset} · {range} · {timezone}",
+    periodSummary: "{preset} / {range} / {timezone}",
     periodComparison: "Activity: {current} current / {previous} previous / {delta} change",
     periodBoundaryUnavailable: "Handoff status uses the current exact selection; this period filters Activity but cannot reconstruct historical Handoff boundaries.",
     periodDatesRequired: "Select both a start date and an end date.",
@@ -53,6 +54,10 @@ const translations = {
     status: "Status",
     reporting: "Reporting",
     nextAction: "Next action",
+    state: "Current state",
+    next_action: "Next action",
+    available: "Available",
+    unavailable: "Unavailable",
     noWorkstreams: "No Workstreams are registered for this Project.",
     handoffContents: "Handoff content",
     handoffContentsSubtitle: "Objective, current state, next action, and known omissions for continuation",
@@ -61,6 +66,102 @@ const translations = {
     omissions: "Known omissions",
     noOmissions: "No known omissions were declared.",
     noCommittedHandoff: "No committed Handoff is available for this Workstream.",
+    handoffWorkbench: "Handoff workspace",
+    handoffWorkbenchSubtitle: "Edit before sending, preflight before accepting, and keep the result loop visible",
+    selectedWorkstream: "Selected Workstream",
+    senderStep: "Sender",
+    editBeforeSend: "Edit before sending",
+    editBeforeSendNote: "Nothing is committed until you send this card.",
+    currentStateLines: "Current state, one item per line",
+    disposition: "Disposition",
+    omissionLines: "Known omissions, one item per line",
+    sendHandoff: "Send Handoff",
+    receiverStep: "Receiver",
+    preflightTitle: "Automatic preflight",
+    preflightNote: "Citation availability is checked automatically and stays separate from the receiver's live-state confirmations.",
+    receiverChecks: "Receiver checks",
+    liveStateCheck: "Live workspace",
+    capabilityCheck: "Capability",
+    authorizationCheck: "Authorization",
+    notChecked: "Not checked",
+    confirmed: "Confirmed",
+    mismatch: "Mismatch",
+    insufficient: "Insufficient",
+    receiverIdentity: "Receiver identity",
+    receiverMessage: "Clarification or decline reason",
+    acceptHandoff: "Accept and continue",
+    requestClarification: "Request clarification",
+    declineHandoff: "Decline",
+    handoffDecision: "Handoff decision",
+    continuityTimeline: "Continuity timeline",
+    continuityOrderNote: "Ordered by Source journal position, not wall-clock time.",
+    revisionHistory: "Handoff Revision history",
+    revisionHistorySummary: "{total} Revisions. Latest first.",
+    revisionHistoryTruncated: "Showing the latest {shown} of {total} Revisions.",
+    revisionHistoryEmpty: "No committed Handoff Revisions are available.",
+    revisionCurrent: "Current",
+    revisionNextAction: "Next: {value}",
+    revisionCounts: "{state} state items / {omissions} omissions",
+    transferState: "Transfer",
+    outcomeState: "Outcome",
+    preflightRunning: "Checking",
+    preflightReady: "References readable",
+    preflightBlocked: "Evidence blocked",
+    preflightEmpty: "No Handoff",
+    preflightFailed: "Check failed",
+    preflightStale: "Handoff changed",
+    preflightReadySummary: "Exact {revision}. Citation availability: {available}/{total}. This does not verify current facts.",
+    preflightBlockedSummary: "The Handoff resolved, but {count} evidence check(s) are unavailable. Acceptance is disabled.",
+    preflightEmptySummary: "There is no committed Handoff to receive for this Workstream.",
+    preflightFailedSummary: "Automatic preflight could not be completed.",
+    preflightStaleSummary: "Latest now resolves to {revision}, which differs from the card in this report. Refresh before deciding.",
+    editorRequired: "Objective and at least one current-state item are required.",
+    sendingHandoff: "Preparing and committing the inspected card…",
+    handoffSent: "Handoff committed. The report and preflight have been refreshed.",
+    handoffSendFailed: "The Handoff could not be prepared (HTTP {status}). Retry keeps the same operation identity.",
+    handoffCommitPending: "The boundary is prepared but not confirmed committed (HTTP {status}). Retry will commit the same exact Handoff.",
+    receiverRequired: "Enter the receiver identity.",
+    receiverMessageRequired: "Add a reason before requesting clarification or declining.",
+    receiverChecksRequired: "Confirm live workspace, capability, and authorization before accepting.",
+    recordingDecision: "Recording the exact preflight decision…",
+    decisionRecorded: "Decision recorded. The continuity timeline has been refreshed.",
+    decisionFailed: "The decision could not be recorded (HTTP {status}).",
+    recordOutcome: "Record task outcome",
+    recordOutcomeNote: "This result will link to the exact accepted Receipt shown above.",
+    outcomeStatus: "Outcome status",
+    outcomeSummary: "Result summary",
+    outcomeObservation: "Observed result",
+    outcomeRequired: "Add both a result summary and an observed result.",
+    recordingOutcome: "Recording the result against the exact accepted Receipt…",
+    outcomeRecorded: "Task outcome recorded against the accepted Receipt.",
+    outcomeRecordFailed: "The task outcome could not be recorded (HTTP {status}).",
+    timelineEmpty: "No high-level Work continuity records are available for this scope.",
+    timelineTruncated: "Only the latest {count} of {total} continuity events are shown.",
+    timelineInvalid: "{count} Work record(s) could not be read and were excluded.",
+    autoRefreshActive: "Auto-refresh every 5 seconds",
+    autoRefreshEditing: "Auto-refresh paused while this card has unsent changes.",
+    autoRefreshBusy: "Auto-refresh paused during this action.",
+    autoRefreshing: "Refreshing report...",
+    autoRefreshUpdated: "Auto-refreshed just now",
+    autoRefreshFailed: "Auto-refresh failed. Use Refresh to retry.",
+    eventActor: "Receiver: {actor}",
+    "work-contract": "Delegation contract",
+    "handoff-boundary": "Handoff sent",
+    "handoff-receipt": "Receiver decision",
+    "task-outcome": "Task outcome",
+    delegated: "Delegated",
+    accepted: "Accepted",
+    needs_clarification: "Needs clarification",
+    declined: "Declined",
+    succeeded: "Succeeded",
+    partial: "Partial",
+    failed: "Failed",
+    cancelled: "Cancelled",
+    awaiting_receipt: "Awaiting receipt",
+    awaiting_outcome: "Awaiting outcome",
+    not_expected: "Not expected",
+    not_applicable: "Not applicable",
+    covered: "Covered",
     metadata: "Report metadata",
     selectionConsistency: "Selection consistency",
     activityCoverage: "Activity coverage",
@@ -115,7 +216,7 @@ const translations = {
     periodStart: "开始日期",
     periodEnd: "结束日期",
     apply: "应用",
-    periodSummary: "{preset} · {range} · {timezone}",
+    periodSummary: "{preset} / {range} / {timezone}",
     periodComparison: "Activity：本期 {current} / 上期 {previous} / 变化 {delta}",
     periodBoundaryUnavailable: "Handoff 状态采用当前 exact selection；该周期只筛选 Activity，不能还原历史 Handoff 边界。",
     periodDatesRequired: "请选择开始日期和结束日期。",
@@ -135,6 +236,10 @@ const translations = {
     status: "状态",
     reporting: "汇报状态",
     nextAction: "下一步",
+    state: "当前状态",
+    next_action: "下一步",
+    available: "可用",
+    unavailable: "不可用",
     noWorkstreams: "该 Project 尚未登记 Workstream。",
     handoffContents: "Handoff 内容",
     handoffContentsSubtitle: "用于继续工作的目标、当前状态、下一步和已知缺失",
@@ -143,6 +248,102 @@ const translations = {
     omissions: "已知缺失",
     noOmissions: "未声明已知缺失。",
     noCommittedHandoff: "该 Workstream 尚无已提交的 Handoff。",
+    handoffWorkbench: "一屏交接工作台",
+    handoffWorkbenchSubtitle: "发送前修改、接手前预检，并持续显示结果闭环",
+    selectedWorkstream: "当前 Workstream",
+    senderStep: "交接方",
+    editBeforeSend: "发送前可修改",
+    editBeforeSendNote: "点击发送前不会提交任何正式 Handoff。",
+    currentStateLines: "当前状态，每行一项",
+    disposition: "处置状态",
+    omissionLines: "已知缺失，每行一项",
+    sendHandoff: "发送交接",
+    receiverStep: "接手方",
+    preflightTitle: "自动接手预检",
+    preflightNote: "系统自动检查引用可用性，并与接手方对实时状态的确认分开呈现。",
+    receiverChecks: "接手方检查",
+    liveStateCheck: "实时工作区",
+    capabilityCheck: "能力",
+    authorizationCheck: "授权",
+    notChecked: "未检查",
+    confirmed: "已确认",
+    mismatch: "不匹配",
+    insufficient: "不足",
+    receiverIdentity: "接手方身份",
+    receiverMessage: "补充说明或拒绝原因",
+    acceptHandoff: "接手并继续",
+    requestClarification: "要求补充",
+    declineHandoff: "无法接手",
+    handoffDecision: "交接选择",
+    continuityTimeline: "连续性时间线",
+    continuityOrderNote: "按 Source journal 位置排序，不代表墙上时钟时间。",
+    revisionHistory: "Handoff Revision 历史",
+    revisionHistorySummary: "共 {total} 个 Revision，按最新优先显示。",
+    revisionHistoryTruncated: "共 {total} 个 Revision，显示最近 {shown} 个。",
+    revisionHistoryEmpty: "该 Workstream 尚无已提交的 Handoff Revision。",
+    revisionCurrent: "当前版本",
+    revisionNextAction: "下一步：{value}",
+    revisionCounts: "状态 {state} 项 / 缺失 {omissions} 项",
+    transferState: "交接状态",
+    outcomeState: "结果状态",
+    preflightRunning: "检查中",
+    preflightReady: "引用可读取",
+    preflightBlocked: "Evidence 阻塞",
+    preflightEmpty: "无 Handoff",
+    preflightFailed: "检查失败",
+    preflightStale: "Handoff 已变化",
+    preflightReadySummary: "精确版本 {revision}。引用可用性：{available}/{total}；这不代表当前事实已经验证。",
+    preflightBlockedSummary: "Handoff 已解析，但有 {count} 项 Evidence 不可用，因此不能直接接手。",
+    preflightEmptySummary: "当前 Workstream 没有可接手的已提交 Handoff。",
+    preflightFailedSummary: "自动接手预检未能完成。",
+    preflightStaleSummary: "最新版本已变为 {revision}，与当前报告卡片不一致。请刷新后再选择。",
+    editorRequired: "目标和至少一项当前状态不能为空。",
+    sendingHandoff: "正在准备并提交已检查的交接卡…",
+    handoffSent: "Handoff 已提交，报告和预检已刷新。",
+    handoffSendFailed: "Handoff 准备失败（HTTP {status}）；重试会沿用同一个操作身份。",
+    handoffCommitPending: "边界已准备，但尚未确认提交成功（HTTP {status}）；重试将提交同一个精确 Handoff。",
+    receiverRequired: "请填写接手方身份。",
+    receiverMessageRequired: "要求补充或无法接手时，请填写原因。",
+    receiverChecksRequired: "接手前请确认实时工作区、能力和授权。",
+    recordingDecision: "正在记录本次精确预检对应的选择…",
+    decisionRecorded: "选择已记录，连续性时间线已刷新。",
+    decisionFailed: "选择记录失败（HTTP {status}）。",
+    recordOutcome: "记录任务结果",
+    recordOutcomeNote: "该结果会精确关联上方已接受的 Receipt。",
+    outcomeStatus: "结果状态",
+    outcomeSummary: "结果摘要",
+    outcomeObservation: "观察到的结果",
+    outcomeRequired: "请填写结果摘要和观察到的结果。",
+    recordingOutcome: "正在把结果记录到精确的已接受 Receipt…",
+    outcomeRecorded: "任务结果已关联到已接受的 Receipt。",
+    outcomeRecordFailed: "任务结果记录失败（HTTP {status}）。",
+    timelineEmpty: "该 Scope 尚无高层 Work 连续性记录。",
+    timelineTruncated: "仅显示最近 {count} 条，共有 {total} 条连续性事件。",
+    timelineInvalid: "有 {count} 条 Work 记录无法读取，已明确排除。",
+    autoRefreshActive: "每 5 秒自动刷新",
+    autoRefreshEditing: "卡片存在未发送修改，自动刷新已暂停。",
+    autoRefreshBusy: "当前操作进行中，自动刷新已暂停。",
+    autoRefreshing: "正在刷新报告...",
+    autoRefreshUpdated: "刚刚已自动刷新",
+    autoRefreshFailed: "自动刷新失败，请使用刷新按钮重试。",
+    eventActor: "接手方：{actor}",
+    "work-contract": "委派契约",
+    "handoff-boundary": "发送交接",
+    "handoff-receipt": "接手选择",
+    "task-outcome": "任务结果",
+    delegated: "已委派",
+    accepted: "已接手",
+    needs_clarification: "需要补充",
+    declined: "无法接手",
+    succeeded: "成功",
+    partial: "部分完成",
+    failed: "失败",
+    cancelled: "已取消",
+    awaiting_receipt: "等待接手选择",
+    awaiting_outcome: "等待任务结果",
+    not_expected: "暂不需要",
+    not_applicable: "暂不适用",
+    covered: "已覆盖",
     metadata: "报告元数据",
     selectionConsistency: "Selection 一致性",
     activityCoverage: "Activity 覆盖",
@@ -193,9 +394,27 @@ const periodStartInput = document.getElementById("period-start");
 const periodEndInput = document.getElementById("period-end");
 const applyCustomPeriodButton = document.getElementById("apply-custom-period");
 const periodError = document.getElementById("period-error");
+const autoRefreshStatus = document.getElementById("auto-refresh-status");
 const signOut = document.getElementById("sign-out");
 const themeToggle = document.getElementById("theme-toggle");
 const languageToggle = document.getElementById("language-toggle");
+const handoffWorkstream = document.getElementById("handoff-workstream");
+const handoffEditor = document.getElementById("handoff-editor");
+const handoffObjective = document.getElementById("handoff-objective");
+const handoffState = document.getElementById("handoff-state");
+const handoffDisposition = document.getElementById("handoff-disposition");
+const handoffNextAction = document.getElementById("handoff-next-action");
+const handoffOmissions = document.getElementById("handoff-omissions");
+const handoffReceiver = document.getElementById("handoff-receiver");
+const handoffReceiverMessage = document.getElementById("handoff-receiver-message");
+const receiverLiveState = document.getElementById("receiver-live-state");
+const receiverCapability = document.getElementById("receiver-capability");
+const receiverAuthorization = document.getElementById("receiver-authorization");
+const handoffChoiceButtons = Array.from(document.querySelectorAll("[data-handoff-choice]"));
+const taskOutcomeForm = document.getElementById("task-outcome-form");
+const taskOutcomeStatus = document.getElementById("task-outcome-status");
+const taskOutcomeSummary = document.getElementById("task-outcome-summary");
+const taskOutcomeObservation = document.getElementById("task-outcome-observation");
 let currentLocale = document.documentElement.lang === "zh" ? "zh" : "en";
 let currentProjects = [];
 let currentProject = null;
@@ -204,6 +423,18 @@ let currentAuthError = null;
 let currentPeriodMode = "day";
 let currentPeriodSelection = null;
 let appliedCustomRange = null;
+let currentWorkstreamScope = null;
+let currentEditorBase = null;
+let currentPreflight = null;
+let receiverCheckTarget = null;
+let preflightSequence = 0;
+let workbenchBusy = false;
+let reportLoading = false;
+let editorDirty = false;
+let autoRefreshTimer = null;
+const workbenchDrafts = new Map();
+const pendingHandoffAttempts = new Map();
+let currentOutcomeReceipt = null;
 
 themeToggle.addEventListener("click", () => {
   applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
@@ -219,6 +450,7 @@ authForm.addEventListener("submit", async (event) => {
 });
 
 signOut.addEventListener("click", () => {
+  stopAutoRefresh();
   clearServerToken();
   tokenInput.value = "";
   showLogin();
@@ -232,6 +464,35 @@ refreshButton.addEventListener("click", async () => {
 
 downloadButton.addEventListener("click", async () => {
   await downloadMarkdown();
+});
+
+handoffWorkstream.addEventListener("change", () => {
+  activateWorkstream(handoffWorkstream.value);
+});
+
+handoffEditor.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await sendHandoffCard();
+});
+
+handoffEditor.querySelectorAll("textarea, select").forEach((element) => {
+  element.addEventListener("input", markEditorDirty);
+  element.addEventListener("change", markEditorDirty);
+});
+
+for (const button of handoffChoiceButtons) {
+  button.addEventListener("click", async () => {
+    await recordHandoffChoice(button.dataset.handoffChoice);
+  });
+}
+
+for (const input of [receiverLiveState, receiverCapability, receiverAuthorization]) {
+  input.addEventListener("change", updateHandoffChoiceState);
+}
+
+taskOutcomeForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await recordTaskOutcome();
 });
 
 for (const button of periodButtons) {
@@ -262,6 +523,11 @@ customPeriodForm.addEventListener("submit", async (event) => {
 
 periodStartInput.addEventListener("change", updatePeriodInputBounds);
 periodEndInput.addEventListener("change", updatePeriodInputBounds);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    void autoRefreshReport();
+  }
+});
 
 function applyTheme(theme, persist = true) {
   document.documentElement.dataset.theme = theme;
@@ -299,6 +565,7 @@ function applyLocale(locale, persist = true) {
   } else {
     renderPeriodControls();
   }
+  updateAutoRefreshStatus();
 }
 
 function updateControlLabels() {
@@ -324,6 +591,7 @@ async function authenticate(token) {
     reportShell.hidden = false;
     signOut.hidden = false;
     if (currentProjects.length === 0) {
+      stopAutoRefresh();
       currentProject = null;
       currentReport = null;
       renderProjects([], "");
@@ -334,6 +602,7 @@ async function authenticate(token) {
     const remembered = readSelectedProject();
     const selected = currentProjects.find((project) => project.project_id === remembered) || currentProjects[0];
     await loadReport(token, selected.project_id);
+    startAutoRefresh();
   } catch (error) {
     handleRequestError(error);
   } finally {
@@ -356,13 +625,22 @@ async function listProjects(token) {
   return projects;
 }
 
-async function loadReport(token, projectId) {
+async function loadReport(token, projectId, {background = false} = {}) {
+  if (reportLoading) {
+    return false;
+  }
   if (!token) {
     showLogin();
-    return;
+    return false;
   }
-  setBusy(true);
-  clearReportError();
+  saveCurrentDraft();
+  reportLoading = true;
+  if (background) {
+    setAutoRefreshStatus("refreshing");
+  } else {
+    setBusy(true);
+    clearReportError();
+  }
   try {
     const project = currentProjects.find((item) => item.project_id === projectId) || currentProject;
     const periodSelection = resolveSelectedPeriod(project);
@@ -384,14 +662,31 @@ async function loadReport(token, projectId) {
     rememberSelectedProject(projectId);
     renderProjects(currentProjects, projectId);
     renderReport(currentReport);
+    if (background) {
+      setAutoRefreshStatus("updated");
+    }
+    return true;
   } catch (error) {
+    if (background) {
+      if (error.status === 401) {
+        handleRequestError(error);
+      } else {
+        setAutoRefreshStatus("failed");
+      }
+      return false;
+    }
     if (error.message === "reportUnavailable") {
       showReportError("reportUnavailable");
     } else {
       handleRequestError(error);
     }
+    return false;
   } finally {
-    setBusy(false);
+    reportLoading = false;
+    if (!background) {
+      setBusy(false);
+      updateAutoRefreshStatus();
+    }
   }
 }
 
@@ -436,6 +731,7 @@ function showReportOrLoginError(key, values = {}) {
 }
 
 function showLogin(messageKey = "", values = {}) {
+  stopAutoRefresh();
   currentAuthError = messageKey ? {key: messageKey, values} : null;
   renderAuthError();
   authShell.hidden = false;
@@ -475,7 +771,7 @@ function renderReport(report) {
   signOut.hidden = false;
   clearReportError();
   setText("project-name", report.project.title);
-  setText("project-identity", `${report.project.project_key} · ${report.project.project_id}`);
+  setText("project-identity", `${report.project.project_key} / ${report.project.project_id}`);
   setText("report-updated", translate("updated", {value: formatDateTime(report.generated_at)}));
   setText("continuable-count", formatNumber(report.summary.continuable_count));
   setText("blocked-count", formatNumber(report.summary.blocked_count));
@@ -487,12 +783,13 @@ function renderReport(report) {
   setText("coverage-description", coverageDescription(report));
   setText("selection-consistency", report.selection_consistency);
   setText("activity-coverage", report.coverage.activity_coverage);
-  setText("selection-digest", report.selection_digest || "—");
-  setText("report-digest", report.report_digest || "—");
+  setText("selection-digest", report.selection_digest || "-");
+  setText("report-digest", report.report_digest || "-");
   renderPeriodControls(report);
   renderBlockers(report.workstreams.filter((item) => item.work_status === "blocked"));
   renderWorkstreams(report.workstreams);
   renderHandoffContents(report.workstreams);
+  renderHandoffWorkbench(report.workstreams);
 }
 
 function clearReport() {
@@ -511,15 +808,16 @@ function clearReport() {
     setText(id, "0");
   }
   setText("coverage-description", "");
-  setText("selection-consistency", "—");
-  setText("activity-coverage", "—");
-  setText("selection-digest", "—");
-  setText("report-digest", "—");
+  setText("selection-consistency", "-");
+  setText("activity-coverage", "-");
+  setText("selection-digest", "-");
+  setText("report-digest", "-");
   currentPeriodSelection = null;
   renderPeriodControls();
   renderBlockers([]);
   renderWorkstreams([]);
   renderHandoffContents([]);
+  renderHandoffWorkbench([]);
 }
 
 function coverageDescription(report) {
@@ -573,7 +871,7 @@ function renderWorkstreams(workstreams) {
     const activities = document.createElement("td");
     activities.textContent = formatNumber(item.observed_activity_count);
     const next = document.createElement("td");
-    next.textContent = item.content?.next_action?.text || "—";
+    next.textContent = item.content?.next_action?.text || "-";
     row.append(identity, status, reporting, activities, next);
     rows.appendChild(row);
   }
@@ -607,7 +905,7 @@ function renderHandoffContents(workstreams) {
 
     appendContentSection(card, translate("objective"), [item.content.objective]);
     appendContentSection(card, translate("currentState"), item.content.state.map((statement) => statement.text));
-    appendContentSection(card, translate("nextAction"), [item.content.next_action?.text || "—"]);
+    appendContentSection(card, translate("nextAction"), [item.content.next_action?.text || "-"]);
     appendContentSection(
       card,
       translate("omissions"),
@@ -616,6 +914,667 @@ function renderHandoffContents(workstreams) {
         : item.content.omissions.map((omission) => omission.text)
     );
     list.appendChild(card);
+  }
+}
+
+function renderHandoffWorkbench(workstreams) {
+  const empty = document.getElementById("handoff-workbench-empty");
+  const content = document.getElementById("handoff-workbench-content");
+  handoffWorkstream.replaceChildren();
+  empty.hidden = workstreams.length !== 0;
+  content.hidden = workstreams.length === 0;
+  if (workstreams.length === 0) {
+    currentWorkstreamScope = null;
+    currentEditorBase = null;
+    currentPreflight = null;
+    renderRevisionHistory(null);
+    renderContinuity(null);
+    renderPreflight(null);
+    return;
+  }
+
+  for (const item of workstreams) {
+    const option = document.createElement("option");
+    option.value = item.workstream.scope_id;
+    option.textContent = `${item.workstream.title} (${item.workstream.scope_id})`;
+    handoffWorkstream.appendChild(option);
+  }
+  const selected = workstreams.some((item) => item.workstream.scope_id === currentWorkstreamScope)
+    ? currentWorkstreamScope
+    : workstreams[0].workstream.scope_id;
+  handoffWorkstream.value = selected;
+  activateWorkstream(selected, {saveCurrent: false});
+}
+
+function activateWorkstream(scopeId, {saveCurrent = true} = {}) {
+  if (saveCurrent && currentWorkstreamScope !== null && currentWorkstreamScope !== scopeId) {
+    saveCurrentDraft();
+  }
+  const item = currentReport?.workstreams.find((candidate) => candidate.workstream.scope_id === scopeId) || null;
+  if (item === null) {
+    return;
+  }
+  const base = handoffBase(item);
+  if (currentWorkstreamScope !== scopeId || currentEditorBase !== base) {
+    const saved = workbenchDrafts.get(scopeId);
+    if (saved?.dirty) {
+      workbenchDrafts.set(scopeId, {...saved, base});
+      writeEditorDraft(saved.values, {dirty: true});
+    } else if (saved?.base === base) {
+      writeEditorDraft(saved.values);
+    } else {
+      workbenchDrafts.delete(scopeId);
+      writeEditorDraft(draftFromWorkstream(item));
+    }
+  }
+  currentWorkstreamScope = scopeId;
+  currentEditorBase = base;
+  handoffWorkstream.value = scopeId;
+  setText("handoff-workbench-scope", scopeId);
+  clearWorkbenchFeedback("send-handoff-status");
+  clearWorkbenchFeedback("handoff-choice-status");
+  renderRevisionHistory(item);
+  renderContinuity(item.continuity || null);
+  if (preflightMatches(item)) {
+    renderPreflight(currentPreflight);
+  } else {
+    void runPreflight(item);
+  }
+}
+
+function handoffBase(item) {
+  const reference = item.handoff_ref;
+  if (reference === null) {
+    return `${item.workstream.scope_id}:none`;
+  }
+  return `${item.workstream.scope_id}:${reference.family}:${reference.artifact_id}:${reference.revision}`;
+}
+
+function preflightMatches(item) {
+  if (currentPreflight === null || currentPreflight.scope_id !== item.workstream.scope_id) {
+    return false;
+  }
+  const selected = currentPreflight.selected_revision;
+  const reference = item.handoff_ref;
+  if (selected === null || reference === null) {
+    return selected === null && reference === null;
+  }
+  return artifactRefsEqual(selected, reference);
+}
+
+function artifactRefsEqual(left, right) {
+  return left !== null
+    && right !== null
+    && left.family === right.family
+    && left.artifact_id === right.artifact_id
+    && left.revision === right.revision;
+}
+
+function formatArtifactRef(reference) {
+  return reference === null ? "-" : `${reference.family}/${reference.artifact_id}@${reference.revision}`;
+}
+
+function draftFromWorkstream(item) {
+  const content = item.content;
+  if (content === null) {
+    return {objective: "", state: "", disposition: "continuable", nextAction: "", omissions: ""};
+  }
+  return {
+    objective: content.objective,
+    state: content.state.map((statement) => statement.text).join("\n"),
+    disposition: content.disposition,
+    nextAction: content.next_action?.text || "",
+    omissions: content.omissions.map((omission) => omission.text).join("\n")
+  };
+}
+
+function readEditorDraft() {
+  return {
+    objective: handoffObjective.value,
+    state: handoffState.value,
+    disposition: handoffDisposition.value,
+    nextAction: handoffNextAction.value,
+    omissions: handoffOmissions.value
+  };
+}
+
+function writeEditorDraft(draft, {dirty = false} = {}) {
+  handoffObjective.value = draft.objective;
+  handoffState.value = draft.state;
+  handoffDisposition.value = draft.disposition;
+  handoffNextAction.value = draft.nextAction;
+  handoffOmissions.value = draft.omissions;
+  editorDirty = dirty;
+  updateAutoRefreshStatus();
+}
+
+function markEditorDirty() {
+  editorDirty = true;
+  saveCurrentDraft();
+  updateAutoRefreshStatus();
+}
+
+function saveCurrentDraft() {
+  if (!editorDirty || currentWorkstreamScope === null || currentEditorBase === null) {
+    return;
+  }
+  workbenchDrafts.set(currentWorkstreamScope, {
+    base: currentEditorBase,
+    dirty: true,
+    values: readEditorDraft()
+  });
+}
+
+function normalizedLines(value) {
+  return [...new Set(value.split("\n").map((line) => line.trim()).filter(Boolean))];
+}
+
+async function sendHandoffCard() {
+  if (currentWorkstreamScope === null || workbenchBusy) {
+    return;
+  }
+  const draft = readEditorDraft();
+  const objective = draft.objective.trim();
+  const state = normalizedLines(draft.state);
+  if (!objective || state.length === 0) {
+    setWorkbenchFeedback("send-handoff-status", "editorRequired", {}, true);
+    return;
+  }
+
+  const scopeId = currentWorkstreamScope;
+  const handoff = {
+    schema: "powercontext.current-work-handoff.v1",
+    trust: "untrusted_input",
+    objective,
+    state: state.map(declaredClaim),
+    disposition: draft.disposition,
+    next_action: draft.nextAction.trim() ? declaredClaim(draft.nextAction.trim()) : null,
+    omissions: normalizedLines(draft.omissions)
+  };
+  const attempt = pendingHandoffAttempt(scopeId, handoff);
+  setWorkbenchBusy(true);
+  setWorkbenchFeedback("send-handoff-status", "sendingHandoff");
+  try {
+    const prepared = attempt.prepared || await requestJson(
+      "/v1/work/handoffs/prepare-current",
+      readServerToken(),
+      {scope_id: scopeId, source_id: attempt.sourceId, handoff}
+    );
+    attempt.prepared = prepared;
+    await requestJson("/v1/handoff/commit", readServerToken(), {
+      scope_id: scopeId,
+      handoff: prepared.handoff
+    });
+    pendingHandoffAttempts.delete(scopeId);
+    workbenchDrafts.delete(scopeId);
+    currentPreflight = null;
+    editorDirty = false;
+    await loadReport(readServerToken(), currentProject.project_id);
+    setWorkbenchFeedback("send-handoff-status", "handoffSent");
+  } catch (error) {
+    if (error.status === 401) {
+      handleRequestError(error);
+      return;
+    }
+    saveCurrentDraft();
+    setWorkbenchFeedback(
+      "send-handoff-status",
+      attempt.prepared ? "handoffCommitPending" : "handoffSendFailed",
+      {status: error.status || "network"},
+      true
+    );
+  } finally {
+    setWorkbenchBusy(false);
+  }
+}
+
+function pendingHandoffAttempt(scopeId, handoff) {
+  const fingerprint = JSON.stringify(handoff);
+  const existing = pendingHandoffAttempts.get(scopeId);
+  if (existing?.fingerprint === fingerprint) {
+    return existing;
+  }
+  const attempt = {
+    fingerprint,
+    sourceId: workbenchSourceId("handoff-boundary"),
+    prepared: null
+  };
+  pendingHandoffAttempts.set(scopeId, attempt);
+  return attempt;
+}
+
+function declaredClaim(text) {
+  return {text, basis: "declared", evidence: []};
+}
+
+async function runPreflight(item) {
+  const sequence = ++preflightSequence;
+  currentPreflight = null;
+  renderPreflight(null, {running: true});
+  updateHandoffChoiceState();
+  try {
+    const resolution = await requestJson("/v1/handoff/continue", readServerToken(), {
+      scope_id: item.workstream.scope_id,
+      selection: "latest"
+    });
+    if (sequence !== preflightSequence || currentWorkstreamScope !== item.workstream.scope_id) {
+      return;
+    }
+    if (resolution.status === "resolved" && !artifactRefsEqual(resolution.selected_revision, item.handoff_ref)) {
+      resetReceiverChecks(null);
+      renderPreflight(null, {staleRevision: resolution.selected_revision});
+      updateHandoffChoiceState();
+      return;
+    }
+    resetReceiverChecks(resolution.status === "resolved" ? resolution.selected_revision : null);
+    currentPreflight = resolution;
+    renderPreflight(resolution);
+  } catch (error) {
+    if (sequence !== preflightSequence) {
+      return;
+    }
+    if (error.status === 401) {
+      handleRequestError(error);
+      return;
+    }
+    renderPreflight(null, {failed: true});
+  }
+  updateHandoffChoiceState();
+}
+
+function renderPreflight(resolution, {running = false, failed = false, staleRevision = null} = {}) {
+  const state = document.getElementById("preflight-state");
+  const summary = document.getElementById("preflight-summary");
+  const checks = document.getElementById("preflight-checks");
+  checks.replaceChildren();
+  if (running) {
+    state.dataset.state = "idle";
+    state.textContent = translate("preflightRunning");
+    summary.textContent = translate("preflightRunning");
+    return;
+  }
+  if (failed) {
+    state.dataset.state = "error";
+    state.textContent = translate("preflightFailed");
+    summary.textContent = translate("preflightFailedSummary");
+    return;
+  }
+  if (staleRevision !== null) {
+    state.dataset.state = "blocked";
+    state.textContent = translate("preflightStale");
+    summary.textContent = translate("preflightStaleSummary", {revision: formatArtifactRef(staleRevision)});
+    return;
+  }
+  if (resolution === null || resolution.status === "empty") {
+    state.dataset.state = "blocked";
+    state.textContent = translate("preflightEmpty");
+    summary.textContent = translate("preflightEmptySummary");
+    return;
+  }
+
+  const unavailable = resolution.evidence_checks.filter((check) => check.status === "unavailable");
+  const available = resolution.evidence_checks.length - unavailable.length;
+  const ready = unavailable.length === 0;
+  state.dataset.state = ready ? "ready" : "blocked";
+  state.textContent = translate(ready ? "preflightReady" : "preflightBlocked");
+  summary.textContent = translate(
+    ready ? "preflightReadySummary" : "preflightBlockedSummary",
+    ready
+      ? {
+        revision: formatArtifactRef(resolution.selected_revision),
+        available,
+        total: resolution.evidence_checks.length
+      }
+      : {count: unavailable.length}
+  );
+  for (const check of resolution.evidence_checks) {
+    const row = document.createElement("li");
+    row.dataset.status = check.status;
+    const label = document.createElement("span");
+    label.textContent = check.state_index === null
+      ? statusLabel(check.claim)
+      : `${statusLabel(check.claim)} #${check.state_index + 1}`;
+    const result = document.createElement("code");
+    result.textContent = statusLabel(check.status);
+    row.append(label, result);
+    checks.appendChild(row);
+  }
+}
+
+async function recordHandoffChoice(status) {
+  if (workbenchBusy || currentWorkstreamScope === null || currentPreflight?.status !== "resolved") {
+    return;
+  }
+  const receiver = handoffReceiver.value.trim();
+  const message = handoffReceiverMessage.value.trim();
+  if (!receiver) {
+    setWorkbenchFeedback("handoff-choice-status", "receiverRequired", {}, true);
+    handoffReceiver.focus();
+    return;
+  }
+  if (status !== "accepted" && !message) {
+    setWorkbenchFeedback("handoff-choice-status", "receiverMessageRequired", {}, true);
+    handoffReceiverMessage.focus();
+    return;
+  }
+  if (status === "accepted" && !receiverChecksConfirmed()) {
+    setWorkbenchFeedback("handoff-choice-status", "receiverChecksRequired", {}, true);
+    receiverLiveState.focus();
+    return;
+  }
+  if (status === "accepted" && !preflightCanAccept(currentPreflight)) {
+    return;
+  }
+
+  const scopeId = currentWorkstreamScope;
+  setWorkbenchBusy(true);
+  setWorkbenchFeedback("handoff-choice-status", "recordingDecision");
+  try {
+    const payload = {
+      scope_id: scopeId,
+      source_id: workbenchSourceId("handoff-receipt"),
+      receiver,
+      status,
+      selection: "exact",
+      receiver_checks: readReceiverChecks(),
+      revision: currentPreflight.selected_revision
+    };
+    if (message) {
+      payload.message = message;
+    }
+    await requestJson("/v1/work/handoffs/acknowledge", readServerToken(), payload);
+    currentPreflight = null;
+    receiverCheckTarget = "recorded";
+    resetReceiverChecks(null);
+    handoffReceiverMessage.value = "";
+    await loadReport(readServerToken(), currentProject.project_id);
+    setWorkbenchFeedback("handoff-choice-status", "decisionRecorded");
+  } catch (error) {
+    if (error.status === 401) {
+      handleRequestError(error);
+      return;
+    }
+    setWorkbenchFeedback("handoff-choice-status", "decisionFailed", {status: error.status || "network"}, true);
+  } finally {
+    setWorkbenchBusy(false);
+  }
+}
+
+function preflightCanAccept(resolution) {
+  return resolution.status === "resolved"
+    && resolution.selected_revision !== null
+    && resolution.evidence_checks.every((check) => check.status === "available")
+    && receiverChecksConfirmed();
+}
+
+function readReceiverChecks() {
+  return {
+    live_state: receiverLiveState.value,
+    capability: receiverCapability.value,
+    authorization: receiverAuthorization.value
+  };
+}
+
+function receiverChecksConfirmed() {
+  const checks = readReceiverChecks();
+  return checks.live_state === "confirmed"
+    && checks.capability === "confirmed"
+    && checks.authorization === "confirmed";
+}
+
+function resetReceiverChecks(reference) {
+  const target = reference === null ? null : formatArtifactRef(reference);
+  if (receiverCheckTarget === target) {
+    return;
+  }
+  receiverCheckTarget = target;
+  receiverLiveState.value = "not_checked";
+  receiverCapability.value = "not_checked";
+  receiverAuthorization.value = "not_checked";
+  updateHandoffChoiceState();
+}
+
+function updateHandoffChoiceState() {
+  const resolved = currentPreflight?.status === "resolved" && currentPreflight.selected_revision !== null;
+  for (const button of handoffChoiceButtons) {
+    const accepts = button.dataset.handoffChoice === "accepted";
+    button.disabled = workbenchBusy || !resolved || (accepts && !preflightCanAccept(currentPreflight));
+  }
+}
+
+function setWorkbenchBusy(busy) {
+  workbenchBusy = busy;
+  handoffWorkstream.disabled = busy;
+  handoffEditor.querySelectorAll("button, input, select, textarea").forEach((element) => {
+    element.disabled = busy;
+  });
+  handoffReceiver.disabled = busy;
+  handoffReceiverMessage.disabled = busy;
+  receiverLiveState.disabled = busy;
+  receiverCapability.disabled = busy;
+  receiverAuthorization.disabled = busy;
+  taskOutcomeForm.querySelectorAll("button, select, textarea").forEach((element) => {
+    element.disabled = busy;
+  });
+  updateHandoffChoiceState();
+  updateAutoRefreshStatus();
+}
+
+function setWorkbenchFeedback(id, key, values = {}, isError = false) {
+  const element = document.getElementById(id);
+  element.textContent = translate(key, values);
+  element.classList.toggle("is-error", isError);
+}
+
+function clearWorkbenchFeedback(id) {
+  const element = document.getElementById(id);
+  element.textContent = "";
+  element.classList.remove("is-error");
+}
+
+function workbenchSourceId(kind) {
+  const unique = typeof window.crypto?.randomUUID === "function"
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `handoff-report:${kind}:${unique}`;
+}
+
+function renderRevisionHistory(item) {
+  const list = document.getElementById("handoff-revision-history");
+  const summary = document.getElementById("revision-history-summary");
+  list.replaceChildren();
+  const history = Array.isArray(item?.handoff_history) ? item.handoff_history : [];
+  if (history.length === 0) {
+    summary.textContent = translate("revisionHistoryEmpty");
+    return;
+  }
+  const total = Number(item.handoff_revision_count) || history.length;
+  summary.textContent = translate(
+    item.handoff_history_truncated ? "revisionHistoryTruncated" : "revisionHistorySummary",
+    {shown: history.length, total}
+  );
+  for (const revision of [...history].reverse()) {
+    const current = artifactRefsEqual(revision.reference, item.handoff_ref);
+    const row = document.createElement("li");
+    row.className = "revision-history-item";
+    row.dataset.current = String(current);
+    if (current) {
+      row.setAttribute("aria-current", "true");
+    }
+
+    const header = document.createElement("div");
+    header.className = "revision-history-item-header";
+    const reference = document.createElement("code");
+    reference.textContent = `@${revision.reference.revision}`;
+    const disposition = document.createElement("span");
+    disposition.className = "revision-history-disposition";
+    disposition.textContent = statusLabel(revision.disposition);
+    header.append(reference, disposition);
+    if (current) {
+      const currentLabel = document.createElement("strong");
+      currentLabel.textContent = translate("revisionCurrent");
+      header.appendChild(currentLabel);
+    }
+
+    const objective = document.createElement("p");
+    objective.className = "revision-history-objective";
+    objective.textContent = revision.objective_excerpt;
+    row.append(header, objective);
+    if (revision.next_action_excerpt) {
+      const nextAction = document.createElement("p");
+      nextAction.className = "revision-history-next";
+      nextAction.textContent = translate("revisionNextAction", {value: revision.next_action_excerpt});
+      row.appendChild(nextAction);
+    }
+    const counts = document.createElement("p");
+    counts.className = "revision-history-counts";
+    counts.textContent = translate("revisionCounts", {
+      state: formatNumber(revision.state_count),
+      omissions: formatNumber(revision.omission_count)
+    });
+    row.appendChild(counts);
+    list.appendChild(row);
+  }
+}
+
+function renderContinuity(continuity) {
+  const timeline = document.getElementById("continuity-timeline");
+  const note = document.getElementById("continuity-note");
+  const transferState = document.getElementById("transfer-state-status");
+  const outcomeState = document.getElementById("outcome-state-status");
+  timeline.replaceChildren();
+  if (continuity === null) {
+    transferState.textContent = "-";
+    outcomeState.textContent = "-";
+    transferState.removeAttribute("data-state");
+    outcomeState.removeAttribute("data-state");
+    note.textContent = translate("timelineEmpty");
+    renderTaskOutcomeForm(null);
+    return;
+  }
+  transferState.textContent = statusLabel(continuity.coverage.transfer_state);
+  transferState.dataset.state = continuity.coverage.transfer_state;
+  outcomeState.textContent = statusLabel(continuity.coverage.outcome_state);
+  outcomeState.dataset.state = continuity.coverage.outcome_state;
+  for (const event of continuity.events) {
+    const item = document.createElement("li");
+    const position = document.createElement("span");
+    position.className = "continuity-position";
+    position.textContent = `#${event.position}`;
+    const title = document.createElement("strong");
+    title.className = "continuity-event-title";
+    title.textContent = statusLabel(event.kind);
+    const status = document.createElement("span");
+    status.className = "continuity-event-status";
+    status.textContent = statusLabel(event.status);
+    item.append(position, title, status);
+    const detail = event.summary || (event.actor ? translate("eventActor", {actor: event.actor}) : "");
+    if (detail) {
+      const summary = document.createElement("p");
+      summary.className = "continuity-event-summary";
+      summary.textContent = detail;
+      item.appendChild(summary);
+    }
+    timeline.appendChild(item);
+  }
+  const notes = [];
+  if (continuity.events.length === 0) {
+    notes.push(translate("timelineEmpty"));
+  }
+  if (continuity.truncated) {
+    notes.push(translate("timelineTruncated", {
+      count: continuity.events.length,
+      total: continuity.total_event_count
+    }));
+  }
+  if (continuity.invalid_record_count > 0) {
+    notes.push(translate("timelineInvalid", {count: continuity.invalid_record_count}));
+  }
+  note.textContent = notes.join(" ");
+  renderTaskOutcomeForm(continuity);
+}
+
+function renderTaskOutcomeForm(continuity) {
+  if (continuity?.coverage.outcome_state !== "awaiting_outcome") {
+    taskOutcomeForm.hidden = true;
+    currentOutcomeReceipt = null;
+    return;
+  }
+  const receiptRef = continuity.coverage.active_receipt_ref;
+  if (receiptRef === null) {
+    taskOutcomeForm.hidden = true;
+    currentOutcomeReceipt = null;
+    return;
+  }
+  if (!sourceRefsEqual(currentOutcomeReceipt, receiptRef)) {
+    taskOutcomeStatus.value = "succeeded";
+    taskOutcomeSummary.value = "";
+    taskOutcomeObservation.value = "";
+    clearWorkbenchFeedback("task-outcome-feedback");
+  }
+  currentOutcomeReceipt = receiptRef;
+  taskOutcomeForm.hidden = false;
+}
+
+function sourceRefsEqual(left, right) {
+  return left !== null
+    && right !== null
+    && left.source_type === right.source_type
+    && left.source_id === right.source_id;
+}
+
+async function recordTaskOutcome() {
+  if (workbenchBusy || currentWorkstreamScope === null || currentOutcomeReceipt === null) {
+    return;
+  }
+  const summary = taskOutcomeSummary.value.trim();
+  const observation = taskOutcomeObservation.value.trim();
+  if (!summary || !observation) {
+    setWorkbenchFeedback("task-outcome-feedback", "outcomeRequired", {}, true);
+    return;
+  }
+  const item = currentReport?.workstreams.find(
+    (candidate) => candidate.workstream.scope_id === currentWorkstreamScope
+  );
+  const objective = item?.content?.objective || handoffObjective.value.trim();
+  const scopeId = currentWorkstreamScope;
+  setWorkbenchBusy(true);
+  setWorkbenchFeedback("task-outcome-feedback", "recordingOutcome");
+  try {
+    await requestJson("/v1/work/outcomes/record", readServerToken(), {
+      scope_id: scopeId,
+      source_id: workbenchSourceId("task-outcome"),
+      outcome: {
+        schema: "powercontext.task-outcome.v1",
+        trust: "untrusted_observation",
+        objective,
+        status: taskOutcomeStatus.value,
+        summary,
+        handoff_receipt_ref: {
+          name: currentOutcomeReceipt.source_type,
+          source_id: currentOutcomeReceipt.source_id
+        },
+        observations: [declaredClaim(observation)],
+        checks: [],
+        produced_artifacts: [],
+        remaining_work: []
+      }
+    });
+    await loadReport(readServerToken(), currentProject.project_id);
+    setWorkbenchFeedback("handoff-choice-status", "outcomeRecorded");
+  } catch (error) {
+    if (error.status === 401) {
+      handleRequestError(error);
+      return;
+    }
+    setWorkbenchFeedback(
+      "task-outcome-feedback",
+      "outcomeRecordFailed",
+      {status: error.status || "network"},
+      true
+    );
+  } finally {
+    setWorkbenchBusy(false);
   }
 }
 
@@ -712,6 +1671,62 @@ function setBusy(busy) {
   projectTabs.querySelectorAll("button").forEach((button) => {
     button.disabled = busy;
   });
+}
+
+function startAutoRefresh() {
+  if (autoRefreshTimer === null) {
+    autoRefreshTimer = window.setInterval(() => {
+      void autoRefreshReport();
+    }, autoRefreshIntervalMilliseconds);
+  }
+  updateAutoRefreshStatus();
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer !== null) {
+    window.clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+  autoRefreshStatus.textContent = "";
+  autoRefreshStatus.dataset.state = "inactive";
+}
+
+async function autoRefreshReport() {
+  const token = readServerToken();
+  if (document.hidden || reportLoading || token === null || currentProject === null) {
+    return;
+  }
+  if (editorDirty || workbenchBusy) {
+    updateAutoRefreshStatus();
+    return;
+  }
+  await loadReport(token, currentProject.project_id, {background: true});
+}
+
+function updateAutoRefreshStatus() {
+  if (autoRefreshTimer === null) {
+    return;
+  }
+  if (editorDirty) {
+    setAutoRefreshStatus("editing");
+  } else if (workbenchBusy) {
+    setAutoRefreshStatus("busy");
+  } else {
+    setAutoRefreshStatus("active");
+  }
+}
+
+function setAutoRefreshStatus(state) {
+  const translationKeys = {
+    active: "autoRefreshActive",
+    busy: "autoRefreshBusy",
+    editing: "autoRefreshEditing",
+    failed: "autoRefreshFailed",
+    refreshing: "autoRefreshing",
+    updated: "autoRefreshUpdated"
+  };
+  autoRefreshStatus.dataset.state = state;
+  autoRefreshStatus.textContent = translate(translationKeys[state]);
 }
 
 function resolveSelectedPeriod(project) {

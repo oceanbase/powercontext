@@ -71,6 +71,38 @@ def test_mcp_exposes_read_only_handoff_report_tools_only_when_feature_routes_are
     assert "attach_handoff_report_workspace" not in tool_names
 
 
+def test_mcp_describes_handoff_tool_side_effects_for_host_approval() -> None:
+    async def inspect_annotations() -> dict[str, Any]:
+        async with Client(create_mcp_server(create_app())) as client:
+            return {
+                tool.name: tool.annotations
+                for tool in await client.list_tools()
+                if tool.name in {"handoff_current_work", "commit_handoff", "continue_handoff"}
+            }
+
+    annotations = run_async(inspect_annotations)
+
+    prepare = annotations["handoff_current_work"]
+    assert prepare is not None
+    assert prepare.readOnlyHint is False
+    assert prepare.destructiveHint is False
+    assert prepare.idempotentHint is False
+    assert prepare.openWorldHint is False
+
+    commit = annotations["commit_handoff"]
+    assert commit is not None
+    assert commit.readOnlyHint is False
+    assert commit.destructiveHint is False
+    assert commit.idempotentHint is True
+    assert commit.openWorldHint is False
+
+    resolve = annotations["continue_handoff"]
+    assert resolve is not None
+    assert resolve.readOnlyHint is True
+    assert resolve.destructiveHint is False
+    assert resolve.openWorldHint is False
+
+
 def test_mcp_exact_entry_tools_use_nested_citations() -> None:
     async def exact_entry_tool_schemas() -> dict[str, dict[str, Any]]:
         server = create_mcp_server(create_app())

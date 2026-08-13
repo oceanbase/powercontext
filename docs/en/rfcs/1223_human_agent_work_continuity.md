@@ -33,7 +33,7 @@ and Review path.
 The first version adds four high-level operations:
 
 - `create_work_contract` turns human intent into a checkable delegation baseline;
-- `handoff_current_work` captures the current boundary and prepares a Handoff in one call;
+- `handoff_current_work` stores caller-inspected current state and prepares a Handoff;
 - `acknowledge_handoff` resolves exact Handoff evidence again and records acceptance, clarification, or refusal;
 - `record_task_outcome` records the result and check states at a real completion or interruption boundary.
 
@@ -67,8 +67,9 @@ systems consume different projections of that common core.
 
 ## Delegation is not Handoff
 
-A new objective that has not yet been started is Delegation, not Handoff. PowerContext forms a Work Contract from the
-current repository, existing Handoffs, project constraints, and the user's input:
+A new objective that has not yet been started is Delegation, not Handoff. Codex or another integration inspects the
+current repository, existing Handoffs, project constraints, and the user's input; PowerContext validates and stores
+the resulting Work Contract:
 
 ```text
 Human intent
@@ -103,7 +104,8 @@ and calls Continue with that same exact selection.
 
 The receiver then records one acknowledgement:
 
-- `accepted`: the handoff is understood and every cited evidence item is currently readable;
+- `accepted`: the handoff is understood, every citation is readable, and live workspace, capability, and authorization
+  have each been confirmed;
 - `needs_clarification`: facts, evidence, or a necessary decision are missing;
 - `declined`: scope, capability, or authorization does not match.
 
@@ -148,10 +150,48 @@ receive an exact Prepared Handoff or Revision
   -> record_task_outcome or create the next Handoff
 ```
 
-`acknowledge_handoff(status="accepted")` resolves the same exact selection again. If evidence for any state statement
-or next action is unavailable, the Server rejects `accepted`; the receiver can only record `needs_clarification` or
-`declined`. Readable evidence still does not prove that a claim remains current, so the receiver or host continues to
-check live workspace state, current instructions, capabilities, and authority.
+`acknowledge_handoff(status="accepted")` resolves the same prepared or exact selection again. It does not accept
+`latest`: the receiver first resolves and inspects with Continue, then acknowledges the inspected exact Revision. The
+Server rejects `accepted` when any statement or next-action evidence is unavailable or when live workspace,
+capability, and authorization are not all `confirmed`. These confirmations remain `untrusted_observation`; they are
+not authentication or an ACL.
+
+## One-screen Handoff workspace
+
+Handoff Report provides one workspace for each Workstream instead of splitting transfer across a wizard:
+
+- the sender card is prefilled from the current committed Handoff, and its objective, state, disposition, next action,
+  and omissions remain editable until sending;
+- **Send Handoff** is the explicit persistence action: it calls `handoff_current_work` to capture the inspected
+  boundary and then `commit_handoff` to publish an immutable Revision. Browser-only editing writes neither a Source
+  nor a Handoff;
+- the page retains a stable `source_id` and Prepared Handoff for one send attempt. If preparation succeeds but commit
+  is not confirmed, it exposes that partial success and retries the same Prepared Handoff without creating another
+  boundary Source;
+- the receiver side runs Continue automatically against the latest committed Handoff and its exact evidence. The
+  returned exact Revision must match the card currently shown by Report; otherwise the receiver refreshes before
+  making a choice and never acknowledges an unseen newer value;
+- the receiver has exactly three choices: `accepted`, `needs_clarification`, and `declined`. Unavailable evidence
+  disables acceptance; acceptance also requires all three receiver checks, while clarification and decline require a
+  reason;
+- automatic preflight presents citation readability separately from the receiver's live checks and never uses a green
+  Evidence state to imply that a claim is currently verified;
+- after acceptance, an uncovered result exposes a Task Outcome form linked to that exact accepted Receipt.
+- while authenticated and visible, the page reloads the same Project every five seconds. It pauses while the card has
+  unsent edits or a Handoff action is running. Background refresh neither disables page controls nor overwrites an
+  unsent draft in the current or another selected Workstream;
+- the workspace shows the current Workstream's Handoff Revision trail. Report returns the Revision count through its
+  frozen selection and the latest 20 bounded summaries. The page displays them latest-first and identifies the current
+  exact Revision. A newer concurrent Revision does not leak into an older report;
+- Codex can bind the current Git workspace once to that Workstream's `scope_id`. Git-private state takes precedence in
+  later sessions, so a one-line Handoff creates the next Revision in the same Artifact lifecycle. Explicit configuration
+  still wins, and the integration never chooses silently between multiple candidates.
+
+The workspace footer projects Delegation, Handoff, Receipt, and Task Outcome in Source journal position order.
+Positions express stable sequence and are not presented as timestamps. The projection reports transfer state as
+`not_applicable/awaiting_receipt/needs_clarification/declined/accepted` and outcome state as
+`not_expected/awaiting_outcome/covered`. Outcome becomes `covered` only when its `handoff_receipt_ref` exactly identifies
+the active accepted Receipt. A later unlinked Outcome in the same scope does not close the transfer.
 
 ## Task Outcome
 
@@ -162,6 +202,7 @@ A Task Outcome records what happened during one attempt. It is not a reusable co
 | `objective` | Objective for this attempt |
 | `status` | `succeeded/partial/blocked/failed/cancelled/unknown` |
 | `summary` | Bounded result summary |
+| `handoff_receipt_ref` | Optional exact SourceRef for the accepted committed Handoff Receipt this result covers |
 | `observations` | Observations distinguished as declared or verified |
 | `checks` | Check name, exact state, basis, and evidence |
 | `produced_artifacts` | Exact Artifact Revisions produced |
@@ -182,6 +223,9 @@ The first version includes:
 - evidence-gated acknowledgement;
 - compatibility between Task Outcome and existing Experience incubation;
 - a low-intrusion Codex `project-context` skill flow.
+- an editable one-screen Handoff Report card, automatic receiver preflight, three receiver choices, and a read-only
+  continuity timeline.
+- Handoff Report auto-refresh and Revision history, plus a Git-private Codex workspace binding to a Workstream scope.
 
 The first version does not include:
 
@@ -238,13 +282,32 @@ Artifact. Validation proves that the reference is readable and has the expected 
 original exact evidence from verified claims is retained as additional citations. The operation does not commit.
 `commit_handoff` remains the only operation that publishes a durable milestone.
 
-`acknowledge_handoff` accepts the same `prepared/exact/latest` selections as Continue. A prepared target is identified
-by canonical digest; exact and latest targets store the resolved exact Handoff Revision. The receipt records evidence
-availability and unavailable citations. `accepted + unavailable evidence` is invalid.
+`acknowledge_handoff` accepts only `prepared/exact`, never `latest`. A prepared target is identified by canonical
+digest; an exact target stores the resolved Handoff Revision. The receipt records evidence availability, unavailable
+citations, and the receiver's live-state, capability, and authorization checks. `accepted` requires readable Evidence
+and `confirmed` for all three checks.
+
+A Prepared Receipt can show that a temporary carrier was observed, but in the first version only a Receipt for a
+committed exact Handoff can be referenced by Task Outcome and participate in result coverage.
+
+## Continuity projection
+
+`WorkContinuity` is a dynamic read-only projection from the same scope's Source journal and creates no business table.
+It parses only the four Work record kinds with a valid versioned schema. Ordinary Content Sources are ignored. A
+Source that declares a Work kind but fails the corresponding schema increments `invalid_record_count` and is excluded
+from valid history.
+
+The projection returns complete record counts and at most the latest 64 timeline events. When that display limit is
+exceeded, `truncated=true`, while `coverage` still uses every valid Work record read for the projection. The last
+Receipt for the current exact Handoff determines transfer state. Only an accepted Receipt enters `awaiting_outcome`,
+and only a Task Outcome whose `handoff_receipt_ref` identifies that Receipt changes the state to `covered`. Another
+Revision, an earlier Receipt, or an unlinked Outcome cannot cover the current selection. Outcome status does not
+change whether an exact result record exists.
 
 ## Consistency and failure
 
 - Source capture retains stable `source_id` idempotency and conflict behavior;
+- the one-screen workspace retains the same `source_id` and Prepared Handoff while retrying one send attempt;
 - a Prepared Handoff `base` remains the committed head observed during finalization;
 - Handoff commit retains RFC 0048 compare-and-swap behavior;
 - acknowledgement runs Continue again and cannot reuse a caller-forged evidence result;
@@ -286,7 +349,7 @@ Initial dogfood measures:
 - `time_to_first_verified_action`: time from receipt to the first verified action;
 - `clarification_rate`: proportion returned because facts or evidence are missing;
 - `evidence_availability_rate`: proportion of Handoff claims still resolvable at receipt time;
-- `closed_loop_rate`: proportion with both an acknowledgement and a later Task Outcome;
+- `handoff_result_coverage_rate`: proportion with an accepted exact Receipt and an Outcome that references it;
 - `unauthorized_action_count`: actions executed only because historical Handoff text implied authority; the target is zero.
 
 Metrics cannot treat `accepted` as completion or a producer-declared `succeeded` value as independent verification.
@@ -301,10 +364,19 @@ Metrics cannot treat `accepted` as completion or a producer-declared `succeeded`
 | High-level handoff | One operation stores the boundary Source and returns an uncommitted Prepared Handoff |
 | Evidence gate | Unavailable Handoff evidence prevents an `accepted` receipt |
 | Clarification | Unavailable evidence can produce `needs_clarification` with a reason |
+| Editable card | A locale change or report refresh in the current tab for the same Handoff Revision does not overwrite unsent edits |
+| Automatic refresh | The page reloads the same Project every five seconds, pauses for unsent edits or active actions, and never locks controls for a background refresh |
+| Revision history | Report returns the total Revisions through the frozen selection and the latest 20 summaries, with the current exact Revision identified |
+| Workstream binding | After a Git workspace is bound once to a fixed `scope_id`, later Codex sessions and one-line Handoffs continue the same Artifact lifecycle |
+| Retryable send | When prepare succeeds but commit is unconfirmed, retry reuses the same `source_id` and Prepared Handoff |
+| Exact preflight | Automatic preflight resolves latest; mismatch with the Report card blocks all choices, otherwise they bind exact |
+| Three choices | The receiver sees all three actions; accepted requires readable Evidence and all receiver checks, while the other two require a reason |
+| Continuity | Report shows all four Work record kinds in journal position order without presenting position as time |
+| Result coverage | Acceptance enters awaiting_outcome; only an Outcome that references that Receipt changes it to covered |
 | Outcome status | `failed/skipped/timed_out/unavailable/cancelled/unknown` never upgrades to passed |
 | Experience boundary | Only `task-outcome` Sources enter existing incubation, and the result remains a pending Candidate |
 | Persistence | Work records reuse the Source journal; Handoff retains immutable Revisions and compare-and-swap |
-| Compatibility | Existing Handoff, Memory, PreparedContext, Report, and Client behavior remains unchanged |
+| Compatibility | Historical Work records remain readable; new accepted requests use prepared/exact and include receiver checks |
 | MCP | Four high-level operations are available to Agents, but tool visibility grants no execution authority |
 | Codex | The skill no longer requires the user or Agent to assemble capture/activate/finalize manually |
 
@@ -312,7 +384,8 @@ Metrics cannot treat `accepted` as completion or a producer-declared `succeeded`
 
 1. Enable the four operations for SQLite and Codex dogfood and validate one complete Workstream loop.
 2. Connect a completion-aware Task Outcome producer at a stable public integration boundary.
-3. Add read-only Receipt and Outcome coverage to Handoff Report without changing Handoff Core.
+3. Dogfood sending, exact preflight, all three receipts, and Outcome coverage through the one-screen Handoff Report
+   workspace without changing Handoff Core.
 4. Collect success metrics on real multi-human and multi-Agent work before supporting other Agent providers.
 
 # Drawbacks
@@ -325,7 +398,7 @@ Metrics cannot treat `accepted` as completion or a producer-declared `succeeded`
 
 # Unresolved questions
 
-- Should the first Handoff Report projection show only Receipt and Outcome coverage or support receiver/status filters?
+- When should Handoff Report add receiver or status filters without turning the primary workspace into an audit console?
 - Can different Agent providers expose stable completion signals without reading private Session databases?
 - What signing, revocation, and authorization contract is needed for cross-Runtime Prepared Handoff transport?
 - When should Work Contract become a separately queryable projection instead of Source-backed evidence?

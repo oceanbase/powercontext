@@ -53,7 +53,7 @@ def test_recall_emits_bounded_untrusted_context(
     )
     monkeypatch.setattr(
         recall_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     captured: list[tuple[str, str]] = []
@@ -96,7 +96,7 @@ def test_recall_failure_is_non_blocking(
     )
     monkeypatch.setattr(
         recall_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     monkeypatch.setattr(
@@ -174,7 +174,7 @@ def test_hook_accepts_codex_event_name_variants(
     )
     monkeypatch.setattr(
         recall_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     monkeypatch.setattr(

@@ -27,9 +27,31 @@ powercontext setup codex --source oceanbase/powercontext --ref master
   Source 证据；
 - MCP 为 Codex 提供记忆、检索、修订、停用和审计 Memory 的显式工具。
 
-存在 Git remote 时，Memory scope 根据规范化后的 remote 生成；否则根据项目路径生成。在同一项目中开启
-的新 Codex 会话会得到相同 scope。只有在 scope 必须独立于这两者时，才设置
-`POWERCONTEXT_CODEX_SCOPE_ID`。
+## 一句话交接当前工作
+
+在已经安装插件且 PowerContext Server 可用的 Codex 会话中，直接输入：
+
+```text
+交接
+```
+
+`project-context` Skill 会把这句话视为创建持久交接里程碑的明确授权。Codex 在同一轮中检查当前对话和仓库，整理
+目标、分支与工作区状态、改动文件、已执行检查、阻塞项、缺失项和下一步，然后依次调用
+`handoff_current_work` 和 `commit_handoff`。提交成功后，Codex 返回 exact Handoff Revision；用户不需要再填写
+交接表单或重复确认。
+
+`交接当前工作`、`把当前工作交接出去` 和 `handoff this work` 使用相同行为。若只想检查内容而不写入，请明确说
+`预览交接，不要提交`；Skill 此时只在对话中渲染建议内容，不调用写工具。讨论 Handoff 设计或询问 Handoff
+如何工作也不会触发持久化。
+
+Codex scope 按以下顺序解析：显式的 `POWERCONTEXT_CODEX_SCOPE_ID`、当前 Git 工作区持久绑定的 Workstream
+scope、规范化后的 Git remote、项目路径。同一工作区后续开启的新 Codex 会话会复用同一个 scope。
+
+当 Handoff Report 中已经确定固定 Workstream 时，可以告诉 Codex“把当前工作区绑定到 Workstream scope
+`handoff-ui-review`”。`project-context` Skill 会调用 scope resolver 的 `--bind-workstream` 操作，并再次校验解析结果。
+绑定写在 Git 私有目录的 `powercontext/codex-workspace.json` 中，不进入工作树或提交。此后用户只需说“交接”，新
+Handoff 就会继续写入该 Workstream 的同一 Artifact lifecycle，并得到下一个 Revision。存在多个候选 Workstream
+时不得静默选择。
 
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
 `powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为不可信历史、保留

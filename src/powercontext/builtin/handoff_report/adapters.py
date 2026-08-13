@@ -10,6 +10,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffEvidenceCheck,
 )
 from powercontext.builtin.handoff_report.errors import HandoffReportEvidenceCheckUnavailableError
+from powercontext.builtin.work import WorkContinuity
 
 
 class _ScopedHandoffReader(Protocol):
@@ -22,6 +23,14 @@ class _ScopedHandoffReader(Protocol):
 
 class _HandoffApplicationReader(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedHandoffReader: ...
+
+
+class _ScopedWorkReader(Protocol):
+    async def continuity(self, selected_handoff: ArtifactRef | None = None) -> WorkContinuity: ...
+
+
+class _WorkApplicationReader(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedWorkReader: ...
 
 
 class RuntimeHandoffReadAdapter:
@@ -52,4 +61,14 @@ class RuntimeHandoffReadAdapter:
         raise HandoffReportEvidenceCheckUnavailableError
 
 
-__all__ = ["RuntimeHandoffReadAdapter"]
+class RuntimeWorkContinuityReadAdapter:
+    """Project Work continuity through the Runtime's high-level read application."""
+
+    def __init__(self, application: _WorkApplicationReader, /) -> None:
+        self._application = application
+
+    async def get(self, scope_id: str, reference: ArtifactRef | None, /) -> WorkContinuity:
+        return await self._application.for_scope(scope_id).continuity(reference)
+
+
+__all__ = ["RuntimeHandoffReadAdapter", "RuntimeWorkContinuityReadAdapter"]

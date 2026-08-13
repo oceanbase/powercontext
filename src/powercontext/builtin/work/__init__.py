@@ -1,5 +1,6 @@
 """Human and Agent work-continuity records and application values."""
 
+from powercontext.builtin.work.continuity import project_work_continuity
 from powercontext.builtin.work.models import (
     HANDOFF_BOUNDARY_SOURCE_KIND,
     HANDOFF_RECEIPT_SOURCE_KIND,
@@ -12,13 +13,19 @@ from powercontext.builtin.work.models import (
     HandoffCurrentWork,
     HandoffReceipt,
     PreparedWorkHandoff,
+    ReceiverChecks,
     RecordTaskOutcome,
     TaskCheck,
     TaskOutcome,
     WorkClaim,
+    WorkContinuity,
+    WorkContinuityCoverage,
+    WorkContinuityEvent,
     WorkContract,
+    WorkOutcomeState,
     WorkSourceKind,
     WorkSourceReceipt,
+    WorkTransferState,
     content_digest,
 )
 
@@ -34,12 +41,19 @@ __all__ = [
     "HandoffCurrentWork",
     "HandoffReceipt",
     "PreparedWorkHandoff",
+    "ReceiverChecks",
     "RecordTaskOutcome",
     "TaskCheck",
     "TaskOutcome",
     "WorkClaim",
+    "WorkContinuity",
+    "WorkContinuityCoverage",
+    "WorkContinuityEvent",
     "WorkContract",
+    "WorkOutcomeState",
     "WorkSourceKind",
     "WorkSourceReceipt",
+    "WorkTransferState",
     "content_digest",
+    "project_work_continuity",
 ]
