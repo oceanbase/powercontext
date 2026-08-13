@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -21,7 +22,7 @@ from powercontext.builtin.runtime import BuiltinRuntime
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
-from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSchema
+from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSchema, ReadinessResponse, ReadinessStatus
 from powercontext.paths import default_scheduler_path
 from powercontext.server.access import HttpAccessLogMiddleware
 from powercontext.server.app import create_app
@@ -63,6 +64,7 @@ def create_server_app(
     resolved_tracing = ServerTracing.context_only() if tracing is None else tracing
     if metrics is not None:
         metrics.set_ready(False)
+    readiness_probe = _ServerReadinessProbe(metrics)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -78,18 +80,16 @@ def create_server_app(
             handoff_pipeline=handoff_pipeline,
             embedding_model=embedding_model,
         ) as runtime:
+            readiness_probe.bind(runtime)
             app.state.application = runtime
             app.state.capabilities = await _server_capabilities(runtime)
-            if metrics is not None:
-                metrics.set_ready(True)
-            _log_lifecycle("server.ready", "PowerContext Server is ready")
+            await readiness_probe()
             try:
                 yield
             finally:
                 _log_lifecycle("server.stopping", "PowerContext Server is stopping")
+                readiness_probe.unbind()
                 app.state.application = None
-                if metrics is not None:
-                    metrics.set_ready(False)
                 app.state.capabilities = Capabilities(
                     source_types=[],
                     artifact_families=[],
@@ -113,6 +113,7 @@ def create_server_app(
 
     app = create_app(
         lifespan=lifespan,
+        readiness_probe=readiness_probe,
         middleware=configured_middleware,
         metrics=metrics,
         tracing=resolved_tracing,
@@ -157,6 +158,62 @@ def create_server_app(
             tracing=resolved_tracing,
         )
     return app
+
+
+class _ServerReadinessProbe:
+    def __init__(self, metrics: ServerMetrics | None) -> None:
+        self._metrics = metrics
+        self._runtime: BuiltinRuntime | None = None
+        self._last_status: ReadinessStatus | None = None
+
+    def bind(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def unbind(self) -> None:
+        self._runtime = None
+        self._last_status = None
+        if self._metrics is not None:
+            self._metrics.set_ready(False)
+
+    async def __call__(self) -> ReadinessResponse:
+        runtime = self._runtime
+        if runtime is None:
+            response = ReadinessResponse(
+                status=ReadinessStatus.NOT_READY,
+                checks={"runtime": "not_ready"},
+            )
+        else:
+            response = await self._check(runtime)
+        self._observe(response.status)
+        return response
+
+    async def _check(self, runtime: BuiltinRuntime) -> ReadinessResponse:
+        try:
+            readiness = await runtime.readiness()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return ReadinessResponse(
+                status=ReadinessStatus.NOT_READY,
+                checks={"runtime": "unavailable"},
+            )
+        return ReadinessResponse(
+            status=ReadinessStatus(readiness.status.value),
+            checks={name: status.value for name, status in readiness.checks.items()},
+        )
+
+    def _observe(self, status: ReadinessStatus) -> None:
+        if self._metrics is not None:
+            self._metrics.set_ready(status is not ReadinessStatus.NOT_READY)
+        if status is self._last_status:
+            return
+        self._last_status = status
+        event, message = {
+            ReadinessStatus.READY: ("server.ready", "PowerContext Server is ready"),
+            ReadinessStatus.DEGRADED: ("server.degraded", "PowerContext Server is degraded"),
+            ReadinessStatus.NOT_READY: ("server.not_ready", "PowerContext Server is not ready"),
+        }[status]
+        _log_lifecycle(event, message)
 
 
 def _log_lifecycle(event: str, message: str) -> None:

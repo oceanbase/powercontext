@@ -1,15 +1,24 @@
+import asyncio
 import logging
 import re
 from datetime import datetime, timedelta
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
+from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import MemoryExtractionProfile, RuntimeConfig
+from powercontext.builtin.runtime import InferenceConfig, MemoryExtractionProfile, RuntimeConfig
 from powercontext.http import (
     Capabilities,
     ReadinessResponse,
@@ -24,6 +33,39 @@ from powercontext.sources import Source
 class _NoopExperiencePipeline:
     async def incubate(self, _sources: tuple[Source, ...], /) -> tuple[ExperienceCandidateInput, ...]:
         return ()
+
+
+class _FailingEmbeddingModel:
+    profile = EmbeddingProfile(
+        profile_id="readiness-test",
+        model="test:embedding",
+        dimension=3,
+        distance="l2",
+        normalization="none",
+    )
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def embed(self, _texts: tuple[str, ...], /) -> EmbeddingResult:
+        raise self.error
+
+
+class _SequencedEmbeddingModel:
+    profile = _FailingEmbeddingModel.profile
+
+    def __init__(self, outcomes: list[Exception | None], now: list[float]) -> None:
+        self._outcomes = outcomes
+        self._now = now
+        self.requests: list[float] = []
+
+    async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+        self.requests.append(self._now[0])
+        await asyncio.sleep(0)
+        outcome = self._outcomes.pop(0)
+        if outcome is not None:
+            raise outcome
+        return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
 
 
 def test_settings_load_server_environment(monkeypatch) -> None:
@@ -180,6 +222,278 @@ def test_readiness_reports_unavailable_bindings() -> None:
         "checks": {"database": "unavailable"},
     }
     assert response.headers["X-PowerContext-Request-ID"]
+
+
+def test_readiness_keeps_degraded_bindings_in_traffic() -> None:
+    async def probe() -> ReadinessResponse:
+        return ReadinessResponse(
+            status=ReadinessStatus.DEGRADED,
+            checks={"inference.embedding": "unavailable"},
+        )
+
+    response = TestClient(create_app(readiness_probe=probe)).get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "degraded",
+        "checks": {"inference.embedding": "unavailable"},
+    }
+
+
+def test_server_factory_reports_database_failure_as_not_ready(monkeypatch, tmp_path) -> None:
+    async def fail_ping(_database: AsyncDatabase) -> None:
+        raise OSError("secret database URL")  # noqa: TRY003 - verifies redaction
+
+    monkeypatch.setattr(AsyncDatabase, "ping", fail_ping)
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+        metrics = client.get("/metrics")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "not_ready",
+        "checks": {
+            "runtime": "ready",
+            "database": "unavailable",
+        },
+    }
+    assert "powercontext_server_runtime_ready 0.0" in metrics.text
+    assert "secret database URL" not in response.text
+
+
+def test_server_factory_reports_database_and_configured_generation_readiness(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            inference=InferenceConfig(generation_model="test"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "checks": {
+            "runtime": "ready",
+            "database": "ready",
+            "inference.generation": "ready",
+        },
+    }
+
+
+def test_server_factory_reports_generation_failure_as_degraded(monkeypatch, tmp_path) -> None:
+    async def rate_limited(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        raise ModelHTTPError(429, "test-model", {"secret": "provider response"})
+
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name: FunctionModel(rate_limited))
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            inference=InferenceConfig(generation_model="provider:test-model"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "degraded",
+        "checks": {
+            "runtime": "ready",
+            "database": "ready",
+            "inference.generation": "unavailable",
+        },
+    }
+    assert "provider response" not in response.text
+
+
+def test_server_factory_caches_and_redacts_degraded_embedding_readiness(caplog, tmp_path) -> None:
+    embedding = _FailingEmbeddingModel(InferenceConfigurationError("secret provider response"))
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        embedding_model=embedding,
+    )
+
+    with caplog.at_level(logging.INFO, logger="powercontext.server.factory"), TestClient(app) as client:
+        first = client.get("/health/ready")
+        second = client.get("/health/ready")
+        metrics = client.get("/metrics")
+
+    assert first.status_code == second.status_code == 200
+    assert (
+        first.json()
+        == second.json()
+        == {
+            "status": "degraded",
+            "checks": {
+                "runtime": "ready",
+                "database": "ready",
+                "inference.embedding": "misconfigured",
+            },
+        }
+    )
+    assert "powercontext_server_runtime_ready 1.0" in metrics.text
+    assert "secret provider response" not in first.text
+    assert "secret provider response" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (TimeoutError("secret provider timeout"), "timeout"),
+        (OSError("https://secret-provider.example/v1"), "unavailable"),
+    ],
+)
+def test_server_factory_reports_transient_embedding_failures_as_degraded(
+    error: Exception,
+    expected_status: str,
+    tmp_path,
+) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        embedding_model=_FailingEmbeddingModel(error),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "degraded",
+        "checks": {
+            "runtime": "ready",
+            "database": "ready",
+            "inference.embedding": expected_status,
+        },
+    }
+    assert "secret" not in response.text
+
+
+def test_server_provider_cache_shares_refreshes_and_retries_transient_failures_sooner(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    now = [0.0]
+    monkeypatch.setattr("powercontext.builtin.runtime.readiness.monotonic", lambda: now[0])
+    embedding = _SequencedEmbeddingModel(
+        [OSError("provider unavailable"), None, None],
+        now,
+    )
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        embedding_model=embedding,
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+            ) as client,
+        ):
+            now[0] = 29
+            cached_transient = await client.get("/health/ready")
+            now[0] = 30
+            refreshed = await asyncio.gather(*(client.get("/health/ready") for _ in range(5)))
+            now[0] = 329
+            cached_ready = await client.get("/health/ready")
+            now[0] = 330
+            refreshed_ready = await client.get("/health/ready")
+
+        assert cached_transient.json()["status"] == "degraded"
+        assert all(response.json()["status"] == "ready" for response in refreshed)
+        assert cached_ready.json()["status"] == "ready"
+        assert refreshed_ready.json()["status"] == "ready"
+
+    asyncio.run(scenario())
+
+    assert embedding.requests == [0, 30, 330]
+
+
+def test_server_factory_reports_missing_embedding_api_prefix_as_degraded(caplog, monkeypatch, tmp_path) -> None:
+    now = [0.0]
+    monkeypatch.setattr("powercontext.builtin.runtime.readiness.monotonic", lambda: now[0])
+    requests: list[httpx.Request] = []
+
+    def reject(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            404,
+            json={
+                "error": {
+                    "message": "secret provider response",
+                    "type": "invalid_request_error",
+                }
+            },
+            request=request,
+        )
+
+    provider = OpenAIProvider(
+        base_url="https://provider.example",
+        api_key="secret-api-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(reject)),
+    )
+    monkeypatch.setattr("pydantic_ai.providers.infer_provider", lambda _name: provider)
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            inference=InferenceConfig(
+                embedding_model="openai:text-embedding-3-small",
+                embedding_profile_id="readiness-test",
+                embedding_dimension=3,
+            ),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with caplog.at_level(logging.INFO, logger="powercontext.server.factory"), TestClient(app) as client:
+        first = client.get("/health/ready")
+        now[0] = 299
+        second = client.get("/health/ready")
+        now[0] = 300
+        third = client.get("/health/ready")
+
+    assert first.status_code == second.status_code == third.status_code == 200
+    assert (
+        first.json()
+        == second.json()
+        == third.json()
+        == {
+            "status": "degraded",
+            "checks": {
+                "runtime": "ready",
+                "database": "ready",
+                "inference.embedding": "misconfigured",
+            },
+        }
+    )
+    assert [request.url.path for request in requests] == ["/embeddings", "/embeddings"]
+    assert "secret-api-key" not in first.text
+    assert "secret provider response" not in first.text
+    assert "secret-api-key" not in caplog.text
+    assert "secret provider response" not in caplog.text
 
 
 def test_unhandled_errors_return_the_server_request_id() -> None:

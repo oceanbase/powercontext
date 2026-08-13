@@ -43,6 +43,14 @@ from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime.application import BuiltinRuntime
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
+from powercontext.builtin.runtime.readiness import (
+    READINESS_PROBE_TIMEOUT_SECONDS,
+    CachedReadinessProbe,
+    ReadinessProbe,
+    ReadinessProbeDefinition,
+    RuntimeReadinessChecks,
+    dependency_readiness_probe,
+)
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME, ContentSource
 from powercontext.sources import Source
@@ -114,6 +122,7 @@ async def open_builtin_runtime(
             generated_skill,
             generated_handoff,
             generated_reranker,
+            generation_readiness,
         ) = (
             await _generation_pipelines(config.inference, config.runtime, resources)
             if (
@@ -124,7 +133,7 @@ async def open_builtin_runtime(
                 or handoff_pipeline is None
                 or (config.runtime.memory_rerank_enabled and memory_reranker is None)
             )
-            else (None, None, None, None, None, None)
+            else (None, None, None, None, None, None, None)
         )
         configured_pipeline = generated_memory if candidate_pipeline is None else candidate_pipeline
         configured_incubation = generated_incubation if experience_pipeline is None else experience_pipeline
@@ -157,6 +166,22 @@ async def open_builtin_runtime(
                 memory_reranker=configured_reranker,
             )
         )
+        readiness_probes: dict[str, ReadinessProbeDefinition] = {
+            "database": ReadinessProbeDefinition(
+                probe=dependency_readiness_probe(contexts.database.ping),
+                blocking=True,
+            ),
+        }
+        if generation_readiness is not None:
+            readiness_probes["inference.generation"] = ReadinessProbeDefinition(
+                probe=generation_readiness,
+                blocking=False,
+            )
+        if configured_embedding_source is not None:
+            readiness_probes["inference.embedding"] = ReadinessProbeDefinition(
+                probe=_embedding_readiness_probe(configured_embedding_source),
+                blocking=False,
+            )
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
                 provider=contexts,
@@ -178,6 +203,7 @@ async def open_builtin_runtime(
                 external_skill_importer=contexts.import_external_skill if contexts.external_skill_registry else None,
                 statistics_service=contexts.statistics,
                 recall_token_estimator=contexts.estimate_recall_tokens,
+                readiness=RuntimeReadinessChecks(readiness_probes),
             )
         )
         if config.handoff_report.enabled:
@@ -293,9 +319,10 @@ async def _generation_pipelines(
     SkillGenerator | None,
     HandoffGenerationPipeline | None,
     MemoryReranker | None,
+    ReadinessProbe | None,
 ]:
     if settings.generation_model is None:
-        return None, None, None, None, None, None
+        return None, None, None, None, None, None, None
 
     from pydantic_ai.models import infer_model
     from pydantic_ai.settings import ModelSettings
@@ -331,9 +358,17 @@ async def _generation_pipelines(
         LLMSkillGenerator,
         SkillGenerationOutput,
     )
-    from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
+    from powercontext.builtin.inference.pydantic_ai import (
+        InferenceLimits,
+        PydanticAIStructuredGenerator,
+        probe_pydantic_ai_model,
+    )
 
     model = await resources.enter_async_context(infer_model(settings.generation_model))
+
+    async def probe_generation() -> None:
+        await probe_pydantic_ai_model(model, timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS)
+
     limits = InferenceLimits(
         timeout_seconds=settings.generation_timeout_seconds,
         max_requests=settings.generation_max_requests,
@@ -398,6 +433,7 @@ async def _generation_pipelines(
             evidence_projector=_ContentHandoffEvidenceProjector(),
         ),
         (None if rerank_generator is None else LLMMemoryReranker(UsageReportingStructuredGenerator(rerank_generator))),
+        CachedReadinessProbe(dependency_readiness_probe(probe_generation)),
     )
 
 
@@ -434,6 +470,13 @@ async def _embedding_model(settings: InferenceConfig, resources: AsyncExitStack)
         ),
         limits=InferenceLimits(timeout_seconds=settings.embedding_timeout_seconds),
     )
+
+
+def _embedding_readiness_probe(model: EmbeddingModel) -> ReadinessProbe:
+    async def probe_embedding() -> None:
+        await model.embed(("PowerContext readiness probe",))
+
+    return CachedReadinessProbe(dependency_readiness_probe(probe_embedding))
 
 
 def _required(value: ValueT | None) -> ValueT:

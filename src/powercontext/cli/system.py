@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import asdict, dataclass
+from enum import StrEnum
 from importlib.metadata import version
 from pathlib import Path
 from shutil import which
@@ -14,7 +15,9 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 import typer
+from pydantic import ValidationError
 
+from powercontext.http import HealthResponse, ReadinessResponse, ReadinessStatus
 from powercontext.paths import powercontext_data_dir
 
 HELP_OPTION_NAMES = ("-h", "--help")
@@ -72,10 +75,38 @@ class CodexSetupResult:
     data_dir: str
 
 
+class DiagnosticStatus(StrEnum):
+    """Outcome of one installation diagnostic."""
+
+    OK = "ok"
+    DEGRADED = "degraded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 @dataclass(frozen=True, slots=True)
 class Diagnostic:
-    ok: bool
+    status: DiagnosticStatus
     detail: str
+    checks: dict[str, str] | None = None
+
+    @property
+    def ok(self) -> bool:
+        """Return whether this check passed."""
+
+        return self.status is DiagnosticStatus.OK
+
+    def as_json(self) -> dict[str, object]:
+        """Return the stable external diagnostic representation."""
+
+        result: dict[str, object] = {
+            "ok": self.ok,
+            "status": self.status.value,
+            "detail": self.detail,
+        }
+        if self.checks is not None:
+            result["checks"] = self.checks
+        return result
 
 
 @setup_app.command("codex")
@@ -101,6 +132,11 @@ def setup_codex(
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
 
+    diagnostics = run_codex_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+
     if json_output:
         typer.echo(json.dumps(asdict(result), indent=2))
         return
@@ -112,6 +148,7 @@ def setup_codex(
 
 @doctor_app.callback()
 def doctor(
+    context: typer.Context,
     server_url: Annotated[
         str,
         typer.Option(help="PowerContext Server base URL."),
@@ -121,25 +158,28 @@ def doctor(
         typer.Option("--json", help="Write the result as JSON."),
     ] = False,
 ) -> None:
-    """Check the package, Codex plugin, and configured Server."""
+    """Check the installed package and configured Server."""
 
+    if context.invoked_subcommand is not None:
+        return
     diagnostics = run_diagnostics(server_url=server_url)
-    is_healthy = all(diagnostic.ok for diagnostic in diagnostics.values())
-    if json_output:
-        typer.echo(
-            json.dumps(
-                {
-                    "ok": is_healthy,
-                    "checks": {name: asdict(diagnostic) for name, diagnostic in diagnostics.items()},
-                },
-                indent=2,
-            )
-        )
-    else:
-        for name, diagnostic in diagnostics.items():
-            status = "ok" if diagnostic.ok else "failed"
-            typer.echo(f"{name}: {status} - {diagnostic.detail}")
-    if not is_healthy:
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("codex")
+def doctor_codex(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional Codex CLI and PowerContext plugin."""
+
+    diagnostics = run_codex_diagnostics()
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)
 
 
@@ -174,29 +214,45 @@ def install_codex_plugin(*, source: str, ref: str) -> CodexSetupResult:
 def run_diagnostics(*, server_url: str) -> dict[str, Diagnostic]:
     """Collect installed-environment diagnostics without changing state."""
 
-    package = Diagnostic(ok=True, detail=f"powercontext {version('powercontext')}")
-    codex, plugin = _codex_diagnostics()
-    server = _server_diagnostic(server_url)
+    package = Diagnostic(status=DiagnosticStatus.OK, detail=f"powercontext {version('powercontext')}")
+    liveness = _server_liveness_diagnostic(server_url)
+    readiness = (
+        _server_readiness_diagnostic(server_url)
+        if liveness.ok
+        else Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because Server liveness failed",
+        )
+    )
     return {
         "package": package,
-        "codex": codex,
-        "plugin": plugin,
-        "server": server,
+        "server_liveness": liveness,
+        "server_readiness": readiness,
     }
 
 
-def _codex_diagnostics() -> tuple[Diagnostic, Diagnostic]:
+def run_codex_diagnostics() -> dict[str, Diagnostic]:
+    """Collect diagnostics for the optional Codex integration."""
+
     executable = which("codex")
     if executable is None:
-        missing = Diagnostic(ok=False, detail="Codex CLI is not installed or is not on PATH")
-        return missing, Diagnostic(ok=False, detail="plugin cannot be inspected without Codex CLI")
+        return {
+            "codex": Diagnostic(
+                status=DiagnosticStatus.FAILED,
+                detail="Codex CLI is not installed or is not on PATH",
+            ),
+            "plugin": Diagnostic(
+                status=DiagnosticStatus.SKIPPED,
+                detail="not checked because Codex CLI is unavailable",
+            ),
+        }
     try:
         result = _run_codex_json("plugin", "list")
     except SetupError as error:
-        return (
-            Diagnostic(ok=False, detail=str(error)),
-            Diagnostic(ok=False, detail="plugin list is unavailable"),
-        )
+        return {
+            "codex": Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error)),
+            "plugin": Diagnostic(status=DiagnosticStatus.SKIPPED, detail="plugin list is unavailable"),
+        }
     installed = result.get("installed")
     plugin = None
     if isinstance(installed, list):
@@ -211,20 +267,64 @@ def _codex_diagnostics() -> tuple[Diagnostic, Diagnostic]:
             ),
             None,
         )
-    return (
-        Diagnostic(ok=True, detail=executable),
-        Diagnostic(
-            ok=plugin is not None,
+    return {
+        "codex": Diagnostic(status=DiagnosticStatus.OK, detail=executable),
+        "plugin": Diagnostic(
+            status=DiagnosticStatus.OK if plugin is not None else DiagnosticStatus.FAILED,
             detail=(
                 f"{plugin.get('pluginId')} enabled={plugin.get('enabled')}"
                 if plugin is not None
                 else "PowerContext plugin is not installed"
             ),
         ),
+    }
+
+
+def _server_liveness_diagnostic(server_url: str) -> Diagnostic:
+    error = _server_url_error(server_url)
+    if error is not None:
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail=error)
+    try:
+        status_code, payload = _request_json(server_url, "/health/live")
+    except OSError:
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail=f"cannot reach {server_url}")
+    if status_code != 200:
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail=f"liveness returned HTTP {status_code}")
+    try:
+        health = HealthResponse.model_validate(payload)
+    except ValidationError:
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail="liveness returned an invalid response")
+    return Diagnostic(
+        status=DiagnosticStatus.OK if health.status == "ok" else DiagnosticStatus.FAILED,
+        detail=f"{server_url} status={health.status}",
     )
 
 
-def _server_diagnostic(server_url: str) -> Diagnostic:
+def _server_readiness_diagnostic(server_url: str) -> Diagnostic:
+    try:
+        status_code, payload = _request_json(server_url, "/health/ready")
+    except OSError:
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail=f"cannot reach {server_url}")
+    if status_code not in {200, 503}:
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail=f"readiness returned HTTP {status_code}")
+    try:
+        readiness = ReadinessResponse.model_validate(payload)
+    except ValidationError:
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail="readiness returned an invalid response")
+    if status_code == 200 and readiness.status is ReadinessStatus.READY:
+        diagnostic_status = DiagnosticStatus.OK
+    elif status_code == 200 and readiness.status is ReadinessStatus.DEGRADED:
+        diagnostic_status = DiagnosticStatus.DEGRADED
+    else:
+        diagnostic_status = DiagnosticStatus.FAILED
+    return Diagnostic(
+        status=diagnostic_status,
+        detail=f"{server_url} status={readiness.status.value}",
+        checks=readiness.checks,
+    )
+
+
+def _server_url_error(server_url: str) -> str | None:
     parsed = urlsplit(server_url)
     if (
         parsed.scheme not in {"http", "https"}
@@ -234,20 +334,63 @@ def _server_diagnostic(server_url: str) -> Diagnostic:
         or parsed.query
         or parsed.fragment
     ):
-        return Diagnostic(ok=False, detail="Server URL must be an HTTP base URL without credentials or query data")
+        return "Server URL must be an HTTP base URL without credentials or query data"
+    return None
+
+
+def _request_json(server_url: str, path: str) -> tuple[int, object]:
     request = Request(  # noqa: S310 - a user-selected diagnostics endpoint is expected.
-        f"{server_url.rstrip('/')}/health/ready",
+        f"{server_url.rstrip('/')}{path}",
         headers={"Accept": "application/json", "User-Agent": "powercontext-doctor"},
     )
     try:
         with urlopen(request, timeout=3) as response:  # noqa: S310
-            payload = json.load(response)
+            return response.getcode(), _load_json(response)
     except HTTPError as error:
-        return Diagnostic(ok=False, detail=f"readiness returned HTTP {error.code}")
-    except (OSError, ValueError) as error:
-        return Diagnostic(ok=False, detail=f"cannot reach {server_url}: {error}")
-    status = payload.get("status") if isinstance(payload, dict) else None
-    return Diagnostic(ok=status == "ready", detail=f"{server_url} status={status}")
+        try:
+            return error.code, _load_json(error)
+        finally:
+            error.close()
+
+
+def _load_json(response: Any) -> object | None:
+    try:
+        return json.load(response)
+    except (UnicodeError, ValueError):
+        return None
+
+
+def _diagnostics_ok(diagnostics: dict[str, Diagnostic]) -> bool:
+    return _diagnostics_status(diagnostics) is DiagnosticStatus.OK
+
+
+def _diagnostics_status(diagnostics: dict[str, Diagnostic]) -> DiagnosticStatus:
+    statuses = {diagnostic.status for diagnostic in diagnostics.values()}
+    for status in (DiagnosticStatus.FAILED, DiagnosticStatus.DEGRADED, DiagnosticStatus.SKIPPED):
+        if status in statuses:
+            return status
+    return DiagnosticStatus.OK
+
+
+def _write_diagnostics(diagnostics: dict[str, Diagnostic], *, json_output: bool) -> None:
+    if json_output:
+        status = _diagnostics_status(diagnostics)
+        typer.echo(
+            json.dumps(
+                {
+                    "ok": status is DiagnosticStatus.OK,
+                    "status": status.value,
+                    "checks": {name: diagnostic.as_json() for name, diagnostic in diagnostics.items()},
+                },
+                indent=2,
+            )
+        )
+        return
+    for name, diagnostic in diagnostics.items():
+        typer.echo(f"{name.replace('_', ' ')}: {diagnostic.status.value} - {diagnostic.detail}")
+        if diagnostic.checks is not None:
+            for check, status in diagnostic.checks.items():
+                typer.echo(f"  {check}: {status}")
 
 
 def _normalize_marketplace_source(source: str) -> tuple[str, bool]:
@@ -290,9 +433,11 @@ def _required_string(value: dict[str, Any], name: str) -> str:
 __all__ = [
     "CodexSetupResult",
     "Diagnostic",
+    "DiagnosticStatus",
     "SetupError",
     "doctor_app",
     "install_codex_plugin",
+    "run_codex_diagnostics",
     "run_diagnostics",
     "setup_app",
 ]

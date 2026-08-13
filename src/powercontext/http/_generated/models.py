@@ -647,6 +647,7 @@ class GeneratedCandidateStatus(StrEnum):
 
 class ReadinessStatus(StrEnum):
     READY = "ready"
+    DEGRADED = "degraded"
     NOT_READY = "not_ready"
 
 

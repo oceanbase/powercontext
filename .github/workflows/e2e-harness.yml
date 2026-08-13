@@ -61,6 +61,10 @@ jobs:
           EVIDENCE_PATH: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/acceptance
         run: |
           test -d "${EVIDENCE_PATH}"
+          if ! find "${EVIDENCE_PATH}" -type f -print -quit | grep -q .; then
+            echo "No replay evidence was produced." >&2
+            exit 1
+          fi
           docker run --rm \
             --volume "${EVIDENCE_PATH}:/evidence:ro" \
             "${TRUFFLEHOG_IMAGE}" \
@@ -74,7 +78,7 @@ jobs:
 
       - name: Report suppressed replay evidence
         if: always() && steps.evidence_scan.outcome != 'success'
-        run: echo "::warning::Replay evidence was not published because secret scanning did not complete cleanly."
+        run: echo "::warning::Replay evidence was missing or secret scanning did not complete cleanly."
 
       - name: Upload replay evidence
         if: always() && steps.evidence_scan.outcome == 'success'
