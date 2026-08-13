@@ -137,6 +137,10 @@ CLI 管理的 Server 启用 recording 和 export，请安装 `powercontext[cli,s
 OpenTelemetry 环境变量进行配置。不使用 `powercontext` command 的 programmatic Server integration 可以省略
 `cli` extra。
 
+启用 tracing 后，PowerContext 自己构造的 generation 与 embedding 调用也会产生 span，且不记录 prompt、模型响应、
+Memory 内容或向量。可运行的配置和唯一一处已记录的例外见
+[用 Phoenix 查看 trace](../how-to/trace-with-phoenix.md)。
+
 使用 OceanBase 时，通过环境或 secret manager 提供 URL：
 
 ```bash
