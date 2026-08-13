@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import JsonValue
 
@@ -54,6 +54,9 @@ from powercontext.builtin.runtime.readiness import (
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME, ContentSource
 from powercontext.sources import Source
+
+if TYPE_CHECKING:
+    from pydantic_ai.models.instrumented import InstrumentationSettings
 
 ValueT = TypeVar("ValueT")
 
@@ -111,6 +114,7 @@ async def open_builtin_runtime(
     embedding_model: EmbeddingModel | None = None,
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
+    instrumentation: InstrumentationSettings | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
@@ -124,7 +128,7 @@ async def open_builtin_runtime(
             generated_reranker,
             generation_readiness,
         ) = (
-            await _generation_pipelines(config.inference, config.runtime, resources)
+            await _generation_pipelines(config.inference, config.runtime, resources, instrumentation)
             if (
                 candidate_pipeline is None
                 or experience_pipeline is None
@@ -142,7 +146,9 @@ async def open_builtin_runtime(
         configured_handoff = generated_handoff if handoff_pipeline is None else handoff_pipeline
         configured_reranker = generated_reranker if memory_reranker is None else memory_reranker
         configured_embedding_source = (
-            await _embedding_model(config.inference, resources) if embedding_model is None else embedding_model
+            await _embedding_model(config.inference, resources, instrumentation)
+            if embedding_model is None
+            else embedding_model
         )
         configured_embedding = (
             None if configured_embedding_source is None else UsageReportingEmbeddingModel(configured_embedding_source)
@@ -312,6 +318,7 @@ async def _generation_pipelines(
     settings: InferenceConfig,
     runtime: RuntimeConfig,
     resources: AsyncExitStack,
+    instrumentation: InstrumentationSettings | None,
 ) -> tuple[
     CandidatePipeline | None,
     ExperienceCandidatePipeline | None,
@@ -325,6 +332,7 @@ async def _generation_pipelines(
         return None, None, None, None, None, None, None
 
     from pydantic_ai.models import infer_model
+    from pydantic_ai.models.instrumented import InstrumentedModel
     from pydantic_ai.settings import ModelSettings
 
     from powercontext.builtin.artifacts.experience import (
@@ -364,10 +372,12 @@ async def _generation_pipelines(
         probe_pydantic_ai_model,
     )
 
-    model = await resources.enter_async_context(infer_model(settings.generation_model))
+    provider_model = await resources.enter_async_context(infer_model(settings.generation_model))
+    model = provider_model if instrumentation is None else InstrumentedModel(provider_model, instrumentation)
 
     async def probe_generation() -> None:
-        await probe_pydantic_ai_model(model, timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS)
+        # Readiness probing runs outside any operation span; keep it out of traces.
+        await probe_pydantic_ai_model(provider_model, timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS)
 
     limits = InferenceLimits(
         timeout_seconds=settings.generation_timeout_seconds,
@@ -379,6 +389,7 @@ async def _generation_pipelines(
         input_type=MemoryExtractionInput,
         output_type=MemoryExtractionOutput,
         limits=limits,
+        name="memory_extraction",
     )
     experience_generator = PydanticAIStructuredGenerator(
         model=model,
@@ -386,6 +397,7 @@ async def _generation_pipelines(
         input_type=ExperienceIncubationInput,
         output_type=ExperienceIncubationOutput,
         limits=limits,
+        name="experience_incubation",
     )
     explicit_experience_generator = PydanticAIStructuredGenerator(
         model=model,
@@ -393,6 +405,7 @@ async def _generation_pipelines(
         input_type=ArtifactGenerationInput,
         output_type=ExperienceGenerationOutput,
         limits=limits,
+        name="experience_generation",
     )
     skill_generator = PydanticAIStructuredGenerator(
         model=model,
@@ -400,6 +413,7 @@ async def _generation_pipelines(
         input_type=ArtifactGenerationInput,
         output_type=SkillGenerationOutput,
         limits=limits,
+        name="skill_generation",
     )
     handoff_generator = PydanticAIStructuredGenerator(
         model=model,
@@ -407,6 +421,7 @@ async def _generation_pipelines(
         input_type=HandoffGenerationInput,
         output_type=HandoffGenerationOutput,
         limits=limits,
+        name="handoff_generation",
     )
     rerank_generator = (
         PydanticAIStructuredGenerator(
@@ -416,6 +431,7 @@ async def _generation_pipelines(
             output_type=MemoryRerankOutput,
             limits=limits,
             model_settings=ModelSettings(temperature=0.0),
+            name="memory_rerank",
         )
         if runtime.memory_rerank_enabled
         else None
@@ -437,7 +453,11 @@ async def _generation_pipelines(
     )
 
 
-async def _embedding_model(settings: InferenceConfig, resources: AsyncExitStack) -> EmbeddingModel | None:
+async def _embedding_model(
+    settings: InferenceConfig,
+    resources: AsyncExitStack,
+    instrumentation: InstrumentationSettings | None,
+) -> EmbeddingModel | None:
     if settings.embedding_model is None:
         return None
 
@@ -459,7 +479,7 @@ async def _embedding_model(settings: InferenceConfig, resources: AsyncExitStack)
     for provider in providers:
         await resources.enter_async_context(provider)
     return PydanticAIEmbeddingModel(
-        embedder=Embedder(model),
+        embedder=Embedder(model, instrument=instrumentation),
         batch_size=settings.embedding_batch_size,
         profile=EmbeddingProfile(
             profile_id=_required(settings.embedding_profile_id),
