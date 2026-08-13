@@ -1,9 +1,9 @@
 - Proposal Name: `unified_workloads_and_long_horizon_memory_evaluation`
 - Start Date: 2026-08-13
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
-- Related RFCs: [RFC 0081](0081_end_to_end_evaluation_architecture.md)
+- RFC PR: [oceanbase/powercontext#1229](https://github.com/oceanbase/powercontext/pull/1229)
+- Related RFC: [RFC 0081：端到端评估架构](0081_end_to_end_evaluation_architecture.md)
 
-# 摘要
+# Summary
 
 PowerContext 将内置端到端样例和长程任务表示为 workload。每个 workload 选择固定的 task、指定 execution adapter、设置预算，
 并声明如何评估本次运行产生的 Memory。
@@ -14,7 +14,7 @@ Bub adapter，因为 Bub 的 model call、tool、context injection、capture 与
 
 任务原生 reward 只用于诊断，不决定 PowerContext 是否采集到有依据、可召回的 Memory。
 
-# 动机
+# Motivation
 
 RFC 0081 定义了更广泛的端到端评估架构，但本地确定性样例、使用 model 的 agent 运行和长程任务仍然使用不同的命令与
 artifact 路径。这种分离会重复实现 selection、execution setup、evidence handling 与 reporting。
@@ -47,7 +47,7 @@ plugin 边界。确定性执行不需要伪装成 model run，长程执行则可
 完整 LoCoMo benchmark 与独立的 SWE-Pro evaluation 不进入该 catalog。本 RFC 不迁移它们，也不改变其原生输入、评分、结果
 或运行命令。
 
-# 使用方式
+# Guide-level explanation
 
 ## Workload manifest
 
@@ -171,7 +171,7 @@ Memory acceptance 使用可观察的 evidence：
 任务原生 reward、verifier result、运行时长与 model usage 保留为 label、score 或 metric。任务可以没有通过原生 grader，同时
 通过 Memory acceptance。
 
-# 设计
+# Reference-level explanation
 
 ## Workload 与 adapter contract
 
@@ -232,30 +232,13 @@ acceptance category。ID 与 category selector 扩展该命令，不引入通用
 当前 LoCoMo benchmark 与 SWE-Pro evaluation 保留现有 command、artifact 与 result contract。LoCoMo 衍生的内置 workload
 保持为固定 sample，不代表完整 benchmark 结果。
 
-# 代价
-
-公共 replay envelope 必须保留 adapter 原生 evidence，不能把它压成无类型 dictionary。长程运行可能消耗付费模型额度、
-需要 privileged container，并产生较大的 artifact。因此 required database matrix 只覆盖确定性 workload，使用 model 的
-category 保持为显式选择的 evaluation。
-
-# 理由与替代方案
-
-为确定性样例、live agent run 与长程任务维护独立 harness，会重复 selection、evidence、evaluation 与 reporting。
-公共 contract 将这些职责放在一处，adapter 则隔离 execution semantics。
-
-把 model name 或 authentication method 放入 manifest，会让 workload 依赖某个 operator environment。布尔 requirement 可以
-保留确定性边界，同时由运行时配置选择可用的 model 与 credential。
-
-直接用任务原生 reward 作为 Memory acceptance，只能回答任务是否完成，不能回答 PowerContext 是否采集到有效 Memory。
-原生结果会保留，但不会取代 Memory evaluator。
-
-# 非目标
+## Non-goals
 
 本 RFC 不替代 RFC 0081，不定义 leaderboard，不要求发布到 registry，也不引入新的 agent protocol。它不统一 adapter 私有
 实现，也不替代任务原生 grader。本 RFC 不迁移、重写或移除当前 LoCoMo benchmark 与 SWE-Pro evaluation，也不实现其他
 execution adapter。
 
-# 验收条件
+## Acceptance criteria
 
 满足以下条件时，本提案完成：
 
@@ -269,3 +252,40 @@ execution adapter。
 - long-horizon Memory acceptance 与任务原生 reward 保持独立；
 - 每个 replay 都标识 adapter，并支持离线重新评分；
 - 当前 LoCoMo benchmark 与 SWE-Pro evaluation 保持不变。
+
+# Drawbacks
+
+公共 replay envelope 必须保留 adapter 原生 evidence，不能把它压成无类型 dictionary。长程运行可能消耗付费模型额度、
+需要 privileged container，并产生较大的 artifact。因此 required database matrix 只覆盖确定性 workload，使用 model 的
+category 保持为显式选择的 evaluation。
+
+# Rationale and alternatives
+
+为确定性样例、live agent run 与长程任务维护独立 harness，会重复 selection、evidence、evaluation 与 reporting。
+公共 contract 将这些职责放在一处，adapter 则隔离 execution semantics。
+
+把 model name 或 authentication method 放入 manifest，会让 workload 依赖某个 operator environment。布尔 requirement 可以
+保留确定性边界，同时由运行时配置选择可用的 model 与 credential。
+
+直接用任务原生 reward 作为 Memory acceptance，只能回答任务是否完成，不能回答 PowerContext 是否采集到有效 Memory。
+原生结果会保留，但不会取代 Memory evaluator。
+
+# Prior art
+
+RFC 0081 将 runtime integration、workload execution、evidence collection、evaluation 与 reporting 分开。本提案保持这些
+边界，并为内置 acceptance scenario 定义公共的 workload 与 artifact contract。
+
+Harbor 提供固定的 task environment、agent lifecycle management 与任务原生验证。Bub 是首个可观察的 execution adapter。
+Replay envelope 保留 Harbor 与 Bub evidence 的类型，同时让 Memory acceptance 与任务原生 score 保持独立。
+
+# Unresolved questions
+
+无。增加其他 execution adapter、迁移现有 benchmark、发布使用 model 的 artifact 都需要单独评审。
+
+# Future possibilities
+
+当 Bub 无法忠实表示某个 workload 时，workload contract 可以增加 `basic` 或 `codex` execution variant。新 adapter 复用
+selection、replay、evaluation 与 reporting，不创建另一套 harness。
+
+完整 LoCoMo benchmark 或 SWE-Pro evaluation 可以在其原生 scoring 与 artifact contract 经过验证后迁入 catalog。Registry
+发布与公共 artifact retention 可以在隐私和运行要求明确后单独评审。
