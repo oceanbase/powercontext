@@ -5,23 +5,27 @@
 {% block content %}
 {% include "components/login.html" %}
 
-<section id="handoff-report" hidden>
+{% set status_title_key = "handoffReportTitle" %}
+{% set status_title = "Handoff Report" %}
+{% include "components/status.html" %}
+
+<section class="server-content" id="handoff-report">
   <div class="hero report-hero">
     <div>
       <p class="page-kind" data-i18n="handoffReportTitle">Handoff Report</p>
       <h1 id="project-name"></h1>
-      <p class="project-identity" id="project-identity"></p>
     </div>
-    <div class="report-actions">
-      <button class="secondary-button page-button" id="refresh-report" type="button" data-i18n="refresh">Refresh</button>
-      <button class="primary-button" id="download-report" type="button" data-i18n="downloadMarkdown">Download Markdown</button>
-      <div class="hero-meta"><span id="report-updated"></span></div>
+    <div class="report-hero-controls">
+      <div class="scope-picker report-project-picker">
+        <label for="project-select" data-i18n="projects">Projects</label>
+        <select id="project-select"></select>
+      </div>
+      <div class="report-actions">
+        <button class="secondary-button page-button" id="refresh-report" type="button" data-i18n="refresh">Refresh</button>
+        <button class="primary-button" id="download-report" type="button" data-i18n="downloadMarkdown">Download Markdown</button>
+        <div class="hero-meta"><span id="report-updated"></span></div>
+      </div>
     </div>
-  </div>
-
-  <div class="project-tabs-shell" aria-labelledby="project-tabs-label">
-    <div class="field-label" id="project-tabs-label" data-i18n="projects">Projects</div>
-    <div class="project-tabs" id="project-tabs" role="tablist"></div>
   </div>
 
   <section class="report-toolbar" aria-labelledby="period-filter-label">
@@ -141,5 +145,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}"></script>
+<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=state-races"></script>
 {% endblock %}

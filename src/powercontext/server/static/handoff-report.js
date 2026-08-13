@@ -5,11 +5,10 @@ import {
   fetchWithBearer,
   readServerToken,
   storeServerToken
-} from "./auth.js";
+} from "./auth.js?v=session-shell";
 import {formatDateRange, resolvePeriodSelection, validateDateRange} from "./handoff-period.js";
+import {createPageUi, createRequestGate} from "./page-ui.js?v=request-gate";
 
-const themeKey = "powercontext.dashboard.theme";
-const localeKey = "powercontext.dashboard.locale";
 const selectedProjectKey = "powercontext.handoff-report.project";
 const translations = {
   en: {
@@ -74,7 +73,7 @@ const translations = {
     switchEnglish: "Switch to English",
     languageChinese: "中文",
     updated: "Updated {value}",
-    projectTab: "{title} ({projectId})",
+    projectOption: "{title} ({projectId})",
     coverageCaptured: "Captured Activity is included through cursor {cursor}. Counts describe observed events, not completion percentage.",
     coverageNotConfigured: "Activity adapters are not configured. Missing Activity must not be read as no work occurring.",
     coverageUnavailable: "Activity coverage is unavailable for this report.",
@@ -82,6 +81,7 @@ const translations = {
     authRejected: "The Server rejected this token.",
     requestFailed: "The Handoff Report request failed with HTTP {status}.",
     serverUnavailable: "The Server is unavailable.",
+    retry: "Retry",
     reportUnavailable: "The selected Project report is unavailable.",
     downloadFailed: "The Markdown download failed with HTTP {status}.",
     reported: "Reported",
@@ -156,7 +156,7 @@ const translations = {
     switchEnglish: "切换至英文",
     languageChinese: "中文",
     updated: "更新于 {value}",
-    projectTab: "{title}（{projectId}）",
+    projectOption: "{title}（{projectId}）",
     coverageCaptured: "已纳入游标 {cursor} 之前捕获的 Activity。数量表示已观察事件，不代表完成百分比。",
     coverageNotConfigured: "Activity Adapter 尚未配置；缺少 Activity 不能解释为没有发生工作。",
     coverageUnavailable: "当前报告无法取得 Activity 覆盖信息。",
@@ -164,6 +164,7 @@ const translations = {
     authRejected: "Server 拒绝了该 Token。",
     requestFailed: "Handoff Report 请求失败（HTTP {status}）。",
     serverUnavailable: "Server 无法访问。",
+    retry: "重试",
     reportUnavailable: "当前 Project 的交接报告不可用。",
     downloadFailed: "Markdown 下载失败（HTTP {status}）。",
     reported: "已汇报",
@@ -182,9 +183,12 @@ const authShell = document.getElementById("auth-shell");
 const authForm = document.getElementById("auth-form");
 const authError = document.getElementById("auth-error");
 const tokenInput = document.getElementById("token");
+const pageStatus = document.getElementById("page-status");
+const pageStatusMessage = document.getElementById("page-status-message");
+const pageStatusRetry = document.getElementById("page-status-retry");
 const reportShell = document.getElementById("handoff-report");
 const reportError = document.getElementById("report-error");
-const projectTabs = document.getElementById("project-tabs");
+const projectSelect = document.getElementById("project-select");
 const refreshButton = document.getElementById("refresh-report");
 const downloadButton = document.getElementById("download-report");
 const periodButtons = Array.from(document.querySelectorAll("[data-period-mode]"));
@@ -194,24 +198,28 @@ const periodEndInput = document.getElementById("period-end");
 const applyCustomPeriodButton = document.getElementById("apply-custom-period");
 const periodError = document.getElementById("period-error");
 const signOut = document.getElementById("sign-out");
-const themeToggle = document.getElementById("theme-toggle");
-const languageToggle = document.getElementById("language-toggle");
-let currentLocale = document.documentElement.lang === "zh" ? "zh" : "en";
 let currentProjects = [];
 let currentProject = null;
 let currentReport = null;
 let currentAuthError = null;
+let currentPageStatus = null;
 let currentPeriodMode = "day";
 let currentPeriodSelection = null;
 let appliedCustomRange = null;
-
-themeToggle.addEventListener("click", () => {
-  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+const ui = createPageUi(translations, () => {
+  renderAuthError();
+  renderPageStatus();
+  if (currentProject !== null) {
+    renderProjectOptions(currentProjects, currentProject.project_id);
+  }
+  if (currentReport !== null) {
+    renderReport(currentReport);
+  } else {
+    renderPeriodControls();
+  }
 });
-
-languageToggle.addEventListener("click", () => {
-  applyLocale(currentLocale === "en" ? "zh" : "en");
-});
+const {formatDateTime, formatNumber, translate} = ui;
+const reportRequests = createRequestGate();
 
 authForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -224,6 +232,15 @@ signOut.addEventListener("click", () => {
   showLogin();
 });
 
+pageStatusRetry.addEventListener("click", async () => {
+  const token = readServerToken();
+  if (currentProject === null) {
+    await authenticate(token);
+  } else {
+    await loadReport(token, currentProject.project_id);
+  }
+});
+
 refreshButton.addEventListener("click", async () => {
   if (currentProject !== null) {
     await loadReport(readServerToken(), currentProject.project_id);
@@ -232,6 +249,12 @@ refreshButton.addEventListener("click", async () => {
 
 downloadButton.addEventListener("click", async () => {
   await downloadMarkdown();
+});
+
+projectSelect.addEventListener("change", async () => {
+  if (projectSelect.value !== currentProject?.project_id) {
+    await loadReport(readServerToken(), projectSelect.value);
+  }
 });
 
 for (const button of periodButtons) {
@@ -263,81 +286,35 @@ customPeriodForm.addEventListener("submit", async (event) => {
 periodStartInput.addEventListener("change", updatePeriodInputBounds);
 periodEndInput.addEventListener("change", updatePeriodInputBounds);
 
-function applyTheme(theme, persist = true) {
-  document.documentElement.dataset.theme = theme;
-  if (persist) {
-    try {
-      localStorage.setItem(themeKey, theme);
-    } catch (error) {
-      // The selected theme still applies to the current page.
-    }
-  }
-  updateControlLabels();
-}
-
-function applyLocale(locale, persist = true) {
-  currentLocale = locale;
-  document.documentElement.lang = locale;
-  if (persist) {
-    try {
-      localStorage.setItem(localeKey, locale);
-    } catch (error) {
-      // The selected locale still applies to the current page.
-    }
-  }
-  document.title = translate("pageTitle");
-  document.querySelectorAll("[data-i18n]").forEach((element) => {
-    element.textContent = translate(element.dataset.i18n);
-  });
-  updateControlLabels();
-  renderAuthError();
-  if (currentProject !== null) {
-    renderProjects(currentProjects, currentProject.project_id);
-  }
-  if (currentReport !== null) {
-    renderReport(currentReport);
-  } else {
-    renderPeriodControls();
-  }
-}
-
-function updateControlLabels() {
-  const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-  themeToggle.setAttribute("aria-label", translate(nextTheme === "dark" ? "switchDark" : "switchLight"));
-  themeToggle.setAttribute("title", translate(nextTheme === "dark" ? "switchDark" : "switchLight"));
-  languageToggle.textContent = currentLocale === "en" ? translate("languageChinese") : "EN";
-  languageToggle.setAttribute("aria-label", translate(currentLocale === "en" ? "switchChinese" : "switchEnglish"));
-}
-
 async function authenticate(token) {
   if (!token) {
     showLogin();
     return;
   }
-  setBusy(true);
+  storeServerToken(token);
+  tokenInput.value = "";
+  currentAuthError = null;
+  const request = beginReportRequest();
   try {
     currentProjects = await listProjects(token);
-    storeServerToken(token);
-    tokenInput.value = "";
-    currentAuthError = null;
-    authShell.hidden = true;
-    reportShell.hidden = false;
-    signOut.hidden = false;
+    if (!request.isCurrent()) {
+      return;
+    }
     if (currentProjects.length === 0) {
       currentProject = null;
       currentReport = null;
-      renderProjects([], "");
-      showReportError("noProjects");
-      clearReport();
+      showPageStatus("noProjects", {}, true);
       return;
     }
     const remembered = readSelectedProject();
     const selected = currentProjects.find((project) => project.project_id === remembered) || currentProjects[0];
-    await loadReport(token, selected.project_id);
+    await loadReportData(token, selected.project_id, request);
   } catch (error) {
-    handleRequestError(error);
+    if (request.isCurrent()) {
+      handleRequestError(error);
+    }
   } finally {
-    setBusy(false);
+    request.finish();
   }
 }
 
@@ -361,38 +338,59 @@ async function loadReport(token, projectId) {
     showLogin();
     return;
   }
-  setBusy(true);
+  const request = beginReportRequest();
   clearReportError();
   try {
-    const project = currentProjects.find((item) => item.project_id === projectId) || currentProject;
-    const periodSelection = resolveSelectedPeriod(project);
-    const response = await requestJson("/v1/handoff-reports/get", token, {
-      project_id: projectId,
-      locale: currentLocale === "zh" ? "zh-CN" : "en",
-      include_evidence_checks: false,
-      format: "json",
-      include_archived: false,
-      download: false,
-      period: periodSelection.period
-    });
-    if (response.report === null) {
-      throw new Error("reportUnavailable");
-    }
-    currentProject = currentProjects.find((project) => project.project_id === projectId) || response.report.project;
-    currentReport = response.report;
-    currentPeriodSelection = periodSelection;
-    rememberSelectedProject(projectId);
-    renderProjects(currentProjects, projectId);
-    renderReport(currentReport);
+    await loadReportData(token, projectId, request);
   } catch (error) {
-    if (error.message === "reportUnavailable") {
-      showReportError("reportUnavailable");
-    } else {
+    if (request.isCurrent()) {
+      if (currentProject !== null) {
+        renderProjectOptions(currentProjects, currentProject.project_id);
+      }
       handleRequestError(error);
     }
   } finally {
-    setBusy(false);
+    request.finish();
   }
+}
+
+async function loadReportData(token, projectId, request) {
+  const project = currentProjects.find((item) => item.project_id === projectId) || currentProject;
+  const periodSelection = resolveSelectedPeriod(project);
+  const response = await requestJson("/v1/handoff-reports/get", token, {
+    project_id: projectId,
+    locale: ui.locale() === "zh" ? "zh-CN" : "en",
+    include_evidence_checks: false,
+    format: "json",
+    include_archived: false,
+    download: false,
+    period: periodSelection.period
+  });
+  if (!request.isCurrent()) {
+    return;
+  }
+  if (response.report === null) {
+    throw new Error("reportUnavailable");
+  }
+  currentProject = currentProjects.find((item) => item.project_id === projectId) || response.report.project;
+  currentReport = response.report;
+  currentPeriodSelection = periodSelection;
+  rememberSelectedProject(projectId);
+  renderProjectOptions(currentProjects, projectId);
+  renderReport(currentReport);
+}
+
+function beginReportRequest() {
+  setBusy(true);
+  const request = reportRequests.start();
+  return {
+    finish() {
+      if (request.isCurrent()) {
+        setBusy(false);
+      }
+    },
+    isCurrent: request.isCurrent
+  };
 }
 
 async function requestJson(path, token, payload) {
@@ -420,28 +418,61 @@ function handleRequestError(error) {
     showLogin("authRejected");
     return;
   }
+  const key = error.message === "reportUnavailable" ? "reportUnavailable" : "serverUnavailable";
   if (typeof error.status === "number") {
-    showReportOrLoginError("requestFailed", {status: error.status});
+    showReportFailure("requestFailed", {status: error.status});
     return;
   }
-  showReportOrLoginError("serverUnavailable");
+  showReportFailure(key);
 }
 
-function showReportOrLoginError(key, values = {}) {
-  if (readServerToken()) {
-    showReportError(key, values);
-  } else {
-    showLogin(key, values);
+function showReportFailure(key, values = {}) {
+  if (currentReport === null) {
+    showPageStatus(key, values, true);
+    return;
   }
+  currentPageStatus = null;
+  pageStatus.hidden = true;
+  reportShell.hidden = false;
+  signOut.hidden = false;
+  showReportError(key, values);
 }
 
 function showLogin(messageKey = "", values = {}) {
+  reportRequests.cancel();
+  setBusy(false);
+  currentProjects = [];
+  currentProject = null;
+  currentReport = null;
+  currentPeriodSelection = null;
+  currentPageStatus = null;
   currentAuthError = messageKey ? {key: messageKey, values} : null;
   renderAuthError();
+  clearReport();
   authShell.hidden = false;
+  pageStatus.hidden = true;
   reportShell.hidden = true;
   signOut.hidden = true;
   tokenInput.focus();
+}
+
+function showPageStatus(messageKey, values = {}, retryable = false) {
+  currentPageStatus = {key: messageKey, values, retryable};
+  renderPageStatus();
+  authShell.hidden = true;
+  pageStatus.hidden = false;
+  reportShell.hidden = true;
+  signOut.hidden = false;
+}
+
+function renderPageStatus() {
+  if (currentPageStatus === null) {
+    pageStatusMessage.textContent = "";
+    pageStatusRetry.hidden = true;
+    return;
+  }
+  pageStatusMessage.textContent = translate(currentPageStatus.key, currentPageStatus.values);
+  pageStatusRetry.hidden = !currentPageStatus.retryable;
 }
 
 function renderAuthError() {
@@ -450,32 +481,25 @@ function renderAuthError() {
     : translate(currentAuthError.key, currentAuthError.values);
 }
 
-function renderProjects(projects, selectedProjectId) {
-  projectTabs.replaceChildren();
+function renderProjectOptions(projects, selectedProjectId) {
+  projectSelect.replaceChildren();
   for (const project of projects) {
-    const tab = document.createElement("button");
-    tab.type = "button";
-    tab.className = "project-tab";
-    tab.dataset.projectId = project.project_id;
-    tab.setAttribute("role", "tab");
-    tab.setAttribute("aria-selected", String(project.project_id === selectedProjectId));
-    tab.textContent = translate("projectTab", {title: project.title, projectId: project.project_id});
-    tab.addEventListener("click", async () => {
-      if (project.project_id !== currentProject?.project_id) {
-        await loadReport(readServerToken(), project.project_id);
-      }
-    });
-    projectTabs.appendChild(tab);
+    const option = document.createElement("option");
+    option.value = project.project_id;
+    option.selected = project.project_id === selectedProjectId;
+    option.textContent = translate("projectOption", {title: project.title, projectId: project.project_id});
+    projectSelect.appendChild(option);
   }
 }
 
 function renderReport(report) {
+  currentPageStatus = null;
   authShell.hidden = true;
+  pageStatus.hidden = true;
   reportShell.hidden = false;
   signOut.hidden = false;
   clearReportError();
   setText("project-name", report.project.title);
-  setText("project-identity", `${report.project.project_key} · ${report.project.project_id}`);
   setText("report-updated", translate("updated", {value: formatDateTime(report.generated_at)}));
   setText("continuable-count", formatNumber(report.summary.continuable_count));
   setText("blocked-count", formatNumber(report.summary.blocked_count));
@@ -497,7 +521,6 @@ function renderReport(report) {
 
 function clearReport() {
   setText("project-name", translate("handoffReportTitle"));
-  setText("project-identity", "");
   setText("report-updated", "");
   for (const id of [
     "continuable-count",
@@ -648,10 +671,7 @@ function statusBadge(status) {
 }
 
 function statusLabel(status) {
-  const key = status === "continuable" || status === "blocked" || status === "complete"
-    ? status
-    : status;
-  return translate(key);
+  return translate(status);
 }
 
 async function downloadMarkdown() {
@@ -669,7 +689,7 @@ async function downloadMarkdown() {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
         project_id: currentProject.project_id,
-        locale: currentLocale === "zh" ? "zh-CN" : "en",
+        locale: ui.locale() === "zh" ? "zh-CN" : "en",
         include_evidence_checks: true,
         format: "markdown",
         include_archived: false,
@@ -709,9 +729,7 @@ function setBusy(busy) {
   periodButtons.forEach((button) => {
     button.disabled = busy;
   });
-  projectTabs.querySelectorAll("button").forEach((button) => {
-    button.disabled = busy;
-  });
+  projectSelect.disabled = busy;
 }
 
 function resolveSelectedPeriod(project) {
@@ -748,7 +766,7 @@ function renderPeriodControls(report = null) {
   updatePeriodInputBounds();
   setText("period-summary-label", translate("periodSummary", {
     preset: translate(currentPeriodMode),
-    range: formatDateRange(selection.startDate, selection.endDate, localeTag()),
+    range: formatDateRange(selection.startDate, selection.endDate, ui.localeTag()),
     timezone: selection.period.timezone
   }));
   const comparison = report?.period_comparison;
@@ -808,32 +826,9 @@ function setText(id, value) {
   document.getElementById(id).textContent = value;
 }
 
-function translate(key, values = {}) {
-  const template = translations[currentLocale][key] || translations.en[key] || key;
-  return template.replace(/\{([a-zA-Z]+)\}/g, (match, name) => String(values[name] ?? match));
-}
-
-function localeTag() {
-  return currentLocale === "zh" ? "zh-CN" : "en";
-}
-
-function formatNumber(value) {
-  return new Intl.NumberFormat(localeTag()).format(value);
-}
-
 function formatSignedNumber(value) {
-  return new Intl.NumberFormat(localeTag(), {signDisplay: "always"}).format(value);
+  return new Intl.NumberFormat(ui.localeTag(), {signDisplay: "always"}).format(value);
 }
 
-function formatDateTime(value) {
-  return new Intl.DateTimeFormat(localeTag(), {dateStyle: "medium", timeStyle: "short"}).format(new Date(value));
-}
-
-const initialTheme = document.documentElement.dataset.theme === "dark"
-  ? "dark"
-  : (document.documentElement.dataset.theme === "light"
-    ? "light"
-    : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
-applyLocale(currentLocale, false);
-applyTheme(initialTheme, false);
+ui.initialize();
 authenticate(readServerToken());

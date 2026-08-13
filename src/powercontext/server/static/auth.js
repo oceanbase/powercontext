@@ -1,5 +1,9 @@
 const tokenKey = "powercontext.server.token";
 
+function setSessionState(state) {
+  document.documentElement.dataset.serverSession = state;
+}
+
 export function readServerToken() {
   try {
     return sessionStorage.getItem(tokenKey);
@@ -9,6 +13,7 @@ export function readServerToken() {
 }
 
 export function storeServerToken(token) {
+  setSessionState("active");
   try {
     sessionStorage.setItem(tokenKey, token);
   } catch (error) {
@@ -17,6 +22,7 @@ export function storeServerToken(token) {
 }
 
 export function clearServerToken() {
+  setSessionState("missing");
   try {
     sessionStorage.removeItem(tokenKey);
   } catch (error) {

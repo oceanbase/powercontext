@@ -5,10 +5,9 @@ import {
   fetchWithBearer,
   readServerToken,
   storeServerToken
-} from "./auth.js";
+} from "./auth.js?v=session-shell";
+import {createPageUi, createRequestGate} from "./page-ui.js?v=request-gate";
 
-const themeKey = "powercontext.dashboard.theme";
-const localeKey = "powercontext.dashboard.locale";
 const translations = {
   en: {
     pageTitle: "PowerContext Dashboard",
@@ -61,6 +60,7 @@ const translations = {
     authRejected: "The Server rejected this token.",
     requestFailed: "The Dashboard request failed with HTTP {status}.",
     serverUnavailable: "The Server is unavailable.",
+    retry: "Retry",
     noScopes: "No Dashboard scopes are configured.",
     scopeUnavailable: "The selected scope is not available."
   },
@@ -115,6 +115,7 @@ const translations = {
     authRejected: "Server \u62d2\u7edd\u4e86\u8be5 Token\u3002",
     requestFailed: "Dashboard \u8bf7\u6c42\u5931\u8d25\uff08HTTP {status}\uff09\u3002",
     serverUnavailable: "Server \u65e0\u6cd5\u8bbf\u95ee\u3002",
+    retry: "\u91cd\u8bd5",
     noScopes: "\u672a\u914d\u7f6e Dashboard \u4f5c\u7528\u57df\u3002",
     scopeUnavailable: "\u9009\u4e2d\u7684\u4f5c\u7528\u57df\u4e0d\u53ef\u7528\u3002"
   }
@@ -123,29 +124,34 @@ const authShell = document.getElementById("auth-shell");
 const authForm = document.getElementById("auth-form");
 const authError = document.getElementById("auth-error");
 const tokenInput = document.getElementById("token");
+const pageStatus = document.getElementById("page-status");
+const pageStatusMessage = document.getElementById("page-status-message");
+const pageStatusRetry = document.getElementById("page-status-retry");
 const dashboard = document.getElementById("dashboard");
 const signOut = document.getElementById("sign-out");
-const themeToggle = document.getElementById("theme-toggle");
-const languageToggle = document.getElementById("language-toggle");
 const scopeSelect = document.getElementById("scope-select");
 const svgNamespace = "http://www.w3.org/2000/svg";
-let currentLocale = document.documentElement.lang === "zh" ? "zh" : "en";
 let currentView = null;
 let currentScopes = [];
 let currentAuthError = null;
-
-themeToggle.addEventListener("click", () => {
-  const currentTheme = document.documentElement.dataset.theme;
-  const nextTheme = currentTheme === "dark" ? "light" : "dark";
-  applyTheme(nextTheme);
+let currentPageStatus = null;
+let currentScopeId = "";
+const ui = createPageUi(translations, () => {
+  renderAuthError();
+  renderPageStatus();
+  if (currentView !== null) {
+    renderDashboard(currentView);
+  }
 });
-
-languageToggle.addEventListener("click", () => {
-  applyLocale(currentLocale === "en" ? "zh" : "en");
-});
+const {formatDateTime, formatNumber, translate} = ui;
+const dashboardRequests = createRequestGate();
 
 scopeSelect.addEventListener("change", async () => {
   await loadStatistics(readServerToken(), scopeSelect.value);
+});
+
+pageStatusRetry.addEventListener("click", async () => {
+  await authenticate(readServerToken(), currentScopeId);
 });
 
 authForm.addEventListener("submit", async (event) => {
@@ -160,127 +166,139 @@ signOut.addEventListener("click", () => {
   showLogin();
 });
 
-function applyTheme(theme, persist = true) {
-  document.documentElement.dataset.theme = theme;
-  if (persist) {
-    try {
-      localStorage.setItem(themeKey, theme);
-    } catch (error) {
-      // The selected theme still applies to the current page.
-    }
-  }
-  updateControlLabels();
-}
-
-function applyLocale(locale, persist = true) {
-  currentLocale = locale;
-  document.documentElement.lang = locale;
-  if (persist) {
-    try {
-      localStorage.setItem(localeKey, locale);
-    } catch (error) {
-      // The selected locale still applies to the current page.
-    }
-  }
-  document.title = translate("pageTitle");
-  document.querySelectorAll("[data-i18n]").forEach((element) => {
-    element.textContent = translate(element.dataset.i18n);
-  });
-  updateControlLabels();
-  renderAuthError();
-  if (currentView !== null) {
-    renderDashboard(currentView);
-  }
-}
-
-function updateControlLabels() {
-  const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-  themeToggle.setAttribute("aria-label", translate(nextTheme === "dark" ? "switchDark" : "switchLight"));
-  themeToggle.setAttribute("title", translate(nextTheme === "dark" ? "switchDark" : "switchLight"));
-  languageToggle.textContent = currentLocale === "en" ? translate("languageChinese") : "EN";
-  languageToggle.setAttribute("aria-label", translate(currentLocale === "en" ? "switchChinese" : "switchEnglish"));
-}
-
 async function authenticate(token, scopeId = "") {
   if (!token) {
     showLogin();
     return;
   }
 
+  storeServerToken(token);
+  tokenInput.value = "";
+  currentAuthError = null;
+  const request = dashboardRequests.start();
   scopeSelect.disabled = true;
   try {
     const response = await fetchWithBearer("/dashboard/scopes", token);
+    if (!request.isCurrent()) {
+      return;
+    }
     if (response.status === 401) {
       clearServerToken();
       showLogin("authRejected");
       return;
     }
     if (!response.ok) {
-      showLogin("requestFailed", {status: response.status});
+      showPageStatus("requestFailed", {status: response.status}, true);
       return;
     }
     currentScopes = await response.json();
-    if (currentScopes.length === 0) {
-      showLogin("noScopes");
+    if (!request.isCurrent()) {
       return;
     }
-    storeServerToken(token);
-    tokenInput.value = "";
-    currentAuthError = null;
+    if (currentScopes.length === 0) {
+      showPageStatus("noScopes", {}, true);
+      return;
+    }
     const selectedScopeId = currentScopes.some((scope) => scope.scope_id === scopeId)
       ? scopeId
       : currentScopes[0].scope_id;
-    await loadStatistics(token, selectedScopeId);
+    currentScopeId = selectedScopeId;
+    await loadStatistics(token, selectedScopeId, request);
   } catch (error) {
-    showLogin("serverUnavailable");
+    if (request.isCurrent()) {
+      showPageStatus("serverUnavailable", {}, true);
+    }
   } finally {
-    scopeSelect.disabled = false;
+    if (request.isCurrent()) {
+      scopeSelect.disabled = false;
+    }
   }
 }
 
-async function loadStatistics(token, scopeId) {
+async function loadStatistics(token, scopeId, request = null) {
   if (!token) {
     showLogin();
     return;
   }
 
+  const activeRequest = request || dashboardRequests.start();
+  currentScopeId = scopeId;
   scopeSelect.disabled = true;
   try {
     const url = new URL("/v1/stats", window.location.origin);
     url.searchParams.set("scope_id", scopeId);
     url.searchParams.set("period", "30d");
     const response = await fetchWithBearer(url, token);
+    if (!activeRequest.isCurrent()) {
+      return;
+    }
     if (response.status === 401) {
       clearServerToken();
       showLogin("authRejected");
       return;
     }
     if (!response.ok) {
-      showLogin("requestFailed", {status: response.status});
+      showPageStatus("requestFailed", {status: response.status}, true);
       return;
     }
     const statistics = await response.json();
+    if (!activeRequest.isCurrent()) {
+      return;
+    }
     const selectedScope = currentScopes.find((scope) => scope.scope_id === statistics.scope_id);
     if (!selectedScope) {
-      showLogin("scopeUnavailable");
+      showPageStatus("scopeUnavailable", {}, true);
       return;
     }
     renderDashboard({scopes: currentScopes, selectedScope, statistics});
   } catch (error) {
-    showLogin("serverUnavailable");
+    if (activeRequest.isCurrent()) {
+      showPageStatus("serverUnavailable", {}, true);
+    }
   } finally {
-    scopeSelect.disabled = false;
+    if (activeRequest.isCurrent()) {
+      scopeSelect.disabled = false;
+    }
   }
 }
 
 function showLogin(messageKey = "", values = {}) {
+  dashboardRequests.cancel();
+  scopeSelect.disabled = false;
   currentView = null;
+  currentScopes = [];
+  currentScopeId = "";
+  currentPageStatus = null;
   currentAuthError = messageKey ? {key: messageKey, values} : null;
   renderAuthError();
   authShell.hidden = false;
+  pageStatus.hidden = true;
   dashboard.hidden = true;
   signOut.hidden = true;
   tokenInput.focus();
+}
+
+function showPageStatus(messageKey, values = {}, retryable = false) {
+  currentView = null;
+  currentPageStatus = {key: messageKey, values, retryable};
+  renderPageStatus();
+  authShell.hidden = true;
+  pageStatus.hidden = false;
+  dashboard.hidden = true;
+  signOut.hidden = false;
+}
+
+function renderPageStatus() {
+  if (currentPageStatus === null) {
+    pageStatusMessage.textContent = "";
+    pageStatusRetry.hidden = true;
+    return;
+  }
+  pageStatusMessage.textContent = translate(
+    currentPageStatus.key,
+    currentPageStatus.values
+  );
+  pageStatusRetry.hidden = !currentPageStatus.retryable;
 }
 
 function renderAuthError() {
@@ -291,10 +309,12 @@ function renderAuthError() {
 
 function renderDashboard(view) {
   currentView = view;
+  currentPageStatus = null;
   const statistics = view.statistics;
   const inventory = statistics.inventory;
   const recall = statistics.recall;
   authShell.hidden = true;
+  pageStatus.hidden = true;
   dashboard.hidden = false;
   signOut.hidden = false;
 
@@ -546,13 +566,8 @@ function setText(id, value) {
   document.getElementById(id).textContent = value;
 }
 
-function translate(key, values = {}) {
-  const template = translations[currentLocale][key] || translations.en[key] || key;
-  return template.replace(/\{([a-zA-Z]+)\}/g, (match, name) => String(values[name] ?? match));
-}
-
 function formatFamily(value) {
-  if (translations[currentLocale][value] || translations.en[value]) {
+  if (translations[ui.locale()][value] || translations.en[value]) {
     return translate(value);
   }
   return value
@@ -561,35 +576,17 @@ function formatFamily(value) {
     .join(" ");
 }
 
-function localeTag() {
-  return currentLocale === "zh" ? "zh-CN" : "en";
-}
-
-function formatNumber(value) {
-  return new Intl.NumberFormat(localeTag()).format(value);
-}
-
 function formatCompact(value) {
-  return new Intl.NumberFormat(localeTag(), {notation: "compact", maximumFractionDigits: 1}).format(value);
+  return new Intl.NumberFormat(ui.localeTag(), {notation: "compact", maximumFractionDigits: 1}).format(value);
 }
 
 function formatDate(value) {
-  return new Intl.DateTimeFormat(localeTag(), {dateStyle: "medium", timeZone: "UTC"}).format(new Date(`${value}T00:00:00Z`));
+  return new Intl.DateTimeFormat(ui.localeTag(), {dateStyle: "medium", timeZone: "UTC"}).format(new Date(`${value}T00:00:00Z`));
 }
 
 function formatShortDate(value) {
-  return new Intl.DateTimeFormat(localeTag(), {month: "short", day: "numeric", timeZone: "UTC"}).format(new Date(`${value}T00:00:00Z`));
+  return new Intl.DateTimeFormat(ui.localeTag(), {month: "short", day: "numeric", timeZone: "UTC"}).format(new Date(`${value}T00:00:00Z`));
 }
 
-function formatDateTime(value) {
-  return new Intl.DateTimeFormat(localeTag(), {dateStyle: "medium", timeStyle: "short"}).format(new Date(value));
-}
-
-const initialTheme = document.documentElement.dataset.theme === "dark"
-  ? "dark"
-  : (document.documentElement.dataset.theme === "light"
-    ? "light"
-    : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
-applyLocale(currentLocale, false);
-applyTheme(initialTheme, false);
+ui.initialize();
 authenticate(readServerToken());

@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-server-session="missing">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}PowerContext{% endblock %}</title>
   <script>
+    try {
+      document.documentElement.dataset.serverSession = sessionStorage.getItem("powercontext.server.token")
+        ? "active"
+        : "missing";
+    } catch (error) {
+      document.documentElement.dataset.serverSession = "missing";
+    }
     try {
       const savedTheme = localStorage.getItem("powercontext.dashboard.theme");
       const initialTheme = savedTheme === "light" || savedTheme === "dark"
@@ -19,7 +26,7 @@
       // Theme persistence is optional when browser storage is unavailable.
     }
   </script>
-  <link rel="stylesheet" href="{{ url_for('web_static', path='/site.css') }}">
+  <link rel="stylesheet" href="{{ url_for('web_static', path='/site.css') }}?v=handoff-baseline">
   {% block head %}{% endblock %}
 </head>
 <body>

@@ -323,18 +323,26 @@ button {
   justify-self: end;
 }
 
-.auth-shell {
+:root[data-server-session="active"] .auth-shell,
+:root[data-server-session="missing"] .server-content {
+  display: none;
+}
+
+.auth-shell,
+.status-shell {
   min-height: calc(100vh - 280px);
   display: grid;
   place-items: center;
 }
 
-.auth-panel {
+.auth-panel,
+.status-panel {
   width: min(460px, 100%);
   padding: 30px 0 34px;
 }
 
 .auth-panel h1,
+.status-panel h1,
 .hero h1 {
   margin: 0;
   color: var(--pc-ink);
@@ -342,11 +350,13 @@ button {
   letter-spacing: -0.02em;
 }
 
-.auth-panel h1 {
+.auth-panel h1,
+.status-panel h1 {
   font-size: 24px;
 }
 
-.auth-panel > p {
+.auth-panel > p,
+.status-panel > p {
   margin: 9px 0 24px;
   color: var(--pc-muted);
 }
@@ -738,11 +748,14 @@ button {
   margin-bottom: 24px;
 }
 
-.project-identity {
-  margin: 6px 0 0;
-  color: var(--pc-muted);
-  font: 12px/1.5 var(--pc-font-code);
-  overflow-wrap: anywhere;
+.report-hero-controls {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.report-project-picker {
+  min-width: min(360px, 70vw);
 }
 
 .report-actions {
@@ -762,57 +775,6 @@ button {
   background: var(--pc-surface);
   color: var(--pc-ink);
   padding: 0 14px;
-}
-
-.project-tabs-shell {
-  margin-bottom: 30px;
-  border-bottom: 1px solid var(--pc-rule-strong);
-}
-
-.project-tabs-shell > .field-label {
-  margin-bottom: 4px;
-  color: var(--pc-muted);
-  font-size: 12px;
-}
-
-.project-tabs {
-  display: flex;
-  gap: 4px;
-  overflow-x: auto;
-}
-
-.project-tab {
-  position: relative;
-  flex: 0 0 auto;
-  max-width: min(360px, 70vw);
-  border: 0;
-  background: transparent;
-  color: var(--pc-muted);
-  padding: 10px 12px 12px;
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-tab:hover {
-  background: var(--pc-nav-hover);
-  color: var(--pc-ink);
-}
-
-.project-tab[aria-selected="true"] {
-  color: var(--pc-accent);
-  font-weight: 650;
-}
-
-.project-tab[aria-selected="true"]::after {
-  position: absolute;
-  right: 10px;
-  bottom: 0;
-  left: 10px;
-  height: 3px;
-  background: var(--pc-accent);
-  content: "";
 }
 
 .report-toolbar {
@@ -1329,6 +1291,16 @@ button {
 
   .report-actions .hero-meta {
     text-align: left;
+  }
+
+  .report-hero-controls {
+    width: 100%;
+    justify-items: start;
+  }
+
+  .report-project-picker {
+    width: 100%;
+    min-width: 0;
   }
 
   .header-tools {
