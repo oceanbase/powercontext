@@ -79,6 +79,7 @@ def create_server_app(
             external_skill_provider=external_skill_provider,
             handoff_pipeline=handoff_pipeline,
             embedding_model=embedding_model,
+            instrumentation=resolved_tracing.instrumentation,
         ) as runtime:
             readiness_probe.bind(runtime)
             app.state.application = runtime

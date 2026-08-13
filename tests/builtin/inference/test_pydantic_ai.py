@@ -5,6 +5,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic_ai import Embedder
 from pydantic_ai.embeddings import (
     EmbeddingModel as PydanticAIEmbeddingModelBase,
@@ -20,6 +23,7 @@ from pydantic_ai.embeddings.result import EmbedInputType
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.instrumented import InstrumentationSettings
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
 
@@ -334,6 +338,35 @@ def test_embedding_adapter_maps_provider_errors_and_preserves_cause() -> None:
         assert "secret" not in str(error.value)
 
     asyncio.run(scenario())
+
+
+def test_instrumented_embedding_spans_nest_under_the_active_span_without_recording_text() -> None:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    instrumentation = InstrumentationSettings(
+        tracer_provider=provider,
+        include_content=False,
+        include_binary_content=False,
+        include_model_request_parameters=False,
+    )
+    model = PydanticAIEmbeddingModel(
+        embedder=Embedder(TestEmbeddingModel(dimensions=3), instrument=instrumentation),
+        profile=TEST_PROFILE,
+    )
+
+    async def scenario() -> None:
+        with provider.get_tracer("test").start_as_current_span("powercontext flush_memory"):
+            await model.embed(("bounded evidence",))
+
+    asyncio.run(scenario())
+
+    spans = exporter.get_finished_spans()
+    operation = next(span for span in spans if span.name == "powercontext flush_memory")
+    embeddings = next(span for span in spans if span.name.startswith("embeddings "))
+    assert embeddings.parent is not None
+    assert embeddings.parent.span_id == operation.context.span_id
+    assert "bounded evidence" not in str(embeddings.attributes)
 
 
 def test_embedding_adapter_maps_empty_provider_data_to_unavailable() -> None:
