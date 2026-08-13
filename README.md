@@ -1,12 +1,13 @@
 # PowerContext
 
-PowerContext is PowerMem 2.0, the upgraded version of [PowerMem](https://www.powermem.ai/). It gives agents durable,
-project-scoped context. A later session can recover a decision, outcome, current state, or next step without relying
-on chat history. PowerContext includes a local Server, SQLite storage, an async Python client, a Core SDK, a CLI, and
-a Codex plugin.
+**PowerContext is PowerMem 2.0, the upgraded version of [PowerMem](https://www.powermem.ai/).**
 
-PowerContext can be installed directly from its Git URL. Users need read access to that URL, but they do not need to
-clone the repository or run commands from its working tree.
+[![PyPI version](https://img.shields.io/pypi/v/powercontext)](https://pypi.org/project/powercontext/)
+[![License Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/74cF8vbNEs)
+
+PowerContext gives agents durable, project-scoped context. A later session can recover a decision, outcome, current state, or next step without relying on chat history. PowerContext includes a local Server, SQLite storage, an async Python client, a Core SDK, a CLI, and a Codex plugin.
+
 
 ## Install for Codex
 
@@ -14,34 +15,36 @@ Prerequisites:
 
 - macOS or Linux;
 - [uv](https://docs.astral.sh/uv/getting-started/installation/);
-- Codex CLI;
-- read access to `oceanbase/powercontext`.
-
-Install the tool and configure the Codex plugin:
+- Codex CLI.
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-powercontext setup codex --source oceanbase/powercontext --ref master
+uv tool install "powercontext[cli,server]==0.0.1"
+powercontext --version
 ```
 
-You do not need to create or manage a repository checkout. Start the local service in a terminal:
+The version command should print `0.0.1`. Configure the Codex plugin from the matching release tag:
+
+```bash
+powercontext setup codex --source oceanbase/powercontext --ref v0.0.1
+```
+
+Start the local service in a terminal:
 
 ```bash
 powercontext server run
 ```
 
-In another terminal, verify the package and Server dependencies, then the optional Codex integration:
+The Server listens on `http://127.0.0.1:8000` by default and stores its SQLite database in the platform-specific user data directory. Keep this process running while using PowerContext. In another terminal, verify the package, Server,
+and Codex integration:
 
 ```bash
 powercontext doctor
 powercontext doctor codex
 ```
 
-Runtime or database failures make the Server not ready. A configured inference failure is reported as degraded
-without removing the Server from traffic; the separate Codex command does not affect Server health.
+Runtime or database failures make the Server not ready. A configured inference failure is reported as degraded without removing the Server from traffic; the separate Codex command does not affect Server health.
 
-Start a new Codex session after installation. Open `/hooks` once and approve the PowerContext hook if Codex asks for
-trust. The default database is persistent and requires no configuration.
+Start a new Codex session after setup. Open `/hooks` once and approve the PowerContext hook if Codex asks for trust.
 
 See the [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) for a first cross-session workflow.
 
@@ -63,11 +66,10 @@ surfaces. Installation, configuration, and troubleshooting live under [`docs/en/
 Add only the role the project imports:
 
 ```bash
-uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv add "powercontext[client]==0.0.1"
 ```
 
-Available extras are `builtin`, `client`, `server`, and `cli`. The CLI always includes Server-backed content commands;
-installing the `server` role also makes local Server process management available.
+Available extras are `builtin`, `client`, `server`, `cli`, and `tracing-otlp`. The CLI always includes Server-backed content commands; installing the `server` role also makes local Server process management available.
 
 ## Benchmarks
 
