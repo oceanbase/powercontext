@@ -91,12 +91,6 @@ PowerContext configures inference instrumentation to exclude content. Spans carr
 durations, and error categories. Prompts, model responses, Memory content, and vectors are excluded, and message
 attributes record only the shape of each message rather than its text.
 
-One exception applies to generation. When a model returns output that does not satisfy the requested schema,
-Pydantic AI retries with feedback that quotes the model's own invalid output, and it records that feedback in the
-`gen_ai.input.messages` and `pydantic_ai.all_messages` attributes regardless of the content setting. For Memory
-extraction, that quoted output is the proposed Memory content. Treat the tracing backend as a system that may receive
-model output on this retry path, and restrict access to it accordingly.
-
 ## Stop Phoenix
 
 ```bash

@@ -87,11 +87,6 @@ span 是批量导出的，刷新前请稍等几秒。MCP 请求会用 `MCP mcp.t
 PowerContext 在配置推理 instrumentation 时关闭了内容记录。span 只携带模型标识、token 用量、耗时和错误类别；
 prompt、模型响应、Memory 内容和向量都不会被导出，消息类属性只记录每条消息的结构，不记录正文。
 
-generation 有一个例外。当模型返回的输出不满足所要求的 schema 时，Pydantic AI 会带着反馈重试，而这段反馈里
-引用了模型自己的非法输出；无论内容开关如何设置，它都会被写入 `gen_ai.input.messages` 和
-`pydantic_ai.all_messages` 属性。对 Memory extraction 来说，被引用的那段输出就是候选的 Memory 内容。
-因此应把 tracing 后端视为在这条重试路径上可能收到模型输出的系统，并相应限制其访问权限。
-
 ## 停止 Phoenix
 
 ```bash
