@@ -1,7 +1,7 @@
 - Proposal Name: `unified_workloads_and_long_horizon_memory_evaluation`
 - Start Date: 2026-08-13
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
-- Related RFCs: [RFC 0081](0081_end_to_end_evaluation_architecture.md)
+- RFC PR: [oceanbase/powercontext#1229](https://github.com/oceanbase/powercontext/pull/1229)
+- Related RFC: [RFC 0081: End-to-End Evaluation Architecture](0081_end_to_end_evaluation_architecture.md)
 
 # Summary
 
@@ -254,6 +254,29 @@ that command without introducing a generic `run` command.
 The current LoCoMo benchmark and SWE-Pro evaluation keep their existing commands, artifacts, and result contracts.
 The LoCoMo-derived built-in workload remains a pinned sample and does not claim a complete benchmark result.
 
+## Non-goals
+
+This RFC does not replace RFC 0081, define a leaderboard, require registry publication, or introduce a new agent
+protocol. It does not standardize private adapter internals or replace source-native graders. It does not migrate,
+rewrite, or retire the current LoCoMo benchmark or SWE-Pro evaluation. It does not implement another execution
+adapter.
+
+## Acceptance criteria
+
+The proposal is complete when:
+
+- one Pydantic manifest represents deterministic, model-backed, and long-horizon workloads;
+- `execution.type: bub` selects the current adapter and `execution.model` declares only whether a model is required;
+- component-native runtime settings select model identity, provider, endpoint, and credentials without a harness
+  mapping layer;
+- one `acceptance` command selects one or more workload IDs and categories;
+- repository and registry Harbor tasks use the same execution and provenance contracts;
+- SQLite and OceanBase run the same deterministic acceptance category in required CI;
+- model-backed Bub workloads record native evidence through Harbor and ACP;
+- long-horizon Memory acceptance remains independent of native task reward;
+- every replay identifies its adapter and supports offline rescoring; and
+- the current LoCoMo benchmark and SWE-Pro evaluation remain unchanged.
+
 # Drawbacks
 
 The unified replay envelope must preserve adapter-native evidence without reducing it to untyped dictionaries.
@@ -274,25 +297,26 @@ credentials.
 Using a source-native reward as Memory acceptance would answer whether the task was solved, not whether PowerContext
 collected useful Memory. The native result remains available without replacing the Memory evaluator.
 
-# Non-goals
+# Prior art
 
-This RFC does not replace RFC 0081, define a leaderboard, require registry publication, or introduce a new agent
-protocol. It does not standardize private adapter internals or replace source-native graders. It does not migrate,
-rewrite, or retire the current LoCoMo benchmark or SWE-Pro evaluation. It does not implement another execution
-adapter.
+RFC 0081 separates runtime integration, workload execution, evidence collection, evaluation, and reporting. This
+proposal keeps those boundaries and gives the built-in acceptance scenarios a shared workload and artifact contract.
 
-# Acceptance criteria
+Harbor provides pinned task environments, agent lifecycle management, and native task verification. Bub provides the
+first observable execution adapter. The replay envelope keeps Harbor and Bub evidence typed while Memory acceptance
+remains independent of the native task score.
 
-The proposal is complete when:
+# Unresolved questions
 
-- one Pydantic manifest represents deterministic, model-backed, and long-horizon workloads;
-- `execution.type: bub` selects the current adapter and `execution.model` declares only whether a model is required;
-- component-native runtime settings select model identity, provider, endpoint, and credentials without a harness
-  mapping layer;
-- one `acceptance` command selects one or more workload IDs and categories;
-- repository and registry Harbor tasks use the same execution and provenance contracts;
-- SQLite and OceanBase run the same deterministic acceptance category in required CI;
-- model-backed Bub workloads record native evidence through Harbor and ACP;
-- long-horizon Memory acceptance remains independent of native task reward;
-- every replay identifies its adapter and supports offline rescoring; and
-- the current LoCoMo benchmark and SWE-Pro evaluation remain unchanged.
+None. Adding another execution adapter, migrating an existing benchmark, and publishing model-backed artifacts each
+require separate review.
+
+# Future possibilities
+
+The workload contract can add a `basic` or `codex` execution variant when a workload cannot be represented faithfully
+through Bub. Such an adapter would reuse selection, replay, evaluation, and reporting rather than create another
+harness.
+
+The complete LoCoMo benchmark or SWE-Pro evaluation may move to the catalog after its native scoring and artifact
+contracts have been validated against this workload model. Registry publication and shared artifact retention can be
+considered separately once their privacy and operational requirements are defined.
