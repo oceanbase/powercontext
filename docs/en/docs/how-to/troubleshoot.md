@@ -13,10 +13,11 @@ powercontext doctor
 
 The command checks the package, Server liveness, and Server readiness. It exits with status 1 unless every check is
 `ok`; a `degraded` readiness result is usable but is not a complete diagnostic success. Add `--json` for automation;
-the top-level result and every check include `ok` and `status`. Check the optional Codex integration separately:
+the top-level result and every check include `ok` and `status`. Check optional host integrations separately:
 
 ```bash
 powercontext doctor codex
+powercontext doctor dsh
 ```
 
 ## Installation cannot read the Git URL
@@ -30,7 +31,7 @@ git ls-remote https://github.com/oceanbase/powercontext.git HEAD
 If this fails, configure the credential helper or SSH key used by Git, then rerun `uv tool install`. `uv` uses Git's
 credential configuration; PowerContext does not accept or store repository credentials.
 
-## `powercontext` or `codex` is not found
+## `powercontext`, `codex`, or `dsh` is not found
 
 Run:
 
@@ -38,10 +39,11 @@ Run:
 uv tool dir --bin
 command -v powercontext
 command -v codex
+command -v dsh
 ```
 
-Add the uv tool bin directory to `PATH` if needed. `powercontext setup codex` reports an error rather than installing a
-plugin when Codex CLI is unavailable.
+Add the uv tool bin directory to `PATH` if needed. `powercontext setup codex` and `powercontext setup dsh` report an
+error rather than installing a plugin when the host CLI is unavailable.
 
 ## The plugin is missing or stale
 
@@ -56,9 +58,12 @@ Reinstall it from the same ref as the tool:
 ```bash
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
 codex plugin list --json
+powercontext setup dsh --source oceanbase/powercontext --ref <ref>
+dsh --profile web --dump-config
 ```
 
-Then start a new Codex session. Check `/hooks` if prompt recall and capture do not run.
+Then start a new host session. Check `/hooks` in Codex, or confirm dump-config lists `id: powercontext-dsh` for DeepSeek
+Harness. The DSH plugin directory must contain `lib/index.js`.
 
 ## The Server check fails
 

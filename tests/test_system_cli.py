@@ -342,3 +342,90 @@ def test_doctor_codex_requires_an_enabled_powercontext_plugin(monkeypatch) -> No
     assert result.exit_code == 1
     assert "codex: ok - /usr/bin/codex" in result.output
     assert "plugin: failed - PowerContext plugin is not installed" in result.output
+
+
+def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch) -> None:
+    import powercontext.cli.dsh as dsh_cli
+
+    checkout = tmp_path / "powercontext"
+    plugin = checkout / "integrations" / "dsh" / "plugins" / "powercontext"
+    plugin.mkdir(parents=True)
+    (plugin / "package.json").write_text('{"name": "powercontext-dsh"}', encoding="utf-8")
+    (plugin / "lib").mkdir()
+    (plugin / "lib" / "index.js").write_text("export const name = 'powercontext-dsh'\n", encoding="utf-8")
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
+    run_dsh = Mock(return_value="id: powercontext-dsh\n")
+    monkeypatch.setattr(dsh_cli, "_run_dsh", run_dsh)
+
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        ["setup", "dsh", "--source", str(checkout), "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {
+        "plugin": "powercontext-dsh",
+        "plugin_path": str(plugin),
+        "data_dir": str(tmp_path / "data"),
+    }
+    assert run_dsh.call_args_list[0].args == (
+        "plugin",
+        "--profile",
+        "web",
+        "add",
+        str(plugin),
+    )
+
+
+def test_setup_dsh_fails_when_dsh_cli_is_missing(tmp_path: Path, monkeypatch) -> None:
+    import powercontext.cli.dsh as dsh_cli
+
+    monkeypatch.setattr(dsh_cli, "which", lambda _name: None)
+
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        ["setup", "dsh", "--source", str(tmp_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "DeepSeek Harness CLI is not installed" in result.output
+
+
+def test_doctor_dsh_reports_missing_cli_and_skipped_plugin(monkeypatch) -> None:
+    import powercontext.cli.dsh as dsh_cli
+
+    monkeypatch.setattr(dsh_cli, "which", lambda _name: None)
+
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--json"])
+
+    assert result.exit_code == 1
+    assert json.loads(result.output) == {
+        "ok": False,
+        "status": "failed",
+        "checks": {
+            "dsh": {
+                "ok": False,
+                "status": "failed",
+                "detail": "DeepSeek Harness CLI is not installed or is not on PATH",
+            },
+            "plugin": {
+                "ok": False,
+                "status": "skipped",
+                "detail": "not checked because DeepSeek Harness CLI is unavailable",
+            },
+        },
+    }
+
+
+def test_doctor_dsh_requires_the_installed_plugin(monkeypatch) -> None:
+    import powercontext.cli.dsh as dsh_cli
+
+    monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
+    monkeypatch.setattr(dsh_cli, "_run_dsh", lambda *_args: "id: other-plugin\n")
+
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh"])
+
+    assert result.exit_code == 1
+    assert "dsh: ok - /usr/bin/dsh" in result.output
+    assert "plugin: failed - PowerContext DSH plugin is not installed" in result.output

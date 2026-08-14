@@ -47,6 +47,26 @@ class SetupError(RuntimeError):
         return cls("Codex CLI is not installed or is not on PATH.")
 
     @classmethod
+    def dsh_unavailable(cls) -> SetupError:
+        return cls("DeepSeek Harness CLI is not installed or is not on PATH.")
+
+    @classmethod
+    def missing_dsh_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext DSH plugin was not found under {path}.")
+
+    @classmethod
+    def unbuilt_dsh_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext DSH plugin at {path} is missing lib/index.js. Build the plugin before setup.")
+
+    @classmethod
+    def invalid_dsh_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid DeepSeek Harness ref: {ref}")
+
+    @classmethod
+    def invalid_dsh_source(cls, source: str) -> SetupError:
+        return cls(f"invalid DeepSeek Harness source: {source}")
+
+    @classmethod
     def data_directory(cls, path: Path, error: OSError) -> SetupError:
         return cls(f"Cannot create PowerContext data directory {path}: {error}")
 
@@ -146,6 +166,45 @@ def setup_codex(
     typer.echo("Next: run `powercontext server run`, start a new Codex session, then review `/hooks`.")
 
 
+@setup_app.command("dsh")
+def setup_dsh(
+    source: Annotated[
+        str,
+        typer.Option(help="PowerContext Git source or local checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install the PowerContext DeepSeek Harness plugin and prepare local storage."""
+
+    from powercontext.cli.dsh import install_dsh_plugin, run_dsh_diagnostics
+
+    try:
+        result = install_dsh_plugin(source=source, ref=ref)
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    diagnostics = run_dsh_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext DeepSeek Harness setup complete.")
+    typer.echo(f"Plugin: {result.plugin} ({result.plugin_path})")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: run `powercontext server run`, then start `dsh web`.")
+
+
 @doctor_app.callback()
 def doctor(
     context: typer.Context,
@@ -178,6 +237,23 @@ def doctor_codex(
     """Check the optional Codex CLI and PowerContext plugin."""
 
     diagnostics = run_codex_diagnostics()
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("dsh")
+def doctor_dsh(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional DeepSeek Harness CLI and PowerContext plugin."""
+
+    from powercontext.cli.dsh import run_dsh_diagnostics
+
+    diagnostics = run_dsh_diagnostics()
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)

@@ -225,3 +225,15 @@ only through the environment so it does not appear in command-line arguments.
 The outer Codex hook timeout is ten seconds. Recall, capture, and flush fail independently and never block Codex when
 the Server is unavailable or rejects authentication. The variable must be present in the environment that starts
 Codex; restart Codex after changing it.
+
+## DeepSeek Harness plugin
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `POWERCONTEXT_DSH_BASE_URL` | `http://127.0.0.1:8000` | Server base URL used by the plugin |
+| `POWERCONTEXT_DSH_SCOPE_ID` | derived from Git remote or project path | Override project scope |
+| `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for plugin HTTP requests |
+| `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
+| `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
+
+`timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Server unavailability fails open for recall and capture; restart `dsh web` after changing these variables.

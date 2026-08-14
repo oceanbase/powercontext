@@ -13,10 +13,11 @@ powercontext doctor
 
 该命令检查安装包、Server liveness 和 Server readiness；只有所有检查均为 `ok` 时才以状态码 0 退出。
 `degraded` 表示仍可使用，但不算完整诊断成功。自动化场景可添加 `--json`，顶层结果和每个检查都会包含
-`ok` 与 `status`。可单独检查可选的 Codex 集成：
+`ok` 与 `status`。可单独检查可选的宿主集成：
 
 ```bash
 powercontext doctor codex
+powercontext doctor dsh
 ```
 
 ## 安装时无法读取 Git 地址
@@ -30,7 +31,7 @@ git ls-remote https://github.com/oceanbase/powercontext.git HEAD
 如果失败，请配置 Git 使用的 credential helper 或 SSH key，再重新运行 `uv tool install`。`uv` 使用 Git
 凭据配置；PowerContext 不接收或保存仓库凭据。
 
-## 找不到 `powercontext` 或 `codex`
+## 找不到 `powercontext`、`codex` 或 `dsh`
 
 执行：
 
@@ -38,10 +39,11 @@ git ls-remote https://github.com/oceanbase/powercontext.git HEAD
 uv tool dir --bin
 command -v powercontext
 command -v codex
+command -v dsh
 ```
 
-必要时把 uv tool bin 目录加入 `PATH`。Codex CLI 不可用时，`powercontext setup codex` 会报告错误，不会继续
-安装插件。
+必要时把 uv tool bin 目录加入 `PATH`。宿主 CLI 不可用时，`powercontext setup codex` 和 `powercontext setup dsh`
+会报告错误，不会继续安装插件。
 
 ## 插件缺失或版本不一致
 
@@ -56,9 +58,12 @@ powercontext doctor codex
 ```bash
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
 codex plugin list --json
+powercontext setup dsh --source oceanbase/powercontext --ref <ref>
+dsh --profile web --dump-config
 ```
 
-然后开启新的 Codex 会话。如果提示词恢复和采集没有运行，请检查 `/hooks`。
+然后开启新的宿主会话。Codex 请检查 `/hooks`；DeepSeek Harness 请确认 dump-config 含有 `id: powercontext-dsh`。
+DSH 插件目录必须包含 `lib/index.js`。
 
 ## Server 检查失败
 
