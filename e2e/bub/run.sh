@@ -4,7 +4,10 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
-mode=${1:-acceptance}
+command=${1:-acceptance}
+if [ "$#" -gt 0 ]; then
+    shift
+fi
 database=${POWERCONTEXT_E2E_DATABASE:-sqlite}
 
 case "$database" in
@@ -15,10 +18,10 @@ case "$database" in
         ;;
 esac
 
-case "$mode" in
-    acceptance | live | check | down) ;;
+case "$command" in
+    acceptance | check | down) ;;
     *)
-        echo "mode must be acceptance, live, check, or down" >&2
+        echo "command must be acceptance, check, or down" >&2
         exit 2
         ;;
 esac
@@ -27,40 +30,32 @@ compose_files="-f e2e/bub/compose.yaml"
 if [ "$database" = oceanbase ]; then
     compose_files="$compose_files -f e2e/bub/compose.oceanbase.yaml"
 fi
-
 export COMPOSE_PROJECT_NAME="powercontext-e2e-$database"
-output=${POWERCONTEXT_E2E_OUTPUT:-"$root/.powercontext-e2e/bub/$database/$mode"}
+output=${POWERCONTEXT_E2E_OUTPUT:-"$root/.powercontext-e2e/bub/$database/acceptance"}
 mkdir -p "$output"
 POWERCONTEXT_E2E_OUTPUT=$(CDPATH= cd -- "$output" && pwd)
 export POWERCONTEXT_E2E_OUTPUT
 export POWERCONTEXT_E2E_DATABASE=$database
 
-if [ "$mode" = check ]; then
+auth_path=${CODEX_HOME:-$HOME/.codex}/auth.json
+if [ -f "$auth_path" ]; then
+    auth_directory=$(CDPATH= cd -- "$(dirname "$auth_path")" && pwd)
+    POWERCONTEXT_E2E_CODEX_AUTH_MOUNT="$auth_directory/$(basename "$auth_path")"
+else
+    POWERCONTEXT_E2E_CODEX_AUTH_MOUNT=/dev/null
+fi
+export POWERCONTEXT_E2E_CODEX_AUTH_MOUNT
+
+if [ "$command" = check ]; then
+    test "$#" -eq 0 || { echo "check does not accept workload arguments" >&2; exit 2; }
     docker compose $compose_files config --quiet
     exit
 fi
 
-if [ "$mode" = down ]; then
+if [ "$command" = down ]; then
+    test "$#" -eq 0 || { echo "down does not accept workload arguments" >&2; exit 2; }
     docker compose $compose_files down --volumes --remove-orphans
     exit
-fi
-
-if [ "$mode" = live ]; then
-    : "${BUB_MODEL:?BUB_MODEL is required for live replay}"
-    : "${BUB_API_KEY:?BUB_API_KEY is required for live replay}"
-    case "$BUB_MODEL" in
-        openai:*)
-            POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=${POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL:-$BUB_MODEL}
-            OPENAI_API_KEY=${OPENAI_API_KEY:-$BUB_API_KEY}
-            OPENAI_BASE_URL=${OPENAI_BASE_URL:-${BUB_API_BASE:-}}
-            export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL OPENAI_API_KEY OPENAI_BASE_URL
-            ;;
-        deepseek:*)
-            POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=${POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL:-$BUB_MODEL}
-            DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-$BUB_API_KEY}
-            export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL DEEPSEEK_API_KEY
-            ;;
-    esac
 fi
 
 if [ -z "${GITHUB_SHA:-}" ]; then
@@ -128,13 +123,5 @@ trap 'exit 143' TERM
 docker compose $compose_files build powercontext harness
 start_services
 
-if [ "$mode" = acceptance ]; then
-    docker compose $compose_files run --rm harness \
-        acceptance \
-        e2e/bub/scenarios/locomo-support-group.yaml \
-        e2e/bub/scenarios/project-database-decision.yaml \
-        --output /evidence
-else
-    scenario=${POWERCONTEXT_E2E_SCENARIO:-e2e/bub/scenarios/project-database-decision.yaml}
-    docker compose $compose_files run --rm harness live "$scenario" --output /evidence
-fi
+set -- acceptance --manifest e2e/bub/tasks --output /evidence "$@"
+docker compose $compose_files run --rm harness "$@"

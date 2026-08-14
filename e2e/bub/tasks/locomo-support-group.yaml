@@ -1,0 +1,34 @@
+schema: powercontext.e2e-task/v1
+id: locomo-support-group
+categories:
+  - acceptance
+  - sample
+provenance:
+  source: benchmark/locomo/dataset/locomo10.json
+  revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
+  selection: first-conversation-first-question/v1
+  case_ids:
+    - conv-26
+    - conv-26:q001
+    - D1
+dataset:
+  path: e2e/bub/harbor-tasks
+  task_id: locomo-support-group
+  checksum: 13b88f406933d47c3a826d30143a2d5404f1990a0166b3d98ec25a24bcc0069c
+execution:
+  type: bub
+  model: false
+  max_steps: 10
+  max_tokens: 4096
+evaluation:
+  expected_memory:
+    - LGBTQ support group
+    - 7 May 2023
+  probes:
+    - id: support-group-date
+      query: When did Caroline go to the LGBTQ support group?
+      expected_context:
+        - LGBTQ support group
+        - 7 May 2023
+  thresholds:
+    probe_coverage: 1

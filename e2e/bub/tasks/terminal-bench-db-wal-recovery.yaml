@@ -1,0 +1,32 @@
+schema: powercontext.e2e-task/v1
+id: terminal-bench-db-wal-recovery
+categories:
+  - long-horizon
+  - terminal-bench
+dataset:
+  name: terminal-bench
+  version: "2.0"
+  task_id: db-wal-recovery
+  checksum: 01f470c86f3a1f7ce4d91bdf0aaaa89fa96a4124ac48617990e2735b5291913a
+execution:
+  type: bub
+  model: true
+  max_steps: 200
+  max_tokens: 16384
+evaluation:
+  capture_events: true
+  checkpoint_every_events: 5
+  max_event_bytes: 8192
+  require_checkpoint: true
+  probes:
+    - id: investigation
+      query: What records and SQLite table were found in /app/main.db?
+    - id: decisions
+      query: What happened to the WAL file for /app/main.db?
+    - id: current-state
+      query: What is the current recovery status and what is in /app/recovered.json?
+  thresholds:
+    capture_coverage: 0.9
+    groundedness: 0.8
+    probe_coverage: 0.67
+    minimum_in_run_contexts: 0

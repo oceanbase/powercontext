@@ -1,0 +1,1 @@
+,powercontext.remember text='The project selected OceanBase because it needs MySQL-compatible, multi-node persistent storage for shared agent context.' kind='project-decision' reason='Durable architecture decision'
