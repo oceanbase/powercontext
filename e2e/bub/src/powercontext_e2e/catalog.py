@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -38,6 +38,12 @@ class HarborDatasetSpec(CatalogModel):
 
 
 class BubExecutionSpec(CatalogModel):
+    native_artifact_names: ClassVar[frozenset[str]] = frozenset({
+        "acp-summary.json",
+        "acp-events.jsonl",
+        "trajectory.json",
+    })
+
     type: Literal["bub"] = "bub"
     model: bool = False
     max_steps: int = Field(default=50, ge=1, le=200)

@@ -1,4 +1,4 @@
-"""Command-line entry point for session replay and offline scoring."""
+"""Command-line entry point for end-to-end workloads and offline scoring."""
 
 from __future__ import annotations
 
@@ -9,8 +9,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from .models import load_scenario
-from .runner import evaluate_scenario, rescore_replay
+from .settings import HarnessSettings
 
 
 def main() -> None:
@@ -20,24 +19,46 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="powercontext-e2e")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    for command in ("acceptance", "live"):
-        run_parser = subparsers.add_parser(command)
-        run_parser.add_argument("scenario", type=Path, nargs="+")
-        run_parser.add_argument("--output", type=Path, required=True)
+    acceptance_parser = subparsers.add_parser("acceptance")
+    acceptance_parser.add_argument("--manifest", type=Path, default=Path("e2e/bub/tasks"))
+    acceptance_parser.add_argument(
+        "--id",
+        action="append",
+        default=[],
+        metavar="WORKLOAD_ID",
+        help="Select one workload; repeat to select more than one.",
+    )
+    acceptance_parser.add_argument(
+        "--category",
+        action="append",
+        default=[],
+        help="Select one category; repeat to select more than one.",
+    )
+    acceptance_parser.add_argument("--output", type=Path, required=True)
 
     rescore_parser = subparsers.add_parser("rescore")
     rescore_parser.add_argument("replay", type=Path)
     rescore_parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    settings = HarnessSettings()
 
     if args.command == "rescore":
-        passed = asyncio.run(rescore_replay(args.replay, args.output))
+        from .rescore import rescore_replay
+
+        passed = rescore_replay(args.replay, args.output, settings)
     else:
-        passed = True
-        for scenario_path in args.scenario:
-            scenario = load_scenario(scenario_path)
-            output_dir = args.output if len(args.scenario) == 1 else args.output / scenario.id
-            passed = asyncio.run(evaluate_scenario(scenario, mode=args.command, output_dir=output_dir)) and passed
+        from .catalog import load_tasks, select_tasks
+        from .runner import run_tasks
+
+        tasks = load_tasks(args.manifest)
+        selected = select_tasks(tasks, ids=tuple(args.id), categories=tuple(args.category))
+        passed = asyncio.run(
+            run_tasks(
+                selected,
+                output_dir=args.output,
+                settings=settings,
+            )
+        )
     raise SystemExit(0 if passed else 1)
 
 

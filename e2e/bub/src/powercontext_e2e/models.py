@@ -1,59 +1,32 @@
-"""Strict scenario and replay evidence models."""
+"""Normalized evidence and evaluation models for end-to-end workloads."""
 
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime
-from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from pydantic_evals.otel import SpanNode
+from pydantic import BaseModel, ConfigDict, Field
+
+from .catalog import E2ETask
 
 
 class EvidenceModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-
-class Provenance(EvidenceModel):
-    source: str
-    revision: str
-    selection: str
-    case_ids: tuple[str, ...] = Field(min_length=1)
-
-
-class SessionSpec(EvidenceModel):
-    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
-    input: str = Field(min_length=1)
-    expected_memory: tuple[str, ...] = ()
-    expected_context: tuple[str, ...] = ()
-    expected_answer: str | None = None
-
-
-class ScenarioSpec(EvidenceModel):
-    schema_: Literal["powercontext.session-replay/v1"] = Field(alias="schema")
-    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
-    provenance: Provenance | None = None
-    sessions: tuple[SessionSpec, ...] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def require_unique_session_ids(self) -> ScenarioSpec:
-        session_ids = [session.id for session in self.sessions]
-        if len(session_ids) != len(set(session_ids)):
-            raise ValueError("Replay session IDs must be unique")  # noqa: TRY003
-        return self
+    model_config = ConfigDict(extra="forbid")
 
 
 class RunEnvironment(EvidenceModel):
-    mode: Literal["acceptance", "live", "offline-rescore"]
     commit: str
     database: str
+    adapter_version: str
+    adapter_protocol_version: str
     agent_model: str | None = None
-    generation_model: str | None = None
-    embedding_profile: str | None = None
-    judge_model: str | None = None
     started_at: datetime
+    finished_at: datetime
+
+
+class SourceReferenceSnapshot(EvidenceModel):
+    name: str
+    source_id: str
 
 
 class MemoryEntrySnapshot(EvidenceModel):
@@ -63,6 +36,7 @@ class MemoryEntrySnapshot(EvidenceModel):
     kind: str
     text: str
     state: str
+    source_refs: tuple[SourceReferenceSnapshot, ...] = ()
 
 
 class MemorySnapshot(EvidenceModel):
@@ -74,37 +48,99 @@ class PreparedContextSnapshot(EvidenceModel):
     content: str = ""
 
 
-class SessionObservation(EvidenceModel):
-    id: str
-    agent_session_id: str
-    status: Literal["completed", "failed"]
+class CaptureRecord(EvidenceModel):
+    schema_: Literal["powercontext.bub-capture-event/v1"] = Field(alias="schema")
+    recorded_at: datetime
+    event: Literal["user_prompt", "llm_result", "tool_result", "checkpoint", "context"]
+    status: str
+    sequence: int | None = None
+    source_id: str | None = None
+    source_position: int | None = None
     error: str | None = None
+    final: bool | None = None
+    target_position: int | None = None
+    previous_cursor: int | None = None
+    current_cursor: int | None = None
+    high_watermark: int | None = None
+    processed_source_count: int | None = None
+    memory_created: bool | None = None
+    content_bytes: int | None = None
+    captured_events: int | None = None
+    flushed_position: int | None = None
+
+
+class RecallProbeObservation(EvidenceModel):
+    id: str
+    query: str
     prepared_context: PreparedContextSnapshot
-    output: str = ""
-    memory_after: MemorySnapshot
 
 
-class ReplayObservation(EvidenceModel):
-    schema_: Literal["powercontext.session-replay-evidence/v1"] = Field(
-        default="powercontext.session-replay-evidence/v1",
+class HarborTrialObservation(EvidenceModel):
+    job_id: str | None = None
+    trial_name: str | None = None
+    trial_uri: str | None = None
+    task_checksum: str | None = None
+    rewards: dict[str, float | int] = Field(default_factory=dict)
+    exception_type: str | None = None
+    exception_message: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class NativeArtifact(EvidenceModel):
+    name: str
+    sha256: str
+    bytes: int = Field(ge=0)
+
+
+class ResolvedInstruction(EvidenceModel):
+    step: str | None = None
+    artifact: str
+    content: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class TaskObservation(EvidenceModel):
+    schema_: Literal["powercontext.e2e-evidence/v1"] = Field(
+        default="powercontext.e2e-evidence/v1",
         alias="schema",
     )
     run_id: str
     environment: RunEnvironment
-    scenario: ScenarioSpec
+    task: E2ETask
     status: Literal["completed", "failed"]
     errors: tuple[str, ...] = ()
+    harbor: HarborTrialObservation
+    capture_records: tuple[CaptureRecord, ...] = ()
+    native_artifacts: tuple[NativeArtifact, ...] = ()
+    resolved_instructions: tuple[ResolvedInstruction, ...] = ()
     memory_before: MemorySnapshot
     memory_after: MemorySnapshot
-    sessions: tuple[SessionObservation, ...]
-    spans: tuple[SpanNode, ...] = ()
+    probes: tuple[RecallProbeObservation, ...] = ()
 
 
-def load_scenario(path: Path) -> ScenarioSpec:
-    scenario = ScenarioSpec.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
-    if scenario.provenance is not None:
-        source = Path(scenario.provenance.source)
-        fingerprint = hashlib.sha256(source.read_bytes()).hexdigest()
-        if fingerprint != scenario.provenance.revision:
-            raise ValueError(f"Scenario source fingerprint changed: {source}")  # noqa: TRY003
-    return scenario
+class EvaluationValue(EvidenceModel):
+    value: bool | float | str
+    reason: str | None = None
+
+
+class CaseEvaluation(EvidenceModel):
+    name: str
+    assertions: dict[str, EvaluationValue] = Field(default_factory=dict)
+    scores: dict[str, EvaluationValue] = Field(default_factory=dict)
+    labels: dict[str, EvaluationValue] = Field(default_factory=dict)
+    metrics: dict[str, int | float] = Field(default_factory=dict)
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvaluationReport(EvidenceModel):
+    schema_: Literal["powercontext.e2e-evaluation/v1"] = Field(
+        default="powercontext.e2e-evaluation/v1",
+        alias="schema",
+    )
+    experiment: str
+    cases: tuple[CaseEvaluation, ...] = Field(min_length=1)
+
+    @property
+    def accepted(self) -> bool:
+        return all(bool(result.value) for case in self.cases for result in case.assertions.values())

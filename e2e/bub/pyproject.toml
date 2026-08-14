@@ -4,23 +4,21 @@ version = "0.0.1"
 description = "Bub-driven PowerContext session replay harness."
 requires-python = ">=3.12,<4.0"
 dependencies = [
-    "bub>=0.4.0,<0.5.0",
+    "bub==0.4.2",
+    "harbor>=0.16,<0.17",
     "loguru>=0.7,<1",
-    "opentelemetry-sdk>=1.30,<2",
+    "marko>=2.2,<3",
     "powercontext[client]",
     "powercontext-bub",
-    "pydantic-evals>=2.14,<3",
+    "pydantic-settings>=2.7,<3",
     "pyyaml>=6,<7",
 ]
-
-[dependency-groups]
-dev = ["pytest>=9.0.2"]
 
 [project.scripts]
 powercontext-e2e = "powercontext_e2e.__main__:main"
 
-[project.entry-points."bub"]
-powercontext_e2e_tracing = "powercontext_e2e.tracing:BubTracingPlugin"
+[dependency-groups]
+dev = ["pytest>=9,<10"]
 
 [build-system]
 requires = ["hatchling"]

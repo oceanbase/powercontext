@@ -52,15 +52,9 @@ harness-check: ## Validate the Bub replay harness and committed scenarios.
 	@uv run --project e2e/bub powercontext-e2e --help >/dev/null
 
 .PHONY: harness-acceptance
-harness-acceptance: ## Run all deterministic Bub session replay scenarios against a Server.
-	@uv run --project e2e/bub powercontext-e2e acceptance e2e/bub/scenarios/*.yaml \
-		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results}"
-
-.PHONY: harness-live
-harness-live: ## Run one real-model Bub session replay scenario against a Server.
-	@uv run --project e2e/bub powercontext-e2e live \
-		"$${POWERCONTEXT_E2E_SCENARIO:-e2e/bub/scenarios/project-database-decision.yaml}" \
-		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results/live}"
+harness-acceptance: ## Evaluate workloads by ID or category against an existing Server.
+	@uv run --project e2e/bub powercontext-e2e acceptance \
+		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results}" $(ARGS)
 
 .PHONY: harness-rescore
 harness-rescore: ## Rescore REPLAY without rerunning Bub or PowerContext.
@@ -74,17 +68,12 @@ harness-compose-check: ## Validate the SQLite and OceanBase Compose environments
 	@POWERCONTEXT_E2E_DATABASE=oceanbase e2e/bub/run.sh check
 
 .PHONY: harness-compose-acceptance
-harness-compose-acceptance: ## Build and run deterministic replay scenarios in containers.
-	@e2e/bub/run.sh acceptance
-
-.PHONY: harness-compose-live
-harness-compose-live: ## Build and run one real-model replay in containers.
-	@e2e/bub/run.sh live
+harness-compose-acceptance: ## Build and evaluate workloads by ID or category in the fixed harness.
+	@e2e/bub/run.sh acceptance $(ARGS)
 
 .PHONY: harness-compose-down
-harness-compose-down: ## Stop both isolated harness environments and remove their volumes.
-	@POWERCONTEXT_E2E_DATABASE=sqlite e2e/bub/run.sh down
-	@POWERCONTEXT_E2E_DATABASE=oceanbase e2e/bub/run.sh down
+harness-compose-down: ## Stop the selected isolated harness environment and remove its volumes.
+	@e2e/bub/run.sh down
 
 .PHONY: contract-test
 contract-test: api-generate-check ## Verify generated API code and contract bindings.
