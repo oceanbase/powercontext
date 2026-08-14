@@ -9,15 +9,22 @@
 
 # Summary
 
-This RFC defines a work-continuity loop for PowerContext so that the same work can be understood, verified, accepted,
-and continued across human-to-human, human-to-Agent, and Agent-to-Agent boundaries.
+This RFC defines PowerContext's work-continuity loop. It can be understood as an evidence-backed work relay: agree on
+the work before it starts, describe where it stands at transfer time, let the receiver state whether they can safely
+take it, and record what actually happened afterward. The same work can then move across human-to-human,
+human-to-Agent, and Agent-to-Agent boundaries without relying on verbal follow-up or a copy of the full conversation.
+A historical instruction to "continue" also does not grant new authority.
+
+`Work` here means the work in progress, not a new persisted entity. The existing Workstream remains the stable work
+line and `scope_id` remains its identity. This RFC adds four continuity record types around a Workstream and one
+read-only projection. It does not add a `Work` table, Task system, or Workflow engine.
 
 The loop has four user actions:
 
 ```text
 Delegation
   -> Work Contract
-  -> Human or Agent advances the work
+  -> Execution by a human or Agent
   -> Handoff
   -> Continue + Acknowledge
   -> Task Outcome records what actually happened
@@ -65,7 +72,142 @@ systems consume different projections of that common core.
 
 # Guide-level explanation
 
-## Delegation is not Handoff
+## Start with the intuition: an evidence-backed work relay
+
+The five core concepts can first be understood in plain terms:
+
+| Concept | Plain-language meaning | Question it answers |
+| --- | --- | --- |
+| Workstream / `scope_id` | One work line that can continue over time | Which piece of work are we continuing? |
+| Work Contract | The baseline agreed before execution | What are we doing, excluding, and treating as complete? |
+| Handoff | A transfer note | Where does the work stand, and where does the next participant start? |
+| Handoff Receipt | A receiver acknowledgement | Does the receiver understand the transfer and have the conditions and authority to take it? |
+| Task Outcome | The result of one attempt | What actually happened, which checks ran, and what remains? |
+
+Their relationship is:
+
+```text
+One Workstream (identified by scope_id)
+  ├── may begin with a Work Contract
+  ├── produces a Handoff when work moves
+  ├── receives a Receipt for one exact Handoff
+  └── produces a Task Outcome at a completion or interruption boundary
+```
+
+This RFC therefore does not introduce a `Work` aggregate root or business table. The `Work` prefix in
+`WorkContract`, `WorkClaim`, and `WorkContinuity` means that these records describe the work in progress. Workstream
+remains the identity boundary, and Handoff Revision remains the durable transfer milestone.
+
+## End-to-end example: delegate auto-refresh work to a Coding Agent
+
+The following example walks one task through the full loop. Content is abbreviated for readability and does not
+define the exact API payload format.
+
+### Step 1: a human states the goal and the system forms a Work Contract
+
+The user tells a Coding Agent:
+
+> Add five-second auto-refresh to Handoff Report. Pause while the user has unsent changes and never overwrite the
+> draft. Do not modify Handoff Core. Run the relevant tests and `make docs-test` when finished.
+
+This is a new objective, so it begins as Delegation rather than Handoff. The integration inspects the repository,
+existing Handoffs, and repository rules, then creates a Work Contract. Its objective is safe auto-refresh; its scope
+includes frontend polling, draft protection, and relevant tests; its exclusions prohibit changing Handoff Core or
+adding a general Scheduler; its completion criteria require exact test states and no overwritten draft; and its
+authorization covers changes in the current repository but not production deployment.
+
+`declared` means that a participant asserted a claim. `verified` requires same-scope exact evidence. A readable
+reference proves only that the reference exists and has the expected identity; it does not prove that the fact is
+still current. The Agent must still rely on the live workspace and current tool results.
+
+The human is not asked to repeat facts that the integration can retrieve. For example, the Agent can read the
+repository rules to find the test command. If five-second polling creates a material remote Runtime cost, however,
+accepting that trade-off can change the result and must be returned to the human.
+
+### Step 2: the Agent stops partway through and prepares a Handoff
+
+Agent A implements polling and draft protection, but a Revision-switching test still fails and the current Session
+cannot continue. It calls `handoff_current_work` and prepares a boundary like this:
+
+```yaml
+objective: Add safe auto-refresh to Handoff Report
+current_state:
+  - Automatic polling is implemented
+  - Refresh pauses when there are unsent changes
+  - The frozen-selection switching test still fails
+disposition: continue
+next_action: Fix the comparison between the frozen selection and the current Report Revision
+omissions:
+  - Remote CI is unavailable in the current environment
+```
+
+Every current-state item and the next action cite the newly stored boundary Source. Original exact citations for
+verified claims are retained. There is only one `next_action`: Handoff tells the next participant where to start; it
+does not create another task queue.
+
+If Agent B will continue immediately in another Session, the integration can transfer the Prepared Handoff directly.
+If the team needs a durable milestone, the user or integration explicitly calls `commit_handoff` to create an
+immutable Handoff Revision. `handoff_current_work` does not commit automatically.
+
+### Step 3: the receiver checks the transfer and records a Receipt
+
+Agent B cannot modify code merely because the Handoff says to fix a test. It first calls Continue and checks:
+
+- whether the cited evidence is still readable;
+- whether the current checkout belongs to this Workstream;
+- whether it has the capability to run and modify the relevant code;
+- whether the current request grants the required file, tool, network, or other authority.
+
+Agent B then records exactly one of three receipts:
+
+| Receipt | Situation in this example |
+| --- | --- |
+| `accepted` | Evidence is readable, the workspace matches, and capability and repository-write authority are confirmed |
+| `needs_clarification` | The cited failure log is unavailable, so the failing assertion cannot be identified |
+| `declined` | The next action actually requires a production deployment that the receiver cannot or may not perform |
+
+A Receipt means only that the transfer can or cannot be taken. It is not task completion. Even after `accepted`, the
+loop still needs a Task Outcome or another Handoff.
+
+### Step 4: why the Receipt must identify an exact Revision
+
+Suppose Agent B inspected Handoff Revision 7. Before B accepts it, Agent A commits Revision 8 with a new instruction:
+"Stop changing the code and wait for a rollback decision." If B could acknowledge `latest`, the system could record
+that B accepted Revision 8 even though B never inspected it.
+
+The receiver therefore resolves a Prepared Handoff or exact Revision with Continue and acknowledges that same exact
+selection. When Report preflight finds that the displayed Revision is stale, the page requires a refresh instead of
+allowing the user to accept a newer value that was never displayed or inspected.
+
+### Step 5: record the actual result instead of inferring success
+
+Agent B fixes the test, but `make docs-test` times out because of an environment problem. Its Task Outcome can be:
+
+```yaml
+status: partial
+summary: Auto-refresh and draft protection are complete, but the full documentation build has no final result
+handoff_receipt_ref: The accepted Receipt for Handoff Revision 7
+checks:
+  - name: focused pytest
+    status: passed
+  - name: make docs-test
+    status: timed_out
+  - name: remote CI
+    status: unavailable
+remaining_work:
+  - Run make docs-test again when the documentation-build environment is healthy
+```
+
+The absence of a failure does not imply a pass: a check that did not run is `skipped`, a timeout is `timed_out`, an
+inaccessible environment is `unavailable`, and an indeterminate result is `unknown`. Because this Outcome exactly
+references the Receipt accepted by Agent B, the transfer outcome state can move from `awaiting_outcome` to `covered`.
+`covered` means only that the result was recorded; a `failed` result can also be covered.
+
+Task Outcome records what happened in this attempt. Whether "background refresh must preserve unsent drafts" should
+become reusable Experience for future tasks still requires Candidate generation, Review, and approval. One successful
+attempt does not enter PreparedContext automatically.
+
+## Detailed rule: Delegation is not Handoff
 
 A new objective that has not yet been started is Delegation, not Handoff. Codex or another integration inspects the
 current repository, existing Handoffs, project constraints, and the user's input; PowerContext validates and stores
@@ -111,6 +253,12 @@ The receiver then records one acknowledgement:
 
 The receipt records the receiver's observation, not task completion. A later Task Outcome or another Handoff closes
 the loop.
+
+For example, before taking leave, one developer submits a Handoff saying: "The memory growth after bulk import is
+reproduced, the fix branch has an initial change, and the next action is a 100,000-row validation. Production logs are
+omitted because I cannot access them." The receiver can accept it or choose `needs_clarification` because reproduction
+data is missing. Sending a document does not prove that responsibility transferred; the Receipt records that
+difference.
 
 ## Human and Agent
 
@@ -159,6 +307,14 @@ not authentication or an ACL.
 ## One-screen Handoff workspace
 
 Handoff Report provides one workspace for each Workstream instead of splitting transfer across a wizard:
+
+- the left side answers **What am I handing off?** by editing and sending the objective, state, one next action, and
+  missing material;
+- the right side answers **Can I take it?** with exact-evidence preflight and live workspace, capability, and
+  authorization checks;
+- the footer answers **What happened afterward?** with Contract, Handoff, Receipt, and Outcome in stable order.
+
+The detailed behavior is:
 
 - the sender card is prefilled from the current committed Handoff, and its objective, state, disposition, next action,
   and omissions remain editable until sending;
@@ -211,6 +367,10 @@ A Task Outcome records what happened during one attempt. It is not a reusable co
 Check status is one of `passed/failed/skipped/timed_out/unavailable/cancelled/unknown`. The absence of a failure does
 not imply a pass, and a producer's pass claim is not upgraded to verified automatically. Task Outcome is stored as a
 Source. An Experience still requires a generated Candidate, Review, and approval before entering PreparedContext.
+
+The easiest boundaries to confuse are: `accepted` is not completion, `covered` is not success, and Task Outcome is not
+reusable Experience. They mean, respectively, that the receiver confirmed it can take the work, that the transfer has
+an exactly linked result record, and that the record describes what happened in one attempt.
 
 # Scope
 

@@ -9,15 +9,16 @@
 
 # Summary
 
-本 RFC 定义 PowerContext 的工作连续性闭环，让同一段工作可以在人和人、人和 Agent、Agent 和 Agent 之间被理解、
-验证、接手并继续。
+本 RFC 定义 PowerContext 的工作连续性闭环。可以把它理解成一套有证据的“工作接力”：开始前说清楚要做什么，交接时说明做到哪里，接收方明确是否接得住，最后记录实际发生了什么。这样，同一段工作在人和人、人和 Agent、Agent 和 Agent 之间转移时，不需要依赖口头补充或复制完整聊天记录，也不会因为交接内容写着“继续执行”就自动获得权限。
+
+这里的 `Work` 表示正在推进的工作过程，不是新增加的持久化实体。工作主线仍然是已有的 Workstream，稳定身份仍然是`scope_id`。本 RFC 新增的是围绕 Workstream 的四类连续性记录和一个只读投影，不新增 `Work` 表、Task 系统或 Workflow 引擎。
 
 闭环由四个用户动作组成：
 
 ```text
 Delegation 委托
   -> Work Contract 工作基线
-  -> Work 人或 Agent 推进
+  -> Execution 人或 Agent 推进
   -> Handoff 交接
   -> Continue + Acknowledge 接手并回执
   -> Task Outcome 记录实际结果
@@ -26,8 +27,7 @@ Delegation 委托
 
 首版不创建与 Handoff 平行的工作流引擎或数据库。Work Contract、当前工作边界、Handoff Receipt 和 Task Outcome
 都作为有类型的 `ContentSource` 保存；临时和持久化交接继续使用 RFC 0048 的 Prepared Handoff、不可变 Handoff
-Revision、evidence check 和 Continue。Task Outcome 保留现有 `metadata.kind="task-outcome"`，因此可以直接进入
-RFC 0051 已有的 Experience 孵化与 Review 路径。
+Revision、evidence check 和 Continue。Task Outcome 保留现有 `metadata.kind="task-outcome"`，因此可以直接进入 RFC 0051 已有的 Experience 孵化与 Review 路径。
 
 首版提供四个高层 operation：
 
@@ -36,8 +36,7 @@ RFC 0051 已有的 Experience 孵化与 Review 路径。
 - `acknowledge_handoff`：重新解析 exact Handoff evidence 并记录接收、澄清或拒绝回执；
 - `record_task_outcome`：在真实完成或中断边界记录结果和检查状态。
 
-已有 `commit_handoff` 和 `continue_handoff` 保持不变。持久化里程碑仍然必须显式提交；接收回执仍然不能授予工具、
-网络、凭据或执行权限。
+已有 `commit_handoff` 和 `continue_handoff` 保持不变。持久化里程碑仍然必须显式提交；接收回执仍然不能授予工具、网络、凭据或执行权限。
 
 # Motivation
 
@@ -58,12 +57,135 @@ PowerContext 已经具备单个 Workstream 的 Handoff 生命周期和 Project �
 | 人 <-> Agent | Agent 是否理解意图，人是否保留取舍和授权权力 | Grounded Delegation、Task Outcome、决策回交 |
 | Agent -> Agent | 新 Agent 能否脱离原 Session 安全继续 | Canonical JSON、exact selection、evidence gate、能力和权限复核 |
 
-共同内核仍然是同一个 Workstream、同一份 Handoff 内容和同一组 exact evidence。人类、Agent 和审计系统只是消费
-不同投影。
+共同内核仍然是同一个 Workstream、同一份 Handoff 内容和同一组 exact evidence。人类、Agent 和审计系统只是消费不同投影。
 
 # Guide-level explanation
 
-## 委托不等于交接
+## 先建立直觉：这是一套工作接力记录
+
+可以先把五个核心概念理解成下面几样东西：
+
+| 概念 | 通俗理解 | 回答的问题 |
+| --- | --- | --- |
+| Workstream / `scope_id` | 一条可以持续推进的工作主线 | 大家正在继续的是哪一件事 |
+| Work Contract | 开工前的任务基线 | 一开始答应做什么，什么不做，怎样才算完成 |
+| Handoff | 交接单 | 当前做到哪里，下一棒从哪里开始 |
+| Handoff Receipt | 接收回执 | 接收方是否看懂、是否具备条件和权限接手 |
+| Task Outcome | 一次尝试的结果单 | 接手后实际做了什么，检查结果如何，还剩什么 |
+
+它们的关系是：
+
+```text
+一个 Workstream（身份是 scope_id）
+  ├── 开始时可以有 Work Contract
+  ├── 转移工作时产生 Handoff
+  ├── 接收方对某个精确 Handoff 留下 Receipt
+  └── 执行到完成或中断边界时产生 Task Outcome
+```
+
+因此，本 RFC 没有引入名为 `Work` 的聚合根或业务表。`WorkContract`、`WorkClaim` 和 `WorkContinuity` 中的 `Work`表示这些记录都在描述工作过程；Workstream 仍然是身份边界，Handoff Revision 仍然是持久化交接里程碑。
+
+## 贯穿示例：把自动刷新功能交给 Coding Agent
+
+下面用同一个任务走完整个闭环。示例中的内容为方便阅读做了省略，不规定 API payload 的具体格式。
+
+### 第一步：人提出目标，系统形成 Work Contract
+
+用户对 Coding Agent 说：
+
+> 给 Handoff Report 增加每 5 秒自动刷新；用户有未发送修改时必须暂停，不能覆盖草稿；不要修改 Handoff Core；
+> 完成后运行相关测试和 `make docs-test`。
+
+这是一个新目标，所以首先发生的是 Delegation，而不是 Handoff。集成层检查当前仓库、已有 Handoff 和仓库规则，
+然后创建 Work Contract：目标是“安全的自动刷新”；范围包括前端定时读取、草稿保护和相关测试；明确不修改 Handoff
+Core、不新增通用 Scheduler；完成标准要求刷新不覆盖草稿，并为各项测试记录精确状态；授权只包括修改当前仓库，
+不包括部署生产环境。
+
+`declared` 表示这是参与者的声明；`verified` 必须带有同 scope 的精确 evidence。即使某个引用可以读取，也只证明引用
+存在且身份匹配，不保证里面的事实现在仍然正确。Agent 仍然要以当前 workspace 和实时工具结果为准。
+
+这一阶段不应要求用户重新描述能从环境查到的信息。例如“测试命令是什么”可以读取仓库规则；但如果发现每 5 秒刷新
+会明显增加远程 Runtime 成本，是否接受这个取舍会改变结果，就应该把问题交还给用户决定。
+
+### 第二步：Agent 工作到一半，准备 Handoff
+
+Agent A 已经实现自动轮询和草稿保护，但一个 Revision 切换测试仍然失败，而且当前会话无法继续。它调用
+`handoff_current_work`，形成类似下面的交接边界：
+
+```yaml
+objective: 为 Handoff Report 增加安全的自动刷新
+current_state:
+  - 自动轮询已经实现
+  - 有未发送修改时会暂停刷新
+  - frozen selection 切换测试仍然失败
+disposition: continue
+next_action: 修复 frozen selection 与当前 Report Revision 的比较逻辑
+omissions:
+  - 当前环境无法访问远程 CI
+```
+
+每条当前状态和下一步都引用这次保存的边界 Source；已有 verified claim 的原始 exact citation 继续保留。这里只允许一个
+`next_action`，因为 Handoff 要告诉下一位参与者从哪里开始，不是建立另一套待办队列。
+
+如果 Agent B 马上在另一个会话中继续，可以直接传递 Prepared Handoff。需要把它作为团队可长期查询的里程碑时，用户或
+集成层再显式调用 `commit_handoff`，得到不可变 Handoff Revision。`handoff_current_work` 本身不自动 commit。
+
+### 第三步：接收方检查后留下 Receipt
+
+Agent B 收到交接后，不能因为交接里写着“下一步修复测试”就立刻修改代码。它先调用 Continue，并检查：
+
+- Handoff 引用的 evidence 现在是否还能读取；
+- 当前 checkout 是否确实对应这条 Workstream；
+- 自己是否具备运行和修改相关代码的能力；
+- 当前请求是否授予了所需的文件、工具、网络或其他权限。
+
+检查后，Agent B 只能留下三种回执之一：
+
+| 回执 | 本例中的情况 |
+| --- | --- |
+| `accepted` | evidence 可读，workspace 对得上，具备能力，也有修改当前仓库的授权 |
+| `needs_clarification` | 交接引用的失败日志已不可用，无法判断应该修哪一个断言 |
+| `declined` | 下一步实际要求部署生产环境，但当前接收方没有相应能力或授权 |
+
+Receipt 只表示“这份交接是否接得住”，不表示工作完成。即使状态是 `accepted`，后面仍然需要 Task Outcome 或下一次
+Handoff 才能闭环。
+
+### 第四步：为什么必须接收精确 Revision
+
+假设 Agent B 检查的是 Handoff Revision 7。在它确认接收之前，Agent A 又提交了 Revision 8，内容改成“停止修改，等待
+负责人决定是否回滚”。如果 B 可以直接对 `latest` 留下 `accepted`，系统就会错误记录成“B 接受了 Revision 8”，但 B
+实际上没有看过它。
+
+因此，接收方必须先用 Continue 解析一个 Prepared Handoff 或 exact Revision，再对同一个精确选择留下回执。Report 预检
+发现页面展示的 Revision 已经落后时，应要求刷新，不能替用户接受一个没有展示和检查过的新版本。
+
+### 第五步：记录实际结果，而不是推断成功
+
+Agent B 修复了测试，但 `make docs-test` 因环境问题超时。它记录的 Task Outcome 可以是：
+
+```yaml
+status: partial
+summary: 自动刷新和草稿保护已完成，完整文档构建没有得到最终结果
+handoff_receipt_ref: 对 Handoff Revision 7 的 accepted Receipt
+checks:
+  - name: focused pytest
+    status: passed
+  - name: make docs-test
+    status: timed_out
+  - name: remote CI
+    status: unavailable
+remaining_work:
+  - 在文档构建环境正常后重新运行 make docs-test
+```
+
+没有失败记录不能推断为通过：没运行就是 `skipped`，超时就是 `timed_out`，环境不可用就是 `unavailable`，无法判断就是
+`unknown`。这个 Outcome 精确引用了 Agent B 接受的 Receipt，所以该次交接的结果状态可以从 `awaiting_outcome` 变成
+`covered`。`covered` 只表示已经记录结果；结果即使是 `failed`，也仍然可以是 covered。
+
+Task Outcome 只保存“这一次发生了什么”。例如“后台刷新时必须保护未发送草稿”是否值得成为后续任务可复用的
+Experience，仍然要经过 Candidate、Review 和批准，不能因为一次任务成功就自动进入 PreparedContext。
+
+## 详细规则：委托不等于交接
 
 人第一次提出一个尚未开展的新目标时，这是 Delegation，不是 Handoff。Codex 或其他集成层检查当前仓库、已有 Handoff、
 项目约束和用户输入，再由 PowerContext 校验并保存 Work Contract：
@@ -91,8 +213,7 @@ Work Contract 至少包含：
 ## 人和人
 
 交接人使用 `handoff_current_work` 提交自己已经检查过的目标、当前状态、工作 disposition、唯一下一步和已知缺口。
-PowerContext 将完整边界保存为 Source，并以该 Source 作为每条 Handoff statement 的直接 evidence，返回 Prepared
-Handoff。
+PowerContext 将完整边界保存为 Source，并以该 Source 作为每条 Handoff statement 的直接 evidence，返回 Prepared Handoff。
 
 普通临时交接直接传递 Prepared Handoff。需要团队里程碑时，交接人显式调用 `commit_handoff`。接收人在 Handoff
 Report 中选择 Workstream，读取人类 Markdown 视图，再通过同一个 exact selection 调用 Continue。
@@ -104,6 +225,10 @@ Report 中选择 Workstream，读取人类 Markdown 视图，再通过同一个 
 - `declined`：范围、能力或授权不匹配。
 
 回执只说明接收方的观察，不代表任务完成。真正的闭环由后续 Task Outcome 或下一份 Handoff 完成。
+
+例如，开发者小王休假前提交一份 Handoff：“批量导入后的内存增长已经复现，修复分支有初步改动，下一步验证十万条数据；
+生产日志因权限无法附上。”小李可以接受交接，也可以因为缺少复现数据选择 `needs_clarification`。发送了一份文档不等于
+责任已经成功转移，Receipt 记录的就是这个区别。
 
 ## 人和 Agent
 
@@ -117,16 +242,13 @@ create_work_contract
   -> complete or handoff_current_work
 ```
 
-Agent 不能把普通 Prompt、SessionEnd 或 Stop 自动声明为完成。只有 completion-aware integration 能确认任务真实到达完成、
-部分完成、阻塞、失败、取消或未知边界时，才调用 `record_task_outcome`。
+Agent 不能把普通 Prompt、SessionEnd 或 Stop 自动声明为完成。只有 completion-aware integration 能确认任务真实到达完成、部分完成、阻塞、失败、取消或未知边界时，才调用 `record_task_outcome`。
 
-Agent 遇到需要人类价值判断或新授权的情况时，应准备一份 `blocked` Handoff，把问题、选项、影响和 evidence 交还给人，
-而不是推测答案或把 `authorization_notes` 当作权限令牌。
+Agent 遇到需要人类价值判断或新授权的情况时，应准备一份 `blocked` Handoff，把问题、选项、影响和 evidence 交还给人，而不是推测答案或把 `authorization_notes` 当作权限令牌。
 
 ## Agent 和 Agent
 
-发送 Agent 使用 `handoff_current_work` 得到 canonical Prepared Handoff。宿主通过 MCP、A2A 或 provider metadata 原样
-传输该结构；接收 Agent 不解析人类 Markdown，也不依赖复制完整 Session transcript。
+发送 Agent 使用 `handoff_current_work` 得到 canonical Prepared Handoff。宿主通过 MCP、A2A 或 provider metadata 原样传输该结构；接收 Agent 不解析人类 Markdown，也不依赖复制完整 Session transcript。
 
 接收流程是：
 
@@ -149,6 +271,12 @@ receive exact Prepared Handoff or Revision
 ## 一屏交接工作台
 
 Handoff Report 为每个 Workstream 提供同一个一屏工作台，而不是把交接拆成多步向导：
+
+- 左侧回答“我要交出什么”：编辑并发送当前目标、状态、唯一下一步和缺失材料；
+- 右侧回答“我能不能接”：展示 exact evidence 预检，以及 workspace、能力和授权复核；
+- 底部回答“这件事后来怎样了”：按稳定顺序展示 Contract、Handoff、Receipt 和 Outcome。
+
+具体行为如下：
 
 - 左侧交接卡从当前 committed Handoff 预填目标、状态、disposition、下一步和缺失项；全部字段在发送前可修改；
 - “发送交接”是明确的持久化动作：先调用 `handoff_current_work` 固化已检查的边界，再调用 `commit_handoff`
@@ -192,6 +320,9 @@ Task Outcome 记录一次尝试实际发生了什么，而不是保存可复用�
 检查状态固定为 `passed/failed/skipped/timed_out/unavailable/cancelled/unknown`。没有失败标记不能推断为通过，声明通过也
 不能自动升级为 verified。Task Outcome 保存为 Source；Experience 仍然需要生成 Candidate、Review 和批准后才能进入
 PreparedContext。
+
+最容易混淆的边界是：`accepted` 不等于完成，`covered` 不等于成功，Task Outcome 也不等于可复用 Experience。它们分别
+表示“接收方确认可以接手”“这次交接已经有精确关联的结果记录”和“这次尝试实际发生了什么”。
 
 # Scope
 
