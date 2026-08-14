@@ -6,6 +6,7 @@ requires-python = ">=3.12,<4.0"
 dependencies = [
     "bub>=0.4.0,<0.5.0",
     "powercontext[client]>=0.0.1",
+    "pydantic-settings>=2.7,<3",
 ]
 
 [project.entry-points."bub"]

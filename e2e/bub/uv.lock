@@ -1045,12 +1045,14 @@ source = { editable = "../../integrations/bub" }
 dependencies = [
     { name = "bub" },
     { name = "powercontext", extra = ["client"] },
+    { name = "pydantic-settings" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "bub", specifier = ">=0.4.0,<0.5.0" },
     { name = "powercontext", extras = ["client"], specifier = ">=0.0.1" },
+    { name = "pydantic-settings", specifier = ">=2.7,<3" },
 ]
 
 [[package]]
