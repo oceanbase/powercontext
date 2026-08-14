@@ -1,6 +1,6 @@
 ---
 title: 接口
-description: 在 Codex 插件、CLI、Python SDK、HTTP 和 MCP 之间选择。
+description: 在 Codex 插件、DeepSeek Harness 插件、CLI、Python SDK、HTTP 和 MCP 之间选择。
 ---
 
 # 接口
@@ -10,6 +10,7 @@ description: 在 Codex 插件、CLI、Python SDK、HTTP 和 MCP 之间选择。
 | 接口 | 适用场景 | 安装 |
 | --- | --- | --- |
 | Codex 插件 | 在 Codex 中跨会话恢复和显式维护 Memory | `powercontext setup codex` |
+| DeepSeek Harness 插件 | 在 DeepSeek Harness 中跨会话恢复和显式维护 Memory | `powercontext setup dsh` |
 | CLI | 配置、诊断、Server 控制、能力检查和人工 Candidate 审核 | `powercontext[cli,server]` |
 | Python Client SDK | 对运行中的 Server 发起类型化异步调用 | `powercontext[client]` |
 | Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | 基础包 |
@@ -55,12 +56,19 @@ Handoff Report 的 JSON Workstream projection 同时返回 `handoff_revision_cou
 优先展示，并每 5 秒自动刷新。未发送编辑或正在执行的交接动作会暂停自动刷新。Codex scope resolver 支持把当前 Git
 工作区一次绑定到固定 Workstream scope，绑定优先于 Git remote 和路径推导，但低于显式 scope 配置。
 
+## DeepSeek Harness 插件
+
+project-context skill 指导 DeepSeek Harness 何时检索、记忆、修订或停用 Memory。每轮模型开口前，插件会恢复相关
+条目，并把用户输入采集为 Source 证据；具名 `pc_*` 工具执行显式 HTTP 操作。插件不会启动或内嵌 Server。
+
 ## CLI
 
 ```text
 powercontext setup codex
+powercontext setup dsh
 powercontext doctor
 powercontext doctor codex
+powercontext doctor dsh
 powercontext server run
 powercontext ready
 powercontext capabilities
@@ -90,7 +98,8 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 中创建第二套内容 profile。
 
 `powercontext doctor` 检查安装包和 Server，不要求任何集成；`powercontext doctor codex` 显式检查 Codex CLI
-和 PowerContext 插件。
+和 PowerContext 插件；`powercontext doctor dsh` 检查 DeepSeek Harness CLI，以及 dump-config 是否列出插件 id
+`powercontext-dsh`。
 
 Generation 和 revision 命令通过可重复的 `--source-ref TYPE/ID` 与
 `--artifact-ref FAMILY/ID@REVISION` 接收精确引用，不再读取序列化请求文件。
