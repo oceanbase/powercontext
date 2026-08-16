@@ -30,7 +30,7 @@ from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import CONTENT_TYPE_LATEST, HttpMetricsMiddleware, ServerMetrics
 from powercontext.server.middleware import StaticBearerMiddleware
 from powercontext.server.settings import ServerSettings
-from powercontext.server.tracing import HttpTracingMiddleware, ServerTracing
+from powercontext.server.tracing import DomainTracer, HttpTracingMiddleware, ServerTracing
 from powercontext.server.web import mount_web_ui
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ def create_server_app(
             handoff_pipeline=handoff_pipeline,
             embedding_model=embedding_model,
             instrumentation=resolved_tracing.instrumentation,
+            tracing=DomainTracer(resolved_tracing),
         ) as runtime:
             readiness_probe.bind(runtime)
             app.state.application = runtime

@@ -111,6 +111,7 @@ if TYPE_CHECKING:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     from powercontext.builtin.handoff_report.application import HandoffReportApplication
+    from powercontext.tracing import Span, Tracer
 
 logger = logging.getLogger(__name__)
 
@@ -371,7 +372,24 @@ class ScopedExperienceApplication:
             ),
             self._runtime._lock(self.scope_id),
         ):
-            return await incubator(self.scope_id, window_limit)
+            span = _start_operation_span(self._runtime, "experience.incubation")
+            try:
+                result = await incubator(self.scope_id, window_limit)
+            except asyncio.CancelledError:
+                _finish_span(span, "cancelled")
+                raise
+            except Exception as error:
+                _finish_span(span, "failure", error=error)
+                raise
+            _finish_span(
+                span,
+                "success" if result.processed else "noop",
+                attributes={
+                    "source_count": result.source_count,
+                    "candidate_count": result.candidate_count,
+                },
+            )
+            return result
 
 
 class ExperienceApplication:
@@ -766,7 +784,21 @@ class ScopedMemoryApplication:
         ) as context:
             window_limit = self._runtime.source_window_limit if limit is None else limit
             async with self._runtime._lock(self.scope_id):
-                return await context.triggers.flush(limit=window_limit)
+                span = _start_operation_span(self._runtime, "memory.flush")
+                try:
+                    result = await context.triggers.flush(limit=window_limit)
+                except asyncio.CancelledError:
+                    _finish_span(span, "cancelled")
+                    raise
+                except Exception as error:
+                    _finish_span(span, "failure", error=error)
+                    raise
+                _finish_span(
+                    span,
+                    "success" if result.processed else "noop",
+                    attributes={"source_count": result.source_count},
+                )
+                return result
 
     async def cursor(self) -> SourceCursor:
         async with self._runtime._context(self.scope_id) as context:
@@ -798,6 +830,11 @@ class ScheduledSourceProcessor:
                 if self._runtime._closing or self._runtime._closed:
                     return
                 started_at = perf_counter()
+                span = _start_background_span(
+                    self._runtime,
+                    "scheduled.process_source_window",
+                    operation="process_source_window",
+                )
                 try:
                     result = await self._runtime.memory.for_scope(scope_id).flush()
                 except asyncio.CancelledError:
@@ -806,6 +843,7 @@ class ScheduledSourceProcessor:
                         operation="process_source_window",
                         started_at=started_at,
                     )
+                    _finish_span(span, "cancelled")
                     raise
                 except Exception as error:
                     _log_scheduled_processing(
@@ -814,13 +852,16 @@ class ScheduledSourceProcessor:
                         started_at=started_at,
                         error=error,
                     )
+                    _finish_span(span, "failure", error=error)
                 else:
+                    outcome = "success" if result.processed else "noop"
                     _log_scheduled_processing(
-                        "success" if result.processed else "noop",
+                        outcome,
                         operation="process_source_window",
                         started_at=started_at,
                         source_count=result.source_count,
                     )
+                    _finish_span(span, outcome, attributes={"source_count": result.source_count})
 
 
 class ScheduledExperienceProcessor:
@@ -838,6 +879,11 @@ class ScheduledExperienceProcessor:
                 if self._runtime._closing or self._runtime._closed:
                     return
                 started_at = perf_counter()
+                span = _start_background_span(
+                    self._runtime,
+                    "scheduled.incubate_experience_candidates",
+                    operation="incubate_experience_candidates",
+                )
                 try:
                     result = await self._runtime.experience.for_scope(scope_id).incubate()
                 except asyncio.CancelledError:
@@ -846,6 +892,7 @@ class ScheduledExperienceProcessor:
                         operation="incubate_experience_candidates",
                         started_at=started_at,
                     )
+                    _finish_span(span, "cancelled")
                     raise
                 except Exception as error:
                     _log_scheduled_processing(
@@ -854,13 +901,23 @@ class ScheduledExperienceProcessor:
                         started_at=started_at,
                         error=error,
                     )
+                    _finish_span(span, "failure", error=error)
                 else:
+                    outcome = "success" if result.processed else "noop"
                     _log_scheduled_processing(
-                        "success" if result.processed else "noop",
+                        outcome,
                         operation="incubate_experience_candidates",
                         started_at=started_at,
                         source_count=result.source_count,
                         candidate_count=result.candidate_count,
+                    )
+                    _finish_span(
+                        span,
+                        outcome,
+                        attributes={
+                            "source_count": result.source_count,
+                            "candidate_count": result.candidate_count,
+                        },
                     )
 
 
@@ -894,6 +951,42 @@ def _log_scheduled_processing(
     )
 
 
+def _start_background_span(runtime: BuiltinRuntime, name: str, *, operation: str) -> Span | None:
+    tracer = runtime._tracer
+    if tracer is None:
+        return None
+    return tracer.start_root_span(
+        name,
+        attributes={
+            "powercontext.operation.name": operation,
+            "powercontext.operation.unit": "background",
+        },
+    )
+
+
+def _start_operation_span(runtime: BuiltinRuntime, name: str) -> Span | None:
+    tracer = runtime._tracer
+    if tracer is None:
+        return None
+    # note(guozhihao-224): boundary spans appear under both HTTP and scheduled roots, so they carry
+    # no operation identity; outcome and bounded counts are set on finish.
+    return tracer.start_span(name, attributes={})
+
+
+def _finish_span(
+    span: Span | None,
+    outcome: str,
+    *,
+    error: BaseException | None = None,
+    attributes: dict[str, object] | None = None,
+) -> None:
+    if span is None:
+        return
+    if attributes:
+        span.set_attributes(attributes)
+    span.finish(outcome, error=error)
+
+
 class BuiltinRuntime:
     """Add business-specific operations over composed built-in contexts."""
 
@@ -914,6 +1007,7 @@ class BuiltinRuntime:
         recall_token_estimator: RecallTokenEstimator | None = None,
         readiness: RuntimeReadinessChecks | None = None,
         clock: Clock | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         if source_window_limit < 1:
             raise _RuntimeConfigurationError("source_window_limit")
@@ -929,6 +1023,7 @@ class BuiltinRuntime:
         self._recall_token_estimator = recall_token_estimator
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
         self._clock = _utc_now if clock is None else clock
+        self._tracer = tracer
         self.source_window_limit = source_window_limit
         self._locks: dict[str, asyncio.Lock] = {}
         self._processor_lock = asyncio.Lock()

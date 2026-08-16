@@ -20,7 +20,7 @@ from opentelemetry.sdk.trace.sampling import ALWAYS_OFF, ParentBased
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer, set_span_in_context
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from powercontext.server.context import bind_request_id, is_internal_bridge, reset_request_id
+from powercontext.server.context import bind_request_id, current_request_id, is_internal_bridge, reset_request_id
 from powercontext.server.settings import TracingConfig
 
 if TYPE_CHECKING:
@@ -136,6 +136,35 @@ class _ActiveSpan:
         if self.span is not None:
             with suppress(Exception):
                 self.span.end()
+
+
+class DomainTracer:
+    """Adapt ServerTracing to the domain Tracer protocol for built-in spans."""
+
+    def __init__(self, tracing: ServerTracing) -> None:
+        self._tracing = tracing
+
+    def start_span(self, name: str, *, attributes: dict[str, object]) -> _ActiveSpan:
+        span_attributes = dict(attributes)
+        request_id = current_request_id()
+        # note(guozhihao-224): only child spans join a request; scheduled roots are fresh traces with no request id.
+        if request_id is not None:
+            span_attributes["powercontext.request.id"] = request_id
+        return self._tracing.start_span(
+            name,
+            kind=SpanKind.INTERNAL,
+            attributes=span_attributes,
+            context=None,
+        )
+
+    def start_root_span(self, name: str, *, attributes: dict[str, object]) -> _ActiveSpan:
+        # note(guozhihao-224): fresh empty context keeps scheduled activations as independent trace roots.
+        return self._tracing.start_span(
+            name,
+            kind=SpanKind.INTERNAL,
+            attributes=dict(attributes),
+            context=Context(),
+        )
 
 
 class HttpTracingMiddleware:
@@ -302,6 +331,7 @@ def _request_id_attribute(scope: Scope) -> dict[str, str]:
 
 
 __all__ = [
+    "DomainTracer",
     "HttpTracingMiddleware",
     "McpTracingMiddleware",
     "ServerTracing",

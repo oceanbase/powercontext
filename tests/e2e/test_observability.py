@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from time import monotonic
 
 import httpx
 from fastapi.testclient import TestClient
@@ -16,7 +17,7 @@ from pydantic_ai.models import Model
 from pydantic_ai.models.test import TestModel
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime.config import InferenceConfig
+from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import OperationalContextFilter
 from powercontext.server.settings import McpConfig, ServerSettings
@@ -125,16 +126,19 @@ def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeyp
 
     transport = next(span for span in instrumented if span.name == "HTTP flush_memory")
     application = next(span for span in instrumented if span.name == "powercontext flush_memory")
+    memory_flush = next(span for span in instrumented if span.name == "memory.flush")
     invoke_agent = next(span for span in instrumented if span.name == "invoke_agent memory_extraction")
     chat = next(span for span in instrumented if span.name.startswith("chat "))
 
     assert application.parent is not None
     assert application.parent.span_id == transport.context.span_id
+    assert memory_flush.parent is not None
+    assert memory_flush.parent.span_id == application.context.span_id
     assert invoke_agent.parent is not None
-    assert invoke_agent.parent.span_id == application.context.span_id
+    assert invoke_agent.parent.span_id == memory_flush.context.span_id
     assert chat.parent is not None
     assert chat.parent.span_id == invoke_agent.context.span_id
-    assert {span.context.trace_id for span in (transport, application, invoke_agent, chat)} == {
+    assert {span.context.trace_id for span in (transport, application, memory_flush, invoke_agent, chat)} == {
         transport.context.trace_id
     }
     assert not any(_is_inference_span(span) for span in uninstrumented)
@@ -168,3 +172,69 @@ def _flush_memory_spans(database_path: Path, *, instrumented: bool) -> list[Read
 
 def _is_inference_span(span: ReadableSpan) -> bool:
     return span.instrumentation_scope is not None and span.instrumentation_scope.name == "pydantic-ai"
+
+
+def test_scheduled_source_window_emits_a_root_trace(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "pydantic_ai.models.infer_model",
+        lambda model: model if isinstance(model, Model) else TestModel(custom_output_text='{"candidates":[]}'),
+    )
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scheduled.db'}"),
+            inference=InferenceConfig(generation_model="test"),
+            runtime=RuntimeConfig(schedule_seconds=0.02),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "scheduler.db",
+        tracing=ServerTracing(provider),
+    )
+    scope_id = "project:scheduled-tracing"
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+            ) as transport,
+        ):
+            captured = await transport.post(
+                "/v1/sources/content",
+                json={"scope_id": scope_id, "source_id": "task-1", "content": "bounded evidence"},
+            )
+            assert captured.status_code == 202
+            deadline = monotonic() + 3
+            while monotonic() < deadline:
+                if any(
+                    span.name == "scheduled.process_source_window"
+                    and (span.attributes or {}).get("source_count") == 1
+                    for span in exporter.get_finished_spans()
+                ):
+                    return
+                await asyncio.sleep(0.02)
+            raise AssertionError("scheduled Source-window activation did not process the captured source")  # noqa: TRY003
+
+    asyncio.run(scenario())
+
+    spans = exporter.get_finished_spans()
+    root = next(
+        span
+        for span in spans
+        if span.name == "scheduled.process_source_window" and (span.attributes or {}).get("source_count") == 1
+    )
+    flush = next(
+        span
+        for span in spans
+        if span.name == "memory.flush" and span.parent is not None and span.parent.span_id == root.context.span_id
+    )
+    assert root.attributes is not None
+    assert flush.attributes is not None
+    assert root.parent is None
+    assert root.attributes["powercontext.operation.outcome"] == "success"
+    assert root.attributes["powercontext.operation.unit"] == "background"
+    assert flush.attributes["source_count"] == 1
+    assert all("scope_id" not in (span.attributes or {}) for span in spans)
