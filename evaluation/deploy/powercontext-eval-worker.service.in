@@ -1,0 +1,18 @@
+[Unit]
+Description=PowerContext evaluation console worker
+After=network.target powercontext-eval-web.service
+
+[Service]
+Type=simple
+User=@EVALUATION_WORKER_USER@
+Group=@EVALUATION_WORKER_GROUP@
+WorkingDirectory=@REPOSITORY_ROOT@
+EnvironmentFile=@EVALUATION_ROOT@/config/evaluation-console.env
+Environment=UV_CACHE_DIR=@EVALUATION_ROOT@/cache/uv
+ExecStart=@UV_BINARY@ run --project evaluation powercontext-eval worker
+KillMode=mixed
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

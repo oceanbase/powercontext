@@ -98,7 +98,7 @@ python-version = "3.11"
 extra-paths = ["./integrations/codex/plugins/powercontext"]
 
 [tool.ty.src]
-exclude = ["e2e/bub", "integrations/bub"]
+exclude = ["e2e/bub", "integrations/bub", "evaluation"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
