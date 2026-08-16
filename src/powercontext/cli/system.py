@@ -61,6 +61,10 @@ class SetupError(RuntimeError):
         return cls("DeepSeek Harness CLI is not installed or is not on PATH.")
 
     @classmethod
+    def pi_unavailable(cls) -> SetupError:
+        return cls("Pi CLI is not installed or is not on PATH.")
+
+    @classmethod
     def missing_dsh_plugin(cls, path: Path) -> SetupError:
         return cls(f"PowerContext DSH plugin was not found under {path}.")
 
@@ -69,12 +73,28 @@ class SetupError(RuntimeError):
         return cls(f"PowerContext DSH plugin at {path} is missing lib/index.js. Build the plugin before setup.")
 
     @classmethod
+    def missing_pi_package(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext Pi package was not found under {path}.")
+
+    @classmethod
+    def incomplete_pi_package(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext Pi package at {path} is missing its extension or project-context skill.")
+
+    @classmethod
     def invalid_dsh_ref(cls, ref: str) -> SetupError:
         return cls(f"invalid DeepSeek Harness ref: {ref}")
 
     @classmethod
     def invalid_dsh_source(cls, source: str) -> SetupError:
         return cls(f"invalid DeepSeek Harness source: {source}")
+
+    @classmethod
+    def invalid_pi_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid Pi ref: {ref}")
+
+    @classmethod
+    def invalid_pi_source(cls, source: str) -> SetupError:
+        return cls(f"invalid Pi source: {source}")
 
     @classmethod
     def data_directory(cls, path: Path, error: OSError) -> SetupError:
@@ -300,6 +320,45 @@ def setup_dsh(
     typer.echo("Next: run `powercontext server run`, then start `dsh web`.")
 
 
+@setup_app.command("pi")
+def setup_pi(
+    source: Annotated[
+        str,
+        typer.Option(help="PowerContext Git source or local checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install the PowerContext Pi package and prepare local storage."""
+
+    from powercontext.cli.pi import install_pi_plugin, run_pi_diagnostics
+
+    try:
+        result = install_pi_plugin(source=source, ref=ref)
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    diagnostics = run_pi_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext Pi setup complete.")
+    typer.echo(f"Package: {result.package} ({result.package_path})")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: run `powercontext server run`, then start a new Pi session.")
+
+
 @doctor_app.callback()
 def doctor(
     context: typer.Context,
@@ -364,6 +423,23 @@ def doctor_dsh(
     from powercontext.cli.dsh import run_dsh_diagnostics
 
     diagnostics = run_dsh_diagnostics()
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("pi")
+def doctor_pi(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional Pi CLI and PowerContext package."""
+
+    from powercontext.cli.pi import run_pi_diagnostics
+
+    diagnostics = run_pi_diagnostics()
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)
