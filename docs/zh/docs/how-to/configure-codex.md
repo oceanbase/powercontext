@@ -19,13 +19,13 @@ powercontext setup codex --source oceanbase/powercontext --ref master
 配置完成后开启新的 Codex 会话。通过 `/hooks` 查看 PowerContext `UserPromptSubmit` Hook，并在收到提示时
 授予信任。
 
-## 理解插件行为
+## 理解自动恢复、Memory 和 Handoff
 
 插件通过两条路径访问同一个 Server：
 
 - Prompt Hook 请求 Runtime 准备一个最终、有界的上下文值，然后独立地把用户提示词采集为
   Source 证据；
-- MCP 为 Codex 提供记忆、检索、修订、停用和审计 Memory 的显式工具。
+- MCP 为 Codex 提供读取和维护 Memory 的显式工具，以及明确的 Handoff 工作流。
 
 存在 Git remote 时，Memory scope 根据规范化后的 remote 生成；否则根据项目路径生成。在同一项目中开启
 的新 Codex 会话会得到相同 scope。只有在 scope 必须独立于这两者时，才设置
@@ -33,7 +33,11 @@ powercontext setup codex --source oceanbase/powercontext --ref master
 
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
 `powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为不可信历史、保留
-精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。
+精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。自动注入的
+内容和 Handoff 都是历史信息；Codex 在据此行动前仍应与当前代码、用户要求和系统指令核对。
+
+Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于临时移交当前任务，不能用几条 Memory 替代。概念边界见
+[理解 Memory 和 Handoff](../explanation/memory-and-handoff.md)，操作步骤见[在 Codex 中交接工作](handoff-with-codex.md)。
 
 ## 控制提示词采集
 
