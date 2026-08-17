@@ -1,5 +1,14 @@
 services:
   main:
+    environment:
+      ALL_PROXY: ${POWERCONTEXT_E2E_AGENT_PROXY_URL:-}
+      HTTP_PROXY: ${POWERCONTEXT_E2E_AGENT_PROXY_URL:-}
+      HTTPS_PROXY: ${POWERCONTEXT_E2E_AGENT_PROXY_URL:-}
+      NO_PROXY: 127.0.0.1,localhost,host-gateway,powercontext
+      all_proxy: ${POWERCONTEXT_E2E_AGENT_PROXY_URL:-}
+      http_proxy: ${POWERCONTEXT_E2E_AGENT_PROXY_URL:-}
+      https_proxy: ${POWERCONTEXT_E2E_AGENT_PROXY_URL:-}
+      no_proxy: 127.0.0.1,localhost,host-gateway,powercontext
     extra_hosts:
       - host-gateway:host-gateway
     security_opt:

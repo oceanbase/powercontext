@@ -67,6 +67,7 @@ class CaptureRecord(EvidenceModel):
     content_bytes: int | None = None
     captured_events: int | None = None
     flushed_position: int | None = None
+    usage: dict[str, Any] | None = None
 
 
 class RecallProbeObservation(EvidenceModel):
@@ -85,6 +86,8 @@ class HarborTrialObservation(EvidenceModel):
     exception_message: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    agent_sessions: int = Field(default=1, ge=0)
+    agent_prompts: tuple[str, ...] = ()
 
 
 class NativeArtifact(EvidenceModel):
@@ -119,9 +122,73 @@ class TaskObservation(EvidenceModel):
     probes: tuple[RecallProbeObservation, ...] = ()
 
 
+class BubMetrics(EvidenceModel):
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    cached_input_tokens: int = Field(default=0, ge=0)
+    reasoning_tokens: int = Field(default=0, ge=0)
+    total_tokens: int = Field(default=0, ge=0)
+    llm_calls: int = Field(default=0, ge=0)
+    llm_calls_with_usage: int = Field(default=0, ge=0)
+    tool_calls: int = Field(default=0, ge=0)
+
+    def plus(self, other: BubMetrics) -> BubMetrics:
+        return BubMetrics(**{field: getattr(self, field) + getattr(other, field) for field in type(self).model_fields})
+
+
 class EvaluationValue(EvidenceModel):
     value: bool | float | str
     reason: str | None = None
+
+
+class ScenarioLegObservation(EvidenceModel):
+    id: str
+    scenario: Literal["uninterrupted", "session-handoff", "container-handoff", "completed-reuse"]
+    role: Literal["baseline", "source", "resume", "cold", "warm"]
+    scope_id: str
+    prompt: Literal["task", "continue"]
+    workspace_restored: bool = False
+    workspace_saved: bool = False
+    workspace_snapshot: NativeArtifact | None = None
+    replay: str
+    status: Literal["completed", "failed"]
+    rewards: dict[str, float | int] = Field(default_factory=dict)
+    memory_entries_before: int = Field(default=0, ge=0)
+    memory_entries_after: int = Field(default=0, ge=0)
+    agent_sessions: int = Field(default=1, ge=0)
+    agent_prompts: tuple[str, ...] = ()
+    metrics: BubMetrics = Field(default_factory=BubMetrics)
+
+
+class ScenarioComparison(EvidenceModel):
+    scenario: Literal["session-handoff", "container-handoff", "completed-reuse"]
+    checkpoint_steps: int | None = None
+    reference_legs: tuple[str, ...]
+    candidate_legs: tuple[str, ...]
+    assertions: dict[str, EvaluationValue]
+    token_delta: int
+    llm_call_delta: int
+    tool_call_delta: int
+
+    @property
+    def accepted(self) -> bool:
+        return all(bool(assertion.value) for assertion in self.assertions.values())
+
+
+class ScenarioSuiteObservation(EvidenceModel):
+    schema_: Literal["powercontext.e2e-scenarios/v1"] = Field(
+        default="powercontext.e2e-scenarios/v1",
+        alias="schema",
+    )
+    run_id: str
+    task: E2ETask
+    handoff_steps: tuple[int, ...]
+    legs: tuple[ScenarioLegObservation, ...]
+    comparisons: tuple[ScenarioComparison, ...]
+
+    @property
+    def accepted(self) -> bool:
+        return bool(self.comparisons) and all(comparison.accepted for comparison in self.comparisons)
 
 
 class CaseEvaluation(EvidenceModel):

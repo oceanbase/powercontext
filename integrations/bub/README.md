@@ -38,10 +38,15 @@ validated by Pydantic before the plugin starts.
 | `POWERCONTEXT_BUB_CAPTURE_CHECKPOINT_EVERY` | `5` | Flush Memory after this many captured events |
 | `POWERCONTEXT_BUB_CAPTURE_MAX_BYTES` | `8192` | Maximum UTF-8 bytes stored for one captured event |
 | `POWERCONTEXT_BUB_CAPTURE_LOG` | unset | Optional JSONL evidence path; records metadata but not event content |
+| `POWERCONTEXT_BUB_RESUME_QUERY` | task-state query | Recall query used when the user prompt is exactly `continue` |
 
 Captured tool arguments redact values under credential-like keys. Known credential environment values are also
 removed from serialized event content. Keep the PowerContext scope and optional capture log protected because normal
 tool output can still contain sensitive project data.
+
+Each captured LLM result also records Bub's provider-native `usage` object in the capture log. Consumers should retain
+the raw value and normalize known token fields when aggregating a multi-session run. The ACP context-window usage update
+is a different signal and must not be added to token spend.
 
 Install the package together with PowerContext and Bub:
 

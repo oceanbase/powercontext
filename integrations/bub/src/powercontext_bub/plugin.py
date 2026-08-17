@@ -30,6 +30,7 @@ Use powercontext.search for follow-up recall beyond the injected context.
 Use powercontext.remember when the user establishes a durable decision, preference, constraint, or procedure."""
 CAPTURE_SCHEMA = "powercontext.bub-capture-event/v1"
 SENSITIVE_KEY_PARTS = ("api_key", "authorization", "cookie", "password", "secret", "token")
+DEFAULT_RESUME_QUERY = "What is the current task, completed work, unresolved issue, and next concrete action?"
 
 
 @config(name="powercontext")
@@ -51,6 +52,7 @@ class PowerContextSettings(Settings):
     capture_checkpoint_every: int = Field(default=5, ge=1, le=100)
     capture_max_bytes: int = Field(default=8192, ge=512, le=32768)
     capture_log: Path | None = None
+    resume_query: str = Field(default=DEFAULT_RESUME_QUERY, min_length=1, max_length=8192)
 
 
 class PowerContextPlugin:
@@ -102,7 +104,8 @@ class PowerContextPlugin:
         if not query:
             return None
 
-        prepared_content = await self._prepare_context(query, state)
+        recall_query = self.settings.resume_query if _is_continue_prompt(query) else query
+        prepared_content = await self._prepare_context(recall_query, state)
         if not prepared_content:
             return None
 
@@ -122,6 +125,7 @@ class PowerContextPlugin:
             payload={
                 "text": result.text,
                 "tool_calls": result.tool_calls,
+                "usage": result.usage,
                 "error": _error_name(result.error),
                 "duration_ms": result.duration_ms,
             },
@@ -218,6 +222,7 @@ class PowerContextPlugin:
                     status="failed",
                     source_id=source_id,
                     error=type(exc).__name__,
+                    usage=payload.get("usage") if event == "llm_result" else None,
                 )
                 return
 
@@ -229,6 +234,7 @@ class PowerContextPlugin:
                 status="captured",
                 source_id=source_id,
                 source_position=response.position,
+                usage=payload.get("usage") if event == "llm_result" else None,
             )
             if capture_state["captured_events"] % self.settings.capture_checkpoint_every == 0:
                 await self._flush_captured_sources(state, final=False)
@@ -299,6 +305,10 @@ def _latest_user_text(messages: list[dict[str, Any]]) -> str:
 def _contains_context_marker(message: dict[str, Any]) -> bool:
     content = message.get("content")
     return isinstance(content, str) and CONTEXT_MARKER in content
+
+
+def _is_continue_prompt(value: str) -> bool:
+    return value.strip().casefold().rstrip(".!") == "continue"
 
 
 def _workspace_scope(workspace: Path) -> str:

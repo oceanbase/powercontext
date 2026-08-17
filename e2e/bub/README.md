@@ -157,10 +157,10 @@ Codex OAuth document at
 The fixed Compose harness exposes `BUB_MODEL`, `BUB_API_KEY`, and `BUB_API_BASE`; direct harness execution also
 forwards other native `BUB_*` values without translating them.
 
-If the agent task container requires an outbound proxy, set `POWERCONTEXT_E2E_AGENT_PROXY_URL` to a URL reachable
-from that container. In the fixed nested-container harness, `host-gateway` addresses the harness container, so a
-proxy exposed there can be passed as `http://host-gateway:<port>`. The typed setting is also treated as a secret when
-evidence is written.
+If the task container requires an outbound proxy, set `POWERCONTEXT_E2E_AGENT_PROXY_URL` to a URL reachable from that
+container. The harness forwards it to both the agent and native verifier phases. In the fixed nested-container harness,
+`host-gateway` addresses the harness container, so a proxy exposed there can be passed as
+`http://host-gateway:<port>`. The typed setting is also treated as a secret when evidence is written.
 
 Agent setup uses Bub's supported installation path: `uv tool install` installs Bub with the local PowerContext plugin,
 then `bub install bub-acp-server` adds the ACP server to the same environment. Harbor uploads and runs its native ACP
@@ -179,6 +179,36 @@ Long-horizon acceptance requires observable Memory behavior:
 
 In-run context injections remain a reported metric, but they do not gate this single-session task because extraction
 may complete only at the final checkpoint. Harbor rewards are diagnostic scores and do not gate Memory acceptance.
+
+## Handoff and completed-task scenarios
+
+The `scenarios` command runs a single uninterrupted baseline before the selected scenario legs. It keeps the workload,
+model budget, native verifier, Codex OAuth mount, and proxy environment unchanged across legs.
+
+```bash
+uv run --frozen --project e2e/bub powercontext-e2e scenarios \
+  --id terminal-bench-db-wal-recovery \
+  --handoff-after-step 5 \
+  --handoff-after-step 12 \
+  --output .powercontext-e2e/bub/scenarios
+```
+
+The switch points are completed Bub loop boundaries. A session handoff starts a new Bub/ACP process in the same task
+container and sends only `continue`. A container handoff runs the source segment without a verifier, collects a full
+workspace archive through Harbor's agent-log channel, starts a fresh task container, restores the archive, and sends
+only `continue`; the native verifier runs after the resumed segment. Source and resumed segments use the same isolated
+PowerContext scope.
+
+The completed-reuse scenario runs a cold task in an empty scope and a warm task in a fresh container using the
+uninterrupted baseline's completed Memory scope. It accepts the warm leg only when native rewards do not degrade and
+both Bub token usage and LLM-call steps decrease.
+
+Each leg retains the normal `replay.json`, `eval-report.json`, native Harbor evidence, and report. The suite adds
+`scenario.json` and `scenario-report.md`. Token totals are computed by summing every Bub `LlmCallResult.usage`; raw
+per-call usage remains in `powercontext-capture.jsonl`. Input, output, cached-input, and reasoning tokens remain separate,
+while ACP context-window usage is not counted as token spend.
+Container-handoff outputs also retain the workspace archive and record its digest in scenario evidence. Treat that
+archive as task data and protect it with the same policy as native terminal and ACP artifacts.
 
 ## Rescore evidence
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shlex
 from importlib.metadata import version
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Any
 
 from harbor.agents.installed import acp as harbor_acp
 from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
+from harbor.models.trial.paths import EnvironmentPaths
 
 AGENT_ID = "powercontext-bub-acp"
 REMOTE_BIN_DIR = "/installed-agent/bin"
@@ -17,6 +20,7 @@ REMOTE_BUB_PROJECT = "/installed-agent/bub-project"
 REMOTE_CODEX_AUTH = "/run/powercontext/codex-auth.json"
 REMOTE_CODEX_HOME = "/installed-agent/codex"
 REMOTE_SOURCE = "/opt/powercontext/source"
+REMOTE_SCENARIO_SUPPORT = "/installed-agent/scenario-support.py"
 REMOTE_TOOL_DIR = "/installed-agent/tools"
 BUB_VERSION = version("bub")
 BUB_ACP_SERVER_VERSION = "0.0.2"
@@ -68,11 +72,136 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
         await environment.upload_file(source_path=launcher_path, target_path=self._LAUNCHER_REMOTE_PATH)
         runner_path = Path(harbor_acp.__file__).with_name("acp_runner.py")
         await environment.upload_file(source_path=runner_path, target_path=self._RUNNER_REMOTE_PATH)
+        scenario_support_path = Path(__file__).with_name("scenario_support.py")
+        await environment.upload_file(source_path=scenario_support_path, target_path=REMOTE_SCENARIO_SUPPORT)
         await environment.exec(
-            command=f"chmod a+rx {self._LAUNCHER_REMOTE_PATH} {self._RUNNER_REMOTE_PATH}",
+            command=f"chmod a+rx {self._LAUNCHER_REMOTE_PATH} {self._RUNNER_REMOTE_PATH} {REMOTE_SCENARIO_SUPPORT}",
             user="root",
         )
         self._selected_distribution_kind = "uvx"
+
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        if not _has_scenario_configuration(self.extra_env):
+            await super().run(instruction, environment, context)
+            return
+
+        del context
+        rendered_instruction = self.render_instruction(instruction)
+        workspace_archive = self.extra_env.get("POWERCONTEXT_E2E_WORKSPACE_ARCHIVE")
+        if self.extra_env.get("POWERCONTEXT_E2E_RESTORE_WORKSPACE") == "true":
+            if not workspace_archive:
+                raise ValueError("Workspace restore requires POWERCONTEXT_E2E_WORKSPACE_ARCHIVE")  # noqa: TRY003
+            await self._workspace_command(environment, "restore", workspace_archive)
+
+        segment_plan = _segment_plan(rendered_instruction, self.extra_env)
+        runner_environment = self._runner_environment()
+        for index, (prompt, max_steps) in enumerate(segment_plan):
+            await self._run_segment(
+                environment,
+                index=index,
+                prompt=prompt,
+                max_steps=max_steps,
+                runner_environment=runner_environment,
+            )
+
+        if self.extra_env.get("POWERCONTEXT_E2E_SAVE_WORKSPACE") == "true":
+            if not workspace_archive:
+                raise ValueError("Workspace snapshot requires POWERCONTEXT_E2E_WORKSPACE_ARCHIVE")  # noqa: TRY003
+            await self._workspace_command(environment, "snapshot", workspace_archive)
+
+        aggregate_command = (
+            f"{self._RUNNER_VENV_PATH}/bin/python {REMOTE_SCENARIO_SUPPORT} aggregate "
+            f"--logs-dir={shlex.quote(EnvironmentPaths.agent_dir.as_posix())} "
+            f"--instruction={shlex.quote(rendered_instruction)}"
+        )
+        await self.exec_as_agent(environment, command=aggregate_command)
+
+    def _runner_environment(self) -> dict[str, str]:
+        registry_entry = self._require_registry_entry()
+        environment = {
+            "HARBOR_ACP_MCP_SERVERS_JSON": json.dumps(self._build_mcp_servers_payload()),
+            "HARBOR_ACP_PERMISSION_MODE": self._permission_mode,
+            "HARBOR_ACP_AUTH_POLICY": self._auth_policy,
+            "HARBOR_ACP_AGENT_ID": registry_entry.id,
+            "HARBOR_ACP_AGENT_VERSION": registry_entry.version,
+        }
+        if self._authenticate_method_id:
+            environment["HARBOR_ACP_AUTHENTICATE_METHOD_ID"] = self._authenticate_method_id
+        if self.model_name:
+            environment["HARBOR_ACP_REQUESTED_MODEL"] = self.model_name
+        return environment
+
+    async def _run_segment(
+        self,
+        environment: BaseEnvironment,
+        *,
+        index: int,
+        prompt: str,
+        max_steps: int,
+        runner_environment: dict[str, str],
+    ) -> None:
+        segment_dir = EnvironmentPaths.agent_dir / "segments" / f"{index:03d}"
+        command = (
+            f"mkdir -p {shlex.quote(segment_dir.as_posix())}; "
+            f"{self._RUNNER_VENV_PATH}/bin/python {self._RUNNER_REMOTE_PATH} "
+            f"--instruction={shlex.quote(prompt)} "
+            f"--logs-dir={shlex.quote(segment_dir.as_posix())} "
+            f"--launcher={self._LAUNCHER_REMOTE_PATH} "
+            f"2>&1 | stdbuf -oL tee {shlex.quote((segment_dir / self._OUTPUT_FILENAME).as_posix())} "
+            f"| stdbuf -oL tee -a {shlex.quote((EnvironmentPaths.agent_dir / self._OUTPUT_FILENAME).as_posix())}"
+        )
+        await self.exec_as_agent(
+            environment,
+            command=command,
+            env={**runner_environment, "BUB_MAX_STEPS": str(max_steps)},
+        )
+
+    async def _workspace_command(self, environment: BaseEnvironment, command: str, archive: str) -> None:
+        support_command = (
+            f"{self._RUNNER_VENV_PATH}/bin/python {REMOTE_SCENARIO_SUPPORT} {command} "
+            f"--workspace=. --archive={shlex.quote(archive)}"
+        )
+        await self.exec_as_agent(environment, command=support_command)
+
+
+def _has_scenario_configuration(environment: dict[str, str]) -> bool:
+    return any(
+        name.startswith("POWERCONTEXT_E2E_SCENARIO_")
+        or name in {"POWERCONTEXT_E2E_RESTORE_WORKSPACE", "POWERCONTEXT_E2E_SAVE_WORKSPACE"}
+        for name in environment
+    )
+
+
+def _segment_plan(instruction: str, environment: dict[str, str]) -> tuple[tuple[str, int], ...]:
+    max_steps = _positive_int(environment.get("BUB_MAX_STEPS"), name="BUB_MAX_STEPS")
+    handoff_value = environment.get("POWERCONTEXT_E2E_SCENARIO_HANDOFF_AFTER_STEPS")
+    if handoff_value is not None:
+        handoff_steps = _positive_int(handoff_value, name="POWERCONTEXT_E2E_SCENARIO_HANDOFF_AFTER_STEPS")
+        if handoff_steps >= max_steps:
+            raise ValueError("Handoff step must be smaller than BUB_MAX_STEPS")  # noqa: TRY003
+        return ((instruction, handoff_steps), ("continue", max_steps - handoff_steps))
+
+    prompt = "continue" if environment.get("POWERCONTEXT_E2E_SCENARIO_PROMPT") == "continue" else instruction
+    segment_steps = _positive_int(
+        environment.get("POWERCONTEXT_E2E_SCENARIO_MAX_STEPS", str(max_steps)),
+        name="POWERCONTEXT_E2E_SCENARIO_MAX_STEPS",
+    )
+    return ((prompt, segment_steps),)
+
+
+def _positive_int(value: str | None, *, name: str) -> int:
+    try:
+        parsed = int(value or "")
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc  # noqa: TRY003
+    if parsed < 1:
+        raise ValueError(f"{name} must be positive")  # noqa: TRY003
+    return parsed
 
 
 def _tool_environment() -> str:
