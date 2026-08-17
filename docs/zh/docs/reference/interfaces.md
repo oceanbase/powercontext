@@ -11,7 +11,7 @@ description: 在 Codex 插件、DeepSeek Harness 插件、Pi package、CLI、Pyt
 | --- | --- | --- |
 | Codex 插件 | 在 Codex 中跨会话恢复和显式维护 Memory | `powercontext setup codex` |
 | DeepSeek Harness 插件 | 在 DeepSeek Harness 中跨会话恢复和显式维护 Memory | `powercontext setup dsh` |
-| Pi package | 在 Pi 中跨会话恢复、使用原生 Memory/Handoff 工具和 skill | `powercontext setup pi` |
+| Pi package | 在 Pi 中跨会话恢复、使用原生 Memory/Handoff/Candidate Review/Report 工具和 skill | `powercontext setup pi` |
 | CLI | 配置、诊断、Server 控制、能力检查和人工 Candidate 审核 | `powercontext[cli,server]` |
 | Python Client SDK | 对运行中的 Server 发起类型化异步调用 | `powercontext[client]` |
 | Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | 基础包 |
@@ -30,9 +30,10 @@ project-context skill 指导 DeepSeek Harness 何时检索、记忆、修订或�
 
 ## Pi package
 
-原生 Pi package 提供 `project-context` skill、具名 `pc_*` Memory/Handoff 工具和 `/pc` 诊断命令。每次普通 agent
-启动前，它请求一个严格校验且有界的 PreparedContext，并独立采集符合条件的用户提示词作为 Source 证据。它不会同步
-Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久化写入必须在交互式环境中确认。
+原生 Pi package 提供 `project-context` skill、具名 `pc_*` Memory、Handoff、Candidate Review 和 Handoff Report 工具及
+`/pc` 诊断命令。每次普通 agent 启动前，它请求一个严格校验且有界的 PreparedContext，并独立采集符合条件的用户提示词
+作为 Source 证据。它不会同步 Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久化写入必须在交互式环境中
+确认。
 
 ## CLI
 

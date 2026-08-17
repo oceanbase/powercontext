@@ -68,9 +68,14 @@ flush。
 - `pc_remember`、`pc_prepare_context`、`pc_capture_source`；
 - `pc_handoff_activate`、`pc_handoff_prepare`、`pc_handoff_finalize`、`pc_handoff_commit`、
   `pc_handoff_continue`。
+- 用于只读项目报告的 `pc_handoff_report_get` 和 `pc_handoff_report_workspace_get`；
+- 用于 Candidate Review 的 `pc_artifact_candidate_list`、`pc_artifact_candidate_get`、
+  `pc_artifact_candidate_approve`、`pc_artifact_candidate_reject` 和 `pc_artifact_candidate_revise`。
 
 显式持久化写入在交互式 Pi 会话中必须确认；没有交互 UI 时，Pi 会拒绝写入而不会静默持久化。`/pc doctor`、
-`/pc search <query>`、`/pc remember <text>`、`/pc flush` 和 `/pc stats` 可直接查看状态和维护内容。
+在决定 Candidate 前，应先读取其当前 head 并传回精确的 `expected_version`；修订 Candidate 时必须提供完整替换
+proposal 和精确的证据引用。`/pc search <query>`、`/pc remember <text>`、`/pc flush` 和 `/pc stats` 可直接查看
+状态和维护内容。
 
 ## 连接启用鉴权的 Server
 

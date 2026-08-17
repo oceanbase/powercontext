@@ -26,8 +26,49 @@ const SEARCH_MODES = Type.Union([
   Type.Literal('vector'),
   Type.Literal('hybrid'),
 ])
+const CANDIDATE_STATUSES = Type.Union([
+  Type.Literal('pending'),
+  Type.Literal('approved'),
+  Type.Literal('rejected'),
+])
+const CANDIDATE_FAMILIES = Type.Union([Type.Literal('experience'), Type.Literal('skill')])
+const REPORT_LOCALES = Type.Union([Type.Literal('zh-CN'), Type.Literal('en')])
+const REPORT_FORMATS = Type.Union([Type.Literal('json'), Type.Literal('markdown')])
+const CANDIDATE_ID = Type.String({ description: 'Candidate ID returned by the review inbox.' })
+const EXPECTED_CANDIDATE_VERSION = Type.Integer({
+  minimum: 1,
+  description: 'Current Candidate version returned by get.',
+})
 const CITATION = Type.Object({}, { additionalProperties: true, description: 'Exact citation returned by PowerContext.' })
 const JSON_OBJECT = Type.Object({}, { additionalProperties: true })
+const SOURCE_REFERENCE = Type.Object({
+  name: Type.String({ description: 'Stable Source type.' }),
+  source_id: Type.String({ description: 'Exact Source ID.' }),
+})
+const ARTIFACT_REFERENCE = Type.Object({
+  family: Type.String({ description: 'Artifact family.' }),
+  artifact_id: Type.String({ description: 'Exact Artifact ID.' }),
+  revision: Type.Integer({ minimum: 1, description: 'Exact Artifact revision.' }),
+})
+const EXPERIENCE_PROPOSAL = Type.Object({
+  situation: Type.String(),
+  action: Type.String(),
+  outcome: Type.String(),
+  lesson: Type.String(),
+})
+const SKILL_PROPOSAL = Type.Object({
+  name: Type.String(),
+  description: Type.String(),
+  instructions: Type.String(),
+  validation: Type.Array(Type.String()),
+})
+const CANDIDATE_PROPOSAL = Type.Union([EXPERIENCE_PROPOSAL, SKILL_PROPOSAL])
+const HANDOFF_REPORT_PERIOD = Type.Object({
+  start: Type.String({ description: 'Inclusive ISO 8601 date-time.' }),
+  end: Type.String({ description: 'Exclusive ISO 8601 date-time.' }),
+  timezone: Type.Optional(Type.String({ description: 'IANA timezone used to interpret the period.' })),
+  compare_to_previous_period: Type.Optional(Type.Boolean()),
+})
 
 function render(result: ToolResult) {
   return {
@@ -250,6 +291,140 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
         prepared: params.prepared,
         revision: params.revision,
       }))
+    },
+  })
+
+  pi.registerTool({
+    name: 'pc_handoff_report_get',
+    label: 'PowerContext Handoff Report Get',
+    description: 'Generate a project handoff report without changing durable context.',
+    parameters: Type.Object({
+      project_id: Type.String({ description: 'Handoff Report project ID.' }),
+      locale: Type.Optional(REPORT_LOCALES),
+      include_evidence_checks: Type.Optional(Type.Boolean()),
+      format: Type.Optional(REPORT_FORMATS),
+      include_archived: Type.Optional(Type.Boolean()),
+      download: Type.Optional(Type.Boolean({ description: 'Return a downloadable report as base64 bytes.' })),
+      period: Type.Optional(HANDOFF_REPORT_PERIOD),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, context) {
+      return render(await invoke(runtime, context, signal, 'get_handoff_report', {
+        project_id: params.project_id,
+        locale: params.locale,
+        include_evidence_checks: params.include_evidence_checks ?? true,
+        format: params.format ?? 'markdown',
+        include_archived: params.include_archived ?? false,
+        download: params.download ?? false,
+        period: params.period,
+      }))
+    },
+  })
+
+  pi.registerTool({
+    name: 'pc_handoff_report_workspace_get',
+    label: 'PowerContext Handoff Report Workspace Get',
+    description: 'Read the confirmed Handoff Report project binding for one workspace.',
+    parameters: Type.Object({
+      workspace_instance_id: Type.String({ description: 'Stable workspace instance ID.' }),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, context) {
+      return render(await invoke(runtime, context, signal, 'get_handoff_report_workspace', {
+        workspace_instance_id: params.workspace_instance_id,
+      }))
+    },
+  })
+
+  pi.registerTool({
+    name: 'pc_artifact_candidate_list',
+    label: 'PowerContext Artifact Candidate List',
+    description: 'List current Candidate heads in the project review inbox.',
+    parameters: Type.Object({
+      status: Type.Optional(CANDIDATE_STATUSES),
+      family: Type.Optional(CANDIDATE_FAMILIES),
+      cursor: Type.Optional(Type.String({ description: 'Cursor returned by an earlier list response.' })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, context) {
+      return render(await invoke(runtime, context, signal, 'list_artifact_candidates', {
+        status: params.status ?? 'pending',
+        family: params.family,
+        cursor: params.cursor,
+        limit: Math.min(100, Math.max(1, params.limit ?? 50)),
+      }))
+    },
+  })
+
+  pi.registerTool({
+    name: 'pc_artifact_candidate_get',
+    label: 'PowerContext Artifact Candidate Get',
+    description: 'Read a current Candidate head before deciding whether to approve, reject, or revise it.',
+    parameters: Type.Object({
+      candidate_id: CANDIDATE_ID,
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, context) {
+      return render(await invoke(runtime, context, signal, 'get_artifact_candidate', {
+        candidate_id: params.candidate_id,
+      }))
+    },
+  })
+
+  pi.registerTool({
+    name: 'pc_artifact_candidate_approve',
+    label: 'PowerContext Artifact Candidate Approve',
+    description: 'Approve an inspected Candidate at its exact version and commit the proposed Artifact.',
+    parameters: Type.Object({
+      candidate_id: CANDIDATE_ID,
+      expected_version: EXPECTED_CANDIDATE_VERSION,
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, context) {
+      return render(await invoke(runtime, context, signal, 'approve_artifact_candidate', {
+        candidate_id: params.candidate_id,
+        expected_version: params.expected_version,
+      }, true))
+    },
+  })
+
+  pi.registerTool({
+    name: 'pc_artifact_candidate_reject',
+    label: 'PowerContext Artifact Candidate Reject',
+    description: 'Reject an inspected Candidate at its exact version without writing an Artifact.',
+    parameters: Type.Object({
+      candidate_id: CANDIDATE_ID,
+      expected_version: EXPECTED_CANDIDATE_VERSION,
+      reason: Type.String({ description: 'Specific reason for rejecting this proposal.' }),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, context) {
+      return render(await invoke(runtime, context, signal, 'reject_artifact_candidate', {
+        candidate_id: params.candidate_id,
+        expected_version: params.expected_version,
+        reason: params.reason,
+      }, true))
+    },
+  })
+
+  pi.registerTool({
+    name: 'pc_artifact_candidate_revise',
+    label: 'PowerContext Artifact Candidate Revise',
+    description: 'Append a complete replacement proposal as the next pending Candidate version.',
+    parameters: Type.Object({
+      candidate_id: CANDIDATE_ID,
+      expected_version: EXPECTED_CANDIDATE_VERSION,
+      proposal: CANDIDATE_PROPOSAL,
+      source_refs: Type.Array(SOURCE_REFERENCE, { maxItems: 32 }),
+      artifact_refs: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 }),
+      target: Type.Optional(ARTIFACT_REFERENCE),
+      reason: Type.Optional(Type.String({ description: 'Reason for replacing the prior proposal.' })),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, context) {
+      return render(await invoke(runtime, context, signal, 'revise_artifact_candidate', {
+        candidate_id: params.candidate_id,
+        expected_version: params.expected_version,
+        proposal: params.proposal,
+        source_refs: params.source_refs,
+        artifact_refs: params.artifact_refs,
+        target: params.target,
+        reason: params.reason,
+      }, true))
     },
   })
 }

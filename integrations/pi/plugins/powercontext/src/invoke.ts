@@ -61,6 +61,9 @@ const WRITE_OPERATIONS = new Set<OperationId>([
   'retire_memory_entry',
   'activate_handoff',
   'commit_handoff',
+  'approve_artifact_candidate',
+  'reject_artifact_candidate',
+  'revise_artifact_candidate',
 ])
 
 function mapServerError(error: ServerResponseError): ToolResult {
@@ -171,9 +174,11 @@ export async function invokeScopedOperation(
   operationId: string,
   payload: JsonObject | undefined,
 ): Promise<ToolResult> {
+  if (!(operationId in OPERATIONS)) return toToolResult(new UnknownOperationError(operationId))
+  const id = operationId as OperationId
   try {
-    const scopeId = await runtime.resolveScope(context.cwd)
-    return invokeOperation(runtime.client, operationId, payload, scopeId, context.signal)
+    const scopeId = OPERATIONS[id].scope ? await runtime.resolveScope(context.cwd) : ''
+    return invokeOperation(runtime.client, id, payload, scopeId, context.signal)
   } catch {
     return unavailableResult()
   }

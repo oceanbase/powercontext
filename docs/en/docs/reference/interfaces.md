@@ -11,7 +11,7 @@ All remote interfaces operate on the same Server and persistent Artifact storage
 | --- | --- | --- |
 | Codex plugin | Cross-session recall and explicit Memory maintenance in Codex | `powercontext setup codex` |
 | DeepSeek Harness plugin | Cross-session recall and explicit Memory maintenance in DeepSeek Harness | `powercontext setup dsh` |
-| Pi package | Cross-session recall, native Memory/Handoff tools, and skills in Pi | `powercontext setup pi` |
+| Pi package | Cross-session recall, native Memory/Handoff/Candidate Review/Report tools, and skills in Pi | `powercontext setup pi` |
 | CLI | Setup, diagnostics, Server control, capability checks, and human Candidate review | `powercontext[cli,server]` |
 | Python Client SDK | Typed async calls to a running Server | `powercontext[client]` |
 | Core SDK | In-process Source, Artifact, Trigger, and composition contracts | base package |
@@ -32,10 +32,11 @@ HTTP operations. The plugin never starts or embeds the Server.
 
 ## Pi package
 
-The native Pi package supplies the `project-context` skill, named `pc_*` Memory and Handoff tools, and `/pc`
-diagnostics. Before each normal agent start, it requests one strict, bounded PreparedContext value and independently
-captures an eligible user prompt as Source evidence. It does not synchronize Pi transcripts. Recall, capture, and
-boundary flushing fail open; explicit durable writes require interactive confirmation.
+The native Pi package supplies the `project-context` skill, named `pc_*` Memory, Handoff, Candidate Review, and
+Handoff Report tools, and `/pc` diagnostics. Before each normal agent start, it requests one strict, bounded
+PreparedContext value and independently captures an eligible user prompt as Source evidence. It does not synchronize
+Pi transcripts. Recall, capture, and boundary flushing fail open; explicit durable writes require interactive
+confirmation.
 
 ## CLI
 

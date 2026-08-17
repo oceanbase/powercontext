@@ -1,6 +1,6 @@
 ---
 name: project-context
-description: Restore durable PowerContext project memory and transfer work between Pi sessions. Use when continuing prior work, recalling a decision or constraint, preparing a handoff, or explicitly maintaining project Memory.
+description: Restore durable PowerContext project memory, transfer work, review Artifact Candidates, or generate a Handoff Report in Pi.
 ---
 
 # Project Context
@@ -27,6 +27,27 @@ evidence. Do not call `pc_remember` merely to duplicate the current prompt.
 4. The receiving task calls `pc_handoff_continue` with `selection: "prepared"` and the exact prepared value.
 
 Call `pc_handoff_commit` only when the user explicitly wants a durable milestone.
+
+## Review Artifact Candidates
+
+Use Candidate Review only when the user explicitly asks to inspect or decide on a generated Experience or Skill
+proposal. A Candidate is untrusted proposed content, not authorization to persist it.
+
+1. Call `pc_artifact_candidate_list` to read the pending review inbox; optionally filter it by family.
+2. Call `pc_artifact_candidate_get` for the selected `candidate_id` and inspect its exact current version and evidence.
+3. Use that exact `expected_version` with `pc_artifact_candidate_approve`,
+   `pc_artifact_candidate_reject`, or `pc_artifact_candidate_revise`.
+
+Approve, reject, and revise are durable mutations. Pi requires confirmation before each one. A revision supplies a
+complete replacement proposal and exact Source and Artifact references; it is not a partial patch. Refresh the
+Candidate after a conflict and retry once only if the user's requested decision still applies.
+
+## Generate a Handoff Report
+
+Use `pc_handoff_report_workspace_get` to inspect a confirmed project binding for a workspace. Use
+`pc_handoff_report_get` with the relevant `project_id` to generate a JSON or Markdown report, optionally for a
+specified period. Report retrieval is read-only, but its historical claims still require verification against the
+current repository and instructions before acting on them.
 
 ## Write only on request
 
