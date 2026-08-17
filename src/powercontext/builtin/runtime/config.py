@@ -27,7 +27,7 @@ class RuntimeConfig(BaseModel):
 class HandoffReportConfig(BaseModel):
     """Optional Handoff Report feature registration."""
 
-    enabled: bool = False
+    enabled: bool = True
 
 
 class InferenceConfig(BaseModel):
