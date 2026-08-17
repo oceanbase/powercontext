@@ -7,7 +7,7 @@ description: 安装 PowerContext 原生 Pi package，并控制召回、采集和
 
 ## 安装或刷新 package
 
-先安装 Pi 0.82 或更高版本，再从与 PowerContext CLI 相同的 ref 安装 package：
+先安装 Pi 0.82 或更高版本。`setup pi` 会拒绝更早的版本，然后从与 PowerContext CLI 相同的 ref 安装 package：
 
 ```bash
 powercontext setup pi --source oceanbase/powercontext --ref master
@@ -99,5 +99,5 @@ powercontext doctor
 powercontext doctor pi
 ```
 
-`doctor pi` 会检查 Pi 可执行文件是否存在，以及 Pi 是否列出了 PowerContext package。修改 PowerContext 环境变量后
+`doctor pi` 会检查 Pi 可执行文件是否达到最低版本，以及 Pi 是否列出了 PowerContext package。修改 PowerContext 环境变量后
 需要重启 Pi。

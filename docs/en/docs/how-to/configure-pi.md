@@ -7,7 +7,7 @@ description: Install the native PowerContext package for Pi and control recall, 
 
 ## Install or refresh the package
 
-Install Pi 0.82 or later, then install the package from the same PowerContext ref as the CLI:
+Install Pi 0.82 or later. `setup pi` refuses older releases, then installs the package from the same PowerContext ref as the CLI:
 
 ```bash
 powercontext setup pi --source oceanbase/powercontext --ref master
@@ -102,5 +102,5 @@ powercontext doctor
 powercontext doctor pi
 ```
 
-`doctor pi` checks that the Pi executable is available and that Pi lists the PowerContext package. Restart Pi after
-changing PowerContext environment variables.
+`doctor pi` checks that the Pi executable meets the minimum version and that Pi lists the PowerContext package. Restart
+Pi after changing PowerContext environment variables.
