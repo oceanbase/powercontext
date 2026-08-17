@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -19,8 +18,6 @@ PI_PACKAGE_NAME = "powercontext-pi"
 PI_PLUGIN_RELATIVE = Path("integrations") / "pi" / "plugins" / "powercontext"
 PI_EXTENSION = Path("extensions") / "powercontext.ts"
 PI_SKILL = Path("skills") / "project-context" / "SKILL.md"
-MINIMUM_PI_VERSION = (0, 82, 0)
-_PI_VERSION_PATTERN = re.compile(r"v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +37,7 @@ class _PiPackageListing:
 def install_pi_plugin(*, source: str, ref: str) -> PiSetupResult:
     """Install the native Pi package from a checkout or Git source."""
 
-    require_supported_pi()
+    pi_executable()
     data_dir = powercontext_data_dir()
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -94,16 +91,6 @@ def run_pi_diagnostics() -> dict[str, Diagnostic]:
             "package": Diagnostic(status=DiagnosticStatus.SKIPPED, detail="not checked because Pi CLI is unavailable"),
         }
     try:
-        require_supported_pi_version()
-    except SetupError as error:
-        return {
-            "pi": Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error)),
-            "package": Diagnostic(
-                status=DiagnosticStatus.SKIPPED,
-                detail="not checked because the installed Pi version is unsupported",
-            ),
-        }
-    try:
         output = _run_pi("list")
     except SetupError as error:
         return {
@@ -131,27 +118,6 @@ def pi_executable() -> str:
     if executable is None:
         raise SetupError.pi_unavailable()
     return executable
-
-
-def require_supported_pi() -> str:
-    """Return the Pi executable after checking the extension API baseline."""
-
-    executable = pi_executable()
-    require_supported_pi_version()
-    return executable
-
-
-def require_supported_pi_version() -> None:
-    """Reject Pi releases older than the extension API this package uses."""
-
-    raw_version = _run_pi("--version").strip()
-    match = _PI_VERSION_PATTERN.fullmatch(raw_version)
-    if match is None:
-        raise SetupError.invalid_pi_version(raw_version)
-    version = tuple(int(match.group(name)) for name in ("major", "minor", "patch"))
-    if version < MINIMUM_PI_VERSION:
-        required = ".".join(map(str, MINIMUM_PI_VERSION))
-        raise SetupError.unsupported_pi_version(required, raw_version)
 
 
 def pi_package_installed(output: str) -> bool:

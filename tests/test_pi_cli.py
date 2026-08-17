@@ -30,48 +30,13 @@ def test_setup_pi_installs_the_native_package_and_reports_configuration(tmp_path
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
     monkeypatch.setattr(pi_cli, "which", lambda _name: "/usr/bin/pi")
 
-    def fake_pi(*arguments: str) -> str:
-        if arguments == ("--version",):
-            return "0.82.0\n"
-        return f"User packages:\n  {package}\n    {package}\n"
-
-    monkeypatch.setattr(pi_cli, "_run_pi", fake_pi)
+    monkeypatch.setattr(pi_cli, "_run_pi", lambda *_arguments: f"User packages:\n  {package}\n    {package}\n")
 
     result = CliRunner().invoke(create_cli([setup_app]), ["setup", "pi", "--source", str(checkout)])
 
     assert result.exit_code == 0
     assert "PowerContext Pi setup complete." in result.output
     assert str(package) in result.output
-
-
-def test_setup_pi_rejects_an_unsupported_pi_version(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.pi as pi_cli
-
-    checkout = tmp_path / "powercontext"
-    _write_pi_package(checkout)
-    installed_packages: set[str] = set()
-
-    def fake_pi(*arguments: str) -> str:
-        if arguments == ("--version",):
-            return "0.81.9\n"
-        if arguments == ("list",):
-            lines = ["User packages:"]
-            for installed in sorted(installed_packages):
-                lines.extend((f"  {installed}", f"    {installed}"))
-            return "\n".join(lines)
-        if arguments[0] == "install":
-            installed_packages.add(arguments[1])
-            return ""
-        raise AssertionError(arguments)
-
-    monkeypatch.setattr(pi_cli, "which", lambda _name: "/usr/bin/pi")
-    monkeypatch.setattr(pi_cli, "_run_pi", fake_pi)
-
-    result = CliRunner().invoke(create_cli([setup_app]), ["setup", "pi", "--source", str(checkout)])
-
-    assert result.exit_code == 1
-    assert "Pi 0.82.0 or later is required (found 0.81.9)." in result.output
-    assert installed_packages == set()
 
 
 def test_setup_pi_refreshes_remote_source_and_replaces_previous_package(tmp_path: Path, monkeypatch) -> None:
@@ -89,8 +54,6 @@ def test_setup_pi_refreshes_remote_source_and_replaces_previous_package(tmp_path
 
     def fake_pi(*arguments: str) -> str:
         command, *values = arguments
-        if command == "--version":
-            return "0.82.0\n"
         if command == "list":
             lines = ["User packages:"]
             for package in sorted(installed_packages):
@@ -134,35 +97,13 @@ def test_doctor_pi_reports_a_missing_cli(monkeypatch) -> None:
     assert "package: skipped - not checked because Pi CLI is unavailable" in result.output
 
 
-def test_doctor_pi_reports_an_unsupported_version(monkeypatch) -> None:
-    import powercontext.cli.pi as pi_cli
-
-    def fake_pi(*arguments: str) -> str:
-        assert arguments == ("--version",)
-        return "0.81.9\n"
-
-    monkeypatch.setattr(pi_cli, "which", lambda _name: "/usr/bin/pi")
-    monkeypatch.setattr(pi_cli, "_run_pi", fake_pi)
-
-    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "pi"])
-
-    assert result.exit_code == 1
-    assert "pi: failed - Pi 0.82.0 or later is required (found 0.81.9)." in result.output
-    assert "package: skipped - not checked because the installed Pi version is unsupported" in result.output
-
-
 def test_doctor_pi_reports_an_installed_package_as_json(tmp_path: Path, monkeypatch) -> None:
     import powercontext.cli.pi as pi_cli
 
     package = _write_pi_package(tmp_path / "powercontext")
     monkeypatch.setattr(pi_cli, "which", lambda _name: "/usr/bin/pi")
 
-    def fake_pi(*arguments: str) -> str:
-        if arguments == ("--version",):
-            return "0.82.0\n"
-        return f"User packages:\n  {package}\n    {package}\n"
-
-    monkeypatch.setattr(pi_cli, "_run_pi", fake_pi)
+    monkeypatch.setattr(pi_cli, "_run_pi", lambda *_arguments: f"User packages:\n  {package}\n    {package}\n")
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "pi", "--json"])
 

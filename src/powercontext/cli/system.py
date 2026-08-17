@@ -65,14 +65,6 @@ class SetupError(RuntimeError):
         return cls("Pi CLI is not installed or is not on PATH.")
 
     @classmethod
-    def invalid_pi_version(cls, version: str) -> SetupError:
-        return cls(f"Pi CLI returned an invalid version: {version!r}")
-
-    @classmethod
-    def unsupported_pi_version(cls, required: str, actual: str) -> SetupError:
-        return cls(f"Pi {required} or later is required (found {actual}).")
-
-    @classmethod
     def missing_dsh_plugin(cls, path: Path) -> SetupError:
         return cls(f"PowerContext DSH plugin was not found under {path}.")
 
