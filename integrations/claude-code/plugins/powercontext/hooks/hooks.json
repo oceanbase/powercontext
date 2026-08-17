@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python",
+            "command": "python3",
             "args": [
               "${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py"
             ],
