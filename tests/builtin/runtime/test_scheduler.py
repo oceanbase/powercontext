@@ -5,6 +5,9 @@ import logging
 import sqlite3
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from powercontext import PowerContext
 from powercontext.builtin.runtime import (
@@ -21,6 +24,8 @@ from powercontext.builtin.runtime.scheduler import (
     scheduler_database_path,
 )
 from powercontext.builtin.sources import SourceCursor
+from powercontext.server.tracing import DomainTracer, ServerTracing
+from powercontext.tracing import Tracer
 
 
 class _Provider:
@@ -67,6 +72,24 @@ class _ScheduledExperience:
         )
 
 
+class _FailingTriggers:
+    async def flush(self, *, limit: int) -> MemoryFlushResult:
+        del limit
+        raise RuntimeError("scheduled failure")  # noqa: TRY003
+
+    async def cursor(self) -> SourceCursor:
+        return SourceCursor()
+
+
+class _CancellingTriggers:
+    async def flush(self, *, limit: int) -> MemoryFlushResult:
+        del limit
+        raise asyncio.CancelledError
+
+    async def cursor(self) -> SourceCursor:
+        return SourceCursor()
+
+
 async def _scope_ids() -> tuple[str, ...]:
     return ("scheduled",)
 
@@ -76,13 +99,22 @@ def _runtime(
     *,
     scope_ids=_scope_ids,
     experience_incubator: _ScheduledExperience | None = None,
+    tracer: Tracer | None = None,
 ) -> BuiltinRuntime:
     return BuiltinRuntime(
         provider=_Provider(PowerContext(sources=object(), artifacts=object(), triggers=triggers)),  # type: ignore[arg-type]
         capabilities=RuntimeCapabilities(memory_extraction=True, memory_search_modes=("fts",)),
         scope_ids=scope_ids,
         experience_incubator=experience_incubator,
+        tracer=tracer,
     )
+
+
+def _tracing() -> tuple[DomainTracer, InMemorySpanExporter]:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return DomainTracer(ServerTracing(provider)), exporter
 
 
 def _stored_jobs(database) -> list[tuple[str, float | None]]:
@@ -224,5 +256,83 @@ def test_scheduler_requires_file_storage_and_one_live_owner(tmp_path) -> None:
 
         second.start_scheduler(database, 60)
         await second.close()
+
+    asyncio.run(scenario())
+
+
+def test_scheduled_source_window_emits_a_root_trace() -> None:
+    async def scenario() -> None:
+        tracer, exporter = _tracing()
+        runtime = _runtime(_ScheduledTriggers(), tracer=tracer)
+        assert runtime.processor is not None
+        await runtime.processor.run()
+
+        spans = exporter.get_finished_spans()
+        root = next(span for span in spans if span.name == "scheduled.process_source_window")
+        flush = next(span for span in spans if span.name == "memory.flush")
+        assert root.attributes is not None
+        assert flush.attributes is not None
+        assert root.parent is None
+        assert root.attributes["powercontext.operation.outcome"] == "noop"
+        assert root.attributes["powercontext.operation.unit"] == "background"
+        assert root.attributes["source_count"] == 0
+        assert flush.parent is not None
+        assert flush.parent.span_id == root.context.span_id
+        assert flush.attributes["source_count"] == 0
+        assert all("scope_id" not in (span.attributes or {}) for span in spans)
+
+    asyncio.run(scenario())
+
+
+def test_scheduled_experience_emits_a_root_trace() -> None:
+    async def scenario() -> None:
+        tracer, exporter = _tracing()
+        runtime = _runtime(_ScheduledTriggers(), experience_incubator=_ScheduledExperience(), tracer=tracer)
+        assert runtime.experience_processor is not None
+        await runtime.experience_processor.run()
+
+        spans = exporter.get_finished_spans()
+        root = next(span for span in spans if span.name == "scheduled.incubate_experience_candidates")
+        incubation = next(span for span in spans if span.name == "experience.incubation")
+        assert root.attributes is not None
+        assert incubation.attributes is not None
+        assert root.parent is None
+        assert root.attributes["powercontext.operation.outcome"] == "success"
+        assert root.attributes["source_count"] == 1
+        assert root.attributes["candidate_count"] == 1
+        assert incubation.parent is not None
+        assert incubation.parent.span_id == root.context.span_id
+        assert incubation.attributes["candidate_count"] == 1
+        assert all("scope_id" not in (span.attributes or {}) for span in spans)
+
+    asyncio.run(scenario())
+
+
+def test_scheduled_source_window_records_a_failure_outcome() -> None:
+    async def scenario() -> None:
+        tracer, exporter = _tracing()
+        runtime = _runtime(_FailingTriggers(), tracer=tracer)
+        assert runtime.processor is not None
+        await runtime.processor.run()
+
+        root = next(span for span in exporter.get_finished_spans() if span.name == "scheduled.process_source_window")
+        assert root.attributes is not None
+        assert root.attributes["powercontext.operation.outcome"] == "failure"
+        assert root.attributes["error.type"] == "RuntimeError"
+
+    asyncio.run(scenario())
+
+
+def test_scheduled_source_window_records_a_cancelled_outcome() -> None:
+    async def scenario() -> None:
+        tracer, exporter = _tracing()
+        runtime = _runtime(_CancellingTriggers(), tracer=tracer)
+        assert runtime.processor is not None
+        with pytest.raises(asyncio.CancelledError):
+            await runtime.processor.run()
+
+        root = next(span for span in exporter.get_finished_spans() if span.name == "scheduled.process_source_window")
+        assert root.attributes is not None
+        assert root.attributes["powercontext.operation.outcome"] == "cancelled"
 
     asyncio.run(scenario())

@@ -66,14 +66,18 @@ Memory extraction 发生在 flush 阶段，而不是捕获阶段。
 ## 查看 trace
 
 打开 <http://localhost:6006>，选择 `default` project，打开 `powercontext-server` 最新的一条 trace。这次 flush
-在同一条 trace 中产生四层嵌套 span：
+在同一条 trace 中产生五层嵌套 span：
 
 | Span | 含义 |
 | --- | --- |
 | `HTTP flush_memory` | 入站 HTTP 请求。`powercontext.request.id` 与响应头 `X-PowerContext-Request-ID` 一致。 |
 | `powercontext flush_memory` | application 操作，与调用它的 transport 无关。 |
+| `memory.flush` | 一次 Source-window flush，scheduled Source-window activation 也会发出它。 |
 | `invoke_agent memory_extraction` | 一次 PowerContext generation 任务。名字标识用途，不是模型名。 |
 | `chat <model>` | 一次发往模型 provider 的请求，包含 token 用量和耗时。 |
+
+scheduled Source-window activation 会产生自己的 root trace（`scheduled.process_source_window`，下面带同样的
+`memory.flush`），与任何 HTTP 或 MCP 请求无关。Scheduled span 不携带 `powercontext.request.id`。
 
 其他 generation 任务遵循同样的命名约定：`experience_incubation`、`experience_generation`、`skill_generation`、
 `handoff_generation` 和 `memory_rerank`。配置了 embedding model 时，embedding 调用会作为 `embeddings <model>`

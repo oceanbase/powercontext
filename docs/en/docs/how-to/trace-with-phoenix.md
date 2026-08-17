@@ -68,14 +68,18 @@ Memory extraction runs during the flush, not during capture.
 ## Read the trace
 
 Open <http://localhost:6006>, select the `default` project, and open the most recent trace for
-`powercontext-server`. The flush produces four nested spans in one trace:
+`powercontext-server`. The flush produces five nested spans in one trace:
 
 | Span | Meaning |
 | --- | --- |
 | `HTTP flush_memory` | The inbound HTTP request. `powercontext.request.id` matches the `X-PowerContext-Request-ID` response header. |
 | `powercontext flush_memory` | The application operation, independent of the transport that invoked it. |
+| `memory.flush` | One Source-window flush, also emitted by a scheduled Source-window activation. |
 | `invoke_agent memory_extraction` | One PowerContext generation task. The name identifies the purpose, not the model. |
 | `chat <model>` | One request to the model provider, with token usage and latency. |
+
+A scheduled Source-window activation produces its own root trace (`scheduled.process_source_window` with the same
+`memory.flush` underneath), independent of any HTTP or MCP request. Scheduled spans carry no `powercontext.request.id`.
 
 The other PowerContext generation tasks appear under the same convention: `experience_incubation`,
 `experience_generation`, `skill_generation`, `handoff_generation`, and `memory_rerank`. When an embedding model is

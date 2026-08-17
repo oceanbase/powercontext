@@ -58,6 +58,8 @@ from powercontext.sources import Source
 if TYPE_CHECKING:
     from pydantic_ai.models.instrumented import InstrumentationSettings
 
+    from powercontext.tracing import Tracer
+
 ValueT = TypeVar("ValueT")
 
 
@@ -115,6 +117,7 @@ async def open_builtin_runtime(
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
     instrumentation: InstrumentationSettings | None = None,
+    tracing: Tracer | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
@@ -210,6 +213,7 @@ async def open_builtin_runtime(
                 statistics_service=contexts.statistics,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 readiness=RuntimeReadinessChecks(readiness_probes),
+                tracer=tracing,
             )
         )
         if config.handoff_report.enabled:
