@@ -75,7 +75,8 @@ flush。
 显式持久化写入在交互式 Pi 会话中必须确认；没有交互 UI 时，Pi 会拒绝写入而不会静默持久化。`/pc doctor`、
 在决定 Candidate 前，应先读取其当前 head 并传回精确的 `expected_version`；修订 Candidate 时必须提供完整替换
 proposal 和精确的证据引用。`/pc search <query>`、`/pc remember <text>`、`/pc flush` 和 `/pc stats` 可直接查看
-状态和维护内容。
+状态和维护内容。`pc_remember` 可选接收 `expected_revision` 进行乐观并发检查；`pc_handoff_activate` 可接收
+512 至 32,768 的 `max_bytes` 来限制生成的 Draft。
 
 ## 连接启用鉴权的 Server
 

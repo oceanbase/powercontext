@@ -77,6 +77,8 @@ The `project-context` skill explains when to use native `pc_*` tools. The core t
 Explicit durable writes require confirmation in an interactive Pi session. Without an interactive UI, Pi refuses the
 write rather than persisting it silently. Before deciding on a Candidate, read its current head and pass its exact
 `expected_version`; Candidate revisions require a complete replacement proposal and exact evidence references.
+`pc_remember` optionally accepts `expected_revision` for an optimistic concurrency check, and
+`pc_handoff_activate` accepts `max_bytes` from 512 through 32,768 to bound its generated Draft.
 `/pc doctor`, `/pc search <query>`, `/pc remember <text>`, `/pc flush`, and `/pc stats` offer direct status and
 maintenance commands.
 

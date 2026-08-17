@@ -78,12 +78,18 @@ describe('Pi native tool surface', () => {
 
   it('requires confirmation for explicit durable writes and refuses them without a UI', async () => {
     const registered: Array<Record<string, unknown>> = []
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ entry: { text: 'remembered' } })))
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => (
+      new Response(JSON.stringify({ entry: { text: 'remembered' } }))
+    ))
     const runtime = createRuntime(fetch)
     registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, runtime)
-    const remember = registeredTool<{ kind: string; text: string }>(registered, 'pc_remember')
+    const remember = registeredTool<{ expected_revision?: number; kind: string; text: string }>(registered, 'pc_remember')
 
-    const denied = await remember.execute('call-1', { kind: 'agent-note', text: 'keep API async' }, new AbortController().signal, () => undefined, {
+    const denied = await remember.execute('call-1', {
+      kind: 'agent-note',
+      text: 'keep API async',
+      expected_revision: 3,
+    }, new AbortController().signal, () => undefined, {
       cwd: '/workspace/repo',
       hasUI: false,
       ui: { confirm: vi.fn() },
@@ -92,14 +98,58 @@ describe('Pi native tool surface', () => {
     expect(fetch).not.toHaveBeenCalled()
 
     const confirm = vi.fn(async () => true)
-    const approved = await remember.execute('call-2', { kind: 'agent-note', text: 'keep API async' }, new AbortController().signal, () => undefined, {
+    const approved = await remember.execute('call-2', {
+      kind: 'agent-note',
+      text: 'keep API async',
+      expected_revision: 3,
+    }, new AbortController().signal, () => undefined, {
       cwd: '/workspace/repo',
       hasUI: true,
       ui: { confirm },
     })
     expect(approved.details).toMatchObject({ ok: true })
     expect(confirm).toHaveBeenCalled()
-    expect(fetch).toHaveBeenCalled()
+    const init = fetch.mock.calls[0]?.[1]
+    expect(JSON.parse(String(init?.body))).toEqual({
+      kind: 'agent-note',
+      text: 'keep API async',
+      expected_revision: 3,
+      scope_id: 'project:demo',
+    })
+  })
+
+  it('forwards an explicit handoff context budget after confirmation', async () => {
+    const registered: Array<Record<string, unknown>> = []
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ status: 'generated' })))
+    const runtime = createRuntime(fetch)
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, runtime)
+    const activate = registeredTool<{
+      boundary_source: Record<string, unknown>
+      evidence?: Array<Record<string, unknown>>
+      max_bytes?: number
+      objective: string
+    }>(registered, 'pc_handoff_activate')
+    const confirm = vi.fn(async () => true)
+
+    const result = await activate.execute('call-1', {
+      boundary_source: { name: 'content', source_id: 'source-1' },
+      objective: 'Transfer the validated state.',
+      max_bytes: 1024,
+    }, new AbortController().signal, () => undefined, {
+      cwd: '/workspace/repo',
+      hasUI: true,
+      ui: { confirm },
+    })
+    expect(result.details).toMatchObject({ ok: true })
+    expect(confirm).toHaveBeenCalled()
+    const init = fetch.mock.calls[0]?.[1]
+    expect(JSON.parse(String(init?.body))).toEqual({
+      boundary_source: { name: 'content', source_id: 'source-1' },
+      objective: 'Transfer the validated state.',
+      evidence: [],
+      max_bytes: 1024,
+      scope_id: 'project:demo',
+    })
   })
 
   it('confirms candidate decisions before sending the scoped mutation', async () => {
