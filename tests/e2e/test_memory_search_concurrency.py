@@ -11,8 +11,14 @@ from uuid import uuid4
 import pytest
 from pydantic import SecretStr
 
-from powercontext.builtin.artifacts.memory import EmbeddingProfile, MemoryEntryInput, MemorySearchMode
-from powercontext.builtin.inference import EmbeddingResult
+from powercontext.builtin.artifacts.memory import (
+    EmbeddingProfile,
+    MemoryEntryInput,
+    MemoryHit,
+    MemoryRerankDecision,
+    MemorySearchMode,
+)
+from powercontext.builtin.inference import EmbeddingResult, InferenceUsage
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
@@ -21,6 +27,7 @@ from powercontext.builtin.runtime import (
     SearchMemoryRequest,
     open_builtin_runtime,
 )
+from powercontext.errors import RevisionConflictError
 
 DatabaseKind = Literal["sqlite", "oceanbase"]
 TIMEOUT_SECONDS = 15
@@ -46,6 +53,28 @@ class _KeywordEmbeddingModel:
         return EmbeddingResult(vectors=vectors)
 
 
+class _PausingReranker:
+    policy_id = "test.concurrent-memory-search.v1"
+
+    def __init__(self) -> None:
+        self.paused = asyncio.Event()
+        self.resume = asyncio.Event()
+
+    async def rerank(
+        self,
+        _query: str,
+        candidates: tuple[MemoryHit, ...],
+        _limit: int,
+        /,
+    ) -> MemoryRerankDecision:
+        self.paused.set()
+        await self.resume.wait()
+        return MemoryRerankDecision(
+            selected_ranks=(1,),
+            usage=InferenceUsage(requests=1),
+        )
+
+
 @pytest.mark.parametrize("database_kind", ["sqlite", "oceanbase"])
 @pytest.mark.parametrize("mode", ["fts", "vector", "hybrid"])
 def test_memory_search_stays_consistent_when_append_advances_head_before_index_query(
@@ -61,7 +90,7 @@ def test_memory_search_stays_consistent_when_append_advances_head_before_index_q
             embedding_model=embedding_model,
         ) as runtime:
             memory = runtime.memory.for_scope(f"concurrent-memory-search-{uuid4()}")
-            await memory.remember(
+            initial = await memory.remember(
                 RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Stable searchable fact."),))
             )
 
@@ -100,10 +129,86 @@ def test_memory_search_stays_consistent_when_append_advances_head_before_index_q
                     with suppress(asyncio.CancelledError):
                         await pending
 
-            assert result.memory_ref == new_head.memory_ref
+            assert result.memory_ref in (initial.memory_ref, new_head.memory_ref)
             assert result.mode == mode
             assert tuple(hit.text for hit in result.hits) == ("Stable searchable fact.",)
+            assert result.hits[0].memory_ref == result.memory_ref
             assert result.hits[0].matched_by == EXPECTED_CHANNELS[mode]
+
+    asyncio.run(scenario())
+
+
+def test_memory_search_keeps_the_completed_revision_snapshot_when_head_advances_during_reranking(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        reranker = _PausingReranker()
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'rerank-snapshot.db'}")
+        async with open_builtin_runtime(BuiltinConfig(database=database), memory_reranker=reranker) as runtime:
+            memory = runtime.memory.for_scope("rerank-snapshot")
+            initial = await memory.remember(
+                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Stable searchable fact."),))
+            )
+            pending = asyncio.create_task(
+                memory.search(SearchMemoryRequest(query="stable searchable", mode="fts", limit=1))
+            )
+            try:
+                await asyncio.wait_for(reranker.paused.wait(), timeout=TIMEOUT_SECONDS)
+                new_head = await memory.remember(
+                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Unrelated appended fact."),))
+                )
+                reranker.resume.set()
+                result = await asyncio.wait_for(pending, timeout=TIMEOUT_SECONDS)
+            finally:
+                reranker.resume.set()
+                if not pending.done():
+                    pending.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await pending
+
+            assert new_head.memory_ref.revision == initial.memory_ref.revision + 1
+            assert result.memory_ref == initial.memory_ref
+            assert tuple(hit.text for hit in result.hits) == ("Stable searchable fact.",)
+            assert result.hits[0].memory_ref == initial.memory_ref
+            assert result.rerank is not None
+
+    asyncio.run(scenario())
+
+
+def test_memory_search_reports_revision_conflict_when_every_attempt_starts_from_a_stale_head() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            scope_id = "perpetually-stale-search"
+            memory = runtime.memory.for_scope(scope_id)
+            await memory.remember(
+                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Stable searchable fact."),))
+            )
+
+            provider: Any = runtime._provider
+            context = await provider.get(scope_id)
+            service = context.artifacts.memory
+            original_search = service.search
+            update_number = 0
+
+            async def advance_head_before_search(_self: Any, *args: Any, **kwargs: Any) -> Any:
+                nonlocal update_number
+                update_number += 1
+                await memory.remember(
+                    RememberMemoryRequest(
+                        entries=(MemoryEntryInput(kind="fact", text=f"Concurrent update {update_number}."),)
+                    )
+                )
+                return await original_search(*args, **kwargs)
+
+            service.search = MethodType(advance_head_before_search, service)
+            try:
+                with pytest.raises(RevisionConflictError):
+                    await asyncio.wait_for(
+                        memory.search(SearchMemoryRequest(query="stable searchable", mode="fts")),
+                        timeout=TIMEOUT_SECONDS,
+                    )
+            finally:
+                service.search = original_search
 
     asyncio.run(scenario())
 

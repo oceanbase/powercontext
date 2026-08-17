@@ -680,21 +680,12 @@ class ScopedMemoryApplication:
                     attempt += 1
                     continue
 
-                # Reranking may await model I/O, so verify optimistically instead
-                # of serializing the complete search under the scope write lock.
-                latest = await _head_or_none(service, context.artifacts.memory_artifact_id)
-                if latest is not None and latest.as_ref() == current.as_ref():
-                    return MemorySearchPage(
-                        memory_ref=current.as_ref(),
-                        mode=result.mode,
-                        hits=result.hits,
-                        rerank=result.rerank,
-                    )
-                if latest is None:
-                    raise ArtifactNotFoundError(current.as_ref())
-                if attempt == _MEMORY_SEARCH_ATTEMPTS:
-                    raise RevisionConflictError(current, latest)
-                attempt += 1
+                return MemorySearchPage(
+                    memory_ref=current.as_ref(),
+                    mode=result.mode,
+                    hits=result.hits,
+                    rerank=result.rerank,
+                )
 
     async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:
