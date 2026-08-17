@@ -1,6 +1,6 @@
 ---
 title: 排查问题
-description: 诊断 PowerContext 安装、Server、数据库和 Codex 插件问题。
+description: 诊断 PowerContext 安装、Server、数据库、Codex、Claude Code 和 DeepSeek Harness 插件问题。
 ---
 
 # 排查问题
@@ -17,6 +17,7 @@ powercontext doctor
 
 ```bash
 powercontext doctor codex
+powercontext doctor claude-code
 powercontext doctor dsh
 ```
 
@@ -31,7 +32,7 @@ git ls-remote https://github.com/oceanbase/powercontext.git HEAD
 如果失败，请配置 Git 使用的 credential helper 或 SSH key，再重新运行 `uv tool install`。`uv` 使用 Git
 凭据配置；PowerContext 不接收或保存仓库凭据。
 
-## 找不到 `powercontext`、`codex` 或 `dsh`
+## 找不到 `powercontext`、`codex`、`claude` 或 `dsh`
 
 执行：
 
@@ -39,11 +40,12 @@ git ls-remote https://github.com/oceanbase/powercontext.git HEAD
 uv tool dir --bin
 command -v powercontext
 command -v codex
+command -v claude
 command -v dsh
 ```
 
-必要时把 uv tool bin 目录加入 `PATH`。宿主 CLI 不可用时，`powercontext setup codex` 和 `powercontext setup dsh`
-会报告错误，不会继续安装插件。
+必要时把 uv tool bin 目录加入 `PATH`。宿主 CLI 不可用时，`powercontext setup codex`、
+`powercontext setup claude-code` 和 `powercontext setup dsh` 会报告错误，不会继续安装插件。
 
 ## 插件缺失或版本不一致
 
@@ -58,12 +60,34 @@ powercontext doctor codex
 ```bash
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
 codex plugin list --json
+```
+
+然后开启新的 Codex 会话。如果提示词恢复和采集没有运行，请检查 `/hooks`。
+
+对于 Claude Code，执行：
+
+```bash
+powercontext doctor claude-code
+powercontext setup claude-code --source oceanbase/powercontext --ref <ref>
+claude plugin list --json
+```
+
+然后开启新的 Claude Code 会话并检查 `/hooks` 与 `/mcp`。插件清单应只包含一个
+`UserPromptSubmit` Hook 和一个 `powercontext` MCP Server。
+
+如果 setup 在创建新的 user scope 对象时失败，它会尝试只删除本次调用创建的插件与 Marketplace 项，
+setup 前已有的对象会保留。修正命令报告的 Claude CLI 或仓库错误后，重新执行同一个 setup 命令。
+
+对于 DeepSeek Harness，执行：
+
+```bash
+powercontext doctor dsh
 powercontext setup dsh --source oceanbase/powercontext --ref <ref>
 dsh --profile web --dump-config
 ```
 
-然后开启新的宿主会话。Codex 请检查 `/hooks`；DeepSeek Harness 请确认 dump-config 含有 `id: powercontext-dsh`。
-DSH 插件目录必须包含 `lib/index.js`。
+然后开启新的 DeepSeek Harness 会话，并确认 dump-config 含有 `id: powercontext-dsh`。DSH 插件目录必须包含
+`lib/index.js`。
 
 ## Server 检查失败
 
@@ -80,7 +104,7 @@ powercontext doctor --server-url http://127.0.0.1:9000
 powercontext --server-url http://127.0.0.1:9000 ready
 ```
 
-随附的 Codex 插件默认使用 8000 端口。liveness 失败表示进程无法响应健康请求，此时不会继续检查
+随附的 Codex 和 Claude Code 插件默认使用 8000 端口。liveness 失败表示进程无法响应健康请求，此时不会继续检查
 readiness。HTTP 503 的 `not_ready` 表示 Runtime 或数据库无法接受工作；HTTP 200 的 `degraded` 表示已配置的
 推理能力异常，但数据库操作仍然可用。Human 与 JSON 输出都会保留 Server 返回的各项检查状态。
 
@@ -120,10 +144,10 @@ powercontext capabilities
 
 `Memory extraction: disabled` 表示 Server 没有 generation model。
 
-## Server 停止后 Codex 仍继续工作
+## Server 停止后编程 Agent 仍继续工作
 
-这是预期行为。Prompt Hook 会正常降级，Memory 故障不能阻塞普通 Codex 工作。重启 Server 后即可恢复
-检索和采集，现有数据库会被自动重新打开。
+这是预期行为。两个 Prompt Hook 都会 fail open，Memory 故障不能阻塞普通 Codex 或 Claude Code 工作。
+重启 Server 后即可恢复召回和采集，现有数据库会被自动重新打开。
 
 ## Codex 没有注入召回上下文
 
@@ -134,3 +158,39 @@ powercontext capabilities
 
 执行 `powercontext capabilities`，确认 Context versions 中包含
 `powercontext.prepared-context.v1`。
+
+## Claude Code 没有注入召回上下文
+
+先区分安装问题和 Server 健康问题：
+
+```bash
+powercontext doctor claude-code
+powercontext doctor
+```
+
+第一个命令只检查 Claude CLI 和已启用插件，不连接 Server；第二个命令检查 Server liveness 和 readiness。
+然后查看 Hook 在 stderr 输出的单行事件。Claude Code 使用与 Codex 相同的 Prepared Context contract，
+component 为 `powercontext.claude_code.recall`：
+
+| Outcome | 处理方式 |
+| --- | --- |
+| `empty` | 没有准备出相关 Memory，无需处理 |
+| `authentication_failed` | 启动 Claude Code 前导出完整的 `POWERCONTEXT_CLAUDE_AUTHORIZATION` header |
+| `version_mismatch` | 从同一个 ref 安装 package 和插件，再重启两个进程 |
+| `server_unavailable` | 启动 Server，或修正 `POWERCONTEXT_CLAUDE_SERVER_URL` |
+| `invalid_response` | 检查 proxy、redirect、不兼容 schema、错误 JSON 或超大响应 |
+
+诊断不会记录 token、query、scope、Prepared Context 正文或响应正文。Prompt 采集与召回彼此独立：采集失败
+不会抑制有效上下文，召回失败也不会抑制采集。
+
+## Claude Code MCP 认证失败
+
+Hook 与 MCP `headersHelper` 都从启动 Claude Code 的进程环境读取
+`POWERCONTEXT_CLAUDE_AUTHORIZATION`。停止当前进程，导出完整 header，再重新启动：
+
+```bash
+export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
+claude
+```
+
+不要把 token 加入 `.mcp.json`、Server URL 或插件选项。重启后使用 `/mcp` 确认 `powercontext` Server 已连接。
