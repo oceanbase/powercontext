@@ -17,11 +17,8 @@ This works on macOS and Linux and does not require a user-managed repository che
 configuration, including credential helpers and SSH settings. For an SSH-based install, replace the HTTPS URL with the
 Git URL approved for your environment.
 
-To install a tested branch or tag, replace `master` after the final `@`. Use the same ref when configuring integrations:
-
-```bash
-powercontext setup codex --source oceanbase/powercontext --ref <ref>
-```
+To install a tested branch or tag, replace `master` after the final `@`. Use the same ref when installing the Codex
+plugin; see [Configure Codex](configure-codex.md) for the command.
 
 ## Run the local Server
 
@@ -47,11 +44,13 @@ powercontext ready
 powercontext capabilities
 ```
 
-`doctor` checks the installed package, Server liveness, and Server readiness without requiring Codex. Server
-readiness covers the database and each configured inference provider. Runtime or database failures return
-`not_ready`; an inference failure returns `degraded` without removing database-backed operations from traffic.
-`doctor codex` separately checks the optional Codex CLI and PowerContext plugin. The content commands exercise the
-public HTTP SDK path.
+`doctor` checks the installed package, Server liveness, and Server readiness without requiring Codex. `doctor codex`
+separately checks the optional Codex CLI and PowerContext plugin. `ready` and `capabilities` show the readiness and
+enabled capabilities of the running service.
+
+A Runtime or database failure makes readiness `not_ready`; a configured inference failure makes it `degraded` while
+database-backed operations remain available. For complete status definitions and recovery steps, see
+[Troubleshoot](troubleshoot.md).
 
 ## Update or replace an installation
 

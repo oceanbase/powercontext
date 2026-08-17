@@ -16,11 +16,8 @@ uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/pow
 该方式支持 macOS 和 Linux，不需要用户自行管理仓库工作副本。Git 会沿用本机的凭据配置，包括 credential
 helper 和 SSH 设置。如需使用 SSH，请把 HTTPS URL 换成当前环境允许的 Git URL。
 
-安装指定分支或 tag 时，替换最后一个 `@` 后的 `master`。配置集成时应使用同一个 ref：
-
-```bash
-powercontext setup codex --source oceanbase/powercontext --ref <ref>
-```
+安装指定分支或 tag 时，替换最后一个 `@` 后的 `master`。安装 Codex 插件时也应使用同一个 ref；具体命令见
+[配置 Codex](configure-codex.md)。
 
 ## 运行本地 Server
 
@@ -46,10 +43,11 @@ powercontext ready
 powercontext capabilities
 ```
 
-`doctor` 检查已安装的包、Server 存活状态和 Server 就绪状态，不要求安装 Codex。Server 就绪检查涵盖数据库和
-每个已配置的推理服务。Runtime 或数据库故障返回 `not_ready`；推理服务故障返回 `degraded`，不会使数据库
-操作退出流量。`doctor codex` 单独检查可选的 Codex CLI 与 PowerContext 插件。内容命令会经过公开 HTTP SDK
-路径。
+`doctor` 检查已安装的包、Server 存活状态和 Server 就绪状态，不要求安装 Codex。`doctor codex` 单独检查可选的
+Codex CLI 与 PowerContext 插件。`ready` 和 `capabilities` 用于查看运行中服务的就绪状态和已启用能力。
+
+Runtime 或数据库故障会使 readiness 变为 `not_ready`；已配置推理服务故障时为 `degraded`，数据库支持的操作仍可
+继续。完整的状态解释和恢复步骤见[排查问题](troubleshoot.md)。
 
 ## 更新或替换安装
 

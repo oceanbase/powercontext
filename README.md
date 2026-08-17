@@ -8,42 +8,11 @@ a Codex plugin.
 PowerContext can be installed directly from its Git URL. Users need read access to that URL, but they do not need to
 clone the repository or run commands from its working tree.
 
-## Install for Codex
+## Get started with Codex
 
-Prerequisites:
-
-- macOS or Linux;
-- [uv](https://docs.astral.sh/uv/getting-started/installation/);
-- Codex CLI;
-- read access to `oceanbase/powercontext`.
-
-Install the tool and configure the Codex plugin:
-
-```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-powercontext setup codex --source oceanbase/powercontext --ref master
-```
-
-You do not need to create or manage a repository checkout. Start the local service in a terminal:
-
-```bash
-powercontext server run
-```
-
-In another terminal, verify the package and Server dependencies, then the optional Codex integration:
-
-```bash
-powercontext doctor
-powercontext doctor codex
-```
-
-Runtime or database failures make the Server not ready. A configured inference failure is reported as degraded
-without removing the Server from traffic; the separate Codex command does not affect Server health.
-
-Start a new Codex session after installation. Open `/hooks` once and approve the PowerContext hook if Codex asks for
-trust. The default database is persistent and requires no configuration.
-
-See the [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) for a first cross-session workflow.
+The [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) covers prerequisites, installation, Server startup,
+plugin trust, verification, and a cross-session Memory workflow. It does not require a repository checkout. For a
+specific task after installation, use the [documentation overview](docs/en/docs/index.md).
 
 ## Choose an interface
 
