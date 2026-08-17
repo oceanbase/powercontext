@@ -1,24 +1,30 @@
 # PowerContext
 
-PowerContext is PowerMem 2.0, the upgraded version of [PowerMem](https://www.powermem.ai/). It gives agents durable,
-project-scoped context. A later session can recover a decision, outcome, current state, or next step without relying
-on chat history. PowerContext includes a local Server, SQLite storage, an async Python client, a Core SDK, a CLI, and
-a Codex plugin.
+**PowerContext is PowerMem 2.0, the upgraded version of [PowerMem](https://www.powermem.ai/).**
 
-PowerContext can be installed directly from its Git URL. Users need read access to that URL, but they do not need to
-clone the repository or run commands from its working tree.
+[![PyPI version](https://img.shields.io/pypi/v/powercontext)](https://pypi.org/project/powercontext/)
+[![License Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/74cF8vbNEs)
 
-## Get started with Codex
+PowerContext gives agents durable, project-scoped context. A later session can recover a decision, outcome, current state, or next step without relying on chat history. PowerContext includes a local Server, SQLite storage, an async Python client, a Core SDK, a CLI, a Codex plugin, and a DeepSeek Harness plugin.
 
-The [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) covers prerequisites, installation, Server startup,
-plugin trust, verification, and a cross-session Memory workflow. It does not require a repository checkout. For a
-specific task after installation, use the [documentation overview](docs/en/docs/index.md).
+## Get started
+
+Use [Install and run](docs/en/docs/how-to/install-and-run.md) for prerequisites, installation, Server startup, and
+verification. Then choose a host integration:
+
+- [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) provides a first cross-session Memory workflow.
+- [Configure Codex](docs/en/docs/how-to/configure-codex.md) and
+  [Configure DeepSeek Harness](docs/en/docs/how-to/configure-dsh.md) cover host-specific setup.
+
+For other tasks, start from the [documentation overview](docs/en/docs/index.md).
 
 ## Choose an interface
 
 | Interface | Use it for |
 | --- | --- |
 | Codex plugin | Restore relevant project memory and explicitly remember, revise, or retire entries while coding |
+| DeepSeek Harness plugin | Restore relevant project memory and explicitly remember, revise, or retire entries in DeepSeek Harness |
 | CLI | Install the plugin, run or connect to the Server, inspect content, and diagnose an installation |
 | Python client | Call the Server's Source and Memory API from an application |
 | Core SDK | Embed PowerContext contracts or supply custom adapters in a Python system |
@@ -32,11 +38,10 @@ surfaces. Installation, configuration, and troubleshooting live under [`docs/en/
 Add only the role the project imports:
 
 ```bash
-uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv add "powercontext[client]==0.0.1"
 ```
 
-Available extras are `builtin`, `client`, `server`, and `cli`. The CLI always includes Server-backed content commands;
-installing the `server` role also makes local Server process management available.
+Available extras are `builtin`, `client`, `server`, `cli`, and `tracing-otlp`. The CLI always includes Server-backed content commands; installing the `server` role also makes local Server process management available.
 
 ## Benchmarks
 

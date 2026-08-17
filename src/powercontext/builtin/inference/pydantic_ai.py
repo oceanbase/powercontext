@@ -93,6 +93,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         output_type: type[OutputT],
         limits: InferenceLimits | None = None,
         model_settings: ModelSettings | None = None,
+        name: str | None = None,
     ) -> None:
         if isinstance(model, str) or not isinstance(model, Model):
             raise PydanticAIConfigurationError("model-instance")
@@ -108,6 +109,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 instructions=instructions,
                 model_settings=model_settings,
                 retries=self._limits.max_requests - 1,
+                name=name,
             )
         except (PydanticSchemaGenerationError, PydanticUserError, UserError) as error:
             raise PydanticAIConfigurationError("schema") from error

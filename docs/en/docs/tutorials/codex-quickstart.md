@@ -70,7 +70,7 @@ they do not overwrite or delete old versions.
 
 Start a third session and ask:
 
-> List the active PowerContext memory for this project.
+> List the active PowerContext Memory for this project.
 
 The revised next step should be active. The retired current state and superseded next step should not appear in the
 active list. This shows that the project scope remains consistent across Codex sessions.

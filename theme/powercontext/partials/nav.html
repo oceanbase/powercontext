@@ -3,7 +3,7 @@
 {% set current_language = "zh" if page.canonical_url and "/zh/" in page.canonical_url else "en" %}
 {% set canonical = page.canonical_url | string %}
 {% set is_docs = "/docs/" in canonical or "/development/" in canonical or "/modules/" in canonical %}
-{% set is_rfcs = "/rfcs/" in canonical %}
+{% set is_records = "/rfcs/" in canonical or "/meetings/" in canonical %}
 {% set class = "md-nav md-nav--primary" %}
 {% if "navigation.tabs" in features %}
   {% set class = class ~ " md-nav--lifted" %}
@@ -18,7 +18,7 @@
     </a>
     OceanBase | {{ config.site_name }}
   </label>
-  {% if config.repo_url and not is_docs and not is_rfcs %}
+  {% if config.repo_url and not is_docs and not is_records %}
     <div class="md-nav__source">
       {% include "partials/source.html" %}
     </div>
@@ -29,7 +29,7 @@
       {% if current_language == "zh" %}
         {% if title == "中文" %}
           {% for nav_item in language_item.children %}
-            {% if (not is_docs and not is_rfcs) or (is_docs and nav_item.title == "文档") or (is_rfcs and nav_item.title == "RFC") %}
+            {% if (not is_docs and not is_records) or (is_docs and nav_item.title == "文档") or (is_records and nav_item.title == "RFC 与会议纪要") %}
               {% set path = "__nav_" ~ loop.index %}
               {{ item.render(nav_item, path, 1) }}
             {% endif %}
@@ -38,7 +38,7 @@
       {% else %}
         {% if title == "English" %}
           {% for nav_item in language_item.children %}
-            {% if (not is_docs and not is_rfcs) or (is_docs and nav_item.title == "Docs") or (is_rfcs and nav_item.title == "RFCs") %}
+            {% if (not is_docs and not is_records) or (is_docs and nav_item.title == "Docs") or (is_records and nav_item.title == "RFCs & Meetings") %}
               {% set path = "__nav_" ~ loop.index %}
               {{ item.render(nav_item, path, 1) }}
             {% endif %}

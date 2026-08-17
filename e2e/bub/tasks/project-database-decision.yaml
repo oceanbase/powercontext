@@ -1,0 +1,29 @@
+schema: powercontext.e2e-task/v1
+id: project-database-decision
+categories:
+  - acceptance
+  - sample
+  - smoke
+dataset:
+  path: e2e/bub/harbor-tasks
+  task_id: project-database-decision
+  checksum: a892da6ad2cdddc9f3815a66c9543d615db4aa2616777aa4c7f5e5c279ff6bb5
+execution:
+  type: bub
+  model: false
+  max_steps: 10
+  max_tokens: 4096
+evaluation:
+  expected_memory:
+    - OceanBase
+    - MySQL-compatible
+    - multi-node persistent storage
+  probes:
+    - id: database-decision
+      query: Which project decision selected multi-node persistent storage?
+      expected_context:
+        - OceanBase
+        - MySQL-compatible
+        - multi-node persistent storage
+  thresholds:
+    probe_coverage: 1

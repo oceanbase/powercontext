@@ -34,7 +34,7 @@ explicitly asks to retain a milestone.
 | A later project task needs a decision, constraint, or next step | Memory |
 | Transfer the complete current task to another task, session, or model | Handoff |
 | Record the current user prompt as processing evidence | Let the prompt Hook capture a Source |
-| Retain a verified handoff milestone for long-term reuse | Commit the Handoff on user request, or save it as Memory |
+| Retain a verified Handoff milestone for long-term reuse | Commit the Handoff on user request, or save it as Memory |
 
 Never store secrets, access tokens, or other sensitive information in either. For the Handoff procedure, see
 [Hand off work in Codex](../how-to/handoff-with-codex.md).

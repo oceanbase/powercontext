@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastmcp.server.dependencies import get_http_headers, get_http_request
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
@@ -23,6 +23,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from powercontext.server.context import bind_request_id, is_internal_bridge, reset_request_id
 from powercontext.server.settings import TracingConfig
 
+if TYPE_CHECKING:
+    from pydantic_ai.models.instrumented import InstrumentationSettings
+
 _INSTRUMENTATION_NAME = "powercontext.server"
 _ID_GENERATOR = RandomIdGenerator()
 _MISSING_OTLP_EXPORTER = (
@@ -34,9 +37,10 @@ _MISSING_OTLP_EXPORTER = (
 class ServerTracing:
     """Create failure-isolated spans with one configured tracer provider."""
 
-    def __init__(self, provider: TracerProvider) -> None:
+    def __init__(self, provider: TracerProvider, *, instrumented: bool = False) -> None:
         self.provider = provider
         self.tracer = provider.get_tracer(_INSTRUMENTATION_NAME)
+        self.instrumentation = _inference_instrumentation(provider) if instrumented else None
 
     @classmethod
     def context_only(cls) -> ServerTracing:
@@ -251,7 +255,25 @@ def configure_server_tracing(config: TracingConfig) -> ServerTracing:
     if exporter_type is not None:
         provider.add_span_processor(BatchSpanProcessor(exporter_type()))
         trace.set_tracer_provider(provider)
-    return ServerTracing(provider)
+    return ServerTracing(provider, instrumented=config.enabled)
+
+
+def _inference_instrumentation(provider: TracerProvider) -> InstrumentationSettings | None:
+    """Bind Pydantic AI spans to the Server provider without recording any content."""
+
+    try:
+        settings_type = import_module("pydantic_ai.models.instrumented").InstrumentationSettings
+        # Prompts, responses, Memory content, and vectors stay out of spans (RFC 0016);
+        # model request parameters carry the full instructions, so they are excluded too.
+        return settings_type(
+            tracer_provider=provider,
+            include_content=False,
+            include_binary_content=False,
+            include_model_request_parameters=False,
+        )
+    except Exception:
+        # Tracing setup must never break the Runtime; an unavailable adapter just stays uninstrumented.
+        return None
 
 
 def request_id_from_span(span: Span | None = None) -> str:

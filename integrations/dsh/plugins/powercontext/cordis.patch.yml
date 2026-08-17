@@ -1,0 +1,10 @@
+- insert:
+    - id: powercontext-dsh
+      name: powercontext-dsh
+      config:
+        baseUrl: http://127.0.0.1:8000
+        timeoutMs: 4000
+        requestTimeoutMs: 1000
+        maxBytes: 8000
+        capturePrompts: true
+        flushOnCapture: false

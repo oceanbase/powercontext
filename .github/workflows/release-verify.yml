@@ -1,0 +1,187 @@
+name: Verify release
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Published PowerContext Release tag to verify
+        required: true
+        type: string
+      release_package:
+        description: Package contract to verify
+        required: false
+        default: powercontext
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published Release tag to verify
+        required: true
+        type: string
+      release_package:
+        description: Package contract to verify; auto detects legacy PowerMem Releases
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - powercontext
+          - powermem
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out verification scripts
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Resolve release metadata
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_PACKAGE: ${{ inputs.release_package }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.parse
+          import urllib.request
+
+          tag = os.environ["RELEASE_TAG"]
+          version = tag.removeprefix("v")
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", version):
+              raise SystemExit("release_tag must use vX.Y.Z or X.Y.Z semantic versioning")
+
+          package = os.environ["RELEASE_PACKAGE"]
+          if package not in {"auto", "powercontext", "powermem"}:
+              raise SystemExit("release_package must be one of: auto, powercontext, powermem")
+          if package == "auto":
+              quoted_tag = urllib.parse.quote(tag, safe="")
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{os.environ['REPOSITORY']}/releases/tags/{quoted_tag}",
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  release = json.load(response)
+              assets = {asset["name"] for asset in release.get("assets", [])}
+              candidates = [
+                  candidate
+                  for candidate in ("powercontext", "powermem")
+                  if f"{candidate}-{version}-py3-none-any.whl" in assets
+              ]
+              if len(candidates) != 1:
+                  raise SystemExit(
+                      "could not uniquely detect the package contract from Release wheel assets; "
+                      "select release_package explicitly"
+                  )
+              package = candidates[0]
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"package={package}\n")
+              output.write(f"version={version}\n")
+              output.write(f"wheel={package}-{version}-py3-none-any.whl\n")
+              output.write(f"sdist={package}-{version}.tar.gz\n")
+          PY
+
+      - name: Verify GitHub Release assets
+        id: github_release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/ci_verify_github_release.py \
+            --repository "${{ github.repository }}" \
+            --tag "${{ inputs.release_tag }}" \
+            --expected-asset "${{ steps.release.outputs.wheel }}" \
+            --expected-asset "${{ steps.release.outputs.sdist }}"
+
+      - name: Verify public PyPI distributions
+        id: pypi
+        run: |
+          python scripts/ci_verify_pypi_release.py \
+            --package "${{ steps.release.outputs.package }}" \
+            --version "${{ steps.release.outputs.version }}"
+
+      - name: Create clean verification environment
+        run: python -m venv "$RUNNER_TEMP/powercontext-release-verify"
+
+      - name: Install PowerContext from public PyPI
+        id: install
+        env:
+          PACKAGE: ${{ steps.release.outputs.package }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          verification_python="$RUNNER_TEMP/powercontext-release-verify/bin/python"
+          "$verification_python" -m pip install --upgrade pip
+          if [ "$PACKAGE" = powercontext ]; then
+            requirement="powercontext[cli,server]==$VERSION"
+          else
+            requirement="powermem==$VERSION"
+          fi
+          "$verification_python" -m pip install \
+            --index-url https://pypi.org/simple \
+            --no-cache-dir \
+            "$requirement"
+          "$verification_python" -m pip check
+          "$verification_python" -c \
+            "from importlib.metadata import version; assert version('$PACKAGE') == '$VERSION'"
+
+      - name: Verify CLI entrypoints
+        id: cli
+        if: steps.release.outputs.package == 'powercontext'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          verification_bin="$RUNNER_TEMP/powercontext-release-verify/bin"
+          test "$("$verification_bin/powercontext" --version)" = "$VERSION"
+          "$verification_bin/powercontext" --help
+          "$verification_bin/powercontext" server --help
+
+      - name: Run Server, MCP, and Memory smoke test
+        id: smoke
+        if: steps.release.outputs.package == 'powercontext'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          "$RUNNER_TEMP/powercontext-release-verify/bin/python" \
+            scripts/ci_release_smoke.py \
+            --version "$VERSION"
+
+      - name: Summarize release health
+        if: always()
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PACKAGE: ${{ steps.release.outputs.package }}
+          VERSION: ${{ steps.release.outputs.version }}
+          GITHUB_RELEASE: ${{ steps.github_release.outcome }}
+          PYPI: ${{ steps.pypi.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          CLI: ${{ steps.cli.outcome }}
+          SMOKE: ${{ steps.smoke.outcome }}
+        run: |
+          {
+            echo "## Release health"
+            echo
+            echo "- Release tag: \`$RELEASE_TAG\`"
+            echo "- Package contract: \`$PACKAGE\`"
+            echo "- Version: \`$VERSION\`"
+            echo "- GitHub Release assets: **$GITHUB_RELEASE**"
+            echo "- PyPI distributions: **$PYPI**"
+            echo "- Clean install and dependency check: **$INSTALL**"
+            echo "- CLI entrypoints: **$CLI**"
+            echo "- Server, MCP, and Memory smoke: **$SMOKE**"
+          } >> "$GITHUB_STEP_SUMMARY"

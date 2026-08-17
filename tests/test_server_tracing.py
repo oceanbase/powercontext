@@ -26,11 +26,11 @@ PARENT_SPAN_ID = int("00f067aa0ba902b7", 16)
 TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 
 
-def _tracing() -> tuple[ServerTracing, InMemorySpanExporter]:
+def _tracing(*, instrumented: bool = False) -> tuple[ServerTracing, InMemorySpanExporter]:
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    return ServerTracing(provider), exporter
+    return ServerTracing(provider, instrumented=instrumented), exporter
 
 
 def test_http_and_application_spans_preserve_incoming_context() -> None:
@@ -115,6 +115,26 @@ def test_tracing_context_is_not_recorded_by_default() -> None:
 
     span.end()
     tracing.shutdown()
+
+
+def test_inference_instrumentation_follows_the_tracing_setting() -> None:
+    disabled = configure_server_tracing(TracingConfig())
+    enabled, _ = _tracing(instrumented=True)
+
+    assert disabled.instrumentation is None
+    assert enabled.instrumentation is not None
+
+    disabled.shutdown()
+
+
+def test_inference_instrumentation_records_no_content() -> None:
+    tracing, _ = _tracing(instrumented=True)
+    instrumentation = tracing.instrumentation
+
+    assert instrumentation is not None
+    assert instrumentation.include_content is False
+    assert instrumentation.include_binary_content is False
+    assert instrumentation.include_model_request_parameters is False
 
 
 def test_tracing_export_requires_the_otlp_extra(monkeypatch) -> None:

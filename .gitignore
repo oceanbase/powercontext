@@ -215,3 +215,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# PowerContext DeepSeek Harness plugin (Node)
+integrations/dsh/node_modules/
+integrations/dsh/coverage/
+integrations/dsh/*.tgz
+!integrations/dsh/plugins/powercontext/lib/
+!integrations/dsh/plugins/powercontext/lib/**

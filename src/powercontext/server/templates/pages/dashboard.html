@@ -5,7 +5,11 @@
 {% block content %}
 {% include "components/login.html" %}
 
-<section id="dashboard" hidden>
+{% set status_title_key = "dashboardTitle" %}
+{% set status_title = "Dashboard" %}
+{% include "components/status.html" %}
+
+<section class="server-content" id="dashboard">
   <div class="hero">
     <div>
       <p class="page-kind" data-i18n="dashboardTitle">Dashboard</p>
@@ -74,5 +78,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}"></script>
+<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}?v=state-races"></script>
 {% endblock %}

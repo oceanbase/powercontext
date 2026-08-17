@@ -73,6 +73,34 @@ jobs:
       - name: Publish release distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
+  release-assets:
+    runs-on: ubuntu-latest
+    needs: release-build
+    permissions:
+      contents: write
+    steps:
+      - name: Download release distributions
+        uses: actions/download-artifact@v8
+        with:
+          name: release-dists
+          path: dist/
+
+      - name: Upload GitHub Release assets
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: dist/*
+          fail_on_unmatched_files: true
+
+  release-verify:
+    needs: [pypi-publish, release-assets]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-verify.yml
+    with:
+      release_tag: ${{ github.event.release.tag_name }}
+      release_package: powercontext
+
   deploy-docs:
     needs: pypi-publish
     permissions:

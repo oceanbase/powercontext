@@ -28,7 +28,7 @@ or other sensitive information in the handoff.
 ## 2. Inspect the handoff draft
 
 Codex captures a concise current-state Source and activates the Handoff. Inspect the generated Draft and correct
-missing, stale, or unsupported statements. A repeated boundary can return `ignored`, which means that Source has
+missing, stale, or unsupported statements. A repeated boundary can return `ignored`, which means that the Source has
 already been used.
 
 ## 3. Give it to the receiving task

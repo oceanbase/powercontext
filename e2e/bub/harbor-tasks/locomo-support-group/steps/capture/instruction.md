@@ -1,0 +1,1 @@
+,powercontext.remember text='Caroline attended an LGBTQ support group on 7 May 2023. The group made her feel accepted and gave her courage to embrace herself. She plans to continue her education and explore counseling or mental-health work.' kind='conversation-fact' reason='Pinned LoCoMo-derived e2e sample'

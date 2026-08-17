@@ -59,6 +59,13 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     assert removed_dashboard_alias.status_code == 404
     assert missing_scopes.status_code == 401
     assert scopes.status_code == 200
+    assert 'data-server-session="missing"' in home.text
+    assert 'id="auth-shell"' in home.text
+    assert 'id="auth-shell" hidden' not in home.text
+    assert 'id="page-status" hidden' in home.text
+    assert 'class="server-content" id="dashboard"' in home.text
+    assert 'id="dashboard" hidden' not in home.text
+    assert "dashboard.js?v=state-races" in home.text
     assert scopes.json() == [
         {"scope_id": "person:psiace", "display_name": "PsiACE"},
         {"scope_id": "project:powercontext", "display_name": "PowerContext"},
@@ -81,11 +88,22 @@ def test_handoff_report_page_is_available_only_when_both_features_are_enabled(tm
 
     assert disabled_page.status_code == 404
     assert enabled_page.status_code == 200
+    assert 'data-server-session="missing"' in enabled_page.text
+    assert 'id="auth-shell"' in enabled_page.text
+    assert 'id="auth-shell" hidden' not in enabled_page.text
+    assert 'id="page-status" hidden' in enabled_page.text
+    assert 'class="server-content" id="handoff-report"' in enabled_page.text
+    assert 'id="handoff-report" hidden' not in enabled_page.text
     assert 'data-period-mode="day"' in enabled_page.text
     assert 'data-period-mode="week"' in enabled_page.text
     assert 'data-period-mode="month"' in enabled_page.text
     assert 'id="period-start" type="date"' in enabled_page.text
     assert 'id="period-end" type="date"' in enabled_page.text
+    assert 'id="project-select"' in enabled_page.text
+    assert 'id="project-tabs"' not in enabled_page.text
+    assert '<section class="report-overview"' in enabled_page.text
+    assert '<dl class="report-overview"' not in enabled_page.text
+    assert "handoff-report.js?v=state-races" in enabled_page.text
     assert protected_projects.status_code == 401
 
 
