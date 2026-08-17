@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager, suppress
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
@@ -32,6 +33,8 @@ _MISSING_OTLP_EXPORTER = (
     "OpenTelemetry export requires the 'tracing-otlp' extra; "
     "install 'powercontext[server,tracing-otlp]' before enabling tracing"
 )
+
+_TraceAttribute = str | bool | int | float
 
 
 class ServerTracing:
@@ -70,6 +73,34 @@ class ServerTracing:
             context=context,
         )
 
+    @contextmanager
+    def stage(
+        self,
+        name: str,
+        *,
+        attributes: Mapping[str, _TraceAttribute],
+    ) -> Iterator[_ActiveSpan]:
+        """Trace one bounded Runtime stage without changing its behavior."""
+
+        span = self.start_span(
+            name,
+            kind=SpanKind.INTERNAL,
+            attributes={
+                **attributes,
+                "powercontext.operation.name": name,
+                "powercontext.operation.unit": "stage",
+            },
+        )
+        try:
+            yield span
+        except asyncio.CancelledError as error:
+            span.finish("cancelled", error=error)
+            raise
+        except BaseException as error:
+            span.finish("failure", error=error)
+            raise
+        span.finish("success")
+
     def shutdown(self) -> None:
         with suppress(Exception):
             self.provider.shutdown()
@@ -106,7 +137,7 @@ class _ActiveSpan:
     def request_id(self) -> str:
         return request_id_from_span(self.span)
 
-    def set_attributes(self, attributes: dict[str, Any]) -> None:
+    def set_attributes(self, attributes: Mapping[str, Any]) -> None:
         if self.span is not None:
             with suppress(Exception):
                 self.span.set_attributes(attributes)
@@ -116,7 +147,7 @@ class _ActiveSpan:
         outcome: str,
         *,
         error: BaseException | None = None,
-        attributes: dict[str, Any] | None = None,
+        attributes: Mapping[str, Any] | None = None,
     ) -> None:
         if self.finished:
             return

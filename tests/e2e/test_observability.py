@@ -12,15 +12,61 @@ from fastmcp.client.transports import StreamableHttpTransport
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
+from pydantic_ai import Embedder
+from pydantic_ai.embeddings import TestEmbeddingModel
 from pydantic_ai.models import Model
 from pydantic_ai.models.test import TestModel
 
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime.config import InferenceConfig
+from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import OperationalContextFilter
 from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.server.tracing import ServerTracing
+
+_STAGE_ATTRIBUTE_KEYS = {
+    "memory.search": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.memory.search.requested_mode",
+        "powercontext.memory.search.limit",
+        "powercontext.memory.search.memory_present",
+        "powercontext.memory.search.mode",
+        "powercontext.memory.search.result_count",
+    },
+    "memory.rerank": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.memory.rerank.candidate_count",
+        "powercontext.memory.rerank.limit",
+        "powercontext.memory.rerank.selected_count",
+        "powercontext.memory.rerank.discarded_rank_count",
+        "powercontext.memory.rerank.used_fallback",
+    },
+    "experience.search": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.experience.search.configured",
+        "powercontext.experience.search.limit",
+        "powercontext.experience.search.result_count",
+    },
+    "context.prepare": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.context.prepare.memory_candidate_count",
+        "powercontext.context.prepare.experience_candidate_count",
+        "powercontext.context.prepare.selected_count",
+        "powercontext.context.prepare.status",
+        "powercontext.context.prepare.content_bytes",
+    },
+}
 
 
 def test_observability_signals_correlate_without_counting_the_mcp_bridge(caplog, tmp_path) -> None:
@@ -140,6 +186,239 @@ def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeyp
     assert not any(_is_inference_span(span) for span in uninstrumented)
 
 
+def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -> None:
+    # Resolve the configured test model without consulting the environment or a real provider.
+    monkeypatch.setattr(
+        "pydantic_ai.models.infer_model",
+        lambda model: model if isinstance(model, Model) else TestModel(custom_output_text='{"selected_ranks":[1]}'),
+    )
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'memory-read-tracing.db'}"),
+            runtime=RuntimeConfig(memory_rerank_enabled=True),
+            inference=InferenceConfig(generation_model="test"),
+            mcp=McpConfig(enabled=False),
+        ),
+        tracing=ServerTracing(provider, instrumented=True),
+    )
+    scope_id = "project:private-trace-scope"
+    memory_content = "Private trace sentinel evidence."
+    query = "private trace sentinel"
+    no_match_query = "unmatched giraffe phrase"
+
+    with TestClient(app) as client:
+        remembered = client.post(
+            "/v1/memory/remember",
+            json={"scope_id": scope_id, "kind": "fact", "text": memory_content},
+        )
+        searched = client.post(
+            "/v1/memory/search",
+            json={"scope_id": scope_id, "query": query, "limit": 1, "mode": "fts"},
+        )
+        no_match = client.post(
+            "/v1/memory/search",
+            json={"scope_id": scope_id, "query": no_match_query, "limit": 1, "mode": "fts"},
+        )
+        no_memory = client.post(
+            "/v1/memory/search",
+            json={
+                "scope_id": "project:private-empty-search-scope",
+                "query": query,
+                "limit": 1,
+                "mode": "fts",
+            },
+        )
+        prepared = client.post(
+            "/v1/context/prepare",
+            json={"scope_id": scope_id, "query": query},
+        )
+        empty = client.post(
+            "/v1/context/prepare",
+            json={"scope_id": "project:private-empty-scope", "query": query},
+        )
+
+    assert remembered.status_code == 200
+    assert searched.status_code == 200
+    assert searched.json()["hits"]
+    assert no_match.status_code == 200
+    assert no_match.json()["hits"] == []
+    assert no_memory.status_code == 200
+    assert no_memory.json()["hits"] == []
+    assert prepared.status_code == 200
+    assert prepared.json()["status"] == "ready"
+    assert empty.status_code == 200
+    assert empty.json()["status"] == "empty"
+
+    spans = list(exporter.get_finished_spans())
+    search_applications = [span for span in spans if span.name == "powercontext search_memory"]
+    prepare_applications = [span for span in spans if span.name == "powercontext prepare_context"]
+    assert len(search_applications) == 3
+    assert len(prepare_applications) == 2
+
+    search_applications_by_result = {
+        (
+            bool(
+                (_only_child(spans, application, "memory.search").attributes or {}).get(
+                    "powercontext.memory.search.memory_present"
+                )
+            ),
+            (_only_child(spans, application, "memory.search").attributes or {})[
+                "powercontext.memory.search.result_count"
+            ],
+        ): application
+        for application in search_applications
+    }
+    search_application = search_applications_by_result[(True, 1)]
+    search = _only_child(spans, search_application, "memory.search")
+    search_attributes = dict(search.attributes or {})
+    assert search_attributes == {
+        "powercontext.operation.name": "memory.search",
+        "powercontext.operation.unit": "stage",
+        "powercontext.memory.search.requested_mode": "fts",
+        "powercontext.memory.search.limit": 1,
+        "powercontext.memory.search.memory_present": True,
+        "powercontext.memory.search.mode": "fts",
+        "powercontext.memory.search.result_count": 1,
+        "powercontext.operation.outcome": "success",
+    }
+    rerank = _only_child(spans, search, "memory.rerank")
+    assert dict(rerank.attributes or {}) == {
+        "powercontext.operation.name": "memory.rerank",
+        "powercontext.operation.unit": "stage",
+        "powercontext.memory.rerank.candidate_count": 1,
+        "powercontext.memory.rerank.limit": 1,
+        "powercontext.memory.rerank.selected_count": 1,
+        "powercontext.memory.rerank.discarded_rank_count": 0,
+        "powercontext.memory.rerank.used_fallback": False,
+        "powercontext.operation.outcome": "success",
+    }
+    invoke_agent = _only_child(spans, rerank, "invoke_agent memory_rerank")
+    chat = _only_child_with_prefix(spans, invoke_agent, "chat ")
+    assert {span.context.trace_id for span in (search_application, search, rerank, invoke_agent, chat)} == {
+        search_application.context.trace_id
+    }
+
+    no_match_application = search_applications_by_result[(True, 0)]
+    no_match_search = _only_child(spans, no_match_application, "memory.search")
+    assert (no_match_search.attributes or {})["powercontext.memory.search.mode"] == "fts"
+    assert not _children(spans, no_match_search, "memory.rerank")
+    no_memory_application = search_applications_by_result[(False, 0)]
+    no_memory_search = _only_child(spans, no_memory_application, "memory.search")
+    assert "powercontext.memory.search.mode" not in (no_memory_search.attributes or {})
+    assert not _children(spans, no_memory_search, "memory.rerank")
+
+    prepared_by_memory_presence = {
+        bool(
+            (_only_child(spans, application, "memory.search").attributes or {}).get(
+                "powercontext.memory.search.memory_present"
+            )
+        ): application
+        for application in prepare_applications
+    }
+    ready_application = prepared_by_memory_presence[True]
+    empty_application = prepared_by_memory_presence[False]
+
+    ready_memory = _only_child(spans, ready_application, "memory.search")
+    assert (ready_memory.attributes or {})["powercontext.memory.search.result_count"] == 1
+    assert _only_child(spans, ready_memory, "memory.rerank")
+    ready_experience = _only_child(spans, ready_application, "experience.search")
+    assert (ready_experience.attributes or {})["powercontext.experience.search.configured"] is True
+    assert (ready_experience.attributes or {})["powercontext.experience.search.result_count"] == 0
+    ready_context = _only_child(spans, ready_application, "context.prepare")
+    assert (ready_context.attributes or {})["powercontext.context.prepare.memory_candidate_count"] == 1
+    assert (ready_context.attributes or {})["powercontext.context.prepare.experience_candidate_count"] == 0
+    assert (ready_context.attributes or {})["powercontext.context.prepare.selected_count"] == 1
+    assert (ready_context.attributes or {})["powercontext.context.prepare.status"] == "ready"
+    ready_content_bytes = (ready_context.attributes or {})["powercontext.context.prepare.content_bytes"]
+    assert isinstance(ready_content_bytes, int)
+    assert ready_content_bytes > 0
+
+    empty_memory = _only_child(spans, empty_application, "memory.search")
+    empty_memory_attributes = dict(empty_memory.attributes or {})
+    assert empty_memory_attributes["powercontext.memory.search.memory_present"] is False
+    assert empty_memory_attributes["powercontext.memory.search.result_count"] == 0
+    assert "powercontext.memory.search.mode" not in empty_memory_attributes
+    assert not _children(spans, empty_memory, "memory.rerank")
+    empty_experience = _only_child(spans, empty_application, "experience.search")
+    assert (empty_experience.attributes or {})["powercontext.experience.search.result_count"] == 0
+    empty_context = _only_child(spans, empty_application, "context.prepare")
+    assert (empty_context.attributes or {})["powercontext.context.prepare.selected_count"] == 0
+    assert (empty_context.attributes or {})["powercontext.context.prepare.status"] == "empty"
+    assert (empty_context.attributes or {})["powercontext.context.prepare.content_bytes"] == 0
+
+    for span in spans:
+        allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
+        if allowed_keys is None:
+            continue
+        attributes = dict(span.attributes or {})
+        assert attributes.keys() <= allowed_keys
+        assert all(isinstance(value, str | bool | int | float) for value in attributes.values())
+
+    exported = _exported_span_data(spans)
+    assert scope_id not in exported
+    assert "project:private-empty-scope" not in exported
+    assert "project:private-empty-search-scope" not in exported
+    assert memory_content not in exported
+    assert query not in exported
+    assert no_match_query not in exported
+
+
+def test_embedding_span_joins_memory_search_stage_without_recording_text() -> None:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracing = ServerTracing(provider, instrumented=True)
+    instrumentation = tracing.instrumentation
+    assert instrumentation is not None
+    embedding_model = PydanticAIEmbeddingModel(
+        embedder=Embedder(TestEmbeddingModel(dimensions=3), instrument=instrumentation),
+        profile=EmbeddingProfile(
+            profile_id="trace-test-v1",
+            model="test",
+            dimension=3,
+            distance="l2",
+            normalization="unit",
+        ),
+    )
+    private_text = "private embedding sentinel"
+
+    async def scenario() -> None:
+        application = tracing.start_span(
+            "powercontext search_memory",
+            kind=SpanKind.INTERNAL,
+            attributes={
+                "powercontext.operation.name": "search_memory",
+                "powercontext.operation.unit": "application",
+            },
+        )
+        try:
+            with tracing.stage(
+                "memory.search",
+                attributes={
+                    "powercontext.memory.search.requested_mode": "vector",
+                    "powercontext.memory.search.limit": 1,
+                },
+            ):
+                await embedding_model.embed((private_text,))
+        except BaseException as error:
+            application.finish("failure", error=error)
+            raise
+        application.finish("success")
+
+    asyncio.run(scenario())
+
+    spans = list(exporter.get_finished_spans())
+    application = next(span for span in spans if span.name == "powercontext search_memory")
+    search = _only_child(spans, application, "memory.search")
+    embedding = _only_child_with_prefix(spans, search, "embeddings ")
+    assert embedding.context.trace_id == application.context.trace_id
+    assert private_text not in _exported_span_data(spans)
+
+
 def _flush_memory_spans(database_path: Path, *, instrumented: bool) -> list[ReadableSpan]:
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
@@ -168,3 +447,45 @@ def _flush_memory_spans(database_path: Path, *, instrumented: bool) -> list[Read
 
 def _is_inference_span(span: ReadableSpan) -> bool:
     return span.instrumentation_scope is not None and span.instrumentation_scope.name == "pydantic-ai"
+
+
+def _children(spans: list[ReadableSpan], parent: ReadableSpan, name: str) -> list[ReadableSpan]:
+    return [
+        span
+        for span in spans
+        if span.name == name and span.parent is not None and span.parent.span_id == parent.context.span_id
+    ]
+
+
+def _only_child(spans: list[ReadableSpan], parent: ReadableSpan, name: str) -> ReadableSpan:
+    children = _children(spans, parent, name)
+    assert len(children) == 1
+    return children[0]
+
+
+def _only_child_with_prefix(spans: list[ReadableSpan], parent: ReadableSpan, prefix: str) -> ReadableSpan:
+    children = [
+        span
+        for span in spans
+        if span.name.startswith(prefix) and span.parent is not None and span.parent.span_id == parent.context.span_id
+    ]
+    assert len(children) == 1
+    return children[0]
+
+
+def _exported_span_data(spans: list[ReadableSpan]) -> str:
+    return json.dumps(
+        [
+            {
+                "name": span.name,
+                "attributes": dict(span.attributes or {}),
+                "events": [{"name": event.name, "attributes": dict(event.attributes or {})} for event in span.events],
+                "status": {
+                    "code": str(span.status.status_code),
+                    "description": span.status.description,
+                },
+            }
+            for span in spans
+        ],
+        default=str,
+    )

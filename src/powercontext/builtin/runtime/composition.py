@@ -18,6 +18,8 @@ from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     DefaultMemoryEvidenceProjector,
     MemoryCapabilities,
+    MemoryHit,
+    MemoryRerankDecision,
     MemoryReranker,
 )
 from powercontext.builtin.artifacts.skill import CodexSkillProvider, ExternalSkillProvider, SkillGenerator
@@ -43,6 +45,7 @@ from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime.application import BuiltinRuntime
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
+from powercontext.builtin.runtime.protocols import RuntimeTracing
 from powercontext.builtin.runtime.readiness import (
     READINESS_PROBE_TIMEOUT_SECONDS,
     CachedReadinessProbe,
@@ -100,6 +103,44 @@ class _ContentHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
         return super().project_source(source)
 
 
+class _TracingMemoryReranker:
+    """Trace one configured reranker without exposing Memory content."""
+
+    def __init__(self, delegate: MemoryReranker, tracing: RuntimeTracing) -> None:
+        self._delegate = delegate
+        self._tracing = tracing
+
+    @property
+    def policy_id(self) -> str:
+        return self._delegate.policy_id
+
+    @policy_id.setter
+    def policy_id(self, value: str) -> None:
+        self._delegate.policy_id = value
+
+    async def rerank(
+        self,
+        query: str,
+        candidates: tuple[MemoryHit, ...],
+        limit: int,
+        /,
+    ) -> MemoryRerankDecision:
+        with self._tracing.stage(
+            "memory.rerank",
+            attributes={
+                "powercontext.memory.rerank.candidate_count": len(candidates),
+                "powercontext.memory.rerank.limit": limit,
+            },
+        ) as span:
+            decision = await self._delegate.rerank(query, candidates, limit)
+            span.set_attributes({
+                "powercontext.memory.rerank.selected_count": len(decision.selected_ranks),
+                "powercontext.memory.rerank.discarded_rank_count": decision.discarded_rank_count,
+                "powercontext.memory.rerank.used_fallback": decision.used_fallback,
+            })
+            return decision
+
+
 @asynccontextmanager
 async def open_builtin_runtime(
     config: BuiltinConfig,
@@ -115,6 +156,7 @@ async def open_builtin_runtime(
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
     instrumentation: InstrumentationSettings | None = None,
+    tracing: RuntimeTracing | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
@@ -145,6 +187,8 @@ async def open_builtin_runtime(
         configured_skill = generated_skill if skill_generator is None else skill_generator
         configured_handoff = generated_handoff if handoff_pipeline is None else handoff_pipeline
         configured_reranker = generated_reranker if memory_reranker is None else memory_reranker
+        if configured_reranker is not None and tracing is not None:
+            configured_reranker = _TracingMemoryReranker(configured_reranker, tracing)
         configured_embedding_source = (
             await _embedding_model(config.inference, resources, instrumentation)
             if embedding_model is None
@@ -210,6 +254,7 @@ async def open_builtin_runtime(
                 statistics_service=contexts.statistics,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 readiness=RuntimeReadinessChecks(readiness_probes),
+                tracing=tracing,
             )
         )
         if config.handoff_report.enabled:
