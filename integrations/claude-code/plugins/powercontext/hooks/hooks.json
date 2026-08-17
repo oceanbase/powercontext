@@ -1,0 +1,20 @@
+{
+  "description": "Recall relevant memory and capture the current Claude Code prompt as a Source.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py"
+            ],
+            "timeout": 10,
+            "statusMessage": "Syncing PowerContext"
+          }
+        ]
+      }
+    ]
+  }
+}
