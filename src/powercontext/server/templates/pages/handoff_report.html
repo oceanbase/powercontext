@@ -60,7 +60,7 @@
 
   <div class="report-error" id="report-error" role="alert" aria-live="polite"></div>
 
-  <section class="report-overview" aria-label="Handoff summary">
+  <section class="report-overview" aria-label="Handoff summary" data-i18n-aria-label="handoffSummary">
     <div class="report-metric status-continuable">
       <span data-i18n="continuable">Continuable</span>
       <strong id="continuable-count">0</strong>
@@ -98,8 +98,11 @@
         <p data-i18n="handoffWorkbenchSubtitle">Edit before sending, preflight before accepting, and keep the result loop visible</p>
       </div>
       <label class="workstream-picker" for="handoff-workstream">
-        <span data-i18n="selectedWorkstream">Selected Workstream</span>
-        <select id="handoff-workstream"></select>
+        <span data-i18n="selectedWorkstream">Handoff work</span>
+        <select id="handoff-workstream" aria-describedby="handoff-workstream-help"></select>
+        <small id="handoff-workstream-help" data-i18n="workSwitcherHelp">
+          Choose any registered Workstream. Unsent drafts stay with each work.
+        </small>
       </label>
     </div>
 
@@ -164,7 +167,7 @@
             <span class="preflight-state" id="preflight-state" data-state="idle" data-i18n="preflightRunning">Checking</span>
           </header>
           <p class="workbench-note" data-i18n="preflightNote">
-            Evidence is checked automatically. Live workspace, capability, and authorization still belong to the receiver.
+            Citation availability is checked automatically and stays separate from the receiver's live-state confirmations.
           </p>
           <div class="preflight-summary" id="preflight-summary" aria-live="polite"></div>
           <ul class="preflight-checks" id="preflight-checks"></ul>
@@ -247,6 +250,16 @@
           <ol class="revision-history-list" id="handoff-revision-history"></ol>
         </section>
         <ol class="continuity-timeline" id="continuity-timeline"></ol>
+        <div class="continuity-timeline-footer">
+          <button
+            class="continuity-timeline-toggle"
+            id="continuity-timeline-toggle"
+            type="button"
+            aria-controls="continuity-timeline"
+            aria-expanded="false"
+            hidden
+          ></button>
+        </div>
         <div class="continuity-note" id="continuity-note" role="status" aria-live="polite"></div>
         <form class="task-outcome-form" id="task-outcome-form" hidden>
           <div>
@@ -312,7 +325,7 @@
         <tbody id="workstream-rows"></tbody>
       </table>
     </div>
-    <div class="empty-state" id="workstream-empty" data-i18n="noWorkstreams" hidden>No Workstreams are registered.</div>
+    <div class="empty-state" id="workstream-empty" data-i18n="noWorkstreams" hidden>No Workstreams are registered for this Project.</div>
   </section>
 
   <section class="data-section" aria-labelledby="handoff-contents-title">
@@ -338,5 +351,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=state-races"></script>
+<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=locale-complete-v1"></script>
 {% endblock %}

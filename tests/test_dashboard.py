@@ -65,7 +65,11 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     assert 'id="page-status" hidden' in home.text
     assert 'class="server-content" id="dashboard"' in home.text
     assert 'id="dashboard" hidden' not in home.text
-    assert "dashboard.js?v=state-races" in home.text
+    assert 'data-i18n-aria-label="brandHomeLabel"' in home.text
+    assert 'data-i18n-aria-label="primaryNavigation"' in home.text
+    assert 'data-i18n-aria-label="scopeOverview"' in home.text
+    assert 'data-i18n-aria-label="activityAria"' in home.text
+    assert "dashboard.js?v=locale-complete-v1" in home.text
     assert scopes.json() == [
         {"scope_id": "person:psiace", "display_name": "PsiACE"},
         {"scope_id": "project:powercontext", "display_name": "PowerContext"},
@@ -108,6 +112,9 @@ def test_handoff_report_page_is_available_only_when_both_features_are_enabled(tm
     assert 'id="receiver-capability"' in enabled_page.text
     assert 'id="receiver-authorization"' in enabled_page.text
     assert 'id="continuity-timeline"' in enabled_page.text
+    assert 'id="continuity-timeline-toggle"' in enabled_page.text
+    assert 'aria-controls="continuity-timeline"' in enabled_page.text
+    assert 'data-i18n-aria-label="handoffSummary"' in enabled_page.text
     assert 'id="auto-refresh-status"' in enabled_page.text
     assert 'id="handoff-revision-history"' in enabled_page.text
     assert 'id="revision-history-summary"' in enabled_page.text
@@ -115,10 +122,12 @@ def test_handoff_report_page_is_available_only_when_both_features_are_enabled(tm
     assert 'id="outcome-state-status"' in enabled_page.text
     assert 'id="task-outcome-form"' in enabled_page.text
     assert 'id="project-select"' in enabled_page.text
+    assert 'id="handoff-workstream" aria-describedby="handoff-workstream-help"' in enabled_page.text
+    assert 'id="handoff-workstream-help"' in enabled_page.text
     assert 'id="project-tabs"' not in enabled_page.text
     assert '<section class="report-overview"' in enabled_page.text
     assert '<dl class="report-overview"' not in enabled_page.text
-    assert "handoff-report.js?v=state-races" in enabled_page.text
+    assert "handoff-report.js?v=locale-complete-v1" in enabled_page.text
     assert protected_projects.status_code == 401
 
 

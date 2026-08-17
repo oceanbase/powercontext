@@ -7,15 +7,20 @@ import {
   storeServerToken
 } from "./auth.js?v=session-shell";
 import {formatDateRange, resolvePeriodSelection, validateDateRange} from "./handoff-period.js";
-import {createPageUi, createRequestGate} from "./page-ui.js?v=request-gate";
+import {createPageUi, createRequestGate} from "./page-ui.js?v=locale-complete";
 
 const selectedProjectKey = "powercontext.handoff-report.project";
+const selectedWorkKey = "powercontext.handoff-report.work";
 const autoRefreshIntervalMilliseconds = 5_000;
+const continuityTimelineRecentLimit = 6;
 const translations = {
   en: {
     pageTitle: "PowerContext Handoff Report",
     dashboardTitle: "Dashboard",
     handoffReportTitle: "Handoff Report",
+    brandHomeLabel: "PowerContext Dashboard",
+    primaryNavigation: "Primary navigation",
+    handoffSummary: "Handoff summary",
     maintainedBy: "Maintained by OceanBase.",
     signOut: "Sign out",
     authTitle: "Connect to PowerContext",
@@ -67,7 +72,9 @@ const translations = {
     noCommittedHandoff: "No committed Handoff is available for this Workstream.",
     handoffWorkbench: "Handoff workspace",
     handoffWorkbenchSubtitle: "Edit before sending, preflight before accepting, and keep the result loop visible",
-    selectedWorkstream: "Selected Workstream",
+    selectedWorkstream: "Handoff work",
+    workSwitcherHelp: "Choose any registered Workstream. Unsent drafts stay with each work.",
+    chooseHandoffWork: "Choose work to hand off",
     senderStep: "Sender",
     editBeforeSend: "Edit before sending",
     editBeforeSendNote: "Nothing is committed until you send this card.",
@@ -137,6 +144,14 @@ const translations = {
     timelineEmpty: "No high-level Work continuity records are available for this scope.",
     timelineTruncated: "Only the latest {count} of {total} continuity events are shown.",
     timelineInvalid: "{count} Work record(s) could not be read and were excluded.",
+    timelineShowEarlier: "Show {count} earlier events",
+    timelineShowRecent: "Show latest {count}",
+    eventSource: "Source",
+    eventRevision: "Handoff Revision",
+    eventReceipt: "Receipt",
+    eventReceiverChecks: "Receiver checks",
+    eventSchema: "Record schema",
+    eventNoDetails: "No additional details were recorded.",
     autoRefreshActive: "Auto-refresh every 5 seconds",
     autoRefreshEditing: "Auto-refresh paused while this card has unsent changes.",
     autoRefreshBusy: "Auto-refresh paused during this action.",
@@ -173,6 +188,7 @@ const translations = {
     switchChinese: "Switch to Chinese",
     switchEnglish: "Switch to English",
     languageChinese: "中文",
+    languageEnglish: "EN",
     updated: "Updated {value}",
     projectOption: "{title} ({projectId})",
     coverageCaptured: "Captured Activity is included through cursor {cursor}. Counts describe observed events, not completion percentage.",
@@ -193,17 +209,24 @@ const translations = {
     activity_without_handoff: "Activity without Handoff",
     no_observed_activity: "No observed Activity",
     current_only: "Current only",
+    exact_input: "Exact input",
+    optimistic_stable: "Optimistically stable",
+    captured: "Captured",
+    not_configured: "Not configured",
     unknown: "Unknown"
   },
   zh: {
     pageTitle: "PowerContext 项目交接报告",
     dashboardTitle: "仪表盘",
     handoffReportTitle: "交接报告",
+    brandHomeLabel: "PowerContext 仪表盘",
+    primaryNavigation: "主导航",
+    handoffSummary: "交接摘要",
     maintainedBy: "由 OceanBase 维护。",
     signOut: "退出",
     authTitle: "连接 PowerContext",
-    authIntro: "请输入 PowerContext Server 配置的 bearer token。Token 仅保留在当前浏览器标签页。",
-    tokenLabel: "服务器 Token",
+    authIntro: "请输入 PowerContext 服务器配置的访问令牌。令牌仅保留在当前浏览器标签页。",
+    tokenLabel: "服务器访问令牌",
     continue: "继续",
     refresh: "刷新",
     downloadMarkdown: "下载 Markdown",
@@ -217,22 +240,22 @@ const translations = {
     periodEnd: "结束日期",
     apply: "应用",
     periodSummary: "{preset} / {range} / {timezone}",
-    periodComparison: "Activity：本期 {current} / 上期 {previous} / 变化 {delta}",
-    periodBoundaryUnavailable: "Handoff 状态采用当前 exact selection；该周期只筛选 Activity，不能还原历史 Handoff 边界。",
+    periodComparison: "活动：本期 {current} / 上期 {previous} / 变化 {delta}",
+    periodBoundaryUnavailable: "交接状态采用当前精确选择；该周期只筛选活动，不能还原历史交接边界。",
     periodDatesRequired: "请选择开始日期和结束日期。",
     periodInvalidRange: "开始日期不能晚于结束日期。",
     continuable: "可继续",
     blocked: "阻塞",
     complete: "已完成",
-    noHandoff: "无 Handoff",
+    noHandoff: "无交接",
     coverage: "报告覆盖范围",
-    workstreams: "Workstreams",
-    activities: "Activity",
-    evidenceUnavailable: "Evidence 不可用",
+    workstreams: "工作项",
+    activities: "活动",
+    evidenceUnavailable: "证据不可用",
     blockers: "阻塞事项",
-    blockersSubtitle: "需要人工处理后才能继续的 Workstream",
-    workstreamsSubtitle: "每个 Scope 的精确 Handoff 状态与下一步",
-    workstream: "Workstream",
+    blockersSubtitle: "需要人工处理后才能继续的工作项",
+    workstreamsSubtitle: "每个工作范围的精确交接状态与下一步",
+    workstream: "工作项",
     status: "状态",
     reporting: "汇报状态",
     nextAction: "下一步",
@@ -240,20 +263,22 @@ const translations = {
     next_action: "下一步",
     available: "可用",
     unavailable: "不可用",
-    noWorkstreams: "该 Project 尚未登记 Workstream。",
-    handoffContents: "Handoff 内容",
+    noWorkstreams: "该项目尚未登记工作项。",
+    handoffContents: "交接内容",
     handoffContentsSubtitle: "用于继续工作的目标、当前状态、下一步和已知缺失",
     objective: "目标",
     currentState: "当前状态",
     omissions: "已知缺失",
     noOmissions: "未声明已知缺失。",
-    noCommittedHandoff: "该 Workstream 尚无已提交的 Handoff。",
+    noCommittedHandoff: "该工作项尚无已提交的交接记录。",
     handoffWorkbench: "一屏交接工作台",
     handoffWorkbenchSubtitle: "发送前修改、接手前预检，并持续显示结果闭环",
-    selectedWorkstream: "当前 Workstream",
+    selectedWorkstream: "交接工作",
+    workSwitcherHelp: "可切换任意已登记的工作项，未发送的修改会分别保留。",
+    chooseHandoffWork: "选择要交接的工作",
     senderStep: "交接方",
     editBeforeSend: "发送前可修改",
-    editBeforeSendNote: "点击发送前不会提交任何正式 Handoff。",
+    editBeforeSendNote: "点击发送前不会提交任何正式交接记录。",
     currentStateLines: "当前状态，每行一项",
     disposition: "处置状态",
     omissionLines: "已知缺失，每行一项",
@@ -276,11 +301,11 @@ const translations = {
     declineHandoff: "无法接手",
     handoffDecision: "交接选择",
     continuityTimeline: "连续性时间线",
-    continuityOrderNote: "按 Source journal 位置排序，不代表墙上时钟时间。",
-    revisionHistory: "Handoff Revision 历史",
-    revisionHistorySummary: "共 {total} 个 Revision，按最新优先显示。",
-    revisionHistoryTruncated: "共 {total} 个 Revision，显示最近 {shown} 个。",
-    revisionHistoryEmpty: "该 Workstream 尚无已提交的 Handoff Revision。",
+    continuityOrderNote: "按来源日志位置排序，不代表实际发生时间。",
+    revisionHistory: "交接版本历史",
+    revisionHistorySummary: "共 {total} 个版本，按最新优先显示。",
+    revisionHistoryTruncated: "共 {total} 个版本，显示最近 {shown} 个。",
+    revisionHistoryEmpty: "该工作项尚无已提交的交接版本。",
     revisionCurrent: "当前版本",
     revisionNextAction: "下一步：{value}",
     revisionCounts: "状态 {state} 项 / 缺失 {omissions} 项",
@@ -288,20 +313,20 @@ const translations = {
     outcomeState: "结果状态",
     preflightRunning: "检查中",
     preflightReady: "引用可读取",
-    preflightBlocked: "Evidence 阻塞",
-    preflightEmpty: "无 Handoff",
+    preflightBlocked: "证据阻塞",
+    preflightEmpty: "无交接记录",
     preflightFailed: "检查失败",
-    preflightStale: "Handoff 已变化",
+    preflightStale: "交接记录已变化",
     preflightReadySummary: "精确版本 {revision}。引用可用性：{available}/{total}；这不代表当前事实已经验证。",
-    preflightBlockedSummary: "Handoff 已解析，但有 {count} 项 Evidence 不可用，因此不能直接接手。",
-    preflightEmptySummary: "当前 Workstream 没有可接手的已提交 Handoff。",
+    preflightBlockedSummary: "交接记录已解析，但有 {count} 项证据不可用，因此不能直接接手。",
+    preflightEmptySummary: "当前工作项没有可接手的已提交交接记录。",
     preflightFailedSummary: "自动接手预检未能完成。",
     preflightStaleSummary: "最新版本已变为 {revision}，与当前报告卡片不一致。请刷新后再选择。",
     editorRequired: "目标和至少一项当前状态不能为空。",
     sendingHandoff: "正在准备并提交已检查的交接卡…",
-    handoffSent: "Handoff 已提交，报告和预检已刷新。",
-    handoffSendFailed: "Handoff 准备失败（HTTP {status}）；重试会沿用同一个操作身份。",
-    handoffCommitPending: "边界已准备，但尚未确认提交成功（HTTP {status}）；重试将提交同一个精确 Handoff。",
+    handoffSent: "交接记录已提交，报告和预检已刷新。",
+    handoffSendFailed: "交接记录准备失败（HTTP {status}）；重试会沿用同一个操作身份。",
+    handoffCommitPending: "交接边界已准备，但尚未确认提交成功（HTTP {status}）；重试将提交同一个精确交接版本。",
     receiverRequired: "请填写接手方身份。",
     receiverMessageRequired: "要求补充或无法接手时，请填写原因。",
     receiverChecksRequired: "接手前请确认实时工作区、能力和授权。",
@@ -309,17 +334,25 @@ const translations = {
     decisionRecorded: "选择已记录，连续性时间线已刷新。",
     decisionFailed: "选择记录失败（HTTP {status}）。",
     recordOutcome: "记录任务结果",
-    recordOutcomeNote: "该结果会精确关联上方已接受的 Receipt。",
+    recordOutcomeNote: "该结果会精确关联上方已接受的接手回执。",
     outcomeStatus: "结果状态",
     outcomeSummary: "结果摘要",
     outcomeObservation: "观察到的结果",
     outcomeRequired: "请填写结果摘要和观察到的结果。",
-    recordingOutcome: "正在把结果记录到精确的已接受 Receipt…",
-    outcomeRecorded: "任务结果已关联到已接受的 Receipt。",
+    recordingOutcome: "正在把结果记录到精确的已接受接手回执…",
+    outcomeRecorded: "任务结果已关联到已接受的接手回执。",
     outcomeRecordFailed: "任务结果记录失败（HTTP {status}）。",
-    timelineEmpty: "该 Scope 尚无高层 Work 连续性记录。",
+    timelineEmpty: "该工作范围尚无高层工作连续性记录。",
     timelineTruncated: "仅显示最近 {count} 条，共有 {total} 条连续性事件。",
-    timelineInvalid: "有 {count} 条 Work 记录无法读取，已明确排除。",
+    timelineInvalid: "有 {count} 条工作记录无法读取，已明确排除。",
+    timelineShowEarlier: "查看更早的 {count} 条记录",
+    timelineShowRecent: "收起，仅看最近 {count} 条",
+    eventSource: "来源",
+    eventRevision: "交接版本",
+    eventReceipt: "接手回执",
+    eventReceiverChecks: "接手检查",
+    eventSchema: "记录格式",
+    eventNoDetails: "该事件没有记录更多详情。",
     autoRefreshActive: "每 5 秒自动刷新",
     autoRefreshEditing: "卡片存在未发送修改，自动刷新已暂停。",
     autoRefreshBusy: "当前操作进行中，自动刷新已暂停。",
@@ -345,10 +378,10 @@ const translations = {
     not_applicable: "暂不适用",
     covered: "已覆盖",
     metadata: "报告元数据",
-    selectionConsistency: "Selection 一致性",
-    activityCoverage: "Activity 覆盖",
-    selectionDigest: "Selection Digest",
-    reportDigest: "Report Digest",
+    selectionConsistency: "选择一致性",
+    activityCoverage: "活动覆盖范围",
+    selectionDigest: "选择摘要哈希",
+    reportDigest: "报告摘要哈希",
     dark: "深色",
     light: "浅色",
     switchDark: "切换至深色模式",
@@ -356,26 +389,31 @@ const translations = {
     switchChinese: "切换至中文",
     switchEnglish: "切换至英文",
     languageChinese: "中文",
+    languageEnglish: "EN",
     updated: "更新于 {value}",
     projectOption: "{title}（{projectId}）",
-    coverageCaptured: "已纳入游标 {cursor} 之前捕获的 Activity。数量表示已观察事件，不代表完成百分比。",
-    coverageNotConfigured: "Activity Adapter 尚未配置；缺少 Activity 不能解释为没有发生工作。",
-    coverageUnavailable: "当前报告无法取得 Activity 覆盖信息。",
-    noProjects: "尚未配置 Handoff Report Project。",
-    authRejected: "Server 拒绝了该 Token。",
-    requestFailed: "Handoff Report 请求失败（HTTP {status}）。",
-    serverUnavailable: "Server 无法访问。",
+    coverageCaptured: "已纳入游标 {cursor} 之前捕获的活动。数量表示已观察事件，不代表完成百分比。",
+    coverageNotConfigured: "活动适配器尚未配置；缺少活动不能解释为没有发生工作。",
+    coverageUnavailable: "当前报告无法取得活动覆盖信息。",
+    noProjects: "尚未配置交接报告项目。",
+    authRejected: "服务器拒绝了该访问令牌。",
+    requestFailed: "交接报告请求失败（HTTP {status}）。",
+    serverUnavailable: "服务器无法访问。",
     retry: "重试",
-    reportUnavailable: "当前 Project 的交接报告不可用。",
+    reportUnavailable: "当前项目的交接报告不可用。",
     downloadFailed: "Markdown 下载失败（HTTP {status}）。",
     reported: "已汇报",
     reported_with_omissions: "已汇报但有缺失",
-    evidence_unavailable: "Evidence 不可用",
-    no_handoff: "无 Handoff",
-    activity_after_handoff: "Handoff 后有 Activity",
-    activity_without_handoff: "有 Activity 但无 Handoff",
-    no_observed_activity: "未观察到 Activity",
+    evidence_unavailable: "证据不可用",
+    no_handoff: "无交接记录",
+    activity_after_handoff: "交接后有活动",
+    activity_without_handoff: "有活动但无交接记录",
+    no_observed_activity: "未观察到活动",
     current_only: "仅当前状态",
+    exact_input: "精确输入",
+    optimistic_stable: "乐观稳定",
+    captured: "已捕获",
+    not_configured: "未配置",
     unknown: "未知"
   }
 };
@@ -417,7 +455,9 @@ const taskOutcomeForm = document.getElementById("task-outcome-form");
 const taskOutcomeStatus = document.getElementById("task-outcome-status");
 const taskOutcomeSummary = document.getElementById("task-outcome-summary");
 const taskOutcomeObservation = document.getElementById("task-outcome-observation");
+const continuityTimelineToggle = document.getElementById("continuity-timeline-toggle");
 let currentProjects = [];
+let currentHandoffWorks = [];
 let currentProject = null;
 let currentReport = null;
 let currentAuthError = null;
@@ -436,8 +476,10 @@ let editorDirty = false;
 let autoRefreshTimer = null;
 const workbenchDrafts = new Map();
 const pendingHandoffAttempts = new Map();
+const expandedContinuityScopes = new Set();
+const openContinuityEvents = new Map();
 let currentOutcomeReceipt = null;
-const ui = createPageUi(translations, () => {
+const ui = createPageUi(translations, ({userInitiated = false} = {}) => {
   renderAuthError();
   renderPageStatus();
   if (currentProject !== null) {
@@ -449,6 +491,12 @@ const ui = createPageUi(translations, () => {
     renderPeriodControls();
   }
   updateAutoRefreshStatus();
+  if (userInitiated && currentProject !== null && readServerToken()) {
+    void loadReport(readServerToken(), currentProject.project_id, {
+      background: true,
+      selectedScopeId: currentWorkstreamScope
+    });
+  }
 });
 const {formatDateTime, formatNumber, translate} = ui;
 const reportRequests = createRequestGate();
@@ -484,8 +532,33 @@ downloadButton.addEventListener("click", async () => {
   await downloadMarkdown();
 });
 
-handoffWorkstream.addEventListener("change", () => {
-  activateWorkstream(handoffWorkstream.value);
+handoffWorkstream.addEventListener("change", async () => {
+  const selected = currentHandoffWorks.find((item) => handoffWorkValue(item) === handoffWorkstream.value);
+  if (selected === undefined) {
+    return;
+  }
+  if (selected.project.project_id === currentProject?.project_id) {
+    activateWorkstream(selected.workstream.scope_id);
+    return;
+  }
+  await loadReport(readServerToken(), selected.project.project_id, {
+    selectedScopeId: selected.workstream.scope_id
+  });
+});
+
+continuityTimelineToggle.addEventListener("click", () => {
+  if (currentWorkstreamScope === null) {
+    return;
+  }
+  if (expandedContinuityScopes.has(currentWorkstreamScope)) {
+    expandedContinuityScopes.delete(currentWorkstreamScope);
+  } else {
+    expandedContinuityScopes.add(currentWorkstreamScope);
+  }
+  const item = currentReport?.workstreams.find(
+    (candidate) => candidate.workstream.scope_id === currentWorkstreamScope
+  ) || null;
+  renderContinuity(item?.continuity || null);
 });
 
 handoffEditor.addEventListener("submit", async (event) => {
@@ -574,9 +647,21 @@ async function authenticate(token) {
       showPageStatus("noProjects", {}, true);
       return;
     }
+    currentHandoffWorks = await listHandoffWorks(token, currentProjects);
+    if (!request.isCurrent()) {
+      return;
+    }
+    const rememberedWork = currentHandoffWorks.find((item) => handoffWorkValue(item) === readSelectedWork());
     const remembered = readSelectedProject();
-    const selected = currentProjects.find((project) => project.project_id === remembered) || currentProjects[0];
-    await loadReportData(token, selected.project_id, request);
+    const rememberedProject = currentProjects.find((project) => project.project_id === remembered) || null;
+    const selectedWork = rememberedWork
+      || currentHandoffWorks.find((item) => item.project.project_id === rememberedProject?.project_id)
+      || currentHandoffWorks[0]
+      || null;
+    const selectedProject = selectedWork?.project || rememberedProject || currentProjects[0];
+    await loadReportData(token, selectedProject.project_id, request, {
+      selectedScopeId: selectedWork?.workstream.scope_id || null
+    });
     if (request.isCurrent()) {
       startAutoRefresh();
     }
@@ -604,7 +689,24 @@ async function listProjects(token) {
   return projects;
 }
 
-async function loadReport(token, projectId, {background = false} = {}) {
+async function listHandoffWorks(token, projects) {
+  const works = [];
+  for (const project of projects) {
+    let cursor = null;
+    do {
+      const payload = {project_id: project.project_id, limit: 100, include_archived: false};
+      if (cursor !== null) {
+        payload.cursor = cursor;
+      }
+      const page = await requestJson("/v1/handoff-reports/workstreams/list", token, payload);
+      works.push(...page.items.map((workstream) => ({project, workstream})));
+      cursor = page.next_cursor;
+    } while (cursor !== null);
+  }
+  return works;
+}
+
+async function loadReport(token, projectId, {background = false, selectedScopeId = null} = {}) {
   if (reportLoading) {
     return false;
   }
@@ -621,7 +723,7 @@ async function loadReport(token, projectId, {background = false} = {}) {
   }
   const request = beginReportRequest({busy: !background});
   try {
-    await loadReportData(token, projectId, request);
+    await loadReportData(token, projectId, request, {selectedScopeId});
     if (!request.isCurrent()) {
       return false;
     }
@@ -635,6 +737,7 @@ async function loadReport(token, projectId, {background = false} = {}) {
     }
     if (currentProject !== null) {
       renderProjectOptions(currentProjects, currentProject.project_id);
+      renderHandoffWorkOptions(currentProject.project_id, currentWorkstreamScope);
     }
     if (background) {
       if (error.status === 401) {
@@ -648,6 +751,7 @@ async function loadReport(token, projectId, {background = false} = {}) {
     return false;
   } finally {
     reportLoading = false;
+    handoffWorkstream.disabled = currentHandoffWorks.length === 0 || workbenchBusy;
     request.finish();
     if (!background && request.isCurrent()) {
       updateAutoRefreshStatus();
@@ -655,8 +759,12 @@ async function loadReport(token, projectId, {background = false} = {}) {
   }
 }
 
-async function loadReportData(token, projectId, request) {
+async function loadReportData(token, projectId, request, {selectedScopeId = null} = {}) {
   const project = currentProjects.find((item) => item.project_id === projectId) || currentProject;
+  const defaultLocale = projectUiLocale(project);
+  if (!ui.hasLocalePreference() && defaultLocale !== null && defaultLocale !== ui.locale()) {
+    ui.applyLocale(defaultLocale, false);
+  }
   const periodSelection = resolveSelectedPeriod(project);
   const response = await requestJson("/v1/handoff-reports/get", token, {
     project_id: projectId,
@@ -676,9 +784,19 @@ async function loadReportData(token, projectId, request) {
   currentProject = currentProjects.find((item) => item.project_id === projectId) || response.report.project;
   currentReport = response.report;
   currentPeriodSelection = periodSelection;
+  if (selectedScopeId !== null) {
+    currentWorkstreamScope = selectedScopeId;
+  }
   rememberSelectedProject(projectId);
   renderProjectOptions(currentProjects, projectId);
   renderReport(currentReport);
+}
+
+function projectUiLocale(project) {
+  if (typeof project?.default_locale !== "string") {
+    return null;
+  }
+  return project.default_locale.toLowerCase().startsWith("zh") ? "zh" : "en";
 }
 
 function beginReportRequest({busy = true} = {}) {
@@ -747,6 +865,7 @@ function showLogin(messageKey = "", values = {}) {
   setBusy(false);
   reportLoading = false;
   currentProjects = [];
+  currentHandoffWorks = [];
   currentProject = null;
   currentReport = null;
   currentPeriodSelection = null;
@@ -797,6 +916,44 @@ function renderProjectOptions(projects, selectedProjectId) {
   }
 }
 
+function renderHandoffWorkOptions(selectedProjectId, selectedScopeId) {
+  handoffWorkstream.replaceChildren();
+  const selectedValue = selectedScopeId === null
+    ? null
+    : handoffWorkValue({project: {project_id: selectedProjectId}, workstream: {scope_id: selectedScopeId}});
+  if (selectedValue === null || !currentHandoffWorks.some((item) => handoffWorkValue(item) === selectedValue)) {
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    placeholder.textContent = translate("chooseHandoffWork");
+    handoffWorkstream.appendChild(placeholder);
+  }
+  for (const project of currentProjects) {
+    const works = currentHandoffWorks.filter((item) => item.project.project_id === project.project_id);
+    if (works.length === 0) {
+      continue;
+    }
+    const group = document.createElement("optgroup");
+    group.label = project.title;
+    for (const work of works) {
+      const option = document.createElement("option");
+      option.value = handoffWorkValue(work);
+      option.selected = option.value === selectedValue;
+      option.textContent = `${work.workstream.title} (${work.workstream.scope_id})`;
+      option.dataset.projectId = project.project_id;
+      option.dataset.scopeId = work.workstream.scope_id;
+      group.appendChild(option);
+    }
+    handoffWorkstream.appendChild(group);
+  }
+  handoffWorkstream.disabled = currentHandoffWorks.length === 0 || reportLoading || workbenchBusy;
+}
+
+function handoffWorkValue(item) {
+  return JSON.stringify([item.project.project_id, item.workstream.scope_id]);
+}
+
 function renderReport(report) {
   currentPageStatus = null;
   authShell.hidden = true;
@@ -814,8 +971,8 @@ function renderReport(report) {
   setText("activity-count", formatNumber(report.activity_selection.length));
   setText("evidence-unavailable", formatNumber(report.coverage.unavailable_evidence_workstreams));
   setText("coverage-description", coverageDescription(report));
-  setText("selection-consistency", report.selection_consistency);
-  setText("activity-coverage", report.coverage.activity_coverage);
+  setText("selection-consistency", statusLabel(report.selection_consistency));
+  setText("activity-coverage", statusLabel(report.coverage.activity_coverage));
   setText("selection-digest", report.selection_digest || "-");
   setText("report-digest", report.report_digest || "-");
   renderPeriodControls(report);
@@ -952,7 +1109,10 @@ function renderHandoffContents(workstreams) {
 function renderHandoffWorkbench(workstreams) {
   const empty = document.getElementById("handoff-workbench-empty");
   const content = document.getElementById("handoff-workbench-content");
-  handoffWorkstream.replaceChildren();
+  const selected = workstreams.some((item) => item.workstream.scope_id === currentWorkstreamScope)
+    ? currentWorkstreamScope
+    : workstreams[0]?.workstream.scope_id || null;
+  renderHandoffWorkOptions(currentProject?.project_id || "", selected);
   empty.hidden = workstreams.length !== 0;
   content.hidden = workstreams.length === 0;
   if (workstreams.length === 0) {
@@ -965,16 +1125,6 @@ function renderHandoffWorkbench(workstreams) {
     return;
   }
 
-  for (const item of workstreams) {
-    const option = document.createElement("option");
-    option.value = item.workstream.scope_id;
-    option.textContent = `${item.workstream.title} (${item.workstream.scope_id})`;
-    handoffWorkstream.appendChild(option);
-  }
-  const selected = workstreams.some((item) => item.workstream.scope_id === currentWorkstreamScope)
-    ? currentWorkstreamScope
-    : workstreams[0].workstream.scope_id;
-  handoffWorkstream.value = selected;
   activateWorkstream(selected, {saveCurrent: false});
 }
 
@@ -1001,7 +1151,11 @@ function activateWorkstream(scopeId, {saveCurrent = true} = {}) {
   }
   currentWorkstreamScope = scopeId;
   currentEditorBase = base;
-  handoffWorkstream.value = scopeId;
+  handoffWorkstream.value = handoffWorkValue({
+    project: {project_id: currentProject.project_id},
+    workstream: {scope_id: scopeId}
+  });
+  rememberSelectedWork(currentProject.project_id, scopeId);
   setText("handoff-workbench-scope", scopeId);
   clearWorkbenchFeedback("send-handoff-status");
   clearWorkbenchFeedback("handoff-choice-status");
@@ -1376,7 +1530,7 @@ function updateHandoffChoiceState() {
 
 function setWorkbenchBusy(busy) {
   workbenchBusy = busy;
-  handoffWorkstream.disabled = busy;
+  handoffWorkstream.disabled = busy || reportLoading || currentHandoffWorks.length === 0;
   handoffEditor.querySelectorAll("button, input, select, textarea").forEach((element) => {
     element.disabled = busy;
   });
@@ -1475,6 +1629,7 @@ function renderContinuity(continuity) {
   const transferState = document.getElementById("transfer-state-status");
   const outcomeState = document.getElementById("outcome-state-status");
   timeline.replaceChildren();
+  continuityTimelineToggle.hidden = true;
   if (continuity === null) {
     transferState.textContent = "-";
     outcomeState.textContent = "-";
@@ -1488,26 +1643,21 @@ function renderContinuity(continuity) {
   transferState.dataset.state = continuity.coverage.transfer_state;
   outcomeState.textContent = statusLabel(continuity.coverage.outcome_state);
   outcomeState.dataset.state = continuity.coverage.outcome_state;
-  for (const event of continuity.events) {
-    const item = document.createElement("li");
-    const position = document.createElement("span");
-    position.className = "continuity-position";
-    position.textContent = `#${event.position}`;
-    const title = document.createElement("strong");
-    title.className = "continuity-event-title";
-    title.textContent = statusLabel(event.kind);
-    const status = document.createElement("span");
-    status.className = "continuity-event-status";
-    status.textContent = statusLabel(event.status);
-    item.append(position, title, status);
-    const detail = event.summary || (event.actor ? translate("eventActor", {actor: event.actor}) : "");
-    if (detail) {
-      const summary = document.createElement("p");
-      summary.className = "continuity-event-summary";
-      summary.textContent = detail;
-      item.appendChild(summary);
-    }
-    timeline.appendChild(item);
+  const expanded = expandedContinuityScopes.has(continuity.scope_id);
+  const hiddenEventCount = Math.max(0, continuity.events.length - continuityTimelineRecentLimit);
+  const visibleEvents = expanded
+    ? continuity.events
+    : continuity.events.slice(-continuityTimelineRecentLimit);
+  for (const event of visibleEvents) {
+    timeline.appendChild(renderContinuityEvent(continuity.scope_id, event, timeline));
+  }
+  if (hiddenEventCount > 0) {
+    continuityTimelineToggle.hidden = false;
+    continuityTimelineToggle.setAttribute("aria-expanded", String(expanded));
+    continuityTimelineToggle.textContent = translate(
+      expanded ? "timelineShowRecent" : "timelineShowEarlier",
+      expanded ? {count: continuityTimelineRecentLimit} : {count: hiddenEventCount}
+    );
   }
   const notes = [];
   if (continuity.events.length === 0) {
@@ -1524,6 +1674,102 @@ function renderContinuity(continuity) {
   }
   note.textContent = notes.join(" ");
   renderTaskOutcomeForm(continuity);
+}
+
+function renderContinuityEvent(scopeId, event, timeline) {
+  const item = document.createElement("li");
+  item.dataset.kind = event.kind;
+  item.dataset.status = event.status;
+
+  const disclosure = document.createElement("details");
+  disclosure.className = "continuity-event";
+  disclosure.open = openContinuityEvents.get(scopeId) === event.position;
+  item.dataset.open = String(disclosure.open);
+
+  const toggle = document.createElement("summary");
+  const position = document.createElement("span");
+  position.className = "continuity-position";
+  position.textContent = `#${event.position}`;
+  const heading = document.createElement("span");
+  heading.className = "continuity-event-heading";
+  const title = document.createElement("strong");
+  title.className = "continuity-event-title";
+  title.textContent = statusLabel(event.kind);
+  const detail = event.summary || (event.actor ? translate("eventActor", {actor: event.actor}) : "");
+  const preview = document.createElement("span");
+  preview.className = "continuity-event-preview";
+  preview.textContent = detail || translate("eventNoDetails");
+  heading.append(title, preview);
+  const status = document.createElement("span");
+  status.className = "continuity-event-status";
+  status.textContent = statusLabel(event.status);
+  const arrow = document.createElement("span");
+  arrow.className = "continuity-event-arrow";
+  arrow.setAttribute("aria-hidden", "true");
+  arrow.textContent = "↘";
+  toggle.append(position, heading, status, arrow);
+
+  const body = document.createElement("div");
+  body.className = "continuity-event-body";
+  const metadata = document.createElement("dl");
+  metadata.className = "continuity-event-meta";
+  if (event.actor && event.summary) {
+    appendContinuityMeta(metadata, translate("receiverIdentity"), event.actor);
+  }
+  if (event.selected_revision !== null) {
+    appendContinuityMeta(metadata, translate("eventRevision"), formatArtifactRef(event.selected_revision), {code: true});
+  }
+  if (event.handoff_receipt_ref !== null) {
+    appendContinuityMeta(metadata, translate("eventReceipt"), formatSourceRef(event.handoff_receipt_ref), {code: true});
+  }
+  if (event.receiver_checks !== null) {
+    appendContinuityMeta(metadata, translate("eventReceiverChecks"), formatReceiverChecks(event.receiver_checks));
+  }
+  appendContinuityMeta(metadata, translate("eventSchema"), event.record_schema, {code: true});
+  appendContinuityMeta(metadata, translate("eventSource"), formatSourceRef(event.source_ref), {code: true});
+  body.appendChild(metadata);
+
+  disclosure.append(toggle, body);
+  disclosure.addEventListener("toggle", () => {
+    item.dataset.open = String(disclosure.open);
+    if (disclosure.open) {
+      openContinuityEvents.set(scopeId, event.position);
+      for (const other of timeline.querySelectorAll("details[open]")) {
+        if (other !== disclosure) {
+          other.open = false;
+        }
+      }
+    } else if (openContinuityEvents.get(scopeId) === event.position) {
+      openContinuityEvents.delete(scopeId);
+    }
+  });
+  item.appendChild(disclosure);
+  return item;
+}
+
+function appendContinuityMeta(metadata, labelText, value, {code = false} = {}) {
+  const item = document.createElement("div");
+  const label = document.createElement("dt");
+  label.textContent = labelText;
+  const detail = document.createElement("dd");
+  const content = document.createElement(code ? "code" : "span");
+  content.textContent = value;
+  detail.appendChild(content);
+  item.append(label, detail);
+  metadata.appendChild(item);
+}
+
+function formatSourceRef(reference) {
+  const sourceType = reference.source_type || reference.name;
+  return `${sourceType}/${reference.source_id}`;
+}
+
+function formatReceiverChecks(checks) {
+  return [
+    `${translate("liveStateCheck")}: ${statusLabel(checks.live_state)}`,
+    `${translate("capabilityCheck")}: ${statusLabel(checks.capability)}`,
+    `${translate("authorizationCheck")}: ${statusLabel(checks.authorization)}`
+  ].join(" / ");
 }
 
 function renderTaskOutcomeForm(continuity) {
@@ -1698,6 +1944,7 @@ function setBusy(busy) {
     button.disabled = busy;
   });
   projectSelect.disabled = busy;
+  handoffWorkstream.disabled = busy || currentHandoffWorks.length === 0 || workbenchBusy;
 }
 
 function startAutoRefresh() {
@@ -1841,6 +2088,25 @@ function rememberSelectedProject(projectId) {
 function readSelectedProject() {
   try {
     return sessionStorage.getItem(selectedProjectKey);
+  } catch (error) {
+    return null;
+  }
+}
+
+function rememberSelectedWork(projectId, scopeId) {
+  try {
+    sessionStorage.setItem(selectedWorkKey, handoffWorkValue({
+      project: {project_id: projectId},
+      workstream: {scope_id: scopeId}
+    }));
+  } catch (error) {
+    // Work selection remains valid for the current render.
+  }
+}
+
+function readSelectedWork() {
+  try {
+    return sessionStorage.getItem(selectedWorkKey);
   } catch (error) {
     return null;
   }
