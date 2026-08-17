@@ -235,6 +235,7 @@ def test_disabled_handoff_report_does_not_create_report_tables(tmp_path) -> None
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
             mcp=McpConfig(enabled=False),
+            handoff_report=HandoffReportConfig(enabled=False),
         )
     )
 
