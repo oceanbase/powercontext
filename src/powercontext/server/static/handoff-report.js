@@ -73,7 +73,7 @@ const translations = {
     handoffWorkbench: "Handoff workspace",
     handoffWorkbenchSubtitle: "Edit before sending, preflight before accepting, and keep the result loop visible",
     selectedWorkstream: "Handoff work",
-    workSwitcherHelp: "Choose any registered Workstream. Unsent drafts stay with each work.",
+    workSwitcherHelp: "Choose a Workstream in the current Project. Unsent drafts stay with each work.",
     chooseHandoffWork: "Choose work to hand off",
     senderStep: "Sender",
     editBeforeSend: "Edit before sending",
@@ -274,7 +274,7 @@ const translations = {
     handoffWorkbench: "一屏交接工作台",
     handoffWorkbenchSubtitle: "发送前修改、接手前预检，并持续显示结果闭环",
     selectedWorkstream: "交接工作",
-    workSwitcherHelp: "可切换任意已登记的工作项，未发送的修改会分别保留。",
+    workSwitcherHelp: "可切换当前项目下的工作项，未发送的修改会分别保留。",
     chooseHandoffWork: "选择要交接的工作",
     senderStep: "交接方",
     editBeforeSend: "发送前可修改",
@@ -533,17 +533,12 @@ downloadButton.addEventListener("click", async () => {
 });
 
 handoffWorkstream.addEventListener("change", async () => {
-  const selected = currentHandoffWorks.find((item) => handoffWorkValue(item) === handoffWorkstream.value);
+  const selected = handoffWorksForProject(currentProject?.project_id || "")
+    .find((item) => handoffWorkValue(item) === handoffWorkstream.value);
   if (selected === undefined) {
     return;
   }
-  if (selected.project.project_id === currentProject?.project_id) {
-    activateWorkstream(selected.workstream.scope_id);
-    return;
-  }
-  await loadReport(readServerToken(), selected.project.project_id, {
-    selectedScopeId: selected.workstream.scope_id
-  });
+  activateWorkstream(selected.workstream.scope_id);
 });
 
 continuityTimelineToggle.addEventListener("click", () => {
@@ -751,7 +746,8 @@ async function loadReport(token, projectId, {background = false, selectedScopeId
     return false;
   } finally {
     reportLoading = false;
-    handoffWorkstream.disabled = currentHandoffWorks.length === 0 || workbenchBusy;
+    handoffWorkstream.disabled = handoffWorksForProject(currentProject?.project_id || "").length === 0
+      || workbenchBusy;
     request.finish();
     if (!background && request.isCurrent()) {
       updateAutoRefreshStatus();
@@ -918,10 +914,11 @@ function renderProjectOptions(projects, selectedProjectId) {
 
 function renderHandoffWorkOptions(selectedProjectId, selectedScopeId) {
   handoffWorkstream.replaceChildren();
+  const works = handoffWorksForProject(selectedProjectId);
   const selectedValue = selectedScopeId === null
     ? null
     : handoffWorkValue({project: {project_id: selectedProjectId}, workstream: {scope_id: selectedScopeId}});
-  if (selectedValue === null || !currentHandoffWorks.some((item) => handoffWorkValue(item) === selectedValue)) {
+  if (selectedValue === null || !works.some((item) => handoffWorkValue(item) === selectedValue)) {
     const placeholder = document.createElement("option");
     placeholder.value = "";
     placeholder.disabled = true;
@@ -929,25 +926,20 @@ function renderHandoffWorkOptions(selectedProjectId, selectedScopeId) {
     placeholder.textContent = translate("chooseHandoffWork");
     handoffWorkstream.appendChild(placeholder);
   }
-  for (const project of currentProjects) {
-    const works = currentHandoffWorks.filter((item) => item.project.project_id === project.project_id);
-    if (works.length === 0) {
-      continue;
-    }
-    const group = document.createElement("optgroup");
-    group.label = project.title;
-    for (const work of works) {
-      const option = document.createElement("option");
-      option.value = handoffWorkValue(work);
-      option.selected = option.value === selectedValue;
-      option.textContent = `${work.workstream.title} (${work.workstream.scope_id})`;
-      option.dataset.projectId = project.project_id;
-      option.dataset.scopeId = work.workstream.scope_id;
-      group.appendChild(option);
-    }
-    handoffWorkstream.appendChild(group);
+  for (const work of works) {
+    const option = document.createElement("option");
+    option.value = handoffWorkValue(work);
+    option.selected = option.value === selectedValue;
+    option.textContent = `${work.workstream.title} (${work.workstream.scope_id})`;
+    option.dataset.projectId = work.project.project_id;
+    option.dataset.scopeId = work.workstream.scope_id;
+    handoffWorkstream.appendChild(option);
   }
-  handoffWorkstream.disabled = currentHandoffWorks.length === 0 || reportLoading || workbenchBusy;
+  handoffWorkstream.disabled = works.length === 0 || reportLoading || workbenchBusy;
+}
+
+function handoffWorksForProject(projectId) {
+  return currentHandoffWorks.filter((item) => item.project.project_id === projectId);
 }
 
 function handoffWorkValue(item) {
@@ -1530,7 +1522,9 @@ function updateHandoffChoiceState() {
 
 function setWorkbenchBusy(busy) {
   workbenchBusy = busy;
-  handoffWorkstream.disabled = busy || reportLoading || currentHandoffWorks.length === 0;
+  handoffWorkstream.disabled = busy
+    || reportLoading
+    || handoffWorksForProject(currentProject?.project_id || "").length === 0;
   handoffEditor.querySelectorAll("button, input, select, textarea").forEach((element) => {
     element.disabled = busy;
   });
@@ -1944,7 +1938,9 @@ function setBusy(busy) {
     button.disabled = busy;
   });
   projectSelect.disabled = busy;
-  handoffWorkstream.disabled = busy || currentHandoffWorks.length === 0 || workbenchBusy;
+  handoffWorkstream.disabled = busy
+    || handoffWorksForProject(currentProject?.project_id || "").length === 0
+    || workbenchBusy;
 }
 
 function startAutoRefresh() {

@@ -101,7 +101,7 @@
         <span data-i18n="selectedWorkstream">Handoff work</span>
         <select id="handoff-workstream" aria-describedby="handoff-workstream-help"></select>
         <small id="handoff-workstream-help" data-i18n="workSwitcherHelp">
-          Choose any registered Workstream. Unsent drafts stay with each work.
+          Choose a Workstream in the current Project. Unsent drafts stay with each work.
         </small>
       </label>
     </div>
@@ -351,5 +351,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=locale-complete-v1"></script>
+<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=project-scoped-work-v2"></script>
 {% endblock %}

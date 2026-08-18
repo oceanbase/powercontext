@@ -76,15 +76,17 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     ]
 
 
-def test_handoff_report_page_is_available_only_when_both_features_are_enabled(tmp_path) -> None:
+def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_path) -> None:
     database_path = tmp_path / "handoff-dashboard.db"
-    disabled_app = create_server_app(settings=_dashboard_settings(database_path, handoff_report_enabled=False))
-    enabled_app = create_server_app(settings=_dashboard_settings(database_path, handoff_report_enabled=True))
+    disabled_app = create_server_app(settings=_handoff_report_settings(database_path, enabled=False))
+    enabled_app = create_server_app(settings=_handoff_report_settings(database_path, enabled=True))
 
     with TestClient(disabled_app) as client:
         disabled_page = client.get("/handoff-reports")
     with TestClient(enabled_app) as client:
         enabled_page = client.get("/handoff-reports")
+        disabled_dashboard = client.get("/")
+        disabled_dashboard_scopes = client.get("/dashboard/scopes", headers=_AUTH_HEADERS)
         protected_projects = client.post(
             "/v1/handoff-reports/projects/list",
             json={"limit": 100, "include_archived": False},
@@ -92,6 +94,9 @@ def test_handoff_report_page_is_available_only_when_both_features_are_enabled(tm
 
     assert disabled_page.status_code == 404
     assert enabled_page.status_code == 200
+    assert disabled_dashboard.status_code == 404
+    assert disabled_dashboard_scopes.status_code == 404
+    assert 'data-i18n="dashboardTitle"' not in enabled_page.text
     assert 'data-server-session="missing"' in enabled_page.text
     assert 'id="auth-shell"' in enabled_page.text
     assert 'id="auth-shell" hidden' not in enabled_page.text
@@ -127,18 +132,14 @@ def test_handoff_report_page_is_available_only_when_both_features_are_enabled(tm
     assert 'id="project-tabs"' not in enabled_page.text
     assert '<section class="report-overview"' in enabled_page.text
     assert '<dl class="report-overview"' not in enabled_page.text
-    assert "handoff-report.js?v=locale-complete-v1" in enabled_page.text
+    assert "handoff-report.js?v=project-scoped-work-v2" in enabled_page.text
     assert protected_projects.status_code == 401
 
 
-def _dashboard_settings(database_path: Path, *, handoff_report_enabled: bool) -> ServerSettings:
+def _handoff_report_settings(database_path: Path, *, enabled: bool) -> ServerSettings:
     return ServerSettings(
         auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-secret")),
-        dashboard=DashboardConfig(
-            enabled=True,
-            scopes=[DashboardScopeConfig(scope_id="project:powercontext", display_name="PowerContext")],
-        ),
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
         mcp=McpConfig(enabled=False),
-        handoff_report=HandoffReportConfig(enabled=handoff_report_enabled),
+        handoff_report=HandoffReportConfig(enabled=enabled),
     )

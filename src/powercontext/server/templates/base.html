@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}PowerContext{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('web_static', path='/oceanbase-logo.svg') }}" type="image/svg+xml">
   <script>
     try {
       document.documentElement.dataset.serverSession = sessionStorage.getItem("powercontext.server.token")
