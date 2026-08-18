@@ -77,8 +77,12 @@ PowerContext 区分以下工作单元：
 | --- | --- |
 | Transport request | 一次外部 HTTP 或 MCP protocol request |
 | Application operation | 一项稳定的 PowerContext operation，例如 `search_memory` |
+| Runtime stage | application operation 中一个有界的内部步骤，例如 `memory.search` |
 | Background activation | 一次手动或定时 Source processing activation |
 | Dependency call | 一次对其他 service 或 provider 的 outbound call |
+
+Runtime stage span 的 `powercontext.operation.unit` 值为 `stage`。它们用于展示内部耗时，但不会产生新的
+application operation。
 
 直接 HTTP call 会产生一次 external request 和一次 application operation。MCP tool call 同样产生一次
 external request 和一次 application operation。其内部 HTTP bridge 不计为第二次 external request。
