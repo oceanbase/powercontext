@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from subprocess import CompletedProcess
 
+import pytest
 from typer.testing import CliRunner
 
 from powercontext.cli.app import create_cli
-from powercontext.cli.system import doctor_app, setup_app
+from powercontext.cli.system import SetupError, doctor_app, setup_app
 
 
 def _write_pi_package(root: Path) -> Path:
@@ -83,6 +85,35 @@ def test_setup_pi_refreshes_remote_source_and_replaces_previous_package(tmp_path
     assert result.exit_code == 0
     assert installed_packages == {str(refreshed_package)}
     assert (current_root / "source.txt").read_text(encoding="utf-8") == "another/powercontext@master"
+
+
+def test_setup_pi_does_not_echo_source_credentials(tmp_path: Path, monkeypatch) -> None:
+    import powercontext.cli.pi as pi_cli
+
+    marker = "redacted-value"
+    source = f"https://{marker}@github.com/oceanbase/powercontext"
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+
+    with pytest.raises(SetupError) as raised:
+        pi_cli.resolve_pi_plugin_dir(source=source, ref="master")
+
+    assert marker not in str(raised.value)
+
+
+def test_setup_pi_does_not_echo_git_clone_output(tmp_path: Path, monkeypatch) -> None:
+    import powercontext.cli.pi as pi_cli
+
+    marker = "redacted-value"
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda command, **_kwargs: CompletedProcess(command, 1, "", f"fatal: https://{marker}@github.com/failed"),
+    )
+
+    with pytest.raises(SetupError) as raised:
+        pi_cli.resolve_pi_plugin_dir(source="oceanbase/powercontext", ref="master")
+
+    assert marker not in str(raised.value)
 
 
 def test_doctor_pi_reports_a_missing_cli(monkeypatch) -> None:

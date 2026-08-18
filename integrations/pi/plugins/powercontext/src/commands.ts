@@ -80,7 +80,8 @@ export async function handlePcCommand(
     return
   }
   if (command === 'flush') {
-    const result = await invokeScopedOperation(runtime, context, 'flush_memory', {})
+    const confirmation = await confirmDurableWrite(context, 'flush operation')
+    const result = confirmation ?? await invokeScopedOperation(runtime, context, 'flush_memory', {})
     report(context, format(result), !result.ok)
     return
   }

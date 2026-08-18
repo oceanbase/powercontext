@@ -69,7 +69,7 @@ describe('/pc command', () => {
     expect(notifications.every(({ level }) => level === 'info')).toBe(true)
   })
 
-  it('reports a confirmation requirement before /pc remember can persist data', async () => {
+  it('reports a confirmation requirement before explicit commands can persist data', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const fetch = vi.fn(async () => new Response(JSON.stringify({ entry: { text: 'remembered' } })))
     const context = {
@@ -82,9 +82,13 @@ describe('/pc command', () => {
     }
 
     await handlePcCommand('remember keep API async', runtime(fetch), context)
+    await handlePcCommand('flush', runtime(fetch), context)
 
-    const report = log.mock.calls.map(([message]) => JSON.parse(String(message))).find(Boolean)
-    expect(report).toMatchObject({ ok: false, code: 'confirmation_required' })
+    const reports = log.mock.calls.map(([message]) => JSON.parse(String(message))).filter(Boolean)
+    expect(reports).toEqual([
+      expect.objectContaining({ ok: false, code: 'confirmation_required' }),
+      expect.objectContaining({ ok: false, code: 'confirmation_required' }),
+    ])
     expect(fetch).not.toHaveBeenCalled()
   })
 

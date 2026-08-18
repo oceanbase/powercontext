@@ -30,7 +30,7 @@ export function createPendingSourceFlusher(
       for (let attempt = 0; attempt < config.flushMaxCalls; attempt += 1) {
         try {
           const result = await client.request('flush_memory', { scope_id: scopeId }, combined)
-          const cursor = result.kind === 'json' ? currentCursor(result.value) : undefined
+          const cursor = currentCursor(result.value)
           if (cursor !== undefined && cursor >= position) {
             if (pending.get(scopeId) === position) pending.delete(scopeId)
             break
