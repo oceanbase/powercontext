@@ -1208,12 +1208,16 @@ class BuiltinRuntime:
         """Serialize writes for one scope and trace only the wait, not the critical section."""
 
         lock = self._locks.setdefault(validate_scope_id(scope_id), asyncio.Lock())
-        with self._stage("scope.lock", attributes={"powercontext.scope.lock.contended": lock.locked()}):
-            await lock.acquire()
+        acquired = False
         try:
+            # Injected tracing must never leak the lock, so the release is armed before the stage is closed.
+            with self._stage("scope.lock", attributes={"powercontext.scope.lock.contended": lock.locked()}):
+                await lock.acquire()
+                acquired = True
             yield
         finally:
-            lock.release()
+            if acquired:
+                lock.release()
 
     def _stage(
         self,

@@ -101,6 +101,33 @@ _VECTOR_PROFILE = EmbeddingProfile(
 )
 
 
+class _StageTeardownError(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__("stage teardown failed")
+
+
+class _StageTeardown:
+    def __init__(self, *, failing: bool) -> None:
+        self._failing = failing
+
+    def __enter__(self) -> _StageTeardown:
+        return self
+
+    def set_attributes(self, _attributes: object, /) -> None:
+        pass
+
+    def __exit__(self, *_: object) -> None:
+        if self._failing:
+            raise _StageTeardownError
+
+
+class _ScopeLockTeardownFailingTracing:
+    """Fail while closing `scope.lock`, the way a faulty injected tracing adapter would."""
+
+    def stage(self, name: str, **_: object) -> _StageTeardown:
+        return _StageTeardown(failing=name == "scope.lock")
+
+
 class _VectorMemoryIndex:
     """Expose deterministic vector capability without a platform extension."""
 
@@ -527,6 +554,23 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
     exported = _exported_span_data(spans)
     assert scope_id not in exported
     assert memory_content not in exported
+
+
+def test_scope_lock_is_released_when_stage_teardown_fails(tmp_path) -> None:
+    scope_id = "project:private-broken-tracing"
+
+    async def scenario() -> bool:
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'broken-tracing.db'}")),
+            tracing=_ScopeLockTeardownFailingTracing(),
+        ) as runtime:
+            with pytest.raises(_StageTeardownError):
+                await runtime.memory.for_scope(scope_id).remember(
+                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Guarded fact."),))
+                )
+            return runtime._locks[scope_id].locked()
+
+    assert asyncio.run(scenario()) is False
 
 
 def test_vector_search_exports_embedding_under_memory_search_without_recording_text(monkeypatch, tmp_path) -> None:
