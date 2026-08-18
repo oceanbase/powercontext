@@ -75,6 +75,15 @@ Memory extraction 发生在 flush 阶段，而不是捕获阶段。
 | `invoke_agent memory_extraction` | 一次 PowerContext generation 任务。名字标识用途，不是模型名。 |
 | `chat <model>` | 一次发往模型 provider 的请求，包含 token 用量和耗时。 |
 
+Memory 读取操作还会在 application operation 之下添加以下内部 stage span：
+
+| Span | 含义 |
+| --- | --- |
+| `memory.search` | `search_memory` 或 `prepare_context` 中的 Memory 查询；存在 embedding 或 reranking span 时，它们嵌套在其下。 |
+| `memory.rerank` | 一次实际 reranker 调用；使用模型的 reranking 会在其下嵌套 `invoke_agent memory_rerank`。 |
+| `experience.search` | `prepare_context` 中的 Experience recall；未配置 recall 时也会产生。 |
+| `context.build` | 根据召回候选同步选择并渲染最终 prepared context 的步骤。 |
+
 其他 generation 任务遵循同样的命名约定：`experience_incubation`、`experience_generation`、`skill_generation`、
 `handoff_generation` 和 `memory_rerank`。配置了 embedding model 时，embedding 调用会作为 `embeddings <model>`
 span 挂在触发它的操作之下。
