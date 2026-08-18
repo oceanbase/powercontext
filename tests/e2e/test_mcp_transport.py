@@ -135,6 +135,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "revise_artifact_candidate",
         "revise_memory_entry",
         "search_memory",
+        "select_handoff_workstream",
     }
 
 

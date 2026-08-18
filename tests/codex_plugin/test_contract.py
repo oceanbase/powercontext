@@ -168,11 +168,13 @@ def test_project_context_skill_uses_the_high_level_work_continuity_loop() -> Non
     assert '"$PLUGIN_ROOT/.venv/bin/python" "$PLUGIN_ROOT/scripts/project_scope.py"' in content
     assert "uv run --frozen" not in content
     assert "create_work_contract" in content
+    assert "select_handoff_workstream" in content
     assert "handoff_current_work" in content
     assert "acknowledge_handoff" in content
     assert "record_task_outcome" in content
     assert "Complete a one-turn durable Handoff" in content
     assert "do not ask for a second confirmation" in content
+    assert "native\npicker" in content
     assert "Pass the returned `handoff` member unchanged" in content
     assert "no durable Handoff milestone was committed" in content
     assert "canonical temporary carrier" in content

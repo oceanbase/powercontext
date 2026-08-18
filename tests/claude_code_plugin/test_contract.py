@@ -180,6 +180,8 @@ def test_project_context_skill_preserves_explicit_memory_and_handoff_boundaries(
 
     assert "Do not call `remember_memory` merely" in content
     assert "Ordinary prompt Sources are not task outcomes" in content
+    assert "`select_handoff_workstream`" in content
+    assert "structured choices" in content
     assert "`handoff_current_work`" in content
     assert "returned `handoff` member unchanged" in content
     assert "`continue_handoff`" in content

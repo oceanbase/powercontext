@@ -31,6 +31,8 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     HANDOFF_CURRENT_WORK,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_HANDOFF_REPORT_PROJECTS,
+    LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_ENTRIES,
     RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
@@ -47,6 +49,7 @@ from powercontext.server.context import (
     current_request_id,
     reset_internal_bridge,
 )
+from powercontext.server.handoff_picker import register_handoff_workstream_picker
 from powercontext.server.metrics import McpMetricsMiddleware, ServerMetrics
 from powercontext.server.tracing import McpTracingMiddleware, ServerTracing
 
@@ -148,6 +151,11 @@ def create_mcp_server(
         validate_output=False,
     )
     server = FastMCP(name=MCP_SERVER_NAME, providers=[provider])
+    if {
+        LIST_HANDOFF_REPORT_PROJECTS.path,
+        LIST_HANDOFF_REPORT_WORKSTREAMS.path,
+    }.issubset(server_app.openapi()["paths"]):
+        register_handoff_workstream_picker(server, client)
     server.add_middleware(McpTracingMiddleware(resolved_tracing))
     if access_log:
         server.add_middleware(McpAccessLogMiddleware())

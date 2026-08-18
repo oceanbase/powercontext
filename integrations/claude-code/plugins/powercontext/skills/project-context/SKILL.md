@@ -37,6 +37,18 @@ Then run the normal resolver command again and verify the same scope. The
 binding is stored below the checkout's Git directory and is not committed.
 Never infer one Workstream when multiple candidates remain consequential.
 
+Before a durable one-turn Handoff or a `latest` Continue without an exact
+Workstream, call `select_handoff_workstream` when that MCP tool is available.
+Clients with MCP elicitation can present a native picker; otherwise the tool
+returns structured choices. On `selected`, bind the returned `scope_id` with
+`--bind-workstream`, run the normal resolver again, and require the resolved
+scope to match before any Handoff write. On `needs_selection`, present the
+returned choices and call the tool again with the user's exact `project_id` and
+`work_id`; never choose a fallback candidate silently. On `cancelled` or
+`declined`, stop the Handoff flow. If the tool is unavailable or returns
+`empty`, preserve the existing resolver behavior. The picker is read-only and
+selecting work does not itself prepare or commit a Handoff.
+
 ## Read
 
 - Use `search_memory` with a focused query, `mode: "auto"`, and no more than
@@ -56,7 +68,8 @@ Handoff, a design discussion, or a preview request does not authorize a write.
 
 When the one-turn flow applies:
 
-1. Resolve the scope using the command above.
+1. Select the Workstream when the picker is available, then resolve and verify
+   the exact scope using the commands above.
 2. Inspect the current conversation and repository before writing. Ground the
    objective, branch and worktree state, changed files, checks, blockers,
    omissions, and next executable action without reading or including secrets.
