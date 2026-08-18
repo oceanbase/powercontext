@@ -77,10 +77,13 @@ Open <http://localhost:6006>, select the `default` project, and open the most re
 | `invoke_agent memory_extraction` | One PowerContext generation task. The name identifies the purpose, not the model. |
 | `chat <model>` | One request to the model provider, with token usage and latency. |
 
-Memory read operations add the following internal stage spans beneath their application operation:
+Scoped operations add the following internal stage spans beneath their application operation. Read-only searches never
+take the write lock, so they emit no `scope.lock` span:
 
 | Span | Meaning |
 | --- | --- |
+| `scope.context` | Resolving the scope's context from the configured provider; near zero for the built-in provider, visible when a provider does I/O here. |
+| `scope.lock` | Waiting for the scope write lock, ending the moment it is acquired. `powercontext.scope.lock.contended` reports whether another operation already held it. |
 | `memory.search` | Memory lookup for `search_memory` or `prepare_context`; embedding and reranking spans, when present, are nested beneath it. |
 | `memory.rerank` | One actual reranker call; model-backed reranking nests `invoke_agent memory_rerank` beneath it. |
 | `experience.search` | Experience recall during `prepare_context`; emitted even when recall is not configured. |

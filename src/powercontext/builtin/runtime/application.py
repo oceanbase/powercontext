@@ -312,7 +312,7 @@ class ScopedContextApplication:
         builder = PreparedContextBuilder()
         async with (
             self._runtime._context(self.scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_RECALL) as context,
-            self._runtime._lock(self.scope_id),
+            self._runtime._locked(self.scope_id),
         ):
             with self._runtime._stage(
                 _MEMORY_SEARCH_STAGE,
@@ -419,7 +419,7 @@ class ScopedExperienceApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def propose(self, request: ProposeExperienceRequest, /) -> ExperienceCandidate:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             service = self._runtime._review(self.scope_id)
             return await service.propose_experience(
                 request.proposal,
@@ -435,7 +435,7 @@ class ScopedExperienceApplication:
                 self.scope_id,
                 generation_purpose=ModelUsagePurpose.EXPERIENCE_GENERATION,
             ),
-            self._runtime._lock(self.scope_id),
+            self._runtime._locked(self.scope_id),
         ):
             return await self._runtime._generation(self.scope_id).experience(
                 sources=request.sources,
@@ -462,7 +462,7 @@ class ScopedExperienceApplication:
                 self.scope_id,
                 generation_purpose=ModelUsagePurpose.EXPERIENCE_GENERATION,
             ),
-            self._runtime._lock(self.scope_id),
+            self._runtime._locked(self.scope_id),
         ):
             return await incubator(self.scope_id, window_limit)
 
@@ -485,7 +485,7 @@ class ScopedSkillApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def propose(self, request: ProposeSkillRequest, /) -> SkillCandidate:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             service = self._runtime._review(self.scope_id)
             return await service.propose_skill(
                 request.proposal,
@@ -501,7 +501,7 @@ class ScopedSkillApplication:
                 self.scope_id,
                 generation_purpose=ModelUsagePurpose.SKILL_GENERATION,
             ),
-            self._runtime._lock(self.scope_id),
+            self._runtime._locked(self.scope_id),
         ):
             return await self._runtime._generation(self.scope_id).skill(
                 origin=request.origin,
@@ -552,7 +552,7 @@ class ScopedHandoffApplication:
             return await context.artifacts.handoff.finalize(draft)
 
     async def commit(self, prepared: PreparedHandoff, /) -> Handoff:
-        async with self._runtime._context(self.scope_id) as context, self._runtime._lock(self.scope_id):
+        async with self._runtime._context(self.scope_id) as context, self._runtime._locked(self.scope_id):
             return await context.artifacts.handoff.commit(prepared)
 
     async def continue_from(
@@ -733,7 +733,7 @@ class ScopedExternalSkillApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def scan(self) -> ExternalSkillScanResult:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._external_skills(self.scope_id).scan()
 
     async def list(self, request: ListExternalSkillsRequest, /) -> ExternalSkillList:
@@ -758,7 +758,7 @@ class ScopedExternalSkillApplication:
                 self.scope_id,
                 generation_purpose=ModelUsagePurpose.SKILL_GENERATION,
             ),
-            self._runtime._lock(self.scope_id),
+            self._runtime._locked(self.scope_id),
         ):
             return await importer(
                 self.scope_id,
@@ -800,14 +800,14 @@ class ScopedReviewApplication:
             return await self._runtime._review(self.scope_id).get_candidate(request.candidate_id)
 
     async def approve(self, request: ApproveArtifactCandidateRequest, /) -> ReviewedCandidate:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._review(self.scope_id).approve(
                 request.candidate_id,
                 request.expected_version,
             )
 
     async def reject(self, request: RejectArtifactCandidateRequest, /) -> ReviewedCandidate:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._review(self.scope_id).reject(
                 request.candidate_id,
                 request.expected_version,
@@ -815,7 +815,7 @@ class ScopedReviewApplication:
             )
 
     async def revise(self, request: ReviseArtifactCandidateRequest, /) -> ReviewedCandidate:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._review(self.scope_id).revise(
                 request.candidate_id,
                 request.expected_version,
@@ -849,7 +849,7 @@ class ScopedMemoryApplication:
             self.scope_id,
             embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
         ) as context:
-            async with self._runtime._lock(self.scope_id):
+            async with self._runtime._locked(self.scope_id):
                 service = context.artifacts.memory
                 current = await _head_or_none(service, context.artifacts.memory_artifact_id)
                 _validate_expected_revision(current, request.expected_revision)
@@ -945,7 +945,7 @@ class ScopedMemoryApplication:
             self.scope_id,
             embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
         ) as context:
-            async with self._runtime._lock(self.scope_id):
+            async with self._runtime._locked(self.scope_id):
                 service = context.artifacts.memory
                 current, entry = await _current_citation(
                     service,
@@ -978,7 +978,7 @@ class ScopedMemoryApplication:
             self.scope_id,
             embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
         ) as context:
-            async with self._runtime._lock(self.scope_id):
+            async with self._runtime._locked(self.scope_id):
                 service = context.artifacts.memory
                 current, entry = await _current_citation(
                     service,
@@ -1013,7 +1013,7 @@ class ScopedMemoryApplication:
             embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
         ) as context:
             window_limit = self._runtime.source_window_limit if limit is None else limit
-            async with self._runtime._lock(self.scope_id):
+            async with self._runtime._locked(self.scope_id):
                 return await context.triggers.flush(limit=window_limit)
 
     async def cursor(self) -> SourceCursor:
@@ -1360,10 +1360,26 @@ class BuiltinRuntime:
             generation_purpose=generation_purpose,
             embedding_purpose=embedding_purpose,
         ):
-            yield await self._provider.get(validate_scope_id(scope_id))
+            # The stage covers provider resolution only; a third-party provider may do I/O here.
+            with self._stage("scope.context", attributes={}):
+                context = await self._provider.get(validate_scope_id(scope_id))
+            yield context
 
-    def _lock(self, scope_id: str) -> asyncio.Lock:
-        return self._locks.setdefault(validate_scope_id(scope_id), asyncio.Lock())
+    @asynccontextmanager
+    async def _locked(self, scope_id: str) -> AsyncIterator[None]:
+        """Serialize writes for one scope and trace only the wait, not the critical section."""
+
+        lock = self._locks.setdefault(validate_scope_id(scope_id), asyncio.Lock())
+        acquired = False
+        try:
+            # Injected tracing must never leak the lock, so the release is armed before the stage is closed.
+            with self._stage("scope.lock", attributes={"powercontext.scope.lock.contended": lock.locked()}):
+                await lock.acquire()
+                acquired = True
+            yield
+        finally:
+            if acquired:
+                lock.release()
 
     def _stage(
         self,

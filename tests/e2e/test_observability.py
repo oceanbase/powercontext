@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
@@ -24,19 +25,33 @@ from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     MemoryCapabilities,
+    MemoryEntryInput,
     MemoryProjection,
     MemorySearchChannels,
     MemorySearchRequest,
 )
 from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime import BuiltinConfig, RememberMemoryRequest, open_builtin_runtime
 from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
+from powercontext.errors import RevisionConflictError
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import OperationalContextFilter
 from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.server.tracing import ServerTracing
 
 _STAGE_ATTRIBUTE_KEYS = {
+    "scope.context": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+    },
+    "scope.lock": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.scope.lock.contended",
+    },
     "memory.search": {
         "powercontext.operation.name",
         "powercontext.operation.unit",
@@ -84,6 +99,33 @@ _VECTOR_PROFILE = EmbeddingProfile(
     distance="l2",
     normalization="unit",
 )
+
+
+class _StageTeardownError(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__("stage teardown failed")
+
+
+class _StageTeardown:
+    def __init__(self, *, failing: bool) -> None:
+        self._failing = failing
+
+    def __enter__(self) -> _StageTeardown:
+        return self
+
+    def set_attributes(self, _attributes: object, /) -> None:
+        pass
+
+    def __exit__(self, *_: object) -> None:
+        if self._failing:
+            raise _StageTeardownError
+
+
+class _ScopeLockTeardownFailingTracing:
+    """Fail while closing `scope.lock`, the way a faulty injected tracing adapter would."""
+
+    def stage(self, name: str, **_: object) -> _StageTeardown:
+        return _StageTeardown(failing=name == "scope.lock")
 
 
 class _VectorMemoryIndex:
@@ -344,6 +386,13 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
         for application in search_applications
     }
     search_application = search_applications_by_result[(True, 1)]
+    assert dict(_only_child(spans, search_application, "scope.context").attributes or {}) == {
+        "powercontext.operation.name": "scope.context",
+        "powercontext.operation.unit": "stage",
+        "powercontext.operation.outcome": "success",
+    }
+    # Read-only searches never serialize on the scope write lock, so they emit no wait span.
+    assert not _children(spans, search_application, "scope.lock")
     search = _only_child(spans, search_application, "memory.search")
     search_attributes = dict(search.attributes or {})
     assert search_attributes == {
@@ -393,6 +442,20 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     ready_application = prepared_by_memory_presence[True]
     empty_application = prepared_by_memory_presence[False]
 
+    # Both setup spans stay siblings of the recall stages: neither one covers the operation body.
+    for application in (ready_application, empty_application):
+        assert dict(_only_child(spans, application, "scope.context").attributes or {}) == {
+            "powercontext.operation.name": "scope.context",
+            "powercontext.operation.unit": "stage",
+            "powercontext.operation.outcome": "success",
+        }
+        assert dict(_only_child(spans, application, "scope.lock").attributes or {}) == {
+            "powercontext.operation.name": "scope.lock",
+            "powercontext.operation.unit": "stage",
+            "powercontext.scope.lock.contended": False,
+            "powercontext.operation.outcome": "success",
+        }
+
     ready_memory = _only_child(spans, ready_application, "memory.search")
     assert (ready_memory.attributes or {})["powercontext.memory.search.result_count"] == 1
     assert _only_child(spans, ready_memory, "memory.rerank")
@@ -436,6 +499,78 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert memory_content not in exported
     assert query not in exported
     assert no_match_query not in exported
+
+
+def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_path) -> None:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(sampler=ALWAYS_ON, shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    scope_id = "project:private-lock-scope"
+    memory_content = "Private lock sentinel evidence."
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scope-lock.db'}")),
+            tracing=ServerTracing(provider),
+        ) as runtime:
+            memory = runtime.memory.for_scope(scope_id)
+            first = await memory.remember(
+                RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text=memory_content),))
+            )
+
+            # Holding the scope lock outside the Runtime makes the next write observe real contention.
+            lock = runtime._locks[scope_id]
+            await lock.acquire()
+            contending = asyncio.create_task(
+                memory.remember(RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Second fact."),)))
+            )
+            await asyncio.sleep(0.05)
+            assert not contending.done()
+            lock.release()
+            await contending
+
+            # A failure inside the critical section must still release the lock for later writes.
+            with pytest.raises(RevisionConflictError):
+                await memory.remember(
+                    RememberMemoryRequest(
+                        entries=(MemoryEntryInput(kind="fact", text="Conflicting fact."),),
+                        expected_revision=first.memory_ref.revision,
+                    )
+                )
+            assert not lock.locked()
+            await memory.remember(RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Third fact."),)))
+
+    asyncio.run(scenario())
+
+    spans = list(exporter.get_finished_spans())
+    assert [
+        (span.attributes or {})["powercontext.scope.lock.contended"] for span in spans if span.name == "scope.lock"
+    ] == [False, True, False, False]
+    # Every wait span succeeds, including the conflicting write's: the span closes before the critical section runs.
+    for span in spans:
+        assert (span.attributes or {}).get("powercontext.operation.outcome") == "success"
+        allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
+        assert allowed_keys is None or (span.attributes or {}).keys() <= allowed_keys
+    exported = _exported_span_data(spans)
+    assert scope_id not in exported
+    assert memory_content not in exported
+
+
+def test_scope_lock_is_released_when_stage_teardown_fails(tmp_path) -> None:
+    scope_id = "project:private-broken-tracing"
+
+    async def scenario() -> bool:
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'broken-tracing.db'}")),
+            tracing=_ScopeLockTeardownFailingTracing(),
+        ) as runtime:
+            with pytest.raises(_StageTeardownError):
+                await runtime.memory.for_scope(scope_id).remember(
+                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Guarded fact."),))
+                )
+            return runtime._locks[scope_id].locked()
+
+    assert asyncio.run(scenario()) is False
 
 
 def test_vector_search_exports_embedding_under_memory_search_without_recording_text(monkeypatch, tmp_path) -> None:
