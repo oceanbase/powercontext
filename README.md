@@ -18,17 +18,20 @@ Prerequisites:
 - Codex CLI, DeepSeek Harness (`dsh`), and/or Pi.
 
 ```bash
-uv tool install "powercontext[cli,server]==0.0.1"
+uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext --version
 ```
 
-The version command should print `0.0.1`. Configure the matching host plugin from the same release tag:
+Configure each host integration from the same Git ref as the installed tool:
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref v0.0.1
-powercontext setup dsh --source oceanbase/powercontext --ref v0.0.1
-powercontext setup pi --source oceanbase/powercontext --ref v0.0.1
+powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext setup dsh --source oceanbase/powercontext --ref master
+powercontext setup pi --source oceanbase/powercontext --ref master
 ```
+
+To use a tested branch or tag, replace every occurrence of `master` with that ref. The selected ref must contain every
+integration you install.
 
 Start the local service in a terminal:
 
