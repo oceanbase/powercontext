@@ -127,9 +127,11 @@ class ServerTracing:
     def _suppress_readiness_spans(self) -> Iterator[None]:
         """Run readiness work under an unsampled context without inference spans."""
 
-        inference_token = self._inference_suppressed.set(True)
+        inference_token = None
         context_token: Token[Context] | None = None
-        try:
+        with suppress(Exception):
+            inference_token = self._inference_suppressed.set(True)
+        with suppress(Exception):
             parent = trace.NonRecordingSpan(
                 trace.SpanContext(
                     trace_id=_ID_GENERATOR.generate_trace_id(),
@@ -139,11 +141,15 @@ class ServerTracing:
                 )
             )
             context_token = otel_context.attach(set_span_in_context(parent))
+        try:
             yield
         finally:
             if context_token is not None:
-                otel_context.detach(context_token)
-            self._inference_suppressed.reset(inference_token)
+                with suppress(Exception):
+                    otel_context.detach(context_token)
+            if inference_token is not None:
+                with suppress(Exception):
+                    self._inference_suppressed.reset(inference_token)
 
     def shutdown(self) -> None:
         with suppress(Exception):

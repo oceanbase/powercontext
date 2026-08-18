@@ -11,6 +11,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind, StatusCode
 
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.client import PowerContextClient
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
@@ -213,6 +214,31 @@ def test_runtime_stage_isolates_tracer_failure(monkeypatch) -> None:
         stage.set_attributes({"powercontext.memory.search.result_count": 0})
 
     assert exporter.get_finished_spans() == ()
+
+
+def test_readiness_ignores_tracing_setup_failure(monkeypatch, tmp_path) -> None:
+    tracing, _ = _tracing(instrumented=True)
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+            metrics=MetricsConfig(enabled=False),
+            logging=ServerLoggingConfig(access=False),
+        ),
+        scheduler_path=tmp_path / "scheduler.db",
+        tracing=tracing,
+    )
+
+    def fail_attach(_context: object) -> None:
+        raise RuntimeError
+
+    monkeypatch.setattr("powercontext.server.tracing.otel_context.attach", fail_attach)
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
 
 
 def test_tracing_export_requires_the_otlp_extra(monkeypatch) -> None:
