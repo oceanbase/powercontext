@@ -58,7 +58,7 @@ See the [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) for a fir
 | --- | --- |
 | Codex plugin | Restore relevant project memory and explicitly remember, revise, or retire entries while coding |
 | DeepSeek Harness plugin | Restore relevant project memory and explicitly remember, revise, or retire entries in DeepSeek Harness |
-| Pi package | Restore project memory with native `pc_*` Memory, Handoff, Candidate Review, and Handoff Report tools in Pi |
+| Pi package | Restore project memory with native `pc_*` Memory/Handoff tools and the `project-context` skill in Pi |
 | CLI | Install the plugin, run or connect to the Server, inspect content, and diagnose an installation |
 | Python client | Call the Server's Source and Memory API from an application |
 | Core SDK | Embed PowerContext contracts or supply custom adapters in a Python system |

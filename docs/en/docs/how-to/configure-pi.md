@@ -70,17 +70,10 @@ The `project-context` skill explains when to use native `pc_*` tools. The core t
 - `pc_remember`, `pc_prepare_context`, and `pc_capture_source`;
 - `pc_handoff_activate`, `pc_handoff_prepare`, `pc_handoff_finalize`, `pc_handoff_commit`, and
   `pc_handoff_continue`.
-- `pc_handoff_report_get` and `pc_handoff_report_workspace_get` for read-only project reporting;
-- `pc_artifact_candidate_list`, `pc_artifact_candidate_get`, `pc_artifact_candidate_approve`,
-  `pc_artifact_candidate_reject`, and `pc_artifact_candidate_revise` for Candidate Review.
 
 Explicit durable writes require confirmation in an interactive Pi session. Without an interactive UI, Pi refuses the
-write rather than persisting it silently. Before deciding on a Candidate, read its current head and pass its exact
-`expected_version`; Candidate revisions require a complete replacement proposal and exact evidence references.
-`pc_remember` optionally accepts `expected_revision` for an optimistic concurrency check, and
-`pc_handoff_activate` accepts `max_bytes` from 512 through 32,768 to bound its generated Draft.
-`/pc doctor`, `/pc search <query>`, `/pc remember <text>`, `/pc flush`, and `/pc stats` offer direct status and
-maintenance commands.
+write rather than persisting it silently. `/pc doctor`, `/pc search <query>`, `/pc remember <text>`, `/pc flush`, and
+`/pc stats` offer direct status and maintenance commands.
 
 ## Connect to an authenticated Server
 

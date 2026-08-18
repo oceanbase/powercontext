@@ -12,10 +12,7 @@ import { OPERATIONS, type OperationId, type OperationSpec } from './operations.g
 export type JsonObject = Record<string, unknown>
 export type FetchFn = (input: string, init: RequestInit) => Promise<Response>
 
-export type ClientSuccess =
-  | { kind: 'json'; value: unknown; status: number; requestId: string | undefined }
-  | { kind: 'text'; value: string; status: number; requestId: string | undefined }
-  | { kind: 'bytes'; value: Uint8Array; status: number; requestId: string | undefined }
+export type ClientSuccess = { kind: 'json'; value: unknown; status: number; requestId: string | undefined }
 
 export interface ClientOptions {
   baseUrl: string
@@ -131,7 +128,7 @@ export class PowerContextClient {
     const url = this.buildUrl(spec, payload)
     try {
       const response = await this.fetchImpl(url, this.buildInit(spec, payload, signal))
-      return await this.parseResponse(id, spec, payload, response)
+      return await this.parseResponse(spec, response)
     } catch (error) {
       if (
         error instanceof ServerResponseError
@@ -171,9 +168,7 @@ export class PowerContextClient {
   }
 
   private async parseResponse(
-    id: string,
     spec: OperationSpec,
-    payload: JsonObject | undefined,
     response: Response,
   ): Promise<ClientSuccess> {
     if (isRedirect(response.status)) throw new InvalidResponseError(spec.path)
@@ -181,12 +176,6 @@ export class PowerContextClient {
     const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined
     if (response.status < 200 || response.status >= 300) {
       throw this.httpError(response.status, requestId, bytes)
-    }
-    if (id === 'get_handoff_report' && payload?.download === true) {
-      return { kind: 'bytes', value: bytes, status: response.status, requestId }
-    }
-    if (id === 'get_handoff_report' && payload?.format !== 'json') {
-      return { kind: 'text', value: Buffer.from(bytes).toString('utf8'), status: response.status, requestId }
     }
     try {
       return { kind: 'json', value: JSON.parse(Buffer.from(bytes).toString('utf8')), status: response.status, requestId }

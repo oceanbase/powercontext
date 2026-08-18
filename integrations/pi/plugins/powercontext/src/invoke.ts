@@ -61,9 +61,6 @@ const WRITE_OPERATIONS = new Set<OperationId>([
   'retire_memory_entry',
   'activate_handoff',
   'commit_handoff',
-  'approve_artifact_candidate',
-  'reject_artifact_candidate',
-  'revise_artifact_candidate',
 ])
 
 function mapServerError(error: ServerResponseError): ToolResult {
@@ -136,17 +133,6 @@ function hasSecret(value: unknown): boolean {
 }
 
 function encodeSuccess(result: Awaited<ReturnType<PowerContextClient['request']>>): ToolResult {
-  if (result.kind === 'bytes') {
-    return {
-      ok: true,
-      status: result.status,
-      request_id: result.requestId,
-      data: { bytes_base64: Buffer.from(result.value).toString('base64') },
-    }
-  }
-  if (result.kind === 'text') {
-    return { ok: true, status: result.status, request_id: result.requestId, data: { markdown: result.value } }
-  }
   return { ok: true, status: result.status, request_id: result.requestId, data: result.value }
 }
 
@@ -177,7 +163,7 @@ export async function invokeScopedOperation(
   if (!(operationId in OPERATIONS)) return toToolResult(new UnknownOperationError(operationId))
   const id = operationId as OperationId
   try {
-    const scopeId = OPERATIONS[id].scope ? await runtime.resolveScope(context.cwd) : ''
+    const scopeId = await runtime.resolveScope(context.cwd)
     return invokeOperation(runtime.client, id, payload, scopeId, context.signal)
   } catch {
     return unavailableResult()
