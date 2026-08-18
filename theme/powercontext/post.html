@@ -1,0 +1,14 @@
+{% extends "main.html" %}
+
+{% block site_nav %}
+  <div class="md-sidebar md-sidebar--primary pc-listing-sidebar" aria-hidden="true"></div>
+  <div class="md-sidebar md-sidebar--secondary pc-listing-sidebar" aria-hidden="true"></div>
+{% endblock %}
+
+{% block container %}
+  <div class="md-content pc-blog-article blog-article" data-md-component="content">
+    <article class="md-content__inner md-typeset blog-article-document">
+      {% include "partials/content.html" %}
+    </article>
+  </div>
+{% endblock %}

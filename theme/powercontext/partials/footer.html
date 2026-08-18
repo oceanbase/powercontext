@@ -44,24 +44,35 @@
       </nav>
     {% endif %}
   {% endif %}
-  <div class="pc-footer__meta md-typeset">
-    <div class="pc-footer__inner md-grid">
-      <a class="pc-footer__wordmark" href="{{ home_url | url }}" aria-label="{{ 'OceanBase PowerContext 首页' if is_zh else 'OceanBase PowerContext home' }}">
-        <img src="{{ 'assets/images/oceanbase-logo.svg' | url }}" alt="">
-        <span class="pc-brand__owner">OceanBase</span>
-        <span class="pc-brand__divider" aria-hidden="true">|</span>
-        <span class="pc-footer__product">PowerContext</span>
-      </a>
-      <nav class="pc-footer__nav" aria-label="{{ '页脚导航' if is_zh else 'Footer navigation' }}">
-        <a href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ "文档" if is_zh else "Docs" }}</a>
-        <a href="{{ ('zh/blog/' if is_zh else 'en/blog/') | url }}">{{ "博客" if is_zh else "Blog" }}</a>
-        <a href="{{ ('zh/changelog/' if is_zh else 'en/changelog/') | url }}">{{ "更新日志" if is_zh else "Changelog" }}</a>
-        <a href="{{ ('zh/rfcs/' if is_zh else 'en/rfcs/') | url }}">{{ "RFC" if is_zh else "RFCs" }}</a>
-      </nav>
-      <div class="pc-footer__end">
-        <div class="pc-footer__copyright">{{ config.copyright }}</div>
-        {% if config.extra.social %}{% include "partials/social.html" %}{% endif %}
+  {% if is_docs %}
+    <div class="pc-content-footer">
+      <div class="md-grid">
+        <span>{{ "PowerContext 文档" if is_zh else "PowerContext documentation" }}</span>
+        <nav aria-label="{{ '页脚导航' if is_zh else 'Footer navigation' }}">
+          <a href="{{ ('zh/blog/' if is_zh else 'en/blog/') | url }}">{{ "博客" if is_zh else "Blog" }}</a>
+          <a href="{{ ('zh/rfcs/' if is_zh else 'en/rfcs/') | url }}">{{ "RFC 与会议纪要" if is_zh else "RFCs & Meetings" }}</a>
+          <a href="{{ config.repo_url }}">GitHub</a>
+        </nav>
       </div>
     </div>
-  </div>
+  {% else %}
+    <div class="pc-footer__meta md-typeset">
+      <div class="pc-footer__inner md-grid">
+        <a class="pc-footer__wordmark" href="{{ home_url | url }}" aria-label="{{ 'PowerContext 首页' if is_zh else 'PowerContext home' }}">
+          <img class="pc-footer__wordmark-image pc-footer__wordmark-image--color" src="{{ 'assets/images/powercontext-color.png' | url }}" alt="PowerContext">
+          <img class="pc-footer__wordmark-image pc-footer__wordmark-image--reverse" src="{{ 'assets/images/powercontext-reverse.png' | url }}" alt="" aria-hidden="true">
+        </a>
+        <nav class="pc-footer__nav" aria-label="{{ '页脚导航' if is_zh else 'Footer navigation' }}">
+          <a href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ "文档" if is_zh else "Docs" }}</a>
+          <a href="{{ ('zh/blog/' if is_zh else 'en/blog/') | url }}">{{ "博客" if is_zh else "Blog" }}</a>
+          <a href="{{ ('zh/changelog/' if is_zh else 'en/changelog/') | url }}">{{ "更新日志" if is_zh else "Changelog" }}</a>
+          <a href="{{ ('zh/rfcs/' if is_zh else 'en/rfcs/') | url }}">{{ "RFC" if is_zh else "RFCs" }}</a>
+        </nav>
+        <div class="pc-footer__end">
+          <div class="pc-footer__copyright">{{ config.copyright }}</div>
+          {% if config.extra.social %}{% include "partials/social.html" %}{% endif %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
 </footer>

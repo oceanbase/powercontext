@@ -7,15 +7,18 @@ hide:
   - footer
 ---
 
-# Blog
+<header class="editorial-header">
+  <h1>Blog</h1>
+  <p>Implementation notes and operating lessons from the PowerContext maintainers.</p>
+</header>
 
-<p class="pc-page-lead">Engineering notes and design explanations from the PowerContext maintainers.</p>
-
-<section class="pc-blog-empty">
-  <p class="pc-blog-empty__date">No posts yet</p>
-  <div>
-    <h2>Engineering notes will start with implemented work.</h2>
-    <p>The project currently records product and API decisions as RFCs. A post belongs here only when there is a concrete implementation or operating lesson to examine.</p>
-    <p><a href="../rfcs/">Read the current RFCs <span aria-hidden="true">→</span></a></p>
-  </div>
-</section>
+<div class="editorial-list blog-index">
+  <a class="editorial-row editorial-link-row blog-post-row" href="project-memory-beyond-the-chat-window/">
+    <div class="editorial-meta"><strong>Project note</strong><span>Design preview</span></div>
+    <div class="editorial-body">
+      <h2>Project memory beyond the chat window</h2>
+      <p>Why PowerContext keeps decisions, current state, and next steps in a durable project scope.</p>
+      <span class="row-action">Read the post <span aria-hidden="true">→</span></span>
+    </div>
+  </a>
+</div>

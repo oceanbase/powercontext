@@ -1,29 +1,58 @@
 ---
 title: PowerContext documentation
 description: Install PowerContext, connect Codex, and choose the right integration surface.
+page_type: docs-overview
 ---
 
 # PowerContext documentation
 
-PowerContext stores project context that people and agents can use in later tasks. It runs as a local or remote Server
-and exposes the same persisted data through Codex, Claude Code, DeepSeek Harness, Python, HTTP, and MCP.
+Start the local Server, connect an agent host, and look up the interface or configuration you need.
 
-If this is your first use, start with the [Codex quickstart](tutorials/codex-quickstart.md). When you finish, you can
-read and maintain Memory in a later Codex session for the same project.
+## Get started
 
-## Choose your path
+Install PowerContext and carry project context into a new agent session.
 
-- For an end-to-end first experience, read the [Codex quickstart](tutorials/codex-quickstart.md).
-- To install, start, update, or relocate a local service, read [Install and run](how-to/install-and-run.md).
-- To control project scope, prompt capture, or local authentication, read [Configure Codex](how-to/configure-codex.md).
-- To configure another host, read [Configure Claude Code](how-to/configure-claude-code.md) or
-  [Configure DeepSeek Harness](how-to/configure-dsh.md).
-- To understand the boundary between durable Memory and a temporary Handoff, read
-  [Memory and Handoff](explanation/memory-and-handoff.md).
-- To transfer current work to another task, session, or model, read [Hand off work in Codex](how-to/handoff-with-codex.md).
-- For installation, Server, plugin, or Hook failures, read [Troubleshoot](how-to/troubleshoot.md).
+<div class="pc-card-grid">
+  <a class="pc-card" href="tutorials/codex-quickstart.md"><strong>Codex quickstart</strong><span>Install the Server and verify Memory across Codex sessions.</span><i aria-hidden="true">→</i></a>
+  <a class="pc-card" href="how-to/install-and-run.md"><strong>Install and run</strong><span>Install from a Git ref and start the local Server.</span><i aria-hidden="true">→</i></a>
+  <a class="pc-card" href="how-to/troubleshoot.md"><strong>Troubleshoot</strong><span>Resolve setup, storage, and connection issues.</span><i aria-hidden="true">→</i></a>
+</div>
 
-## Look up details
+## Work with context
 
-- [Interfaces](reference/interfaces.md): Codex, Claude Code, DeepSeek Harness, CLI, Client SDK, Core SDK, HTTP, and MCP.
-- [Configuration](reference/configuration.md): defaults and environment variables.
+Choose between durable Memory and a task-specific Handoff, then move work between sessions without losing intent.
+
+<div class="pc-card-grid">
+  <a class="pc-card" href="explanation/memory-and-handoff.md"><strong>Memory and Handoff</strong><span>Understand what persists and what belongs to one transfer.</span><i aria-hidden="true">→</i></a>
+  <a class="pc-card" href="how-to/handoff-with-codex.md"><strong>Hand off work in Codex</strong><span>Transfer current work to another task, session, or model.</span><i aria-hidden="true">→</i></a>
+</div>
+
+## Integrations
+
+Connect agents and observability tools to the same Server.
+
+<div class="pc-card-grid">
+  <a class="pc-card" href="how-to/configure-codex.md"><strong>Configure Codex</strong><span>Prepare context, capture prompts, and maintain Memory.</span><i aria-hidden="true">→</i></a>
+  <a class="pc-card" href="how-to/configure-claude-code.md"><strong>Claude Code</strong><span>Share project Memory between Claude Code and Codex.</span><i aria-hidden="true">→</i></a>
+  <a class="pc-card" href="how-to/trace-with-phoenix.md"><strong>Trace with Phoenix</strong><span>Inspect transport, application, and inference spans.</span><i aria-hidden="true">→</i></a>
+</div>
+
+## Reference
+
+Look up stable public surfaces and configuration boundaries.
+
+<div class="pc-card-grid">
+  <a class="pc-card" href="reference/interfaces.md"><strong>Interfaces</strong><span>Codex, DSH, CLI, Python, HTTP, and MCP.</span><i aria-hidden="true">→</i></a>
+  <a class="pc-card" href="reference/configuration.md"><strong>Configuration</strong><span>Paths, Server, inference, and integration settings.</span><i aria-hidden="true">→</i></a>
+  <a class="pc-card" href="../modules/"><strong>API reference</strong><span>Public Python modules, models, and contracts.</span><i aria-hidden="true">→</i></a>
+</div>
+
+## Development
+
+Read the contracts behind Memory and remote access.
+
+<div class="pc-card-grid">
+  <a class="pc-card" href="../development/core-protocol/"><strong>Core protocol</strong><span>Source, Artifact, Trigger, and application contracts.</span><i aria-hidden="true">→</i></a>
+  <a class="pc-card" href="../development/memory-layer/"><strong>Memory layer</strong><span>Storage, recall, maintenance, and candidate review.</span><i aria-hidden="true">→</i></a>
+  <a class="pc-card" href="../development/remote-access-implementation/"><strong>Remote access</strong><span>HTTP, MCP, and Python client implementation.</span><i aria-hidden="true">→</i></a>
+</div>

@@ -1,0 +1,7 @@
+{% set canonical = page.canonical_url | string %}
+{% set is_zh = "/zh/" in canonical %}
+<div class="md-search" data-md-component="search" role="dialog" aria-label="{{ lang.t('search') }}">
+  <button type="button" class="md-search__button pc-search-trigger">
+    {{ "搜索文档" if is_zh else "Search docs" }}
+  </button>
+</div>
