@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
@@ -37,13 +38,34 @@ _MISSING_OTLP_EXPORTER = (
 _TraceAttribute = str | bool | int | float
 
 
+class _SuppressibleTracer(Tracer):
+    """Delegate inference spans unless the current task is a readiness probe."""
+
+    def __init__(self, delegate: Tracer, suppressed: ContextVar[bool]) -> None:
+        self._delegate = delegate
+        self._suppressed = suppressed
+        self._noop = trace.NoOpTracer()
+
+    def start_span(self, name: str, *args: Any, **kwargs: Any) -> Span:
+        return self._selected().start_span(name, *args, **kwargs)
+
+    def start_as_current_span(self, name: str, *args: Any, **kwargs: Any) -> Any:
+        return self._selected().start_as_current_span(name, *args, **kwargs)
+
+    def _selected(self) -> Tracer:
+        return self._noop if self._suppressed.get() else self._delegate
+
+
 class ServerTracing:
     """Create failure-isolated spans with one configured tracer provider."""
 
     def __init__(self, provider: TracerProvider, *, instrumented: bool = False) -> None:
         self.provider = provider
         self.tracer = provider.get_tracer(_INSTRUMENTATION_NAME)
-        self.instrumentation = _inference_instrumentation(provider) if instrumented else None
+        self._inference_suppressed = ContextVar("powercontext_inference_suppressed", default=False)
+        self.instrumentation = (
+            _inference_instrumentation(provider, self._inference_suppressed) if instrumented else None
+        )
 
     @classmethod
     def context_only(cls) -> ServerTracing:
@@ -100,6 +122,28 @@ class ServerTracing:
             span.finish("failure", error=error)
             raise
         span.finish("success")
+
+    @contextmanager
+    def _suppress_readiness_spans(self) -> Iterator[None]:
+        """Run readiness work under an unsampled context without inference spans."""
+
+        inference_token = self._inference_suppressed.set(True)
+        context_token: Token[Context] | None = None
+        try:
+            parent = trace.NonRecordingSpan(
+                trace.SpanContext(
+                    trace_id=_ID_GENERATOR.generate_trace_id(),
+                    span_id=_ID_GENERATOR.generate_span_id(),
+                    is_remote=False,
+                    trace_flags=trace.TraceFlags(0),
+                )
+            )
+            context_token = otel_context.attach(set_span_in_context(parent))
+            yield
+        finally:
+            if context_token is not None:
+                otel_context.detach(context_token)
+            self._inference_suppressed.reset(inference_token)
 
     def shutdown(self) -> None:
         with suppress(Exception):
@@ -289,22 +333,27 @@ def configure_server_tracing(config: TracingConfig) -> ServerTracing:
     return ServerTracing(provider, instrumented=config.enabled)
 
 
-def _inference_instrumentation(provider: TracerProvider) -> InstrumentationSettings | None:
+def _inference_instrumentation(
+    provider: TracerProvider,
+    suppressed: ContextVar[bool],
+) -> InstrumentationSettings | None:
     """Bind Pydantic AI spans to the Server provider without recording any content."""
 
     try:
         settings_type = import_module("pydantic_ai.models.instrumented").InstrumentationSettings
         # Prompts, responses, Memory content, and vectors stay out of spans (RFC 0016);
         # model request parameters carry the full instructions, so they are excluded too.
-        return settings_type(
+        settings = settings_type(
             tracer_provider=provider,
             include_content=False,
             include_binary_content=False,
             include_model_request_parameters=False,
         )
+        settings.tracer = _SuppressibleTracer(settings.tracer, suppressed)
     except Exception:
         # Tracing setup must never break the Runtime; an unavailable adapter just stays uninstrumented.
         return None
+    return settings
 
 
 def request_id_from_span(span: Span | None = None) -> str:

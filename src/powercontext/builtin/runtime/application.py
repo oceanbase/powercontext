@@ -322,10 +322,10 @@ class ScopedContextApplication:
                     span.set_attributes({"powercontext.experience.search.result_count": len(experience_hits)})
 
             with self._runtime._stage(
-                "context.prepare",
+                "context.build",
                 attributes={
-                    "powercontext.context.prepare.memory_candidate_count": len(memory_hits),
-                    "powercontext.context.prepare.experience_candidate_count": len(experience_hits),
+                    "powercontext.context.build.memory_candidate_count": len(memory_hits),
+                    "powercontext.context.build.experience_candidate_count": len(experience_hits),
                 },
             ) as span:
                 build = builder.build_result(
@@ -336,9 +336,9 @@ class ScopedContextApplication:
                 )
                 if span is not None:
                     span.set_attributes({
-                        "powercontext.context.prepare.selected_count": len(build.origins),
-                        "powercontext.context.prepare.status": build.context.status,
-                        "powercontext.context.prepare.content_bytes": build.context.content_bytes,
+                        "powercontext.context.build.selected_count": len(build.origins),
+                        "powercontext.context.build.status": build.context.status,
+                        "powercontext.context.build.content_bytes": build.context.content_bytes,
                     })
         if self._runtime._recall_token_estimator is not None:
             try:

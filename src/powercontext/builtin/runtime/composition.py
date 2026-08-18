@@ -109,14 +109,7 @@ class _TracingMemoryReranker:
     def __init__(self, delegate: MemoryReranker, tracing: RuntimeTracing) -> None:
         self._delegate = delegate
         self._tracing = tracing
-
-    @property
-    def policy_id(self) -> str:
-        return self._delegate.policy_id
-
-    @policy_id.setter
-    def policy_id(self, value: str) -> None:
-        self._delegate.policy_id = value
+        self.policy_id = delegate.policy_id
 
     async def rerank(
         self,
@@ -189,11 +182,21 @@ async def open_builtin_runtime(
         configured_reranker = generated_reranker if memory_reranker is None else memory_reranker
         if configured_reranker is not None and tracing is not None:
             configured_reranker = _TracingMemoryReranker(configured_reranker, tracing)
-        configured_embedding_source = (
-            await _embedding_model(config.inference, resources, instrumentation)
-            if embedding_model is None
-            else embedding_model
-        )
+        if embedding_model is None:
+            configured_embedding_source, readiness_embedding = await _embedding_models(
+                config.inference,
+                resources,
+                instrumentation,
+            )
+        else:
+            from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
+
+            configured_embedding_source = embedding_model
+            readiness_embedding = (
+                embedding_model._without_instrumentation()
+                if isinstance(embedding_model, PydanticAIEmbeddingModel)
+                else embedding_model
+            )
         configured_embedding = (
             None if configured_embedding_source is None else UsageReportingEmbeddingModel(configured_embedding_source)
         )
@@ -227,9 +230,9 @@ async def open_builtin_runtime(
                 probe=generation_readiness,
                 blocking=False,
             )
-        if configured_embedding_source is not None:
+        if readiness_embedding is not None:
             readiness_probes["inference.embedding"] = ReadinessProbeDefinition(
-                probe=_embedding_readiness_probe(configured_embedding_source),
+                probe=_embedding_readiness_probe(readiness_embedding),
                 blocking=False,
             )
         runtime = await resources.enter_async_context(
@@ -498,13 +501,13 @@ async def _generation_pipelines(
     )
 
 
-async def _embedding_model(
+async def _embedding_models(
     settings: InferenceConfig,
     resources: AsyncExitStack,
     instrumentation: InstrumentationSettings | None,
-) -> EmbeddingModel | None:
+) -> tuple[EmbeddingModel | None, EmbeddingModel | None]:
     if settings.embedding_model is None:
-        return None
+        return None, None
 
     from pydantic_ai import Embedder
     from pydantic_ai.embeddings import infer_embedding_model
@@ -523,18 +526,26 @@ async def _embedding_model(
     model = infer_embedding_model(settings.embedding_model, provider_factory=provider_factory)
     for provider in providers:
         await resources.enter_async_context(provider)
-    return PydanticAIEmbeddingModel(
-        embedder=Embedder(model, instrument=instrumentation),
-        batch_size=settings.embedding_batch_size,
-        profile=EmbeddingProfile(
-            profile_id=_required(settings.embedding_profile_id),
-            model=settings.embedding_model,
-            dimension=_required(settings.embedding_dimension),
-            distance="l2",
-            normalization=settings.embedding_normalization,
-        ),
-        limits=InferenceLimits(timeout_seconds=settings.embedding_timeout_seconds),
+    profile = EmbeddingProfile(
+        profile_id=_required(settings.embedding_profile_id),
+        model=settings.embedding_model,
+        dimension=_required(settings.embedding_dimension),
+        distance="l2",
+        normalization=settings.embedding_normalization,
     )
+    limits = InferenceLimits(timeout_seconds=settings.embedding_timeout_seconds)
+
+    def adapter(instrument: InstrumentationSettings | bool | None) -> EmbeddingModel:
+        return PydanticAIEmbeddingModel(
+            embedder=Embedder(model, instrument=instrument),
+            batch_size=settings.embedding_batch_size,
+            profile=profile,
+            limits=limits,
+        )
+
+    # Readiness runs outside an application operation, so use the same provider model
+    # without instrumentation to avoid exporting an orphan inference span.
+    return adapter(instrumentation), adapter(False)
 
 
 def _embedding_readiness_probe(model: EmbeddingModel) -> ReadinessProbe:

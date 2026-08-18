@@ -77,6 +77,15 @@ Open <http://localhost:6006>, select the `default` project, and open the most re
 | `invoke_agent memory_extraction` | One PowerContext generation task. The name identifies the purpose, not the model. |
 | `chat <model>` | One request to the model provider, with token usage and latency. |
 
+Memory read operations add the following internal stage spans beneath their application operation:
+
+| Span | Meaning |
+| --- | --- |
+| `memory.search` | Memory lookup for `search_memory` or `prepare_context`; embedding and reranking spans, when present, are nested beneath it. |
+| `memory.rerank` | One actual reranker call; model-backed reranking nests `invoke_agent memory_rerank` beneath it. |
+| `experience.search` | Experience recall during `prepare_context`; emitted even when recall is not configured. |
+| `context.build` | The synchronous step that selects and renders the final prepared context from recalled candidates. |
+
 The other PowerContext generation tasks appear under the same convention: `experience_incubation`,
 `experience_generation`, `skill_generation`, `handoff_generation`, and `memory_rerank`. When an embedding model is
 configured, embedding calls appear as `embeddings <model>` spans under the operation that triggered them.

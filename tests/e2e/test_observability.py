@@ -12,13 +12,22 @@ from fastmcp.client.transports import StreamableHttpTransport
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from opentelemetry.trace import SpanKind
+from opentelemetry.sdk.trace.sampling import ALWAYS_ON
 from pydantic_ai import Embedder
 from pydantic_ai.embeddings import TestEmbeddingModel
 from pydantic_ai.models import Model
+from pydantic_ai.models.instrumented import InstrumentationSettings
 from pydantic_ai.models.test import TestModel
+from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.memory import (
+    EmbeddingProfile,
+    MemoryCapabilities,
+    MemoryProjection,
+    MemorySearchChannels,
+    MemorySearchRequest,
+)
 from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
@@ -56,17 +65,79 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.experience.search.limit",
         "powercontext.experience.search.result_count",
     },
-    "context.prepare": {
+    "context.build": {
         "powercontext.operation.name",
         "powercontext.operation.unit",
         "powercontext.operation.outcome",
-        "powercontext.context.prepare.memory_candidate_count",
-        "powercontext.context.prepare.experience_candidate_count",
-        "powercontext.context.prepare.selected_count",
-        "powercontext.context.prepare.status",
-        "powercontext.context.prepare.content_bytes",
+        "powercontext.context.build.memory_candidate_count",
+        "powercontext.context.build.experience_candidate_count",
+        "powercontext.context.build.selected_count",
+        "powercontext.context.build.status",
+        "powercontext.context.build.content_bytes",
     },
 }
+
+_VECTOR_PROFILE = EmbeddingProfile(
+    profile_id="trace-test-v1",
+    model="test",
+    dimension=3,
+    distance="l2",
+    normalization="unit",
+)
+
+
+class _VectorMemoryIndex:
+    """Expose deterministic vector capability without a platform extension."""
+
+    capabilities = MemoryCapabilities(
+        fts=False,
+        vector=True,
+        embedding_profile=_VECTOR_PROFILE,
+    )
+    tables = ()
+
+    async def initialize(self, _connection: AsyncConnection, /) -> None:
+        pass
+
+    async def replace(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _memory_ref: ArtifactRef,
+        _projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> None:
+        pass
+
+    async def search(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        request: MemorySearchRequest,
+        /,
+    ) -> MemorySearchChannels:
+        assert request.mode == "vector"
+        assert request.query_vector is not None
+        return MemorySearchChannels()
+
+    async def vector_complete(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _memories: tuple[ArtifactRef, ...],
+        profile: EmbeddingProfile,
+        /,
+    ) -> bool:
+        return profile == _VECTOR_PROFILE
+
+    async def hydrate(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> tuple[MemoryProjection, ...]:
+        return projections
 
 
 def test_observability_signals_correlate_without_counting_the_mcp_bridge(caplog, tmp_path) -> None:
@@ -190,7 +261,7 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     # Resolve the configured test model without consulting the environment or a real provider.
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda model: model if isinstance(model, Model) else TestModel(custom_output_text='{"selected_ranks":[1]}'),
+        lambda model: model if isinstance(model, Model) else TestModel(custom_output_text='{"selected_ranks":[99,1]}'),
     )
 
     exporter = InMemorySpanExporter()
@@ -292,7 +363,7 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
         "powercontext.memory.rerank.candidate_count": 1,
         "powercontext.memory.rerank.limit": 1,
         "powercontext.memory.rerank.selected_count": 1,
-        "powercontext.memory.rerank.discarded_rank_count": 0,
+        "powercontext.memory.rerank.discarded_rank_count": 1,
         "powercontext.memory.rerank.used_fallback": False,
         "powercontext.operation.outcome": "success",
     }
@@ -328,12 +399,12 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     ready_experience = _only_child(spans, ready_application, "experience.search")
     assert (ready_experience.attributes or {})["powercontext.experience.search.configured"] is True
     assert (ready_experience.attributes or {})["powercontext.experience.search.result_count"] == 0
-    ready_context = _only_child(spans, ready_application, "context.prepare")
-    assert (ready_context.attributes or {})["powercontext.context.prepare.memory_candidate_count"] == 1
-    assert (ready_context.attributes or {})["powercontext.context.prepare.experience_candidate_count"] == 0
-    assert (ready_context.attributes or {})["powercontext.context.prepare.selected_count"] == 1
-    assert (ready_context.attributes or {})["powercontext.context.prepare.status"] == "ready"
-    ready_content_bytes = (ready_context.attributes or {})["powercontext.context.prepare.content_bytes"]
+    ready_context = _only_child(spans, ready_application, "context.build")
+    assert (ready_context.attributes or {})["powercontext.context.build.memory_candidate_count"] == 1
+    assert (ready_context.attributes or {})["powercontext.context.build.experience_candidate_count"] == 0
+    assert (ready_context.attributes or {})["powercontext.context.build.selected_count"] == 1
+    assert (ready_context.attributes or {})["powercontext.context.build.status"] == "ready"
+    ready_content_bytes = (ready_context.attributes or {})["powercontext.context.build.content_bytes"]
     assert isinstance(ready_content_bytes, int)
     assert ready_content_bytes > 0
 
@@ -345,10 +416,10 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert not _children(spans, empty_memory, "memory.rerank")
     empty_experience = _only_child(spans, empty_application, "experience.search")
     assert (empty_experience.attributes or {})["powercontext.experience.search.result_count"] == 0
-    empty_context = _only_child(spans, empty_application, "context.prepare")
-    assert (empty_context.attributes or {})["powercontext.context.prepare.selected_count"] == 0
-    assert (empty_context.attributes or {})["powercontext.context.prepare.status"] == "empty"
-    assert (empty_context.attributes or {})["powercontext.context.prepare.content_bytes"] == 0
+    empty_context = _only_child(spans, empty_application, "context.build")
+    assert (empty_context.attributes or {})["powercontext.context.build.selected_count"] == 0
+    assert (empty_context.attributes or {})["powercontext.context.build.status"] == "empty"
+    assert (empty_context.attributes or {})["powercontext.context.build.content_bytes"] == 0
 
     for span in spans:
         allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
@@ -367,56 +438,130 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert no_match_query not in exported
 
 
-def test_embedding_span_joins_memory_search_stage_without_recording_text() -> None:
+def test_vector_search_exports_embedding_under_memory_search_without_recording_text(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "pydantic_ai.embeddings.infer_embedding_model",
+        lambda _model, **_kwargs: TestEmbeddingModel(dimensions=3),
+    )
+    monkeypatch.setattr(
+        "powercontext.builtin.runtime.composition.SQLiteMemoryFTSIndex",
+        _VectorMemoryIndex,
+    )
+
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    tracing = ServerTracing(provider, instrumented=True)
-    instrumentation = tracing.instrumentation
-    assert instrumentation is not None
-    embedding_model = PydanticAIEmbeddingModel(
-        embedder=Embedder(TestEmbeddingModel(dimensions=3), instrument=instrumentation),
-        profile=EmbeddingProfile(
-            profile_id="trace-test-v1",
-            model="test",
-            dimension=3,
-            distance="l2",
-            normalization="unit",
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'vector-tracing.db'}"),
+            inference=InferenceConfig(
+                embedding_model="test",
+                embedding_profile_id=_VECTOR_PROFILE.profile_id,
+                embedding_dimension=_VECTOR_PROFILE.dimension,
+            ),
+            mcp=McpConfig(enabled=False),
         ),
+        tracing=ServerTracing(provider, instrumented=True),
     )
+    scope_id = "project:private-vector-scope"
+    memory_content = "Private vector memory sentinel."
     private_text = "private embedding sentinel"
 
-    async def scenario() -> None:
-        application = tracing.start_span(
-            "powercontext search_memory",
-            kind=SpanKind.INTERNAL,
-            attributes={
-                "powercontext.operation.name": "search_memory",
-                "powercontext.operation.unit": "application",
-            },
+    with TestClient(app) as client:
+        remembered = client.post(
+            "/v1/memory/remember",
+            json={"scope_id": scope_id, "kind": "fact", "text": memory_content},
         )
-        try:
-            with tracing.stage(
-                "memory.search",
-                attributes={
-                    "powercontext.memory.search.requested_mode": "vector",
-                    "powercontext.memory.search.limit": 1,
-                },
-            ):
-                await embedding_model.embed((private_text,))
-        except BaseException as error:
-            application.finish("failure", error=error)
-            raise
-        application.finish("success")
+        searched = client.post(
+            "/v1/memory/search",
+            json={"scope_id": scope_id, "query": private_text, "limit": 1, "mode": "vector"},
+        )
 
-    asyncio.run(scenario())
+    assert remembered.status_code == 200
+    assert searched.status_code == 200
+    assert searched.json()["mode"] == "vector"
+    assert searched.json()["hits"] == []
 
+    spans = list(exporter.get_finished_spans())
+    applications = [span for span in spans if span.name == "powercontext search_memory"]
+    assert len(applications) == 1
+    application = applications[0]
+    search = _only_child(spans, application, "memory.search")
+    embedding = _only_child_with_prefix(spans, search, "embeddings ")
+    assert dict(search.attributes or {}) == {
+        "powercontext.operation.name": "memory.search",
+        "powercontext.operation.unit": "stage",
+        "powercontext.memory.search.requested_mode": "vector",
+        "powercontext.memory.search.limit": 1,
+        "powercontext.memory.search.memory_present": True,
+        "powercontext.memory.search.mode": "vector",
+        "powercontext.memory.search.result_count": 0,
+        "powercontext.operation.outcome": "success",
+    }
+    assert embedding.name == "embeddings test"
+    assert embedding.context.trace_id == application.context.trace_id
+    assert not any(_is_inference_span(span) and span.parent is None for span in spans)
+    exported = _exported_span_data(spans)
+    assert scope_id not in exported
+    assert memory_content not in exported
+    assert private_text not in exported
+
+
+def test_injected_always_on_embedding_skips_readiness_but_traces_vector_search(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "powercontext.builtin.runtime.composition.SQLiteMemoryFTSIndex",
+        _VectorMemoryIndex,
+    )
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(sampler=ALWAYS_ON, shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracing = ServerTracing(provider, instrumented=True)
+    embedding_model = PydanticAIEmbeddingModel(
+        embedder=Embedder(
+            TestEmbeddingModel(dimensions=3),
+            instrument=InstrumentationSettings(tracer_provider=provider),
+        ),
+        profile=_VECTOR_PROFILE,
+    )
+
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'readiness-tracing.db'}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        embedding_model=embedding_model,
+        tracing=tracing,
+    )
+    scope_id = "project:injected-always-on"
+
+    with TestClient(app) as client:
+        readiness = client.get("/health/ready")
+        readiness_spans = list(exporter.get_finished_spans())
+        assert not [span for span in readiness_spans if span.parent is None]
+        assert not any(_is_inference_span(span) for span in readiness_spans)
+
+        remembered = client.post(
+            "/v1/memory/remember",
+            json={"scope_id": scope_id, "kind": "fact", "text": "Private injected vector memory."},
+        )
+        exporter.clear()
+        searched = client.post(
+            "/v1/memory/search",
+            json={"scope_id": scope_id, "query": "private injected query", "limit": 1, "mode": "vector"},
+        )
+
+    assert readiness.status_code == 200
+    assert readiness.json()["checks"]["inference.embedding"] == "ready"
+    assert remembered.status_code == 200
+    assert searched.status_code == 200
+    assert searched.json()["mode"] == "vector"
     spans = list(exporter.get_finished_spans())
     application = next(span for span in spans if span.name == "powercontext search_memory")
     search = _only_child(spans, application, "memory.search")
     embedding = _only_child_with_prefix(spans, search, "embeddings ")
-    assert embedding.context.trace_id == application.context.trace_id
-    assert private_text not in _exported_span_data(spans)
+    assert embedding.name == "embeddings test"
+    assert [span for span in spans if _is_inference_span(span)] == [embedding]
 
 
 def _flush_memory_spans(database_path: Path, *, instrumented: bool) -> list[ReadableSpan]:

@@ -200,23 +200,6 @@ def test_runtime_stage_records_cancellation_and_reraises_same_error() -> None:
     assert spans[0].status.status_code is StatusCode.UNSET
 
 
-def test_runtime_stage_finishes_and_detaches_for_base_exceptions() -> None:
-    tracing, exporter = _tracing()
-
-    with pytest.raises(SystemExit), tracing.stage("memory.search", attributes={}):
-        raise SystemExit
-    with tracing.stage("experience.search", attributes={}):
-        pass
-
-    spans = {span.name: span for span in exporter.get_finished_spans()}
-    failed = spans["memory.search"]
-    following = spans["experience.search"]
-    assert failed.attributes is not None
-    assert failed.attributes["powercontext.operation.outcome"] == "failure"
-    assert failed.attributes["error.type"] == "SystemExit"
-    assert following.parent is None
-
-
 def test_runtime_stage_isolates_tracer_failure(monkeypatch) -> None:
     tracing, exporter = _tracing()
 

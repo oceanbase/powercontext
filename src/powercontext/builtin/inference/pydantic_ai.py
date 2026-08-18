@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
-from typing import Generic, TypeVar, cast
+from copy import copy
+from typing import Generic, Self, TypeVar, cast
 
 from pydantic import BaseModel, Field
 
@@ -171,6 +172,14 @@ class PydanticAIEmbeddingModel:
         self.profile = profile
         self._batch_size = batch_size
         self._limits = InferenceLimits() if limits is None else limits
+
+    def _without_instrumentation(self) -> Self:
+        """Copy this adapter for readiness without changing operational tracing."""
+
+        adapter = copy(self)
+        adapter._embedder = copy(self._embedder)
+        adapter._embedder.instrument = False
+        return adapter
 
     async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
         """Embed documents and validate order, count, dimension, and finite values."""
