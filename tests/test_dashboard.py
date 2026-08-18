@@ -127,12 +127,44 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
     assert 'id="outcome-state-status"' in enabled_page.text
     assert 'id="task-outcome-form"' in enabled_page.text
     assert 'id="project-select"' in enabled_page.text
-    assert 'id="handoff-workstream" aria-describedby="handoff-workstream-help"' in enabled_page.text
-    assert 'id="handoff-workstream-help"' in enabled_page.text
+    assert 'id="workstream-list"' in enabled_page.text
+    assert 'id="workstream-switcher-toolbar"' in enabled_page.text
+    assert 'id="workstream-search"' in enabled_page.text
+    assert 'id="previous-workstream"' in enabled_page.text
+    assert 'id="workstream-position"' in enabled_page.text
+    assert 'id="next-workstream"' in enabled_page.text
+    assert 'id="workstream-filter-empty"' in enabled_page.text
+    assert 'id="handoff-snapshot"' in enabled_page.text
+    assert 'id="open-handoff-workbench"' in enabled_page.text
+    assert 'aria-controls="handoff-workbench-panel"' in enabled_page.text
+    assert 'id="handoff-workbench-panel"' in enabled_page.text
+    assert 'id="close-handoff-workbench"' in enabled_page.text
+    assert enabled_page.text.index('id="close-handoff-workbench"') < enabled_page.text.index(
+        'class="workbench-selection"'
+    )
+    assert 'id="handoff-workstream" hidden aria-hidden="true" tabindex="-1"' in enabled_page.text
+    assert 'id="handoff-workstream-help"' not in enabled_page.text
+    assert 'id="activity-title"' in enabled_page.text
+    assert 'id="activity-breakdown-list"' in enabled_page.text
+    assert '<details class="continuity-panel">' in enabled_page.text
+    assert '<details class="report-metadata">' in enabled_page.text
     assert 'id="project-tabs"' not in enabled_page.text
     assert '<section class="report-overview"' in enabled_page.text
     assert '<dl class="report-overview"' not in enabled_page.text
-    assert "handoff-report.js?v=project-scoped-work-v2" in enabled_page.text
+    assert enabled_page.text.index('class="report-overview"') < enabled_page.text.index('id="blockers-section"')
+    assert enabled_page.text.index('id="blockers-section"') < enabled_page.text.index(
+        'class="data-section workstream-browser"'
+    )
+    assert enabled_page.text.index('class="data-section workstream-browser"') < enabled_page.text.index(
+        'id="handoff-workbench-panel"'
+    )
+    assert enabled_page.text.index('id="handoff-workbench-panel"') < enabled_page.text.index(
+        'class="data-section activity-section"'
+    )
+    assert enabled_page.text.index('class="data-section activity-section"') < enabled_page.text.index(
+        '<details class="report-metadata">'
+    )
+    assert "handoff-report.js?v=report-first-ia-v3" in enabled_page.text
     assert protected_projects.status_code == 401
 
 
