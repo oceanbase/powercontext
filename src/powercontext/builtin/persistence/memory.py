@@ -271,13 +271,34 @@ class RelationalMemoryBackend:
             return await self._index.vector_complete(connection, self._scope_id, memories, profile)
 
     async def search(self, request: MemorySearchRequest, /) -> MemorySearchChannels:
-        for memory in request.memories:
-            exact = await self.get(memory)
-            latest = await self.latest(memory.artifact_id)
+        async with self._database.connection(self._bound_connection) as connection:
+            await self._validate_search_heads(connection, request.memories)
+            channels = await self._index.search(connection, self._scope_id, request)
+            await self._validate_search_heads(connection, request.memories)
+        return channels
+
+    async def _validate_search_heads(
+        self,
+        connection: AsyncConnection,
+        memories: tuple[ArtifactRef, ...],
+    ) -> None:
+        """Reject a projection read when any requested head has advanced."""
+
+        for memory in memories:
+            try:
+                exact = _require_memory(await self._artifacts.get(connection, self._scope_id, memory))
+                latest = _require_memory(
+                    await self._artifacts.latest(
+                        connection,
+                        self._scope_id,
+                        Memory.family,
+                        memory.artifact_id,
+                    )
+                )
+            except RepositoryNotFoundError:
+                raise ArtifactNotFoundError(memory) from None
             if exact.as_ref() != latest.as_ref():
                 raise InvalidMemoryCitationError("memory-mismatch")
-        async with self._database.connection(self._bound_connection) as connection:
-            return await self._index.search(connection, self._scope_id, request)
 
     async def expand(self, hits: tuple[MemoryHit, ...], /) -> tuple[MemoryEntryVersion, ...]:
         expanded: list[MemoryEntryVersion] = []
