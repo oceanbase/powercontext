@@ -36,7 +36,11 @@ from powercontext.builtin.artifacts.memory import (
     MemoryEntryVersion,
     MemoryService,
 )
-from powercontext.builtin.artifacts.memory.errors import MemoryEntryNotFoundError
+from powercontext.builtin.artifacts.memory.errors import (
+    CapabilityNotSupportedError,
+    InvalidMemoryCitationError,
+    MemoryEntryNotFoundError,
+)
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillRegistryUnavailableError,
     ExternalSkillResolution,
@@ -127,6 +131,7 @@ ExperienceRecall = Callable[[str, str, int], Awaitable[tuple[ExperienceSearchHit
 StatisticsServiceFactory = Callable[[str], RelationalScopedStatistics]
 RecallTokenEstimator = Callable[[str, PreparedContextBuild], Awaitable[RecallTokenMeasurement | None]]
 Clock = Callable[[], datetime]
+_MEMORY_SEARCH_ATTEMPTS = 3
 
 
 class _RuntimeConfigurationError(ValueError):
@@ -654,21 +659,33 @@ class ScopedMemoryApplication:
             embedding_purpose=ModelUsagePurpose.MEMORY_RECALL,
         ) as context:
             service = context.artifacts.memory
-            current = await _head_or_none(service, context.artifacts.memory_artifact_id)
-            if current is None:
-                return MemorySearchPage(memory_ref=None, mode=None)
-            result = await service.search(
-                request.query,
-                memories=(current,),
-                limit=request.limit,
-                mode=request.mode,
-            )
-            return MemorySearchPage(
-                memory_ref=current.as_ref(),
-                mode=result.mode,
-                hits=result.hits,
-                rerank=result.rerank,
-            )
+            attempt = 1
+            while True:
+                current = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                if current is None:
+                    return MemorySearchPage(memory_ref=None, mode=None)
+                try:
+                    result = await service.search(
+                        request.query,
+                        memories=(current,),
+                        limit=request.limit,
+                        mode=request.mode,
+                    )
+                except (CapabilityNotSupportedError, InvalidMemoryCitationError) as error:
+                    latest = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                    if not _is_stale_memory_search(error) or latest is None or latest.as_ref() == current.as_ref():
+                        raise
+                    if attempt == _MEMORY_SEARCH_ATTEMPTS:
+                        raise RevisionConflictError(current, latest) from error
+                    attempt += 1
+                    continue
+
+                return MemorySearchPage(
+                    memory_ref=current.as_ref(),
+                    mode=result.mode,
+                    hits=result.hits,
+                    rerank=result.rerank,
+                )
 
     async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:
@@ -1144,6 +1161,12 @@ async def _head_or_none(service: MemoryService, artifact_id: str) -> Memory | No
         return await service.head(artifact_id)
     except ArtifactNotFoundError:
         return None
+
+
+def _is_stale_memory_search(error: CapabilityNotSupportedError | InvalidMemoryCitationError) -> bool:
+    return (isinstance(error, CapabilityNotSupportedError) and error.capability == "head") or (
+        isinstance(error, InvalidMemoryCitationError) and error.code == "memory-mismatch"
+    )
 
 
 def _validate_expected_revision(memory: Memory | None, expected_revision: int | None) -> None:
