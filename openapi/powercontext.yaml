@@ -369,6 +369,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SearchMemoryResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "422":

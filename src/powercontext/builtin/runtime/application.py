@@ -36,7 +36,11 @@ from powercontext.builtin.artifacts.memory import (
     MemoryEntryVersion,
     MemoryService,
 )
-from powercontext.builtin.artifacts.memory.errors import MemoryEntryNotFoundError
+from powercontext.builtin.artifacts.memory.errors import (
+    CapabilityNotSupportedError,
+    InvalidMemoryCitationError,
+    MemoryEntryNotFoundError,
+)
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillRegistryUnavailableError,
     ExternalSkillResolution,
@@ -140,6 +144,7 @@ ExperienceRecall = Callable[[str, str, int], Awaitable[tuple[ExperienceSearchHit
 StatisticsServiceFactory = Callable[[str], RelationalScopedStatistics]
 RecallTokenEstimator = Callable[[str, PreparedContextBuild], Awaitable[RecallTokenMeasurement | None]]
 Clock = Callable[[], datetime]
+_MEMORY_SEARCH_ATTEMPTS = 3
 
 
 class _RuntimeConfigurationError(ValueError):
@@ -714,32 +719,43 @@ class ScopedMemoryApplication:
                 },
             ) as span:
                 service = context.artifacts.memory
-                current = await _head_or_none(service, context.artifacts.memory_artifact_id)
-                if current is None:
+                attempt = 1
+                while True:
+                    current = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                    if current is None:
+                        if span is not None:
+                            span.set_attributes({
+                                _MEMORY_SEARCH_MEMORY_PRESENT: False,
+                                _MEMORY_SEARCH_RESULT_COUNT: 0,
+                            })
+                        return MemorySearchPage(memory_ref=None, mode=None)
+                    try:
+                        result = await service.search(
+                            request.query,
+                            memories=(current,),
+                            limit=request.limit,
+                            mode=request.mode,
+                        )
+                    except (CapabilityNotSupportedError, InvalidMemoryCitationError) as error:
+                        latest = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                        if not _is_stale_memory_search(error) or latest is None or latest.as_ref() == current.as_ref():
+                            raise
+                        if attempt == _MEMORY_SEARCH_ATTEMPTS:
+                            raise RevisionConflictError(current, latest) from error
+                        attempt += 1
+                        continue
                     if span is not None:
                         span.set_attributes({
-                            _MEMORY_SEARCH_MEMORY_PRESENT: False,
-                            _MEMORY_SEARCH_RESULT_COUNT: 0,
+                            _MEMORY_SEARCH_MEMORY_PRESENT: True,
+                            _MEMORY_SEARCH_MODE: result.mode,
+                            _MEMORY_SEARCH_RESULT_COUNT: len(result.hits),
                         })
-                    return MemorySearchPage(memory_ref=None, mode=None)
-                result = await service.search(
-                    request.query,
-                    memories=(current,),
-                    limit=request.limit,
-                    mode=request.mode,
-                )
-                if span is not None:
-                    span.set_attributes({
-                        _MEMORY_SEARCH_MEMORY_PRESENT: True,
-                        _MEMORY_SEARCH_MODE: result.mode,
-                        _MEMORY_SEARCH_RESULT_COUNT: len(result.hits),
-                    })
-                return MemorySearchPage(
-                    memory_ref=current.as_ref(),
-                    mode=result.mode,
-                    hits=result.hits,
-                    rerank=result.rerank,
-                )
+                    return MemorySearchPage(
+                        memory_ref=current.as_ref(),
+                        mode=result.mode,
+                        hits=result.hits,
+                        rerank=result.rerank,
+                    )
 
     async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:
@@ -1227,6 +1243,12 @@ async def _head_or_none(service: MemoryService, artifact_id: str) -> Memory | No
         return await service.head(artifact_id)
     except ArtifactNotFoundError:
         return None
+
+
+def _is_stale_memory_search(error: CapabilityNotSupportedError | InvalidMemoryCitationError) -> bool:
+    return (isinstance(error, CapabilityNotSupportedError) and error.capability == "head") or (
+        isinstance(error, InvalidMemoryCitationError) and error.code == "memory-mismatch"
+    )
 
 
 def _validate_expected_revision(memory: Memory | None, expected_revision: int | None) -> None:
