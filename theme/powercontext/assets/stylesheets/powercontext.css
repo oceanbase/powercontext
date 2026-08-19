@@ -3150,20 +3150,31 @@ body {
 
 /* Keep the global directory and page outline available while reading. */
 @media screen and (min-width: 721px) {
+  html {
+    overflow-y: auto;
+  }
+
+  body {
+    display: block;
+    width: 100%;
+    overflow: visible;
+  }
+
   .md-main__inner:has(.docs-content) > .pc-page-sidebar--navigation,
   .md-main__inner:has(.docs-content) > .pc-page-sidebar--toc {
-    position: sticky;
-    top: 96px;
-    align-self: start;
-    height: calc(100vh - 112px);
-    max-height: calc(100vh - 112px);
+    position: relative;
+    top: auto;
+    align-self: stretch;
+    height: auto;
+    max-height: none;
   }
 
   .md-main__inner:has(.docs-content) > .pc-page-sidebar--navigation .md-sidebar__scrollwrap,
   .md-main__inner:has(.docs-content) > .pc-page-sidebar--toc .md-sidebar__scrollwrap {
-    position: static;
+    position: sticky;
     inset: auto;
-    max-height: 100%;
+    top: 96px;
+    max-height: calc(100vh - 112px);
     overflow-y: auto;
   }
 }
