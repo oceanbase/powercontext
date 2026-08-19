@@ -1,0 +1,36 @@
+schema: powercontext.e2e-task/v1
+id: locomo-open-pastries
+categories:
+  - acceptance
+  - sample
+provenance:
+  source: benchmark/locomo/dataset/locomo10.json
+  revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
+  selection: category-4-first-three-item-list/v1
+  case_ids:
+    - conv-44
+    - conv-44:q064
+    - D3
+dataset:
+  path: e2e/bub/harbor-tasks
+  task_id: locomo-open-pastries
+  checksum: "5e78ac60571858e8244f988a5ec4e9fc6c5506a6b46534e2bdcb370651e6b9bc"
+execution:
+  type: bub
+  model: false
+  max_steps: 10
+  max_tokens: 4096
+evaluation:
+  expected_memory:
+    - croissants
+    - muffins
+    - tarts
+  probes:
+    - id: cafe-pastry-list
+      query: What kind of pastries did Andrew and his girlfriend have at the cafe?
+      expected_context:
+        - croissants
+        - muffins
+        - tarts
+  thresholds:
+    probe_coverage: 1
