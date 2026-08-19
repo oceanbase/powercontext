@@ -1,16 +1,13 @@
 import type {
-  AccountUsage,
   BatchCreate,
   BatchControlEvent,
   BatchEventSubscription,
   BatchPreview,
   BatchRecord,
   BatchReport,
-  BatchRuntime,
   BatchTaskDetail,
   BatchTaskListOptions,
   BatchTaskPage,
-  BatchTaskSet,
   Capabilities,
   ContextEvent,
   ContextEventPage,
@@ -26,6 +23,7 @@ import type {
   TaskRecord,
   TaskStatus,
   TaskSummary,
+  UsageSnapshot,
 } from "./types";
 import { z } from "zod";
 
@@ -100,7 +98,6 @@ const failureCategorySchema = z.enum([
   "internal",
 ]);
 const codexModelSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
-const batchTaskSetSchema = z.enum(["swebench-pro-public-v2", "swebench-pro-stability-v1"]);
 
 const taskCreateSchema = z.strictObject({
   powercontext_ref: z.union([z.literal("latest"), z.string().regex(/^commit:[0-9a-fA-F]{40}$/)]),
@@ -333,7 +330,7 @@ const reportSchema = z.strictObject({
 const batchCreateSchema = z.strictObject({
   powercontext_ref: z.union([z.literal("latest"), z.string().regex(/^commit:[0-9a-fA-F]{40}$/)]),
   benchmark: z.literal("swebench-pro"),
-  task_set: batchTaskSetSchema,
+  task_set: z.literal("swebench-pro-public-v2"),
   model: codexModelSchema,
   reasoning_effort: z.literal("medium"),
   treatment_mode: z.literal("off_on"),
@@ -354,18 +351,6 @@ const usageSnapshotSchema = z.strictObject({
   account_tokens: nonnegativeIntegerSchema.nullable(),
   probe_version: z.literal(1),
 });
-const accountUsageSchema = z.discriminatedUnion("mode", [
-  z.strictObject({
-    mode: z.literal("api_key"),
-    sufficient: z.literal(true),
-    usage: z.null(),
-  }),
-  z.strictObject({
-    mode: z.literal("subscription"),
-    sufficient: z.boolean(),
-    usage: usageSnapshotSchema,
-  }),
-]);
 const batchControlSchema = z.strictObject({
   intent: z.enum(["run", "pause", "cancel"]),
   usage_pause_percent: z.number().int().min(1).max(100),
@@ -409,13 +394,13 @@ const batchRecordSchema = z.strictObject({
 const batchPreviewSchema = z.strictObject({
   powercontext_ref: z.union([z.literal("latest"), z.string().regex(/^commit:[0-9a-fA-F]{40}$/)]),
   benchmark: z.literal("swebench-pro"),
-  task_set: batchTaskSetSchema,
+  task_set: z.literal("swebench-pro-public-v2"),
   model: codexModelSchema,
   reasoning_effort: z.literal("medium"),
   treatment_mode: z.literal("off_on"),
   total_tasks: z.number().int().positive(),
   usage_pause_percent: z.number().int().min(1).max(100),
-  usage: usageSnapshotSchema.nullable(),
+  usage: usageSnapshotSchema,
   estimate: batchEstimateSchema,
   can_start: z.boolean(),
   block_reason: z.literal("usage_threshold_reached").nullable(),
@@ -429,7 +414,7 @@ const pairCategorySchema = z.enum([
 ]);
 const resolutionAggregateSchema = z.strictObject({
   resolved: nonnegativeIntegerSchema,
-  total: nonnegativeIntegerSchema,
+  total: z.number().int().positive(),
   rate_percent: z.number().min(0).max(100),
 });
 const tokenMetricAggregateSchema = z.strictObject({
@@ -462,33 +447,6 @@ const batchReportSchema = z.strictObject({
   estimate: batchEstimateSchema,
   revisions: z.record(z.string(), z.string()),
   configuration: z.record(z.string(), z.string()),
-});
-const batchRuntimeFailureSchema = z.strictObject({
-  category: failureCategorySchema,
-  code: z.string(),
-  phase: taskPhaseSchema.nullable(),
-  summary: z.string().min(1).max(500),
-  finished_at: timestampSchema,
-});
-const batchRuntimeTaskSchema = z.strictObject({
-  task_id: z.string(),
-  attempt_id: z.string(),
-  instance_id: z.string(),
-  source_index: nonnegativeIntegerSchema,
-  status: z.enum(["queued", "running"]),
-  phase: taskPhaseSchema.nullable(),
-  attempt_number: z.number().int().positive(),
-  attempt_count: z.number().int().positive(),
-  created_at: timestampSchema,
-  eligible_at: timestampSchema,
-  started_at: timestampSchema.nullable(),
-  last_failure: batchRuntimeFailureSchema.nullable(),
-});
-const batchRuntimeSchema = z.strictObject({
-  batch_id: z.string(),
-  generated_at: timestampSchema,
-  status_counts: z.record(taskStatusSchema, nonnegativeIntegerSchema),
-  tasks: z.array(batchRuntimeTaskSchema),
 });
 const taskArmSummarySchema = z.strictObject({
   resolved: z.boolean(),
@@ -693,8 +651,8 @@ function validateContextEventPage(value: unknown): ContextEventPage {
   return validateWithSchema(contextEventPageSchema, value);
 }
 
-function validateAccountUsage(value: unknown): AccountUsage {
-  return validateWithSchema(accountUsageSchema, value);
+function validateUsageSnapshot(value: unknown): UsageSnapshot {
+  return validateWithSchema(usageSnapshotSchema, value);
 }
 
 function validateTaskAttempt(value: unknown): TaskAttempt {
@@ -755,7 +713,7 @@ export class EvaluationApi {
   }
 
   previewBatch(
-    request: { powercontext_ref: string; task_set: BatchTaskSet; model: string; usage_pause_percent: number },
+    request: { powercontext_ref: string; model: string; usage_pause_percent: number },
     signal?: AbortSignal,
   ): Promise<BatchPreview> {
     return this.#json(apiPath("/batches/preview"), validateBatchPreview, {
@@ -822,14 +780,8 @@ export class EvaluationApi {
     });
   }
 
-  getAccountUsage(signal?: AbortSignal): Promise<AccountUsage> {
-    return this.#json(apiPath("/account-usage"), validateAccountUsage, withSignal(signal));
-  }
-
-  getBatchRuntime(batchId: string, signal?: AbortSignal): Promise<BatchRuntime> {
-    return this.#json(batchPath(batchId, "/runtime"), (value) => validateWithSchema(batchRuntimeSchema, value), {
-      ...withSignal(signal),
-    });
+  getAccountUsage(signal?: AbortSignal): Promise<UsageSnapshot> {
+    return this.#json(apiPath("/account-usage"), validateUsageSnapshot, withSignal(signal));
   }
 
   listBatchControlEvents(batchId: string, signal?: AbortSignal): Promise<BatchControlEvent[]> {

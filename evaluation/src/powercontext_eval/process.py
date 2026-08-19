@@ -66,9 +66,6 @@ class CommandResult:
 class ProcessRunner:
     """Run argv directly with a deliberately narrow inherited environment."""
 
-    def __init__(self, *, default_cancel_event: threading.Event | None = None) -> None:
-        self._default_cancel_event = default_cancel_event
-
     def run(
         self,
         argv: Sequence[str],
@@ -85,8 +82,6 @@ class ProcessRunner:
         """Execute a command without a shell and return redacted output."""
 
         validated_argv = _validate_argv(argv)
-        if cancel_event is None:
-            cancel_event = getattr(self, "_default_cancel_event", None)
         if input_bytes is not None and not isinstance(input_bytes, bytes):
             raise TypeError("input_bytes must be bytes or None")
         if stdout_sink is not None and not hasattr(stdout_sink, "write"):

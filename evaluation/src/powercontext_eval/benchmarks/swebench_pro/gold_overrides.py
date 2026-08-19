@@ -22,9 +22,8 @@ SOURCE595_SELECTED_TEST_FILES = (
 )
 SOURCE595_EFFECTIVE_TEST_FILES = '["test/units/galaxy/test_api.py"]'
 OFFICIAL_EVALUATION_DOCKER_PROXY = "docker_proxy"
-OFFICIAL_EVALUATION_DIRECT = "direct"
 OFFICIAL_EVALUATION_PROXY_BYPASSED = "proxy_bypassed_for_test_isolation"
-OfficialEvaluationTransport = Literal["direct", "docker_proxy", "proxy_bypassed_for_test_isolation"]
+OfficialEvaluationTransport = Literal["docker_proxy", "proxy_bypassed_for_test_isolation"]
 OfficialEvaluationTestSelection = Literal[
     "dataset_selected_files",
     "required_unit_tests_only_for_invalid_integration_target",
@@ -37,15 +36,15 @@ index 37d7bfbc35..d368ed2cfd 100644
 +++ b/lib/client/keyagent.go
 @@ -19,6 +19,7 @@ package client
  import (
-__CONTEXT_TAB__"context"
-__CONTEXT_TAB__"crypto/subtle"
+ 	"context"
+ 	"crypto/subtle"
 +	"crypto/x509"
-__CONTEXT_TAB__"fmt"
-__CONTEXT_TAB__"io"
-__CONTEXT_TAB__"net"
+ 	"fmt"
+ 	"io"
+ 	"net"
 @@ -554,3 +555,22 @@ func (a *LocalKeyAgent) certsForCluster(clusterName string) ([]ssh.Signer, error) {
-__CONTEXT_TAB__}
-__CONTEXT_TAB__return certs, nil
+ 	}
+ 	return certs, nil
  }
 +// ClientCertPool returns a *x509.CertPool populated with the trusted TLS
 +// Certificate Authorities (CAs) for the specified Teleport cluster.
@@ -66,7 +65,7 @@ __CONTEXT_TAB__return certs, nil
 +
 +	return pool, nil
 +}
-__PLUS_SPACE__
++ 
 diff --git a/lib/srv/alpnproxy/local_proxy.go b/lib/srv/alpnproxy/local_proxy.go
 index c9df27f88f..83e4078c61 100644
 --- a/lib/srv/alpnproxy/local_proxy.go
@@ -77,24 +76,24 @@ index c9df27f88f..83e4078c61 100644
  func (l *LocalProxy) SSHProxy() error {
 -	if l.cfg.ClientTLSConfig != nil {
 +	if l.cfg.ClientTLSConfig == nil {
-__CONTEXT_TAB__	return trace.BadParameter("client TLS config is missing")
-__CONTEXT_TAB__}
+ 		return trace.BadParameter("client TLS config is missing")
+ 	}
 diff --git a/tool/tsh/proxy.go b/tool/tsh/proxy.go
 index 40fb3df0f0..22c09b0951 100644
 --- a/tool/tsh/proxy.go
 +++ b/tool/tsh/proxy.go
 @@ -17,6 +17,7 @@ limitations under the License.
  package main
-__CONTEXT_SPACE__
+ 
  import (
 +	"crypto/tls"
-__CONTEXT_TAB__"fmt"
-__CONTEXT_TAB__"net"
-__CONTEXT_TAB__"os"
+ 	"fmt"
+ 	"net"
+ 	"os"
 @@ -42,16 +43,42 @@ func onProxyCommandSSH(cf *CLIConf) error {
-__CONTEXT_TAB__	return trace.Wrap(err)
-__CONTEXT_TAB__}
-__CONTEXT_SPACE__
+ 		return trace.Wrap(err)
+ 	}
+ 
 +	// Get the local agent to access cluster CA certificates
 +	localAgent := client.LocalAgent()
 +	if localAgent == nil {
@@ -120,30 +119,28 @@ __CONTEXT_SPACE__
 +		ServerName: address.Host(),
 +	}
 +
-__CONTEXT_TAB__lp, err := alpnproxy.NewLocalProxy(alpnproxy.LocalProxyConfig{
-__CONTEXT_TAB__	RemoteProxyAddr:    client.WebProxyAddr,
-__CONTEXT_TAB__	Protocol:           alpncommon.ProtocolProxySSH,
-__CONTEXT_TAB__	InsecureSkipVerify: cf.InsecureSkipVerify,
-__CONTEXT_TAB__	ParentContext:      cf.Context,
-__CONTEXT_TAB__	SNI:                address.Host(),
+ 	lp, err := alpnproxy.NewLocalProxy(alpnproxy.LocalProxyConfig{
+ 		RemoteProxyAddr:    client.WebProxyAddr,
+ 		Protocol:           alpncommon.ProtocolProxySSH,
+ 		InsecureSkipVerify: cf.InsecureSkipVerify,
+ 		ParentContext:      cf.Context,
+ 		SNI:                address.Host(),
 -		SSHUser:            cf.Username,
 +		SSHUser:            client.Config.HostLogin,
-__CONTEXT_TAB__	SSHUserHost:        cf.UserHost,
-__CONTEXT_TAB__	SSHHostKeyCallback: client.HostKeyCallback,
-__CONTEXT_TAB__	SSHTrustedCluster:  cf.SiteName,
+ 		SSHUserHost:        cf.UserHost,
+ 		SSHHostKeyCallback: client.HostKeyCallback,
+ 		SSHTrustedCluster:  cf.SiteName,
 +		ClientTLSConfig:    tlsConfig,
-__CONTEXT_TAB__})
-__CONTEXT_TAB__if err != nil {
-__CONTEXT_TAB__	return trace.Wrap(err)
+ 	})
+ 	if err != nil {
+ 		return trace.Wrap(err)
 """
 
 # Keep the patch byte-for-byte identical to the fixed-revision submission.  The
 # explicit replacements preserve the one whitespace-only diff context line.
 SOURCE559_REFERENCE_PATCH = (
     SOURCE559_REFERENCE_PATCH.replace("([]ssh.Signer, error) {\n", "([]ssh.Signer, error\n")
-    .replace("+}\n__PLUS_SPACE__\ndiff --git a/lib/srv", "+}\ndiff --git a/lib/srv")
-    .replace("__CONTEXT_SPACE__\n", " \n")
-    .replace("__CONTEXT_TAB__", " \t")
+    .replace("+}\n+ \ndiff --git a/lib/srv", "+}\ndiff --git a/lib/srv")
     .replace("\t}\ndiff --git a/tool/tsh", "\t}\n \ndiff --git a/tool/tsh")
 )
 SOURCE559_REFERENCE_PATCH += "\n"

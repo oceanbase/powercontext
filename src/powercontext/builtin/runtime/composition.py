@@ -47,7 +47,6 @@ from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsCon
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.protocols import RuntimeTracing
 from powercontext.builtin.runtime.readiness import (
-    READINESS_PROBE_TIMEOUT_SECONDS,
     CachedReadinessProbe,
     ReadinessProbe,
     ReadinessProbeDefinition,
@@ -62,6 +61,7 @@ if TYPE_CHECKING:
     from pydantic_ai.models.instrumented import InstrumentationSettings
 
 ValueT = TypeVar("ValueT")
+_GENERATION_READINESS_PROBE_MAX_TIMEOUT_SECONDS = 30.0
 
 
 class BuiltinConfigurationError(RuntimeError):
@@ -422,10 +422,15 @@ async def _generation_pipelines(
 
     provider_model = await resources.enter_async_context(infer_model(settings.generation_model))
     model = provider_model if instrumentation is None else InstrumentedModel(provider_model, instrumentation)
+    generation_readiness_timeout_seconds = min(
+        settings.generation_timeout_seconds,
+        _GENERATION_READINESS_PROBE_MAX_TIMEOUT_SECONDS,
+    )
 
     async def probe_generation() -> None:
-        # Readiness probing runs outside any operation span; keep it out of traces.
-        await probe_pydantic_ai_model(provider_model, timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS)
+        # Readiness probing runs outside any operation span; keep it out of traces. Generation providers routinely
+        # need longer than the short timeout used for local dependencies, while the dedicated cap keeps startup bounded.
+        await probe_pydantic_ai_model(provider_model, timeout_seconds=generation_readiness_timeout_seconds)
 
     limits = InferenceLimits(
         timeout_seconds=settings.generation_timeout_seconds,
@@ -497,7 +502,12 @@ async def _generation_pipelines(
             evidence_projector=_ContentHandoffEvidenceProjector(),
         ),
         (None if rerank_generator is None else LLMMemoryReranker(UsageReportingStructuredGenerator(rerank_generator))),
-        CachedReadinessProbe(dependency_readiness_probe(probe_generation)),
+        CachedReadinessProbe(
+            dependency_readiness_probe(
+                probe_generation,
+                timeout_seconds=generation_readiness_timeout_seconds,
+            )
+        ),
     )
 
 

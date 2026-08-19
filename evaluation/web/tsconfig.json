@@ -2,11 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "useDefineForClassFields": true,
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "allowJs": false,
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -22,14 +18,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": [
-      "vite/client",
-      "vitest/globals",
-      "@testing-library/jest-dom"
-    ]
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": [
-    "src",
-    "vite.config.ts"
-  ]
+  "include": ["src", "vite.config.ts"]
 }

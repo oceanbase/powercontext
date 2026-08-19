@@ -1,297 +1,443 @@
-# PowerContext evaluation console
+# Evaluation console operations
 
-This directory contains a self-progressing SWE-bench Pro OFF/ON evaluation service. The web process owns the HTTP
-API and report UI; the worker owns task execution, retries, resource cleanup, and durable recovery.
+This console is for m0 only. It is an internal, unauthenticated service bound to m0's internal address
+`100.88.99.11`; the host firewall and private network are the authentication boundary. Do not expose port 8787 to
+the public Internet. The units do not manage or depend on the machine's existing application, database, cache, or
+local proxy services.
 
-The service is intentionally deployment-neutral. Host names, operators, filesystem roots, optional proxy endpoints, Docker
-network ranges, credentials, and service locations are supplied by the operator. The repository does not contain a
-production environment file or a ready-to-install host-specific systemd unit.
+## Fixed batch contract
 
-## Runtime requirements
+One report is one immutable `swebench-pro-public-v2` batch:
 
-- Linux, Git, Python 3.11 or newer, `uv`, and Node.js/npm
-- Docker with permission to pull images, create isolated bridge networks, and run evaluation containers
-- Codex CLI and a valid Codex `auth.json`
-- [`regctl`](https://github.com/regclient/regclient) for importing task images that are not already present
-- enough disk space and inodes for the selected parallelism
+- exactly 731 public SWE-bench Pro tasks;
+- one PowerContext revision resolved to one full commit SHA for the complete batch;
+- one `gpt-5.6-sol` / `medium` Codex configuration;
+- one OFF and one ON execution for every task;
+- between one and thirty physical OFF/ON task pairs running concurrently, with every other child retained in the
+  durable queue.
 
-TokensFlow telemetry and the credential-free loopback proxy are optional integrations. Both are disabled by default;
-the normal open-source path uses native container egress and starts neither a proxy relay nor a TokensFlow
-daemon/finalizer.
+The pinned dataset SHA-256 is
+`b5b2462bfbf5aeb2cb7ba7d215778a1768b85f9d7ad7f748546c7f80a0ad1510`. The catalog refuses to start if the
+file hash, row count, row schema, task IDs, or source order differs.
 
-Install and validate from the repository root:
+The production 731-task batch is long-running and consumes the account's subscription allowance. Do not start it
+during deployment or smoke testing.
+Before a real run, record and show the user:
 
-```bash
-uv sync --project evaluation --frozen
-uv run --project evaluation pytest -c evaluation/pyproject.toml evaluation/tests -m "not live" -q
-uv run --project evaluation ruff check evaluation
-uv run --project evaluation ruff format --check evaluation
-uv run --directory evaluation ty check src
+```text
+current subscription usage = latest sanitized Codex used percent and reset time
+pause threshold = the selected used-percent boundary
+remaining estimate = observed paired Token and duration samples, or unavailable
 ```
 
-Build and test the web UI:
+If representative measurements do not yet exist, state that the estimate is unavailable; do not invent one. Codex
+is subscription-controlled here, so the console does not display currency or pretend that it has an account balance.
+A real batch requires explicit final approval after the non-mutating preview shows these facts.
 
-```bash
+## Configurable task-pair parallelism
+
+`POWERCONTEXT_EVAL_TASK_PARALLELISM` accepts an integer from `1` through `30` and defaults to `1`. Setting it to `30`
+runs up to thirty concurrent task pairs. Parallelism is
+across independent SWE-bench tasks only: each task remains one
+ordered OFF-then-ON comparison pair, followed by official evaluation and reporting.
+
+Each concurrent task has its own workspace, runtime, Codex home, PowerContext home, Docker network, and scope. Leases
+are per immutable attempt, while one supervisor owns the configured slots. Codex subscription usage and rate limits
+remain account-wide rather than per slot.
+
+Pause, cancel, an account-usage threshold, usage unavailability, and an infrastructure failure stop new claims.
+Active task pairs finish their current OFF/ON boundary; they are not killed midway. An infrastructure failure
+atomically pauses a runnable batch and records a sanitized control event, while already-active peers finish. Resume
+is always explicit after the failure is resolved, usage is freshly observed below the threshold, and service health
+is verified.
+
+`/api/health` reports `active_task_pairs`, `task_parallelism`, `resource_admission_open`, and allowlisted filesystem
+byte/inode capacity in addition to queue counts. Validate a capacity increase at a clean task boundary:
+
+1. keep the batch paused with zero running tasks, set `POWERCONTEXT_EVAL_TASK_PARALLELISM` to the intended capacity,
+   and restart only the
+   evaluation Worker;
+2. verify Web/Worker and existing services are healthy, account usage is freshly below the threshold, and health
+   reports `active_task_pairs: 0`, the selected `task_parallelism`, and `resource_admission_open: true`;
+3. explicitly resume the batch and verify distinct running attempts never exceed the selected capacity;
+4. if a bounded validation wave is required, request pause and let every active task pair finish naturally;
+5. verify isolated workspaces, runtimes, Codex homes, PowerContext homes, Docker networks and scopes, official
+   evaluation, cleanup, retained evidence, service health, and a fresh below-threshold usage observation;
+6. only after every check passes, explicitly resume sustained processing at the selected capacity.
+
+If the wave has an infrastructure failure, keep the batch paused, preserve every failed attempt and its evidence,
+set parallelism back to `1`, restart only the Worker, diagnose and fix the failure, and retry only the infrastructure
+failure items. Do not resume other queued work until those retries succeed and all safety checks pass.
+
+## Subscription usage and batch controls
+
+The launcher first creates a preview. Preview reads the current sanitized account usage and fixed 731-task contract,
+but creates no batch, queue row, attempt, or model call. Only **Confirm and start** persists work.
+
+The deployment defaults are:
+
+| Setting | Default | Meaning |
+| --- | ---: | --- |
+| `POWERCONTEXT_EVAL_USAGE_PAUSE_PERCENT` | `80` | Stop claiming new tasks at or above this used percentage |
+| `POWERCONTEXT_EVAL_USAGE_PROBE_SECONDS` | `60` | Normal interval between account-usage observations |
+| `POWERCONTEXT_EVAL_USAGE_PROBE_TIMEOUT_SECONDS` | `15` | Maximum duration of one bounded usage probe |
+| `POWERCONTEXT_EVAL_USAGE_SNAPSHOT_MAX_AGE_SECONDS` | `120` | Oldest observation accepted by preview, start, resume, and retry |
+| `POWERCONTEXT_EVAL_FILESYSTEM_MIN_FREE_BYTES` | `10737418240` | Base byte reserve; claim admission also reserves 4 GiB per configured task slot |
+| `POWERCONTEXT_EVAL_FILESYSTEM_MIN_FREE_INODES` | `1000000` | Base inode reserve; claim admission also reserves 250,000 inodes per configured task slot |
+| `POWERCONTEXT_EVAL_WORKSPACE_RECLAIM_INTERVAL_SECONDS` | `10` | Successful scratch reclaim poll interval; retained `/runs` and non-success workspaces are never removed |
+| `POWERCONTEXT_EVAL_TASK_PARALLELISM` | `1` | Concurrent independent OFF/ON task pairs; allowed range is 1 through 30 |
+| `POWERCONTEXT_EVAL_TOKENSFLOW_FINALIZER_TIMEOUT_SECONDS` | `600` | Deadline after durable arm handoff before forced cleanup |
+| `POWERCONTEXT_EVAL_TOKENSFLOW_FINALIZER_POLL_SECONDS` | `5` | Interruptible durable finalizer poll interval |
+| `POWERCONTEXT_EVAL_CODEX_MODELS` | `gpt-5.6-sol` | Comma-separated models admitted for newly created batches and tasks; the default Sol model must remain present |
+
+Changing the model allowlist affects only new submissions. Existing batches keep their immutable model and remain
+readable, runnable, and retryable even when that model is no longer admitted for new work.
+Before each claim, the Worker reserves both bytes and inodes for the configured parallelism. If either reserve is
+unavailable or below its hard boundary, runnable batches pause with `resource_pressure`; recovery never resumes them
+implicitly. A separate Worker maintenance loop removes only a succeeded attempt's reproducible `/work/<run-id>`
+scratch after validating its durable report and terminal deferred cleanup. It never removes `/runs`, failed,
+interrupted, queued, running, or cleanup-pending evidence. Scanning is cyclic, so completed tasks from older batches
+cannot starve newer successful workspaces from reclamation.
+TokensFlow finalization capacity is always twice `POWERCONTEXT_EVAL_TASK_PARALLELISM`; it is not independently
+configurable. When the durable queue exceeds that bound, the oldest excess jobs are force-cleaned in the same poll.
+
+Pause and cancel use a complete SWE-bench task as the boundary: the active OFF/ON pair finishes, then pause starts no
+new child, while cancel marks every remaining unstarted child cancelled. They do not kill an arm midway. Resume is
+always a manual resume and requires a fresh observation below the current threshold. Raising the threshold, reaching
+the reset time, or recovering from usage unavailable never resumes a batch implicitly.
+
+Changing a threshold updates only the protected batch and writes a control event. A transient usage-probe failure is
+reported as usage unavailable and fails closed: preview, start, resume, and retry cannot proceed, and runnable batches
+pause at the next safe boundary.
+
+Only infrastructure failures are retryable. A retry creates a new immutable attempt for that logical task; prior
+attempt evidence remains available, and no other completed task is rerun. Official `RESOLVED` and `UNRESOLVED`
+outcomes are benchmark results and cannot be retried.
+The durable attempt identity retains the form `<task-id>.attempt-0002`; filesystem and Docker resources use the
+deterministic safe slug `<task-id>-attempt-0002`, because Docker evaluation run IDs do not accept a period.
+
+## Transfer, build, and test on m0
+
+Mac must not build or package deployable frontend artifacts. Transfer committed Git objects directly into the bare
+source repository on m0:
+
+```sh
+git push m0:/data/powercontext-eval/source/powercontext.git \
+  <candidate-sha>:refs/heads/evaluation
+```
+
+On m0, verify the received commit and check it out in the deployment working tree:
+
+```sh
+cd /data/powercontext-eval/deploy/powercontext
+git fetch /data/powercontext-eval/source/powercontext.git evaluation
+git checkout --detach <candidate-sha>
+test "$(git rev-parse HEAD)" = "<candidate-sha>"
+```
+
+The evaluator reads `/data/powercontext-eval/source/powercontext.git`, not the deployment working tree. Frontend
+dependencies and `dist` therefore cannot dirty or alter the source used by `latest`.
+
+On m0, from `/data/powercontext-eval/deploy/powercontext`, run the Python verification:
+
+```sh
+/data/powercontext-eval/bin/uv sync --project evaluation --frozen
+/data/powercontext-eval/bin/uv run --project evaluation pytest -c evaluation/pyproject.toml evaluation/tests -m "not live" -q
+/data/powercontext-eval/bin/uv run --project evaluation ruff check evaluation
+/data/powercontext-eval/bin/uv run --project evaluation ruff format --check evaluation
+/data/powercontext-eval/bin/uv run --directory evaluation ty check src tests
+```
+
+m0 uses the pinned `node-v22.23.2-linux-x64-glibc-217` toolchain because its host glibc is 2.17. The committed npm
+override selects Rollup's portable WASM runtime, so the frontend build does not load a newer-glibc native parser.
+Build and test directly on m0:
+
+```sh
+export PATH=/data/powercontext-eval/toolchains/node-v22.23.2-linux-x64-glibc-217/bin:$PATH
+export HTTP_PROXY=http://127.0.0.1:7890
+export HTTPS_PROXY=http://127.0.0.1:7890
 cd evaluation/web
-npm ci
+npm ci --cache /data/powercontext-eval/cache/npm --no-audit --no-fund
 npm test -- --run
 npm run build
+find ../.. -name '._*' -print -quit | grep -q . && exit 1 || true
 ```
 
-## Quick start
+Use the committed `evaluation/web/package-lock.json`. The deployed frontend remains
+`/data/powercontext-eval/deploy/powercontext/evaluation/web/dist`; no frontend archive crosses from Mac to Linux.
 
-The commands below prepare a single-host development deployment. They intentionally bind the unauthenticated console
-to `127.0.0.1`. Put an authenticating reverse proxy in front of the console before allowing access from another
-machine; do not expose the HTTP service directly to an untrusted network.
+Install the reviewed Linux `regctl` binary at `/data/powercontext-eval/bin/regctl` and configure
+`POWERCONTEXT_EVAL_REGISTRY_BINARY` to that absolute path. When a task image is not already local, the worker uses
+this user-space client through `POWERCONTEXT_EVAL_PROXY_URL` to export the `linux/amd64` image, imports the exact
+temporary archive with `docker load`, verifies the immutable local image ID, and removes the archive. This path does
+not reconfigure or restart the Docker daemon, so existing containers remain untouched. Verify the downloaded
+binary against the checksum published for its pinned upstream release before installing it.
 
-### 1. Prepare the evaluation root
+The official SWE-bench Pro evaluator keeps the harness default Docker network because some pinned task scripts
+install test dependencies at evaluation time. Do not pass `--block_network` for this task set: doing so can leave
+package-manager setup waiting until timeout and turns valid benchmark tasks into infrastructure failures. Official
+evaluation containers receive neither the Codex credential nor the host Docker socket.
 
-Choose an absolute writable directory and create the layout expected by the default configuration. The Web and
-Worker processes must be able to read this repository and the protected configuration; the Worker also needs Docker
-access and write access to the evaluation root.
+Each run retains the exact pinned public row as `instance.jsonl`. The selected harness commit predates the public
+file's uppercase `FAIL_TO_PASS` and `PASS_TO_PASS` columns, so the runner separately writes
+`evaluator-instance.jsonl` with the two evaluator-required lowercase fields encoded as JSON strings. Gold, OFF, and
+ON use this derived compatibility input while reports and provenance continue to reference the unmodified public
+row.
 
-```bash
-export REPOSITORY_ROOT="$(pwd -P)"
-export EVALUATION_ROOT=/srv/powercontext-eval
+The pinned Open Library instance ending in `v29f82c9cf21d57b242f8d8b0e541525d259e2d63` contains two
+`PASS_TO_PASS` node IDs parameterized from `datetime.now().year`. Its derived evaluator input advances only those
+two year values to the evaluation year and following year so they still identify the tests collected in the task
+container. The retained `instance.jsonl` remains value-equivalent to the verified catalog row.
 
-install -d -m 0700 \
-  "$EVALUATION_ROOT/bin" \
-  "$EVALUATION_ROOT/cache" \
-  "$EVALUATION_ROOT/codex-home" \
-  "$EVALUATION_ROOT/config" \
-  "$EVALUATION_ROOT/source" \
-  "$EVALUATION_ROOT/venvs"
-```
+## Install configuration and units
 
-### 2. Install the pinned SWE-bench Pro harness
+Create the configuration without exposing its eventual contents in logs:
 
-The runner accepts exactly harness commit `ca10a60a5fcae51e6948ffe1485d4153d421e6c5`. That commit contains the pinned
-731-row dataset; the console verifies its schema, order, row count, and SHA-256 before admitting a batch.
-
-```bash
-git clone https://github.com/scaleapi/SWE-bench_Pro-os.git \
-  "$EVALUATION_ROOT/cache/swebench-pro.git"
-git -C "$EVALUATION_ROOT/cache/swebench-pro.git" checkout --detach \
-  ca10a60a5fcae51e6948ffe1485d4153d421e6c5
-test "$(git -C "$EVALUATION_ROOT/cache/swebench-pro.git" rev-parse HEAD)" = \
-  ca10a60a5fcae51e6948ffe1485d4153d421e6c5
-test "$(sha256sum "$EVALUATION_ROOT/cache/swebench-pro.git/helper_code/sweap_eval_full_v2.jsonl" | cut -d' ' -f1)" = \
-  b5b2462bfbf5aeb2cb7ba7d215778a1768b85f9d7ad7f748546c7f80a0ad1510
-
-uv venv --python 3.11 "$EVALUATION_ROOT/venvs/swebench-pro-ca10a60"
-uv pip install \
-  --python "$EVALUATION_ROOT/venvs/swebench-pro-ca10a60/bin/python" \
-  -r "$EVALUATION_ROOT/cache/swebench-pro.git/requirements.txt"
-```
-
-### 3. Prepare source, tools, credentials, and frontend
-
-The source is a bare mirror so every submitted branch, tag, or commit resolves to immutable Git data rather than a
-mutable developer working tree. Refresh or replace this mirror deliberately when evaluating newer PowerContext
-commits.
-
-```bash
-git clone --mirror "$REPOSITORY_ROOT" "$EVALUATION_ROOT/source/powercontext.git"
-
-install -m 0755 "$(command -v codex)" "$EVALUATION_ROOT/bin/codex"
-install -m 0755 "$(command -v uv)" "$EVALUATION_ROOT/bin/uv"
-install -m 0755 "$(command -v regctl)" "$EVALUATION_ROOT/bin/regctl"
-
-install -m 0600 "${CODEX_HOME:-$HOME/.codex}/auth.json" \
-  "$EVALUATION_ROOT/codex-home/auth.json"
-```
-
-If the Codex account uses a custom provider, also copy its configuration without printing it:
-
-```bash
-install -m 0600 "${CODEX_HOME:-$HOME/.codex}/config.toml" \
-  "$EVALUATION_ROOT/codex-home/config.toml"
-```
-
-Build the frontend from the repository checkout that will run the services:
-
-```bash
-cd "$REPOSITORY_ROOT/evaluation/web"
-npm ci
-npm test -- --run
-npm run build
-cd "$REPOSITORY_ROOT"
-```
-
-### 4. Create and validate the runtime environment
-
-There is one platform runtime configuration file. Copy the example, edit every path that differs from the layout
-above, and keep it private. In particular, set `POWERCONTEXT_EVAL_FRONTEND_DIST` to the absolute
-`$REPOSITORY_ROOT/evaluation/web/dist` path. Uncomment `POWERCONTEXT_EVAL_CODEX_CONFIG` only if the file was installed
-in the previous step.
-
-```bash
+```sh
+install -d -m 0700 /data/powercontext-eval/config
 install -m 0600 evaluation/deploy/powercontext-eval.env.example \
-  "$EVALUATION_ROOT/config/evaluation-console.env"
-${EDITOR:-vi} "$EVALUATION_ROOT/config/evaluation-console.env"
-
-set -a
-. "$EVALUATION_ROOT/config/evaluation-console.env"
-set +a
-
-uv run --project evaluation python -c \
-  'import os; from powercontext_eval.web.config import WebConfig; WebConfig.from_environment(os.environ); print("configuration valid")'
-docker info >/dev/null
+  /data/powercontext-eval/config/evaluation-console.env
+chmod 0600 /data/powercontext-eval/config/evaluation-console.env
+${EDITOR:?set EDITOR} /data/powercontext-eval/config/evaluation-console.env
+test "$(stat -c %a /data/powercontext-eval/config/evaluation-console.env)" = 600
 ```
 
-Use `POWERCONTEXT_EVAL_USAGE_MODE=api_key` for API-key credentials. That mode skips subscription-usage probing and
-treats quota admission as sufficient; filesystem and Docker admission remain active. Keep `subscription` for a
-Codex subscription whose CLI exposes the supported usage probe.
+The example has no credential values. The Mac credential source is operator-supplied and must never enter Git or
+the environment file. From the operator's Mac, copy it only to the explicit staging path inside the protected
+configuration directory:
 
-### 5. Start Web and Worker
-
-From the repository root, load the same protected environment in two terminals:
-
-```bash
-# Terminal 1
-set -a; . "$EVALUATION_ROOT/config/evaluation-console.env"; set +a
-uv run --project evaluation powercontext-eval web
+```sh
+scp /operator/supplied/path/auth.json m0:/data/powercontext-eval/config/auth.json.staged
 ```
 
-```bash
-# Terminal 2
-set -a; . "$EVALUATION_ROOT/config/evaluation-console.env"; set +a
-uv run --project evaluation powercontext-eval worker
+Then, on m0, install it without printing its contents and remove the staged file:
+
+```sh
+chmod 0600 /data/powercontext-eval/config/auth.json.staged
+install -d -o rongfeng.frf -g users -m 0700 /data/powercontext-eval/codex-home
+sudo install -o rongfeng.frf -g users -m 0600 \
+  /data/powercontext-eval/config/auth.json.staged /data/powercontext-eval/codex-home/auth.json
+unlink /data/powercontext-eval/config/auth.json.staged
+sudo -u rongfeng.frf test -r /data/powercontext-eval/codex-home/auth.json
+stat -c '%U:%G %a' /data/powercontext-eval/codex-home/auth.json | grep -qx 'rongfeng.frf:users 600'
 ```
 
-Verify the control plane before submitting work:
+Never paste authentication contents into terminal output, tickets, or logs.
 
-```bash
-curl --fail --silent http://127.0.0.1:8787/api/health
+For API-key Codex providers, add `POWERCONTEXT_EVAL_CODEX_AUTH_MODE`, `POWERCONTEXT_EVAL_CODEX_API_KEY`,
+and `POWERCONTEXT_EVAL_CODEX_OPENAI_BASE_URL` only to the installed mode-0600 environment file. Set the auth mode
+to `api`. These values are used by the Codex connectivity probe and invocation; ordinary `OPENAI_API_KEY` and
+`OPENAI_BASE_URL` remain the separate provider credentials supplied only to PowerContext. The Codex key in the
+environment must match the key in the protected `auth.json` copied into each disposable task container.
+
+## Operate TokensFlow telemetry without loss
+
+Set `POWERCONTEXT_EVAL_TOKENSFLOW_BINARY` to the selected absolute TokensFlow executable and
+`POWERCONTEXT_EVAL_TOKENSFLOW_USER_HOME` to the absolute home whose `.tokensflow` directory contains the operator's
+current configuration. The checked-in example uses a generic operator path and contains no credential. Replace it in
+the protected mode-0600 environment file; do not copy credentials into Git or serialize the selected user-home path
+through an API.
+
+Set `POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK` to an existing Docker network that provides the selected TokensFlow
+endpoint with working egress. This value is mandatory and has no code default. The Worker validates it as one literal
+Docker network name, attaches each fresh OFF/ON task container immediately before the TokensFlow identity gate,
+verifies that attachment, keeps the task's original isolated PowerContext network attached, and disconnects only the
+configured egress network after the daemon drain. The Worker never creates, modifies, or removes that external network
+and never changes Docker daemon configuration. A missing, unsafe, unreachable, or unverifiable network fails closed
+before container `tokensflow whoami` and Codex inference. TokensFlow lifecycle commands explicitly clear inherited
+proxy variables and use this configured network directly; PowerContext and Codex continue using the isolated relay.
+
+There are two different change procedures. A **configuration content replacement** atomically updates content at the
+already configured source path; the next OFF or ON arm takes a fresh private snapshot, while an active arm continues
+with its existing snapshot. A **configured path switch** changes either named environment value. Keep the batch paused,
+wait for the active task boundary, edit the protected environment file, and restart only the Worker. A path switch does
+not authorize work or perform a manual resume.
+
+TokensFlow's existing host user service belongs to the evaluation operator's user manager. Enable linger once, then
+enable the TokensFlow-managed unit as that user; do not create a second root service or an unmanaged background daemon:
+
+```sh
+sudo loginctl enable-linger <evaluation-user>
+sudo -iu <evaluation-user> systemctl --user enable --now tokensflow.service
+sudo -iu <evaluation-user> systemctl --user status tokensflow.service
+sudo -iu <evaluation-user> tokensflow status
 ```
 
-Open `http://127.0.0.1:8787/`, choose `swebench-pro-stability-v1`, preview the request, and confirm it. This 24-task
-set is the deployment regression suite; use it before the 731-task `swebench-pro-public-v2` set. The same bounded
-batch can be created from the CLI after Web and Worker are healthy:
+Run the final status command interactively because it can display account identity and local paths; do not paste or
+retain its raw output. The evaluation identity gate runs `tokensflow whoami` with the selected host snapshot and inside
+the arm container, compares normalized content, and retains only SHA-256 values and byte length. A mismatch is an
+infrastructure failure before Codex. Each accepted arm starts one detached daemon in the existing task container and
+proves the PID is the mounted TokensFlow executable before inference.
 
-```bash
-uv run --project evaluation powercontext-eval swebench-pro create-batch \
-  --console-url http://127.0.0.1:8787 \
-  --task-set swebench-pro-stability-v1 \
-  --powercontext-ref latest \
-  --idempotency-key "stability-$(date -u +%Y%m%dT%H%M%SZ)"
+After Codex returns, the arm uses one shared 60-second deadline for all of the following: normal TERM and confirmed
+daemon exit, `tokensflow upload --all`, and queue inspection proving the exact caught-up marker with no explicit
+pending, rejected, failed, blocked, or circuit-open state. Successful non-secret provenance is written only after that sequence, and only then may the
+container cleanup run. A replay that reports only duplicate records is acceptable because server-side deduplication is
+part of the upload contract; a missing record is never accepted.
+
+If TERM, upload, or queue verification fails, the task records an infrastructure failure and atomically requests a
+batch pause. The runner does not force-remove that arm container or delete the only recoverable data. It writes the
+fixed, non-sensitive marker
+`work/<run-id>/<arm>/runtime/tokensflow-recovery.json`; the private TokensFlow home and Codex JSONL remain as the
+**preserved private spool** for recovery and are not public report artifacts. Do not delete, rename, publish, or treat a
+marked runtime as a clean attempt. Repair the service, endpoint, or configured path first; replay the preserved spool
+with `upload --all`, confirm the queue is caught up, retain the recovery evidence privately, and only then retry that
+single task. Duplicate replay is safer than loss. Verify the retry created exactly one new immutable attempt and that
+no other child was claimed before an explicit manual resume.
+
+For a controlled rollout, keep every real batch paused, prove zero active task pairs, run one approved single task,
+and verify both arms show identity match, daemon start/stop, upload success, caught-up queue, no recovery marker, and
+normal cleanup. On any failure, leave the batch paused and preserve the spool. Rollback means restoring the previous
+two configured paths and accepted checkout at a task boundary, then restarting only the evaluation services and
+rechecking health. It must not prune Docker, delete the queue or spool, or restart/reconfigure new-api, MySQL, Redis,
+or the proxy.
+
+Verify units before installation:
+
+```sh
+systemd-analyze verify evaluation/deploy/powercontext-eval-web.service \
+  evaluation/deploy/powercontext-eval-worker.service
+sudo install -m 0644 evaluation/deploy/powercontext-eval-web.service /etc/systemd/system/
+sudo install -m 0644 evaluation/deploy/powercontext-eval-worker.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now powercontext-eval-web.service powercontext-eval-worker.service
 ```
 
-## Configuration files
+The Web unit keeps its systemd filesystem restrictions and runs as `rongfeng.frf`. The Worker runs as root because it
+owns the disposable benchmark runtime and Docker lifecycle; it does not receive a synthetic UID/GID or a restricted
+filesystem namespace. Task containers likewise keep the image's default root user and default `/root` home instead of
+forcing `HOME`, `CODEX_HOME`, a read-only root, dropped capabilities, or `no-new-privileges`. Isolation still comes
+from task-scoped mounts and networks, the absence of a Docker-socket mount, and CPU, memory, and PID limits.
 
-Only the environment file configures the evaluation platform. The other files either belong to Codex or are
-deployment templates:
+Successful task containers and scoped networks are cleaned normally after report handoff. If evaluation
+infrastructure fails after a task starts, the Worker retains the exact container, scoped network, workspace, runtime,
+and logs for diagnosis; an operator removes those resources explicitly only after collecting evidence.
 
-| File | Required | Purpose |
-| --- | --- | --- |
-| `evaluation-console.env` | yes | Web, Worker, storage, benchmark, retries, parallelism, and optional integrations |
-| `auth.json` | yes | Codex credentials; referenced by path and copied into isolated task homes |
-| `config.toml` | no | Custom Codex provider/model configuration |
-| `powercontext-eval.env.example` | no | Safe template; never loaded directly in production |
-| `*.service.in` | no | Unrendered systemd templates; they are not additional application configuration |
+## Verify and operate
 
-## Configuration reference
-
-Copy `evaluation/deploy/powercontext-eval.env.example` to a protected location, replace every applicable example
-value, and set mode `0600`. Only `POWERCONTEXT_EVAL_ROOT` is required by the configuration loader; the runtime tools,
-dataset, credentials, and source checkout must exist at their derived or explicitly configured paths before work is
-claimed.
-
-Derived paths are rooted below `POWERCONTEXT_EVAL_ROOT` unless explicitly overridden. The settings fall into these
-groups:
-
-| Group | Variables |
-| --- | --- |
-| Service and storage | `ROOT`, `HOST`, `PORT`, `DATABASE_PATH`, `RUN_ROOT`, `FRONTEND_DIST` |
-| Benchmark inputs | `POWERCONTEXT_SOURCE`, `HARNESS_ROOT`, `HARNESS_PYTHON`, `DATASET_PATH` |
-| Executables and credentials | `CODEX_BINARY`, `CODEX_MODELS`, `CODEX_CONFIG`, `UV_BINARY`, `REGISTRY_BINARY`, `AUTH_JSON` |
-| Scheduling and recovery | `TASK_PARALLELISM`, `MAX_ATTEMPTS`, `LEASE_SECONDS`, `POLL_SECONDS`, `WORKSPACE_RECLAIM_INTERVAL_SECONDS` |
-| Resource admission | `FILESYSTEM_MIN_FREE_BYTES`, `FILESYSTEM_MIN_FREE_INODES`, `DOCKER_NETWORK_POOL` |
-| Usage admission | `USAGE_MODE`, `USAGE_PAUSE_PERCENT`, `USAGE_PROBE_SECONDS`, `USAGE_PROBE_TIMEOUT_SECONDS`, `USAGE_SNAPSHOT_MAX_AGE_SECONDS` |
-| Optional integrations | `TOKENSFLOW_ENABLED`, TokenFlow settings, `PROXY_URL`, `EXTRA_NO_PROXY_HOSTS` |
-
-Every name in the table has the `POWERCONTEXT_EVAL_` prefix. Important behavior-changing settings are:
-
-- `POWERCONTEXT_EVAL_TASK_PARALLELISM` controls concurrent OFF/ON task pairs and defaults to `1`.
-- `POWERCONTEXT_EVAL_MAX_ATTEMPTS` bounds durable per-task retries and defaults to `5`.
-- `POWERCONTEXT_EVAL_USAGE_MODE=api_key` disables subscription quota probing; API-key mode is treated as having
-  sufficient quota while still enforcing resource admission.
-- `POWERCONTEXT_EVAL_TOKENSFLOW_ENABLED=true` explicitly enables internal TokensFlow telemetry and then requires its
-  binary, user home, and egress network settings. When false or absent, no TokensFlow profile, daemon, finalizer,
-  mount, or retained audit artifact is created.
-- `POWERCONTEXT_EVAL_PROXY_URL` explicitly enables the loopback proxy relay. When absent, task networks use native
-  egress and proxy variables are cleared from managed task processes.
-- `POWERCONTEXT_EVAL_EXTRA_NO_PROXY_HOSTS` is a comma-separated, validated list appended to loopback-only
-  `NO_PROXY`. It is valid only with the evaluation proxy and is recorded in each retained report.
-- `POWERCONTEXT_EVAL_DOCKER_NETWORK_POOL` selects the private IPv4 pool used for isolated /28 task networks. It must
-  provide at least 32 subnets and is recorded in each retained report.
-
-Credential files are referenced by path and copied into isolated task homes. Never place credential values in the
-environment example, command line, logs, reports, or repository.
-
-## Standalone runner
-
-The systemd templates and local commands must use the repository root as their working directory. A packaging
-workflow that starts the service outside a Git checkout must provide the exact 40-character source revision in
-`POWERCONTEXT_EVAL_BUILD_REVISION`.
-
-The standalone runner defaults to native networking with TokensFlow disabled. Other paths derive from the supplied
-root and remain individually overridable:
-
-```bash
-uv run --project evaluation powercontext-eval swebench-pro run \
-  --root /srv/powercontext-eval \
-  --instance-id instance_owner__repository-revision
+```sh
+systemctl status powercontext-eval-web.service powercontext-eval-worker.service
+journalctl -u powercontext-eval-web.service -u powercontext-eval-worker.service --since today
+curl --fail --show-error http://100.88.99.11:8787/api/health
 ```
 
-An internal deployment can explicitly add `--proxy-url http://127.0.0.1:8081 --tokensflow
---tokensflow-egress-network bridge`; TokensFlow binary and profile paths derive from the root unless overridden.
+Submitting work adds it to the SQLite-backed queue. The Worker supervisor runs the configured number of task-pair
+slots; every slot atomically leases at most one queued attempt for `POWERCONTEXT_EVAL_LEASE_SECONDS`. Polling is
+controlled by `POWERCONTEXT_EVAL_POLL_SECONDS`. A service crash causes systemd to restart it after five seconds. An
+interrupted lease is recovered independently after expiry; a batch infrastructure recovery fails closed by pausing
+new claims and preserving the failed attempt for diagnosis. The Web and Worker share only the SQLite database and can
+restart independently.
 
-## systemd templates
+Persistent state and artifacts live under `/data/powercontext-eval`:
 
-`evaluation/deploy/*.service.in` are templates, not installable units. Render all placeholders into a staging
-directory, inspect the result, and run `systemd-analyze verify` before installation. Required placeholders are:
+- Queue database: `/data/powercontext-eval/web/tasks.sqlite3`
+- Per-run artifacts: `/data/powercontext-eval/runs/`
+- Cached harness and dataset: `/data/powercontext-eval/cache/`
+- Checkout and frontend snapshot: `/data/powercontext-eval/deploy/powercontext/`
 
-- `@EVALUATION_ROOT@`: absolute writable evaluation root
-- `@REPOSITORY_ROOT@`: absolute deployment checkout
-- `@UV_BINARY@`: absolute `uv` executable
-- `@EVALUATION_USER@` and `@EVALUATION_GROUP@`: unprivileged web identity
-- `@EVALUATION_WORKER_USER@` and `@EVALUATION_WORKER_GROUP@`: worker identity with the required Docker access
+Batch membership, source order, the resolved PowerContext commit, control intent, usage observations, control events,
+and each immutable attempt are stored durably. Completed children are never rerun automatically. After restart,
+queued children remain queued; an expired running lease becomes an interrupted child, and the worker continues with
+later queued children. Aggregate reports are rebuilt from the immutable retained child artifacts.
 
-The web template is sandboxed to the evaluation root. The worker template intentionally does not claim a generic
-sandbox because Docker access and host cleanup policy vary by deployment. Do not grant the web role Docker access.
+## Report semantics and retained context
 
-## Control and recovery model
+The report publishes measurements, not an authored acceptance conclusion:
 
-Only operator pause or cancel changes durable control intent. Task failures do not pause healthy peers. Retriable
-task failures enter durable backoff and another free worker slot may claim the next eligible task. The default five
-attempt budget uses 30, 120, 300, and 600 second delays. An exhausted or non-retriable task becomes a retained
-failure while the rest of the batch continues.
+- OFF and ON resolution rates use all 731 selected tasks as the denominator;
+- a missing or failed evaluator result is not mislabeled as ordinary unresolved work and is counted separately as
+  an execution/evaluation failure;
+- the four paired outcome categories include only children with official results for both arms;
+- input, output, and total Token comparisons are each calculated only from paired children for which both OFF and ON
+  contain that metric; the displayed measured-task denominator is therefore identical for both arms;
+- unavailable elapsed time and patch byte counts are omitted from the product report.
 
-The worker performs startup-only orphan recovery under a process lock. A normal claim never steals another slot's
-lease. Loss of attempt ownership cancels child processes, after which the lifecycle cleaner removes exact
-attempt-owned containers, networks, and scratch workspaces. Retained `/runs` reports and private incident evidence
-remain available for audit. When TokensFlow is explicitly enabled, finalizer-owned containers are excluded until
-their durable finalization job is terminal.
+Each successful child retains the complete observable, sanitized OFF and ON timeline. The timeline contains the
+benchmark prompt, Codex JSONL events, official evaluation, and exact PowerContext injections in timestamp order.
+Injection records retain query, scope/session/turn identifiers when present, returned hit fields, and the exact
+injected text. Codex authentication material, proxy credentials, environment secrets, and secret-shaped fields are
+rejected before API delivery.
 
-Admission pressure is transient: disk, inode, Docker, or usage probe pressure prevents new claims without changing
-batch intent. Workspace reclamation runs continuously and removes only terminal attempts after report publication;
-it never deletes running, queued, retryable, or finalizer-owned state.
+## Schema migration and release backup
 
-## Operational acceptance
+The batch release migrates the existing SQLite database in place and preserves legacy task rows. Before deploying
+the new SHA, stop only the evaluation worker and create a SQLite-consistent backup:
 
-Before resuming a real batch:
+```sh
+sudo systemctl stop powercontext-eval-worker.service
+install -d -m 0700 /data/powercontext-eval/backups
+sqlite3 /data/powercontext-eval/web/tasks.sqlite3 \
+  ".backup '/data/powercontext-eval/backups/tasks-before-batch-<timestamp>.sqlite3'"
+test -s /data/powercontext-eval/backups/tasks-before-batch-<timestamp>.sqlite3
+```
 
-1. verify the exact source revision and a clean checkout;
-2. validate the protected environment file without displaying it;
-3. run backend, lint, format, type, frontend test, and frontend build gates;
-4. verify rendered systemd units and confirm web/worker health;
-5. run a small OFF/ON batch and inspect Gold, OFF, ON, official evaluator, retry, cleanup, and report evidence;
-6. confirm `active_task_pairs` never exceeds configured parallelism;
-7. confirm unrelated host services are neither dependencies nor restart targets;
-8. perform a secret scan over retained artifacts and logs;
-9. document the exact rollback revision before increasing parallelism.
+Record the exact prior checkout SHA, unit files, environment-file checksum, Web/Worker status, and restart counts.
+Deploy only the reviewed detached SHA, then initialize the schema by starting the Web process before the worker.
+Do not delete the backup after successful startup.
 
-Rollback is a source checkout and service restart operation. Do not delete the database, `/runs`, incident evidence,
-or task workspaces needed by queued and retryable attempts. Do not use global Docker prune as an evaluation cleanup
-mechanism.
+## Preflight and acceptance
+
+Run acceptance on m0 only. Before and after starting the console, record existing-service health with the site's
+normal read-only health checks and compare results; the console units must not restart or reconfigure them. Also
+check that port 8787 is free before first start:
+
+```sh
+ss -ltn 'sport = :8787'
+curl --fail --show-error http://100.88.99.11:8787/api/health
+```
+
+For a secret scan that does not print matching values, inspect only filenames and exit status:
+
+```sh
+git grep -IlE '(api[_-]?key|password|token|secret)[[:space:]]*=' -- evaluation/deploy evaluation/README.md
+test ! -f evaluation/deploy/evaluation-console.env
+```
+
+Docker cleanup audit: compare `docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}'` and
+`docker network ls --format '{{.ID}} {{.Name}}'` before and after an evaluation. Do not use broad prune commands;
+investigate and remove only resources proven to belong to a completed run.
+
+Verify the production catalog without starting work:
+
+```sh
+/data/powercontext-eval/bin/uv run --project evaluation python -c \
+  "from pathlib import Path; from powercontext_eval.benchmarks.swebench_pro.catalog import SweBenchProCatalog; x=SweBenchProCatalog.load(Path('/data/powercontext-eval/cache/swebench-pro.git/helper_code/sweap_eval_full_v2.jsonl')); print(len(x.instance_ids), x.dataset_sha256)"
+```
+
+The output must be exactly the count `731` followed by the pinned SHA-256 above.
+
+To validate preview and the task-boundary control contract without accidentally launching Codex:
+
+1. verify the database and `/api/health` both report zero queued and zero running real tasks;
+2. start Web and Worker so Worker can persist a fresh account-usage snapshot; with an empty queue this starts no
+   benchmark work;
+3. verify `POST /api/batches/preview` reports exactly 731 tasks and creates no batch or queue rows;
+4. run pause, resume, cancel, and retry checks only against the deterministic fixture or an already-cancelled
+   validation batch;
+5. verify the control-event order, attempt retention, and zero running real children.
+
+This preview and deterministic control check is a deployment check, not authorization to run the real benchmark.
+
+## Rollback
+
+To roll back only concurrency, keep the batch paused, set `POWERCONTEXT_EVAL_TASK_PARALLELISM=1`, and restart only the
+evaluation Worker. Verify `/api/health` reports `task_parallelism: 1` before an explicit resume; changing capacity
+never resumes a batch automatically.
+
+Stop the two console units, check out the previously accepted commit received in the m0 bare repository, rebuild the
+frontend on m0, resync the frozen evaluation environment, then start the units and repeat the health and queue checks:
+
+```sh
+sudo systemctl stop powercontext-eval-worker.service powercontext-eval-web.service
+git fetch /data/powercontext-eval/source/powercontext.git evaluation
+git checkout --detach <prior-accepted-commit>
+/data/powercontext-eval/bin/uv sync --project evaluation --frozen
+(export PATH=/data/powercontext-eval/toolchains/node-v22.23.2-linux-x64-glibc-217/bin:$PATH; \
+  cd evaluation/web && npm ci --cache /data/powercontext-eval/cache/npm --no-audit --no-fund && npm run build)
+sudo systemctl start powercontext-eval-web.service powercontext-eval-worker.service
+curl --fail --show-error http://100.88.99.11:8787/api/health
+```
+
+Rollback does not delete the queue or run artifacts. Back up the SQLite database before any schema-changing release.
+If the batch migration itself must be rolled back, keep both services stopped, preserve the failed database for
+forensics, restore the explicit pre-release SQLite backup, then start the prior Web SHA before the prior worker SHA.

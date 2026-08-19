@@ -13,6 +13,7 @@ from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFOR
 from powercontext_eval.models import PowerContextRef
 from powercontext_eval.report import GoldValidationAudit
 from powercontext_eval.runner import INSTANCE_ID
+from powercontext_eval.web.config import MAX_TASK_PARALLELISM
 
 
 class StrictModel(BaseModel):
@@ -52,34 +53,6 @@ class FailureCategory(StrEnum):
     TREATMENT_VALIDATION = "treatment_validation_failure"
     OFFICIAL_EVALUATOR = "official_evaluator_failure"
     REPORT_GENERATION = "report_generation_failure"
-    WORKER_INTERRUPTION = "worker_interruption"
-    INTERNAL = "internal"
-
-
-class RetryDisposition(StrEnum):
-    """Internal scheduling decision retained without exposing raw failure details."""
-
-    RETRY = "retry"
-    TERMINAL = "terminal"
-
-
-class FailureCode(StrEnum):
-    """Stable internal cause used for retry decisions and sanitized incident correlation."""
-
-    DATASET_SCHEMA = "dataset_schema"
-    CATALOG = "catalog"
-    UNSAFE_SUT_CONFIGURATION = "unsafe_sut_configuration"
-    UNSAFE_CODEX_INVOCATION = "unsafe_codex_invocation"
-    INVALID_TREATMENT_CONTRACT = "invalid_treatment_contract"
-    ARTIFACTS_ALREADY_EXIST = "artifacts_already_exist"
-    SOURCE_RESOLUTION = "source_resolution"
-    GOLD_VALIDATION = "gold_validation"
-    CODEX_EXECUTION = "codex_execution"
-    CODEX_CAPACITY = "codex_capacity"
-    READINESS = "readiness"
-    PLUGIN_INSPECTION = "plugin_inspection"
-    OFFICIAL_EVALUATOR = "official_evaluator"
-    REPORT_GENERATION = "report_generation"
     WORKER_INTERRUPTION = "worker_interruption"
     INTERNAL = "internal"
 
@@ -134,10 +107,9 @@ def _require_utc(value: datetime | None) -> datetime | None:
 
 class SafeFailure(FrozenModel):
     category: FailureCategory
-    failure_code: FailureCode = FailureCode.INTERNAL
     phase: TaskPhase | None = None
     summary: str = Field(min_length=1, max_length=500)
-    retry_disposition: RetryDisposition = RetryDisposition.RETRY
+    auto_retry: bool = False
 
 
 class TaskResult(FrozenModel):
@@ -160,35 +132,26 @@ class TaskRecord(FrozenModel):
     source_index: Annotated[int, Field(ge=0)] | None = None
     phase: TaskPhase | None = None
     created_at: datetime
-    eligible_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
     version: Annotated[int, Field(ge=0)] = 0
     failure_category: FailureCategory | None = None
-    failure_code: FailureCode | None = None
-    retry_disposition: RetryDisposition | None = None
     failure_phase: TaskPhase | None = None
     failure_summary: str | None = Field(default=None, max_length=500)
     result: TaskResult | None = None
 
-    _utc_timestamps = field_validator("created_at", "eligible_at", "started_at", "finished_at")(_require_utc)
+    _utc_timestamps = field_validator("created_at", "started_at", "finished_at")(_require_utc)
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> Self:
         if self.attempt_count < self.attempt_number:
             raise ValueError("Attempt count cannot be smaller than the current attempt number")
-        if self.eligible_at < self.created_at:
-            raise ValueError("Task eligibility cannot precede creation")
         has_category = self.failure_category is not None
-        has_code = self.failure_code is not None
-        has_disposition = self.retry_disposition is not None
         has_summary = self.failure_summary is not None
-        has_failure = has_category and has_code and has_disposition and has_summary
-        has_partial_failure = len({has_category, has_code, has_disposition, has_summary}) != 1 or (
-            self.failure_phase is not None and not has_failure
-        )
+        has_failure = has_category and has_summary
+        has_partial_failure = has_category != has_summary or (self.failure_phase is not None and not has_failure)
         if has_partial_failure:
-            raise ValueError("Failure category, code, disposition, and summary must be provided together")
+            raise ValueError("Failure category and summary must be provided together")
 
         if self.started_at is not None and self.started_at < self.created_at:
             raise ValueError("Task start time cannot precede creation")
@@ -227,19 +190,16 @@ class TaskAttemptRecord(FrozenModel):
     status: TaskStatus
     phase: TaskPhase | None = None
     created_at: datetime
-    eligible_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
     version: Annotated[int, Field(ge=0)] = 0
     failure_category: FailureCategory | None = None
-    failure_code: FailureCode | None = None
-    retry_disposition: RetryDisposition | None = None
     failure_phase: TaskPhase | None = None
     failure_summary: str | None = Field(default=None, max_length=500)
     result: TaskResult | None = None
     retryable: bool = False
 
-    _utc_timestamps = field_validator("created_at", "eligible_at", "started_at", "finished_at")(_require_utc)
+    _utc_timestamps = field_validator("created_at", "started_at", "finished_at")(_require_utc)
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> Self:
@@ -259,13 +219,10 @@ class TaskAttemptRecord(FrozenModel):
             status=self.status,
             phase=self.phase,
             created_at=self.created_at,
-            eligible_at=self.eligible_at,
             started_at=self.started_at,
             finished_at=self.finished_at,
             version=self.version,
             failure_category=self.failure_category,
-            failure_code=self.failure_code,
-            retry_disposition=self.retry_disposition,
             failure_phase=self.failure_phase,
             failure_summary=self.failure_summary,
             result=self.result,
@@ -286,14 +243,13 @@ class TaskSummary(FrozenModel):
     status: TaskStatus
     phase: TaskPhase | None = None
     created_at: datetime
-    eligible_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
     version: Annotated[int, Field(ge=0)]
     off_resolved: bool | None = None
     on_resolved: bool | None = None
 
-    _utc_timestamps = field_validator("created_at", "eligible_at", "started_at", "finished_at")(_require_utc)
+    _utc_timestamps = field_validator("created_at", "started_at", "finished_at")(_require_utc)
 
 
 class TaskEvent(FrozenModel):
@@ -318,14 +274,9 @@ class HealthResponse(FrozenModel):
     service: Literal["ok"]
     worker_lease_active: bool
     active_task_pairs: Annotated[int, Field(ge=0)]
-    task_parallelism: Annotated[int, Field(ge=1, le=20)]
+    task_parallelism: Annotated[int, Field(ge=1, le=MAX_TASK_PARALLELISM)]
     queued_tasks: Annotated[int, Field(ge=0)]
     running_tasks: Annotated[int, Field(ge=0)]
-    web_revision: str | None
-    worker_revision: str | None
-    web_schema_version: Annotated[int, Field(ge=1)] | None
-    worker_schema_version: Annotated[int, Field(ge=1)] | None
-    deployment_consistent: bool
     resource_admission_open: bool
     filesystem_free_bytes: Annotated[int, Field(ge=0)] | None
     filesystem_total_bytes: Annotated[int, Field(ge=0)] | None

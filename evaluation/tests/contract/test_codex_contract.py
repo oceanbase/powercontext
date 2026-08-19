@@ -14,6 +14,7 @@ import time
 from base64 import b64encode, urlsafe_b64encode
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from typing import BinaryIO, Self, cast
@@ -39,22 +40,22 @@ from powercontext_eval.powercontext_sut import (
     ContainerLimits,
     DockerSut,
     InvalidTreatment,
-    PluginInspectionFailure,
-    PluginInspectionFailureReason,
+    MissingPowerContextInjection,
     ProxyRelayConfig,
-    ReadinessFailure,
-    ReadinessFailureReason,
     SocatProxyRelay,
     SutConfig,
+    TcpRelayConfig,
     TreatmentEvidence,
     UnsafeSutConfiguration,
     _DockerExecRunner,
+    _workspace_patch_baseline,
     auth_secret_variants,
+    capture_workspace_patch,
     loopback_proxy_environment,
     run_codex_contract_smoke,
     validate_treatment,
 )
-from powercontext_eval.process import CommandFailed, CommandResult, CommandTimedOut, ProcessRunner
+from powercontext_eval.process import CommandCancelled, CommandFailed, CommandResult, CommandTimedOut, ProcessRunner
 from powercontext_eval.tokensflow import (
     DrainDeadline,
     TokensFlowDaemonHandle,
@@ -121,6 +122,46 @@ def test_codex_invocation_rejects_unsafe_model_names(model: str) -> None:
         CodexInvocation(arm=Arm.OFF, inside_disposable_container=True, model=model).argv()
 
 
+def test_codex_invocation_configures_a_validated_openai_base_url() -> None:
+    argv = CodexInvocation(
+        arm=Arm.OFF,
+        inside_disposable_container=True,
+        openai_base_url="http://100.88.99.11/v1",
+    ).argv()
+
+    overrides = (
+        'model_provider="powercontext_eval_api"',
+        'model_providers.powercontext_eval_api.name="PowerContext Evaluation API"',
+        'model_providers.powercontext_eval_api.base_url="http://100.88.99.11/v1"',
+        "model_providers.powercontext_eval_api.requires_openai_auth=true",
+        'model_providers.powercontext_eval_api.wire_api="responses"',
+        "model_providers.powercontext_eval_api.supports_websockets=false",
+    )
+    for override in overrides:
+        assert argv[argv.index(override) - 1 : argv.index(override) + 1] == ("-c", override)
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "ftp://models.invalid/v1",
+        "https://user:secret@models.invalid/v1",
+        "https://models.invalid/v1?key=value",
+        "https://models.invalid/v1#fragment",
+        'https://models.invalid/v1"',
+        "https://models.invalid/v1\\escape",
+        "https://models.invalid/v1\nunsafe",
+    ],
+)
+def test_codex_invocation_rejects_unsafe_openai_base_urls(base_url: str) -> None:
+    with pytest.raises(UnsafeCodexInvocation, match="base URL is unsafe"):
+        CodexInvocation(
+            arm=Arm.OFF,
+            inside_disposable_container=True,
+            openai_base_url=base_url,
+        ).argv()
+
+
 class FakeRunner:
     def __init__(self, result: CommandResult | BaseException) -> None:
         self.result = result
@@ -135,6 +176,115 @@ class FakeRunner:
 
 def command_result(stdout: str, *, returncode: int = 0, stderr: str = "") -> CommandResult:
     return CommandResult(("codex",), "/workspace", returncode, stdout, stderr)
+
+
+def test_capture_workspace_patch_includes_untracked_files(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    process = ProcessRunner()
+    process.run(("git", "init", "--initial-branch", "main"), cwd=repository)
+    tracked = repository / "tracked.txt"
+    tracked.write_text("before\n")
+    process.run(("git", "add", "tracked.txt"), cwd=repository)
+    process.run(
+        (
+            "git",
+            "-c",
+            "user.name=Evaluation Fixture",
+            "-c",
+            "user.email=evaluation@example.invalid",
+            "commit",
+            "-m",
+            "base",
+        ),
+        cwd=repository,
+    )
+
+    tracked.write_text("after\n")
+    repository.joinpath("new-file.txt").write_text("new content\n")
+
+    patch = capture_workspace_patch(process, repository, "HEAD")
+
+    assert "diff --git a/tracked.txt b/tracked.txt" in patch
+    assert "diff --git a/new-file.txt b/new-file.txt" in patch
+    assert "new file mode 100644" in patch
+    assert "+new content" in patch
+
+
+def test_capture_workspace_patch_excludes_image_provided_untracked_files(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    process = ProcessRunner()
+    process.run(("git", "init", "--initial-branch", "main"), cwd=repository)
+    tracked = repository / "tracked.txt"
+    tracked.write_text("before\n")
+    process.run(("git", "add", "tracked.txt"), cwd=repository)
+    process.run(
+        (
+            "git",
+            "-c",
+            "user.name=Evaluation Fixture",
+            "-c",
+            "user.email=evaluation@example.invalid",
+            "commit",
+            "-m",
+            "base",
+        ),
+        cwd=repository,
+    )
+
+    repository.joinpath("runtime.aof").write_text("image state\n")
+    tracked.write_text("after\n")
+    repository.joinpath("new-source.txt").write_text("new source\n")
+
+    patch = capture_workspace_patch(
+        process,
+        repository,
+        "HEAD",
+        excluded_paths=("runtime.aof",),
+    )
+
+    assert "diff --git a/tracked.txt b/tracked.txt" in patch
+    assert "diff --git a/new-source.txt b/new-source.txt" in patch
+    assert "runtime.aof" not in patch
+
+
+def test_workspace_git_commands_trust_only_the_exact_image_extracted_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "foreign-owned-workspace"
+    workspace.mkdir()
+
+    class OwnershipCheckingRunner:
+        def run(self, argv: Sequence[str], **kwargs: object) -> CommandResult:
+            assert kwargs["cwd"] == workspace
+            assert kwargs["env"] == {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "safe.directory",
+                "GIT_CONFIG_VALUE_0": os.fspath(workspace),
+            }
+            command = tuple(argv)
+            if command[:2] == ("git", "rev-parse"):
+                stdout = "a" * 40 + "\n"
+            elif command[:3] == ("git", "diff", "--name-only"):
+                stdout = "image-generated.txt\0"
+            elif command[:2] == ("git", "ls-files") or command[:2] == ("git", "add"):
+                stdout = ""
+            elif command[:3] == ("git", "diff", "--binary"):
+                stdout = "safe patch\n"
+            else:
+                raise AssertionError(command)
+            return CommandResult(command, os.fspath(workspace), 0, stdout, "")
+
+    runner = cast(ProcessRunner, OwnershipCheckingRunner())
+    baseline = _workspace_patch_baseline(runner, workspace)
+    patch = capture_workspace_patch(
+        runner,
+        workspace,
+        baseline.revision,
+        excluded_paths=baseline.excluded_paths,
+    )
+
+    assert baseline.excluded_paths == ("image-generated.txt",)
+    assert patch == "safe patch\n"
 
 
 def test_codex_runner_writes_exact_jsonl_and_summary_artifacts(tmp_path: Path) -> None:
@@ -222,6 +372,44 @@ def test_codex_runner_reports_missing_usage_as_na(tmp_path: Path) -> None:
 
     assert outcome.usage is None
     assert json.loads((tmp_path / "result/codex/usage.json").read_text()) == {"status": "N/A"}
+
+
+def test_codex_runner_accepts_a_protocol_complete_turn_after_cli_teardown_failure(tmp_path: Path) -> None:
+    raw = (
+        '{"type":"agent_message","message":"completed patch"}\n'
+        '{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":5}}\n'
+    )
+    runner = FakeRunner(CommandFailed("teardown failed", command_result(raw, returncode=1, stderr="teardown warning")))
+    store = ArtifactStore(tmp_path / "result")
+
+    outcome = CodexRunner(runner).run(
+        CodexInvocation(Arm.ON, inside_disposable_container=True),
+        prompt=b"prompt",
+        cwd=tmp_path,
+        store=store,
+    )
+
+    assert outcome.last_message == "completed patch"
+    assert outcome.usage == {"input_tokens": 11, "output_tokens": 5}
+    assert (store.root / "codex/events.jsonl").read_text() == raw
+    assert (store.root / "codex/stderr.txt").read_text() == "teardown warning"
+
+
+def test_codex_runner_rejects_a_failure_after_an_earlier_completed_turn(tmp_path: Path) -> None:
+    raw = (
+        '{"type":"agent_message","message":"first turn"}\n'
+        '{"type":"turn.completed"}\n'
+        '{"type":"turn.failed","error":{"message":"later failure"}}\n'
+    )
+    runner = FakeRunner(CommandFailed("failed", command_result(raw, returncode=1)))
+
+    with pytest.raises(CodexInfrastructureError, match="exit status 1"):
+        CodexRunner(runner).run(
+            CodexInvocation(Arm.ON, inside_disposable_container=True),
+            prompt=b"prompt",
+            cwd=tmp_path,
+            store=ArtifactStore(tmp_path / "result"),
+        )
 
 
 @pytest.mark.parametrize(
@@ -514,8 +702,20 @@ class FakeRelay:
 
     def start(self, gateway: str, upstream: ProxyRelayConfig) -> str:
         self.events.append(("start", gateway))
-        assert upstream.url == "http://127.0.0.1:18080"
+        assert upstream.url == "http://127.0.0.1:7890"
         return f"http://{gateway}:17890"
+
+    def stop(self) -> None:
+        self.events.append(("stop", "exact"))
+
+
+class FakeTcpRelay:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, object]] = []
+
+    def start(self, gateway: str, upstream: TcpRelayConfig) -> tuple[str, int]:
+        self.events.append(("start", (gateway, upstream.host, upstream.port)))
+        return gateway, 13881
 
     def stop(self) -> None:
         self.events.append(("stop", "exact"))
@@ -537,8 +737,7 @@ def sut_config(tmp_path: Path) -> SutConfig:
         uv_binary=tmp_path / "uv",
         source_checkout=tmp_path / "source",
         plugin_checkout_sha="a" * 40,
-        tokensflow_enabled=True,
-        proxy=ProxyRelayConfig("http://127.0.0.1:18080"),
+        proxy=ProxyRelayConfig("http://127.0.0.1:7890"),
         limits=ContainerLimits(cpus="2", memory="4g", pids=256),
         tokensflow_binary=tokensflow_binary,
         tokensflow_egress_network="bridge",
@@ -645,6 +844,191 @@ def test_parallel_workspace_initialization_shares_a_bounded_docker_budget(tmp_pa
     assert errors == []
 
 
+def test_parallel_experience_seeds_serialize_shared_backend_writes(tmp_path: Path) -> None:
+    guard = threading.Lock()
+    first_entered = threading.Event()
+    second_entered = threading.Event()
+    release = threading.Event()
+    current = 0
+    maximum = 0
+    calls = 0
+    errors: list[BaseException] = []
+
+    class BlockingSeedDocker:
+        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
+            nonlocal calls, current, maximum
+            assert argv[:2] == ("docker", "exec")
+            payload = json.loads(cast(bytes, kwargs["input_bytes"]))
+            with guard:
+                calls += 1
+                call = calls
+                current += 1
+                maximum = max(maximum, current)
+                (first_entered if call == 1 else second_entered).set()
+            try:
+                assert release.wait(timeout=5)
+                text = cast(str, payload["text"])
+                return command_result(
+                    json.dumps(
+                        {
+                            "scope_id": payload["scope_id"],
+                            "kind": payload["kind"],
+                            "text_sha256": hashlib.sha256(text.encode()).hexdigest(),
+                            "text_bytes": len(text.encode()),
+                            "memory": {"artifact_id": "memory"},
+                            "citation": {"source_id": "source"},
+                        }
+                    )
+                )
+            finally:
+                with guard:
+                    current -= 1
+
+    docker = BlockingSeedDocker()
+    entries: list[tuple[DockerSut, SutConfig, ArmPaths, ArtifactStore]] = []
+    for index in range(2):
+        root = tmp_path / str(index)
+        paths = make_paths(root)
+        paths.prepare()
+        config = replace(
+            sut_config(root),
+            run_id=f"run-{index}",
+            experience_memory="shared checkpoint",
+        )
+        entries.append((DockerSut(docker), config, paths, ArtifactStore(paths.result_root)))
+
+    def seed(entry: tuple[DockerSut, SutConfig, ArmPaths, ArtifactStore]) -> None:
+        try:
+            sut, config, paths, store = entry
+            sut._seed_experience_memory(config, f"container-{config.run_id}", paths, store)
+        except BaseException as error:  # noqa: BLE001 - thread failures must reach the assertion
+            errors.append(error)
+
+    first = threading.Thread(target=seed, args=(entries[0],))
+    second = threading.Thread(target=seed, args=(entries[1],))
+    first.start()
+    assert first_entered.wait(timeout=2)
+    second.start()
+    assert not second_entered.wait(timeout=0.1)
+    release.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert errors == []
+    assert second_entered.is_set()
+    assert maximum == 1
+
+
+def test_experience_seed_uses_extended_deadlines_and_records_safe_timeout_evidence(tmp_path: Path) -> None:
+    commands: list[tuple[str, ...]] = []
+
+    class TimedOutSeedDocker:
+        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
+            commands.append(argv)
+            if argv[:2] == ("docker", "exec"):
+                assert kwargs["timeout"] == powercontext_sut._EXPERIENCE_SEED_EXEC_TIMEOUT_SECONDS
+                assert (
+                    f"deadline = time.monotonic() + {powercontext_sut._EXPERIENCE_SEED_HTTP_TIMEOUT_SECONDS}"
+                    in argv[-1]
+                )
+                raise CommandTimedOut("injected", command_result("", returncode=124))
+            assert argv == ("docker", "stop", "--time", "1", "container-run-1")
+            return command_result("")
+
+    paths = make_paths(tmp_path)
+    paths.prepare()
+    config = replace(sut_config(tmp_path), experience_memory="checkpoint")
+    store = ArtifactStore(paths.result_root)
+
+    with pytest.raises(InvalidTreatment) as raised:
+        DockerSut(TimedOutSeedDocker())._seed_experience_memory(config, "container-run-1", paths, store)
+
+    assert isinstance(raised.value.__cause__, CommandTimedOut)
+    assert [command[:2] for command in commands] == [("docker", "exec"), ("docker", "stop")]
+    assert json.loads((paths.result_root / "powercontext/experience-seed-failure.json").read_text()) == {
+        "error_type": "CommandTimedOut",
+        "exec_timeout_seconds": powercontext_sut._EXPERIENCE_SEED_EXEC_TIMEOUT_SECONDS,
+        "http_timeout_seconds": powercontext_sut._EXPERIENCE_SEED_HTTP_TIMEOUT_SECONDS,
+        "returncode": 124,
+        "stage": "command",
+    }
+
+
+def test_experience_seed_waits_until_prepared_context_contains_the_seed() -> None:
+    requests: list[str] = []
+    text = "Prefer the smallest observable fix and preserve the regression test."
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            requests.append(self.path)
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            if self.path == "/v1/memory/remember":
+                response = {
+                    "memory": {"artifact_id": "memory"},
+                    "entry": {
+                        "kind": body["kind"],
+                        "text": body["text"],
+                        "citation": {"source_id": "source"},
+                        "version": 1,
+                        "state": "active",
+                    },
+                }
+            else:
+                assert self.path == "/v1/context/prepare"
+                assert body["scope_id"] == "eval:run-1:on"
+                assert body["query"].startswith(text + "\n\nCurrent task:\n")
+                if requests.count("/v1/context/prepare") == 1:
+                    response = {"status": "empty", "content": None, "content_bytes": 0}
+                else:
+                    envelope = json.dumps(
+                        {"trust": "untrusted_history", "items": [{"content": text, "truncated": False}]}
+                    )
+                    content = f"policy\n<POWERCONTEXT_CONTEXT>\n{envelope}\n</POWERCONTEXT_CONTEXT>"
+                    response = {"status": "ready", "content": content, "content_bytes": len(content.encode())}
+            encoded = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    script = powercontext_sut._EXPERIENCE_SEED_SCRIPT.replace(
+        "http://127.0.0.1:8000", f"http://127.0.0.1:{server.server_port}"
+    )
+    payload = json.dumps(
+        {
+            "scope_id": "eval:run-1:on",
+            "kind": "swebench_checkpoint_experience",
+            "text": text,
+            "reason": "test",
+        }
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            input=payload,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert result.returncode == 0, result.stderr
+    assert requests == ["/v1/memory/remember", "/v1/context/prepare", "/v1/context/prepare"]
+    assert json.loads(result.stdout)["readiness_attempts"] == 2
+
+
 def test_workspace_initialization_budget_is_released_after_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -668,7 +1052,7 @@ def test_workspace_initialization_budget_is_released_after_failure(
     DockerSut(TranscriptDocker())._initialize_workspace(sut_config(tmp_path / "successful"), Arm.OFF, successful_paths)
 
 
-def test_workspace_initialization_and_codex_exec_share_one_docker_budget(tmp_path: Path) -> None:
+def test_workspace_initialization_budget_does_not_throttle_codex_exec(tmp_path: Path) -> None:
     guard = threading.Lock()
     start = threading.Barrier(10)
     budget_entered = threading.Event()
@@ -720,7 +1104,7 @@ def test_workspace_initialization_and_codex_exec_share_one_docker_budget(tmp_pat
     try:
         assert budget_entered.wait(timeout=2)
         time.sleep(0.05)
-        assert maximum == 4
+        assert maximum == 9
     finally:
         release.set()
         for thread in threads:
@@ -730,7 +1114,7 @@ def test_workspace_initialization_and_codex_exec_share_one_docker_budget(tmp_pat
     assert errors == []
 
 
-def test_prewarm_and_codex_exec_share_one_docker_budget(tmp_path: Path) -> None:
+def test_prewarm_budget_does_not_throttle_codex_exec(tmp_path: Path) -> None:
     guard = threading.Lock()
     start = threading.Barrier(10)
     budget_entered = threading.Event()
@@ -791,7 +1175,7 @@ def test_prewarm_and_codex_exec_share_one_docker_budget(tmp_path: Path) -> None:
     try:
         assert budget_entered.wait(timeout=2)
         time.sleep(0.05)
-        assert maximum == 4
+        assert maximum == 8
     finally:
         release.set()
         for thread in threads:
@@ -872,50 +1256,10 @@ def test_plugin_list_retries_a_transient_invalid_snapshot(tmp_path: Path, monkey
             return command_result(next(self.outputs))
 
     docker = SequencedDocker()
-    monkeypatch.setattr(powercontext_sut.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(powercontext_sut.time, "sleep", lambda _: None)
 
-    assert DockerSut(docker)._plugin_list("container", make_paths(tmp_path)) == (
-        "powercontext",
-        "1.0.0",
-    )
+    assert DockerSut(docker)._plugin_list("container", make_paths(tmp_path)) == ("powercontext", "1.0.0")
     assert docker.calls == 2
-
-
-def test_plugin_list_retries_a_transient_command_timeout(tmp_path: Path) -> None:
-    class SequencedDocker:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
-            self.calls += 1
-            if self.calls == 1:
-                raise CommandTimedOut("injected plugin timeout", command_result("", returncode=124))
-            return command_result(
-                '{"available": [], "installed": '
-                '[{"pluginId": "powercontext", "version": "1.0.0", "installed": true}]}\n'
-            )
-
-    docker = SequencedDocker()
-
-    assert DockerSut(docker, sleeper=lambda _seconds: None)._plugin_list("container", make_paths(tmp_path)) == (
-        "powercontext",
-        "1.0.0",
-    )
-    assert docker.calls == 2
-
-
-def test_plugin_list_reports_exhausted_command_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    class TimedOutDocker:
-        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
-            raise CommandTimedOut("injected plugin timeout", command_result("", returncode=124))
-
-    monotonic = iter((0.0, 121.0))
-    monkeypatch.setattr(powercontext_sut.time, "monotonic", lambda: next(monotonic))
-
-    with pytest.raises(PluginInspectionFailure) as captured:
-        DockerSut(TimedOutDocker())._plugin_list("container", make_paths(tmp_path))
-    assert captured.value.reason is PluginInspectionFailureReason.TIMED_OUT
-    assert captured.value.safe_summary == "Isolated Codex plugin inspection timed out."
 
 
 def test_plugin_list_fails_closed_after_transient_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -923,13 +1267,11 @@ def test_plugin_list_fails_closed_after_transient_budget(tmp_path: Path, monkeyp
         def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
             return command_result('{"available": [], "installed": []}\n')
 
-    monotonic = iter((0.0, 121.0))
+    monotonic = iter((0.0, 61.0))
     monkeypatch.setattr(powercontext_sut.time, "monotonic", lambda: next(monotonic))
 
-    with pytest.raises(PluginInspectionFailure) as captured:
+    with pytest.raises(InvalidTreatment, match="exactly one plugin"):
         DockerSut(InvalidDocker())._plugin_list("container", make_paths(tmp_path))
-    assert captured.value.reason is PluginInspectionFailureReason.INVALID_PLUGIN_SET
-    assert captured.value.safe_summary == "Isolated Codex home did not converge to one plugin."
 
 
 def test_sut_transcript_has_hardening_mount_allowlist_shared_network_and_scope(tmp_path: Path) -> None:
@@ -997,6 +1339,18 @@ def test_sut_transcript_has_hardening_mount_allowlist_shared_network_and_scope(t
         "--json",
     ) in transcript
     assert ("docker", "exec", "powercontext-eval-run-1-on", "/tools/codex-dir/codex", "--version") in transcript
+    normalize_permissions = (
+        "docker",
+        "exec",
+        "powercontext-eval-run-1-on",
+        "/bin/sh",
+        "-c",
+        'find /workspace -xdev \\( -type d -o -type f \\) -exec chmod a+rwX -- "{}" +',
+    )
+    assert normalize_permissions in transcript
+    assert transcript.index(normalize_permissions) < next(
+        index for index, command in enumerate(transcript) if command[:3] == ("git", "add", "--intent-to-add")
+    )
     assert json.loads((paths.result_root / "codex/provenance.json").read_text()) == {
         "actual_version": "0.145.0",
         "expected_version": "0.145.0",
@@ -1014,44 +1368,6 @@ def test_sut_transcript_has_hardening_mount_allowlist_shared_network_and_scope(t
         if command[-8:] == ("sync", "--frozen", "--project", "/source", "--extra", "server", "--extra", "cli")
     )
     assert not any("/bin/chown" in command for command in transcript[:prewarm_index])
-
-
-def test_disabled_optional_integrations_start_no_relay_or_tokensflow_runtime(tmp_path: Path) -> None:
-    paths = make_paths(tmp_path)
-    shutil.rmtree(paths.tokensflow_home / ".tokensflow")
-    docker = TranscriptDocker()
-    enabled = sut_config(tmp_path)
-    enabled.codex_binary.write_text("binary")
-    enabled.uv_binary.write_text("binary")
-    config = replace(
-        enabled,
-        proxy=None,
-        tokensflow_enabled=False,
-        tokensflow_binary=None,
-        tokensflow_egress_network=None,
-        finalization_registrar=None,
-    )
-
-    def unexpected_relay() -> FakeRelay:
-        raise AssertionError("proxy relay must remain disabled")
-
-    outcome = DockerSut(docker, relay_factory=unexpected_relay).run_arm(
-        config,
-        Arm.OFF,
-        paths,
-        b"prompt",
-        ArtifactStore(paths.result_root),
-    )
-
-    assert outcome.tokensflow is None
-    assert outcome.tokensflow_daemon is None
-    assert not (paths.result_root / "tokensflow").exists()
-    run = next(command for command in docker.commands if command[:3] == ("docker", "run", "-d"))
-    rendered = " ".join(run)
-    assert "tokensflow" not in rendered.casefold()
-    assert "HTTP_PROXY=http" not in rendered
-    assert "HTTPS_PROXY=http" not in rendered
-    assert not any(command[:3] == ("docker", "network", "connect") for command in docker.commands)
 
 
 def _is_codex_inference(command: tuple[str, ...]) -> bool:
@@ -1271,7 +1587,7 @@ def test_tokensflow_path_wrapper_clears_only_proxy_environment_and_preserves_arg
     )
     dynamic.chmod(0o500)
     environment = {
-        **os.environ,
+        **{name: value for name, value in os.environ.items() if "PROXY" not in name.upper()},
         "POWERCONTEXT_EVAL_TOKENSFLOW_REAL_BINARY": os.fspath(dynamic),
         "HOME": "/runtime/tokensflow-home",
         "TOKENSFLOW_PROFILE": "dynamic-profile",
@@ -2508,7 +2824,7 @@ def test_contract_smoke_propagates_dynamic_tokensflow_snapshot_and_secret_bounda
         powercontext_source=os.fspath(source),
         powercontext_sha="a" * 40,
         auth_json=os.fspath(auth),
-        proxy_url="http://127.0.0.1:18080",
+        proxy_url="http://127.0.0.1:7890",
         sut_factory=lambda _process: CapturingSut(),  # type: ignore[arg-type]
     )
 
@@ -2569,7 +2885,7 @@ def test_contract_smoke_translates_unsafe_tokensflow_profile_to_sanitized_error(
             powercontext_source=os.fspath(source),
             powercontext_sha="a" * 40,
             auth_json=os.fspath(auth),
-            proxy_url="http://127.0.0.1:18080",
+            proxy_url="http://127.0.0.1:7890",
             sut_factory=lambda _process: pytest.fail("SUT must not run"),
         )
 
@@ -2611,7 +2927,11 @@ def test_distinct_run_ids_derive_distinct_runtime_network_and_scope(tmp_path: Pa
 
 def test_sut_uses_timestamp_recorder_and_retains_private_context_traces(tmp_path: Path) -> None:
     paths = make_paths(tmp_path)
-    config = sut_config(tmp_path)
+    config = replace(
+        sut_config(tmp_path),
+        codex_openai_base_url="http://100.88.99.11:5173",
+        container_env={"OPENAI_BASE_URL": "http://100.88.99.12:13000/v1"},
+    )
     config.codex_binary.write_text("binary")
     config.uv_binary.write_text("binary")
 
@@ -2644,15 +2964,170 @@ def test_sut_uses_timestamp_recorder_and_retains_private_context_traces(tmp_path
     )
 
     codex_command = next(command for command in docker.commands if "/evaluation/record_codex_jsonl.py" in command)
+    assert (
+        "/usr/bin/env",
+        "-u",
+        "OPENAI_API_KEY",
+        "-u",
+        "OPENAI_BASE_URL",
+    ) == codex_command[codex_command.index("/usr/bin/env") : codex_command.index("/usr/bin/env") + 5]
+    assert 'model_providers.powercontext_eval_api.base_url="http://100.88.99.11:5173"' in codex_command
+    assert "model_providers.powercontext_eval_api.supports_websockets=false" in codex_command
+    assert (paths.runtime / "container.env").read_text() == "OPENAI_BASE_URL=http://100.88.99.12:13000/v1\n"
     assert "/runtime/pc-env/bin/python" in codex_command
     assert "/runtime/pc-home/codex-observed.jsonl" in codex_command
     assert "POWERCONTEXT_EVAL_TRACE_PATH=/runtime/pc-home/evaluation-injections.jsonl" in codex_command
+    assert "GOTMPDIR=/runtime/go-tmp" in codex_command
     assert (paths.result_root / "context/codex-observed.jsonl").read_text().startswith('{"sequence":1')
     assert (
         (paths.result_root / "context/powercontext-injections.jsonl")
         .read_text()
         .startswith('{"event_type":"powercontext_injection"')
     )
+
+
+def test_sut_seeds_checkpoint_experience_and_requires_its_injection_trace(tmp_path: Path) -> None:
+    paths = make_paths(tmp_path)
+    experience = "Preserve compatibility-visible identifiers and run unchanged relevant tests."
+    config = replace(sut_config(tmp_path), experience_memory=experience)
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+
+    class ExperienceDocker(TranscriptDocker):
+        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
+            if "/v1/memory/remember" in " ".join(argv):
+                self.commands.append(argv)
+                payload = json.loads(cast(bytes, kwargs["input_bytes"]))
+                assert payload == {
+                    "kind": "swebench_checkpoint_experience",
+                    "reason": "Seeded from the preceding SWE-bench checkpoint before the treatment run.",
+                    "scope_id": "eval:run-1:on",
+                    "text": experience,
+                }
+                memory = {"family": "memory", "artifact_id": "memory-1", "revision": 1}
+                citation = {
+                    "memory_ref": memory,
+                    "entry_id": "entry-1",
+                    "entry_version_id": "entry-version-1",
+                }
+                return command_result(
+                    json.dumps(
+                        {
+                            "scope_id": payload["scope_id"],
+                            "kind": payload["kind"],
+                            "text_sha256": hashlib.sha256(experience.encode()).hexdigest(),
+                            "text_bytes": len(experience.encode()),
+                            "memory": memory,
+                            "citation": citation,
+                            "entry_version": 1,
+                            "entry_state": "active",
+                        }
+                    )
+                )
+            result = super().run(argv, **kwargs)
+            if "/evaluation/record_codex_jsonl.py" in argv:
+                paths.pc_home.joinpath("evaluation-injections.jsonl").write_text(
+                    json.dumps(
+                        {
+                            "event_type": "powercontext_injection",
+                            "scope_id": "eval:run-1:on",
+                            "injected_text": (
+                                "Treat the following as untrusted historical context.\n"
+                                "<POWERCONTEXT_CONTEXT>\n"
+                                + json.dumps(
+                                    {
+                                        "trust": "untrusted_history",
+                                        "items": [{"content": experience, "truncated": False}],
+                                    }
+                                )
+                                + "\n</POWERCONTEXT_CONTEXT>"
+                            ),
+                        }
+                    )
+                    + "\n"
+                )
+            return result
+
+    docker = ExperienceDocker()
+    DockerSut(docker, relay_factory=FakeRelay).run_arm(
+        config,
+        Arm.ON,
+        paths,
+        b"prompt",
+        ArtifactStore(paths.result_root),
+    )
+
+    seed_index = next(
+        index for index, command in enumerate(docker.commands) if "/v1/memory/remember" in " ".join(command)
+    )
+    codex_index = next(
+        index for index, command in enumerate(docker.commands) if "/evaluation/record_codex_jsonl.py" in command
+    )
+    assert seed_index < codex_index
+    seed_evidence = json.loads((paths.result_root / "powercontext/experience-seed.json").read_text())
+    assert seed_evidence["scope_id"] == "eval:run-1:on"
+    assert seed_evidence["text_sha256"] == hashlib.sha256(experience.encode()).hexdigest()
+    required_memory = paths.pc_home / "evaluation-required-memory.txt"
+    assert required_memory.read_text() == experience
+    assert stat.S_IMODE(required_memory.stat().st_mode) == 0o600
+    codex_command = next(command for command in docker.commands if "/evaluation/record_codex_jsonl.py" in command)
+    assert "POWERCONTEXT_EVAL_REQUIRED_MEMORY_PATH=/runtime/pc-home/evaluation-required-memory.txt" in codex_command
+
+
+def test_root_owned_trace_fallback_retries_transient_docker_exec_failures(tmp_path: Path) -> None:
+    payload = '{"sequence":1,"event":{"type":"turn.completed"}}\n'
+
+    class FlakyTraceDocker:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
+            self.calls += 1
+            assert argv == (
+                "docker",
+                "exec",
+                "powercontext-eval-run-1-off",
+                "cat",
+                "--",
+                "/runtime/pc-home/codex-observed.jsonl",
+            )
+            assert kwargs["check"] is False
+            return command_result(payload if self.calls == 3 else "", returncode=0 if self.calls == 3 else 1)
+
+    docker = FlakyTraceDocker()
+    sleeps: list[float] = []
+    result_root = tmp_path / "results"
+
+    DockerSut(docker, sleeper=sleeps.append)._retain_private_trace_from_container(
+        "powercontext-eval-run-1-off",
+        tmp_path / "root-owned-trace.jsonl",
+        "/runtime/pc-home/codex-observed.jsonl",
+        ArtifactStore(result_root),
+        "context/codex-observed.jsonl",
+        required=True,
+    )
+
+    assert docker.calls == 3
+    assert sleeps == [0.25, 0.25]
+    assert (result_root / "context/codex-observed.jsonl").read_text() == payload
+
+
+def test_missing_required_powercontext_injection_has_a_distinct_failure(tmp_path: Path) -> None:
+    class MissingTraceDocker:
+        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
+            assert argv[-2:] == ("--", "/runtime/pc-home/evaluation-injections.jsonl")
+            assert kwargs["check"] is False
+            return command_result("", returncode=1)
+
+    with pytest.raises(MissingPowerContextInjection, match="injection trace is missing"):
+        DockerSut(MissingTraceDocker(), sleeper=lambda _seconds: None)._retain_private_trace_from_container(
+            "powercontext-eval-run-1-on",
+            tmp_path / "missing-injections.jsonl",
+            "/runtime/pc-home/evaluation-injections.jsonl",
+            ArtifactStore(tmp_path / "results"),
+            "context/powercontext-injections.jsonl",
+            required=True,
+        )
 
 
 def test_pair_reuses_one_relay_and_network_and_runs_off_then_on(tmp_path: Path) -> None:
@@ -2690,6 +3165,94 @@ def test_pair_reuses_one_relay_and_network_and_runs_off_then_on(tmp_path: Path) 
     ]
     proxy_values = [next(value for value in command if value.startswith("HTTPS_PROXY=")) for command in task_runs]
     assert proxy_values == ["HTTPS_PROXY=http://172.29.0.1:17890"] * 2
+
+
+def test_on_database_uses_scoped_tcp_relay_and_private_env_file(tmp_path: Path) -> None:
+    class LockAwareTcpRelay(FakeTcpRelay):
+        def start(self, gateway: str, upstream: TcpRelayConfig) -> tuple[str, int]:
+            lock_available = powercontext_sut._DOCKER_NETWORK_CONTROL_LOCK.acquire(blocking=False)
+            if lock_available:
+                powercontext_sut._DOCKER_NETWORK_CONTROL_LOCK.release()
+            assert not lock_available
+            return super().start(gateway, upstream)
+
+    off_paths = make_paths(tmp_path / "off")
+    on_paths = make_paths(tmp_path / "on")
+    config = replace(
+        sut_config(tmp_path),
+        container_env={
+            "POWERCONTEXT_SERVER_DATABASE_URL": (
+                "mysql+aoceanbase://user:secret@6.12.232.7:3881/powercontext?charset=utf8mb4"
+            ),
+            "POWERCONTEXT_SERVER_DATABASE_KIND": "oceanbase",
+        },
+    )
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+    docker = TranscriptDocker()
+    database_relay = LockAwareTcpRelay()
+
+    DockerSut(
+        docker,
+        relay_factory=FakeRelay,
+        database_relay_factory=lambda: database_relay,
+    ).run_pair(
+        config,
+        paths={Arm.OFF: off_paths, Arm.ON: on_paths},
+        prompts={Arm.OFF: b"same", Arm.ON: b"same"},
+        stores={Arm.OFF: ArtifactStore(off_paths.result_root), Arm.ON: ArtifactStore(on_paths.result_root)},
+    )
+
+    assert database_relay.events == [
+        ("start", ("172.29.0.1", "6.12.232.7", 3881)),
+        ("stop", "exact"),
+    ]
+    assert not (off_paths.runtime / "container.env").exists()
+    env_file = on_paths.runtime / "container.env"
+    assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
+    assert env_file.read_text().splitlines() == [
+        (
+            "POWERCONTEXT_SERVER_DATABASE_URL="
+            "mysql+aoceanbase://user:secret@172.29.0.1:13881/powercontext?charset=utf8mb4"
+        ),
+        "POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase",
+    ]
+    task_runs = [command for command in docker.commands if command[:3] == ("docker", "run", "-d")]
+    assert "--env-file" not in task_runs[0]
+    assert task_runs[1][task_runs[1].index("--env-file") + 1] == os.fspath(env_file)
+    evidence_command = next(command for command in docker.commands if "evidence" in command)
+    evidence_script = evidence_command[evidence_command.index("-c") + 1]
+    assert "POWERCONTEXT_SERVER_DATABASE_KIND" in evidence_script
+    assert "create_async_engine" in evidence_script
+    assert "mode=ro" in evidence_script
+
+
+def test_on_evidence_counts_redacted_transport_activity(tmp_path: Path) -> None:
+    class AccessLogDocker(TranscriptDocker):
+        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
+            if argv[:2] == ("docker", "logs"):
+                self.commands.append(argv)
+                return command_result(
+                    "powercontext.server.access PowerContext transport request completed request_id=redacted\n"
+                    "legacy POST /mcp request\n"
+                    "unrelated server output\n"
+                )
+            return super().run(argv, **kwargs)
+
+    paths = make_paths(tmp_path)
+    config = sut_config(tmp_path)
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+
+    outcome = DockerSut(AccessLogDocker(), relay_factory=FakeRelay).run_arm(
+        config,
+        Arm.ON,
+        paths,
+        b"prompt",
+        ArtifactStore(paths.result_root),
+    )
+
+    assert outcome.evidence.mcp_requests == 2
 
 
 def test_pair_marks_off_before_network_preflight_and_retries_transient_create(tmp_path: Path) -> None:
@@ -2739,6 +3302,40 @@ def test_pair_marks_off_before_network_preflight_and_retries_transient_create(tm
     ]
 
 
+def test_network_preflight_retries_transient_relay_start(tmp_path: Path) -> None:
+    config = sut_config(tmp_path)
+    sleeps: list[float] = []
+
+    class TransientRelay(FakeRelay):
+        attempts = 0
+
+        def start(self, gateway: str, upstream: ProxyRelayConfig) -> str:
+            self.attempts += 1
+            if self.attempts < 3:
+                self.events.append(("start", gateway))
+                raise UnsafeSutConfiguration("injected transient relay failure")
+            return super().start(gateway, upstream)
+
+    relay = TransientRelay()
+    with DockerSut(
+        TranscriptDocker(),
+        relay_factory=lambda: relay,
+        sleeper=sleeps.append,
+    )._run_network(config, tmp_path) as (_network, relay_url):
+        assert relay_url == "http://172.29.0.1:17890"
+
+    assert relay.attempts == 3
+    assert sleeps == [0.25, 0.5]
+    assert relay.events == [
+        ("start", "172.29.0.1"),
+        ("stop", "exact"),
+        ("start", "172.29.0.1"),
+        ("stop", "exact"),
+        ("start", "172.29.0.1"),
+        ("stop", "exact"),
+    ]
+
+
 def test_network_create_timeout_adopts_only_exact_owned_network(tmp_path: Path) -> None:
     config = sut_config(tmp_path)
     config.codex_binary.write_text("binary")
@@ -2769,30 +3366,8 @@ def test_network_create_timeout_adopts_only_exact_owned_network(tmp_path: Path) 
     assert ("docker", "network", "rm", f"powercontext-eval-{config.run_id}") in docker.commands
 
 
-def test_default_network_uses_native_egress_without_starting_proxy_relay(tmp_path: Path) -> None:
-    config = replace(
-        sut_config(tmp_path),
-        proxy=None,
-        tokensflow_enabled=False,
-        tokensflow_binary=None,
-        tokensflow_egress_network=None,
-    )
-    docker = TranscriptDocker()
-
-    def unexpected_relay() -> FakeRelay:
-        raise AssertionError("proxy relay must remain disabled")
-
-    with DockerSut(docker, relay_factory=unexpected_relay)._run_network(config, config.source_checkout) as value:
-        network, relay_url = value
-        assert network == f"powercontext-eval-{config.run_id}"
-        assert relay_url is None
-
-    create = next(command for command in docker.commands if command[:3] == ("docker", "network", "create"))
-    assert "--internal" not in create
-
-
 def test_network_create_uses_dedicated_pool_and_probes_after_subnet_collision(tmp_path: Path) -> None:
-    config = replace(sut_config(tmp_path), docker_network_pool="10.72.0.0/20")
+    config = sut_config(tmp_path)
 
     class CollidingSubnetDocker:
         def __init__(self) -> None:
@@ -2825,7 +3400,7 @@ def test_network_create_uses_dedicated_pool_and_probes_after_subnet_collision(tm
     subnets = [ipaddress.ip_network(command[command.index("--subnet") + 1]) for command in creates]
     gateways = [ipaddress.ip_address(command[command.index("--gateway") + 1]) for command in creates]
     assert subnets[0] != subnets[1]
-    assert all(subnet.prefixlen == 28 and subnet.subnet_of(ipaddress.ip_network("10.72.0.0/20")) for subnet in subnets)
+    assert all(subnet.prefixlen == 28 and subnet.subnet_of(ipaddress.ip_network("172.30.0.0/15")) for subnet in subnets)
     assert gateways == [subnet.network_address + 1 for subnet in subnets]
 
 
@@ -2963,7 +3538,7 @@ def test_network_control_waits_for_docker_budget_before_taking_global_lock(
     assert lock_available
 
 
-def test_parallel_codex_execs_share_a_bounded_attach_budget(tmp_path: Path) -> None:
+def test_parallel_codex_execs_are_bounded_by_worker_not_docker_control_budget(tmp_path: Path) -> None:
     guard = threading.Lock()
     start = threading.Barrier(10)
     budget_entered = threading.Event()
@@ -2979,7 +3554,7 @@ def test_parallel_codex_execs_share_a_bounded_attach_budget(tmp_path: Path) -> N
             with guard:
                 current += 1
                 maximum = max(maximum, current)
-                if current == 4:
+                if current == 9:
                     budget_entered.set()
             try:
                 assert release.wait(timeout=5)
@@ -3005,7 +3580,7 @@ def test_parallel_codex_execs_share_a_bounded_attach_budget(tmp_path: Path) -> N
     try:
         assert budget_entered.wait(timeout=2)
         time.sleep(0.05)
-        assert maximum == 4
+        assert maximum == 9
     finally:
         release.set()
         for thread in threads:
@@ -3015,25 +3590,77 @@ def test_parallel_codex_execs_share_a_bounded_attach_budget(tmp_path: Path) -> N
     assert errors == []
 
 
-def test_codex_exec_attach_budget_is_released_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        powercontext_sut.docker_pressure, "_DOCKER_HEAVY_OPERATION_SEMAPHORE", threading.BoundedSemaphore(1)
-    )
-
-    class FailingDocker:
-        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
-            raise CommandFailed("injected", command_result("", returncode=70))
-
-    with pytest.raises(CommandFailed):
-        _DockerExecRunner(FailingDocker(), "failed-container").run(("codex", "exec"), cwd=tmp_path)
+def test_codex_exec_does_not_wait_for_docker_control_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    semaphore = threading.BoundedSemaphore(1)
+    semaphore.acquire()
+    monkeypatch.setattr(powercontext_sut.docker_pressure, "_DOCKER_HEAVY_OPERATION_SEMAPHORE", semaphore)
+    results: list[CommandResult] = []
+    errors: list[BaseException] = []
 
     class SuccessfulDocker:
         def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
             return command_result("")
 
-    result = _DockerExecRunner(SuccessfulDocker(), "successful-container").run(("codex", "exec"), cwd=tmp_path)
+    def run_codex() -> None:
+        try:
+            results.append(
+                _DockerExecRunner(SuccessfulDocker(), "successful-container").run(("codex", "exec"), cwd=tmp_path)
+            )
+        except BaseException as error:  # noqa: BLE001 - thread failures must reach the assertion
+            errors.append(error)
 
-    assert result.returncode == 0
+    thread = threading.Thread(target=run_codex)
+    thread.start()
+    thread.join(timeout=1)
+    semaphore.release()
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert [result.returncode for result in results] == [0]
+
+
+@pytest.mark.parametrize("error_type", [CommandTimedOut, CommandCancelled])
+def test_aborted_docker_exec_stops_but_retains_its_container(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: type[CommandTimedOut | CommandCancelled],
+) -> None:
+    commands: list[tuple[str, ...]] = []
+    stop_observed_slot_held: list[bool] = []
+    semaphore = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(powercontext_sut.docker_pressure, "_DOCKER_HEAVY_OPERATION_SEMAPHORE", semaphore)
+
+    class AbortedDocker:
+        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
+            commands.append(argv)
+            if argv[:3] == ("docker", "exec", "-i"):
+                raise error_type("injected", command_result("", returncode=124))
+            probe: list[bool] = []
+
+            def probe_slot() -> None:
+                acquired = semaphore.acquire(blocking=False)
+                probe.append(acquired)
+                if acquired:
+                    semaphore.release()
+
+            thread = threading.Thread(target=probe_slot)
+            thread.start()
+            thread.join(timeout=1)
+            assert not thread.is_alive()
+            stop_observed_slot_held.append(probe == [False])
+            return command_result("")
+
+    with pytest.raises(error_type):
+        _DockerExecRunner(AbortedDocker(), "retained-container").run(
+            ("codex", "exec"),
+            cwd=tmp_path,
+        )
+
+    assert commands == [
+        ("docker", "exec", "-i", "retained-container", "codex", "exec"),
+        ("docker", "stop", "--time", "1", "retained-container"),
+    ]
+    assert stop_observed_slot_held == [True]
 
 
 @pytest.mark.parametrize("fail_at", ["run", "exec", "evidence"])
@@ -3058,8 +3685,8 @@ def test_sut_faults_retain_started_infrastructure_for_diagnosis(tmp_path: Path, 
     "upstream",
     [
         "http://10.0.0.1:7890",
-        "http://user:password@127.0.0.1:18080",
-        "http://127.0.0.1:18080/path",
+        "http://user:password@127.0.0.1:7890",
+        "http://127.0.0.1:7890/path",
     ],
 )
 def test_relay_rejects_unsafe_upstream(upstream: str) -> None:
@@ -3079,7 +3706,7 @@ def test_sut_rejects_unsafe_run_names(tmp_path: Path, run_id: str) -> None:
             uv_binary=tmp_path / "uv",
             source_checkout=tmp_path / "source",
             plugin_checkout_sha="a" * 40,
-            proxy=ProxyRelayConfig("http://127.0.0.1:18080"),
+            proxy=ProxyRelayConfig("http://127.0.0.1:7890"),
         )
 
 
@@ -3126,7 +3753,7 @@ def test_socat_relay_binds_only_gateway_and_stops_exact_process_group(
     )
     relay = SocatProxyRelay()
 
-    url = relay.start("172.29.0.1", ProxyRelayConfig("http://127.0.0.1:18080"))
+    url = relay.start("172.29.0.1", ProxyRelayConfig("http://127.0.0.1:7890"))
     relay.stop()
 
     assert url == "http://172.29.0.1:17890"
@@ -3135,7 +3762,7 @@ def test_socat_relay_binds_only_gateway_and_stops_exact_process_group(
     assert popen_event[1] == (
         "socat",
         "TCP-LISTEN:17890,bind=172.29.0.1,fork,reuseaddr",
-        "TCP:127.0.0.1:18080",
+        "TCP:127.0.0.1:7890",
     )
     assert ("killpg", 4321, 15) in events
 
@@ -3166,7 +3793,7 @@ def test_socat_readiness_timeout_cleans_up_exact_process(
     with pytest.raises(UnsafeSutConfiguration, match="timed out"):
         SocatProxyRelay(readiness_timeout=0).start(
             "172.29.0.1",
-            ProxyRelayConfig("http://127.0.0.1:18080"),
+            ProxyRelayConfig("http://127.0.0.1:7890"),
         )
 
     assert killed == [(8765, 15)]
@@ -3180,21 +3807,6 @@ def test_auth_is_copied_minimally_with_mode_0600_and_homes_are_not_results(tmp_p
     assert destination.read_bytes() == paths.auth_source.read_bytes()
     assert not paths.codex_home.is_relative_to(paths.result_root)
     assert not paths.pc_home.is_relative_to(paths.result_root)
-
-
-def test_optional_codex_config_is_copied_with_mode_0600(tmp_path: Path) -> None:
-    source = tmp_path / "outside-results/provider.toml"
-    source.parent.mkdir(parents=True)
-    source.write_text('model_provider = "relay"\n', encoding="utf-8")
-    source.chmod(0o600)
-    paths = replace(make_paths(tmp_path), codex_config_source=source)
-
-    destination = paths.copy_codex_config()
-
-    assert destination is not None
-    assert stat.S_IMODE(destination.stat().st_mode) == 0o600
-    assert destination.read_bytes() == source.read_bytes()
-    assert destination == paths.codex_home / "config.toml"
 
 
 def test_fake_codex_fixture_is_executable_and_offline(tmp_path: Path) -> None:
@@ -3254,13 +3866,6 @@ def test_urllib_loopback_bypasses_an_unreachable_proxy(
         thread.join()
 
 
-def test_proxy_environment_appends_only_explicit_additional_bypass_hosts() -> None:
-    environment = loopback_proxy_environment("http://127.0.0.1:8081", ("mirror.example.test", "10.0.0.7"))
-
-    assert environment["NO_PROXY"] == "127.0.0.1,localhost,::1,mirror.example.test,10.0.0.7"
-    assert environment["no_proxy"] == environment["NO_PROXY"]
-
-
 def test_auth_secrets_include_nested_scalars_and_supported_derivations(tmp_path: Path) -> None:
     auth = tmp_path / "auth.json"
     auth.write_text(json.dumps({"tokens": [{"access": "a/b +?秘密"}], "account": {"id": 12345}}))
@@ -3278,6 +3883,20 @@ def test_auth_secrets_include_nested_scalars_and_supported_derivations(tmp_path:
         encoded.hex(),
         "12345",
     } <= set(variants)
+
+
+def test_auth_secret_variants_exclude_the_non_secret_auth_mode(tmp_path: Path) -> None:
+    variants = auth_secret_variants(
+        _write_json(
+            tmp_path / "auth.json",
+            {"auth_mode": "apikey", "OPENAI_API_KEY": "fixture-unique-api-secret"},
+        )
+    )
+
+    assert "fixture-unique-api-secret" in variants
+    assert "apikey" not in variants
+    assert b64encode(b"apikey").decode() not in variants
+    assert b"apikey".hex() not in variants
 
 
 def test_fake_codex_echo_of_auth_secrets_or_encodings_is_never_published(tmp_path: Path) -> None:
@@ -3505,6 +4124,10 @@ def test_plugin_locked_environment_is_prewarmed_and_injected_into_hook_path(tmp_
     assert "UV_PROJECT_ENVIRONMENT=/runtime/plugin-env" in task
     assert "UV_CACHE_DIR=/runtime/uv-cache" in task
     assert "UV_OFFLINE=1" in task
+    assert "GOTMPDIR=/runtime/go-tmp" in task
+    assert "GOMAXPROCS=2" in task
+    assert "GOFLAGS=-p=2" in task
+    assert paths.runtime.joinpath("go-tmp").is_dir()
 
 
 def test_transient_plugin_install_failure_is_retried_after_partial_codex_config_write(tmp_path: Path) -> None:
@@ -3551,7 +4174,7 @@ def test_transient_readiness_probe_timeout_is_retried(tmp_path: Path) -> None:
         timed_out = False
 
         def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
-            if not self.timed_out and "/runtime/pc-env/bin/python" in argv and "/health/ready" in " ".join(argv):
+            if not self.timed_out and "/runtime/pc-env/bin/powercontext" in argv and "doctor" in argv:
                 self.commands.append(argv)
                 self.timed_out = True
                 raise CommandTimedOut("injected readiness timeout", command_result("", returncode=124))
@@ -3568,123 +4191,47 @@ def test_transient_readiness_probe_timeout_is_retried(tmp_path: Path) -> None:
     )
 
     readiness_probes = [
-        command
-        for command in docker.commands
-        if "/runtime/pc-env/bin/python" in command and "/health/ready" in " ".join(command)
+        command for command in docker.commands if "/runtime/pc-env/bin/powercontext" in command and "doctor" in command
     ]
     assert len(readiness_probes) == 2
 
 
-def test_readiness_probe_is_server_only_and_persists_safe_audit(tmp_path: Path) -> None:
-    paths = make_paths(tmp_path)
-    config = sut_config(tmp_path)
-    config.codex_binary.write_text("binary")
-    config.uv_binary.write_text("binary")
-    docker = TranscriptDocker()
-
-    DockerSut(docker, relay_factory=FakeRelay).run_arm(
-        config,
-        Arm.ON,
-        paths,
-        b"prompt",
-        ArtifactStore(paths.result_root),
-    )
-
-    readiness_probes = [command for command in docker.commands if "/health/ready" in " ".join(command)]
-    assert len(readiness_probes) == 1
-    assert "/runtime/pc-env/bin/python" in readiness_probes[0]
-    assert "doctor" not in readiness_probes[0]
-    compile(powercontext_sut._SERVER_READINESS_PROBE_SCRIPT, "<readiness-probe>", "exec")
-    audit = json.loads((paths.result_root / "powercontext/readiness.json").read_text())
-    assert audit == {
-        "attempts": 1,
-        "budget_seconds": 120.0,
-        "last_outcome": "ready",
-        "probe_timeout_seconds": 10.0,
-        "server_ready": True,
-        "timed_out_attempts": 0,
-    }
-
-
-@pytest.mark.parametrize(
-    ("returncode", "reason", "summary"),
-    [
-        (
-            10,
-            ReadinessFailureReason.SERVER_NOT_READY,
-            "PowerContext Server remained not ready before the deadline.",
-        ),
-        (
-            11,
-            ReadinessFailureReason.MALFORMED_RESPONSE,
-            "PowerContext Server returned malformed readiness evidence.",
-        ),
-        (12, ReadinessFailureReason.PROBE_FAILED, "PowerContext readiness probe failed."),
-    ],
-)
-def test_readiness_failure_is_classified_and_persisted(
+def test_readiness_budget_starts_after_docker_pressure_admission(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    returncode: int,
-    reason: ReadinessFailureReason,
-    summary: str,
 ) -> None:
-    class FailingProbeDocker:
-        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
-            return command_result("", returncode=returncode)
-
-    now = 0.0
-
-    def monotonic() -> float:
-        return now
-
-    def sleep(seconds: float) -> None:
-        nonlocal now
-        now += seconds
-
-    monkeypatch.setattr(powercontext_sut, "_READINESS_BUDGET_SECONDS", 0.5)
-    monkeypatch.setattr(powercontext_sut.time, "monotonic", monotonic)
-    monkeypatch.setattr(powercontext_sut.time, "sleep", sleep)
     paths = make_paths(tmp_path)
-    store = ArtifactStore(paths.result_root)
+    paths.prepare()
+    docker = TranscriptDocker()
+    sut = DockerSut(docker)
+    semaphore = threading.BoundedSemaphore(1)
+    semaphore.acquire()
+    monkeypatch.setattr(powercontext_sut.docker_pressure, "_DOCKER_HEAVY_OPERATION_SEMAPHORE", semaphore)
+    monotonic_called = threading.Event()
+    original_monotonic = powercontext_sut.time.monotonic
 
-    with pytest.raises(ReadinessFailure, match=summary) as captured:
-        DockerSut(FailingProbeDocker())._readiness("container", paths, store)
+    def observed_monotonic() -> float:
+        monotonic_called.set()
+        return original_monotonic()
 
-    assert captured.value.reason is reason
-    audit = json.loads((paths.result_root / "powercontext/readiness.json").read_text())
-    assert audit["last_outcome"] == reason.value
-    assert audit["server_ready"] is False
+    monkeypatch.setattr(powercontext_sut.time, "monotonic", observed_monotonic)
+    errors: list[BaseException] = []
 
+    def check() -> None:
+        try:
+            sut._readiness("container-run-1", paths)
+        except BaseException as error:  # noqa: BLE001 - thread failures must reach the assertion
+            errors.append(error)
 
-def test_readiness_command_timeout_is_classified_and_persisted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    class TimedOutProbeDocker:
-        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
-            raise CommandTimedOut("injected readiness timeout", command_result("", returncode=124))
+    thread = threading.Thread(target=check)
+    thread.start()
+    assert not monotonic_called.wait(timeout=0.1)
+    semaphore.release()
+    thread.join(timeout=2)
 
-    now = 0.0
-
-    def monotonic() -> float:
-        return now
-
-    def sleep(seconds: float) -> None:
-        nonlocal now
-        now += seconds
-
-    monkeypatch.setattr(powercontext_sut, "_READINESS_BUDGET_SECONDS", 0.5)
-    monkeypatch.setattr(powercontext_sut.time, "monotonic", monotonic)
-    monkeypatch.setattr(powercontext_sut.time, "sleep", sleep)
-    paths = make_paths(tmp_path)
-    store = ArtifactStore(paths.result_root)
-
-    with pytest.raises(ReadinessFailure, match="readiness probe timed out") as captured:
-        DockerSut(TimedOutProbeDocker())._readiness("container", paths, store)
-
-    assert captured.value.reason is ReadinessFailureReason.COMMAND_TIMED_OUT
-    audit = json.loads((paths.result_root / "powercontext/readiness.json").read_text())
-    assert audit["last_outcome"] == "command_timed_out"
-    assert audit["server_ready"] is False
-    assert audit["timed_out_attempts"] == 1
+    assert not thread.is_alive()
+    assert errors == []
+    assert monotonic_called.is_set()
 
 
 def test_managed_python_is_kept_in_the_writable_arm_runtime(tmp_path: Path) -> None:

@@ -17,34 +17,18 @@ from powercontext_eval.benchmarks.swebench_pro.evaluator import OfficialResultEr
 from powercontext_eval.codex import CodexCapacityError, CodexInfrastructureError
 from powercontext_eval.errors import CommandFailed, GitSourceError
 from powercontext_eval.models import Arm
-from powercontext_eval.powercontext_sut import (
-    InvalidTreatment,
-    PluginInspectionFailure,
-    PluginInspectionFailureReason,
-    ReadinessFailure,
-    ReadinessFailureReason,
-    UnsafeSutConfiguration,
-)
+from powercontext_eval.powercontext_sut import InvalidTreatment, MissingPowerContextInjection, UnsafeSutConfiguration
 from powercontext_eval.process import CommandResult
 from powercontext_eval.runner import MinimalRunConfig, MinimalRunResult, RunConfig, RunPhase
 from powercontext_eval.tokensflow import TokensFlowFinalizationDescriptor, TokensFlowInfrastructureError
 from powercontext_eval.web.batches import BatchControlEventType, BatchCreate, BatchStatus
 from powercontext_eval.web.config import WebConfig
 from powercontext_eval.web.controls import BatchControlIntent, BatchPauseReason
-from powercontext_eval.web.models import (
-    FailureCategory,
-    FailureCode,
-    RetryDisposition,
-    SafeFailure,
-    TaskCreate,
-    TaskPhase,
-    TaskStatus,
-)
+from powercontext_eval.web.models import FailureCategory, SafeFailure, TaskCreate, TaskPhase, TaskStatus
 from powercontext_eval.web.resources import FilesystemCapacity, FilesystemResourceProbe
-from powercontext_eval.web.revision import RUNTIME_SCHEMA_VERSION, current_build_revision
-from powercontext_eval.web.store import TaskOwnershipError, TaskStore
+from powercontext_eval.web.store import TaskStore
 from powercontext_eval.web.usage import CodexUsageProbe, UsageSnapshot, UsageUnavailable
-from powercontext_eval.web.worker import EvaluationWorker, TaskPairWorker
+from powercontext_eval.web.worker import EvaluationWorker, TaskPairWorker, _default_usage_probe
 
 NOW = datetime(2026, 7, 29, 1, 2, 3, tzinfo=UTC)
 
@@ -92,7 +76,6 @@ def _default_safe_usage_probe(monkeypatch: pytest.MonkeyPatch) -> None:
             total_inodes=200_000_000,
         ),
     )
-    monkeypatch.setattr("powercontext_eval.web.resources.DockerDependencyProbe.check", lambda _self: None)
 
 
 def _config(
@@ -102,12 +85,14 @@ def _config(
     poll_seconds: float = 0.01,
     usage_probe_seconds: int = 60,
     task_parallelism: int = 1,
-    max_attempts: int = 5,
+    codex_capacity_retry_max: int = 5,
+    private_container_env: dict[str, str] | None = None,
+    codex_openai_base_url: str | None = None,
+    codex_timeout_seconds: int = 3600,
 ) -> WebConfig:
     return WebConfig.for_root(
         root,
-        max_attempts=max_attempts,
-        tokensflow_enabled=True,
+        codex_capacity_retry_max=codex_capacity_retry_max,
         tokensflow_egress_network="bridge",
         run_root=root / "artifacts",
         powercontext_source=root / "source",
@@ -119,28 +104,76 @@ def _config(
         tokensflow_user_home=root / "tokensflow-profile",
         uv_binary=root / "bin/uv",
         auth_json=root / "codex/auth.json",
-        proxy_url="http://127.0.0.1:18080",
+        proxy_url="http://127.0.0.1:7890",
         lease_seconds=lease_seconds,
         poll_seconds=poll_seconds,
         usage_probe_seconds=usage_probe_seconds,
         task_parallelism=task_parallelism,
+        private_container_env=private_container_env,
+        codex_openai_base_url=codex_openai_base_url,
+        codex_timeout_seconds=codex_timeout_seconds,
     )
 
 
 def _store(config: WebConfig) -> TaskStore:
-    store = TaskStore(
-        config.database_path,
-        lease_duration=timedelta(seconds=config.lease_seconds),
-        max_attempts=config.max_attempts,
-    )
+    store = TaskStore(config.database_path, lease_duration=timedelta(seconds=config.lease_seconds))
     store.initialize()
-    store.record_runtime_revision(
-        "web",
-        build_revision=current_build_revision(),
-        schema_version=RUNTIME_SCHEMA_VERSION,
-        now=NOW,
-    )
     return store
+
+
+def test_default_usage_probe_uses_api_key_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[dict[str, object]] = []
+    sentinel = object()
+    monkeypatch.setattr(
+        "powercontext_eval.web.worker.ApiKeyUsageProbe",
+        lambda **kwargs: calls.append(kwargs) or sentinel,
+    )
+    auth_json = tmp_path / "codex-auth.json"
+    auth_json.write_text('{"auth_mode":"apikey","OPENAI_API_KEY":"codex-api-key"}')
+    config = WebConfig.for_root(
+        tmp_path,
+        tokensflow_egress_network="bridge",
+        auth_json=auth_json,
+        codex_auth_mode="api",
+        codex_api_key="codex-api-key",
+        codex_openai_base_url="https://codex-models.invalid/v1",
+        private_container_env={
+            "OPENAI_API_KEY": "powercontext-api-key",
+            "OPENAI_BASE_URL": "https://powercontext-models.invalid/v1",
+        },
+    )
+
+    assert _default_usage_probe(config) is sentinel
+    assert calls == [
+        {
+            "api_key": "codex-api-key",
+            "base_url": "https://codex-models.invalid/v1",
+            "model": "gpt-5.6-sol",
+            "timeout_seconds": 15,
+        }
+    ]
+
+
+def test_default_usage_probe_rejects_an_api_key_that_differs_from_task_auth(tmp_path: Path) -> None:
+    auth_json = tmp_path / "codex-auth.json"
+    auth_json.write_text('{"auth_mode":"apikey","OPENAI_API_KEY":"task-api-key"}')
+    config = WebConfig.for_root(
+        tmp_path,
+        tokensflow_egress_network="bridge",
+        auth_json=auth_json,
+        codex_auth_mode="api",
+        codex_api_key="probe-api-key",
+        codex_openai_base_url="https://codex-models.invalid/v1",
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        _default_usage_probe(config)
+
+
+def test_default_usage_probe_keeps_chatgpt_mode_as_the_default(tmp_path: Path) -> None:
+    config = WebConfig.for_root(tmp_path, tokensflow_egress_network="bridge")
+
+    assert isinstance(_default_usage_probe(config), CodexUsageProbe)
 
 
 def _create(store: TaskStore, *, key: str = "worker-test", now: datetime = NOW) -> Any:
@@ -164,6 +197,7 @@ def _create_batch(
     key: str = "batch-worker-test",
     instance_ids: tuple[str, ...] = ("instance_owner__repo-a", "instance_owner__repo-b"),
     model: str = "gpt-5.6-sol",
+    container_env: dict[str, str] | None = None,
 ) -> Any:
     return store.create_batch(
         BatchCreate(
@@ -174,6 +208,7 @@ def _create_batch(
             reasoning_effort="medium",
             treatment_mode="off_on",
             idempotency_key=key,
+            container_env={} if container_env is None else container_env,
         ),
         instance_ids,
         now=NOW,
@@ -245,7 +280,7 @@ def _unexpected_runner(calls: list[str]) -> Callable[..., MinimalRunResult]:
     return runner
 
 
-def test_worker_usage_threshold_blocks_claim_without_pausing_batch(tmp_path: Path) -> None:
+def test_worker_pauses_before_claim_when_usage_reaches_configured_threshold(tmp_path: Path) -> None:
     config = _config(tmp_path)
     store = _store(config)
     batch = _create_batch(store, instance_ids=("instance_owner__repo-a",))
@@ -262,28 +297,19 @@ def test_worker_usage_threshold_blocks_claim_without_pausing_batch(tmp_path: Pat
 
     assert worker.run_once() is False
     assert calls == []
-    current = store.get_batch(batch.batch_id)
-    assert current.status is BatchStatus.QUEUED
-    assert current.control.intent is BatchControlIntent.RUN
-    assert current.control.pause_reason is None
+    paused = store.get_batch(batch.batch_id)
+    assert paused.status is BatchStatus.PAUSED
+    assert paused.control.intent is BatchControlIntent.PAUSE
+    assert paused.control.pause_reason is BatchPauseReason.USAGE_THRESHOLD
     assert store.latest_usage_snapshot() == _usage(80)
 
 
-def test_worker_reuses_usage_until_the_snapshot_max_age_expires(tmp_path: Path) -> None:
+def test_worker_reuses_usage_until_the_probe_interval_expires(tmp_path: Path) -> None:
     config = _config(tmp_path, usage_probe_seconds=60)
     store = _store(config)
     store.save_usage_snapshot(_usage(10, observed_at=NOW))
     probe = FakeUsageProbe([_usage(11), _usage(12)])
-    observations = iter(
-        (
-            NOW + timedelta(seconds=119),
-            NOW + timedelta(seconds=119),
-            NOW + timedelta(seconds=119),
-            NOW + timedelta(seconds=121),
-            NOW + timedelta(seconds=121),
-            NOW + timedelta(seconds=121),
-        )
-    )
+    observations = iter((NOW + timedelta(seconds=30), NOW + timedelta(seconds=61)))
     worker = EvaluationWorker(
         config,
         store,
@@ -295,8 +321,8 @@ def test_worker_reuses_usage_until_the_snapshot_max_age_expires(tmp_path: Path) 
     assert probe.calls == []
 
     assert worker.run_once() is False
-    assert probe.calls == [NOW + timedelta(seconds=121)]
-    assert store.latest_usage_snapshot() == _usage(11, observed_at=NOW + timedelta(seconds=121))
+    assert probe.calls == [NOW + timedelta(seconds=61)]
+    assert store.latest_usage_snapshot() == _usage(11, observed_at=NOW + timedelta(seconds=61))
 
 
 def test_worker_finishes_current_task_before_honoring_user_pause(
@@ -410,7 +436,7 @@ def test_worker_skips_paused_oldest_batch_and_claims_next_runnable_batch(tmp_pat
     assert store.list_batch_tasks(oldest.batch_id)[0].status is TaskStatus.QUEUED
 
 
-def test_worker_usage_unavailable_blocks_claim_without_pausing_batch(tmp_path: Path) -> None:
+def test_worker_fails_closed_when_usage_is_unavailable(tmp_path: Path) -> None:
     config = _config(tmp_path)
     store = _store(config)
     batch = _create_batch(store, instance_ids=("instance_owner__repo-a",))
@@ -428,9 +454,9 @@ def test_worker_usage_unavailable_blocks_claim_without_pausing_batch(tmp_path: P
     assert worker.run_once() is False
 
     assert calls == []
-    current = store.get_batch(batch.batch_id)
-    assert current.status is BatchStatus.QUEUED
-    assert current.control.pause_reason is None
+    paused = store.get_batch(batch.batch_id)
+    assert paused.status is BatchStatus.PAUSED
+    assert paused.control.pause_reason is BatchPauseReason.USAGE_UNAVAILABLE
 
 
 def test_worker_executes_only_the_new_attempt_when_a_failed_task_is_retried(tmp_path: Path) -> None:
@@ -450,11 +476,14 @@ def test_worker_executes_only_the_new_attempt_when_a_failed_task_is_retried(tmp_
         ),
         now=NOW,
     )
-    candidate = store.list_attempt_cleanup_candidates(limit=1, now=NOW)[0]
-    store.mark_attempt_evidence_exported(candidate.attempt_id)
-    assert store.complete_attempt_cleanup_and_schedule_retry(candidate.attempt_id, now=NOW) is True
-    retry = store.list_task_attempts(batch.batch_id, task.task_id)[-1]
-    store.request_resume(batch.batch_id, now=NOW)
+    retry, created = store.retry_failed_task(
+        batch.batch_id,
+        task.task_id,
+        idempotency_key="retry-worker-0001",
+        now=NOW,
+    )
+    assert created is True
+    store.request_resume(batch.batch_id, snapshot=_usage(9), now=NOW)
     calls: list[str] = []
 
     def runner(run_config: Any, *, instance: object, on_phase: Any) -> MinimalRunResult:
@@ -469,7 +498,7 @@ def test_worker_executes_only_the_new_attempt_when_a_failed_task_is_retried(tmp_
         runner=runner,
         source=FakeSource(),
         catalog=FakeCatalog(("instance_owner__repo-a",)),
-        clock=lambda: NOW + timedelta(seconds=31),
+        clock=lambda: NOW,
     )
 
     assert worker.run_once() is True
@@ -477,7 +506,7 @@ def test_worker_executes_only_the_new_attempt_when_a_failed_task_is_retried(tmp_
     assert retry.attempt_id == f"{task.task_id}.attempt-0002"
     assert calls == [f"{task.task_id}-attempt-0002"]
     attempts = store.list_task_attempts(batch.batch_id, task.task_id)
-    assert [attempt.status for attempt in attempts] == [TaskStatus.FAILED, TaskStatus.FAILED, TaskStatus.QUEUED]
+    assert [attempt.status for attempt in attempts] == [TaskStatus.FAILED, TaskStatus.FAILED]
     assert attempts[0].failure_summary == "First attempt failed"
 
 
@@ -590,7 +619,7 @@ def test_only_one_child_runs_physically_across_multiple_batches(tmp_path: Path) 
     assert calls == [store.list_batch_tasks(first_batch.batch_id)[0].task_id]
 
 
-def test_failed_batch_child_does_not_block_later_children(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_failed_batch_child_pauses_later_children(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config = _config(tmp_path)
     store = _store(config)
     instance_ids = ("instance_owner__repo-a", "instance_owner__repo-b")
@@ -619,14 +648,14 @@ def test_failed_batch_child_does_not_block_later_children(monkeypatch: pytest.Mo
     )
 
     assert worker.run_once() is True
-    assert worker.run_once() is True
+    assert worker.run_once() is False
 
     children = store.list_batch_tasks(batch.batch_id)
-    assert [child.status for child in children] == [TaskStatus.QUEUED, TaskStatus.SUCCEEDED]
+    assert [child.status for child in children] == [TaskStatus.FAILED, TaskStatus.QUEUED]
     current = store.get_batch(batch.batch_id)
-    assert current.status is BatchStatus.RUNNING
-    assert current.control.intent is BatchControlIntent.RUN
-    assert current.control.pause_reason is None
+    assert current.status is BatchStatus.PAUSED
+    assert current.control.intent is BatchControlIntent.PAUSE
+    assert current.control.pause_reason is BatchPauseReason.INFRASTRUCTURE_FAILURE
 
 
 def _capacity_worker(
@@ -687,23 +716,44 @@ def test_upstream_capacity_failure_requeues_the_child_without_pausing_the_batch(
     assert retry_events[0].details["reason"] == "codex_capacity"
 
     assert worker.run_once() is True
-    children = store.list_batch_tasks(batch.batch_id)
-    assert [child.status for child in children] == [TaskStatus.QUEUED, TaskStatus.SUCCEEDED]
-    retry_worker = EvaluationWorker(
-        config,
-        store,
-        runner=runner,
-        source=FakeSource(),
-        catalog=FakeCatalog(instance_ids),
-        clock=lambda: NOW + timedelta(seconds=31),
-    )
-    assert retry_worker.run_once() is True
     assert store.list_batch_tasks(batch.batch_id)[0].status is TaskStatus.SUCCEEDED
-    assert calls[2].endswith("-attempt-0002")
+    assert calls[1].endswith("-attempt-0002")
 
 
-def test_capacity_failures_exhaust_budget_without_pausing_or_blocking_siblings(tmp_path: Path) -> None:
-    config = _config(tmp_path, max_attempts=1)
+def test_missing_powercontext_injection_requeues_without_pausing_the_batch(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    store = _store(config)
+    instance_ids = ("instance_owner__repo-a",)
+    batch = _create_batch(store, instance_ids=instance_ids)
+
+    def runner(run_config: Any, *, instance: object, on_phase: Any) -> MinimalRunResult:
+        on_phase(RunPhase.RUNNING_ON)
+        raise MissingPowerContextInjection("PowerContext injection trace is missing")
+
+    worker = _capacity_worker(config, store, instance_ids, runner)
+
+    assert worker.run_once() is True
+
+    current = store.get_batch(batch.batch_id)
+    assert current.control.intent is BatchControlIntent.RUN
+    assert current.control.pause_reason is None
+    requeued = store.list_batch_tasks(batch.batch_id)[0]
+    assert requeued.status is TaskStatus.QUEUED
+    assert requeued.attempt_number == 2
+
+    attempts = store.list_task_attempts(batch.batch_id, requeued.task_id)
+    assert attempts[0].failure_category is FailureCategory.TREATMENT_VALIDATION
+    retry_events = [
+        event
+        for event in store.list_control_events(batch.batch_id)
+        if event.event_type is BatchControlEventType.TASK_RETRY_REQUESTED
+    ]
+    assert [event.actor for event in retry_events] == ["system"]
+    assert retry_events[0].details["reason"] == "infrastructure_failure"
+
+
+def test_capacity_failures_pause_the_batch_once_the_retry_budget_is_spent(tmp_path: Path) -> None:
+    config = _config(tmp_path, codex_capacity_retry_max=1)
     store = _store(config)
     instance_ids = ("instance_owner__repo-a", "instance_owner__repo-b")
     batch = _create_batch(store, instance_ids=instance_ids)
@@ -719,19 +769,17 @@ def test_capacity_failures_exhaust_budget_without_pausing_or_blocking_siblings(t
 
     assert worker.run_once() is True
 
-    failed = store.list_batch_tasks(batch.batch_id)
-    assert [task.status for task in failed] == [TaskStatus.FAILED, TaskStatus.FAILED]
-    assert all(task.failure_category is FailureCategory.CODEX_CAPACITY for task in failed)
-    assert all(task.retryable is False for task in failed)
+    failed = store.list_batch_tasks(batch.batch_id)[0]
+    assert failed.status is TaskStatus.FAILED
+    assert failed.failure_category is FailureCategory.CODEX_CAPACITY
+    assert failed.retryable is True
     current = store.get_batch(batch.batch_id)
-    assert current.status is BatchStatus.COMPLETED
-    assert current.control.intent is BatchControlIntent.RUN
-    assert current.control.pause_reason is None
+    assert current.status is BatchStatus.PAUSED
+    assert current.control.pause_reason is BatchPauseReason.CODEX_CAPACITY
 
-    for task in failed:
-        attempts = store.list_task_attempts(batch.batch_id, task.task_id)
-        assert [attempt.attempt_number for attempt in attempts] == [1]
-        assert attempts[0].failure_category is FailureCategory.CODEX_CAPACITY
+    attempts = store.list_task_attempts(batch.batch_id, failed.task_id)
+    assert [attempt.attempt_number for attempt in attempts] == [1, 2]
+    assert all(attempt.failure_category is FailureCategory.CODEX_CAPACITY for attempt in attempts)
 
 
 def test_capacity_failure_never_resumes_a_batch_the_user_paused(tmp_path: Path) -> None:
@@ -770,7 +818,7 @@ def test_capacity_failure_never_queues_another_attempt_for_a_cancelling_batch(tm
     assert store.list_task_attempts(batch.batch_id, child.task_id)[-1].attempt_number == 1
 
 
-def test_tokensflow_drain_failure_is_recorded_without_pausing_batch(tmp_path: Path) -> None:
+def test_tokensflow_drain_failure_is_recorded_and_pauses_batch_atomically(tmp_path: Path) -> None:
     config = _config(tmp_path)
     store = _store(config)
     instance_ids = ("instance_owner__repo-a", "instance_owner__repo-b")
@@ -791,17 +839,15 @@ def test_tokensflow_drain_failure_is_recorded_without_pausing_batch(tmp_path: Pa
 
     assert worker.run_once() is True
 
-    retried, queued = store.list_batch_tasks(batch.batch_id)
-    assert retried.status is TaskStatus.QUEUED
-    attempts = store.list_task_attempts(batch.batch_id, retried.task_id)
-    assert [attempt.status for attempt in attempts] == [TaskStatus.FAILED, TaskStatus.QUEUED]
-    assert attempts[0].failure_category is FailureCategory.CODEX_EXECUTION
-    assert attempts[0].failure_summary == "Codex execution failed."
+    failed, queued = store.list_batch_tasks(batch.batch_id)
+    assert failed.status is TaskStatus.FAILED
+    assert failed.failure_category is FailureCategory.CODEX_EXECUTION
+    assert failed.failure_summary == "Codex execution failed."
     assert queued.status is TaskStatus.QUEUED
     current = store.get_batch(batch.batch_id)
-    assert current.status is BatchStatus.QUEUED
-    assert current.control.intent is BatchControlIntent.RUN
-    assert current.control.pause_reason is None
+    assert current.status is BatchStatus.PAUSED
+    assert current.control.intent is BatchControlIntent.PAUSE
+    assert current.control.pause_reason is BatchPauseReason.INFRASTRUCTURE_FAILURE
 
 
 def test_restart_reuses_persisted_batch_sha_and_completed_children(
@@ -896,7 +942,6 @@ def test_run_once_maps_config_phases_and_success(monkeypatch: pytest.MonkeyPatch
     assert mapped.tokensflow_user_home == config.tokensflow_user_home
     assert mapped.uv_binary == config.uv_binary
     assert mapped.auth_json == config.auth_json
-    assert mapped.codex_config == config.codex_config
     assert mapped.proxy_url == config.proxy_url
     assert observed == [(TaskPhase(phase.value), True) for phase in RunPhase]
     assert loaded == [(config.run_root / "runs" / task.task_id, config.run_root / "runs")]
@@ -968,29 +1013,15 @@ def test_worker_never_repairs_a_symlink_lock_target(tmp_path: Path) -> None:
         (
             UnsafeSutConfiguration("secret"),
             FailureCategory.ENVIRONMENT_PREPARATION,
-            "Evaluation SUT configuration is unsafe.",
+            "Evaluation environment preparation failed.",
         ),
         (
             DatasetSchemaError("secret"),
             FailureCategory.ENVIRONMENT_PREPARATION,
-            "Evaluation dataset schema is invalid.",
+            "Evaluation environment preparation failed.",
         ),
         (GoldCheckFailed("secret"), FailureCategory.GOLD_VALIDATION, "Gold patch validation failed."),
-        (
-            CodexInfrastructureError("secret"),
-            FailureCategory.CODEX_EXECUTION,
-            "Codex execution infrastructure failed.",
-        ),
-        (
-            ReadinessFailure(ReadinessFailureReason.COMMAND_TIMED_OUT),
-            FailureCategory.TREATMENT_VALIDATION,
-            "PowerContext readiness probe timed out.",
-        ),
-        (
-            PluginInspectionFailure(PluginInspectionFailureReason.TIMED_OUT),
-            FailureCategory.TREATMENT_VALIDATION,
-            "Isolated Codex plugin inspection timed out.",
-        ),
+        (CodexInfrastructureError("secret"), FailureCategory.CODEX_EXECUTION, "Codex execution failed."),
         (InvalidTreatment("secret"), FailureCategory.TREATMENT_VALIDATION, "Treatment validation failed."),
         (OfficialResultError("secret"), FailureCategory.OFFICIAL_EVALUATOR, "Official evaluation failed."),
     ],
@@ -1014,28 +1045,6 @@ def test_known_failures_have_fixed_safe_mapping(
     assert failed.failure_summary == summary
 
 
-@pytest.mark.parametrize(
-    "reason",
-    [PluginInspectionFailureReason.TIMED_OUT, PluginInspectionFailureReason.INVALID_PLUGIN_SET],
-)
-def test_plugin_inspection_failures_are_retryable_with_a_stable_subcode(
-    tmp_path: Path,
-    reason: PluginInspectionFailureReason,
-) -> None:
-    config = _config(tmp_path)
-    store = _store(config)
-    task = _create(store)
-
-    def runner(config: Any, *, on_phase: Any) -> MinimalRunResult:
-        raise PluginInspectionFailure(reason)
-
-    assert EvaluationWorker(config, store, runner=runner, clock=lambda: NOW).run_once() is True
-    failed = store.get(task.task_id)
-    assert failed.failure_code is FailureCode.PLUGIN_INSPECTION
-    assert failed.retry_disposition is RetryDisposition.RETRY
-    assert failed.retryable is True
-
-
 def test_unknown_failure_never_persists_exception_text(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -1043,7 +1052,7 @@ def test_unknown_failure_never_persists_exception_text(
     config = _config(tmp_path)
     store = _store(config)
     task = _create(store)
-    credential = "credential-value-not-for-retention"
+    credential = "sk-fake-credential"
 
     def runner(config: Any, *, on_phase: Any) -> MinimalRunResult:
         on_phase(RunPhase.RUNNING_ON)
@@ -1053,7 +1062,7 @@ def test_unknown_failure_never_persists_exception_text(
     failed = store.get(task.task_id)
     assert failed.failure_category is FailureCategory.INTERNAL
     assert failed.failure_phase is TaskPhase.RUNNING_ON
-    assert failed.failure_summary == "The evaluation worker failed unexpectedly. Inspect the retained worker logs."
+    assert failed.failure_summary == "The evaluation worker failed unexpectedly. Inspect the retained m0 logs."
     assert credential not in config.database_path.read_bytes().decode(errors="ignore")
     assert "error_type=RuntimeError" in caplog.text
     assert credential not in caplog.text
@@ -1066,7 +1075,7 @@ def test_command_failure_logs_only_safe_command_shape_and_return_code(
     config = _config(tmp_path)
     store = _store(config)
     _create(store)
-    credential = "credential-value-not-for-retention"
+    credential = "sk-fake-credential"
 
     def runner(config: Any, *, on_phase: Any) -> MinimalRunResult:
         on_phase(RunPhase.RUNNING_OFF)
@@ -1261,64 +1270,84 @@ def test_heartbeat_start_failure_is_safely_persisted_and_run_forever_continues(t
     failed = store.get(task.task_id)
     assert failed.status is TaskStatus.FAILED
     assert failed.failure_category is FailureCategory.INTERNAL
-    assert failed.failure_summary == "The evaluation worker failed unexpectedly. Inspect the retained worker logs."
+    assert failed.failure_summary == "The evaluation worker failed unexpectedly. Inspect the retained m0 logs."
     assert runner_calls == []
     assert waits == [config.poll_seconds]
 
 
-def test_ownership_loss_cancels_runner_and_startup_recovery_fences_attempt(tmp_path: Path) -> None:
+def test_ownership_loss_prevents_stale_worker_mutation(tmp_path: Path) -> None:
     config = _config(tmp_path, lease_seconds=1)
     store = _store(config)
     task = _create(store)
     later = NOW + timedelta(seconds=2)
 
     def runner(run_config: Any, *, on_phase: Any) -> MinimalRunResult:
-        assert run_config.cancel_event is not None
-        original = store.set_phase
-
-        def lose_ownership(*args: Any, **kwargs: Any) -> Any:
-            del args, kwargs
-            raise TaskOwnershipError("ownership changed")
-
-        store.set_phase = lose_ownership  # type: ignore[method-assign]
+        assert store.recover_expired(now=later) == [task.task_id]
         on_phase(RunPhase.RUNNING_ON)
-        store.set_phase = original  # type: ignore[method-assign]
-        assert run_config.cancel_event.is_set()
         return MinimalRunResult(task.task_id, config.run_root / "runs" / task.task_id / "report.md", True, True)
 
-    assert EvaluationWorker(config, store, runner=runner, clock=lambda: NOW).run_once() is True
-    assert store.get(task.task_id).status is TaskStatus.RUNNING
-    assert store.begin_startup_recovery(now=later) == [task.task_id]
+    times = iter((NOW, later, later))
+    assert EvaluationWorker(config, store, runner=runner, clock=lambda: next(times)).run_once() is True
     record = store.get(task.task_id)
     assert record.status is TaskStatus.INTERRUPTED
     assert record.phase is None
     assert record.result is None
 
 
-def test_startup_recovery_fences_unexpired_predecessor_before_claiming_new_work(tmp_path: Path) -> None:
+def test_host_lock_prevents_recovery_and_second_runner_until_stale_process_releases(tmp_path: Path) -> None:
     config = _config(tmp_path, lease_seconds=1)
     store = _store(config)
     first_task = _create(store, key="first-task")
     second_task = _create(store, key="second-task")
-    claimed = store.claim_next("predecessor", now=NOW)
-    assert claimed is not None and claimed.task_id == first_task.task_id
-    calls: list[str] = []
+    later = NOW + timedelta(seconds=2)
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def stale_runner(run_config: Any, *, on_phase: Any) -> MinimalRunResult:
+        calls.append(("first", run_config.run_id))
+        entered.set()
+        assert release.wait(timeout=2)
+        raise RuntimeError("stale runner returned")
 
     def successor_runner(run_config: Any, *, on_phase: Any) -> MinimalRunResult:
-        del on_phase
-        calls.append(run_config.run_id)
+        calls.append(("second", run_config.run_id))
         raise RuntimeError("successor ran")
 
+    def no_heartbeat(**kwargs: Any) -> RecordingThread:
+        return RecordingThread(**kwargs)
+
+    first_times = iter((NOW, later))
+    first = EvaluationWorker(
+        config,
+        store,
+        runner=stale_runner,
+        worker_id="first",
+        clock=lambda: next(first_times),
+        thread_factory=no_heartbeat,
+    )
     successor = EvaluationWorker(
         config,
         store,
         runner=successor_runner,
         worker_id="successor",
-        clock=lambda: NOW,
+        clock=lambda: later,
+        sleep=lambda seconds: successor.stop(),
     )
+    thread = threading.Thread(target=first.run_once)
+    thread.start()
+    assert entered.wait(timeout=2)
+
+    successor.run_forever()
+    assert store.get(first_task.task_id).status is TaskStatus.RUNNING
+    assert calls == [("first", first_task.task_id)]
+
+    release.set()
+    thread.join(timeout=2)
+    assert not thread.is_alive()
     assert successor.run_once() is True
     assert store.get(first_task.task_id).status is TaskStatus.INTERRUPTED
-    assert calls == [second_task.task_id]
+    assert calls == [("first", first_task.task_id), ("second", second_task.task_id)]
 
 
 @pytest.mark.parametrize(
@@ -1403,13 +1432,13 @@ def test_run_forever_recovers_once_and_waits_only_when_idle(
         sleep=wait,
     )
     recoveries = []
-    original = store.begin_startup_recovery
+    original = store.recover_expired
 
     def recover(*, now: datetime) -> list[str]:
         recoveries.append(now)
         return original(now=now)
 
-    monkeypatch.setattr(store, "begin_startup_recovery", recover)
+    monkeypatch.setattr(store, "recover_expired", recover)
     worker.run_forever()
 
     assert recoveries == [NOW]
@@ -1439,8 +1468,48 @@ def test_finalizer_supervisor_is_independent_from_task_pair_slots_and_stops_prom
 
     assert not supervisor.is_alive()
     assert len(worker._slots) == 4
-    assert observed_stop == [worker._stop]
+    assert observed_stop == [worker._finalizer_stop]
     assert worker._stop.is_set()
+    assert worker._finalizer_stop.is_set()
+
+
+def test_finalizer_supervisor_drains_open_jobs_before_worker_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path, task_parallelism=2)
+    store = _store(config)
+    entered = threading.Event()
+    release = threading.Event()
+    drained = threading.Event()
+
+    class FakeFinalizer:
+        def run_forever(self, stop: threading.Event, poll_seconds: float) -> None:
+            assert poll_seconds == config.tokensflow_finalizer_poll_seconds
+            entered.set()
+            assert release.wait(timeout=2)
+            drained.set()
+            stop.wait(timeout=2)
+
+    monkeypatch.setattr(
+        store,
+        "list_open_tokensflow_finalizations",
+        lambda: [] if drained.is_set() else [SimpleNamespace()],
+    )
+    worker = EvaluationWorker(config, store, finalizer=FakeFinalizer(), clock=lambda: NOW)
+    supervisor = threading.Thread(target=worker.run_forever)
+    supervisor.start()
+    assert entered.wait(timeout=2)
+
+    worker.stop()
+    time.sleep(0.05)
+    assert supervisor.is_alive()
+    assert not worker._finalizer_stop.is_set()
+    release.set()
+    supervisor.join(timeout=2)
+
+    assert not supervisor.is_alive()
+    assert worker._finalizer_stop.is_set()
 
 
 def test_usage_refresher_supervisor_runs_independently_and_stops_promptly(tmp_path: Path) -> None:
@@ -1467,7 +1536,7 @@ def test_usage_refresher_supervisor_runs_independently_and_stops_promptly(tmp_pa
     assert observed == [(worker._stop, config.usage_probe_seconds)]
 
 
-def test_usage_refresher_supervisor_failure_stops_worker_without_mutating_user_intent(
+def test_usage_refresher_supervisor_failure_pauses_runnable_batch_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1488,13 +1557,17 @@ def test_usage_refresher_supervisor_failure_stops_worker_without_mutating_user_i
     supervisor = threading.Thread(target=worker.run_forever)
     supervisor.start()
     assert failed.wait(timeout=2)
+    deadline = time.monotonic() + 2
+    while store.get_batch(batch.batch_id).status is not BatchStatus.PAUSED and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    worker.stop()
     supervisor.join(timeout=2)
 
     assert not supervisor.is_alive()
-    current = store.get_batch(batch.batch_id)
-    assert current.status is BatchStatus.QUEUED
-    assert current.control.intent is BatchControlIntent.RUN
-    assert current.control.pause_reason is None
+    paused = store.get_batch(batch.batch_id)
+    assert paused.status is BatchStatus.PAUSED
+    assert paused.control.pause_reason is BatchPauseReason.USAGE_UNAVAILABLE
 
 
 @pytest.mark.parametrize("parallelism", [4, 10])
@@ -1618,27 +1691,44 @@ def test_worker_run_config_registers_arm_handoff_in_store(tmp_path: Path) -> Non
     assert jobs[0].deadline_at == NOW + timedelta(seconds=config.tokensflow_finalizer_timeout_seconds)
 
 
-def test_default_worker_run_config_has_no_tokensflow_finalization_handoff(tmp_path: Path) -> None:
-    config = WebConfig.for_root(tmp_path, run_root=tmp_path / "artifacts")
+def test_batch_run_config_merges_private_worker_environment_without_task_storage(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        codex_openai_base_url="https://codex-models.invalid/v1",
+        codex_timeout_seconds=5400,
+        private_container_env={
+            "OPENAI_API_KEY": "worker-secret",
+            "OPENAI_BASE_URL": "https://powercontext-models.invalid/v1",
+            "POWERCONTEXT_SERVER_DATABASE_KIND": "oceanbase",
+        },
+    )
     store = _store(config)
-    batch = _create_batch(store, key="no-tokensflow-handoff", instance_ids=("instance_owner__repo-a",))
-    task = store.list_batch_tasks(batch.batch_id)[0]
-    worker = TaskPairWorker(
-        config,
+    batch = _create_batch(
         store,
-        source=FakeSource(),
-        catalog=FakeCatalog(("instance_owner__repo-a",)),
-        clock=lambda: NOW,
+        key="private-worker-env",
+        instance_ids=("instance_owner__repo-a",),
+        container_env={"OPENAI_API_KEY": "stored-value", "POWERCONTEXT_CLIENT_TIMEOUT": "60"},
+    )
+    task = store.list_batch_tasks(batch.batch_id)[0]
+    assert task.instance_id is not None
+    worker = TaskPairWorker(
+        config, store, source=FakeSource(), catalog=FakeCatalog((task.instance_id,)), clock=lambda: NOW
     )
 
     run_config = worker._batch_run_config(task)
 
-    assert run_config.tokensflow_enabled is False
-    assert run_config.tokensflow_binary is None
-    assert run_config.tokensflow_user_home is None
-    assert run_config.tokensflow_egress_network is None
-    assert run_config.finalization_registrar is None
-    assert run_config.proxy_url is None
+    assert task.request.container_env == {
+        "OPENAI_API_KEY": "stored-value",
+        "POWERCONTEXT_CLIENT_TIMEOUT": "60",
+    }
+    assert run_config.container_env == {
+        "OPENAI_API_KEY": "worker-secret",
+        "OPENAI_BASE_URL": "https://powercontext-models.invalid/v1",
+        "POWERCONTEXT_CLIENT_TIMEOUT": "60",
+        "POWERCONTEXT_SERVER_DATABASE_KIND": "oceanbase",
+    }
+    assert run_config.codex_openai_base_url == "https://codex-models.invalid/v1"
+    assert run_config.codex_timeout_seconds == 5400
 
 
 def test_second_full_supervisor_cannot_start_slots_while_process_lock_is_owned(tmp_path: Path) -> None:
@@ -1677,7 +1767,7 @@ def test_second_full_supervisor_cannot_start_slots_while_process_lock_is_owned(t
     assert not first_thread.is_alive()
 
 
-def test_supervisor_surfaces_slot_failure_without_mutating_user_intent(
+def test_supervisor_surfaces_slot_failure_and_pauses_runnable_batch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1685,19 +1775,19 @@ def test_supervisor_surfaces_slot_failure_without_mutating_user_intent(
     store = _store(config)
     batch = _create_batch(store, key="slot-failure", instance_ids=("instance_owner__repo-a",))
 
-    def fail_slot(_stop: threading.Event | None = None) -> None:
+    def fail_recovery(*, now: datetime) -> list[str]:
+        del now
         raise RuntimeError("private slot failure")
 
+    monkeypatch.setattr(store, "recover_expired", fail_recovery)
     worker = EvaluationWorker(config, store, clock=lambda: NOW)
-    monkeypatch.setattr(worker._slots[0], "run_forever", fail_slot)
 
     with pytest.raises(RuntimeError, match="Evaluation worker slot failed"):
         worker.run_forever()
 
-    current = store.get_batch(batch.batch_id)
-    assert current.status is BatchStatus.QUEUED
-    assert current.control.intent is BatchControlIntent.RUN
-    assert current.control.pause_reason is None
+    paused = store.get_batch(batch.batch_id)
+    assert paused.status is BatchStatus.PAUSED
+    assert paused.control.pause_reason is BatchPauseReason.INFRASTRUCTURE_FAILURE
 
 
 def test_supervisor_slot_failure_stops_replacements_joins_active_slots_and_raises_safely(
@@ -1805,8 +1895,7 @@ def test_supervisor_partial_thread_start_failure_stops_and_joins_started_slots(
 
     assert "private thread-start detail" not in str(raised.value)
     assert worker._stop.is_set()
-    assert len(wrappers) == 5
-    assert started == [5, 1, 2]
-    assert joined == [1, 5]
+    assert len(wrappers) == 4
+    assert started == [1, 2]
+    assert joined == [1]
     assert not wrappers[0].inner.is_alive()
-    assert not wrappers[4].inner.is_alive()

@@ -25,7 +25,6 @@ def test_web_builds_config_from_cli_root_and_environment(monkeypatch, tmp_path: 
     monkeypatch.setenv("POWERCONTEXT_EVAL_PORT", "8123")
     monkeypatch.setenv("POWERCONTEXT_EVAL_HOST", "127.0.0.2")
     monkeypatch.setenv("POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK", "tokensflow-egress")
-    monkeypatch.setenv("POWERCONTEXT_EVAL_PROXY_URL", "http://127.0.0.1:8081")
 
     def fake_create_app(config: object) -> object:
         calls["config"] = config
@@ -51,14 +50,14 @@ def test_worker_initializes_store_and_runs_with_configured_poll(monkeypatch, tmp
     calls: list[tuple[object, ...]] = []
 
     class FakeStore:
-        def __init__(self, database: Path, *, lease_duration: object, max_attempts: int) -> None:
-            calls.append(("store", database, lease_duration, max_attempts))
+        def __init__(self, database: Path, *, lease_duration: object) -> None:
+            calls.append(("store", database, lease_duration))
 
         def initialize(self) -> None:
             calls.append(("initialize",))
 
     class FakeWorker:
-        def __init__(self, config: object, store: object, *, usage_probe: object) -> None:
+        def __init__(self, config: object, store: object, *, usage_probe: object = None) -> None:
             calls.append(("worker", config, store, usage_probe))
 
         def run_forever(self) -> None:
@@ -70,7 +69,6 @@ def test_worker_initializes_store_and_runs_with_configured_poll(monkeypatch, tmp
     monkeypatch.setenv("POWERCONTEXT_EVAL_POLL_SECONDS", "2.5")
     monkeypatch.setenv("POWERCONTEXT_EVAL_LEASE_SECONDS", "90")
     monkeypatch.setenv("POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK", "tokensflow-egress")
-    monkeypatch.setenv("POWERCONTEXT_EVAL_PROXY_URL", "http://127.0.0.1:8081")
     monkeypatch.setattr("powercontext_eval.web.store.TaskStore", FakeStore)
     monkeypatch.setattr("powercontext_eval.web.worker.EvaluationWorker", FakeWorker)
     monkeypatch.setattr("signal.getsignal", lambda _signal: signal.SIG_DFL)
@@ -80,7 +78,6 @@ def test_worker_initializes_store_and_runs_with_configured_poll(monkeypatch, tmp
 
     assert result.exit_code == 0, result.output
     assert calls[0][0] == "store"
-    assert calls[0][3] == 5
     assert calls[1] == ("initialize",)
     assert calls[2][0] == "worker"
     assert isinstance(calls[2][1], WebConfig)

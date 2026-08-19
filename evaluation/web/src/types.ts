@@ -299,10 +299,6 @@ export interface UsageSnapshot {
   probe_version: 1;
 }
 
-export type AccountUsage =
-  | { mode: "api_key"; sufficient: true; usage: null }
-  | { mode: "subscription"; sufficient: boolean; usage: UsageSnapshot };
-
 export interface BatchControlState {
   intent: BatchControlIntent;
   usage_pause_percent: number;
@@ -334,12 +330,10 @@ export type PairCategory =
   | "both_fail"
   | "execution_failure";
 
-export type BatchTaskSet = "swebench-pro-public-v2" | "swebench-pro-stability-v1";
-
 export interface BatchCreate {
   powercontext_ref: string;
   benchmark: "swebench-pro";
-  task_set: BatchTaskSet;
+  task_set: "swebench-pro-public-v2";
   model: string;
   reasoning_effort: "medium";
   treatment_mode: "off_on";
@@ -364,13 +358,13 @@ export interface BatchRecord {
 export interface BatchPreview {
   powercontext_ref: string;
   benchmark: "swebench-pro";
-  task_set: BatchTaskSet;
+  task_set: "swebench-pro-public-v2";
   model: string;
   reasoning_effort: "medium";
   treatment_mode: "off_on";
   total_tasks: number;
   usage_pause_percent: number;
-  usage: UsageSnapshot | null;
+  usage: UsageSnapshot;
   estimate: BatchEstimate;
   can_start: boolean;
   block_reason: "usage_threshold_reached" | null;
@@ -489,36 +483,6 @@ export interface BatchControlEvent {
   actor: "user" | "system";
   details: Record<string, number | string | null>;
   occurred_at: string;
-}
-
-export interface BatchRuntimeFailure {
-  category: FailureCategory;
-  code: string;
-  phase: TaskPhase | null;
-  summary: string;
-  finished_at: string;
-}
-
-export interface BatchRuntimeTask {
-  task_id: string;
-  attempt_id: string;
-  instance_id: string;
-  source_index: number;
-  status: "queued" | "running";
-  phase: TaskPhase | null;
-  attempt_number: number;
-  attempt_count: number;
-  created_at: string;
-  eligible_at: string;
-  started_at: string | null;
-  last_failure: BatchRuntimeFailure | null;
-}
-
-export interface BatchRuntime {
-  batch_id: string;
-  generated_at: string;
-  status_counts: Record<TaskStatus, number>;
-  tasks: BatchRuntimeTask[];
 }
 
 export interface BatchTaskPage {

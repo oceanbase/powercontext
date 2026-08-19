@@ -18,9 +18,8 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Protocol
@@ -30,15 +29,25 @@ from powercontext_eval import docker_pressure
 from powercontext_eval.artifacts import ArtifactStore
 from powercontext_eval.codex import (
     DEFAULT_CODEX_MODEL,
+    DEFAULT_CODEX_TIMEOUT_SECONDS,
     DEFAULT_REASONING_EFFORT,
     EXPECTED_CODEX_VERSION,
+    MAX_CODEX_TIMEOUT_SECONDS,
+    MIN_CODEX_TIMEOUT_SECONDS,
     CodexInfrastructureError,
     CodexInvocation,
     CodexOutcome,
     CodexRunner,
     is_safe_codex_model,
+    is_safe_openai_base_url,
 )
-from powercontext_eval.errors import CommandError, CommandFailed, CommandTimedOut, PowerContextEvalError
+from powercontext_eval.errors import (
+    CommandCancelled,
+    CommandError,
+    CommandFailed,
+    CommandTimedOut,
+    PowerContextEvalError,
+)
 from powercontext_eval.models import Arm
 from powercontext_eval.process import CommandResult, ProcessRunner
 from powercontext_eval.tokensflow import (
@@ -64,12 +73,173 @@ _SAFE_DOCKER_NETWORK = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 _SHA = re.compile(r"[0-9a-f]{40}")
 _INVALID_DOCKER_COPY_SYMLINK = re.compile(r'invalid symlink "[^"\r\n]+" -> "[^"\r\n]+"')
 _DOCKER_NETWORK_CONTROL_LOCK = threading.Lock()
+_EXPERIENCE_SEED_LOCK = threading.Lock()
+_EXPERIENCE_SEED_HTTP_TIMEOUT_SECONDS = 600
+_EXPERIENCE_SEED_EXEC_TIMEOUT_SECONDS = 630
+_EXPERIENCE_SEED_READY_RETRY_SECONDS = 0.25
 _DOCKER_NETWORK_CREATE_ATTEMPTS = 3
 _DOCKER_NETWORK_CREATE_RETRY_SECONDS = 0.25
+_DOCKER_NETWORK_RELAY_ATTEMPTS = 3
+_DOCKER_NETWORK_RELAY_RETRY_SECONDS = 0.25
+_PRIVATE_TRACE_READ_ATTEMPTS = 3
+_PRIVATE_TRACE_READ_RETRY_SECONDS = 0.25
+_DATABASE_URL_ENV = "POWERCONTEXT_SERVER_DATABASE_URL"
+_CODEX_ENVIRONMENT_UNSETS = ("OPENAI_API_KEY", "OPENAI_BASE_URL")
+_MCP_ACTIVITY_LOG_MARKERS = (
+    "powercontext.server.access PowerContext transport request completed",
+    "/mcp",
+)
+_EXPERIENCE_MEMORY_KIND = "swebench_checkpoint_experience"
+_EVALUATION_REQUIRED_MEMORY_NAME = "evaluation-required-memory.txt"
+_CONTAINER_EVALUATION_REQUIRED_MEMORY = f"/runtime/pc-home/{_EVALUATION_REQUIRED_MEMORY_NAME}"
+_GO_TMPDIR_NAME = "go-tmp"
+_CONTAINER_GO_TMPDIR = f"/runtime/{_GO_TMPDIR_NAME}"
+_MAX_EXPERIENCE_MEMORY_BYTES = 2_000
+_EXPERIENCE_SEED_SCRIPT = """\
+import hashlib
+import json
+import sys
+import time
+import urllib.request
+
+
+payload = json.load(sys.stdin)
+request = urllib.request.Request(
+    "http://127.0.0.1:8000/v1/memory/remember",
+    data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+deadline = time.monotonic() + __EXPERIENCE_SEED_HTTP_TIMEOUT_SECONDS__
+with opener.open(request, timeout=max(0.001, deadline - time.monotonic())) as response:
+    if response.status != 200:
+        raise RuntimeError("PowerContext experience seed was rejected")
+    result = json.load(response)
+
+memory = result.get("memory")
+entry = result.get("entry")
+if not isinstance(memory, dict) or not isinstance(entry, dict):
+    raise RuntimeError("PowerContext experience seed response is incomplete")
+if entry.get("kind") != payload["kind"] or entry.get("text") != payload["text"]:
+    raise RuntimeError("PowerContext experience seed response does not match the request")
+citation = entry.get("citation")
+if not isinstance(citation, dict):
+    raise RuntimeError("PowerContext experience seed citation is missing")
+
+text = payload["text"]
+attempts = 0
+while True:
+    attempts += 1
+    query = text + "\\n\\nCurrent task:\\nConfirm the checkpoint guidance before starting the task."
+    prepare_request = urllib.request.Request(
+        "http://127.0.0.1:8000/v1/context/prepare",
+        data=json.dumps(
+            {"scope_id": payload["scope_id"], "query": query, "max_bytes": 8000},
+            ensure_ascii=False,
+        ).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RuntimeError("PowerContext experience seed did not become recallable")
+    with opener.open(prepare_request, timeout=remaining) as response:
+        if response.status != 200:
+            raise RuntimeError("PowerContext experience readiness check was rejected")
+        prepared = json.load(response)
+    content = prepared.get("content") if isinstance(prepared, dict) else None
+    recallable = False
+    if isinstance(content, str):
+        for line in content.splitlines():
+            try:
+                envelope = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(envelope, dict) or envelope.get("trust") != "untrusted_history":
+                continue
+            items = envelope.get("items")
+            if isinstance(items, list) and any(
+                isinstance(item, dict) and item.get("content") == text for item in items
+            ):
+                recallable = True
+                break
+    if recallable:
+        break
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RuntimeError("PowerContext experience seed did not become recallable")
+    time.sleep(min(__EXPERIENCE_SEED_READY_RETRY_SECONDS__, remaining))
+
+print(json.dumps({
+    "scope_id": payload["scope_id"],
+    "kind": payload["kind"],
+    "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    "text_bytes": len(text.encode("utf-8")),
+    "memory": memory,
+    "citation": citation,
+    "entry_version": entry.get("version"),
+    "entry_state": entry.get("state"),
+    "readiness_attempts": attempts,
+}, ensure_ascii=False, sort_keys=True))
+""".replace("__EXPERIENCE_SEED_HTTP_TIMEOUT_SECONDS__", str(_EXPERIENCE_SEED_HTTP_TIMEOUT_SECONDS)).replace(
+    "__EXPERIENCE_SEED_READY_RETRY_SECONDS__", str(_EXPERIENCE_SEED_READY_RETRY_SECONDS)
+)
+_TREATMENT_EVIDENCE_QUERY = """\
+import asyncio
+import json
+import os
+import sqlite3
+import sys
+
+
+def sqlite_count(scope: str) -> int:
+    connection = sqlite3.connect("file:/runtime/pc-home/powercontext.db?mode=ro", uri=True)
+    try:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM pc_sources WHERE scope_id = ?",
+            (scope,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("PowerContext source count is missing")
+        return int(row[0])
+    finally:
+        connection.close()
+
+
+async def oceanbase_count(scope: str) -> int:
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from powercontext.builtin.persistence.oceanbase.profile import _register_official_dialect
+
+    _register_official_dialect()
+    engine = create_async_engine(os.environ["POWERCONTEXT_SERVER_DATABASE_URL"])
+    try:
+        async with engine.connect() as connection:
+            result = await connection.execute(
+                text("SELECT COUNT(*) FROM pc_sources WHERE scope_id = :scope"),
+                {"scope": scope},
+            )
+            return int(result.scalar_one())
+    finally:
+        await engine.dispose()
+
+
+scope = sys.argv[1]
+database_kind = os.environ.get("POWERCONTEXT_SERVER_DATABASE_KIND", "sqlite")
+if database_kind == "sqlite":
+    count = sqlite_count(scope)
+elif database_kind == "oceanbase":
+    count = asyncio.run(oceanbase_count(scope))
+else:
+    raise RuntimeError("PowerContext database kind is unsupported")
+print(json.dumps({"prompt_sources": count}))
+"""
 # Use RFC1918 space that behaves like the host's existing Docker bridges.  The
 # RFC 2544 benchmark block can be created by Docker but is not permitted to
 # reach the host-bound proxy relay on the evaluation fleet.
-DEFAULT_DOCKER_NETWORK_POOL = "172.30.0.0/15"
+_DOCKER_NETWORK_POOL = ipaddress.ip_network("172.30.0.0/15")
 _DOCKER_NETWORK_PREFIX_LENGTH = 28
 _DOCKER_NETWORK_SUBNET_ATTEMPTS = 64
 _DOCKER_NETWORK_SUBNET_COLLISION_MARKERS = (
@@ -82,38 +252,12 @@ _CONTAINER_TOKENSFLOW_WRAPPER_DIR = "/tools/tokensflow-wrapper"
 _CONTAINER_UV = "/tools/uv-dir/uv"
 _CONTAINER_RECORDER = "/evaluation/record_codex_jsonl.py"
 _CONTAINER_UV_PYTHON_INSTALL_DIR = "/runtime/uv-python"
+_CONTAINER_GO_MAX_PROCS = "2"
+_CONTAINER_GO_FLAGS = "-p=2"
 _DEFAULT_RECORDER_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "record_codex_jsonl.py"
 _TIMED_OUT_CONTAINER_REMOVAL_SETTLE_SECONDS = 90.0
 _TIMED_OUT_CONTAINER_REMOVAL_POLL_SECONDS = 0.25
-_READINESS_BUDGET_SECONDS = 120.0
-_READINESS_ATTEMPT_TIMEOUT_SECONDS = 10.0
-_READINESS_RETRY_SECONDS = 0.5
-_PLUGIN_LIST_BUDGET_SECONDS = 120.0
-_PLUGIN_LIST_ATTEMPT_TIMEOUT_SECONDS = 60.0
-_PLUGIN_LIST_RETRY_SECONDS = 0.5
-_SERVER_READINESS_PROBE_SCRIPT = """
-import json
-import sys
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
-
-request = Request("http://127.0.0.1:8000/health/ready", headers={"Accept": "application/json"})
-code = 0
-payload = None
-try:
-    with urlopen(request, timeout=3) as response:
-        payload = json.load(response)
-except HTTPError as error:
-    code = 10 if error.code == 503 else 12
-except json.JSONDecodeError:
-    code = 11
-except (OSError, ValueError):
-    code = 10
-if code == 0 and (not isinstance(payload, dict) or payload.get("status") != "ready"):
-    code = 11
-sys.exit(code)
-""".strip()
-LOOPBACK_NO_PROXY = "127.0.0.1,localhost,::1"
+LOOPBACK_NO_PROXY = "127.0.0.1,localhost,::1,work.oceanbase-dev.com"
 _TOKENSFLOW_RETRY_ATTEMPTS = 10
 _PLUGIN_RELATIVE = Path("integrations/codex/plugins/powercontext")
 _TOKENSFLOW_WRAPPER = b"""#!/bin/sh
@@ -132,70 +276,8 @@ class InvalidTreatment(PowerContextEvalError):
     """Observed evidence does not prove the requested treatment."""
 
 
-class PluginInspectionFailureReason(StrEnum):
-    """Fixed, non-sensitive reasons why isolated plugin inspection did not converge."""
-
-    TIMED_OUT = "timed_out"
-    INVALID_PLUGIN_SET = "invalid_plugin_set"
-
-
-_PLUGIN_INSPECTION_FAILURE_SUMMARIES = MappingProxyType(
-    {
-        PluginInspectionFailureReason.TIMED_OUT: "Isolated Codex plugin inspection timed out.",
-        PluginInspectionFailureReason.INVALID_PLUGIN_SET: "Isolated Codex home did not converge to one plugin.",
-    }
-)
-
-
-class PluginInspectionFailure(InvalidTreatment):
-    """A retryable failure from inspecting the isolated Codex plugin installation."""
-
-    def __init__(self, reason: PluginInspectionFailureReason) -> None:
-        if not isinstance(reason, PluginInspectionFailureReason):
-            raise TypeError("Plugin inspection failure reason must be classified")
-        self.reason = reason
-        super().__init__(_PLUGIN_INSPECTION_FAILURE_SUMMARIES[reason])
-
-    @property
-    def safe_summary(self) -> str:
-        """Return the fixed user-visible failure summary."""
-
-        return _PLUGIN_INSPECTION_FAILURE_SUMMARIES[self.reason]
-
-
-class ReadinessFailureReason(StrEnum):
-    """Fixed, non-sensitive reasons why the isolated Server readiness gate failed."""
-
-    COMMAND_TIMED_OUT = "command_timed_out"
-    SERVER_NOT_READY = "server_not_ready"
-    MALFORMED_RESPONSE = "malformed_response"
-    PROBE_FAILED = "probe_failed"
-
-
-_READINESS_FAILURE_SUMMARIES = MappingProxyType(
-    {
-        ReadinessFailureReason.COMMAND_TIMED_OUT: "PowerContext readiness probe timed out.",
-        ReadinessFailureReason.SERVER_NOT_READY: "PowerContext Server remained not ready before the deadline.",
-        ReadinessFailureReason.MALFORMED_RESPONSE: "PowerContext Server returned malformed readiness evidence.",
-        ReadinessFailureReason.PROBE_FAILED: "PowerContext readiness probe failed.",
-    }
-)
-
-
-class ReadinessFailure(InvalidTreatment):
-    """A safe, classified failure from the isolated Server readiness gate."""
-
-    def __init__(self, reason: ReadinessFailureReason) -> None:
-        if not isinstance(reason, ReadinessFailureReason):
-            raise TypeError("Readiness failure reason must be classified")
-        self.reason = reason
-        super().__init__(_READINESS_FAILURE_SUMMARIES[reason])
-
-    @property
-    def safe_summary(self) -> str:
-        """Return the fixed user-visible failure summary."""
-
-        return _READINESS_FAILURE_SUMMARIES[self.reason]
+class MissingPowerContextInjection(InvalidTreatment):
+    """The treatment arm completed without its required injection trace."""
 
 
 class UnsafeSutConfiguration(PowerContextEvalError):
@@ -216,17 +298,16 @@ class SourceProvenance:
         }
 
 
-def loopback_proxy_environment(relay_url: str, extra_no_proxy_hosts: tuple[str, ...] = ()) -> dict[str, str]:
+def loopback_proxy_environment(relay_url: str) -> dict[str, str]:
     """Return the exact case-balanced proxy environment for every container phase."""
 
-    no_proxy = ",".join((LOOPBACK_NO_PROXY, *extra_no_proxy_hosts))
     return {
         "HTTPS_PROXY": relay_url,
         "HTTP_PROXY": relay_url,
         "https_proxy": relay_url,
         "http_proxy": relay_url,
-        "NO_PROXY": no_proxy,
-        "no_proxy": no_proxy,
+        "NO_PROXY": LOOPBACK_NO_PROXY,
+        "no_proxy": LOOPBACK_NO_PROXY,
     }
 
 
@@ -245,17 +326,6 @@ def direct_egress_environment() -> dict[str, str]:
     }
 
 
-def runtime_proxy_environment(
-    relay_url: str | None,
-    extra_no_proxy_hosts: tuple[str, ...] = (),
-) -> dict[str, str]:
-    """Use the configured relay or explicitly clear inherited proxy settings."""
-
-    if relay_url is None:
-        return direct_egress_environment()
-    return loopback_proxy_environment(relay_url, extra_no_proxy_hosts)
-
-
 def default_docker_bridge_gateway(process: ProcessRunner, cwd: Path) -> str:
     """Inspect and validate Docker's existing default bridge gateway."""
 
@@ -268,7 +338,7 @@ def default_docker_bridge_gateway(process: ProcessRunner, cwd: Path) -> str:
 
 
 def auth_secret_variants(auth_json: Path) -> tuple[str, ...]:
-    """Extract nested scalar credentials and conservative encoded derivatives without logging them."""
+    """Extract credential scalars and conservative encoded derivatives without logging them."""
 
     try:
         descriptor = os.open(auth_json, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
@@ -285,9 +355,11 @@ def auth_secret_variants(auth_json: Path) -> tuple[str, ...]:
 
     raw_values: set[str] = set()
 
-    def visit(item: object) -> None:
+    def visit(item: object, *, top_level: bool = False) -> None:
         if isinstance(item, dict):
-            for nested in item.values():
+            for key, nested in item.items():
+                if top_level and key == "auth_mode":
+                    continue
                 visit(nested)
         elif isinstance(item, list):
             for nested in item:
@@ -297,7 +369,7 @@ def auth_secret_variants(auth_json: Path) -> tuple[str, ...]:
             if text:
                 raw_values.add(text)
 
-    visit(value)
+    visit(value, top_level=True)
     variants: set[str] = set()
     for raw in raw_values:
         encoded = raw.encode("utf-8")
@@ -447,8 +519,10 @@ class ProxyRelayConfig:
 @dataclass(frozen=True)
 class ContainerLimits:
     cpus: str = "2"
-    memory: str = "4g"
-    pids: int = 256
+    # Large Go dependency graphs can run several compiler processes in parallel.
+    memory: str = "8g"
+    # Large Go test graphs can exceed 256 concurrent compiler and vet processes.
+    pids: int = 1024
 
     def __post_init__(self) -> None:
         if re.fullmatch(r"[1-9][0-9]*(?:\.[0-9]+)?", self.cpus) is None:
@@ -464,23 +538,22 @@ class SutConfig:
     run_id: str
     task_image: str
     codex_binary: Path
+    tokensflow_binary: Path
+    tokensflow_egress_network: str
     uv_binary: Path
     source_checkout: Path
     plugin_checkout_sha: str
-    tokensflow_enabled: bool = False
-    tokensflow_binary: Path | None = None
-    tokensflow_egress_network: str | None = None
-    proxy: ProxyRelayConfig | None = None
-    docker_network_pool: str = DEFAULT_DOCKER_NETWORK_POOL
-    extra_no_proxy_hosts: tuple[str, ...] = ()
+    proxy: ProxyRelayConfig
     model: str = DEFAULT_CODEX_MODEL
     reasoning_effort: str = DEFAULT_REASONING_EFFORT
+    codex_openai_base_url: str | None = None
     recorder_script: Path = _DEFAULT_RECORDER_SCRIPT
-    limits: ContainerLimits = ContainerLimits()
+    limits: ContainerLimits = field(default_factory=ContainerLimits)
     plugin_version: str = "0.1.0"
-    codex_timeout: float = 3600
+    codex_timeout: int = DEFAULT_CODEX_TIMEOUT_SECONDS
+    experience_memory: str | None = None
     finalization_registrar: TokensFlowFinalizationRegistrar | None = None
-    container_env: Mapping[str, str] = MappingProxyType({})
+    container_env: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}), repr=False)
 
     def __post_init__(self) -> None:
         if _SAFE_RUN_ID.fullmatch(self.run_id) is None:
@@ -497,31 +570,36 @@ class SutConfig:
             raise UnsafeSutConfiguration("Codex model is unsafe")
         if self.reasoning_effort != DEFAULT_REASONING_EFFORT:
             raise UnsafeSutConfiguration("Unsupported Codex reasoning effort")
+        if self.codex_openai_base_url is not None and not is_safe_openai_base_url(self.codex_openai_base_url):
+            raise UnsafeSutConfiguration("Codex OpenAI base URL is unsafe")
         for path in (self.codex_binary, self.uv_binary, self.source_checkout, self.recorder_script):
             if not path.is_absolute() or "\0" in os.fspath(path):
                 raise UnsafeSutConfiguration("SUT paths must be absolute")
-        if self.tokensflow_enabled:
-            if (
-                self.tokensflow_binary is None
-                or not self.tokensflow_binary.is_absolute()
-                or "\0" in os.fspath(self.tokensflow_binary)
-            ):
-                raise TokensFlowInfrastructureError("TokensFlow binary path is unsafe")
-            if (
-                self.tokensflow_egress_network is None
-                or _SAFE_DOCKER_NETWORK.fullmatch(self.tokensflow_egress_network) is None
-            ):
-                raise TokensFlowInfrastructureError("TokensFlow egress network is unsafe")
-        _validated_docker_network_pool(self.docker_network_pool)
-        _validated_no_proxy_hosts(self.extra_no_proxy_hosts)
+        if not self.tokensflow_binary.is_absolute() or "\0" in os.fspath(self.tokensflow_binary):
+            raise TokensFlowInfrastructureError("TokensFlow binary path is unsafe")
+        if _SAFE_DOCKER_NETWORK.fullmatch(self.tokensflow_egress_network) is None:
+            raise TokensFlowInfrastructureError("TokensFlow egress network is unsafe")
         try:
             recorder_metadata = self.recorder_script.stat(follow_symlinks=False)
         except OSError as error:
             raise UnsafeSutConfiguration("Codex recorder script is missing") from error
         if not stat.S_ISREG(recorder_metadata.st_mode):
             raise UnsafeSutConfiguration("Codex recorder script must be a regular file")
-        if self.codex_timeout <= 0:
-            raise UnsafeSutConfiguration("Codex timeout must be positive")
+        if (
+            isinstance(self.codex_timeout, bool)
+            or not isinstance(self.codex_timeout, int)
+            or not MIN_CODEX_TIMEOUT_SECONDS <= self.codex_timeout <= MAX_CODEX_TIMEOUT_SECONDS
+        ):
+            raise UnsafeSutConfiguration(
+                f"Codex timeout must be an integer between {MIN_CODEX_TIMEOUT_SECONDS} and "
+                f"{MAX_CODEX_TIMEOUT_SECONDS} seconds"
+            )
+        if self.experience_memory is not None and (
+            not isinstance(self.experience_memory, str)
+            or not self.experience_memory.strip()
+            or len(self.experience_memory.encode("utf-8")) > _MAX_EXPERIENCE_MEMORY_BYTES
+        ):
+            raise UnsafeSutConfiguration("Experience memory must contain at most 2000 UTF-8 bytes")
 
 
 @dataclass(frozen=True)
@@ -536,7 +614,6 @@ class ArmPaths:
     pc_home: Path
     tokensflow_home: Path
     result_root: Path
-    codex_config_source: Path | None = None
 
     def __post_init__(self) -> None:
         paths = (
@@ -550,8 +627,6 @@ class ArmPaths:
         )
         if any(not path.is_absolute() for path in paths):
             raise UnsafeSutConfiguration("Arm paths must be absolute")
-        if self.codex_config_source is not None and not self.codex_config_source.is_absolute():
-            raise UnsafeSutConfiguration("Codex config source must be absolute")
         if self.codex_home.is_relative_to(self.result_root) or self.pc_home.is_relative_to(self.result_root):
             raise UnsafeSutConfiguration("Private homes must remain outside retained results")
         if not self.codex_home.is_relative_to(self.runtime) or not self.pc_home.is_relative_to(self.runtime):
@@ -581,6 +656,7 @@ class ArmPaths:
             raise UnsafeSutConfiguration("Arm workspace and runtime must be fresh directories")
         for path in (self.codex_home, self.pc_home):
             path.mkdir(mode=0o700)
+        (self.runtime / _GO_TMPDIR_NAME).mkdir(mode=0o700)
 
     def copy_auth(self) -> Path:
         """Copy only auth.json through no-follow descriptors at mode 0600."""
@@ -610,39 +686,32 @@ class ArmPaths:
                 os.close(destination_fd)
         return destination
 
-    def copy_codex_config(self) -> Path | None:
-        """Copy an optional provider-only config through no-follow descriptors at mode 0600."""
-
-        if self.codex_config_source is None:
-            return None
-        self.codex_home.mkdir(parents=True, exist_ok=True, mode=0o700)
-        destination = self.codex_home / "config.toml"
-        source_fd = os.open(self.codex_config_source, os.O_RDONLY | os.O_NOFOLLOW)
-        destination_fd = -1
-        try:
-            metadata = os.fstat(source_fd)
-            if not stat.S_ISREG(metadata.st_mode):
-                raise UnsafeSutConfiguration("Codex config source must be a regular file")
-            destination_fd = os.open(
-                destination,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                0o600,
-            )
-            while chunk := os.read(source_fd, 64 * 1024):
-                os.write(destination_fd, chunk)
-            os.fchmod(destination_fd, 0o600)
-            os.fsync(destination_fd)
-        except FileExistsError as error:
-            raise UnsafeSutConfiguration("Ephemeral Codex config destination already exists") from error
-        finally:
-            os.close(source_fd)
-            if destination_fd >= 0:
-                os.close(destination_fd)
-        return destination
-
 
 class ProxyRelay(Protocol):
     def start(self, gateway: str, upstream: ProxyRelayConfig) -> str: ...
+
+    def stop(self) -> None: ...
+
+
+@dataclass(frozen=True)
+class TcpRelayConfig:
+    """One credential-free TCP destination reachable only through a task gateway."""
+
+    host: str
+    port: int
+
+    def __post_init__(self) -> None:
+        if (
+            re.fullmatch(r"[A-Za-z0-9.-]+", self.host) is None
+            or isinstance(self.port, bool)
+            or not isinstance(self.port, int)
+            or not 1 <= self.port <= 65535
+        ):
+            raise UnsafeSutConfiguration("TCP relay upstream is invalid")
+
+
+class TcpRelay(Protocol):
+    def start(self, gateway: str, upstream: TcpRelayConfig) -> tuple[str, int]: ...
 
     def stop(self) -> None: ...
 
@@ -716,32 +785,130 @@ class SocatProxyRelay:
             process.stderr.close()
 
 
+class SocatTcpRelay:
+    """Forward one task-gateway TCP port to one credential-free upstream."""
+
+    def __init__(self, *, executable: str = "socat", readiness_timeout: float = 5.0) -> None:
+        self._executable = executable
+        self._timeout = readiness_timeout
+        self._process: subprocess.Popen[bytes] | None = None
+
+    def start(self, gateway: str, upstream: TcpRelayConfig) -> tuple[str, int]:
+        address = _validated_gateway(gateway)
+        port = _reserve_port(address)
+        argv = (
+            self._executable,
+            f"TCP-LISTEN:{port},bind={address},fork,reuseaddr",
+            f"TCP:{upstream.host}:{upstream.port}",
+        )
+        try:
+            self._process = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+                shell=False,
+                env={"PATH": os.environ.get("PATH", "")},
+            )
+            self._wait_ready(address, port)
+        except BaseException:
+            self.stop()
+            raise
+        return address, port
+
+    def _wait_ready(self, gateway: str, port: int) -> None:
+        deadline = time.monotonic() + self._timeout
+        while time.monotonic() < deadline:
+            process = self._process
+            if process is None or process.poll() is not None:
+                raise UnsafeSutConfiguration("TCP relay exited before readiness")
+            try:
+                with socket.create_connection((gateway, port), timeout=0.1):
+                    return
+            except OSError:
+                time.sleep(0.02)
+        raise UnsafeSutConfiguration("TCP relay readiness timed out")
+
+    def stop(self) -> None:
+        process = self._process
+        self._process = None
+        if process is None:
+            return
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+        if process.stderr is not None:
+            process.stderr.close()
+
+
 @dataclass(frozen=True)
 class SutOutcome:
     codex: CodexOutcome
     evidence: TreatmentEvidence
-    tokensflow: TokensFlowEvidence | None = None
-    tokensflow_daemon: TokensFlowDaemonHandle | None = None
+    tokensflow: TokensFlowEvidence
+    tokensflow_daemon: TokensFlowDaemonHandle
 
 
 class _DockerExecRunner(ProcessRunner):
-    def __init__(self, runner: Any, container: str) -> None:
+    def __init__(self, runner: Any, container: str, *, unset_environment: Sequence[str] = ()) -> None:
+        if any(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None for name in unset_environment):
+            raise ValueError("Docker exec environment removal contains an unsafe name")
         self._delegate = runner
         self._container = container
+        self._unset_environment = tuple(unset_environment)
 
     def run(self, argv: Any, **kwargs: Any) -> CommandResult:
         environment = kwargs.pop("env", None)
         docker_environment: tuple[str, ...] = ()
         if environment:
             docker_environment = tuple(part for item in environment.items() for part in ("-e", f"{item[0]}={item[1]}"))
-        # Docker's attached exec streams become unreliable under a full 20-task
-        # wave. Keep worker capacity at 20 while sharing one process-wide daemon
-        # budget with official harnesses and workspace extraction.
-        with docker_pressure.heavy_operation():
+        command_prefix = tuple(part for name in self._unset_environment for part in ("-u", name))
+        if command_prefix:
+            command_prefix = ("/usr/bin/env", *command_prefix)
+        # Worker task-pair parallelism is the admission control for long-lived
+        # Codex sessions. Holding the Docker control-plane semaphore for the
+        # whole attached exec would silently reduce a 20-task worker to four
+        # effective model calls even when all task images are already local.
+        try:
             return self._delegate.run(
-                ("docker", "exec", "-i", *docker_environment, self._container, *tuple(argv)),
+                (
+                    "docker",
+                    "exec",
+                    "-i",
+                    *docker_environment,
+                    self._container,
+                    *command_prefix,
+                    *tuple(argv),
+                ),
                 **kwargs,
             )
+        except (CommandCancelled, CommandTimedOut):
+            # Killing the local ``docker exec`` client does not terminate the
+            # process that Docker already started in the container. Stop the
+            # disposable SUT under the short control-plane budget, but retain
+            # the stopped container for failure diagnosis.
+            try:
+                with docker_pressure.heavy_operation():
+                    self._delegate.run(
+                        ("docker", "stop", "--time", "1", self._container),
+                        cwd=kwargs["cwd"],
+                        timeout=30,
+                        check=False,
+                    )
+            except (CommandError, OSError):
+                pass
+            raise
 
 
 class _DockerPressureRunner(ProcessRunner):
@@ -755,6 +922,78 @@ class _DockerPressureRunner(ProcessRunner):
             return self._delegate.run(argv, **kwargs)
 
 
+@dataclass(frozen=True)
+class _WorkspacePatchBaseline:
+    revision: str
+    excluded_paths: tuple[str, ...]
+
+
+def _workspace_git_environment(workspace: Path) -> dict[str, str]:
+    """Trust only the exact image-extracted workspace for this Git process."""
+
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "safe.directory",
+        "GIT_CONFIG_VALUE_0": os.fspath(workspace),
+    }
+
+
+def _workspace_patch_baseline(runner: ProcessRunner, workspace: Path) -> _WorkspacePatchBaseline:
+    """Record image-provided files that must not leak into a model patch."""
+
+    git_environment = _workspace_git_environment(workspace)
+    revision = runner.run(
+        ("git", "rev-parse", "--verify", "HEAD^{commit}"),
+        cwd=workspace,
+        timeout=30,
+        env=git_environment,
+    ).stdout.strip()
+    if _SHA.fullmatch(revision) is None:
+        raise UnsafeSutConfiguration("Workspace HEAD is not an immutable commit")
+    tracked = runner.run(
+        ("git", "diff", "--name-only", "-z", revision, "--"),
+        cwd=workspace,
+        timeout=30,
+        env=git_environment,
+    ).stdout
+    untracked = runner.run(
+        ("git", "ls-files", "--others", "--exclude-standard", "-z", "--"),
+        cwd=workspace,
+        timeout=30,
+        env=git_environment,
+    ).stdout
+    paths = tuple(sorted({path for value in (tracked, untracked) for path in value.split("\0") if path}))
+    return _WorkspacePatchBaseline(revision=revision, excluded_paths=paths)
+
+
+def capture_workspace_patch(
+    runner: ProcessRunner,
+    workspace: Path,
+    base_revision: str,
+    *,
+    excluded_paths: Sequence[str] = (),
+) -> str:
+    """Return model-authored changes without image-provided workspace state."""
+
+    # `git diff` ignores untracked files. Intent-to-add records those paths without
+    # staging their contents, so the subsequent binary diff includes them while
+    # preserving the agent's working tree exactly as produced.
+    git_environment = _workspace_git_environment(workspace)
+    runner.run(
+        ("git", "add", "--intent-to-add", "--all", "--"),
+        cwd=workspace,
+        timeout=120,
+        env=git_environment,
+    )
+    pathspecs = (".", *(f":(exclude,top,literal){path}" for path in excluded_paths))
+    return runner.run(
+        ("git", "diff", "--binary", "--full-index", base_revision, "--", *pathspecs),
+        cwd=workspace,
+        timeout=120,
+        env=git_environment,
+    ).stdout
+
+
 class DockerSut:
     """Execute one arm while owning only run-prefixed Docker resources."""
 
@@ -763,11 +1002,14 @@ class DockerSut:
         docker: Any,
         *,
         relay_factory: Callable[[], ProxyRelay] = SocatProxyRelay,
+        database_relay_factory: Callable[[], TcpRelay] = SocatTcpRelay,
         clock: Callable[[], float] = time.monotonic,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
+        self._docker_exec = docker
         self._docker = _DockerPressureRunner(docker)
         self._relay_factory = relay_factory
+        self._database_relay_factory = database_relay_factory
         self._clock = clock
         self._sleeper = sleeper
 
@@ -844,10 +1086,21 @@ class DockerSut:
         store: ArtifactStore,
     ) -> SutOutcome:
         source_provenance = self._verify_source(config)
-        if config.tokensflow_enabled:
-            self._validate_tokensflow_source(config, paths)
-        with self._run_network(config, config.source_checkout) as (network, relay_url):
-            return self._execute_arm(config, arm, paths, prompt, store, network, relay_url, source_provenance)
+        self._validate_tokensflow_source(config, paths)
+        with (
+            self._run_network(config, config.source_checkout) as (network, relay_url),
+            self._network_container_config(config, arm, network, config.source_checkout) as arm_config,
+        ):
+            return self._execute_arm(
+                arm_config,
+                arm,
+                paths,
+                prompt,
+                store,
+                network,
+                relay_url,
+                source_provenance,
+            )
 
     def run_pair(
         self,
@@ -873,30 +1126,71 @@ class DockerSut:
         if before_arm is not None:
             before_arm(Arm.OFF)
         source_provenance = self._verify_source(config)
-        if config.tokensflow_enabled:
-            for arm in (Arm.OFF, Arm.ON):
-                self._validate_tokensflow_source(config, paths[arm])
+        for arm in (Arm.OFF, Arm.ON):
+            self._validate_tokensflow_source(config, paths[arm])
         with self._run_network(config, config.source_checkout) as (network, relay_url):
             outcomes: dict[Arm, SutOutcome] = {}
             for arm in (Arm.OFF, Arm.ON):
                 if before_arm is not None and arm is Arm.ON:
                     before_arm(arm)
-                outcomes[arm] = self._execute_arm(
-                    config,
-                    arm,
-                    paths[arm],
-                    prompts[arm],
-                    stores[arm],
-                    network,
-                    relay_url,
-                    source_provenance,
-                )
+                with self._network_container_config(config, arm, network, config.source_checkout) as arm_config:
+                    outcomes[arm] = self._execute_arm(
+                        arm_config,
+                        arm,
+                        paths[arm],
+                        prompts[arm],
+                        stores[arm],
+                        network,
+                        relay_url,
+                        source_provenance,
+                    )
             return outcomes
 
     @contextmanager
-    def _run_network(self, config: SutConfig, cwd: Path) -> Iterator[tuple[str, str | None]]:
+    def _network_container_config(
+        self,
+        config: SutConfig,
+        arm: Arm,
+        network: str,
+        cwd: Path,
+    ) -> Iterator[SutConfig]:
+        database_url = config.container_env.get(_DATABASE_URL_ENV)
+        if arm is Arm.OFF or database_url is None:
+            yield config
+            return
+        parsed = urlsplit(database_url)
+        if parsed.scheme.startswith("sqlite"):
+            yield config
+            return
+        try:
+            upstream_port = parsed.port
+        except ValueError as error:
+            raise UnsafeSutConfiguration("Container database URL is invalid") from error
+        if not parsed.scheme.startswith("mysql") or parsed.hostname is None:
+            raise UnsafeSutConfiguration("External container database URL is unsupported")
+        relay = self._database_relay_factory()
+        try:
+            # Keep the ON-only database relay on the same serialized Docker
+            # control path as network creation/removal. Concurrent bridge churn
+            # can otherwise make the gateway lookup or socat readiness fail.
+            with docker_pressure.heavy_operation(), _DOCKER_NETWORK_CONTROL_LOCK:
+                gateway = self.network_gateway(network, cwd)
+                relay_host, relay_port = relay.start(
+                    gateway,
+                    TcpRelayConfig(parsed.hostname, upstream_port or 3306),
+                )
+            userinfo, separator, _host = parsed.netloc.rpartition("@")
+            relay_netloc = f"{userinfo}@{relay_host}:{relay_port}" if separator else f"{relay_host}:{relay_port}"
+            effective_env = dict(config.container_env)
+            effective_env[_DATABASE_URL_ENV] = parsed._replace(netloc=relay_netloc).geturl()
+            yield replace(config, container_env=MappingProxyType(effective_env))
+        finally:
+            relay.stop()
+
+    @contextmanager
+    def _run_network(self, config: SutConfig, cwd: Path) -> Iterator[tuple[str, str]]:
         network = f"powercontext-eval-{config.run_id}"
-        relay = self._relay_factory() if config.proxy is not None else None
+        relay = self._relay_factory()
         network_created = False
         preserve_for_diagnosis = False
         try:
@@ -908,11 +1202,7 @@ class DockerSut:
             with docker_pressure.heavy_operation(), _DOCKER_NETWORK_CONTROL_LOCK:
                 self._create_network(config, network, cwd)
                 network_created = True
-                relay_url = None
-                if relay is not None:
-                    gateway = self.network_gateway(network, cwd)
-                    assert config.proxy is not None
-                    relay_url = relay.start(gateway, config.proxy)
+                relay_url = self._start_network_relay(config, network, cwd, relay)
             yield network, relay_url
         except BaseException:
             preserve_for_diagnosis = network_created
@@ -920,8 +1210,7 @@ class DockerSut:
         finally:
             with docker_pressure.heavy_operation(), _DOCKER_NETWORK_CONTROL_LOCK:
                 try:
-                    if relay is not None:
-                        relay.stop()
+                    relay.stop()
                 finally:
                     remove_network = network_created and (
                         not preserve_for_diagnosis
@@ -935,15 +1224,35 @@ class DockerSut:
                             check=False,
                         )
 
+    def _start_network_relay(
+        self,
+        config: SutConfig,
+        network: str,
+        cwd: Path,
+        relay: ProxyRelay,
+    ) -> str:
+        """Retry transient gateway visibility and relay startup failures."""
+
+        for attempt in range(_DOCKER_NETWORK_RELAY_ATTEMPTS):
+            try:
+                gateway = self.network_gateway(network, cwd)
+                return relay.start(gateway, config.proxy)
+            except (CommandError, UnsafeSutConfiguration):
+                relay.stop()
+                if attempt + 1 == _DOCKER_NETWORK_RELAY_ATTEMPTS:
+                    raise
+                self._sleeper(_DOCKER_NETWORK_RELAY_RETRY_SECONDS * (attempt + 1))
+        raise AssertionError("unreachable")
+
     def _create_network(self, config: SutConfig, network: str, cwd: Path) -> None:
         last_error: CommandError | None = None
-        for subnet in _docker_network_subnet_candidates(config.run_id, config.docker_network_pool):
+        for subnet in _docker_network_subnet_candidates(config.run_id):
             gateway = str(ipaddress.ip_network(subnet).network_address + 1)
             command = (
                 "docker",
                 "network",
                 "create",
-                *(("--internal",) if config.proxy is not None else ()),
+                "--internal",
                 "--subnet",
                 subnet,
                 "--gateway",
@@ -1014,7 +1323,7 @@ class DockerSut:
         prompt: bytes,
         store: ArtifactStore,
         network: str,
-        relay_url: str | None,
+        relay_url: str,
         source_provenance: SourceProvenance,
     ) -> SutOutcome:
         container = f"{network}-{arm.value}"
@@ -1025,30 +1334,25 @@ class DockerSut:
         preserve_after_infrastructure_failure = False
         tokensflow_wrapper_staged = False
         tokensflow_binary_staged = False
-        tokensflow_environment = tokensflow_runtime_environment() if config.tokensflow_enabled else {}
+        tokensflow_environment = tokensflow_runtime_environment()
         tokensflow_environment_values = tuple(
             dict.fromkeys(value for value in tokensflow_environment.values() if value)
         )
-        tokensflow_command_secrets = tokensflow_environment_values
-        if config.tokensflow_enabled:
-            tokensflow_command_secrets = (
-                tokensflow_secret_variants(paths.tokensflow_home / ".tokensflow/credentials.json")
-                + tokensflow_environment_values
-            )
+        tokensflow_command_secrets = (
+            tokensflow_secret_variants(paths.tokensflow_home / ".tokensflow/credentials.json")
+            + tokensflow_environment_values
+        )
         credential_variants = auth_secret_variants(paths.auth_source) + tokensflow_command_secrets
-        tokensflow: TokensFlowEvidence | None = None
-        tokensflow_daemon: TokensFlowDaemonHandle | None = None
         try:
             paths.prepare()
             paths.copy_auth()
-            paths.copy_codex_config()
             self._stage_recorder(config, paths)
-            if config.tokensflow_enabled:
-                self._stage_tokensflow_wrapper(paths)
-                tokensflow_wrapper_staged = True
-                self._stage_tokensflow_binary(config, paths)
-                tokensflow_binary_staged = True
+            self._stage_tokensflow_wrapper(paths)
+            tokensflow_wrapper_staged = True
+            self._stage_tokensflow_binary(config, paths)
+            tokensflow_binary_staged = True
             self._initialize_workspace(config, arm, paths)
+            workspace_baseline = _workspace_patch_baseline(self._docker, paths.workspace)
             self._prewarm(config, arm, paths, network, relay_url)
             self._start_container(
                 config,
@@ -1062,37 +1366,45 @@ class DockerSut:
             )
             container_started = True
             self._verify_codex_version(container, paths, store)
-            self._readiness(container, paths, store)
+            self._readiness(container, paths)
+            if arm is Arm.ON and config.experience_memory is not None:
+                self._seed_experience_memory(config, container, paths, store)
             plugin = self._plugin_list(container, paths)
-            if config.tokensflow_enabled:
-                self._attach_tokensflow_egress(config, container, paths)
-                tokensflow_egress_attached = True
-                tokensflow = self._tokensflow_identity_gate(
-                    config,
+            self._attach_tokensflow_egress(config, container, paths)
+            tokensflow_egress_attached = True
+            tokensflow = self._tokensflow_identity_gate(
+                config,
+                container,
+                paths,
+                tokensflow_environment,
+                tokensflow_command_secrets,
+            )
+            tokensflow_daemon = self._start_tokensflow_daemon(
+                config,
+                container,
+                paths,
+                tokensflow_environment,
+                tokensflow_command_secrets,
+            )
+            tokensflow = replace(
+                tokensflow,
+                daemon_started=True,
+                daemon_started_at=datetime.now(UTC).isoformat(),
+            )
+            codex = CodexRunner(
+                _DockerExecRunner(
+                    self._docker_exec,
                     container,
-                    paths,
-                    tokensflow_environment,
-                    tokensflow_command_secrets,
+                    unset_environment=_CODEX_ENVIRONMENT_UNSETS,
                 )
-                tokensflow_daemon = self._start_tokensflow_daemon(
-                    config,
-                    container,
-                    paths,
-                    tokensflow_environment,
-                    tokensflow_command_secrets,
-                )
-                tokensflow = replace(
-                    tokensflow,
-                    daemon_started=True,
-                    daemon_started_at=datetime.now(UTC).isoformat(),
-                )
-            codex = CodexRunner(_DockerExecRunner(self._docker, container)).run(
+            ).run(
                 CodexInvocation(
                     arm,
                     inside_disposable_container=True,
                     executable=_CONTAINER_CODEX,
                     model=config.model,
                     reasoning_effort=config.reasoning_effort,
+                    openai_base_url=config.codex_openai_base_url,
                     recorder_python="/runtime/pc-env/bin/python",
                     recorder_script=_CONTAINER_RECORDER,
                     recorder_sidecar="/runtime/pc-home/codex-observed.jsonl",
@@ -1102,10 +1414,16 @@ class DockerSut:
                 store=store,
                 timeout=config.codex_timeout,
                 env={
-                    **runtime_proxy_environment(relay_url, config.extra_no_proxy_hosts),
+                    **loopback_proxy_environment(relay_url),
                     "POWERCONTEXT_HOME": "/runtime/pc-home",
                     "POWERCONTEXT_CODEX_SCOPE_ID": f"eval:{config.run_id}:{arm.value}",
                     "POWERCONTEXT_EVAL_TRACE_PATH": "/runtime/pc-home/evaluation-injections.jsonl",
+                    "GOTMPDIR": _CONTAINER_GO_TMPDIR,
+                    **(
+                        {"POWERCONTEXT_EVAL_REQUIRED_MEMORY_PATH": _CONTAINER_EVALUATION_REQUIRED_MEMORY}
+                        if arm is Arm.ON and config.experience_memory is not None
+                        else {}
+                    ),
                     "UV_PROJECT_ENVIRONMENT": "/runtime/plugin-env",
                     "UV_CACHE_DIR": "/runtime/uv-cache",
                     "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
@@ -1114,8 +1432,7 @@ class DockerSut:
                 secrets=credential_variants,
                 scan_output_secrets=False,
             )
-            if config.tokensflow_enabled and config.finalization_registrar is None:
-                assert tokensflow is not None and tokensflow_daemon is not None
+            if config.finalization_registrar is None:
                 tokensflow_drain_failed = False
                 try:
                     tokensflow = self._drain_tokensflow(
@@ -1132,21 +1449,29 @@ class DockerSut:
                 if tokensflow_drain_failed:
                     self._write_tokensflow_recovery_marker(paths, "tokensflow_drain_failed")
                     raise TokensFlowInfrastructureError("TokensFlow drain failed") from None
-            tokensflow_provenance: Path | None = None
-            if tokensflow is not None:
-                tokensflow_provenance = store.write_json("tokensflow/provenance.json", tokensflow.as_dict())
-            _retain_private_trace(
+            tokensflow_provenance = store.write_json("tokensflow/provenance.json", tokensflow.as_dict())
+            self._retain_private_trace_from_container(
+                container,
                 paths.pc_home / "codex-observed.jsonl",
+                "/runtime/pc-home/codex-observed.jsonl",
                 store,
                 "context/codex-observed.jsonl",
                 required=True,
             )
-            _retain_private_trace(
+            self._retain_private_trace_from_container(
+                container,
                 paths.pc_home / "evaluation-injections.jsonl",
+                "/runtime/pc-home/evaluation-injections.jsonl",
                 store,
                 "context/powercontext-injections.jsonl",
-                required=False,
+                required=arm is Arm.ON and config.experience_memory is not None,
             )
+            if arm is Arm.ON and config.experience_memory is not None:
+                self._validate_experience_injection_trace(
+                    store.root / "context/powercontext-injections.jsonl",
+                    scope_id=f"eval:{config.run_id}:{arm.value}",
+                    experience_memory=config.experience_memory,
+                )
             evidence = self._evidence(config, arm, container, paths, plugin)
             if plugin != (PLUGIN_ID, source_provenance.plugin_version):
                 raise InvalidTreatment("Isolated Codex home does not contain the exact expected plugin")
@@ -1176,16 +1501,15 @@ class DockerSut:
             ).encode("utf-8")
             _reject_retained_secrets(provenance_bytes, credential_variants)
             store.write_bytes("powercontext/provenance.json", provenance_bytes)
-            patch = self._docker.run(
-                ("git", "diff", "--binary", "--full-index", "HEAD", "--"),
-                cwd=paths.workspace,
-                timeout=120,
-            ).stdout
+            self._normalize_workspace_permissions(container, paths)
+            patch = capture_workspace_patch(
+                self._docker,
+                paths.workspace,
+                workspace_baseline.revision,
+                excluded_paths=workspace_baseline.excluded_paths,
+            )
             store.write_text("workspace.patch", patch)
-            if config.tokensflow_enabled and config.finalization_registrar is not None:
-                assert tokensflow_provenance is not None
-                assert tokensflow_daemon is not None
-                assert config.tokensflow_egress_network is not None
+            if config.finalization_registrar is not None:
                 provenance_raw = tokensflow_provenance.read_bytes()
                 descriptor = TokensFlowFinalizationDescriptor(
                     arm=arm,
@@ -1215,11 +1539,7 @@ class DockerSut:
             return SutOutcome(codex, evidence, tokensflow, tokensflow_daemon)
         except BaseException:
             preserve_after_infrastructure_failure = container_started
-            if (
-                config.tokensflow_enabled
-                and preserve_after_infrastructure_failure
-                and not (paths.runtime / "tokensflow-recovery.json").exists()
-            ):
+            if preserve_after_infrastructure_failure and not (paths.runtime / "tokensflow-recovery.json").exists():
                 self._write_tokensflow_recovery_marker(paths, "infrastructure_failure_retained")
             raise
         finally:
@@ -1232,7 +1552,7 @@ class DockerSut:
                     container_removed = not container_started
                     if container_started and not preserve_for_diagnosis:
                         container_removed = self._remove_container_for_cleanup(container, paths)
-                        if not container_removed and config.tokensflow_enabled:
+                        if not container_removed:
                             self._write_tokensflow_recovery_marker(paths, "tokensflow_container_cleanup_failed")
                     if not preserve_for_diagnosis and container_removed:
                         if tokensflow_binary_staged:
@@ -1240,15 +1560,183 @@ class DockerSut:
                         if tokensflow_wrapper_staged:
                             self._cleanup_tokensflow_wrapper(paths)
                     if container_started and not preserve_for_diagnosis and not container_removed:
-                        if config.tokensflow_enabled:
-                            raise TokensFlowInfrastructureError("TokensFlow container cleanup failed") from None
-                        raise UnsafeSutConfiguration("Task container cleanup failed") from None
+                        raise TokensFlowInfrastructureError("TokensFlow container cleanup failed") from None
+
+    def _normalize_workspace_permissions(self, container: str, paths: ArmPaths) -> None:
+        """Make root-created model edits readable by the host patch collector."""
+
+        self._docker.run(
+            (
+                "docker",
+                "exec",
+                container,
+                "/bin/sh",
+                "-c",
+                'find /workspace -xdev \\( -type d -o -type f \\) -exec chmod a+rwX -- "{}" +',
+            ),
+            cwd=paths.runtime,
+            timeout=120,
+        )
+
+    def _retain_private_trace_from_container(
+        self,
+        container: str,
+        host_source: Path,
+        source: str,
+        store: ArtifactStore,
+        destination: str,
+        *,
+        required: bool,
+    ) -> None:
+        """Copy a root-owned container trace without widening host permissions."""
+
+        try:
+            _retain_private_trace(host_source, store, destination, required=required)
+            return
+        except CodexInfrastructureError:
+            # Root-owned bind-mounted files cannot be opened by the host evaluator.
+            # Read only the fixed path through Docker, without changing permissions.
+            # A saturated daemon can reject an otherwise valid exec after Codex has
+            # completed, so retry this bounded evidence read before failing the arm.
+            for attempt in range(_PRIVATE_TRACE_READ_ATTEMPTS):
+                try:
+                    result = self._docker.run(
+                        ("docker", "exec", container, "cat", "--", source),
+                        cwd=Path("/"),
+                        timeout=30,
+                        check=False,
+                    )
+                except (CommandError, OSError):
+                    result = None
+                if result is not None and result.returncode == 0:
+                    store.write_bytes(destination, result.stdout.encode("utf-8"))
+                    return
+                if attempt + 1 < _PRIVATE_TRACE_READ_ATTEMPTS:
+                    self._sleeper(_PRIVATE_TRACE_READ_RETRY_SECONDS)
+            if required:
+                if destination == "context/powercontext-injections.jsonl":
+                    raise MissingPowerContextInjection("PowerContext injection trace is missing") from None
+                raise CodexInfrastructureError("Codex timestamp trace is missing") from None
+
+    @staticmethod
+    def _validate_experience_injection_trace(
+        trace_path: Path,
+        *,
+        scope_id: str,
+        experience_memory: str,
+    ) -> None:
+        try:
+            lines = trace_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            raise InvalidTreatment("PowerContext experience injection trace is missing") from None
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                raise InvalidTreatment("PowerContext experience injection trace is malformed") from None
+            if not isinstance(event, dict):
+                raise InvalidTreatment("PowerContext experience injection trace is malformed")
+            if (
+                event.get("event_type") == "powercontext_injection"
+                and event.get("scope_id") == scope_id
+                and isinstance(event.get("injected_text"), str)
+                and DockerSut._injected_text_contains_experience(event["injected_text"], experience_memory)
+            ):
+                return
+        raise InvalidTreatment("PowerContext checkpoint experience was not injected")
+
+    @staticmethod
+    def _injected_text_contains_experience(injected_text: str, experience_memory: str) -> bool:
+        for line in injected_text.splitlines():
+            try:
+                envelope = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(envelope, dict) or envelope.get("trust") != "untrusted_history":
+                continue
+            items = envelope.get("items")
+            if isinstance(items, list) and any(
+                isinstance(item, dict) and item.get("content") == experience_memory for item in items
+            ):
+                return True
+        return False
+
+    def _seed_experience_memory(
+        self,
+        config: SutConfig,
+        container: str,
+        paths: ArmPaths,
+        store: ArtifactStore,
+    ) -> None:
+        assert config.experience_memory is not None
+        scope_id = f"eval:{config.run_id}:{Arm.ON.value}"
+        payload = json.dumps(
+            {
+                "scope_id": scope_id,
+                "kind": _EXPERIENCE_MEMORY_KIND,
+                "text": config.experience_memory,
+                "reason": "Seeded from the preceding SWE-bench checkpoint before the treatment run.",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+        try:
+            # Every ON arm uses a distinct scope, but production OceanBase and
+            # embedding services are shared.  A full task wave can otherwise
+            # make one checkpoint write exceed its bounded request timeout.
+            with _EXPERIENCE_SEED_LOCK:
+                result = _DockerExecRunner(self._docker_exec, container).run(
+                    ("/runtime/pc-env/bin/python", "-c", _EXPERIENCE_SEED_SCRIPT),
+                    cwd=paths.runtime,
+                    timeout=_EXPERIENCE_SEED_EXEC_TIMEOUT_SECONDS,
+                    input_bytes=payload,
+                )
+            evidence = json.loads(result.stdout)
+            if not isinstance(evidence, dict):
+                raise TypeError
+            if (
+                evidence.get("scope_id") != scope_id
+                or evidence.get("kind") != _EXPERIENCE_MEMORY_KIND
+                or evidence.get("text_sha256") != hashlib.sha256(config.experience_memory.encode("utf-8")).hexdigest()
+                or evidence.get("text_bytes") != len(config.experience_memory.encode("utf-8"))
+                or not isinstance(evidence.get("memory"), dict)
+                or not isinstance(evidence.get("citation"), dict)
+            ):
+                raise ValueError
+        except CommandError as error:
+            store.write_json(
+                "powercontext/experience-seed-failure.json",
+                {
+                    "stage": "command",
+                    "error_type": type(error).__name__,
+                    "returncode": error.result.returncode,
+                    "http_timeout_seconds": _EXPERIENCE_SEED_HTTP_TIMEOUT_SECONDS,
+                    "exec_timeout_seconds": _EXPERIENCE_SEED_EXEC_TIMEOUT_SECONDS,
+                },
+            )
+            raise InvalidTreatment("PowerContext checkpoint experience seeding failed") from error
+        except (OSError, TypeError, ValueError) as error:
+            store.write_json(
+                "powercontext/experience-seed-failure.json",
+                {
+                    "stage": "evidence",
+                    "error_type": type(error).__name__,
+                    "http_timeout_seconds": _EXPERIENCE_SEED_HTTP_TIMEOUT_SECONDS,
+                    "exec_timeout_seconds": _EXPERIENCE_SEED_EXEC_TIMEOUT_SECONDS,
+                },
+            )
+            raise InvalidTreatment("PowerContext checkpoint experience seeding failed") from error
+        required_memory_path = paths.pc_home / _EVALUATION_REQUIRED_MEMORY_NAME
+        try:
+            required_memory_path.write_text(config.experience_memory, encoding="utf-8")
+            required_memory_path.chmod(0o600)
+        except OSError:
+            raise InvalidTreatment("PowerContext checkpoint experience recall query staging failed") from None
+        store.write_json("powercontext/experience-seed.json", evidence)
 
     @staticmethod
     def _validate_tokensflow_source(config: SutConfig, paths: ArmPaths) -> None:
         if paths.tokensflow_home is None:
-            raise TokensFlowInfrastructureError("TokensFlow inputs must be configured")
-        if config.tokensflow_binary is None:
             raise TokensFlowInfrastructureError("TokensFlow inputs must be configured")
         try:
             _tool_directory_mount(
@@ -1277,8 +1765,6 @@ class DockerSut:
         return snapshot, paths.tokensflow_home
 
     def _tokensflow_egress_is_attached(self, config: SutConfig, container: str, paths: ArmPaths) -> bool:
-        if config.tokensflow_egress_network is None:
-            raise TokensFlowInfrastructureError("TokensFlow inputs must be configured")
         template = (
             '{{if index .NetworkSettings.Networks "' + config.tokensflow_egress_network + '"}}true{{else}}false{{end}}'
         )
@@ -1296,8 +1782,6 @@ class DockerSut:
         return attached == "true"
 
     def _attach_tokensflow_egress(self, config: SutConfig, container: str, paths: ArmPaths) -> None:
-        if config.tokensflow_egress_network is None:
-            raise TokensFlowInfrastructureError("TokensFlow inputs must be configured")
         try:
             if not self._tokensflow_egress_is_attached(config, container, paths):
                 self._docker.run(
@@ -1312,8 +1796,6 @@ class DockerSut:
             raise TokensFlowInfrastructureError("TokensFlow egress network attachment failed") from None
 
     def _detach_tokensflow_egress(self, config: SutConfig, container: str, paths: ArmPaths) -> None:
-        if config.tokensflow_egress_network is None:
-            return
         try:
             self._docker.run(
                 ("docker", "network", "disconnect", config.tokensflow_egress_network, container),
@@ -2021,8 +2503,6 @@ class DockerSut:
         """Snapshot the mutable host install behind the evaluator-owned wrapper."""
 
         source = config.tokensflow_binary
-        if source is None:
-            raise TokensFlowInfrastructureError("TokensFlow binary snapshot failed")
         raw = os.fspath(source)
         if not source.is_absolute() or source.name != "tokensflow" or "\0" in raw or ".." in source.parts:
             raise TokensFlowInfrastructureError("TokensFlow binary snapshot failed")
@@ -2209,7 +2689,7 @@ class DockerSut:
         arm: Arm,
         paths: ArmPaths,
         network: str,
-        relay_url: str | None,
+        relay_url: str,
     ) -> None:
         # Dependency installation and plugin setup start several attached Docker
         # runs. Keep the whole prewarm sequence in the shared daemon budget so
@@ -2223,11 +2703,11 @@ class DockerSut:
         arm: Arm,
         paths: ArmPaths,
         network: str,
-        relay_url: str | None,
+        relay_url: str,
     ) -> None:
         del arm
         common_environment = {
-            **runtime_proxy_environment(relay_url, config.extra_no_proxy_hosts),
+            **loopback_proxy_environment(relay_url),
             "UV_CACHE_DIR": "/runtime/uv-cache",
             "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
         }
@@ -2358,36 +2838,12 @@ class DockerSut:
         paths: ArmPaths,
         network: str,
         container: str,
-        relay_url: str | None,
+        relay_url: str,
         tokensflow_environment: Mapping[str, str],
         tokensflow_command_secrets: Sequence[str],
     ) -> None:
         scope = f"eval:{config.run_id}:{arm.value}"
-        tokensflow_mounts: tuple[str, ...] = ()
-        tokensflow_container_environment: dict[str, str] = {}
-        executable_path = (
-            "/tools/uv-dir:/tools/codex-dir:/runtime/pc-env/bin:"
-            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-        )
-        if config.tokensflow_enabled:
-            tokensflow_binary, _tokensflow_home = self._validate_tokensflow_inputs(paths)
-            tokensflow_mounts = (
-                "--mount",
-                _tool_directory_mount(tokensflow_binary, "/tools/tokensflow-dir", expected_name="tokensflow"),
-                "--mount",
-                (
-                    f"type=bind,src={paths.runtime.parent / 'evaluation-control' / 'tokensflow-wrapper'},"
-                    f"dst={_CONTAINER_TOKENSFLOW_WRAPPER_DIR},readonly"
-                ),
-            )
-            tokensflow_container_environment = {
-                "POWERCONTEXT_EVAL_TOKENSFLOW_REAL_BINARY": _CONTAINER_TOKENSFLOW,
-            }
-            executable_path = (
-                f"{_CONTAINER_TOKENSFLOW_WRAPPER_DIR}:"
-                "/tools/uv-dir:/tools/codex-dir:/tools/tokensflow-dir:/runtime/pc-env/bin:"
-                "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-            )
+        tokensflow_binary, _tokensflow_home = self._validate_tokensflow_inputs(paths)
         command = (
             "docker",
             "run",
@@ -2421,25 +2877,42 @@ class DockerSut:
             ),
             "--mount",
             _tool_directory_mount(config.codex_binary, "/tools/codex-dir", expected_name="codex"),
-            *tokensflow_mounts,
+            "--mount",
+            _tool_directory_mount(tokensflow_binary, "/tools/tokensflow-dir", expected_name="tokensflow"),
+            "--mount",
+            (
+                f"type=bind,src={paths.runtime.parent / 'evaluation-control' / 'tokensflow-wrapper'},"
+                f"dst={_CONTAINER_TOKENSFLOW_WRAPPER_DIR},readonly"
+            ),
             "--mount",
             _tool_directory_mount(config.uv_binary, "/tools/uv-dir", expected_name="uv"),
             "--tmpfs",
             "/tmp:rw,noexec,nosuid,size=1g",
             *_docker_env_args(
                 {
-                    **runtime_proxy_environment(relay_url, config.extra_no_proxy_hosts),
+                    **loopback_proxy_environment(relay_url),
                     "POWERCONTEXT_HOME": "/runtime/pc-home",
                     "POWERCONTEXT_CODEX_SCOPE_ID": scope,
+                    "GOTMPDIR": _CONTAINER_GO_TMPDIR,
+                    # Keep Go package build parallelism aligned with the container's
+                    # two-CPU quota. Go does not consistently derive GOMAXPROCS from
+                    # cgroup quotas, and large dependency graphs can otherwise exceed
+                    # the eight-GiB task limit before the agent can inspect failures.
+                    "GOMAXPROCS": _CONTAINER_GO_MAX_PROCS,
+                    "GOFLAGS": _CONTAINER_GO_FLAGS,
                     "UV_PROJECT_ENVIRONMENT": "/runtime/plugin-env",
                     "UV_CACHE_DIR": "/runtime/uv-cache",
                     "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
                     "UV_OFFLINE": "1",
-                    **tokensflow_container_environment,
-                    "PATH": executable_path,
+                    "POWERCONTEXT_EVAL_TOKENSFLOW_REAL_BINARY": _CONTAINER_TOKENSFLOW,
+                    "PATH": (
+                        f"{_CONTAINER_TOKENSFLOW_WRAPPER_DIR}:"
+                        "/tools/uv-dir:/tools/codex-dir:/tools/tokensflow-dir:/runtime/pc-env/bin:"
+                        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                    ),
                 }
             ),
-            *(_docker_inherited_env_args(tokensflow_environment) if config.tokensflow_enabled else ()),
+            *_docker_inherited_env_args(tokensflow_environment),
             *_container_env_file_args(config, arm, paths),
             "--entrypoint",
             "/runtime/pc-env/bin/powercontext",
@@ -2456,75 +2929,36 @@ class DockerSut:
                 command,
                 cwd=paths.runtime,
                 timeout=60,
-                env=(tokensflow_environment if config.tokensflow_enabled else direct_egress_environment()),
+                env=tokensflow_environment,
                 secrets=tokensflow_command_secrets,
             )
 
-    def _readiness(self, container: str, paths: ArmPaths, store: ArtifactStore) -> None:
-        # Probe only the Server readiness contract here.  `powercontext doctor`
-        # also shells out to `codex plugin list` with its own 120-second timeout;
-        # wrapping that composite command in a 10-second process timeout caused
-        # healthy Servers to be misclassified during a full 20-task wave.  Codex
-        # and plugin invariants have dedicated gates immediately before and after
-        # this one, so repeating them here adds latency without adding evidence.
+    def _readiness(self, container: str, paths: ArmPaths) -> None:
         command = (
             "docker",
             "exec",
             container,
-            "/runtime/pc-env/bin/python",
-            "-c",
-            _SERVER_READINESS_PROBE_SCRIPT,
+            "/runtime/pc-env/bin/powercontext",
+            "doctor",
+            "--server-url",
+            "http://127.0.0.1:8000",
+            "--json",
         )
-        deadline = time.monotonic() + _READINESS_BUDGET_SECONDS
-        attempts = 0
-        timed_out_attempts = 0
-        last_reason = ReadinessFailureReason.PROBE_FAILED
-        while time.monotonic() < deadline:
-            attempts += 1
-            try:
-                result = self._docker.run(
-                    command,
-                    cwd=paths.runtime,
-                    timeout=_READINESS_ATTEMPT_TIMEOUT_SECONDS,
-                    check=False,
-                )
-            except CommandTimedOut:
-                timed_out_attempts += 1
-                last_reason = ReadinessFailureReason.COMMAND_TIMED_OUT
-            else:
+        # Admission to the shared Docker stream budget is not part of the
+        # server's readiness budget. Under a 20-task transition wave the wait
+        # for one of four daemon slots can exceed the probe window even though
+        # the containerized server is already ready.
+        with docker_pressure.heavy_operation():
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                try:
+                    result = self._docker.run(command, cwd=paths.runtime, timeout=10, check=False)
+                except CommandTimedOut:
+                    continue
                 if result.returncode == 0:
-                    store.write_json(
-                        "powercontext/readiness.json",
-                        {
-                            "attempts": attempts,
-                            "budget_seconds": _READINESS_BUDGET_SECONDS,
-                            "last_outcome": "ready",
-                            "probe_timeout_seconds": _READINESS_ATTEMPT_TIMEOUT_SECONDS,
-                            "server_ready": True,
-                            "timed_out_attempts": timed_out_attempts,
-                        },
-                    )
                     return
-                last_reason = {
-                    10: ReadinessFailureReason.SERVER_NOT_READY,
-                    11: ReadinessFailureReason.MALFORMED_RESPONSE,
-                }.get(result.returncode, ReadinessFailureReason.PROBE_FAILED)
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            time.sleep(min(_READINESS_RETRY_SECONDS, remaining))
-        store.write_json(
-            "powercontext/readiness.json",
-            {
-                "attempts": attempts,
-                "budget_seconds": _READINESS_BUDGET_SECONDS,
-                "last_outcome": last_reason.value,
-                "probe_timeout_seconds": _READINESS_ATTEMPT_TIMEOUT_SECONDS,
-                "server_ready": False,
-                "timed_out_attempts": timed_out_attempts,
-            },
-        )
-        raise ReadinessFailure(last_reason)
+                time.sleep(0.5)
+        raise InvalidTreatment("PowerContext Server did not become ready")
 
     def _verify_codex_version(self, container: str, paths: ArmPaths, store: ArtifactStore) -> None:
         with docker_pressure.heavy_operation():
@@ -2542,43 +2976,38 @@ class DockerSut:
         )
 
     def _plugin_list(self, container: str, paths: ArmPaths) -> tuple[str, str]:
-        deadline = time.monotonic() + _PLUGIN_LIST_BUDGET_SECONDS
-        while True:
-            try:
+        with docker_pressure.heavy_operation():
+            deadline = time.monotonic() + 60
+            while True:
                 result = self._docker.run(
                     ("docker", "exec", container, _CONTAINER_CODEX, "plugin", "list", "--json"),
                     cwd=paths.runtime,
-                    timeout=_PLUGIN_LIST_ATTEMPT_TIMEOUT_SECONDS,
+                    timeout=30,
                 )
-            except CommandTimedOut:
-                if time.monotonic() >= deadline:
-                    raise PluginInspectionFailure(PluginInspectionFailureReason.TIMED_OUT) from None
-                time.sleep(_PLUGIN_LIST_RETRY_SECONDS)
-                continue
-            try:
-                value = json.loads(result.stdout)
-                if not isinstance(value, dict) or value.get("available") != []:
-                    raise TypeError
-                plugins = value["installed"]
-                if not isinstance(plugins, list) or len(plugins) != 1 or not isinstance(plugins[0], dict):
-                    raise TypeError
-                plugin = plugins[0]
-                plugin_id = plugin["pluginId"]
-                version = plugin["version"]
-                if (
-                    not isinstance(plugin_id, str)
-                    or not plugin_id
-                    or not isinstance(version, str)
-                    or not version
-                    or plugin.get("installed") is not True
-                ):
-                    raise TypeError
-            except (json.JSONDecodeError, KeyError, TypeError):
-                if time.monotonic() >= deadline:
-                    raise PluginInspectionFailure(PluginInspectionFailureReason.INVALID_PLUGIN_SET) from None
-                time.sleep(_PLUGIN_LIST_RETRY_SECONDS)
-                continue
-            return plugin_id, version
+                try:
+                    value = json.loads(result.stdout)
+                    if not isinstance(value, dict) or value.get("available") != []:
+                        raise TypeError
+                    plugins = value["installed"]
+                    if not isinstance(plugins, list) or len(plugins) != 1 or not isinstance(plugins[0], dict):
+                        raise TypeError
+                    plugin = plugins[0]
+                    plugin_id = plugin["pluginId"]
+                    version = plugin["version"]
+                    if (
+                        not isinstance(plugin_id, str)
+                        or not plugin_id
+                        or not isinstance(version, str)
+                        or not version
+                        or plugin.get("installed") is not True
+                    ):
+                        raise TypeError
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    if time.monotonic() >= deadline:
+                        raise InvalidTreatment("Isolated Codex home must contain exactly one plugin") from None
+                    time.sleep(0.5)
+                    continue
+                return plugin_id, version
 
     def _evidence(
         self,
@@ -2589,12 +3018,6 @@ class DockerSut:
         plugin: tuple[str, str],
     ) -> TreatmentEvidence:
         scope = f"eval:{config.run_id}:{arm.value}"
-        query = (
-            "import json,sqlite3,sys;"
-            "db=sqlite3.connect('/runtime/pc-home/powercontext.db');"
-            "count=db.execute('SELECT COUNT(*) FROM pc_sources WHERE scope_id = ?', (sys.argv[1],)).fetchone()[0];"
-            "print(json.dumps({'prompt_sources':count}))"
-        )
         result = self._docker.run(
             (
                 "docker",
@@ -2602,7 +3025,7 @@ class DockerSut:
                 container,
                 "/runtime/pc-env/bin/python",
                 "-c",
-                query,
+                _TREATMENT_EVIDENCE_QUERY,
                 scope,
                 "evidence",
             ),
@@ -2615,14 +3038,17 @@ class DockerSut:
             if isinstance(prompt_sources, bool) or not isinstance(prompt_sources, int):
                 raise TypeError
         except (json.JSONDecodeError, KeyError, TypeError) as error:
-            raise InvalidTreatment("PowerContext SQLite evidence is malformed") from error
+            raise InvalidTreatment("PowerContext evidence is malformed") from error
         logs = self._docker.run(
             ("docker", "logs", container),
             cwd=paths.runtime,
             timeout=30,
             check=False,
         )
-        mcp_requests = sum("/mcp" in line for line in (logs.stdout + logs.stderr).splitlines())
+        mcp_requests = sum(
+            any(marker in line for marker in _MCP_ACTIVITY_LOG_MARKERS)
+            for line in (logs.stdout + logs.stderr).splitlines()
+        )
         return TreatmentEvidence(
             plugin_installed=True,
             plugin_id=plugin[0],
@@ -2645,35 +3071,17 @@ def _validated_gateway(value: str) -> str:
     return str(address)
 
 
-def _validated_docker_network_pool(value: str) -> ipaddress.IPv4Network:
-    try:
-        pool = ipaddress.ip_network(value, strict=True)
-    except ValueError as error:
-        raise UnsafeSutConfiguration("Docker network pool is invalid") from error
-    if not isinstance(pool, ipaddress.IPv4Network) or not pool.is_private or pool.prefixlen > 23:
-        raise UnsafeSutConfiguration("Docker network pool must be a private IPv4 network with at least 32 /28 subnets")
-    return pool
-
-
-def _validated_no_proxy_hosts(values: tuple[str, ...]) -> tuple[str, ...]:
-    safe_host = re.compile(r"(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])")
-    if len(values) != len(set(values)) or any(safe_host.fullmatch(value) is None for value in values):
-        raise UnsafeSutConfiguration("Additional no-proxy hosts are invalid")
-    return values
-
-
-def _docker_network_subnet_candidates(run_id: str, network_pool: str = DEFAULT_DOCKER_NETWORK_POOL) -> tuple[str, ...]:
+def _docker_network_subnet_candidates(run_id: str) -> tuple[str, ...]:
     """Return a deterministic, bounded probe sequence from the evaluation-only pool."""
 
-    pool = _validated_docker_network_pool(network_pool)
     subnet_size = 1 << (32 - _DOCKER_NETWORK_PREFIX_LENGTH)
-    subnet_count = pool.num_addresses // subnet_size
+    subnet_count = _DOCKER_NETWORK_POOL.num_addresses // subnet_size
     start = int.from_bytes(hashlib.sha256(run_id.encode("ascii")).digest()[:8], "big") % subnet_count
     return tuple(
         str(
             ipaddress.ip_network(
                 (
-                    int(pool.network_address) + ((start + offset) % subnet_count) * subnet_size,
+                    int(_DOCKER_NETWORK_POOL.network_address) + ((start + offset) % subnet_count) * subnet_size,
                     _DOCKER_NETWORK_PREFIX_LENGTH,
                 ),
             )
@@ -2722,11 +3130,25 @@ def _container_env_file_args(
     safe_env = {k: v for k, v in config.container_env.items() if k not in reserved}
     if not safe_env:
         return ()
+    if any(
+        re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) is None or "\n" in value or "\r" in value
+        for key, value in safe_env.items()
+    ):
+        raise UnsafeSutConfiguration("Container environment contains an unsafe entry")
     env_file = paths.runtime / "container.env"
-    env_file.write_text(
-        "".join(f"{key}={value}\n" for key, value in safe_env.items()),
-        encoding="utf-8",
+    payload = "".join(f"{key}={value}\n" for key, value in safe_env.items()).encode()
+    descriptor = os.open(
+        env_file,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+        0o600,
     )
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fchmod(stream.fileno(), 0o600)
+    finally:
+        os.close(descriptor)
     return ("--env-file", str(env_file))
 
 
@@ -2806,7 +3228,6 @@ def run_codex_contract_smoke(
         source_checkout=source,
         plugin_checkout_sha=powercontext_sha,
         proxy=ProxyRelayConfig(proxy_url),
-        tokensflow_enabled=True,
         tokensflow_binary=Path(tokensflow_bin).absolute(),
         tokensflow_egress_network=tokensflow_egress_network,
     )
@@ -2843,17 +3264,13 @@ def run_codex_contract_smoke(
         prompts={Arm.OFF: prompt.encode("utf-8"), Arm.ON: prompt.encode("utf-8")},
         stores=stores,
     )
-    off_tokensflow = outcomes[Arm.OFF].tokensflow
-    on_tokensflow = outcomes[Arm.ON].tokensflow
-    if off_tokensflow is None or on_tokensflow is None:
-        raise TokensFlowInfrastructureError("TokensFlow contract smoke did not produce evidence")
     return {
         "status": "passed",
         "off_prompt_sources": outcomes[Arm.OFF].evidence.prompt_sources,
         "on_prompt_sources": outcomes[Arm.ON].evidence.prompt_sources,
         "tokensflow": {
-            Arm.OFF.value: off_tokensflow.as_dict(),
-            Arm.ON.value: on_tokensflow.as_dict(),
+            Arm.OFF.value: outcomes[Arm.OFF].tokensflow.as_dict(),
+            Arm.ON.value: outcomes[Arm.ON].tokensflow.as_dict(),
         },
         "run_root": os.fspath(root),
     }

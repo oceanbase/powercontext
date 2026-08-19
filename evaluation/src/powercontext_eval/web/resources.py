@@ -4,52 +4,21 @@ from __future__ import annotations
 
 import logging
 import os
-import secrets
 import shutil
 import stat
-import tarfile
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
-from powercontext_eval.artifacts import ArtifactStore
-from powercontext_eval.errors import CommandError
 from powercontext_eval.paths import EvaluationPaths
-from powercontext_eval.process import CommandResult, ProcessRunner
 from powercontext_eval.web.config import WebConfig
 from powercontext_eval.web.models import TaskRecord
 from powercontext_eval.web.reporting import load_report
-from powercontext_eval.web.store import AttemptCleanupCandidate, TaskStore
+from powercontext_eval.web.store import TaskStore
 
 _LOGGER = logging.getLogger(__name__)
-_ATTEMPT_CLEANUP_RETRY_SECONDS = 30
-
-
-def _chmod_nofollow(path: Path, mode: int, *, directory: bool) -> None:
-    """Apply exact permissions through a no-follow file descriptor."""
-
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    if not nofollow:
-        raise OSError("Platform does not support no-follow incident permissions")
-    flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0)
-    if directory:
-        flags |= os.O_DIRECTORY
-    else:
-        flags |= getattr(os, "O_NONBLOCK", 0)
-    descriptor = os.open(path, flags)
-    try:
-        metadata = os.fstat(descriptor)
-        expected_type = stat.S_ISDIR(metadata.st_mode) if directory else stat.S_ISREG(metadata.st_mode)
-        if not expected_type:
-            raise OSError("Private incident path has an unexpected type")
-        os.fchmod(descriptor, mode)
-        if stat.S_IMODE(os.fstat(descriptor).st_mode) != mode:
-            raise OSError("Private incident permissions did not converge")
-    finally:
-        os.close(descriptor)
 
 
 class ResourceUnavailable(RuntimeError):
@@ -73,35 +42,6 @@ class FilesystemCapacity:
 
 class ResourceProbe(Protocol):
     def read(self) -> FilesystemCapacity: ...
-
-
-class DependencyProbe(Protocol):
-    def check(self) -> None: ...
-
-
-class CommandRunner(Protocol):
-    def run(self, *args: Any, **kwargs: Any) -> CommandResult: ...
-
-
-class DockerDependencyProbe:
-    """Confirm the Docker daemon can serve new evaluations without mutating it."""
-
-    def __init__(self, run_root: Path, *, runner: ProcessRunner | None = None) -> None:
-        self._run_root = run_root
-        self._runner = runner or ProcessRunner()
-
-    def check(self) -> None:
-        try:
-            result = self._runner.run(
-                ("docker", "info", "--format", "{{.ServerVersion}}"),
-                cwd=FilesystemResourceProbe._nearest_existing_ancestor(self._run_root),
-                timeout=10,
-                check=False,
-            )
-        except (CommandError, OSError):
-            raise ResourceUnavailable("Docker dependency is unavailable") from None
-        if result.returncode != 0 or not result.stdout.strip():
-            raise ResourceUnavailable("Docker dependency is unavailable")
 
 
 class FilesystemResourceProbe:
@@ -250,251 +190,6 @@ class SucceededWorkspaceReclaimer:
             shutil.rmtree(run_id, dir_fd=descriptor)
         finally:
             os.close(descriptor)
-
-
-class AttemptLifecycleCleaner:
-    """Export bounded failure metadata, then remove only exact attempt-owned resources."""
-
-    def __init__(
-        self,
-        store: TaskStore,
-        run_root: Path,
-        *,
-        runner: CommandRunner | None = None,
-        clock: Callable[[], datetime] | None = None,
-        interval_seconds: float = 5.0,
-    ) -> None:
-        if interval_seconds <= 0:
-            raise ValueError("attempt cleanup interval must be positive")
-        self._store = store
-        self._run_root = run_root
-        self._runner = runner or ProcessRunner()
-        self._clock = clock
-        self._interval_seconds = interval_seconds
-
-    def run_once(self) -> int:
-        """Settle a bounded FIFO snapshot; one failure never blocks later candidates."""
-
-        now = self._clock() if self._clock is not None else datetime.now(UTC)
-        settled = 0
-        for candidate in self._store.list_attempt_cleanup_candidates(limit=16, now=now):
-            try:
-                self._export_incident(candidate)
-                self._export_private_incident(candidate)
-                self._store.mark_attempt_evidence_exported(candidate.attempt_id)
-                self._cleanup_exact_resources(candidate)
-                self._store.complete_attempt_cleanup_and_schedule_retry(candidate.attempt_id, now=now)
-                settled += 1
-            except Exception as error:  # noqa: BLE001 - cleanup is independently retryable and sanitized
-                _LOGGER.warning(
-                    "Evaluation attempt cleanup deferred (attempt_id=%s error_type=%s)",
-                    candidate.attempt_id,
-                    type(error).__name__,
-                )
-                try:
-                    self._store.defer_attempt_cleanup(
-                        candidate.attempt_id,
-                        error_code="cleanup_failed",
-                        retry_seconds=_ATTEMPT_CLEANUP_RETRY_SECONDS,
-                        now=now,
-                    )
-                except Exception as defer_error:  # noqa: BLE001 - retain the original candidate for a later scan
-                    _LOGGER.warning(
-                        "Evaluation attempt cleanup defer failed (attempt_id=%s error_type=%s)",
-                        candidate.attempt_id,
-                        type(defer_error).__name__,
-                    )
-        return settled
-
-    def run_forever(self, stop: threading.Event) -> None:
-        while not stop.is_set():
-            try:
-                self.run_once()
-            except Exception as error:  # noqa: BLE001 - maintenance retries must survive a poll-wide fault
-                _LOGGER.warning(
-                    "Evaluation attempt cleanup poll failed (error_type=%s)",
-                    type(error).__name__,
-                )
-            stop.wait(self._interval_seconds)
-
-    def _export_incident(self, candidate: AttemptCleanupCandidate) -> None:
-        store = ArtifactStore(self._run_root / "runs" / candidate.run_id)
-        store.write_json(
-            "incident/manifest.json",
-            {
-                "schema_version": 1,
-                "attempt_id": candidate.attempt_id,
-                "task_id": candidate.task_id,
-                "batch_id": candidate.batch_id,
-                "run_id": candidate.run_id,
-                "attempt_number": candidate.attempt_number,
-                "failure_code": candidate.failure_code.value,
-                "failure_phase": candidate.failure_phase.value if candidate.failure_phase is not None else None,
-                "failure_summary": candidate.failure_summary,
-            },
-        )
-
-    def _export_private_incident(self, candidate: AttemptCleanupCandidate) -> None:
-        private_root = self._run_root / "private-incidents"
-        private_root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        _chmod_nofollow(private_root, 0o700, directory=True)
-        incident_root = private_root / candidate.run_id
-        incident_root.mkdir(mode=0o700, exist_ok=True)
-        _chmod_nofollow(incident_root, 0o700, directory=True)
-        for path in (private_root, incident_root):
-            metadata = path.lstat()
-            if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
-                raise OSError("private incident path is unsafe")
-
-        target = incident_root / "tokensflow-spool.tar.gz"
-        try:
-            metadata = target.lstat()
-        except FileNotFoundError:
-            metadata = None
-        if metadata is not None:
-            if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
-                raise OSError("private incident archive is unsafe")
-            _chmod_nofollow(target, 0o600, directory=False)
-            return
-
-        workspace = self._run_root / "work" / candidate.run_id
-        temporary = incident_root / f".tokensflow-spool-{secrets.token_hex(8)}.tmp"
-
-        def retain_regular_entries(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
-            return info if info.isfile() or info.isdir() or info.issym() or info.islnk() else None
-
-        try:
-            with tarfile.open(temporary, mode="x:gz", dereference=False) as archive:
-                for arm in ("off", "on"):
-                    runtime = workspace / arm / "runtime"
-                    for source in (runtime / "tokensflow-home", runtime / "tokensflow-recovery.json"):
-                        try:
-                            source.lstat()
-                        except FileNotFoundError:
-                            continue
-                        archive.add(
-                            source,
-                            arcname=os.fspath(source.relative_to(workspace)),
-                            recursive=True,
-                            filter=retain_regular_entries,
-                        )
-            _chmod_nofollow(temporary, 0o600, directory=False)
-            os.replace(temporary, target)
-            directory_fd = os.open(incident_root, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0))
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        finally:
-            try:
-                temporary.unlink()
-            except FileNotFoundError:
-                pass
-
-    def _cleanup_exact_resources(self, candidate: AttemptCleanupCandidate) -> None:
-        cwd = self._nearest_existing(self._run_root)
-        label = f"powercontext-eval.run={candidate.run_id}"
-        listed = self._runner.run(
-            ("docker", "ps", "-aq", "--filter", f"label={label}"),
-            cwd=cwd,
-            timeout=30,
-            check=False,
-        )
-        if listed.returncode != 0:
-            raise RuntimeError("attempt container inventory failed")
-        for container_id in tuple(line.strip() for line in listed.stdout.splitlines() if line.strip()):
-            owner = self._runner.run(
-                ("docker", "inspect", "--format", '{{ index .Config.Labels "powercontext-eval.run" }}', container_id),
-                cwd=cwd,
-                timeout=30,
-                check=False,
-            )
-            if owner.returncode != 0 or owner.stdout.strip() != candidate.run_id:
-                raise RuntimeError("attempt container ownership changed")
-            removed = self._runner.run(
-                ("docker", "rm", "-f", container_id),
-                cwd=cwd,
-                timeout=60,
-                check=False,
-            )
-            if removed.returncode != 0:
-                raise RuntimeError("attempt container cleanup failed")
-
-        network_name = f"powercontext-eval-{candidate.run_id}"
-        networks = self._runner.run(
-            (
-                "docker",
-                "network",
-                "ls",
-                "-q",
-                "--filter",
-                f"label={label}",
-                "--filter",
-                f"name=^{network_name}$",
-            ),
-            cwd=cwd,
-            timeout=30,
-            check=False,
-        )
-        if networks.returncode != 0:
-            raise RuntimeError("attempt network inventory failed")
-        for network_id in tuple(line.strip() for line in networks.stdout.splitlines() if line.strip()):
-            inspected = self._runner.run(
-                (
-                    "docker",
-                    "network",
-                    "inspect",
-                    "--format",
-                    '{{ .Name }}|{{ index .Labels "powercontext-eval.run" }}',
-                    network_id,
-                ),
-                cwd=cwd,
-                timeout=30,
-                check=False,
-            )
-            if inspected.returncode != 0 or inspected.stdout.strip() != f"{network_name}|{candidate.run_id}":
-                raise RuntimeError("attempt network ownership changed")
-            removed = self._runner.run(
-                ("docker", "network", "rm", network_id),
-                cwd=cwd,
-                timeout=30,
-                check=False,
-            )
-            if removed.returncode != 0:
-                raise RuntimeError("attempt network cleanup failed")
-
-        self._remove_exact_workspace(candidate.run_id)
-
-    def _remove_exact_workspace(self, run_id: str) -> None:
-        work_root = self._run_root / "work"
-        try:
-            root_fd = os.open(
-                work_root,
-                os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
-            )
-        except FileNotFoundError:
-            return
-        try:
-            try:
-                metadata = os.stat(run_id, dir_fd=root_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                return
-            if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
-                raise OSError("attempt workspace is unsafe")
-            if not shutil.rmtree.avoids_symlink_attacks:
-                raise OSError("platform does not support symlink-safe cleanup")
-            shutil.rmtree(run_id, dir_fd=root_fd)
-        finally:
-            os.close(root_fd)
-
-    @staticmethod
-    def _nearest_existing(path: Path) -> Path:
-        candidate = path
-        while not candidate.exists():
-            if candidate.parent == candidate:
-                raise OSError("evaluation root is unavailable")
-            candidate = candidate.parent
-        return candidate
 
 
 def default_workspace_reclaimer(config: WebConfig, store: TaskStore) -> SucceededWorkspaceReclaimer:

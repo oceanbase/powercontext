@@ -15,7 +15,6 @@ from starlette.requests import Request
 
 from powercontext_eval.artifacts import ArmState
 from powercontext_eval.benchmarks.swebench_pro.adapter import SweBenchProInstance
-from powercontext_eval.benchmarks.swebench_pro.catalog import STABILITY_V1_CASES, STABILITY_V1_TASK_SET
 from powercontext_eval.benchmarks.swebench_pro.gold_overrides import (
     SOURCE559_DATASET_PATCH_SHA256,
     SOURCE559_INSTANCE_ID,
@@ -24,20 +23,10 @@ from powercontext_eval.benchmarks.swebench_pro.gold_overrides import (
     SOURCE559_REFERENCE_PATCH_SHA256,
     SOURCE559_REFERENCE_REVISION,
 )
-from powercontext_eval.git_source import GitSource
 from powercontext_eval.report import ArmReport, GoldValidationAudit, MetricSet, ReportBundle, TestGroupReport
 from powercontext_eval.web.api import TaskEventStream, create_app
 from powercontext_eval.web.config import WebConfig
-from powercontext_eval.web.models import (
-    FailureCategory,
-    FailureCode,
-    RetryDisposition,
-    SafeFailure,
-    TaskCreate,
-    TaskPhase,
-    TaskRecord,
-    TaskResult,
-)
+from powercontext_eval.web.models import FailureCategory, SafeFailure, TaskCreate, TaskPhase, TaskRecord, TaskResult
 from powercontext_eval.web.resources import FilesystemCapacity, ResourceUnavailable
 from powercontext_eval.web.store import FinalizationState, TaskStore, TokensFlowFinalizationCreate
 from powercontext_eval.web.usage import UsageSnapshot
@@ -81,7 +70,7 @@ def config(tmp_path: Path) -> WebConfig:
         database_path=tmp_path / "tasks.sqlite3",
         run_root=tmp_path / "runs",
         frontend_dist=tmp_path / "deploy" / "frontend",
-        proxy_url="http://127.0.0.1:8081",
+        proxy_url=f"http://{SECRET}@127.0.0.1:7890",
     )
 
 
@@ -93,33 +82,9 @@ def store(config: WebConfig) -> TaskStore:
     return task_store
 
 
-@pytest.fixture(autouse=True)
-def resolve_existing_api_test_commit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep unrelated API tests focused while exact source validation runs at its real boundary."""
-
-    original = GitSource.resolve
-
-    def resolve(source: GitSource, repository: str | Path, requested: Any) -> Any:
-        if requested.kind == "commit" and requested.value == "a" * 40:
-            return SimpleNamespace(sha="a" * 40)
-        return original(source, repository, requested)
-
-    monkeypatch.setattr(GitSource, "resolve", resolve)
-
-
 @pytest.fixture
 def client(config: WebConfig, store: TaskStore) -> TestClient:
     return TestClient(create_app(config, store))
-
-
-def _complete_failed_attempt_cleanup(store: TaskStore, task_id: str, *, now: datetime) -> bool:
-    candidate = next(
-        candidate
-        for candidate in store.list_attempt_cleanup_candidates(limit=100, now=now)
-        if candidate.task_id == task_id
-    )
-    store.mark_attempt_evidence_exported(candidate.attempt_id)
-    return store.complete_attempt_cleanup_and_schedule_retry(candidate.attempt_id, now=now)
 
 
 def assert_safe(response: Response) -> None:
@@ -138,11 +103,6 @@ def test_health_and_capabilities_are_server_owned_and_secret_free(client: TestCl
     assert health_payload.pop("filesystem_free_inodes") > 0
     assert health_payload.pop("filesystem_total_inodes") > 0
     assert health_payload.pop("filesystem_min_free_inodes") == 1_000_000
-    assert health_payload.pop("web_revision") != "unknown"
-    assert health_payload.pop("worker_revision") is None
-    assert health_payload.pop("web_schema_version") == 2
-    assert health_payload.pop("worker_schema_version") is None
-    assert health_payload.pop("deployment_consistent") is False
     assert health_payload == {
         "service": "ok",
         "worker_lease_active": False,
@@ -189,7 +149,6 @@ def test_capabilities_and_new_task_inputs_share_the_configured_model_allowlist(
     configured = WebConfig.for_root(
         tmp_path,
         tokensflow_egress_network="bridge",
-        proxy_url="http://127.0.0.1:8081",
         codex_models=("gpt-5.6-sol", "gpt-5.6-luna"),
     )
     task_store = TaskStore(configured.database_path, lease_duration=timedelta(seconds=configured.lease_seconds))
@@ -273,20 +232,10 @@ def test_removed_model_remains_readable_runnable_and_retryable_for_existing_batc
         "legacy-model-worker",
         SafeFailure(
             category=FailureCategory.CODEX_EXECUTION,
-            failure_code=FailureCode.CODEX_EXECUTION,
             phase=TaskPhase.RUNNING_OFF,
             summary="Codex execution did not complete",
-            retry_disposition=RetryDisposition.TERMINAL,
         ),
         now=started + timedelta(seconds=1),
-    )
-    assert (
-        _complete_failed_attempt_cleanup(
-            store,
-            task.task_id,
-            now=started + timedelta(seconds=2),
-        )
-        is False
     )
 
     current_client = TestClient(create_app(config, store, catalog=_BatchCatalog()))
@@ -362,11 +311,6 @@ def test_health_reads_four_active_pairs_and_published_capacity_from_store(
     assert health_payload.pop("filesystem_free_inodes") > 0
     assert health_payload.pop("filesystem_total_inodes") > 0
     assert health_payload.pop("filesystem_min_free_inodes") == 1_000_000
-    assert health_payload.pop("web_revision") != "unknown"
-    assert health_payload.pop("worker_revision") is None
-    assert health_payload.pop("web_schema_version") == 2
-    assert health_payload.pop("worker_schema_version") is None
-    assert health_payload.pop("deployment_consistent") is False
     assert health_payload == {
         "service": "ok",
         "worker_lease_active": True,
@@ -459,7 +403,7 @@ def test_cancel_queued_and_reject_running_or_terminal(client: TestClient, store:
     queued = client.post("/api/tasks", json=payload("cancel-key-1")).json()
     cancelled = client.post(f"/api/tasks/{queued['task_id']}/cancel")
     running = client.post("/api/tasks", json=payload("cancel-key-2")).json()
-    store.claim_next("worker", now=datetime.now(UTC) + timedelta(seconds=1))
+    store.claim_next("worker", now=NOW)
 
     terminal_conflict = client.post(f"/api/tasks/{queued['task_id']}/cancel")
     running_conflict = client.post(f"/api/tasks/{running['task_id']}/cancel")
@@ -520,7 +464,7 @@ def test_every_api_method_uses_fixed_no_store_error_envelope(client: TestClient,
         assert response.json() == {"error": {"code": "not_found", "message": "The requested API route does not exist."}}
 
 
-def _write_treatment_evidence(run_root: Path, task_id: str) -> None:
+def _write_report(run_root: Path, task_id: str) -> None:
     run_dir = run_root / task_id
     for arm in ("off", "on"):
         target = run_dir / "arms" / arm / "powercontext"
@@ -539,11 +483,6 @@ def _write_treatment_evidence(run_root: Path, task_id: str) -> None:
                 }
             )
         )
-
-
-def _write_report(run_root: Path, task_id: str) -> None:
-    run_dir = run_root / task_id
-    _write_treatment_evidence(run_root, task_id)
 
     def arm(name: Literal["off", "on"]) -> ArmReport:
         return ArmReport(
@@ -1090,18 +1029,18 @@ class _BatchCatalog:
     def __init__(self, instance_ids: tuple[str, ...] | None = None) -> None:
         if instance_ids is not None:
             self.instance_ids = instance_ids
-        labels = tuple("abcde"[index] if index < 5 else str(index) for index in range(len(self.instance_ids)))
+        labels = "abcde"[: len(self.instance_ids)]
         self.instances = {
             instance_id: SimpleNamespace(
                 instance_id=instance_id,
-                repo=f"org/repo-{label}",
-                problem_statement=f"Fix the complete problem for repository {label}.",
-                fail_to_pass=(f"test_fix_{label}",),
-                pass_to_pass=(f"test_regression_{label}",),
-                test_patch=f"diff --git a/test_{label}.py b/test_{label}.py\n",
-                selected_test_files_to_run=json.dumps([f"test_{label}.py"]),
+                repo=f"org/repo-{letter}",
+                problem_statement=f"Fix the complete problem for repository {letter}.",
+                fail_to_pass=(f"test_fix_{letter}",),
+                pass_to_pass=(f"test_regression_{letter}",),
+                test_patch=f"diff --git a/test_{letter}.py b/test_{letter}.py\n",
+                selected_test_files_to_run=json.dumps([f"test_{letter}.py"]),
             )
-            for label, instance_id in zip(labels, self.instance_ids, strict=True)
+            for letter, instance_id in zip(labels, self.instance_ids, strict=True)
         }
 
     def require(self, instance_id: str) -> SweBenchProInstance:
@@ -1261,10 +1200,8 @@ def _finish_batch(
         "batch-worker",
         SafeFailure(
             category=FailureCategory.CODEX_EXECUTION,
-            failure_code=FailureCode.CODEX_EXECUTION,
             phase=TaskPhase.RUNNING_ON,
             summary="Codex execution did not complete",
-            retry_disposition=RetryDisposition.TERMINAL,
         ),
         now=started + timedelta(seconds=11),
     )
@@ -1312,34 +1249,6 @@ def test_batch_preview_is_read_only_and_exposes_fixed_facts_usage_and_estimate(
         "block_reason": None,
     }
     assert response.json()["usage"]["used_percent"] == 9
-
-
-def test_stability_batch_preview_and_create_use_the_exact_pinned_subset(
-    config: WebConfig,
-    store: TaskStore,
-) -> None:
-    public_ids = [f"unselected-{index}" for index in range(731)]
-    for source_index, instance_id in STABILITY_V1_CASES:
-        public_ids[source_index] = instance_id
-    client = TestClient(create_app(config, store, catalog=_BatchCatalog(tuple(public_ids))))
-
-    preview = client.post(
-        "/api/batches/preview",
-        json={"powercontext_ref": "latest", "task_set": STABILITY_V1_TASK_SET, "usage_pause_percent": 75},
-    )
-    request = _batch_payload("stability-v1-batch")
-    request["task_set"] = STABILITY_V1_TASK_SET
-    created = client.post("/api/batches", json=request)
-
-    assert preview.status_code == 200
-    assert preview.json()["task_set"] == STABILITY_V1_TASK_SET
-    assert preview.json()["total_tasks"] == 24
-    assert created.status_code == 201
-    assert created.json()["request"]["task_set"] == STABILITY_V1_TASK_SET
-    assert created.json()["total_tasks"] == 24
-    assert [task.instance_id for task in store.list_batch_tasks(created.json()["batch_id"])] == [
-        instance_id for _, instance_id in STABILITY_V1_CASES
-    ]
 
 
 def test_luna_preview_batch_tasks_detail_and_report_keep_the_requested_model(
@@ -1465,7 +1374,7 @@ def test_api_can_create_batch_atomically_paused_without_a_claimable_window(
 
 def test_batch_preview_and_confirmation_fail_closed_without_fresh_usage(tmp_path: Path) -> None:
     root = tmp_path / "no-current-usage"
-    config = WebConfig.for_root(root, tokensflow_egress_network="bridge", proxy_url="http://127.0.0.1:8081")
+    config = WebConfig.for_root(root, tokensflow_egress_network="bridge")
     store = TaskStore(config.database_path, lease_duration=timedelta(seconds=config.lease_seconds))
     store.initialize()
     client = TestClient(create_app(config, store, catalog=_BatchCatalog()))
@@ -1479,30 +1388,6 @@ def test_batch_preview_and_confirmation_fail_closed_without_fresh_usage(tmp_path
     assert preview.status_code == created.status_code == 503
     assert preview.json()["error"]["code"] == created.json()["error"]["code"] == "usage_unavailable"
     assert store.list_batches() == []
-
-
-def test_api_key_mode_does_not_require_subscription_usage_for_preview_or_creation(tmp_path: Path) -> None:
-    root = tmp_path / "api-key-mode"
-    config = WebConfig.for_root(
-        root, tokensflow_egress_network="bridge", proxy_url="http://127.0.0.1:8081", usage_mode="api_key"
-    )
-    store = TaskStore(config.database_path, lease_duration=timedelta(seconds=config.lease_seconds))
-    store.initialize()
-    client = TestClient(create_app(config, store, catalog=_BatchCatalog()))
-
-    preview = client.post(
-        "/api/batches/preview",
-        json={"powercontext_ref": "latest", "usage_pause_percent": 80},
-    )
-    created = client.post("/api/batches", json=_batch_payload("batch-api-key-mode"))
-    usage = client.get("/api/account-usage")
-
-    assert preview.status_code == 200
-    assert preview.json()["usage"] is None
-    assert preview.json()["can_start"] is True
-    assert created.status_code == 201
-    assert usage.status_code == 200
-    assert usage.json() == {"mode": "api_key", "sufficient": True, "usage": None}
 
 
 def test_batch_confirmation_rejects_usage_at_the_selected_threshold(
@@ -1541,10 +1426,7 @@ def test_batch_confirmation_rejects_unresolvable_latest_before_creating_children
 ) -> None:
     root = tmp_path / "missing-source"
     config = WebConfig.for_root(
-        root,
-        powercontext_source=root / "source" / "powercontext.git",
-        tokensflow_egress_network="bridge",
-        proxy_url="http://127.0.0.1:8081",
+        root, powercontext_source=root / "source" / "powercontext.git", tokensflow_egress_network="bridge"
     )
     store = TaskStore(config.database_path, lease_duration=timedelta(seconds=config.lease_seconds))
     store.initialize()
@@ -1552,35 +1434,6 @@ def test_batch_confirmation_rejects_unresolvable_latest_before_creating_children
     client = TestClient(create_app(config, store, catalog=_BatchCatalog()))
     request = _batch_payload("batch-unresolvable-source-key")
     request["powercontext_ref"] = "latest"
-
-    response = client.post("/api/batches", json=request)
-
-    assert response.status_code == 503
-    assert response.json() == {
-        "error": {
-            "code": "source_unavailable",
-            "message": "The selected PowerContext source could not be resolved.",
-        }
-    }
-    assert store.list_batches() == []
-
-
-def test_batch_confirmation_rejects_unresolvable_exact_commit_before_creating_children(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "missing-exact-commit"
-    config = WebConfig.for_root(
-        root,
-        powercontext_source=root / "source" / "powercontext.git",
-        tokensflow_egress_network="bridge",
-        proxy_url="http://127.0.0.1:8081",
-    )
-    store = TaskStore(config.database_path, lease_duration=timedelta(seconds=config.lease_seconds))
-    store.initialize()
-    store.save_usage_snapshot(_usage(9))
-    client = TestClient(create_app(config, store, catalog=_BatchCatalog()))
-    request = _batch_payload("batch-unresolvable-commit-key")
-    request["powercontext_ref"] = "commit:" + "b" * 40
 
     response = client.post("/api/batches", json=request)
 
@@ -1619,9 +1472,7 @@ def test_batch_control_usage_attempt_and_retry_routes_are_durable(
     assert patched.json()["control"]["usage_pause_percent"] == 75
     assert stale_patch.status_code == 409
     assert stale_patch.json()["error"]["code"] == "batch_control_version_conflict"
-    assert usage.json()["mode"] == "subscription"
-    assert usage.json()["sufficient"] is True
-    assert usage.json()["usage"]["used_percent"] == 9
+    assert usage.json()["used_percent"] == 9
     assert [event["event_type"] for event in events.json()] == [
         "batch_created",
         "pause_requested",
@@ -1640,20 +1491,10 @@ def test_batch_control_usage_attempt_and_retry_routes_are_durable(
         "batch-worker",
         SafeFailure(
             category=FailureCategory.CODEX_EXECUTION,
-            failure_code=FailureCode.CODEX_EXECUTION,
             phase=TaskPhase.RUNNING_OFF,
             summary="Codex execution did not complete",
-            retry_disposition=RetryDisposition.TERMINAL,
         ),
         now=started + timedelta(seconds=1),
-    )
-    assert (
-        _complete_failed_attempt_cleanup(
-            store,
-            task.task_id,
-            now=started + timedelta(seconds=2),
-        )
-        is False
     )
     retry_request = {"idempotency_key": "api-retry-0001"}
     retried = client.post(
@@ -1671,70 +1512,6 @@ def test_batch_control_usage_attempt_and_retry_routes_are_durable(
     assert retried.json() == replayed.json()
     assert [attempt["attempt_number"] for attempt in attempts.json()] == [1, 2]
     assert attempts.json()[0]["failure_summary"] == "Codex execution did not complete"
-
-
-def test_batch_runtime_lists_running_and_retry_waiting_tasks_without_secrets(
-    config: WebConfig,
-    store: TaskStore,
-) -> None:
-    client = TestClient(create_app(config, store, catalog=_BatchCatalog()))
-    batch = client.post("/api/batches", json=_batch_payload("batch-runtime-key")).json()
-    started = datetime.now(UTC) + timedelta(seconds=1)
-
-    running = store.claim_next("runtime-worker-1", now=started, max_concurrency=2)
-    assert running is not None
-    store.set_phase(running.task_id, "runtime-worker-1", TaskPhase.RUNNING_ON, now=started)
-    failed = store.claim_next("runtime-worker-2", now=started, max_concurrency=2)
-    assert failed is not None
-    store.fail(
-        failed.task_id,
-        "runtime-worker-2",
-        SafeFailure(
-            category=FailureCategory.REPORT_GENERATION,
-            failure_code=FailureCode.REPORT_GENERATION,
-            phase=TaskPhase.GENERATING_REPORT,
-            summary="Report assembly failed safely",
-            retry_disposition=RetryDisposition.RETRY,
-        ),
-        now=started + timedelta(seconds=1),
-    )
-    assert _complete_failed_attempt_cleanup(store, failed.task_id, now=started + timedelta(seconds=2)) is True
-
-    response = client.get(f"/api/batches/{batch['batch_id']}/runtime")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["batch_id"] == batch["batch_id"]
-    assert payload["status_counts"] == {
-        "queued": 4,
-        "running": 1,
-        "succeeded": 0,
-        "failed": 0,
-        "interrupted": 0,
-        "cancelled": 0,
-    }
-    assert len(payload["tasks"]) == 2
-    running_payload = next(task for task in payload["tasks"] if task["status"] == "running")
-    retry_payload = next(task for task in payload["tasks"] if task["status"] == "queued")
-    assert running_payload["task_id"] == running.task_id
-    assert running_payload["phase"] == "running_on"
-    assert retry_payload["task_id"] == failed.task_id
-    assert retry_payload["attempt_number"] == 2
-    assert retry_payload["last_failure"] == {
-        "category": "report_generation_failure",
-        "code": "report_generation",
-        "phase": "generating_report",
-        "summary": "Report assembly failed safely",
-        "finished_at": (started + timedelta(seconds=1)).isoformat().replace("+00:00", "Z"),
-    }
-    assert_safe(response)
-
-
-def test_batch_runtime_rejects_an_unknown_batch(config: WebConfig, store: TaskStore) -> None:
-    response = TestClient(create_app(config, store, catalog=_BatchCatalog())).get("/api/batches/missing/runtime")
-
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "batch_not_found"
 
 
 def test_batch_api_creates_replays_lists_gets_and_cancels_the_complete_catalog(
@@ -1807,8 +1584,8 @@ def test_batch_report_reconciles_resolution_pairs_failures_and_total_tokens(
     }
     assert report["tokens"]["output"]["off"] == 44
     assert report["tokens"]["total"]["on"] == 478
-    assert report["control"]["intent"] == "run"
-    assert report["control"]["pause_reason"] is None
+    assert report["control"]["intent"] == "pause"
+    assert report["control"]["pause_reason"] == "infrastructure_failure"
     assert report["latest_usage"]["used_percent"] == 9
     assert report["estimate"] == {
         "quality": "preliminary",
@@ -1828,6 +1605,25 @@ def test_batch_report_reconciles_resolution_pairs_failures_and_total_tokens(
     assert "patch_bytes" not in response.text
     assert "treatment_valid" not in response.text
     assert "elapsed" not in response.text
+
+
+def test_batch_report_reconciles_legacy_and_configurable_codex_timeouts(
+    config: WebConfig,
+    store: TaskStore,
+) -> None:
+    catalog = _BatchCatalog()
+    client = TestClient(create_app(config, store, catalog=catalog))
+    batch = client.post("/api/batches", json=_batch_payload("batch-mixed-timeout-key")).json()
+    children = _finish_batch(config, store, batch["batch_id"])
+    report_path = config.run_root / "runs" / children[0].task_id / "report.json"
+    report = json.loads(report_path.read_text())
+    report["configuration"]["codex_timeout_seconds"] = "5400"
+    report_path.write_text(json.dumps(report))
+
+    response = client.get(f"/api/batches/{batch['batch_id']}/report")
+
+    assert response.status_code == 200
+    assert response.json()["configuration"]["codex_timeout_seconds"] == "mixed:3600,5400"
 
 
 def test_batch_report_mixes_legacy_and_source559_audited_reports_without_changing_aggregates(
@@ -1973,7 +1769,7 @@ def test_batch_report_uses_the_successful_retry_once_and_reads_its_attempt_artif
     config: WebConfig,
     store: TaskStore,
 ) -> None:
-    catalog = _BatchCatalog(("instance_org__repo-a",))
+    catalog = _BatchCatalog()
     client = TestClient(create_app(config, store, catalog=catalog))
     batch = client.post("/api/batches", json=_batch_payload("batch-retry-report-key")).json()
     task = store.list_batch_tasks(batch["batch_id"])[0]
@@ -1985,20 +1781,10 @@ def test_batch_report_uses_the_successful_retry_once_and_reads_its_attempt_artif
         "batch-worker",
         SafeFailure(
             category=FailureCategory.CODEX_EXECUTION,
-            failure_code=FailureCode.CODEX_EXECUTION,
             phase=TaskPhase.RUNNING_OFF,
             summary="First attempt failed",
-            retry_disposition=RetryDisposition.TERMINAL,
         ),
         now=started + timedelta(seconds=1),
-    )
-    assert (
-        _complete_failed_attempt_cleanup(
-            store,
-            task.task_id,
-            now=started + timedelta(seconds=2),
-        )
-        is False
     )
     retry, created = store.retry_failed_task(
         batch["batch_id"],
@@ -2009,6 +1795,7 @@ def test_batch_report_uses_the_successful_retry_once_and_reads_its_attempt_artif
     assert created is True
     store.request_resume(
         batch["batch_id"],
+        snapshot=_usage(9, observed_at=started + timedelta(seconds=3)),
         now=started + timedelta(seconds=3),
     )
     claimed_retry = store.claim_next("batch-worker", now=started + timedelta(seconds=3))
@@ -2023,9 +1810,7 @@ def test_batch_report_uses_the_successful_retry_once_and_reads_its_attempt_artif
         off_tokens=(100, 10),
         on_tokens=(80, 8),
     )
-    _write_treatment_evidence(config.run_root / "runs", retry_run_id)
     run_dir = config.run_root / "runs" / retry_run_id
-    (run_dir / "report.md").write_text("# Successful retry\n")
     store.succeed(
         task.task_id,
         "batch-worker",
@@ -2039,8 +1824,6 @@ def test_batch_report_uses_the_successful_retry_once_and_reads_its_attempt_artif
     )
 
     report = client.get(f"/api/batches/{batch['batch_id']}/report")
-    task_report = client.get(f"/api/tasks/{task.task_id}/report")
-    raw_task_report = client.get(f"/api/tasks/{task.task_id}/report.md")
     task_page = client.get(f"/api/batches/{batch['batch_id']}/tasks")
     latest_detail = client.get(f"/api/batches/{batch['batch_id']}/tasks/{task.task_id}")
     first_detail = client.get(
@@ -2056,10 +1839,6 @@ def test_batch_report_uses_the_successful_retry_once_and_reads_its_attempt_artif
     assert report.json()["comparable_pairs"] == 1
     assert report.json()["execution_failures"] == 0
     assert report.json()["on"]["resolved"] == 1
-    assert task_report.status_code == 200
-    assert task_report.json()["task_id"] == task.task_id
-    assert raw_task_report.status_code == 200
-    assert raw_task_report.text == "# Successful retry\n"
     item = task_page.json()["items"][0]
     assert item["attempt_number"] == item["attempt_count"] == 2
     assert item["pair_category"] == "off_fail_on_pass"

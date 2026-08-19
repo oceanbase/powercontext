@@ -7,16 +7,15 @@ import { apiStub, batchRecord } from "./test/fixtures";
 describe("App batch report navigation", () => {
   beforeEach(() => window.history.replaceState({}, "", "/"));
 
-  it("shows the report destinations and a complete-batch launcher", async () => {
+  it("shows only the two report destinations and a complete-batch launcher", async () => {
     render(<App api={apiStub()} />);
 
     expect(screen.getByRole("heading", { name: "总体报告" })).toBeVisible();
     expect(screen.getByRole("navigation", { name: "报告导航" })).toBeVisible();
     expect(screen.getByRole("link", { name: "总体报告" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "任务详细报告" })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByRole("link", { name: "当前运行任务" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getAllByRole("navigation")).toHaveLength(1);
-    expect(screen.getAllByRole("link")).toHaveLength(4);
+    expect(screen.getAllByRole("link")).toHaveLength(3);
     expect(screen.queryByRole("link", { name: /工作台|测试任务|验收报告|单任务详情/ })).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "预览评测" })).toBeVisible();
     expect(await screen.findByText("Worker 工作中")).toBeVisible();
@@ -87,16 +86,6 @@ describe("App batch report navigation", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/report/batch%2Fnew"));
     expect(await screen.findByRole("heading", { name: "总体报告" })).toBeVisible();
     expect(screen.getByRole("link", { name: "任务详细报告" })).not.toHaveAttribute("aria-disabled");
-    expect(screen.getByRole("link", { name: "当前运行任务" })).not.toHaveAttribute("aria-disabled");
-  });
-
-  it("routes the current-running destination to its live subpage", async () => {
-    window.history.replaceState({}, "", "/report/batch-one/running");
-    render(<App api={apiStub()} />);
-
-    expect(await screen.findByRole("heading", { name: "当前运行任务" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "当前运行任务" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "总体报告" })).not.toHaveAttribute("aria-current");
   });
 
   it("keeps the task-report destination active on a contextual task detail route", async () => {

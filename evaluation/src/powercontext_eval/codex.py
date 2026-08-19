@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, BinaryIO, Protocol
+from urllib.parse import urlsplit
 
 from powercontext_eval.artifacts import ArtifactStore
 from powercontext_eval.errors import CommandError, PowerContextEvalError
@@ -19,6 +20,11 @@ from powercontext_eval.process import CommandResult
 EXPECTED_CODEX_VERSION = "0.145.0"
 DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
 DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_CODEX_TIMEOUT_SECONDS = 3_600
+MIN_CODEX_TIMEOUT_SECONDS = 60
+MAX_CODEX_TIMEOUT_SECONDS = 7_200
+CUSTOM_MODEL_PROVIDER_ID = "powercontext_eval_api"
+CUSTOM_MODEL_PROVIDER_NAME = "PowerContext Evaluation API"
 _SAFE_CODEX_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _CAPACITY_MARKER = "at capacity"
 _CAPACITY_EVENT_TYPES = frozenset({"error", "turn.failed"})
@@ -28,6 +34,33 @@ def is_safe_codex_model(value: str) -> bool:
     """Return whether a model is one opaque argument without restricting the model catalog."""
 
     return _SAFE_CODEX_MODEL.fullmatch(value) is not None
+
+
+def is_safe_openai_base_url(value: str) -> bool:
+    """Return whether a URL can be embedded in one quoted Codex TOML override."""
+
+    if (
+        not isinstance(value, str)
+        or not value
+        or any(character in value for character in '\0\r\n"\\')
+        or any(character.isspace() for character in value)
+    ):
+        return False
+    try:
+        parsed = urlsplit(value)
+        parsed_port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme in {"http", "https"}
+        and parsed.hostname is not None
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.query == ""
+        and parsed.fragment == ""
+        and not parsed.netloc.endswith(":")
+        and (parsed_port is None or 1 <= parsed_port <= 65535)
+    )
 
 
 class UnsafeCodexInvocation(PowerContextEvalError):
@@ -52,6 +85,7 @@ class CodexInvocation:
     model: str = DEFAULT_CODEX_MODEL
     reasoning_effort: str = DEFAULT_REASONING_EFFORT
     expected_version: str = EXPECTED_CODEX_VERSION
+    openai_base_url: str | None = None
     recorder_python: str | None = None
     recorder_script: str | None = None
     recorder_sidecar: str | None = None
@@ -67,7 +101,27 @@ class CodexInvocation:
             raise UnsafeCodexInvocation("Codex model is unsafe")
         if not self.reasoning_effort or "\0" in self.reasoning_effort:
             raise UnsafeCodexInvocation("Codex reasoning effort is unsafe")
+        if self.openai_base_url is not None and not is_safe_openai_base_url(self.openai_base_url):
+            raise UnsafeCodexInvocation("OpenAI base URL is unsafe")
         switch = "--enable" if self.arm is Arm.ON else "--disable"
+        config_overrides = (
+            (
+                "-c",
+                f'model_provider="{CUSTOM_MODEL_PROVIDER_ID}"',
+                "-c",
+                f'model_providers.{CUSTOM_MODEL_PROVIDER_ID}.name="{CUSTOM_MODEL_PROVIDER_NAME}"',
+                "-c",
+                f'model_providers.{CUSTOM_MODEL_PROVIDER_ID}.base_url="{self.openai_base_url}"',
+                "-c",
+                f"model_providers.{CUSTOM_MODEL_PROVIDER_ID}.requires_openai_auth=true",
+                "-c",
+                f'model_providers.{CUSTOM_MODEL_PROVIDER_ID}.wire_api="responses"',
+                "-c",
+                f"model_providers.{CUSTOM_MODEL_PROVIDER_ID}.supports_websockets=false",
+            )
+            if self.openai_base_url is not None
+            else ()
+        )
         codex_argv = (
             self.executable,
             "exec",
@@ -82,6 +136,7 @@ class CodexInvocation:
             self.model,
             "-c",
             f'model_reasoning_effort="{self.reasoning_effort}"',
+            *config_overrides,
             switch,
             "plugins",
             "-C",
@@ -172,16 +227,19 @@ class CodexRunner:
                 self._retain_process_result(store, error.result, event_stream, output_secrets)
                 if _stream_reports_upstream_capacity(event_stream):
                     raise CodexCapacityError("Codex reported the upstream model is at capacity") from None
-                raise CodexInfrastructureError(_command_error_kind(error)) from None
-
-            output_secrets = secrets if scan_output_secrets else ()
-            self._append_compat_stdout(event_stream, result.stdout, output_secrets)
-            self._retain_process_result(store, result, event_stream, output_secrets)
-            try:
-                event_stream.seek(0)
-                last_message, usage = _summarize_jsonl_stream(event_stream)
-            except (ValueError, TypeError) as error:
-                raise CodexInfrastructureError(f"Codex JSONL is malformed: {error}") from None
+                completed = _completed_outcome(event_stream)
+                if completed is None:
+                    raise CodexInfrastructureError(_command_error_kind(error)) from None
+                last_message, usage = completed
+            else:
+                output_secrets = secrets if scan_output_secrets else ()
+                self._append_compat_stdout(event_stream, result.stdout, output_secrets)
+                self._retain_process_result(store, result, event_stream, output_secrets)
+                try:
+                    event_stream.seek(0)
+                    last_message, usage = _summarize_jsonl_stream(event_stream)
+                except (ValueError, TypeError) as error:
+                    raise CodexInfrastructureError(f"Codex JSONL is malformed: {error}") from None
 
         store.write_text("codex/last-message.txt", last_message)
         store.write_json("codex/usage.json", dict(usage) if usage is not None else {"status": "N/A"})
@@ -236,6 +294,25 @@ def _stream_reports_upstream_capacity(stream: BinaryIO) -> bool:
         if any(isinstance(message, str) and _CAPACITY_MARKER in message for message in messages):
             return True
     return False
+
+
+def _completed_outcome(stream: BinaryIO) -> tuple[str, Mapping[str, int] | None] | None:
+    """Recover a protocol-complete turn when the CLI fails only during process teardown."""
+
+    stream.seek(0)
+    last_event: dict[str, Any] | None = None
+    try:
+        for raw_line in stream:
+            value = json.loads(raw_line.decode("utf-8"))
+            if not isinstance(value, dict):
+                return None
+            last_event = value
+        if last_event is None or last_event.get("type") != "turn.completed":
+            return None
+        stream.seek(0)
+        return _summarize_jsonl_stream(stream)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError):
+        return None
 
 
 def _parse_jsonl(raw: str) -> tuple[dict[str, Any], ...]:

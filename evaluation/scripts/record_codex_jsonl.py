@@ -35,13 +35,15 @@ def _open_sidecar(path: Path) -> BinaryIO:
     descriptor = os.open(
         path,
         os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
-        0o600,
+        0o640,
     )
     try:
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode):
             raise ValueError("sidecar must be a regular file")
-        os.fchmod(descriptor, 0o600)
+        # The recorder runs as root in the task container while the host evaluator
+        # reads the bind mount as the shared runtime group.
+        os.fchmod(descriptor, 0o640)
         return os.fdopen(descriptor, "ab", buffering=0)
     except BaseException:
         os.close(descriptor)

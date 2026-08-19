@@ -73,6 +73,7 @@ except ModuleNotFoundError as error:  # pragma: no cover - exercised in a depend
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
+_READINESS_PROBE_MAX_TOKENS = 16
 
 
 class InferenceLimits(BaseModel):
@@ -263,7 +264,9 @@ async def probe_pydantic_ai_model(
         await asyncio.wait_for(
             model.request(
                 [ModelRequest(parts=[UserPromptPart("Reply with one token.")])],
-                ModelSettings(max_tokens=1),
+                # OpenAI-compatible providers commonly reject output budgets below 16
+                # even when the probe asks for a one-token response.
+                ModelSettings(max_tokens=_READINESS_PROBE_MAX_TOKENS),
                 ModelRequestParameters(),
             ),
             timeout=timeout_seconds,

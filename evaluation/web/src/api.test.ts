@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ApiError, EvaluationApi } from "./api";
-import { batchReport } from "./test/fixtures";
 
 const validTask = {
   powercontext_ref: "latest",
@@ -49,84 +48,6 @@ function apiWithResponse(response: Response): {
 }
 
 describe("EvaluationApi HTTP", () => {
-  it("accepts an API-key admission response without subscription usage", async () => {
-    const response = { mode: "api_key", sufficient: true, usage: null } as const;
-    const { api, fetch } = apiWithResponse(jsonResponse(response));
-
-    await expect(api.getAccountUsage()).resolves.toEqual(response);
-    expect(fetch).toHaveBeenCalledWith("/api/account-usage", expect.any(Object));
-  });
-
-  it("accepts the secret-free current batch runtime response", async () => {
-    const response = {
-      batch_id: "batch-live",
-      generated_at: "2026-08-16T09:30:00Z",
-      status_counts: {
-        queued: 1,
-        running: 1,
-        succeeded: 22,
-        failed: 0,
-        interrupted: 0,
-        cancelled: 0,
-      },
-      tasks: [
-        {
-          task_id: "task-live",
-          attempt_id: "task-live.attempt-0002",
-          instance_id: "instance_org__repo-live",
-          source_index: 8,
-          status: "running",
-          phase: "running_off",
-          attempt_number: 2,
-          attempt_count: 2,
-          created_at: "2026-08-16T09:20:00Z",
-          eligible_at: "2026-08-16T09:25:00Z",
-          started_at: "2026-08-16T09:26:00Z",
-          last_failure: {
-            category: "report_generation_failure",
-            code: "report_generation",
-            phase: "generating_report",
-            summary: "Safe summary",
-            finished_at: "2026-08-16T09:24:00Z",
-          },
-        },
-      ],
-    } as const;
-    const { api, fetch } = apiWithResponse(jsonResponse(response));
-
-    await expect(api.getBatchRuntime("batch/live")).resolves.toEqual(response);
-    expect(fetch).toHaveBeenCalledWith("/api/batches/batch%2Flive/runtime", expect.any(Object));
-  });
-
-  it("accepts a running batch report before any task has reached a terminal state", async () => {
-    const runningReport = {
-      ...batchReport,
-      terminal_tasks: 0,
-      comparable_pairs: 0,
-      off: { resolved: 0, total: 0, rate_percent: 0 },
-      on: { resolved: 0, total: 0, rate_percent: 0 },
-      resolution_rate_delta_points: 0,
-      pair_categories: {
-        off_fail_on_pass: 0,
-        off_pass_on_fail: 0,
-        both_pass: 0,
-        both_fail: 0,
-        execution_failure: 0,
-      },
-      task_statuses: {
-        queued: 711,
-        running: 20,
-        succeeded: 0,
-        failed: 0,
-        interrupted: 0,
-        cancelled: 0,
-      },
-    };
-    const { api } = apiWithResponse(jsonResponse(runningReport));
-
-    await expect(api.getBatchReport("batch-running")).resolves.toEqual(runningReport);
-  });
-
   it("accepts batches paused by an infrastructure failure", async () => {
     const batch = {
       batch_id: "batch-luna",

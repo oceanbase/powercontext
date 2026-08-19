@@ -8,12 +8,11 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from powercontext_eval.benchmarks.swebench_pro.catalog import TaskSet
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT, is_safe_codex_model
 from powercontext_eval.models import PowerContextRef
 from powercontext_eval.web.controls import BatchControlState
 from powercontext_eval.web.estimation import BatchEstimate
-from powercontext_eval.web.models import FailureCategory, FailureCode, TaskPhase, TaskStatus
+from powercontext_eval.web.models import TaskStatus
 from powercontext_eval.web.usage import UsageSnapshot
 
 
@@ -24,7 +23,7 @@ class _FrozenModel(BaseModel):
 class BatchCreate(_FrozenModel):
     powercontext_ref: str
     benchmark: Literal["swebench-pro"]
-    task_set: TaskSet
+    task_set: Literal["swebench-pro-public-v2"]
     model: str = DEFAULT_CODEX_MODEL
     reasoning_effort: Literal["medium"] = DEFAULT_REASONING_EFFORT
     treatment_mode: Literal["off_on"]
@@ -52,13 +51,13 @@ class BatchCreate(_FrozenModel):
 class BatchPreviewResponse(_FrozenModel):
     powercontext_ref: str
     benchmark: Literal["swebench-pro"]
-    task_set: TaskSet
+    task_set: Literal["swebench-pro-public-v2"]
     model: str
     reasoning_effort: Literal["medium"]
     treatment_mode: Literal["off_on"]
     total_tasks: Annotated[int, Field(ge=1)]
     usage_pause_percent: Annotated[int, Field(ge=1, le=100)]
-    usage: UsageSnapshot | None
+    usage: UsageSnapshot
     estimate: BatchEstimate
     can_start: bool
     block_reason: Literal["usage_threshold_reached"] | None = None
@@ -117,57 +116,6 @@ class BatchControlEvent(_FrozenModel):
     def require_utc(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
             raise ValueError("Control event timestamps must use UTC")
-        return value
-
-
-class BatchRuntimeFailure(_FrozenModel):
-    category: FailureCategory
-    code: FailureCode
-    phase: TaskPhase | None = None
-    summary: str = Field(min_length=1, max_length=500)
-    finished_at: datetime
-
-    @field_validator("finished_at")
-    @classmethod
-    def require_failure_utc(cls, value: datetime) -> datetime:
-        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
-            raise ValueError("Runtime failure timestamps must use UTC")
-        return value
-
-
-class BatchRuntimeTask(_FrozenModel):
-    task_id: str
-    attempt_id: str
-    instance_id: str
-    source_index: Annotated[int, Field(ge=0)]
-    status: Literal[TaskStatus.QUEUED, TaskStatus.RUNNING]
-    phase: TaskPhase | None = None
-    attempt_number: Annotated[int, Field(ge=1)]
-    attempt_count: Annotated[int, Field(ge=1)]
-    created_at: datetime
-    eligible_at: datetime
-    started_at: datetime | None = None
-    last_failure: BatchRuntimeFailure | None = None
-
-    @field_validator("created_at", "eligible_at", "started_at")
-    @classmethod
-    def require_runtime_utc(cls, value: datetime | None) -> datetime | None:
-        if value is not None and (value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value)):
-            raise ValueError("Runtime task timestamps must use UTC")
-        return value
-
-
-class BatchRuntimeResponse(_FrozenModel):
-    batch_id: str
-    generated_at: datetime
-    status_counts: dict[TaskStatus, Annotated[int, Field(ge=0)]]
-    tasks: tuple[BatchRuntimeTask, ...]
-
-    @field_validator("generated_at")
-    @classmethod
-    def require_generated_utc(cls, value: datetime) -> datetime:
-        if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
-            raise ValueError("Runtime response timestamps must use UTC")
         return value
 
 

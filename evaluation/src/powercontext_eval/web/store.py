@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from re import fullmatch
+from types import MappingProxyType
 from typing import Any, Literal, TypedDict
 
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT
@@ -23,12 +24,7 @@ from powercontext_eval.web.batches import (
     BatchRecord,
     BatchStatus,
 )
-from powercontext_eval.web.config import (
-    DEFAULT_MAX_ATTEMPTS,
-    MAX_ATTEMPTS_LIMIT,
-    MAX_TASK_PARALLELISM,
-    MAX_TOKENSFLOW_FINALIZER_TIMEOUT_SECONDS,
-)
+from powercontext_eval.web.config import MAX_TASK_PARALLELISM, MAX_TOKENSFLOW_FINALIZER_TIMEOUT_SECONDS
 from powercontext_eval.web.controls import (
     BatchControlIntent,
     BatchControlState,
@@ -36,9 +32,8 @@ from powercontext_eval.web.controls import (
     derive_controlled_batch_status,
 )
 from powercontext_eval.web.models import (
+    RETRYABLE_FAILURES,
     FailureCategory,
-    FailureCode,
-    RetryDisposition,
     SafeFailure,
     TaskAttemptRecord,
     TaskCreate,
@@ -49,11 +44,6 @@ from powercontext_eval.web.models import (
     TaskSummary,
 )
 from powercontext_eval.web.usage import UsageSnapshot
-
-_RETRY_BACKOFF_SECONDS = (30, 120, 300, 600)
-# Some Gold suites contain wall-clock tests with a deterministic two-hour bad window.
-# Keep the bounded final attempt until that window has rolled over instead of burning it immediately.
-_GOLD_VALIDATION_RETRY_BACKOFF_SECONDS = (30, 120, 300, 7_200)
 
 
 class TaskStoreError(RuntimeError):
@@ -88,14 +78,6 @@ class HealthSnapshot(TypedDict):
     running_tasks: int
 
 
-class DeploymentSnapshot(TypedDict):
-    web_revision: str | None
-    worker_revision: str | None
-    web_schema_version: int | None
-    worker_schema_version: int | None
-    deployment_consistent: bool
-
-
 class FinalizationState(StrEnum):
     """Durable TokensFlow resource-owner lifecycle exposed as sanitized telemetry."""
 
@@ -108,23 +90,18 @@ class FinalizationState(StrEnum):
     CLEANUP_FAILED = "cleanup_failed"
 
 
-class AttemptEvidenceState(StrEnum):
-    NOT_REQUIRED = "not_required"
-    PENDING = "pending"
-    EXPORTED = "exported"
-
-
-class AttemptCleanupState(StrEnum):
-    COMPLETE = "complete"
-    PENDING = "pending"
-
-
 _TERMINAL_FINALIZATION_STATES = frozenset(
     {
         FinalizationState.PASSED,
         FinalizationState.TIMED_OUT,
         FinalizationState.CAPACITY_EVICTED,
         FinalizationState.CLEANUP_FAILED,
+    }
+)
+_PAUSE_REASONS = MappingProxyType(
+    {
+        FailureCategory.CODEX_CAPACITY: BatchPauseReason.CODEX_CAPACITY,
+        FailureCategory.TREATMENT_VALIDATION: BatchPauseReason.INFRASTRUCTURE_FAILURE,
     }
 )
 
@@ -175,20 +152,6 @@ class TokensFlowFinalizationCreate:
 
 
 @dataclass(frozen=True)
-class AttemptCleanupCandidate:
-    """Allowlisted metadata required to export evidence and remove one exact attempt."""
-
-    attempt_id: str
-    task_id: str
-    batch_id: str | None
-    attempt_number: int
-    run_id: str
-    failure_code: FailureCode
-    failure_phase: TaskPhase | None
-    failure_summary: str
-
-
-@dataclass(frozen=True)
 class TokensFlowFinalizationRecord(TokensFlowFinalizationCreate):
     job_id: str
     registered_at: datetime
@@ -208,24 +171,11 @@ class TokensFlowFinalizationRecord(TokensFlowFinalizationCreate):
 class TaskStore:
     """Persist tasks and coordinate a single global worker through SQLite."""
 
-    def __init__(
-        self,
-        database: Path,
-        *,
-        lease_duration: timedelta,
-        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
-    ) -> None:
+    def __init__(self, database: Path, *, lease_duration: timedelta) -> None:
         if lease_duration <= timedelta(0):
             raise ValueError("lease_duration must be positive")
-        if (
-            isinstance(max_attempts, bool)
-            or not isinstance(max_attempts, int)
-            or not 1 <= max_attempts <= MAX_ATTEMPTS_LIMIT
-        ):
-            raise ValueError(f"max_attempts must be between 1 and {MAX_ATTEMPTS_LIMIT}")
         self._database = database
         self._lease_duration = lease_duration
-        self._max_attempts = max_attempts
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -300,20 +250,13 @@ class TaskStore:
                     status TEXT NOT NULL,
                     phase TEXT,
                     created_at TEXT NOT NULL,
-                    eligible_at TEXT NOT NULL,
                     started_at TEXT,
                     finished_at TEXT,
                     version INTEGER NOT NULL DEFAULT 0 CHECK (version >= 0),
                     failure_category TEXT,
-                    failure_code TEXT,
-                    retry_disposition TEXT,
                     failure_phase TEXT,
                     failure_summary TEXT,
                     result_json TEXT,
-                    evidence_state TEXT NOT NULL DEFAULT 'not_required',
-                    cleanup_state TEXT NOT NULL DEFAULT 'complete',
-                    cleanup_eligible_at TEXT,
-                    cleanup_error_code TEXT,
                     UNIQUE(task_id, attempt_number)
                 );
                 CREATE TABLE IF NOT EXISTS worker_leases (
@@ -323,13 +266,7 @@ class TaskStore:
                 );
                 CREATE TABLE IF NOT EXISTS worker_runtime (
                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-                    task_parallelism INTEGER NOT NULL CHECK (task_parallelism BETWEEN 1 AND 20),
-                    observed_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS runtime_revisions (
-                    component TEXT PRIMARY KEY CHECK (component IN ('web', 'worker')),
-                    build_revision TEXT NOT NULL,
-                    schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+                    task_parallelism INTEGER NOT NULL CHECK (task_parallelism BETWEEN 1 AND 30),
                     observed_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS usage_snapshots (
@@ -394,28 +331,6 @@ class TaskStore:
                 connection.execute("ALTER TABLE batches ADD COLUMN control_updated_at TEXT")
             if "control_version" not in batch_columns:
                 connection.execute("ALTER TABLE batches ADD COLUMN control_version INTEGER NOT NULL DEFAULT 0")
-            attempt_columns = {
-                str(row["name"]) for row in connection.execute("PRAGMA table_info(task_attempts)").fetchall()
-            }
-            if "eligible_at" not in attempt_columns:
-                connection.execute("ALTER TABLE task_attempts ADD COLUMN eligible_at TEXT")
-            if "failure_code" not in attempt_columns:
-                connection.execute("ALTER TABLE task_attempts ADD COLUMN failure_code TEXT")
-            if "retry_disposition" not in attempt_columns:
-                connection.execute("ALTER TABLE task_attempts ADD COLUMN retry_disposition TEXT")
-            if "evidence_state" not in attempt_columns:
-                connection.execute(
-                    "ALTER TABLE task_attempts ADD COLUMN evidence_state TEXT NOT NULL DEFAULT 'not_required'"
-                )
-            if "cleanup_state" not in attempt_columns:
-                connection.execute(
-                    "ALTER TABLE task_attempts ADD COLUMN cleanup_state TEXT NOT NULL DEFAULT 'complete'"
-                )
-            if "cleanup_eligible_at" not in attempt_columns:
-                connection.execute("ALTER TABLE task_attempts ADD COLUMN cleanup_eligible_at TEXT")
-            if "cleanup_error_code" not in attempt_columns:
-                connection.execute("ALTER TABLE task_attempts ADD COLUMN cleanup_error_code TEXT")
-            connection.execute("UPDATE task_attempts SET eligible_at = created_at WHERE eligible_at IS NULL")
             connection.execute("UPDATE batches SET control_updated_at = created_at WHERE control_updated_at IS NULL")
             _migrate_worker_runtime_parallelism_constraint(connection)
             _backfill_legacy_batch_requests(connection)
@@ -440,7 +355,7 @@ class TaskStore:
                 """
                 INSERT INTO task_attempts(
                     attempt_id, task_id, attempt_number, idempotency_key, status,
-                    phase, created_at, eligible_at, started_at, finished_at, version,
+                    phase, created_at, started_at, finished_at, version,
                     failure_category, failure_phase, failure_summary, result_json
                 )
                 SELECT
@@ -450,7 +365,6 @@ class TaskStore:
                     task_id || '.attempt-0001',
                     status,
                     phase,
-                    created_at,
                     created_at,
                     started_at,
                     finished_at,
@@ -514,10 +428,6 @@ class TaskStore:
                     ON task_attempts(task_id, attempt_number);
                 CREATE INDEX IF NOT EXISTS task_attempts_status_sequence
                     ON task_attempts(status, attempt_seq);
-                CREATE INDEX IF NOT EXISTS task_attempts_claim_eligibility
-                    ON task_attempts(status, eligible_at, attempt_seq);
-                CREATE INDEX IF NOT EXISTS task_attempts_cleanup_eligibility
-                    ON task_attempts(cleanup_state, cleanup_eligible_at, attempt_seq);
                 CREATE INDEX IF NOT EXISTS worker_leases_expiry
                     ON worker_leases(expires_at);
                 CREATE INDEX IF NOT EXISTS tokensflow_finalizations_open_sequence
@@ -717,8 +627,8 @@ class TaskStore:
     ) -> BatchRecord:
         """Persist a pause intent and stop only at a benchmark-task boundary."""
 
-        if reason is not BatchPauseReason.USER:
-            raise ValueError("Only an operator may persist a pause intent")
+        if not isinstance(reason, BatchPauseReason):
+            raise TypeError("reason must be a BatchPauseReason")
         now_text = _timestamp(now)
         with self._write() as connection:
             row = self._select_batch(connection, batch_id)
@@ -739,7 +649,8 @@ class TaskStore:
                 """,
                 (BatchControlIntent.PAUSE.value, reason.value, now_text, batch_id),
             )
-            self._append_control_event(connection, batch_id, BatchControlEventType.PAUSE_REQUESTED, "user", {}, now)
+            event_type, actor = _pause_event(reason)
+            self._append_control_event(connection, batch_id, event_type, actor, {}, now)
             self._finalize_batch_intent(connection, batch_id, now=now)
             return self._batch_record(connection, self._select_batch(connection, batch_id))
 
@@ -747,9 +658,10 @@ class TaskStore:
         self,
         batch_id: str,
         *,
+        snapshot: UsageSnapshot,
         now: datetime,
     ) -> BatchRecord:
-        """Persist the user's request to run; admission gates remain non-persistent."""
+        """Resume a paused batch only below its configured usage threshold."""
 
         _timestamp(now)
         with self._write() as connection:
@@ -761,12 +673,16 @@ class TaskStore:
                 raise TaskConflict("A cancelling batch cannot be resumed")
             if self._all_batch_tasks_terminal(connection, batch_id):
                 raise TaskConflict("A completed batch cannot be resumed")
+            threshold = _stored_int(row["usage_pause_percent"], name="usage threshold")
+            if snapshot.used_percent >= threshold:
+                raise TaskConflict("Current Codex usage is at or above the batch threshold")
+
             self._append_control_event(
                 connection,
                 batch_id,
                 BatchControlEventType.RESUME_REQUESTED,
                 "user",
-                {},
+                {"used_percent": snapshot.used_percent, "threshold_percent": threshold},
                 now,
             )
             connection.execute(
@@ -783,7 +699,7 @@ class TaskStore:
                 batch_id,
                 BatchControlEventType.RESUMED,
                 "system",
-                {},
+                {"used_percent": snapshot.used_percent, "threshold_percent": threshold},
                 now,
             )
             return self._batch_record(connection, self._select_batch(connection, batch_id))
@@ -973,12 +889,19 @@ class TaskStore:
 
             latest = self._select_latest_attempt(connection, task_id)
             latest_record = self._attempt_record(latest)
-            if latest_record.status not in {TaskStatus.FAILED, TaskStatus.INTERRUPTED}:
-                raise TaskConflict("The current task outcome is not retryable")
-            if latest_record.attempt_number >= self._max_attempts:
-                raise TaskConflict("The current task outcome is not retryable")
-            if latest["cleanup_state"] != AttemptCleanupState.COMPLETE.value:
-                raise TaskConflict("The current task cleanup is not complete")
+            retry_details: dict[str, int | str | None] = {}
+            if not latest_record.retryable:
+                finalization_states = self._retryable_terminal_finalization_states(
+                    connection,
+                    attempt_id=latest_record.attempt_id,
+                    status=latest_record.status,
+                )
+                if finalization_states is None:
+                    raise TaskConflict("The current task outcome is not retryable")
+                retry_details = {
+                    "reason": "tokensflow_finalization",
+                    "finalization_states": ",".join(state.value for state in finalization_states),
+                }
             self._enqueue_next_attempt(
                 connection,
                 task_id=task_id,
@@ -986,11 +909,36 @@ class TaskStore:
                 attempt_number=latest_record.attempt_number + 1,
                 idempotency_key=idempotency_key,
                 actor="user",
-                details={},
+                details=retry_details,
                 now=now,
-                eligible_at=now,
             )
             return self._attempt_record(self._select_latest_attempt(connection, task_id)), True
+
+    @staticmethod
+    def _retryable_terminal_finalization_states(
+        connection: sqlite3.Connection,
+        *,
+        attempt_id: str,
+        status: TaskStatus,
+    ) -> tuple[FinalizationState, ...] | None:
+        if status is not TaskStatus.SUCCEEDED:
+            return None
+        rows = connection.execute(
+            """
+            SELECT arm, state
+            FROM tokensflow_finalizations
+            WHERE attempt_id = ?
+            ORDER BY CASE arm WHEN 'off' THEN 0 ELSE 1 END
+            """,
+            (attempt_id,),
+        ).fetchall()
+        if {str(row["arm"]) for row in rows} != {"off", "on"}:
+            return None
+        states = tuple(FinalizationState(str(row["state"])) for row in rows)
+        if any(state not in _TERMINAL_FINALIZATION_STATES for state in states):
+            return None
+        failures = tuple(sorted({state for state in states if state is not FinalizationState.PASSED}, key=str))
+        return failures or None
 
     def _accepts_another_attempt(self, connection: sqlite3.Connection, task_row: sqlite3.Row) -> bool:
         """Report whether a batch child may still be retried rather than left failed."""
@@ -998,25 +946,20 @@ class TaskStore:
         batch_id = task_row["batch_id"]
         if batch_id is None:
             return False
-        attempt = self._select_latest_attempt(connection, str(task_row["task_id"]))
-        return (
-            int(attempt["attempt_number"]) < self._max_attempts
-            and BatchControlIntent(self._select_batch(connection, str(batch_id))["control_intent"])
-            is not BatchControlIntent.CANCEL
-        )
+        batch = self._select_batch(connection, str(batch_id))
+        return BatchControlIntent(batch["control_intent"]) is not BatchControlIntent.CANCEL
 
     def _enqueue_next_attempt(
         self,
         connection: sqlite3.Connection,
         *,
         task_id: str,
-        batch_id: str | None,
+        batch_id: str,
         attempt_number: int,
         idempotency_key: str,
         actor: Literal["user", "system"],
         details: Mapping[str, int | str | None],
         now: datetime,
-        eligible_at: datetime,
     ) -> None:
         """Queue one further attempt for a task whose latest attempt is retryable."""
 
@@ -1024,8 +967,8 @@ class TaskStore:
             """
             INSERT INTO task_attempts(
                 attempt_id, task_id, attempt_number, idempotency_key,
-                status, created_at, eligible_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 f"{task_id}.attempt-{attempt_number:04d}",
@@ -1034,7 +977,6 @@ class TaskStore:
                 idempotency_key,
                 TaskStatus.QUEUED.value,
                 _timestamp(now),
-                _timestamp(eligible_at),
             ),
         )
         connection.execute(
@@ -1047,15 +989,14 @@ class TaskStore:
             """,
             (TaskStatus.QUEUED.value, task_id),
         )
-        if batch_id is not None:
-            self._append_control_event(
-                connection,
-                batch_id,
-                BatchControlEventType.TASK_RETRY_REQUESTED,
-                actor,
-                {"task_id": task_id, "attempt_number": attempt_number, **details},
-                now,
-            )
+        self._append_control_event(
+            connection,
+            batch_id,
+            BatchControlEventType.TASK_RETRY_REQUESTED,
+            actor,
+            {"task_id": task_id, "attempt_number": attempt_number, **details},
+            now,
+        )
 
     def cancel_batch_queued(self, batch_id: str, *, now: datetime) -> BatchRecord:
         """Compatibility alias for the durable boundary-based cancellation action."""
@@ -1268,73 +1209,6 @@ class TaskStore:
                 """,
                 (1, task_parallelism, observed_at),
             )
-
-    def record_runtime_revision(
-        self,
-        component: Literal["web", "worker"],
-        *,
-        build_revision: str,
-        schema_version: int,
-        now: datetime,
-    ) -> None:
-        """Publish one process revision without exposing deployment internals."""
-
-        if component not in {"web", "worker"}:
-            raise ValueError("Runtime component is invalid")
-        if fullmatch(r"[0-9a-f]{40}|unknown", build_revision) is None:
-            raise ValueError("Build revision is invalid")
-        if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version <= 0:
-            raise ValueError("Schema version must be positive")
-        with self._write() as connection:
-            connection.execute(
-                """
-                INSERT INTO runtime_revisions(component, build_revision, schema_version, observed_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(component) DO UPDATE SET
-                    build_revision = excluded.build_revision,
-                    schema_version = excluded.schema_version,
-                    observed_at = excluded.observed_at
-                """,
-                (component, build_revision, schema_version, _timestamp(now)),
-            )
-
-    def deployment_snapshot(self) -> DeploymentSnapshot:
-        """Return the sanitized Web/Worker compatibility boundary."""
-
-        with self._connection() as connection:
-            rows = connection.execute(
-                "SELECT component, build_revision, schema_version FROM runtime_revisions ORDER BY component"
-            ).fetchall()
-        values = {str(row["component"]): row for row in rows}
-        web = values.get("web")
-        worker = values.get("worker")
-        web_revision = None if web is None else str(web["build_revision"])
-        worker_revision = None if worker is None else str(worker["build_revision"])
-        web_schema = None if web is None else _stored_int(web["schema_version"], name="Web schema version")
-        worker_schema = None if worker is None else _stored_int(worker["schema_version"], name="Worker schema version")
-        both_published = web is not None and worker is not None
-        return {
-            "web_revision": web_revision,
-            "worker_revision": worker_revision,
-            "web_schema_version": web_schema,
-            "worker_schema_version": worker_schema,
-            "deployment_consistent": bool(
-                both_published
-                and web_revision != "unknown"
-                and web_revision == worker_revision
-                and web_schema == worker_schema
-            ),
-        }
-
-    def deployment_admission_open(self) -> bool:
-        """Require published process markers to match before claiming new work.
-
-        Both processes must publish an exact non-placeholder match. Direct queue
-        consumers that intentionally do not use this gate remain unaffected.
-        """
-
-        snapshot = self.deployment_snapshot()
-        return snapshot["deployment_consistent"]
 
     def register_tokensflow_finalization(
         self,
@@ -1723,7 +1597,7 @@ class TaskStore:
         max_concurrency: int = 1,
         now: datetime,
     ) -> TaskRecord | None:
-        """Persist one snapshot and claim atomically when transient admission is open."""
+        """Persist one snapshot, pause protected batches, and claim atomically."""
 
         if not worker_id:
             raise ValueError("worker_id must not be empty")
@@ -1732,6 +1606,7 @@ class TaskStore:
         _timestamp(now)
         with self._write() as connection:
             self._save_usage_snapshot(connection, snapshot)
+            self._apply_usage_snapshot(connection, snapshot, now=now)
             allow_standalone = snapshot.rate_limit_reached_type is None and snapshot.used_percent < default_threshold
             return self._claim_next(
                 connection,
@@ -1739,15 +1614,24 @@ class TaskStore:
                 now=now,
                 allow_standalone=allow_standalone,
                 max_concurrency=max_concurrency,
-                snapshot=snapshot,
             )
 
     def apply_usage_snapshot(self, snapshot: UsageSnapshot, *, now: datetime) -> None:
-        """Persist an observation without changing user-owned batch control intent."""
+        """Persist an observation and apply its pause consequences without claiming."""
 
         _timestamp(now)
         with self._write() as connection:
             self._save_usage_snapshot(connection, snapshot)
+            self._apply_usage_snapshot(connection, snapshot, now=now)
+
+    def pause_runnable_batches(self, *, reason: BatchPauseReason, now: datetime) -> None:
+        """Fail closed by pausing every currently runnable batch."""
+
+        if not isinstance(reason, BatchPauseReason):
+            raise TypeError("reason must be a BatchPauseReason")
+        _timestamp(now)
+        with self._write() as connection:
+            self._pause_runnable_batches(connection, reason=reason, now=now)
 
     def _claim_next(
         self,
@@ -1757,9 +1641,9 @@ class TaskStore:
         now: datetime,
         allow_standalone: bool,
         max_concurrency: int,
-        snapshot: UsageSnapshot | None = None,
     ) -> TaskRecord | None:
         now_text = _timestamp(now)
+        self._recover_expired_leases(connection, now=now)
         owned = connection.execute(
             "SELECT 1 FROM worker_leases WHERE worker_id = ? AND expires_at > ?",
             (worker_id, now_text),
@@ -1780,36 +1664,18 @@ class TaskStore:
             SELECT tasks.*
             FROM tasks
             LEFT JOIN batches ON batches.batch_id = tasks.batch_id
-            JOIN task_attempts AS latest_attempt
-              ON latest_attempt.task_id = tasks.task_id
-             AND latest_attempt.attempt_number = (
-                 SELECT MAX(candidate.attempt_number)
-                 FROM task_attempts AS candidate
-                 WHERE candidate.task_id = tasks.task_id
-             )
             WHERE tasks.status = ?
-              AND latest_attempt.status = ?
-              AND latest_attempt.eligible_at <= ?
               AND (
                   (tasks.batch_id IS NULL AND ?)
-                  OR (
-                      tasks.batch_id IS NOT NULL
-                      AND batches.control_intent = ?
-                      AND ?
-                      AND ? < batches.usage_pause_percent
-                  )
+                  OR (tasks.batch_id IS NOT NULL AND batches.control_intent = ?)
               )
-            ORDER BY latest_attempt.attempt_seq ASC
+            ORDER BY tasks.queue_seq ASC
             LIMIT 1
             """,
             (
                 TaskStatus.QUEUED.value,
-                TaskStatus.QUEUED.value,
-                now_text,
                 int(allow_standalone),
                 BatchControlIntent.RUN.value,
-                int(snapshot is None or snapshot.rate_limit_reached_type is None),
-                snapshot.used_percent if snapshot is not None else 0,
             ),
         ).fetchone()
         if row is None:
@@ -1859,6 +1725,94 @@ class TaskStore:
             """,
             (snapshot.model_dump_json(), _timestamp(snapshot.observed_at)),
         )
+
+    def _apply_usage_snapshot(
+        self,
+        connection: sqlite3.Connection,
+        snapshot: UsageSnapshot,
+        *,
+        now: datetime,
+    ) -> None:
+        if snapshot.rate_limit_reached_type is not None:
+            self._pause_runnable_batches(
+                connection,
+                reason=BatchPauseReason.QUOTA_LIMIT,
+                now=now,
+            )
+            return
+        self._pause_runnable_batches(
+            connection,
+            reason=BatchPauseReason.USAGE_THRESHOLD,
+            now=now,
+            used_percent=snapshot.used_percent,
+        )
+
+    def _pause_runnable_batches(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        reason: BatchPauseReason,
+        now: datetime,
+        used_percent: int | None = None,
+    ) -> None:
+        sql = """
+            SELECT *
+            FROM batches
+            WHERE control_intent = ?
+              AND EXISTS (
+                  SELECT 1
+                  FROM tasks
+                  WHERE tasks.batch_id = batches.batch_id
+                    AND tasks.status IN (?, ?)
+              )
+        """
+        parameters: list[object] = [
+            BatchControlIntent.RUN.value,
+            TaskStatus.QUEUED.value,
+            TaskStatus.RUNNING.value,
+        ]
+        if used_percent is not None:
+            sql += " AND usage_pause_percent <= ?"
+            parameters.append(used_percent)
+        sql += " ORDER BY batch_seq ASC"
+        rows = connection.execute(sql, parameters).fetchall()
+        for row in rows:
+            batch_id = str(row["batch_id"])
+            connection.execute(
+                """
+                UPDATE batches
+                SET control_intent = ?, pause_reason = ?, control_updated_at = ?,
+                    control_version = control_version + 1
+                WHERE batch_id = ?
+                """,
+                (
+                    BatchControlIntent.PAUSE.value,
+                    reason.value,
+                    _timestamp(now),
+                    batch_id,
+                ),
+            )
+            event_type, actor = _pause_event(reason)
+            details = (
+                {
+                    "used_percent": used_percent,
+                    "threshold_percent": _stored_int(
+                        row["usage_pause_percent"],
+                        name="usage threshold",
+                    ),
+                }
+                if used_percent is not None
+                else {}
+            )
+            self._append_control_event(
+                connection,
+                batch_id,
+                event_type,
+                actor,
+                details,
+                now,
+            )
+            self._finalize_batch_intent(connection, batch_id, now=now)
 
     def heartbeat(self, task_id: str, worker_id: str, *, now: datetime) -> TaskRecord:
         """Renew the active lease owned by a worker."""
@@ -1991,10 +1945,7 @@ class TaskStore:
                 """
                 UPDATE task_attempts
                 SET status = ?, phase = ?, finished_at = ?, failure_category = ?,
-                    failure_code = ?, retry_disposition = ?, failure_phase = ?,
-                    failure_summary = ?, evidence_state = ?, cleanup_state = ?,
-                    cleanup_eligible_at = ?, cleanup_error_code = NULL,
-                    version = version + 1
+                    failure_phase = ?, failure_summary = ?, version = version + 1
                 WHERE attempt_id = ?
                 """,
                 (
@@ -2002,19 +1953,35 @@ class TaskStore:
                     phase,
                     finished_at,
                     failure.category.value,
-                    failure.failure_code.value,
-                    failure.retry_disposition.value,
                     phase,
                     failure.summary,
-                    AttemptEvidenceState.PENDING.value,
-                    AttemptCleanupState.PENDING.value,
-                    finished_at,
                     attempt["attempt_id"],
                 ),
             )
             connection.execute(
                 "DELETE FROM worker_leases WHERE attempt_id = ? AND worker_id = ?",
                 (attempt["attempt_id"], worker_id),
+            )
+            task_row = self._select_task(connection, task_id)
+            if failure.auto_retry and self._accepts_another_attempt(connection, task_row):
+                attempt_number = int(attempt["attempt_number"]) + 1
+                self._enqueue_next_attempt(
+                    connection,
+                    task_id=task_id,
+                    batch_id=str(task_row["batch_id"]),
+                    attempt_number=attempt_number,
+                    idempotency_key=f"{task_id}.attempt-{attempt_number:04d}",
+                    actor="system",
+                    details={"reason": _PAUSE_REASONS[failure.category].value},
+                    now=now,
+                )
+                return self._record(connection, self._select_task(connection, task_id))
+            self._pause_batch_for_infrastructure_failure(
+                connection,
+                task_row=task_row,
+                attempt_id=str(attempt["attempt_id"]),
+                failure_category=failure.category,
+                now=now,
             )
             return self._record(connection, self._select_task(connection, task_id))
 
@@ -2023,165 +1990,6 @@ class TaskStore:
         _timestamp(now)
         with self._write() as connection:
             return self._recover_expired_leases(connection, now=now)
-
-    def begin_startup_recovery(self, *, now: datetime) -> list[str]:
-        """Fence every predecessor attempt after the caller acquires the process lock."""
-
-        _timestamp(now)
-        with self._write() as connection:
-            rows = connection.execute(
-                """
-                SELECT attempts.*
-                FROM task_attempts AS attempts
-                JOIN tasks ON tasks.task_id = attempts.task_id
-                WHERE attempts.status = ? AND tasks.status = ?
-                ORDER BY attempts.attempt_seq ASC
-                """,
-                (TaskStatus.RUNNING.value, TaskStatus.RUNNING.value),
-            ).fetchall()
-            recovered = [self._interrupt_attempt(connection, attempt, now=now) for attempt in rows]
-            connection.execute(
-                "DELETE FROM worker_leases WHERE attempt_id IN (SELECT attempt_id FROM task_attempts WHERE status != ?)",
-                (TaskStatus.RUNNING.value,),
-            )
-            return recovered
-
-    def list_attempt_cleanup_candidates(self, *, limit: int, now: datetime) -> list[AttemptCleanupCandidate]:
-        """Return a bounded FIFO snapshot whose TokensFlow owners are already terminal."""
-
-        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-            raise ValueError("cleanup candidate limit must be positive")
-        now_text = _timestamp(now)
-        with self._connection() as connection:
-            rows = connection.execute(
-                """
-                SELECT attempts.*, tasks.batch_id
-                FROM task_attempts AS attempts
-                JOIN tasks ON tasks.task_id = attempts.task_id
-                WHERE attempts.cleanup_state = ?
-                  AND attempts.cleanup_eligible_at <= ?
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM tokensflow_finalizations AS finalizations
-                      WHERE finalizations.attempt_id = attempts.attempt_id
-                        AND finalizations.state NOT IN (?, ?, ?, ?)
-                  )
-                ORDER BY attempts.attempt_seq ASC
-                LIMIT ?
-                """,
-                (
-                    AttemptCleanupState.PENDING.value,
-                    now_text,
-                    FinalizationState.PASSED.value,
-                    FinalizationState.TIMED_OUT.value,
-                    FinalizationState.CAPACITY_EVICTED.value,
-                    FinalizationState.CLEANUP_FAILED.value,
-                    limit,
-                ),
-            ).fetchall()
-        return [self._cleanup_candidate(row) for row in rows]
-
-    def mark_attempt_evidence_exported(self, attempt_id: str) -> None:
-        """Record successful creation of the bounded public incident manifest."""
-
-        with self._write() as connection:
-            updated = connection.execute(
-                """
-                UPDATE task_attempts
-                SET evidence_state = ?, version = version + 1
-                WHERE attempt_id = ? AND evidence_state = ? AND cleanup_state = ?
-                """,
-                (
-                    AttemptEvidenceState.EXPORTED.value,
-                    attempt_id,
-                    AttemptEvidenceState.PENDING.value,
-                    AttemptCleanupState.PENDING.value,
-                ),
-            ).rowcount
-            if updated == 0:
-                row = connection.execute("SELECT * FROM task_attempts WHERE attempt_id = ?", (attempt_id,)).fetchone()
-                if row is None:
-                    raise TaskNotFound(f"Attempt not found: {attempt_id}")
-                if row["evidence_state"] != AttemptEvidenceState.EXPORTED.value:
-                    raise TaskConflict("Attempt evidence is not pending")
-
-    def defer_attempt_cleanup(
-        self,
-        attempt_id: str,
-        *,
-        error_code: str,
-        retry_seconds: int,
-        now: datetime,
-    ) -> None:
-        """Persist only a fixed cleanup error code and bounded retry time."""
-
-        if fullmatch(r"[a-z][a-z0-9_]{0,63}", error_code) is None:
-            raise ValueError("cleanup error code is invalid")
-        if isinstance(retry_seconds, bool) or not isinstance(retry_seconds, int) or retry_seconds < 1:
-            raise ValueError("cleanup retry delay must be positive")
-        with self._write() as connection:
-            updated = connection.execute(
-                """
-                UPDATE task_attempts
-                SET cleanup_eligible_at = ?, cleanup_error_code = ?, version = version + 1
-                WHERE attempt_id = ? AND cleanup_state = ?
-                """,
-                (
-                    _timestamp(now + timedelta(seconds=retry_seconds)),
-                    error_code,
-                    attempt_id,
-                    AttemptCleanupState.PENDING.value,
-                ),
-            ).rowcount
-            if updated == 0:
-                raise TaskConflict("Attempt cleanup is not pending")
-
-    def complete_attempt_cleanup_and_schedule_retry(self, attempt_id: str, *, now: datetime) -> bool:
-        """Mark cleanup complete and atomically create at most one bounded retry."""
-
-        _timestamp(now)
-        with self._write() as connection:
-            attempt = connection.execute("SELECT * FROM task_attempts WHERE attempt_id = ?", (attempt_id,)).fetchone()
-            if attempt is None:
-                raise TaskNotFound(f"Attempt not found: {attempt_id}")
-            if attempt["cleanup_state"] == AttemptCleanupState.COMPLETE.value:
-                return False
-            if attempt["evidence_state"] != AttemptEvidenceState.EXPORTED.value:
-                raise TaskConflict("Attempt evidence must be exported before cleanup completion")
-            connection.execute(
-                """
-                UPDATE task_attempts
-                SET cleanup_state = ?, cleanup_eligible_at = NULL, cleanup_error_code = NULL,
-                    version = version + 1
-                WHERE attempt_id = ? AND cleanup_state = ?
-                """,
-                (AttemptCleanupState.COMPLETE.value, attempt_id, AttemptCleanupState.PENDING.value),
-            )
-            task_row = self._select_task(connection, str(attempt["task_id"]))
-            if attempt["retry_disposition"] != RetryDisposition.RETRY.value or not self._accepts_another_attempt(
-                connection, task_row
-            ):
-                return False
-            batch_id = task_row["batch_id"]
-            if batch_id is None:
-                return False
-            attempt_number = int(attempt["attempt_number"]) + 1
-            self._enqueue_next_attempt(
-                connection,
-                task_id=str(attempt["task_id"]),
-                batch_id=str(batch_id),
-                attempt_number=attempt_number,
-                idempotency_key=f"{attempt['task_id']}.attempt-{attempt_number:04d}",
-                actor="system",
-                details={"reason": str(attempt["failure_code"] or FailureCode.INTERNAL.value)},
-                now=now,
-                eligible_at=now
-                + _retry_backoff(
-                    int(attempt["attempt_number"]),
-                    failure_code=str(attempt["failure_code"]) if attempt["failure_code"] is not None else None,
-                ),
-            )
-            return True
 
     def _recover_expired_leases(self, connection: sqlite3.Connection, *, now: datetime) -> list[str]:
         now_text = _timestamp(now)
@@ -2200,54 +2008,90 @@ class TaskStore:
             task_id = str(attempt["task_id"])
             row = self._select_task(connection, task_id)
             if TaskStatus(row["status"]) is TaskStatus.RUNNING:
-                recovered.append(self._interrupt_attempt(connection, attempt, now=now))
+                connection.execute(
+                    """
+                    UPDATE tasks
+                    SET status = ?, finished_at = ?, failure_category = ?,
+                        failure_phase = phase, failure_summary = ?, version = version + 1
+                    WHERE task_id = ?
+                    """,
+                    (
+                        TaskStatus.INTERRUPTED.value,
+                        now_text,
+                        FailureCategory.WORKER_INTERRUPTION.value,
+                        "Evaluation worker lease expired",
+                        task_id,
+                    ),
+                )
+                connection.execute(
+                    """
+                    UPDATE task_attempts
+                    SET status = ?, finished_at = ?, failure_category = ?,
+                        failure_phase = phase, failure_summary = ?, version = version + 1
+                    WHERE attempt_id = ?
+                    """,
+                    (
+                        TaskStatus.INTERRUPTED.value,
+                        now_text,
+                        FailureCategory.WORKER_INTERRUPTION.value,
+                        "Evaluation worker lease expired",
+                        attempt["attempt_id"],
+                    ),
+                )
+                recovered.append(task_id)
+                self._pause_batch_for_infrastructure_failure(
+                    connection,
+                    task_row=self._select_task(connection, task_id),
+                    attempt_id=str(attempt["attempt_id"]),
+                    failure_category=FailureCategory.WORKER_INTERRUPTION,
+                    now=now,
+                )
             connection.execute("DELETE FROM worker_leases WHERE attempt_id = ?", (lease["attempt_id"],))
         return recovered
 
-    def _interrupt_attempt(self, connection: sqlite3.Connection, attempt: sqlite3.Row, *, now: datetime) -> str:
-        task_id = str(attempt["task_id"])
-        now_text = _timestamp(now)
-        connection.execute(
-            """
-            UPDATE tasks
-            SET status = ?, finished_at = ?, failure_category = ?,
-                failure_phase = phase, failure_summary = ?, version = version + 1
-            WHERE task_id = ? AND status = ?
-            """,
-            (
-                TaskStatus.INTERRUPTED.value,
-                now_text,
-                FailureCategory.WORKER_INTERRUPTION.value,
-                "Evaluation worker lease expired",
-                task_id,
-                TaskStatus.RUNNING.value,
-            ),
+    def _pause_batch_for_infrastructure_failure(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        task_row: sqlite3.Row,
+        attempt_id: str,
+        failure_category: FailureCategory,
+        now: datetime,
+    ) -> None:
+        batch_id_value = task_row["batch_id"]
+        if batch_id_value is None:
+            return
+        batch_id = str(batch_id_value)
+        batch = self._select_batch(connection, batch_id)
+        if BatchControlIntent(batch["control_intent"]) is BatchControlIntent.RUN:
+            connection.execute(
+                """
+                UPDATE batches
+                SET control_intent = ?, pause_reason = ?, control_updated_at = ?,
+                    control_version = control_version + 1
+                WHERE batch_id = ? AND control_intent = ?
+                """,
+                (
+                    BatchControlIntent.PAUSE.value,
+                    _PAUSE_REASONS.get(failure_category, BatchPauseReason.INFRASTRUCTURE_FAILURE).value,
+                    _timestamp(now),
+                    batch_id,
+                    BatchControlIntent.RUN.value,
+                ),
+            )
+        self._append_control_event(
+            connection,
+            batch_id,
+            BatchControlEventType.INFRASTRUCTURE_FAILURE,
+            "system",
+            {
+                "attempt_id": attempt_id,
+                "failure_category": failure_category.value,
+                "task_id": str(task_row["task_id"]),
+            },
+            now,
         )
-        connection.execute(
-            """
-            UPDATE task_attempts
-            SET status = ?, finished_at = ?, failure_category = ?, failure_code = ?,
-                retry_disposition = ?, failure_phase = phase, failure_summary = ?,
-                evidence_state = ?, cleanup_state = ?, cleanup_eligible_at = ?,
-                cleanup_error_code = NULL, version = version + 1
-            WHERE attempt_id = ? AND status = ?
-            """,
-            (
-                TaskStatus.INTERRUPTED.value,
-                now_text,
-                FailureCategory.WORKER_INTERRUPTION.value,
-                FailureCode.WORKER_INTERRUPTION.value,
-                RetryDisposition.RETRY.value,
-                "Evaluation worker lease expired",
-                AttemptEvidenceState.PENDING.value,
-                AttemptCleanupState.PENDING.value,
-                now_text,
-                attempt["attempt_id"],
-                TaskStatus.RUNNING.value,
-            ),
-        )
-        connection.execute("DELETE FROM worker_leases WHERE attempt_id = ?", (attempt["attempt_id"],))
-        return task_id
+        self._finalize_batch_intent(connection, batch_id, now=now)
 
     def _finalize_batch_intent(
         self,
@@ -2327,27 +2171,14 @@ class TaskStore:
                 now,
             )
 
-    def _all_batch_tasks_terminal(self, connection: sqlite3.Connection, batch_id: str) -> bool:
+    @staticmethod
+    def _all_batch_tasks_terminal(connection: sqlite3.Connection, batch_id: str) -> bool:
         nonterminal = connection.execute(
             """
             SELECT 1
             FROM tasks
-            JOIN task_attempts AS attempts
-              ON attempts.task_id = tasks.task_id
-             AND attempts.attempt_number = (
-                 SELECT MAX(newest.attempt_number)
-                 FROM task_attempts AS newest
-                 WHERE newest.task_id = tasks.task_id
-             )
-            WHERE tasks.batch_id = ?
-              AND (
-                  tasks.status NOT IN (?, ?, ?, ?)
-                  OR (
-                      attempts.retry_disposition = ?
-                      AND attempts.cleanup_state = ?
-                      AND attempts.attempt_number < ?
-                  )
-              )
+            WHERE batch_id = ?
+              AND status NOT IN (?, ?, ?, ?)
             LIMIT 1
             """,
             (
@@ -2356,9 +2187,6 @@ class TaskStore:
                 TaskStatus.FAILED.value,
                 TaskStatus.INTERRUPTED.value,
                 TaskStatus.CANCELLED.value,
-                RetryDisposition.RETRY.value,
-                AttemptCleanupState.PENDING.value,
-                self._max_attempts,
             ),
         ).fetchone()
         return nonterminal is None
@@ -2463,8 +2291,8 @@ class TaskStore:
             """
             INSERT INTO task_attempts(
                 attempt_id, task_id, attempt_number, idempotency_key,
-                status, created_at, eligible_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 f"{task_id}.attempt-0001",
@@ -2472,7 +2300,6 @@ class TaskStore:
                 1,
                 idempotency_key,
                 TaskStatus.QUEUED.value,
-                created_at,
                 created_at,
             ),
         )
@@ -2501,14 +2328,14 @@ class TaskStore:
             strict=True,
         )
 
-    def _batch_record(self, connection: sqlite3.Connection, row: sqlite3.Row) -> BatchRecord:
+    @staticmethod
+    def _batch_record(connection: sqlite3.Connection, row: sqlite3.Row) -> BatchRecord:
         batch_id = row["batch_id"]
         if not isinstance(batch_id, str):
             raise TypeError("Stored batch ID is not text")
         child_rows = connection.execute(
             """
-            SELECT attempts.status, attempts.started_at, attempts.finished_at,
-                   attempts.retry_disposition, attempts.cleanup_state, attempts.attempt_number
+            SELECT attempts.status, attempts.started_at, attempts.finished_at
             FROM tasks
             JOIN task_attempts AS attempts
               ON attempts.task_id = tasks.task_id
@@ -2522,18 +2349,8 @@ class TaskStore:
             """,
             (batch_id,),
         ).fetchall()
+        statuses = tuple(TaskStatus(child["status"]) for child in child_rows)
         intent = BatchControlIntent(row["control_intent"])
-        statuses = tuple(
-            TaskStatus.QUEUED
-            if (
-                intent is not BatchControlIntent.CANCEL
-                and child["retry_disposition"] == RetryDisposition.RETRY.value
-                and child["cleanup_state"] == AttemptCleanupState.PENDING.value
-                and int(child["attempt_number"]) < self._max_attempts
-            )
-            else TaskStatus(child["status"])
-            for child in child_rows
-        )
         status = derive_controlled_batch_status(intent=intent, task_statuses=statuses)
         starts = [_parse_timestamp(child["started_at"]) for child in child_rows if child["started_at"] is not None]
         finishes = [_parse_timestamp(child["finished_at"]) for child in child_rows if child["finished_at"] is not None]
@@ -2561,13 +2378,14 @@ class TaskStore:
             strict=True,
         )
 
-    def _record(self, connection: sqlite3.Connection, row: sqlite3.Row) -> TaskRecord:
+    @classmethod
+    def _record(cls, connection: sqlite3.Connection, row: sqlite3.Row) -> TaskRecord:
         task_id = row["task_id"]
         if not isinstance(task_id, str):
             raise TypeError("Stored task ID is not text")
         EvaluationPaths(Path("."), task_id)
         request = TaskCreate.model_validate_json(row["request_json"], strict=True)
-        attempt = self._select_latest_attempt(connection, task_id)
+        attempt = cls._select_latest_attempt(connection, task_id)
         attempt_count = connection.execute(
             "SELECT COUNT(*) FROM task_attempts WHERE task_id = ?",
             (task_id,),
@@ -2578,29 +2396,20 @@ class TaskStore:
         if attempt["result_json"] is not None:
             result = TaskResult.model_validate_json(attempt["result_json"], strict=True)
         failure = None
-        retry_disposition = None
         if (
             attempt["failure_category"] is not None
             or attempt["failure_phase"] is not None
             or attempt["failure_summary"] is not None
         ):
-            category = FailureCategory(attempt["failure_category"]) if attempt["failure_category"] is not None else None
-            retry_disposition = (
-                RetryDisposition(attempt["retry_disposition"])
-                if attempt["retry_disposition"] is not None
-                else RetryDisposition.RETRY
-            )
             failure = SafeFailure.model_validate(
                 {
-                    "category": category,
-                    "failure_code": (
-                        FailureCode(attempt["failure_code"])
-                        if attempt["failure_code"] is not None
-                        else _legacy_failure_code(category)
+                    "category": (
+                        FailureCategory(attempt["failure_category"])
+                        if attempt["failure_category"] is not None
+                        else None
                     ),
                     "phase": (TaskPhase(attempt["failure_phase"]) if attempt["failure_phase"] is not None else None),
                     "summary": attempt["failure_summary"],
-                    "retry_disposition": retry_disposition,
                 },
                 strict=True,
             )
@@ -2613,9 +2422,7 @@ class TaskStore:
                 "attempt_number": attempt["attempt_number"],
                 "attempt_count": attempt_count,
                 "retryable": (
-                    status in {TaskStatus.FAILED, TaskStatus.INTERRUPTED}
-                    and retry_disposition is RetryDisposition.RETRY
-                    and int(attempt["attempt_number"]) < self._max_attempts
+                    status in {TaskStatus.FAILED, TaskStatus.INTERRUPTED} and failure_category in RETRYABLE_FAILURES
                 ),
                 "request": request,
                 "status": status,
@@ -2624,13 +2431,10 @@ class TaskStore:
                 "source_index": row["source_index"],
                 "phase": TaskPhase(attempt["phase"]) if attempt["phase"] is not None else None,
                 "created_at": _parse_timestamp(attempt["created_at"]),
-                "eligible_at": _parse_timestamp(attempt["eligible_at"]),
                 "started_at": _parse_optional_timestamp(attempt["started_at"]),
                 "finished_at": _parse_optional_timestamp(attempt["finished_at"]),
                 "version": attempt["version"],
                 "failure_category": failure_category,
-                "failure_code": failure.failure_code if failure is not None else None,
-                "retry_disposition": failure.retry_disposition if failure is not None else None,
                 "failure_phase": failure.phase if failure is not None else None,
                 "failure_summary": failure.summary if failure is not None else None,
                 "result": result,
@@ -2638,16 +2442,12 @@ class TaskStore:
             strict=True,
         )
 
-    def _attempt_record(self, row: sqlite3.Row) -> TaskAttemptRecord:
+    @staticmethod
+    def _attempt_record(row: sqlite3.Row) -> TaskAttemptRecord:
         status = TaskStatus(row["status"])
         category = FailureCategory(row["failure_category"]) if row["failure_category"] is not None else None
         result = (
             TaskResult.model_validate_json(row["result_json"], strict=True) if row["result_json"] is not None else None
-        )
-        retry_disposition = (
-            RetryDisposition(row["retry_disposition"])
-            if row["retry_disposition"] is not None
-            else RetryDisposition.RETRY
         )
         return TaskAttemptRecord.model_validate(
             {
@@ -2657,53 +2457,16 @@ class TaskStore:
                 "status": status,
                 "phase": TaskPhase(row["phase"]) if row["phase"] is not None else None,
                 "created_at": _parse_timestamp(row["created_at"]),
-                "eligible_at": _parse_timestamp(row["eligible_at"]),
                 "started_at": _parse_optional_timestamp(row["started_at"]),
                 "finished_at": _parse_optional_timestamp(row["finished_at"]),
                 "version": row["version"],
                 "failure_category": category,
-                "failure_code": (
-                    FailureCode(row["failure_code"])
-                    if row["failure_code"] is not None
-                    else (_legacy_failure_code(category) if category is not None else None)
-                ),
-                "retry_disposition": retry_disposition if category is not None else None,
                 "failure_phase": (TaskPhase(row["failure_phase"]) if row["failure_phase"] is not None else None),
                 "failure_summary": row["failure_summary"],
                 "result": result,
-                "retryable": (
-                    status in {TaskStatus.FAILED, TaskStatus.INTERRUPTED}
-                    and retry_disposition is RetryDisposition.RETRY
-                    and int(row["attempt_number"]) < self._max_attempts
-                ),
+                "retryable": (status in {TaskStatus.FAILED, TaskStatus.INTERRUPTED} and category in RETRYABLE_FAILURES),
             },
             strict=True,
-        )
-
-    @staticmethod
-    def _cleanup_candidate(row: sqlite3.Row) -> AttemptCleanupCandidate:
-        attempt_number = _stored_int(row["attempt_number"], name="attempt number")
-        task_id = str(row["task_id"])
-        run_id = task_id if attempt_number == 1 else f"{task_id}-attempt-{attempt_number:04d}"
-        EvaluationPaths(Path("."), run_id)
-        summary = row["failure_summary"]
-        if not isinstance(summary, str):
-            raise TypeError("Cleanup candidate has no safe failure summary")
-        return AttemptCleanupCandidate(
-            attempt_id=str(row["attempt_id"]),
-            task_id=task_id,
-            batch_id=str(row["batch_id"]) if row["batch_id"] is not None else None,
-            attempt_number=attempt_number,
-            run_id=run_id,
-            failure_code=(
-                FailureCode(row["failure_code"])
-                if row["failure_code"] is not None
-                else _legacy_failure_code(
-                    FailureCategory(row["failure_category"]) if row["failure_category"] is not None else None
-                )
-            ),
-            failure_phase=TaskPhase(row["failure_phase"]) if row["failure_phase"] is not None else None,
-            failure_summary=summary,
         )
 
     @staticmethod
@@ -2755,7 +2518,6 @@ class TaskStore:
             status=record.status,
             phase=record.phase,
             created_at=record.created_at,
-            eligible_at=record.eligible_at,
             started_at=record.started_at,
             finished_at=record.finished_at,
             version=record.version,
@@ -2768,40 +2530,6 @@ def _timestamp(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("Timestamps must use UTC")
     return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
-
-
-def _retry_backoff(failed_attempt_number: int, *, failure_code: str | None) -> timedelta:
-    """Return the bounded persisted delay before the next automatic attempt."""
-
-    if failed_attempt_number < 1:
-        raise ValueError("failed attempt number must be positive")
-    schedule = (
-        _GOLD_VALIDATION_RETRY_BACKOFF_SECONDS
-        if failure_code == FailureCode.GOLD_VALIDATION.value
-        else _RETRY_BACKOFF_SECONDS
-    )
-    index = min(failed_attempt_number - 1, len(schedule) - 1)
-    return timedelta(seconds=schedule[index])
-
-
-def _legacy_failure_code(category: FailureCategory | None) -> FailureCode:
-    """Map pre-migration failure rows to a conservative stable cause."""
-
-    return {
-        FailureCategory.SOURCE_RESOLUTION: FailureCode.SOURCE_RESOLUTION,
-        FailureCategory.ENVIRONMENT_PREPARATION: FailureCode.INTERNAL,
-        FailureCategory.GOLD_VALIDATION: FailureCode.GOLD_VALIDATION,
-        FailureCategory.CODEX_EXECUTION: FailureCode.CODEX_EXECUTION,
-        FailureCategory.CODEX_CAPACITY: FailureCode.CODEX_CAPACITY,
-        FailureCategory.TREATMENT_VALIDATION: FailureCode.INVALID_TREATMENT_CONTRACT,
-        FailureCategory.OFFICIAL_EVALUATOR: FailureCode.OFFICIAL_EVALUATOR,
-        FailureCategory.REPORT_GENERATION: FailureCode.REPORT_GENERATION,
-        FailureCategory.WORKER_INTERRUPTION: FailureCode.WORKER_INTERRUPTION,
-        FailureCategory.INTERNAL: FailureCode.INTERNAL,
-        FailureCategory.INVALID_REQUEST: FailureCode.INTERNAL,
-        FailureCategory.QUEUE_UNAVAILABLE: FailureCode.INTERNAL,
-        None: FailureCode.INTERNAL,
-    }[category]
 
 
 def _parse_timestamp(value: Any) -> datetime:
@@ -2840,16 +2568,16 @@ def _migrate_worker_runtime_parallelism_constraint(connection: sqlite3.Connectio
     if row is None:
         return
     table_sql = str(row["sql"]).upper()
-    if "BETWEEN 1 AND 20" in table_sql:
+    if "BETWEEN 1 AND 30" in table_sql:
         return
-    if not any(constraint in table_sql for constraint in ("BETWEEN 1 AND 4", "BETWEEN 1 AND 10")):
+    if not any(constraint in table_sql for constraint in ("BETWEEN 1 AND 4", "BETWEEN 1 AND 10", "BETWEEN 1 AND 20")):
         return
     connection.execute("ALTER TABLE worker_runtime RENAME TO worker_runtime_v1")
     connection.execute(
         """
         CREATE TABLE worker_runtime (
             singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-            task_parallelism INTEGER NOT NULL CHECK (task_parallelism BETWEEN 1 AND 20),
+            task_parallelism INTEGER NOT NULL CHECK (task_parallelism BETWEEN 1 AND 30),
             observed_at TEXT NOT NULL
         )
         """
@@ -2905,6 +2633,24 @@ def _execute_transactional_script(connection: sqlite3.Connection, script: str) -
             pending = ""
     if pending.strip():
         raise TaskStoreError("Schema script ended with an incomplete SQL statement")
+
+
+def _pause_event(
+    reason: BatchPauseReason,
+) -> tuple[BatchControlEventType, Literal["user", "system"]]:
+    if reason is BatchPauseReason.USER:
+        return BatchControlEventType.PAUSE_REQUESTED, "user"
+    if reason is BatchPauseReason.USAGE_THRESHOLD:
+        return BatchControlEventType.USAGE_THRESHOLD_REACHED, "system"
+    if reason is BatchPauseReason.USAGE_UNAVAILABLE:
+        return BatchControlEventType.USAGE_UNAVAILABLE, "system"
+    if reason is BatchPauseReason.QUOTA_LIMIT:
+        return BatchControlEventType.QUOTA_LIMIT_REACHED, "system"
+    if reason is BatchPauseReason.INFRASTRUCTURE_FAILURE:
+        return BatchControlEventType.INFRASTRUCTURE_FAILURE, "system"
+    if reason is BatchPauseReason.RESOURCE_PRESSURE:
+        return BatchControlEventType.RESOURCE_PRESSURE, "system"
+    raise ValueError("Unsupported batch pause reason")
 
 
 def _task_id(now: datetime, sequence: int) -> str:

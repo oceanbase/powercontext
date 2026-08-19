@@ -15,9 +15,7 @@ from powercontext_eval.web.models import (
     ComparisonResponse,
     EvidenceResponse,
     FailureCategory,
-    FailureCode,
     ReportResponse,
-    RetryDisposition,
     TaskCreate,
     TaskPhase,
     TaskRecord,
@@ -25,8 +23,6 @@ from powercontext_eval.web.models import (
     TaskStatus,
     TreatmentEvidence,
 )
-
-PROXY_URL = "http://127.0.0.1:8081"
 
 
 def valid_task(**overrides: object) -> dict[str, object]:
@@ -44,37 +40,25 @@ def valid_task(**overrides: object) -> dict[str, object]:
 
 
 def test_web_config_derives_confined_paths(tmp_path: Path) -> None:
-    config = WebConfig.for_root(tmp_path)
+    config = WebConfig.for_root(tmp_path, tokensflow_egress_network="bridge")
 
     assert config.database_path == tmp_path / "web" / "tasks.sqlite3"
     assert config.run_root == tmp_path
     assert config.frontend_dist == tmp_path / "deploy" / "powercontext" / "evaluation" / "web" / "dist"
-    assert config.tokensflow_enabled is False
-    assert config.tokensflow_binary is None
-    assert config.tokensflow_user_home is None
-    assert config.tokensflow_egress_network is None
-    assert config.proxy_url is None
 
 
 def test_web_config_accepts_explicit_frontend_dist(tmp_path: Path) -> None:
     frontend_dist = tmp_path / "static"
 
-    config = WebConfig.for_root(
-        tmp_path, frontend_dist=frontend_dist, tokensflow_egress_network="bridge", proxy_url=PROXY_URL
-    )
+    config = WebConfig.for_root(tmp_path, frontend_dist=frontend_dist, tokensflow_egress_network="bridge")
 
     assert config.frontend_dist == frontend_dist
 
 
-def test_web_config_derives_portable_layout_from_any_root(tmp_path: Path) -> None:
-    root = tmp_path / "evaluation-root"
+def test_web_config_defaults_match_m0_layout() -> None:
+    root = Path("/data/powercontext-eval")
 
-    config = WebConfig.for_root(
-        root,
-        tokensflow_enabled=True,
-        tokensflow_egress_network="bridge",
-        proxy_url=PROXY_URL,
-    )
+    config = WebConfig.for_root(root, tokensflow_egress_network="bridge")
 
     assert config.powercontext_source == root / "source" / "powercontext.git"
     assert config.harness_root == root / "cache" / "swebench-pro.git"
@@ -86,19 +70,17 @@ def test_web_config_derives_portable_layout_from_any_root(tmp_path: Path) -> Non
     assert config.tokensflow_egress_network == "bridge"
     assert config.uv_binary == root / "bin" / "uv"
     assert config.auth_json == root / "codex-home" / "auth.json"
-    assert config.codex_config is None
-    assert config.proxy_url == PROXY_URL
-    assert config.docker_network_pool == "172.30.0.0/15"
-    assert config.extra_no_proxy_hosts == ()
+    assert config.proxy_url == "http://127.0.0.1:7890"
     assert config.frontend_dist == root / "deploy" / "powercontext" / "evaluation" / "web" / "dist"
     assert config.usage_pause_percent == 80
-    assert config.usage_mode == "subscription"
     assert config.usage_probe_seconds == 60
     assert config.usage_probe_timeout_seconds == 15
     assert config.usage_snapshot_max_age_seconds == 120
     assert config.task_parallelism == 1
+    assert config.codex_timeout_seconds == 3600
     assert config.tokensflow_finalizer_timeout_seconds == 600
     assert config.tokensflow_finalizer_poll_seconds == 5
+    assert config.codex_auth_mode == "chatgpt"
     assert config.codex_models == ("gpt-5.6-sol",)
 
 
@@ -107,37 +89,11 @@ def test_web_config_parses_deduplicates_and_preserves_configured_codex_models(tm
         {
             "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
             "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
-            "POWERCONTEXT_EVAL_PROXY_URL": PROXY_URL,
             "POWERCONTEXT_EVAL_CODEX_MODELS": "gpt-5.6-sol,gpt-5.6-luna,gpt-5.6-sol",
         }
     )
 
     assert config.codex_models == ("gpt-5.6-sol", "gpt-5.6-luna")
-
-
-def test_web_config_accepts_api_key_usage_mode(tmp_path: Path) -> None:
-    config = WebConfig.from_environment(
-        {
-            "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
-            "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
-            "POWERCONTEXT_EVAL_PROXY_URL": PROXY_URL,
-            "POWERCONTEXT_EVAL_USAGE_MODE": "api_key",
-        }
-    )
-
-    assert config.usage_mode == "api_key"
-
-
-def test_web_config_rejects_unknown_usage_mode(tmp_path: Path) -> None:
-    with pytest.raises(ValidationError):
-        WebConfig.from_environment(
-            {
-                "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
-                "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
-                "POWERCONTEXT_EVAL_PROXY_URL": PROXY_URL,
-                "POWERCONTEXT_EVAL_USAGE_MODE": "unknown",
-            }
-        )
 
 
 @pytest.mark.parametrize(
@@ -153,7 +109,6 @@ def test_web_config_rejects_codex_allowlists_without_default_or_with_unsafe_entr
             {
                 "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
                 "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
-                "POWERCONTEXT_EVAL_PROXY_URL": PROXY_URL,
                 "POWERCONTEXT_EVAL_CODEX_MODELS": models,
             }
         )
@@ -169,13 +124,15 @@ def test_web_config_rejects_codex_allowlists_without_default_or_with_unsafe_entr
         ("lease_seconds", 0),
         ("poll_seconds", 0.0),
         ("task_parallelism", 0),
-        ("task_parallelism", 21),
+        ("task_parallelism", 31),
         ("task_parallelism", "1"),
+        ("codex_timeout_seconds", 59),
+        ("codex_timeout_seconds", 7201),
         ("tokensflow_finalizer_timeout_seconds", 601),
     ],
 )
 def test_web_config_direct_construction_rejects_invalid_values(tmp_path: Path, field: str, value: object) -> None:
-    default = WebConfig.for_root(tmp_path, tokensflow_egress_network="bridge", proxy_url=PROXY_URL)
+    default = WebConfig.for_root(tmp_path, tokensflow_egress_network="bridge")
     payload = {name: getattr(default, name) for name in WebConfig.model_fields}
 
     with pytest.raises(ValidationError):
@@ -196,13 +153,19 @@ def test_web_config_from_environment_reads_only_named_variables(tmp_path: Path) 
         "POWERCONTEXT_EVAL_USAGE_PROBE_TIMEOUT_SECONDS": "20",
         "POWERCONTEXT_EVAL_USAGE_SNAPSHOT_MAX_AGE_SECONDS": "180",
         "POWERCONTEXT_EVAL_TASK_PARALLELISM": "10",
+        "POWERCONTEXT_EVAL_CODEX_TIMEOUT_SECONDS": "5400",
+        "POWERCONTEXT_EVAL_CODEX_AUTH_MODE": "api",
+        "POWERCONTEXT_EVAL_CODEX_API_KEY": "codex-api-key",
+        "POWERCONTEXT_EVAL_CODEX_OPENAI_BASE_URL": "https://codex-models.invalid/v1",
         "POWERCONTEXT_EVAL_TOKENSFLOW_FINALIZER_TIMEOUT_SECONDS": "600",
         "POWERCONTEXT_EVAL_TOKENSFLOW_FINALIZER_POLL_SECONDS": "5",
-        "POWERCONTEXT_EVAL_TOKENSFLOW_ENABLED": "true",
         "POWERCONTEXT_EVAL_TOKENSFLOW_BINARY": "/opt/tools/tokensflow",
         "POWERCONTEXT_EVAL_TOKENSFLOW_USER_HOME": "/srv/identities/current",
         "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "egress-net",
-        "POWERCONTEXT_EVAL_PROXY_URL": PROXY_URL,
+        "OPENAI_API_KEY": "private-api-key",
+        "OPENAI_BASE_URL": "https://models.invalid/v1",
+        "POWERCONTEXT_SERVER_DATABASE_URL": "mysql+aoceanbase://private",
+        "POWERCONTEXT_UNRELATED": "ignored",
         "ROOT": "/ignored",
         "PORT": "1",
         "PROXY_URL": "https://ignored.invalid",
@@ -221,103 +184,71 @@ def test_web_config_from_environment_reads_only_named_variables(tmp_path: Path) 
     assert config.usage_probe_timeout_seconds == 20
     assert config.usage_snapshot_max_age_seconds == 180
     assert config.task_parallelism == 10
+    assert config.codex_timeout_seconds == 5400
+    assert config.codex_auth_mode == "api"
+    assert config.codex_api_key == "codex-api-key"
+    assert config.codex_openai_base_url == "https://codex-models.invalid/v1"
     assert config.tokensflow_finalizer_timeout_seconds == 600
     assert config.tokensflow_finalizer_poll_seconds == 5
     assert config.tokensflow_binary == Path("/opt/tools/tokensflow")
     assert config.tokensflow_user_home == Path("/srv/identities/current")
     assert config.tokensflow_egress_network == "egress-net"
+    assert config.private_container_env == {
+        "OPENAI_API_KEY": "private-api-key",
+        "OPENAI_BASE_URL": "https://models.invalid/v1",
+        "POWERCONTEXT_SERVER_DATABASE_URL": "mysql+aoceanbase://private",
+    }
 
 
-def test_web_config_reads_portable_network_settings_and_deduplicates_hosts(tmp_path: Path) -> None:
-    config = WebConfig.from_environment(
+@pytest.mark.parametrize(
+    "environ",
+    [
+        {"POWERCONTEXT_EVAL_CODEX_OPENAI_BASE_URL": "https://models.invalid/v1"},
+        {"POWERCONTEXT_EVAL_CODEX_API_KEY": "codex-api-key"},
         {
-            "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
-            "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
-            "POWERCONTEXT_EVAL_PROXY_URL": PROXY_URL,
-            "POWERCONTEXT_EVAL_DOCKER_NETWORK_POOL": "10.72.0.0/20",
-            "POWERCONTEXT_EVAL_EXTRA_NO_PROXY_HOSTS": "mirror.example.test,10.0.0.7,mirror.example.test",
-        }
-    )
-
-    assert config.docker_network_pool == "10.72.0.0/20"
-    assert config.extra_no_proxy_hosts == ("mirror.example.test", "10.0.0.7")
-
-
-@pytest.mark.parametrize("pool", ["public.example", "8.8.8.0/24", "10.0.0.0/24", "fd00::/64"])
-def test_web_config_rejects_unsafe_docker_network_pool(tmp_path: Path, pool: str) -> None:
-    with pytest.raises(ValidationError, match="Docker network pool"):
-        WebConfig.for_root(
-            tmp_path,
-            tokensflow_egress_network="bridge",
-            proxy_url=PROXY_URL,
-            docker_network_pool=pool,
-        )
-
-
-@pytest.mark.parametrize("hosts", [("https://example.test",), ("host:8080",), ("bad host",)])
-def test_web_config_rejects_unsafe_additional_no_proxy_hosts(tmp_path: Path, hosts: tuple[str, ...]) -> None:
-    with pytest.raises(ValidationError, match="no-proxy hosts"):
-        WebConfig.for_root(
-            tmp_path,
-            tokensflow_egress_network="bridge",
-            proxy_url=PROXY_URL,
-            extra_no_proxy_hosts=hosts,
-        )
-
-
-def test_web_config_requires_tokensflow_inputs_only_when_explicitly_enabled(tmp_path: Path) -> None:
-    with pytest.raises(ValidationError, match="TokensFlow requires"):
+            "POWERCONTEXT_EVAL_CODEX_API_KEY": "codex-api-key",
+            "POWERCONTEXT_EVAL_CODEX_OPENAI_BASE_URL": "ftp://models.invalid/v1",
+        },
+        {
+            "POWERCONTEXT_EVAL_CODEX_API_KEY": "codex-api-key\nunsafe",
+            "POWERCONTEXT_EVAL_CODEX_OPENAI_BASE_URL": "https://models.invalid/v1",
+        },
+    ],
+)
+def test_web_config_api_mode_requires_safe_key_and_base_url(tmp_path: Path, environ: dict[str, str]) -> None:
+    with pytest.raises(ValidationError, match="API-key mode|unsafe entry"):
         WebConfig.from_environment(
             {
                 "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
-                "POWERCONTEXT_EVAL_TOKENSFLOW_ENABLED": "true",
+                "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
+                "POWERCONTEXT_EVAL_CODEX_AUTH_MODE": "api",
+                "OPENAI_API_KEY": "powercontext-api-key",
+                "OPENAI_BASE_URL": "https://powercontext-models.invalid/v1",
+                **environ,
             }
         )
 
 
-def test_web_config_minimal_environment_keeps_optional_integrations_disabled(tmp_path: Path) -> None:
-    config = WebConfig.from_environment({"POWERCONTEXT_EVAL_ROOT": str(tmp_path)})
-
-    assert config.tokensflow_enabled is False
-    assert config.tokensflow_binary is None
-    assert config.tokensflow_user_home is None
-    assert config.tokensflow_egress_network is None
-    assert config.proxy_url is None
-
-
-def test_tokensflow_paths_do_not_implicitly_enable_internal_telemetry(tmp_path: Path) -> None:
-    config = WebConfig.from_environment(
-        {
-            "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
-            "POWERCONTEXT_EVAL_TOKENSFLOW_BINARY": "/opt/tools/tokensflow",
-            "POWERCONTEXT_EVAL_TOKENSFLOW_USER_HOME": "/srv/tokensflow-home",
-            "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
-        }
-    )
-
-    assert config.tokensflow_enabled is False
-    assert config.tokensflow_binary is None
-    assert config.tokensflow_user_home is None
-    assert config.tokensflow_egress_network is None
-
-
-@pytest.mark.parametrize(
-    "proxy_url",
-    ["http://proxy.example.test:8080", "http://user:password@127.0.0.1:8081", "not-a-url"],
-)
-def test_web_config_rejects_non_loopback_or_credential_bearing_proxy(tmp_path: Path, proxy_url: str) -> None:
-    with pytest.raises(ValidationError, match="Proxy upstream"):
-        WebConfig.for_root(
-            tmp_path,
-            tokensflow_egress_network="bridge",
-            proxy_url=proxy_url,
+def test_web_config_rejects_an_unknown_codex_auth_mode(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        WebConfig.from_environment(
+            {
+                "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
+                "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
+                "POWERCONTEXT_EVAL_CODEX_AUTH_MODE": "unknown",
+            }
         )
+
+
+def test_web_config_requires_explicit_tokensflow_egress_network(tmp_path: Path) -> None:
+    with pytest.raises(KeyError, match="TOKENSFLOW_EGRESS_NETWORK"):
+        WebConfig.from_environment({"POWERCONTEXT_EVAL_ROOT": str(tmp_path)})
 
 
 @pytest.mark.parametrize("network", ["", "-bridge", "bridge other", "bridge;rm", 'bridge"bad', "a" * 129])
 def test_web_config_rejects_unsafe_tokensflow_egress_network(tmp_path: Path, network: str) -> None:
     with pytest.raises(ValidationError, match="egress network"):
-        WebConfig.for_root(tmp_path, tokensflow_egress_network=network, proxy_url=PROXY_URL)
+        WebConfig.for_root(tmp_path, tokensflow_egress_network=network)
 
 
 @pytest.mark.parametrize(
@@ -337,18 +268,14 @@ def test_web_config_rejects_unsafe_tokensflow_egress_network(tmp_path: Path, net
         ("POWERCONTEXT_EVAL_UV_BINARY", "uv"),
         ("POWERCONTEXT_EVAL_REGISTRY_BINARY", "regctl"),
         ("POWERCONTEXT_EVAL_AUTH_JSON", "auth.json"),
-        ("POWERCONTEXT_EVAL_CODEX_CONFIG", "config.toml"),
     ],
 )
 def test_web_config_rejects_relative_paths(tmp_path: Path, name: str, value: str) -> None:
     environ = {
         "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
         "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
-        "POWERCONTEXT_EVAL_PROXY_URL": PROXY_URL,
         name: value,
     }
-    if name.startswith("POWERCONTEXT_EVAL_TOKENSFLOW_"):
-        environ["POWERCONTEXT_EVAL_TOKENSFLOW_ENABLED"] = "true"
 
     with pytest.raises(ValidationError):
         WebConfig.from_environment(environ)
@@ -371,7 +298,9 @@ def test_web_config_rejects_relative_paths(tmp_path: Path, name: str, value: str
         ("POWERCONTEXT_EVAL_USAGE_SNAPSHOT_MAX_AGE_SECONDS", "9"),
         ("POWERCONTEXT_EVAL_USAGE_SNAPSHOT_MAX_AGE_SECONDS", "7201"),
         ("POWERCONTEXT_EVAL_TASK_PARALLELISM", "0"),
-        ("POWERCONTEXT_EVAL_TASK_PARALLELISM", "21"),
+        ("POWERCONTEXT_EVAL_TASK_PARALLELISM", "31"),
+        ("POWERCONTEXT_EVAL_CODEX_TIMEOUT_SECONDS", "59"),
+        ("POWERCONTEXT_EVAL_CODEX_TIMEOUT_SECONDS", "7201"),
         ("POWERCONTEXT_EVAL_TOKENSFLOW_FINALIZER_TIMEOUT_SECONDS", "601"),
         ("POWERCONTEXT_EVAL_TOKENSFLOW_FINALIZER_TIMEOUT_SECONDS", "3600"),
     ],
@@ -382,7 +311,6 @@ def test_web_config_rejects_invalid_numeric_settings(tmp_path: Path, name: str, 
             {
                 "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
                 "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
-                "POWERCONTEXT_EVAL_PROXY_URL": PROXY_URL,
                 name: value,
             }
         )
@@ -400,6 +328,7 @@ def test_web_config_rejects_invalid_numeric_settings(tmp_path: Path, name: str, 
         ("POWERCONTEXT_EVAL_USAGE_SNAPSHOT_MAX_AGE_SECONDS", "fresh"),
         ("POWERCONTEXT_EVAL_TASK_PARALLELISM", "many"),
         ("POWERCONTEXT_EVAL_TASK_PARALLELISM", "1.0"),
+        ("POWERCONTEXT_EVAL_CODEX_TIMEOUT_SECONDS", "long"),
     ],
 )
 def test_web_config_rejects_malformed_numeric_environment_values(tmp_path: Path, name: str, value: str) -> None:
@@ -408,7 +337,6 @@ def test_web_config_rejects_malformed_numeric_environment_values(tmp_path: Path,
             {
                 "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
                 "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
-                "POWERCONTEXT_EVAL_PROXY_URL": PROXY_URL,
                 name: value,
             }
         )
@@ -420,7 +348,6 @@ def test_web_config_requires_usage_snapshot_to_cover_probe_interval(tmp_path: Pa
             {
                 "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
                 "POWERCONTEXT_EVAL_TOKENSFLOW_EGRESS_NETWORK": "bridge",
-                "POWERCONTEXT_EVAL_PROXY_URL": PROXY_URL,
                 "POWERCONTEXT_EVAL_USAGE_PROBE_SECONDS": "90",
                 "POWERCONTEXT_EVAL_USAGE_SNAPSHOT_MAX_AGE_SECONDS": "60",
             }
@@ -428,24 +355,31 @@ def test_web_config_requires_usage_snapshot_to_cover_probe_interval(tmp_path: Pa
 
 
 def test_web_config_has_no_public_serialization_that_leaks_secrets(tmp_path: Path) -> None:
+    secret = "https://user:secret@proxy.invalid"
     config = WebConfig.for_root(
         tmp_path,
         auth_json=tmp_path / "auth-secret.json",
-        codex_config=tmp_path / "provider-secret.toml",
         tokensflow_user_home=tmp_path / "identity-profile",
         tokensflow_egress_network="bridge",
-        proxy_url=PROXY_URL,
+        proxy_url=secret,
+        private_container_env={"OPENAI_API_KEY": "private-api-key"},
+        codex_api_key="codex-api-key",
+        codex_openai_base_url="https://codex-models.invalid/v1",
     )
 
     assert not hasattr(config, "to_public")
     assert "auth_json" not in config.model_dump()
-    assert "codex_config" not in config.model_dump()
     assert "proxy_url" not in config.model_dump()
     assert "tokensflow_user_home" not in config.model_dump()
-    assert PROXY_URL not in repr(config)
+    assert "private_container_env" not in config.model_dump()
+    assert "codex_api_key" not in config.model_dump()
+    assert "codex_openai_base_url" not in config.model_dump()
+    assert secret not in repr(config)
     assert "auth-secret.json" not in repr(config)
-    assert "provider-secret.toml" not in repr(config)
     assert "identity-profile" not in repr(config)
+    assert "private-api-key" not in repr(config)
+    assert "codex-api-key" not in repr(config)
+    assert "codex-models.invalid" not in repr(config)
 
 
 @pytest.mark.parametrize(
@@ -510,18 +444,6 @@ def test_batch_create_pins_the_public_v2_task_set() -> None:
         "both_fail",
         "execution_failure",
     ]
-
-
-def test_batch_create_accepts_the_pinned_stability_task_set() -> None:
-    request = BatchCreate(
-        powercontext_ref="latest",
-        benchmark="swebench-pro",
-        task_set="swebench-pro-stability-v1",
-        treatment_mode="off_on",
-        idempotency_key="stability-request",
-    )
-
-    assert request.task_set == "swebench-pro-stability-v1"
 
 
 def test_batch_model_defaults_to_sol_and_accepts_luna_without_an_allowlist() -> None:
@@ -719,18 +641,15 @@ def test_task_record_exposes_only_safe_failure_details() -> None:
         request=TaskCreate.model_validate(valid_task()),
         status=TaskStatus.FAILED,
         created_at=datetime(2026, 7, 29, tzinfo=UTC),
-        eligible_at=datetime(2026, 7, 29, tzinfo=UTC),
         started_at=datetime(2026, 7, 29, tzinfo=UTC),
         finished_at=datetime(2026, 7, 29, 0, 1, tzinfo=UTC),
         failure_category=FailureCategory.CODEX_EXECUTION,
-        failure_code=FailureCode.CODEX_EXECUTION,
-        retry_disposition=RetryDisposition.RETRY,
         failure_phase=TaskPhase.RUNNING_OFF,
-        failure_summary="Codex did not complete. Inspect retained worker logs.",
+        failure_summary="Codex did not complete. Inspect retained m0 logs.",
     )
 
     assert record.failure_category is FailureCategory.CODEX_EXECUTION
-    assert record.failure_summary == "Codex did not complete. Inspect retained worker logs."
+    assert record.failure_summary == "Codex did not complete. Inspect retained m0 logs."
 
 
 def record_payload(status: TaskStatus) -> dict[str, object]:
@@ -739,7 +658,6 @@ def record_payload(status: TaskStatus) -> dict[str, object]:
         "request": TaskCreate.model_validate(valid_task()),
         "status": status,
         "created_at": datetime(2026, 7, 29, tzinfo=UTC),
-        "eligible_at": datetime(2026, 7, 29, tzinfo=UTC),
     }
 
 
@@ -816,8 +734,6 @@ def test_task_record_rejects_incoherent_lifecycle(status: TaskStatus, fields: di
                 "started_at": datetime(2026, 7, 29, tzinfo=UTC),
                 "finished_at": datetime(2026, 7, 29, tzinfo=UTC),
                 "failure_category": FailureCategory.CODEX_EXECUTION,
-                "failure_code": FailureCode.CODEX_EXECUTION,
-                "retry_disposition": RetryDisposition.RETRY,
                 "failure_phase": TaskPhase.RUNNING_OFF,
                 "failure_summary": "Codex did not complete.",
             },
@@ -828,8 +744,6 @@ def test_task_record_rejects_incoherent_lifecycle(status: TaskStatus, fields: di
                 "started_at": datetime(2026, 7, 29, tzinfo=UTC),
                 "finished_at": datetime(2026, 7, 29, tzinfo=UTC),
                 "failure_category": FailureCategory.WORKER_INTERRUPTION,
-                "failure_code": FailureCode.WORKER_INTERRUPTION,
-                "retry_disposition": RetryDisposition.RETRY,
                 "failure_phase": TaskPhase.RUNNING_ON,
                 "failure_summary": "Worker lease expired.",
             },
@@ -848,8 +762,6 @@ def test_failed_task_accepts_safe_failure_without_phase() -> None:
             "started_at": datetime(2026, 7, 29, tzinfo=UTC),
             "finished_at": datetime(2026, 7, 29, 0, 1, tzinfo=UTC),
             "failure_category": FailureCategory.INTERNAL,
-            "failure_code": FailureCode.INTERNAL,
-            "retry_disposition": RetryDisposition.RETRY,
             "failure_summary": "The worker failed unexpectedly.",
         }
     )

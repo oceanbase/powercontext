@@ -5,7 +5,6 @@ import { AppShell } from "./components/AppShell";
 import { BatchLauncher } from "./components/BatchLauncher";
 import { AuthPanel } from "./components/AuthPanel";
 import { BatchOverview } from "./components/BatchOverview";
-import { BatchRuntime } from "./components/BatchRuntime";
 import { BatchTaskReport } from "./components/BatchTaskReport";
 import { ReportIndex } from "./components/ReportIndex";
 import { TaskRunDetail } from "./components/TaskRunDetail";
@@ -32,14 +31,10 @@ function useLocation(): [string, (next: string) => void] {
 interface Route {
   batchId: string | null;
   taskId: string | null;
-  page: "overview" | "runtime" | "tasks" | "task";
+  page: "overview" | "tasks" | "task";
 }
 
 function parseRoute(path: string): Route {
-  const runtimeMatch = path.match(/^\/report\/([^/]+)\/running$/);
-  if (runtimeMatch?.[1]) {
-    return { batchId: decodeURIComponent(runtimeMatch[1]), taskId: null, page: "runtime" };
-  }
   const taskMatch = path.match(/^\/report\/([^/]+)\/tasks\/([^/]+)$/);
   if (taskMatch?.[1] && taskMatch[2]) {
     return {
@@ -79,12 +74,6 @@ export function App({ api: injectedApi }: AppProps) {
           search={search}
           navigate={navigate}
         />
-      </div>
-    );
-  } else if (route.page === "runtime" && route.batchId !== null) {
-    content = (
-      <div className="page">
-        <BatchRuntime api={api} batchId={route.batchId} navigate={navigate} />
       </div>
     );
   } else if (route.page === "tasks" && route.batchId !== null) {

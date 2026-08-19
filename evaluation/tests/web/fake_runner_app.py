@@ -357,7 +357,6 @@ def main() -> None:
     config = WebConfig.for_root(
         temporary_root,
         tokensflow_egress_network="bridge",
-        proxy_url="http://127.0.0.1:8081",
         database_path=temporary_root / "web" / "tasks.sqlite3",
         run_root=temporary_root,
         frontend_dist=frontend,

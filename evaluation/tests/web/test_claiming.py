@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import pytest
 
@@ -18,11 +18,6 @@ from powercontext_eval.web.store import TaskStore
 from powercontext_eval.web.usage import UsageSnapshot, UsageUnavailable
 
 NOW = datetime(2026, 8, 1, 1, 2, 3, tzinfo=UTC)
-
-
-@pytest.fixture(autouse=True)
-def _default_dependency_probe(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("powercontext_eval.web.resources.DockerDependencyProbe.check", lambda _self: None)
 
 
 def _usage(used_percent: int, *, observed_at: datetime = NOW) -> UsageSnapshot:
@@ -76,18 +71,11 @@ class AdvancingClock:
             return now
 
 
-def _config(
-    root: Path,
-    *,
-    task_parallelism: int = 4,
-    usage_mode: Literal["subscription", "api_key"] = "subscription",
-) -> WebConfig:
+def _config(root: Path, *, task_parallelism: int = 4) -> WebConfig:
     return WebConfig.for_root(
         root,
         tokensflow_egress_network="bridge",
-        proxy_url="http://127.0.0.1:8081",
         task_parallelism=task_parallelism,
-        usage_mode=usage_mode,
         usage_probe_seconds=60,
         usage_snapshot_max_age_seconds=120,
     )
@@ -143,20 +131,6 @@ def test_concurrent_claims_share_one_fresh_account_usage_probe(tmp_path: Path) -
     assert len({task.task_id for task in tasks}) == 4
 
 
-def test_api_key_mode_claims_without_subscription_usage_probe(tmp_path: Path) -> None:
-    config = _config(tmp_path, task_parallelism=1, usage_mode="api_key")
-    store = _store(config)
-    _batch(store, count=1)
-    probe = CountingProbe([UsageUnavailable("must not be called")])
-    coordinator = ClaimCoordinator(config, store, usage_probe=probe, clock=lambda: NOW)
-
-    claimed = coordinator.claim("slot-api-key")
-
-    assert claimed is not None
-    assert probe.calls == []
-    assert store.latest_usage_snapshot() is None
-
-
 def test_periodic_usage_refresh_keeps_snapshot_current_without_new_claims(tmp_path: Path) -> None:
     config = _config(tmp_path)
     store = _store(config)
@@ -190,64 +164,42 @@ def test_periodic_usage_refresh_keeps_snapshot_current_without_new_claims(tmp_pa
     assert store.list_batches() == []
 
 
-def test_periodic_usage_refresh_tolerates_one_failure_while_cached_snapshot_is_fresh(tmp_path: Path) -> None:
+def test_periodic_usage_refresh_fails_closed_when_probe_is_unavailable(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    store = _store(config)
+    batch_id = _batch(store, key="periodic-usage-unavailable", count=1)
+    coordinator = ClaimCoordinator(
+        config,
+        store,
+        usage_probe=CountingProbe([UsageUnavailable("unavailable")]),
+        clock=lambda: NOW,
+    )
+
+    assert coordinator.refresh_usage() is False
+    batch = store.get_batch(batch_id)
+    assert batch.status is BatchStatus.PAUSED
+    assert batch.control.pause_reason is BatchPauseReason.USAGE_UNAVAILABLE
+
+
+def test_periodic_usage_refresh_tolerates_one_unavailable_probe_with_fresh_snapshot(tmp_path: Path) -> None:
     config = _config(tmp_path)
     store = _store(config)
     batch_id = _batch(store, key="periodic-usage-transient", count=1)
-    observations = iter((NOW, NOW + timedelta(seconds=60)))
+    store.save_usage_snapshot(_usage(9, observed_at=NOW - timedelta(seconds=90)))
     coordinator = ClaimCoordinator(
         config,
         store,
-        usage_probe=CountingProbe([_usage(9), UsageUnavailable("unavailable")]),
-        clock=lambda: next(observations),
+        usage_probe=CountingProbe([UsageUnavailable("unavailable")]),
+        clock=lambda: NOW,
     )
 
-    assert coordinator.refresh_usage() is True
     assert coordinator.refresh_usage() is False
     batch = store.get_batch(batch_id)
     assert batch.status is BatchStatus.QUEUED
     assert batch.control.pause_reason is None
 
 
-def test_periodic_usage_refresh_expiry_closes_admission_without_mutating_batch(tmp_path: Path) -> None:
-    config = _config(tmp_path)
-    store = _store(config)
-    batch_id = _batch(store, key="periodic-usage-expired", count=1)
-    observations = iter((NOW, NOW + timedelta(seconds=121)))
-    coordinator = ClaimCoordinator(
-        config,
-        store,
-        usage_probe=CountingProbe([_usage(9), UsageUnavailable("unavailable")]),
-        clock=lambda: next(observations),
-    )
-
-    assert coordinator.refresh_usage() is True
-    assert coordinator.refresh_usage() is False
-    batch = store.get_batch(batch_id)
-    assert batch.status is BatchStatus.QUEUED
-    assert batch.control.pause_reason is None
-
-
-def test_claim_uses_cached_snapshot_for_the_configured_grace_window(tmp_path: Path) -> None:
-    config = _config(tmp_path)
-    store = _store(config)
-    _batch(store, key="claim-usage-grace", count=1)
-    probe = CountingProbe([UsageUnavailable("must not be called")])
-    store.apply_usage_snapshot(_usage(9), now=NOW)
-    coordinator = ClaimCoordinator(
-        config,
-        store,
-        usage_probe=probe,
-        clock=lambda: NOW + timedelta(seconds=61),
-    )
-
-    claimed = coordinator.claim("slot-0")
-
-    assert claimed is not None
-    assert probe.calls == []
-
-
-def test_threshold_snapshot_closes_admission_without_pausing_batch(tmp_path: Path) -> None:
+def test_threshold_snapshot_pauses_batch_and_returns_no_claim(tmp_path: Path) -> None:
     config = _config(tmp_path)
     store = _store(config)
     batch_id = _batch(store, key="claim-threshold", count=1)
@@ -255,11 +207,11 @@ def test_threshold_snapshot_closes_admission_without_pausing_batch(tmp_path: Pat
 
     assert coordinator.claim("slot-0") is None
     batch = store.get_batch(batch_id)
-    assert batch.status is BatchStatus.QUEUED
-    assert batch.control.pause_reason is None
+    assert batch.status is BatchStatus.PAUSED
+    assert batch.control.pause_reason is BatchPauseReason.USAGE_THRESHOLD
 
 
-def test_unavailable_usage_closes_admission_without_pausing_batch(tmp_path: Path) -> None:
+def test_unavailable_usage_pauses_batch_and_returns_no_claim(tmp_path: Path) -> None:
     config = _config(tmp_path)
     store = _store(config)
     batch_id = _batch(store, key="claim-unavailable", count=1)
@@ -272,27 +224,25 @@ def test_unavailable_usage_closes_admission_without_pausing_batch(tmp_path: Path
 
     assert coordinator.claim("slot-0") is None
     batch = store.get_batch(batch_id)
-    assert batch.status is BatchStatus.QUEUED
-    assert batch.control.pause_reason is None
+    assert batch.status is BatchStatus.PAUSED
+    assert batch.control.pause_reason is BatchPauseReason.USAGE_UNAVAILABLE
 
 
-def test_usage_gate_reopens_automatically_after_probe_recovers(tmp_path: Path) -> None:
+def test_unavailable_usage_claim_uses_fresh_grace_snapshot(tmp_path: Path) -> None:
     config = _config(tmp_path)
     store = _store(config)
-    batch_id = _batch(store, key="claim-unavailable-recovery", count=1)
-    observations = iter((NOW, NOW + timedelta(seconds=1)))
-    coordinator = ClaimCoordinator(
-        config,
-        store,
-        usage_probe=CountingProbe([UsageUnavailable("unavailable"), _usage(9)]),
-        clock=lambda: next(observations),
-    )
+    batch_id = _batch(store, key="claim-usage-transient", count=1)
+    store.save_usage_snapshot(_usage(9, observed_at=NOW - timedelta(seconds=90)))
+    probe = CountingProbe([UsageUnavailable("unavailable")])
+    coordinator = ClaimCoordinator(config, store, usage_probe=probe, clock=lambda: NOW)
 
-    assert coordinator.claim("slot-0") is None
-    claimed = coordinator.claim("slot-0")
+    task = coordinator.claim("slot-0")
 
-    assert claimed is not None
-    assert store.get_batch(batch_id).control.pause_reason is None
+    assert task is not None
+    assert probe.calls == [NOW]
+    batch = store.get_batch(batch_id)
+    assert batch.status is BatchStatus.RUNNING
+    assert batch.control.pause_reason is None
 
 
 class FixedResourceProbe:
@@ -307,72 +257,6 @@ class FixedResourceProbe:
         return self.observation
 
 
-class FixedDependencyProbe:
-    def __init__(self, observation: Exception | None) -> None:
-        self.observation = observation
-        self.calls = 0
-
-    def check(self) -> None:
-        self.calls += 1
-        if self.observation is not None:
-            raise self.observation
-
-
-def test_dependency_gate_rechecks_and_reopens_without_consuming_an_attempt(tmp_path: Path) -> None:
-    config = _config(tmp_path, task_parallelism=1)
-    store = _store(config)
-    batch_id = _batch(store, key="claim-dependency-recovery", count=1)
-    dependency = FixedDependencyProbe(ResourceUnavailable("docker unavailable"))
-    observations = iter((NOW, NOW + timedelta(seconds=9), NOW + timedelta(seconds=10)))
-    coordinator = ClaimCoordinator(
-        config,
-        store,
-        usage_probe=CountingProbe([_usage(9)]),
-        dependency_probe=dependency,
-        clock=lambda: next(observations),
-    )
-
-    assert coordinator.claim("slot-0") is None
-    assert coordinator.claim("slot-0") is None
-    assert dependency.calls == 1
-    dependency.observation = None
-    claimed = coordinator.claim("slot-0")
-
-    assert claimed is not None
-    assert dependency.calls == 2
-    assert claimed.attempt_number == 1
-    batch = store.get_batch(batch_id)
-    assert batch.control.intent.value == "run"
-    assert batch.control.pause_reason is None
-
-
-def test_deployment_mismatch_blocks_claims_without_mutating_or_consuming_work(tmp_path: Path) -> None:
-    config = _config(tmp_path, task_parallelism=1)
-    store = _store(config)
-    batch_id = _batch(store, key="claim-deployment-recovery", count=1)
-    usage = CountingProbe([_usage(9)])
-    store.record_runtime_revision("web", build_revision="a" * 40, schema_version=2, now=NOW)
-    store.record_runtime_revision("worker", build_revision="b" * 40, schema_version=2, now=NOW)
-    coordinator = ClaimCoordinator(
-        config,
-        store,
-        usage_probe=usage,
-        clock=lambda: NOW,
-        deployment_gate=store.deployment_admission_open,
-    )
-
-    assert coordinator.claim("slot-0") is None
-    assert usage.calls == []
-    assert store.get_batch(batch_id).control.intent.value == "run"
-    assert store.list_batch_tasks(batch_id)[0].attempt_number == 1
-
-    store.record_runtime_revision("worker", build_revision="a" * 40, schema_version=2, now=NOW)
-    claimed = coordinator.claim("slot-0")
-
-    assert claimed is not None
-    assert claimed.attempt_number == 1
-
-
 @pytest.mark.parametrize(
     "capacity",
     [
@@ -385,9 +269,7 @@ def test_deployment_mismatch_blocks_claims_without_mutating_or_consuming_work(tm
         ),
     ],
 )
-def test_resource_pressure_closes_admission_before_usage_without_pause(
-    tmp_path: Path, capacity: FilesystemCapacity
-) -> None:
+def test_resource_pressure_pauses_before_usage_or_claim(tmp_path: Path, capacity: FilesystemCapacity) -> None:
     config = _config(tmp_path)
     store = _store(config)
     batch_id = _batch(store, key=f"claim-resource-{capacity.free_bytes}-{capacity.free_inodes}", count=1)
@@ -403,8 +285,8 @@ def test_resource_pressure_closes_admission_before_usage_without_pause(
 
     assert coordinator.claim("slot-0") is None
     batch = store.get_batch(batch_id)
-    assert batch.status is BatchStatus.QUEUED
-    assert batch.control.pause_reason is None
+    assert batch.status is BatchStatus.PAUSED
+    assert batch.control.pause_reason is BatchPauseReason.RESOURCE_PRESSURE
     assert resources.calls == 1
     assert usage.calls == []
 
@@ -423,35 +305,8 @@ def test_unavailable_resource_probe_fails_closed_before_usage(tmp_path: Path) ->
     )
 
     assert coordinator.claim("slot-0") is None
-    assert store.get_batch(batch_id).control.pause_reason is None
+    assert store.get_batch(batch_id).control.pause_reason is BatchPauseReason.RESOURCE_PRESSURE
     assert usage.calls == []
-
-
-def test_resource_gate_reopens_only_after_hysteresis_high_water(tmp_path: Path) -> None:
-    config = _config(tmp_path, task_parallelism=1)
-    store = _store(config)
-    _batch(store, key="claim-resource-hysteresis", count=1)
-    low_bytes = config.filesystem_claim_min_free_bytes
-    low_inodes = config.filesystem_claim_min_free_inodes
-    resources = FixedResourceProbe(FilesystemCapacity(low_bytes - 1, low_bytes * 3, low_inodes * 3, low_inodes * 4))
-    coordinator = ClaimCoordinator(
-        config,
-        store,
-        usage_probe=CountingProbe([_usage(9)]),
-        resource_probe=resources,
-        clock=lambda: NOW,
-    )
-
-    assert coordinator.claim("slot-0") is None
-    resources.observation = FilesystemCapacity(low_bytes, low_bytes * 3, low_inodes * 3, low_inodes * 4)
-    assert coordinator.claim("slot-0") is None
-    resources.observation = FilesystemCapacity(
-        low_bytes + max(low_bytes // 10, 1),
-        low_bytes * 3,
-        low_inodes + max(low_inodes // 10, 1),
-        low_inodes * 4,
-    )
-    assert coordinator.claim("slot-0") is not None
 
 
 def test_stop_closes_the_shared_claim_gate_before_any_replacement(tmp_path: Path) -> None:

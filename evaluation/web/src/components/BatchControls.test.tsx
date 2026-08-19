@@ -11,7 +11,7 @@ describe("BatchControls", () => {
     const updateBatchThreshold = vi.fn().mockResolvedValue(batchRecord());
     const resumeBatch = vi.fn();
     const api = apiStub({
-      getAccountUsage: vi.fn().mockResolvedValue({ mode: "subscription", sufficient: true, usage: usageSnapshot }),
+      getAccountUsage: vi.fn().mockResolvedValue(usageSnapshot),
       listBatchControlEvents: vi.fn().mockResolvedValue([]),
       updateBatchThreshold,
       resumeBatch,
@@ -40,51 +40,6 @@ describe("BatchControls", () => {
 
     await waitFor(() => expect(updateBatchThreshold).toHaveBeenCalledWith("batch-001", 90, 0));
     expect(resumeBatch).not.toHaveBeenCalled();
-  });
-
-  it("shows API-key admission as sufficient and keeps control events visible", async () => {
-    const api = apiStub({
-      getAccountUsage: vi.fn().mockResolvedValue({ mode: "api_key", sufficient: true, usage: null }),
-      listBatchControlEvents: vi.fn().mockResolvedValue([
-        {
-          sequence: 1,
-          batch_id: "batch-001",
-          event_type: "batch_created",
-          actor: "system",
-          details: {},
-          occurred_at: "2026-08-16T09:00:00Z",
-        },
-      ]),
-    });
-    render(
-      <BatchControls api={api} batch={batchRecord()} report={{ ...batchReport, latest_usage: null }} onUpdated={() => undefined} />,
-    );
-
-    expect(await screen.findByText("API Key 模式")).toBeVisible();
-    expect(screen.getByText("充足")).toBeVisible();
-    expect(screen.getByText("不检查订阅用量，运行准入始终视为充足")).toBeVisible();
-    expect(screen.queryByLabelText("批次暂停阈值")).not.toBeInTheDocument();
-    expect(screen.getByText("查看控制记录（1）")).toBeVisible();
-  });
-
-  it("does not hide control events when subscription usage is temporarily unavailable", async () => {
-    const api = apiStub({
-      getAccountUsage: vi.fn().mockRejectedValue(new Error("unavailable")),
-      listBatchControlEvents: vi.fn().mockResolvedValue([
-        {
-          sequence: 1,
-          batch_id: "batch-001",
-          event_type: "batch_created",
-          actor: "system",
-          details: {},
-          occurred_at: "2026-08-16T09:00:00Z",
-        },
-      ]),
-    });
-    render(<BatchControls api={api} batch={batchRecord()} report={batchReport} onUpdated={() => undefined} />);
-
-    expect(await screen.findByText("查看控制记录（1）")).toBeVisible();
-    expect(screen.getByText("最新用量暂时无法读取；控制记录已更新。")).toBeVisible();
   });
 
   it.each([

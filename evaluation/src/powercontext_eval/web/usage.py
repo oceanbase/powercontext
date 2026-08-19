@@ -15,6 +15,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -68,23 +70,6 @@ class UsageSnapshot(_FrozenModel):
         return self
 
 
-class AccountUsage(_FrozenModel):
-    """Public account admission state without pretending API-key billing is subscription usage."""
-
-    mode: Literal["subscription", "api_key"]
-    sufficient: bool
-    usage: UsageSnapshot | None
-
-    @model_validator(mode="after")
-    def require_mode_consistency(self) -> Self:
-        if self.mode == "api_key":
-            if not self.sufficient or self.usage is not None:
-                raise ValueError("API-key usage must always be sufficient and contain no subscription snapshot")
-        elif self.usage is None:
-            raise ValueError("Subscription usage requires a current snapshot")
-        return self
-
-
 class CodexUsageProbe:
     """Read account usage through a short-lived local Codex App Server."""
 
@@ -93,8 +78,7 @@ class CodexUsageProbe:
         *,
         codex_binary: Path,
         auth_json: Path,
-        proxy_url: str | None = None,
-        codex_config: Path | None = None,
+        proxy_url: str,
         timeout_seconds: float = 15,
         output_limit_bytes: int = _DEFAULT_OUTPUT_LIMIT_BYTES,
     ) -> None:
@@ -102,10 +86,8 @@ class CodexUsageProbe:
             raise ValueError("codex_binary must be an absolute Path")
         if not isinstance(auth_json, Path) or not auth_json.is_absolute():
             raise ValueError("auth_json must be an absolute Path")
-        if codex_config is not None and (not isinstance(codex_config, Path) or not codex_config.is_absolute()):
-            raise ValueError("codex_config must be an absolute Path")
-        if proxy_url is not None and (not isinstance(proxy_url, str) or not proxy_url or "\0" in proxy_url):
-            raise ValueError("proxy_url must be a non-empty string or None")
+        if not isinstance(proxy_url, str) or not proxy_url or "\0" in proxy_url:
+            raise ValueError("proxy_url must be a non-empty string")
         if (
             isinstance(timeout_seconds, bool)
             or not isinstance(timeout_seconds, (int, float))
@@ -118,7 +100,6 @@ class CodexUsageProbe:
 
         self._codex_binary = codex_binary
         self._auth_json = auth_json
-        self._codex_config = codex_config
         self._proxy_url = proxy_url
         self._timeout_seconds = float(timeout_seconds)
         self._output_limit_bytes = output_limit_bytes
@@ -129,8 +110,6 @@ class CodexUsageProbe:
         _require_utc(now, name="now")
         if not self._auth_json.is_file():
             raise UsageUnavailable("Codex authorization is unavailable")
-        if self._codex_config is not None and (not self._codex_config.is_file() or self._codex_config.is_symlink()):
-            raise UsageUnavailable("Codex provider configuration is unavailable")
 
         try:
             with tempfile.TemporaryDirectory(prefix="powercontext-eval-codex-") as temporary:
@@ -138,10 +117,6 @@ class CodexUsageProbe:
                 auth_copy = codex_home / "auth.json"
                 shutil.copyfile(self._auth_json, auth_copy)
                 auth_copy.chmod(0o600)
-                if self._codex_config is not None:
-                    config_copy = codex_home / "config.toml"
-                    shutil.copyfile(self._codex_config, config_copy)
-                    config_copy.chmod(0o600)
                 output = self._run(codex_home)
         except OSError:
             raise UsageUnavailable("Codex usage probe failed") from None
@@ -155,35 +130,19 @@ class CodexUsageProbe:
             {"method": "account/rateLimits/read", "id": 1},
             {"method": "account/usage/read", "id": 2},
         )
-        request_bytes = b"".join(
+        request_bytes = tuple(
             json.dumps(request, separators=(",", ":")).encode("utf-8") + b"\n" for request in requests
         )
         proxy_environment = {
             "CODEX_HOME": os.fspath(codex_home),
             "HOME": os.fspath(codex_home),
+            "HTTP_PROXY": self._proxy_url,
+            "HTTPS_PROXY": self._proxy_url,
+            "ALL_PROXY": self._proxy_url,
+            "http_proxy": self._proxy_url,
+            "https_proxy": self._proxy_url,
+            "all_proxy": self._proxy_url,
         }
-        if self._proxy_url is not None:
-            proxy_environment.update(
-                {
-                    "HTTP_PROXY": self._proxy_url,
-                    "HTTPS_PROXY": self._proxy_url,
-                    "ALL_PROXY": self._proxy_url,
-                    "http_proxy": self._proxy_url,
-                    "https_proxy": self._proxy_url,
-                    "all_proxy": self._proxy_url,
-                }
-            )
-        else:
-            proxy_environment.update(
-                {
-                    "ALL_PROXY": "",
-                    "HTTP_PROXY": "",
-                    "HTTPS_PROXY": "",
-                    "all_proxy": "",
-                    "http_proxy": "",
-                    "https_proxy": "",
-                }
-            )
 
         process = subprocess.Popen(
             (os.fspath(self._codex_binary), "app-server", "--listen", "stdio://"),
@@ -200,8 +159,9 @@ class CodexUsageProbe:
         try:
             assert process.stdin is not None
             assert process.stdout is not None
-            process.stdin.write(request_bytes)
+            process.stdin.write(request_bytes[0])
             process.stdin.flush()
+            followups_sent = False
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -220,10 +180,88 @@ class CodexUsageProbe:
                 output.extend(chunk)
                 if len(output) > self._output_limit_bytes:
                     raise UsageUnavailable("Codex usage probe exceeded its output limit")
-                if _response_ids(output) >= {0, 1, 2}:
+                response_ids = _response_ids(output)
+                if 0 in response_ids and not followups_sent:
+                    process.stdin.write(b"".join(request_bytes[1:]))
+                    process.stdin.flush()
+                    followups_sent = True
+                if response_ids >= {0, 1, 2}:
                     return bytes(output)
         finally:
             _stop_probe_process(process)
+
+
+class ApiKeyUsageProbe:
+    """Verify API-key connectivity and model availability without running inference."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        model: str,
+        timeout_seconds: float = 15,
+        output_limit_bytes: int = _DEFAULT_OUTPUT_LIMIT_BYTES,
+    ) -> None:
+        from powercontext_eval.codex import is_safe_codex_model, is_safe_openai_base_url
+
+        if not isinstance(api_key, str) or not api_key or any(character in api_key for character in "\0\r\n"):
+            raise ValueError("api_key must be a safe non-empty string")
+        if not is_safe_openai_base_url(base_url):
+            raise ValueError("base_url must be a safe HTTP(S) URL")
+        if not is_safe_codex_model(model):
+            raise ValueError("model is unsafe")
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("timeout_seconds must be finite and greater than zero")
+        if isinstance(output_limit_bytes, bool) or not isinstance(output_limit_bytes, int) or output_limit_bytes <= 0:
+            raise ValueError("output_limit_bytes must be a positive integer")
+
+        self._api_key = api_key
+        self._models_url = f"{base_url.rstrip('/')}/models"
+        self._model = model
+        self._timeout_seconds = float(timeout_seconds)
+        self._output_limit_bytes = output_limit_bytes
+
+    def read(self, *, now: datetime) -> UsageSnapshot:
+        """Return a synthetic healthy snapshot after a bounded models-list request."""
+
+        _require_utc(now, name="now")
+        request = Request(
+            self._models_url,
+            headers={"Authorization": f"Bearer {self._api_key}", "Accept": "application/json"},
+            method="GET",
+        )
+        try:
+            with urlopen(request, timeout=self._timeout_seconds) as response:
+                raw = response.read(self._output_limit_bytes + 1)
+        except (HTTPError, URLError, OSError, TimeoutError):
+            raise UsageUnavailable("API-key model probe failed") from None
+        if len(raw) > self._output_limit_bytes:
+            raise UsageUnavailable("API-key model probe exceeded its output limit")
+        try:
+            payload = json.loads(raw)
+            models = payload["data"]
+            if not isinstance(models, list):
+                raise TypeError
+            model_ids = {item["id"] for item in models if isinstance(item, dict) and isinstance(item.get("id"), str)}
+        except (json.JSONDecodeError, KeyError, TypeError, UnicodeDecodeError):
+            raise UsageProtocolError("API-key model response is invalid") from None
+        if self._model not in model_ids:
+            raise UsageUnavailable("Configured Codex model is unavailable through the API key")
+        return UsageSnapshot(
+            limit_id="codex",
+            used_percent=0,
+            remaining_percent=100,
+            window_duration_minutes=1,
+            resets_at=now + timedelta(minutes=1),
+            observed_at=now,
+            plan_type="api-key",
+        )
 
 
 def _response_ids(raw: bytearray) -> set[int]:

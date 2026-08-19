@@ -1,13 +1,14 @@
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Self, cast
 
 import pytest
 from pydantic import ValidationError
 
 from powercontext_eval.web.usage import (
     CLIENT_INFO,
+    ApiKeyUsageProbe,
     CodexUsageProbe,
     UsageProtocolError,
     UsageSnapshot,
@@ -33,10 +34,13 @@ import time
 
 home = Path(os.environ["CODEX_HOME"])
 auth_path = home / "auth.json"
-config_path = home / "config.toml"
 auth = json.loads(auth_path.read_text())
 requests = []
-for _request in range(4):
+line = sys.stdin.readline()
+if line.strip():
+    requests.append(json.loads(line))
+print(json.dumps({"id": 0, "result": {"userAgent": "fake", "codexHome": str(home)}}), flush=True)
+for _request in range(3):
     line = sys.stdin.readline()
     if not line:
         break
@@ -49,8 +53,6 @@ if record_path:
         "codex_home": str(home),
         "home_files": sorted(path.name for path in home.iterdir()),
         "auth_mode": oct(auth_path.stat().st_mode & 0o777),
-        "config_mode": oct(config_path.stat().st_mode & 0o777) if config_path.exists() else None,
-        "config_text": config_path.read_text() if config_path.exists() else None,
         "proxy": os.environ.get("HTTPS_PROXY"),
     }))
 
@@ -118,7 +120,6 @@ else:
     }
 
 responses = [
-    {"id": 0, "result": {"userAgent": "fake", "codexHome": str(home)}},
     {"id": 1, "result": rate_result},
     {
         "id": 2,
@@ -148,15 +149,13 @@ def probe(
     fake_codex: Path,
     auth_json: Path,
     *,
-    codex_config: Path | None = None,
     timeout_seconds: float = 5,
     output_limit_bytes: int = 1_048_576,
 ) -> CodexUsageProbe:
     return CodexUsageProbe(
         codex_binary=fake_codex,
         auth_json=auth_json,
-        proxy_url="http://127.0.0.1:18080",
-        codex_config=codex_config,
+        proxy_url="http://127.0.0.1:7890",
         timeout_seconds=timeout_seconds,
         output_limit_bytes=output_limit_bytes,
     )
@@ -191,23 +190,7 @@ def test_probe_reads_normalized_subscription_usage_and_sends_exact_protocol(
     ]
     assert record["home_files"] == ["auth.json"]
     assert record["auth_mode"] == "0o600"
-    assert record["proxy"] == "http://127.0.0.1:18080"
-    assert not Path(record["codex_home"]).exists()
-
-
-def test_probe_copies_optional_codex_config_into_ephemeral_home(tmp_path: Path, fake_codex: Path) -> None:
-    record_path = tmp_path / "record.json"
-    auth_json = write_auth(tmp_path, record_path=str(record_path))
-    codex_config = tmp_path / "provider.toml"
-    codex_config.write_text('model_provider = "relay"\n', encoding="utf-8")
-    codex_config.chmod(0o600)
-
-    probe(fake_codex, auth_json, codex_config=codex_config).read(now=NOW)
-
-    record = json.loads(record_path.read_text(encoding="utf-8"))
-    assert record["home_files"] == ["auth.json", "config.toml"]
-    assert record["config_mode"] == "0o600"
-    assert record["config_text"] == 'model_provider = "relay"\n'
+    assert record["proxy"] == "http://127.0.0.1:7890"
     assert not Path(record["codex_home"]).exists()
 
 
@@ -273,6 +256,77 @@ def test_probe_requires_an_authorized_auth_file(tmp_path: Path, fake_codex: Path
         probe(fake_codex, tmp_path / "missing-auth.json").read(now=NOW)
 
 
+class _ModelsResponse:
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def read(self, limit: int) -> bytes:
+        return self._payload[:limit]
+
+
+def test_api_key_probe_checks_models_without_running_inference(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def open_request(request: object, *, timeout: float) -> _ModelsResponse:
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return _ModelsResponse(b'{"data":[{"id":"gpt-5.6-sol"},{"id":"other"}]}')
+
+    monkeypatch.setattr("powercontext_eval.web.usage.urlopen", open_request)
+    snapshot = ApiKeyUsageProbe(
+        api_key="private-api-key",
+        base_url="http://100.88.99.11/v1",
+        model="gpt-5.6-sol",
+        timeout_seconds=3,
+    ).read(now=NOW)
+
+    request = cast(Any, captured["request"])
+    assert request.full_url == "http://100.88.99.11/v1/models"
+    assert request.get_header("Authorization") == "Bearer private-api-key"
+    assert captured["timeout"] == 3
+    assert snapshot.used_percent == 0
+    assert snapshot.remaining_percent == 100
+    assert snapshot.plan_type == "api-key"
+
+
+def test_api_key_probe_fails_closed_when_model_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "powercontext_eval.web.usage.urlopen",
+        lambda _request, *, timeout: _ModelsResponse(b'{"data":[{"id":"other"}]}'),
+    )
+
+    with pytest.raises(UsageUnavailable, match="model is unavailable"):
+        ApiKeyUsageProbe(
+            api_key="private-api-key",
+            base_url="https://models.invalid/v1",
+            model="gpt-5.6-sol",
+        ).read(now=NOW)
+
+
+@pytest.mark.parametrize("payload", [b"not-json", b"{}", b'{"data":{}}'])
+def test_api_key_probe_rejects_invalid_models_responses(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: bytes,
+) -> None:
+    monkeypatch.setattr(
+        "powercontext_eval.web.usage.urlopen",
+        lambda _request, *, timeout: _ModelsResponse(payload),
+    )
+
+    with pytest.raises(UsageProtocolError, match="model response is invalid"):
+        ApiKeyUsageProbe(
+            api_key="private-api-key",
+            base_url="https://models.invalid/v1",
+            model="gpt-5.6-sol",
+        ).read(now=NOW)
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -290,7 +344,7 @@ def test_probe_rejects_unsafe_resource_bounds(tmp_path: Path, fake_codex: Path, 
         CodexUsageProbe(
             codex_binary=fake_codex,
             auth_json=auth_json,
-            proxy_url="http://127.0.0.1:18080",
+            proxy_url="http://127.0.0.1:7890",
             **unsafe_overrides,
         )
 

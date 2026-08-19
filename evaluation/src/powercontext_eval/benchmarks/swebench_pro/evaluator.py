@@ -18,7 +18,6 @@ from powercontext_eval.powercontext_sut import (
     ProxyRelayConfig,
     SocatProxyRelay,
     default_docker_bridge_gateway,
-    direct_egress_environment,
 )
 from powercontext_eval.process import CommandResult, ProcessRunner
 
@@ -71,14 +70,12 @@ class OfficialEvaluator:
         *,
         python_executable: str,
         proxy: ProxyRelayConfig | None = None,
-        extra_no_proxy_hosts: tuple[str, ...] = (),
         relay_factory: Callable[[], ProxyRelay] = SocatProxyRelay,
         gateway_resolver: Callable[[ProcessRunner, Path], str] = default_docker_bridge_gateway,
     ) -> None:
         self._runner = runner
         self._python = python_executable
         self._proxy = proxy
-        self._extra_no_proxy_hosts = extra_no_proxy_hosts
         self._relay_factory = relay_factory
         self._gateway_resolver = gateway_resolver
 
@@ -125,7 +122,6 @@ class OfficialEvaluator:
             )
             if key in os.environ
         }
-        environment.update(direct_egress_environment())
         if self._proxy is None:
             result = self._run_harness(argv, harness_root, environment)
         else:
@@ -136,7 +132,7 @@ class OfficialEvaluator:
                 with tempfile.TemporaryDirectory(prefix=".official-docker-", dir=output_dir.parent) as temporary:
                     docker_config = Path(temporary)
                     os.chmod(docker_config, 0o700)
-                    _write_docker_proxy_config(docker_config / "config.json", relay_url, self._extra_no_proxy_hosts)
+                    _write_docker_proxy_config(docker_config / "config.json", relay_url)
                     environment["DOCKER_CONFIG"] = temporary
                     result = self._run_harness(argv, harness_root, environment)
             finally:
@@ -200,14 +196,13 @@ class OfficialEvaluator:
             )
 
 
-def _write_docker_proxy_config(path: Path, relay_url: str, extra_no_proxy_hosts: tuple[str, ...] = ()) -> None:
-    no_proxy = ",".join((LOOPBACK_NO_PROXY, *extra_no_proxy_hosts))
+def _write_docker_proxy_config(path: Path, relay_url: str) -> None:
     payload = {
         "proxies": {
             "default": {
                 "httpProxy": relay_url,
                 "httpsProxy": relay_url,
-                "noProxy": no_proxy,
+                "noProxy": LOOPBACK_NO_PROXY,
             }
         }
     }

@@ -12,12 +12,8 @@ from powercontext_eval.benchmarks.swebench_pro.catalog import (
     PUBLIC_V2_COUNT,
     PUBLIC_V2_SHA256,
     PUBLIC_V2_TASK_SET,
-    STABILITY_V1_CASES,
-    STABILITY_V1_COUNT,
-    STABILITY_V1_TASK_SET,
     CatalogError,
     SweBenchProCatalog,
-    instance_ids_for_task_set,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "swebench_pro_public_v2.jsonl"
@@ -41,29 +37,6 @@ def test_public_task_set_contract_is_pinned() -> None:
     assert PUBLIC_V2_TASK_SET == "swebench-pro-public-v2"
     assert PUBLIC_V2_COUNT == 731
     assert PUBLIC_V2_SHA256 == "b5b2462bfbf5aeb2cb7ba7d215778a1768b85f9d7ad7f748546c7f80a0ad1510"
-
-
-def test_stability_task_set_pins_one_full_wave_and_four_replacements() -> None:
-    public_ids = [f"unselected-{index}" for index in range(PUBLIC_V2_COUNT)]
-    for source_index, instance_id in STABILITY_V1_CASES:
-        public_ids[source_index] = instance_id
-
-    selected = instance_ids_for_task_set(tuple(public_ids), STABILITY_V1_TASK_SET)
-
-    assert STABILITY_V1_COUNT == 24
-    assert selected == tuple(instance_id for _, instance_id in STABILITY_V1_CASES)
-    assert len(set(selected)) == STABILITY_V1_COUNT
-    assert instance_ids_for_task_set(tuple(public_ids), PUBLIC_V2_TASK_SET) == tuple(public_ids)
-
-
-def test_stability_task_set_fails_closed_when_a_pinned_source_row_drifts() -> None:
-    public_ids = [f"unselected-{index}" for index in range(PUBLIC_V2_COUNT)]
-    for source_index, instance_id in STABILITY_V1_CASES:
-        public_ids[source_index] = instance_id
-    public_ids[STABILITY_V1_CASES[0][0]] = "replacement"
-
-    with pytest.raises(CatalogError, match="source index 101"):
-        instance_ids_for_task_set(tuple(public_ids), STABILITY_V1_TASK_SET)
 
 
 def test_catalog_loads_pinned_rows_in_source_order_and_normalizes_lists(tmp_path: Path) -> None:

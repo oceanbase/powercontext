@@ -11,12 +11,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
-from time import monotonic
+from time import monotonic, sleep
 from types import SimpleNamespace
 from typing import Protocol, cast
 from uuid import uuid4
 
-from powercontext_eval.errors import CommandError
+from powercontext_eval.errors import CommandError, CommandTimedOut
 from powercontext_eval.powercontext_sut import ArmPaths, DockerSut, UnsafeSutConfiguration
 from powercontext_eval.process import CommandResult, ProcessRunner
 from powercontext_eval.tokensflow import tokensflow_queue_caught_up
@@ -34,6 +34,8 @@ _UPLOAD_TIMEOUT_SECONDS = 60.0
 _DOCTOR_TIMEOUT_SECONDS = 60.0
 _CONTAINER_CLEANUP_TIMEOUT_SECONDS = 30.0
 _CONTAINER_CLEANUP_RESERVE_SECONDS = _CONTAINER_CLEANUP_TIMEOUT_SECONDS * 2
+_TIMED_OUT_CONTAINER_REMOVAL_SETTLE_SECONDS = 90.0
+_TIMED_OUT_CONTAINER_REMOVAL_POLL_SECONDS = 0.25
 
 
 class FinalizationRuntime(Protocol):
@@ -69,11 +71,13 @@ class DockerFinalizationRuntime:
         *,
         runner: Process | None = None,
         monotonic: Callable[[], float] = monotonic,
+        sleeper: Callable[[float], None] = sleep,
         cancel_event: threading.Event | None = None,
     ) -> None:
         self._run_root = run_root
         self._runner = runner or ProcessRunner()
         self._monotonic = monotonic
+        self._sleeper = sleeper
         self._cancel_event = cancel_event
 
     def quiesce(self, job: TokensFlowFinalizationRecord, *, timeout_seconds: float) -> bool:
@@ -101,7 +105,7 @@ class DockerFinalizationRuntime:
         # Docker exec inherits the exact environment and PATH captured by this arm.
         upload = self._runner.run(
             ("docker", "exec", job.container_name, "tokensflow", "upload", "--all"),
-            cwd=runtime,
+            cwd=self._command_cwd(runtime),
             timeout=timeout_seconds,
             cancel_event=self._cancel_event,
             check=False,
@@ -112,7 +116,7 @@ class DockerFinalizationRuntime:
         runtime = self._safe_runtime(job)
         doctor = self._runner.run(
             ("docker", "exec", job.container_name, "tokensflow", "doctor"),
-            cwd=runtime,
+            cwd=self._command_cwd(runtime),
             timeout=timeout_seconds,
             cancel_event=self._cancel_event,
             check=False,
@@ -121,6 +125,7 @@ class DockerFinalizationRuntime:
 
     def cleanup(self, job: TokensFlowFinalizationRecord, *, graceful: bool) -> bool:
         runtime = self._safe_runtime(job)
+        runtime_exists = self._runtime_exists(runtime)
         deadline = self._monotonic() + _CONTAINER_CLEANUP_TIMEOUT_SECONDS
         try:
             container_absent = False
@@ -137,19 +142,61 @@ class DockerFinalizationRuntime:
                 )
                 if not container_absent:
                     return False
+            if not self._make_bind_mounts_removable(
+                job,
+                runtime,
+                timeout_seconds=self._remaining_timeout(deadline),
+            ):
+                return False
             if not container_absent and not self._remove_container(
                 job,
                 runtime,
                 deadline=deadline,
             ):
                 return False
-            paths = cast(ArmPaths, SimpleNamespace(runtime=runtime))
-            DockerSut._cleanup_tokensflow_binary(paths)
-            DockerSut._cleanup_tokensflow_wrapper(paths)
-            self._remove_private_home(runtime / "root-home")
+            if runtime_exists:
+                paths = cast(ArmPaths, SimpleNamespace(runtime=runtime))
+                DockerSut._cleanup_tokensflow_binary(paths)
+                DockerSut._cleanup_tokensflow_wrapper(paths)
+                self._remove_private_home(runtime / "root-home")
         except (CommandError, OSError, UnsafeSutConfiguration):
             return False
         return True
+
+    def _make_bind_mounts_removable(
+        self,
+        job: TokensFlowFinalizationRecord,
+        runtime: Path,
+        *,
+        timeout_seconds: float,
+    ) -> bool:
+        """Make root-created files in both ephemeral bind mounts host-removable."""
+
+        if timeout_seconds <= 0:
+            return False
+        script = 'find /root /workspace /runtime -xdev \\( -type d -o -type f \\) -exec chmod a+rwX -- "{}" +'
+        try:
+            prepared = self._runner.run(
+                (
+                    "docker",
+                    "exec",
+                    job.container_name,
+                    "/bin/sh",
+                    "-c",
+                    script,
+                    "tokensflow-finalizer-private-home",
+                ),
+                cwd=self._command_cwd(runtime),
+                timeout=timeout_seconds,
+                cancel_event=self._cancel_event,
+                check=False,
+            )
+        except (CommandError, OSError):
+            prepared = None
+        if prepared is not None and prepared.returncode == 0:
+            return True
+        remaining = min(timeout_seconds, _CONTAINER_CLEANUP_TIMEOUT_SECONDS)
+        return remaining > 0 and self._container_absent(job, runtime, timeout_seconds=remaining)
 
     def _safe_runtime(self, job: TokensFlowFinalizationRecord) -> Path:
         runtime = self._run_root / job.runtime_path
@@ -158,6 +205,19 @@ class DockerFinalizationRuntime:
         except ValueError:
             raise ValueError("TokensFlow finalization runtime escaped its run root") from None
         return runtime
+
+    @staticmethod
+    def _runtime_exists(runtime: Path) -> bool:
+        try:
+            metadata = runtime.lstat()
+        except FileNotFoundError:
+            return False
+        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            raise OSError("TokensFlow finalization runtime is unsafe")
+        return True
+
+    def _command_cwd(self, runtime: Path) -> Path:
+        return runtime if self._runtime_exists(runtime) else self._run_root
 
     def _stop_daemon(
         self,
@@ -197,7 +257,7 @@ class DockerFinalizationRuntime:
                 "tokensflow-finalizer-stop",
                 job.daemon_pid_file,
             ),
-            cwd=runtime,
+            cwd=self._command_cwd(runtime),
             timeout=timeout_seconds,
             cancel_event=self._cancel_event,
             check=False,
@@ -214,13 +274,16 @@ class DockerFinalizationRuntime:
         remaining = self._remaining_timeout(deadline)
         if remaining <= 0:
             return False
-        removal = self._runner.run(
-            ("docker", "rm", "-f", job.container_name),
-            cwd=runtime,
-            timeout=remaining,
-            cancel_event=self._cancel_event,
-            check=False,
-        )
+        try:
+            removal = self._runner.run(
+                ("docker", "rm", "-f", job.container_name),
+                cwd=self._command_cwd(runtime),
+                timeout=remaining,
+                cancel_event=self._cancel_event,
+                check=False,
+            )
+        except CommandTimedOut:
+            return self._await_timed_out_container_removal(job, runtime)
         if removal.returncode == 0:
             return True
         remaining = self._remaining_timeout(deadline)
@@ -229,6 +292,58 @@ class DockerFinalizationRuntime:
             runtime,
             timeout_seconds=remaining,
         )
+
+    def _await_timed_out_container_removal(
+        self,
+        job: TokensFlowFinalizationRecord,
+        runtime: Path,
+    ) -> bool:
+        """Allow Docker's asynchronous forced stop to settle after its client times out."""
+
+        deadline = self._monotonic() + _TIMED_OUT_CONTAINER_REMOVAL_SETTLE_SECONDS
+        while self._monotonic() < deadline:
+            remaining = deadline - self._monotonic()
+            try:
+                inspection = self._runner.run(
+                    (
+                        "docker",
+                        "container",
+                        "inspect",
+                        "--format={{.State.Status}}",
+                        job.container_name,
+                    ),
+                    cwd=self._command_cwd(runtime),
+                    timeout=min(5.0, max(0.1, remaining)),
+                    cancel_event=self._cancel_event,
+                    check=False,
+                )
+            except (CommandError, OSError):
+                return False
+            if inspection.returncode != 0:
+                return self._container_inspection_proves_absence(job, inspection)
+            state = inspection.stdout.strip()
+            if state in {"created", "dead", "exited"}:
+                remaining = deadline - self._monotonic()
+                if remaining <= 0:
+                    return False
+                try:
+                    removal = self._runner.run(
+                        ("docker", "rm", "-f", job.container_name),
+                        cwd=self._command_cwd(runtime),
+                        timeout=min(_CONTAINER_CLEANUP_TIMEOUT_SECONDS, max(0.1, remaining)),
+                        cancel_event=self._cancel_event,
+                        check=False,
+                    )
+                except (CommandError, OSError):
+                    return False
+                return removal.returncode == 0
+            if state not in {"paused", "restarting", "running"}:
+                return False
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                break
+            self._sleeper(min(_TIMED_OUT_CONTAINER_REMOVAL_POLL_SECONDS, remaining))
+        return False
 
     def _container_absent(
         self,
@@ -239,12 +354,19 @@ class DockerFinalizationRuntime:
     ) -> bool:
         inspection = self._runner.run(
             ("docker", "container", "inspect", job.container_name),
-            cwd=runtime,
+            cwd=self._command_cwd(runtime),
             timeout=timeout_seconds,
             cancel_event=self._cancel_event,
             check=False,
         )
-        return inspection.returncode != 0 and inspection.stderr.strip() in {
+        return inspection.returncode != 0 and self._container_inspection_proves_absence(job, inspection)
+
+    @staticmethod
+    def _container_inspection_proves_absence(
+        job: TokensFlowFinalizationRecord,
+        inspection: CommandResult,
+    ) -> bool:
+        return inspection.stderr.strip() in {
             f"Error: No such container: {job.container_name}",
             f"Error: No such object: {job.container_name}",
             f"Error response from daemon: No such container: {job.container_name}",

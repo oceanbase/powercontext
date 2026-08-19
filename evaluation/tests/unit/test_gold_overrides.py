@@ -159,18 +159,6 @@ def test_legacy_ordinary_audit_defaults_to_docker_proxy() -> None:
     assert audit.official_evaluation_transport == "docker_proxy"
 
 
-def test_gold_audits_record_direct_transport_when_proxy_is_disabled() -> None:
-    ordinary = _dataset_audit().model_copy(update={"official_evaluation_transport": "direct"})
-    source559 = _source559_audit(official_evaluation_transport="direct")
-
-    assert GoldValidationAudit.model_validate(ordinary.model_dump(), strict=True).official_evaluation_transport == (
-        "direct"
-    )
-    assert GoldValidationAudit.model_validate(source559.model_dump(), strict=True).official_evaluation_transport == (
-        "direct"
-    )
-
-
 @pytest.mark.parametrize("status", ["pending", "failed"])
 def test_source559_report_requires_successful_verified_audit(status: str) -> None:
     base = {

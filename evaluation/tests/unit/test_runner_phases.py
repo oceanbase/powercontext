@@ -11,6 +11,7 @@ from typing import cast
 
 import pytest
 
+from powercontext_eval import runner as runner_module
 from powercontext_eval.artifacts import ArtifactStore, SecretDetected
 from powercontext_eval.benchmarks.swebench_pro.adapter import SweBenchProInstance
 from powercontext_eval.benchmarks.swebench_pro.evaluator import OfficialEvaluation
@@ -25,10 +26,9 @@ from powercontext_eval.benchmarks.swebench_pro.gold_overrides import (
     GoldValidationSelection,
 )
 from powercontext_eval.codex import CodexOutcome
-from powercontext_eval.errors import CommandFailed
 from powercontext_eval.models import Arm
 from powercontext_eval.powercontext_sut import ProxyRelayConfig, SutConfig
-from powercontext_eval.process import CommandResult, ProcessRunner
+from powercontext_eval.process import ProcessRunner
 from powercontext_eval.report import ReportBundle
 from powercontext_eval.runner import (
     MinimalRunResult,
@@ -162,7 +162,7 @@ def test_task_image_uses_an_existing_local_image_without_registry_access(tmp_pat
         "owner/image:tag",
         cwd=tmp_path,
         registry_binary=tmp_path / "regctl",
-        proxy_url="http://127.0.0.1:18080",
+        proxy_url="http://127.0.0.1:7890",
     )
 
     assert image_id == IMAGE_ID
@@ -180,11 +180,16 @@ def test_missing_task_image_is_exported_through_proxy_loaded_and_verified(tmp_pa
             calls.append((argv, kwargs))
             if argv[:3] == ("docker", "image", "inspect"):
                 inspect_count += 1
-                if inspect_count == 1:
+                if inspect_count <= 3:
                     return SimpleNamespace(returncode=1, stdout="")
                 return SimpleNamespace(returncode=0, stdout=IMAGE_ID + "\n")
             if argv[:3] == (str(tmp_path / "regctl"), "image", "export"):
                 Path(argv[-1]).write_bytes(b"docker archive")
+            if argv[:2] == ("docker", "load"):
+                acquired = runner_module._TASK_IMAGE_LOAD_LOCK.acquire(blocking=False)
+                if acquired:
+                    runner_module._TASK_IMAGE_LOAD_LOCK.release()
+                assert not acquired
             return SimpleNamespace(returncode=0, stdout="")
 
     image_id = _resolve_task_image(
@@ -192,13 +197,15 @@ def test_missing_task_image_is_exported_through_proxy_loaded_and_verified(tmp_pa
         "owner/image:tag",
         cwd=tmp_path,
         registry_binary=tmp_path / "regctl",
-        proxy_url="http://127.0.0.1:18080",
+        proxy_url="http://127.0.0.1:7890",
     )
 
     assert image_id == IMAGE_ID
     commands = [call[0] for call in calls]
     assert commands[0] == ("docker", "image", "inspect", "--format={{.Id}}", "owner/image:tag")
-    assert commands[1][:7] == (
+    assert commands[1] == commands[0]
+    assert commands[2] == commands[0]
+    assert commands[3][:7] == (
         str(tmp_path / "regctl"),
         "image",
         "export",
@@ -207,17 +214,45 @@ def test_missing_task_image_is_exported_through_proxy_loaded_and_verified(tmp_pa
         "--name",
         "owner/image:tag",
     )
-    assert commands[2][0:3] == ("docker", "load", "-i")
-    assert commands[3] == ("docker", "image", "inspect", "--format={{.Id}}", "owner/image:tag")
-    assert calls[1][1]["env"] == {
-        "HTTPS_PROXY": "http://127.0.0.1:18080",
-        "HTTP_PROXY": "http://127.0.0.1:18080",
-        "https_proxy": "http://127.0.0.1:18080",
-        "http_proxy": "http://127.0.0.1:18080",
-        "NO_PROXY": "127.0.0.1,localhost,::1",
-        "no_proxy": "127.0.0.1,localhost,::1",
+    assert commands[4][0:3] == ("docker", "load", "-i")
+    assert commands[5] == ("docker", "image", "inspect", "--format={{.Id}}", "owner/image:tag")
+    assert calls[3][1]["timeout"] == 14_400
+    assert calls[4][1]["timeout"] == 14_400
+    assert calls[3][1]["env"] == {
+        "HTTPS_PROXY": "http://127.0.0.1:7890",
+        "HTTP_PROXY": "http://127.0.0.1:7890",
+        "https_proxy": "http://127.0.0.1:7890",
+        "http_proxy": "http://127.0.0.1:7890",
+        "NO_PROXY": "127.0.0.1,localhost,::1,work.oceanbase-dev.com",
+        "no_proxy": "127.0.0.1,localhost,::1,work.oceanbase-dev.com",
     }
     assert not list(tmp_path.glob(".task-image-*.tar"))
+
+
+def test_transient_task_image_inspect_failure_is_retried_without_registry_access(tmp_path: Path) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    class Process:
+        def run(self, argv: tuple[str, ...], **kwargs: object) -> SimpleNamespace:
+            del kwargs
+            calls.append(argv)
+            if len(calls) == 1:
+                return SimpleNamespace(returncode=1, stdout="")
+            return SimpleNamespace(returncode=0, stdout=IMAGE_ID + "\n")
+
+    image_id = _resolve_task_image(
+        cast(ProcessRunner, Process()),
+        "owner/image:tag",
+        cwd=tmp_path,
+        registry_binary=tmp_path / "regctl",
+        proxy_url="http://127.0.0.1:7890",
+    )
+
+    assert image_id == IMAGE_ID
+    assert calls == [
+        ("docker", "image", "inspect", "--format={{.Id}}", "owner/image:tag"),
+        ("docker", "image", "inspect", "--format={{.Id}}", "owner/image:tag"),
+    ]
 
 
 def test_failed_task_image_export_removes_the_partial_archive(tmp_path: Path) -> None:
@@ -234,7 +269,7 @@ def test_failed_task_image_export_removes_the_partial_archive(tmp_path: Path) ->
             "owner/image:tag",
             cwd=tmp_path,
             registry_binary=tmp_path / "regctl",
-            proxy_url="http://127.0.0.1:18080",
+            proxy_url="http://127.0.0.1:7890",
         )
 
     assert not list(tmp_path.glob(".task-image-*.tar"))
@@ -253,14 +288,13 @@ def _config(tmp_path: Path) -> RunConfig:
         harness_root=tmp_path / "harness",
         harness_python=tmp_path / "python",
         codex_binary=tmp_path / "codex",
-        tokensflow_enabled=True,
         tokensflow_binary=tmp_path / "tokensflow",
         tokensflow_user_home=tmp_path / "tokensflow-profile",
         tokensflow_egress_network="bridge",
         uv_binary=tmp_path / "uv",
         registry_binary=tmp_path / "regctl",
         auth_json=auth_json,
-        proxy_url="http://127.0.0.1:18080",
+        proxy_url="http://127.0.0.1:7890",
         run_id="run-test",
     )
 
@@ -273,22 +307,17 @@ def _run_with_fakes(
     *,
     image_present: bool = True,
     evaluator_failure: Exception | None = None,
-    image_cleanup_conflicts: int = 0,
-    image_cleanup_failure: Exception | None = None,
     observed: dict[str, object] | None = None,
     instance: SweBenchProInstance | None = None,
     config_mutator: Callable[[RunConfig], None] | None = None,
     model: str | None = None,
-    docker_network_pool: str | None = None,
-    extra_no_proxy_hosts: tuple[str, ...] | None = None,
+    codex_timeout_seconds: int | None = None,
 ) -> tuple[RunConfig, MinimalRunResult, dict[str, object]]:
     config = _config(tmp_path)
     if model is not None:
         config = replace(config, model=model)
-    if docker_network_pool is not None:
-        config = replace(config, docker_network_pool=docker_network_pool)
-    if extra_no_proxy_hosts is not None:
-        config = replace(config, extra_no_proxy_hosts=extra_no_proxy_hosts)
+    if codex_timeout_seconds is not None:
+        config = replace(config, codex_timeout_seconds=codex_timeout_seconds)
     if config_mutator is not None:
         config_mutator(config)
     instance = _instance() if instance is None else instance
@@ -307,14 +336,10 @@ def _run_with_fakes(
         }
     )
     image_loaded = image_present
-    image_cleanup_attempts = 0
 
     class FakeProcess:
-        def __init__(self, *, default_cancel_event: object = None) -> None:
-            observed["default_cancel_event"] = default_cancel_event
-
         def run(self, argv: tuple[str, ...], **kwargs: object) -> SimpleNamespace:
-            nonlocal image_cleanup_attempts, image_loaded
+            nonlocal image_loaded
             process_calls.append((argv, kwargs))
             if argv[:3] == ("docker", "image", "inspect"):
                 return (
@@ -328,27 +353,9 @@ def _run_with_fakes(
             if argv[:2] == ("docker", "load"):
                 image_loaded = True
                 return SimpleNamespace(returncode=0, stdout="")
-            if argv[:3] == ("docker", "image", "rm"):
-                image_cleanup_attempts += 1
-                if image_cleanup_attempts <= image_cleanup_conflicts:
-                    raise CommandFailed(
-                        "image cleanup conflict",
-                        CommandResult(
-                            argv=argv,
-                            cwd=str(kwargs["cwd"]),
-                            returncode=1,
-                            stdout="",
-                            stderr=(
-                                "conflict: unable to remove repository reference - "
-                                "container abc123 is using its referenced image"
-                            ),
-                        ),
-                    )
-                if image_cleanup_failure is not None:
-                    raise image_cleanup_failure
-                image_loaded = False
-                return SimpleNamespace(returncode=0, stdout="")
             if argv[:2] == ("docker", "run"):
+                return SimpleNamespace(stdout="", returncode=0)
+            if argv == ("git", "add", "--intent-to-add", "--all", "--"):
                 return SimpleNamespace(stdout="", returncode=0)
             assert argv == ("git", "diff", "--binary", "--full-index", instance.base_commit, "--")
             return SimpleNamespace(stdout="candidate patch")
@@ -404,6 +411,7 @@ def _run_with_fakes(
                     f'{{"sequence":1,"observed_at":"{observed_at}",'
                     '"event":{"type":"agent_message","message":"done"}}\n',
                 )
+                stores[arm].write_text("workspace.patch", "candidate patch")
             outcome = SimpleNamespace(codex=CodexOutcome("", None))
             return {Arm.OFF: outcome, Arm.ON: outcome}
 
@@ -424,6 +432,7 @@ def test_runner_propagates_batch_model_to_codex_pair_and_report(
         monkeypatch,
         [],
         model="gpt-5.6-luna",
+        codex_timeout_seconds=5400,
     )
 
     sut_config = cast(SutConfig, observed["sut_config"])
@@ -432,32 +441,18 @@ def test_runner_propagates_batch_model_to_codex_pair_and_report(
         strict=True,
     )
     assert (sut_config.model, sut_config.reasoning_effort) == ("gpt-5.6-luna", "medium")
+    assert sut_config.codex_timeout == 5400
+    assert sut_config.experience_memory is not None
+    assert "immutable compatibility evidence" in sut_config.experience_memory
+    assert "stable test identities" in sut_config.experience_memory
+    assert "blanket ban on fixture/input/reference data" in sut_config.experience_memory
+    assert "updated reference outputs" in sut_config.experience_memory
+    assert "go.work.sum" in sut_config.experience_memory
+    assert "async serialization" in sut_config.experience_memory
+    assert "Do not infer pagination, retry loops, duplicate calls" in sut_config.experience_memory
     assert report.configuration["model"] == "gpt-5.6-luna"
     assert report.configuration["reasoning_effort"] == "medium"
-
-
-def test_runner_propagates_portable_network_configuration_to_sut_evaluator_and_report(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    config, result, observed = _run_with_fakes(
-        tmp_path,
-        monkeypatch,
-        [],
-        docker_network_pool="10.72.0.0/20",
-        extra_no_proxy_hosts=("mirror.example.test",),
-    )
-
-    sut_config = cast(SutConfig, observed["sut_config"])
-    report = ReportBundle.model_validate_json(
-        (config.root / "runs" / result.run_id / "report.json").read_text(), strict=True
-    )
-    initializations = cast(list[dict[str, object]], observed["evaluator_initializations"])
-    evaluator_kwargs = cast(dict[str, object], initializations[0]["kwargs"])
-    assert sut_config.docker_network_pool == "10.72.0.0/20"
-    assert sut_config.extra_no_proxy_hosts == ("mirror.example.test",)
-    assert evaluator_kwargs["extra_no_proxy_hosts"] == ("mirror.example.test",)
-    assert report.configuration["docker_network_pool"] == "10.72.0.0/20"
-    assert report.configuration["extra_no_proxy_hosts"] == "mirror.example.test"
+    assert report.configuration["codex_timeout_seconds"] == "5400"
 
 
 def test_runner_snapshots_tokensflow_per_arm_and_blocks_both_credential_sets(
@@ -515,7 +510,6 @@ def test_runner_reuses_one_proxy_configured_official_evaluator_for_gold_off_and_
     assert initializations[0]["kwargs"] == {
         "python_executable": str(config.harness_python),
         "proxy": ProxyRelayConfig(config.proxy_url),
-        "extra_no_proxy_hosts": (),
     }
     assert len(calls) == 3
 
@@ -552,12 +546,11 @@ def test_runner_uses_arbitrary_instance_prompt_image_and_base_commit(
     assert [call["patch_applied"] for call in evaluator_calls] == [True, True, True]
     assert {call["required_fail_to_pass"] for call in evaluator_calls} == {instance.fail_to_pass}
     assert {call["required_pass_to_pass"] for call in evaluator_calls} == {instance.pass_to_pass}
-    assert [call[0] for call in calls].count(
-        ("git", "diff", "--binary", "--full-index", instance.base_commit, "--")
-    ) == 2
     assert len(evaluator_calls) == 3
     assert {call["instance_id"] for call in evaluator_calls} == {instance.instance_id}
     for arm in (Arm.OFF, Arm.ON):
+        workspace_patch = config.root / "runs" / result.run_id / "arms" / arm.value / "workspace.patch"
+        assert workspace_patch.read_text() == "candidate patch"
         timeline = config.root / "runs" / result.run_id / "arms" / arm.value / "context" / "timeline.jsonl"
         assert [json.loads(line)["actor"] for line in timeline.read_text().splitlines()] == [
             "benchmark",
@@ -789,7 +782,7 @@ def test_source621_reconciles_only_the_exact_legacy_go_subtest_names() -> None:
     assert other_fail_to_pass == tuple(raw["FAIL_TO_PASS"])
 
 
-def test_runner_removes_a_task_image_imported_for_a_completed_run(
+def test_runner_retains_a_task_image_imported_for_a_completed_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _config, _result, observed = _run_with_fakes(
@@ -800,46 +793,11 @@ def test_runner_removes_a_task_image_imported_for_a_completed_run(
     )
 
     calls = cast(list[tuple[tuple[str, ...], dict[str, object]]], observed["process_calls"])
-    assert calls[-1][0] == ("docker", "image", "rm", _instance().task_image)
+    assert any(call[0][:2] == ("docker", "load") for call in calls)
+    assert not any(call[0][:3] == ("docker", "image", "rm") for call in calls)
 
 
-def test_runner_retries_a_transient_container_destroy_race_when_removing_an_imported_image(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _config, _result, observed = _run_with_fakes(
-        tmp_path,
-        monkeypatch,
-        [],
-        image_present=False,
-        image_cleanup_conflicts=1,
-    )
-
-    calls = cast(list[tuple[tuple[str, ...], dict[str, object]]], observed["process_calls"])
-    cleanup_calls = [call for call in calls if call[0][:3] == ("docker", "image", "rm")]
-    assert len(cleanup_calls) == 2
-
-
-def test_runner_surfaces_a_persistent_container_reference_after_five_cleanup_attempts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    observed: dict[str, object] = {}
-
-    with pytest.raises(CommandFailed, match="image cleanup conflict"):
-        _run_with_fakes(
-            tmp_path,
-            monkeypatch,
-            [],
-            image_present=False,
-            image_cleanup_conflicts=5,
-            observed=observed,
-        )
-
-    calls = cast(list[tuple[tuple[str, ...], dict[str, object]]], observed["process_calls"])
-    cleanup_calls = [call for call in calls if call[0][:3] == ("docker", "image", "rm")]
-    assert len(cleanup_calls) == 5
-
-
-def test_runner_removes_an_imported_task_image_when_evaluation_fails(
+def test_runner_retains_an_imported_task_image_when_evaluation_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     observed: dict[str, object] = {}
@@ -855,33 +813,8 @@ def test_runner_removes_an_imported_task_image_when_evaluation_fails(
         )
 
     calls = cast(list[tuple[tuple[str, ...], dict[str, object]]], observed["process_calls"])
-    assert calls[-1][0] == ("docker", "image", "rm", _instance().task_image)
-
-
-def test_runner_surfaces_imported_task_image_cleanup_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    with pytest.raises(RuntimeError, match="image cleanup failed"):
-        _run_with_fakes(
-            tmp_path,
-            monkeypatch,
-            [],
-            image_present=False,
-            image_cleanup_failure=RuntimeError("image cleanup failed"),
-        )
-
-
-def test_runner_cleanup_failure_does_not_mask_the_evaluation_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    with pytest.raises(RuntimeError, match="official evaluator failed"):
-        _run_with_fakes(
-            tmp_path,
-            monkeypatch,
-            [],
-            image_present=False,
-            evaluator_failure=RuntimeError("official evaluator failed"),
-            image_cleanup_failure=RuntimeError("image cleanup failed"),
-        )
+    assert any(call[0][:2] == ("docker", "load") for call in calls)
+    assert not any(call[0][:3] == ("docker", "image", "rm") for call in calls)
 
 
 def test_runner_emits_phases_immediately_before_named_work(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

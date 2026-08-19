@@ -63,7 +63,7 @@ def test_codex_contract_smoke_is_an_executable_injectable_cli(monkeypatch) -> No
             "--auth-json",
             "/auth.json",
             "--proxy-url",
-            "http://127.0.0.1:18080",
+            "http://127.0.0.1:7890",
         ],
     )
 
@@ -83,7 +83,7 @@ def test_codex_contract_smoke_is_an_executable_injectable_cli(monkeypatch) -> No
             "powercontext_source": "/source",
             "powercontext_sha": "a" * 40,
             "auth_json": "/auth.json",
-            "proxy_url": "http://127.0.0.1:18080",
+            "proxy_url": "http://127.0.0.1:7890",
             "prompt": "Reply with exactly OK.",
         }
     ]
@@ -100,13 +100,13 @@ def test_cli_module_is_directly_executable() -> None:
     assert "codex-contract-smoke" in result.stdout
 
 
-def test_swebench_pro_run_derives_portable_paths_from_explicit_root(monkeypatch) -> None:
+def test_swebench_pro_run_exposes_the_minimal_m0_command(monkeypatch) -> None:
     calls: list[tuple[object, object]] = []
     instance = object()
 
     def fake_run(config: object, *, instance: object) -> MinimalRunResult:
         calls.append((config, instance))
-        return MinimalRunResult("run-fixed", Path("/srv/evaluation/runs/run-fixed/report.md"), False, True)
+        return MinimalRunResult("run-fixed", Path("/data/powercontext-eval/runs/run-fixed/report.md"), False, True)
 
     class FakeCatalog:
         def require(self, instance_id: str) -> object:
@@ -125,15 +125,10 @@ def test_swebench_pro_run_derives_portable_paths_from_explicit_root(monkeypatch)
             "run",
             "--run-id",
             "run-fixed",
-            "--root",
-            "/srv/evaluation",
-            "--proxy-url",
-            "http://127.0.0.1:8081",
             "--instance-id",
             "instance_owner__repo-b",
             "--tokensflow-egress-network",
             "bridge",
-            "--tokensflow",
             "--model",
             "gpt-5.6-luna",
         ],
@@ -146,48 +141,11 @@ def test_swebench_pro_run_derives_portable_paths_from_explicit_root(monkeypatch)
     assert len(calls) == 1
     assert calls[0][1] is instance
     config = cast(RunConfig, calls[0][0])
-    assert config.tokensflow_enabled is True
-    assert config.tokensflow_binary == Path("/srv/evaluation/bin/tokensflow")
-    assert config.tokensflow_user_home == Path("/srv/evaluation/tokensflow-home")
+    assert config.tokensflow_binary == Path("/data/powercontext-eval/bin/tokensflow")
+    assert config.tokensflow_user_home == Path("/data/powercontext-eval/tokensflow-home")
     assert config.tokensflow_egress_network == "bridge"
     assert config.model == "gpt-5.6-luna"
     assert config.reasoning_effort == "medium"
-
-
-def test_swebench_pro_run_defaults_optional_integrations_off(monkeypatch) -> None:
-    captured: list[RunConfig] = []
-
-    class FakeCatalog:
-        def require(self, _instance_id: str) -> object:
-            return object()
-
-    def fake_run(config: RunConfig, *, instance: object) -> MinimalRunResult:
-        del instance
-        captured.append(config)
-        return MinimalRunResult("run-direct", Path("/tmp/report.md"), False, False)
-
-    monkeypatch.setattr("powercontext_eval.cli.SweBenchProCatalog.load", lambda _path: FakeCatalog())
-    monkeypatch.setattr("powercontext_eval.cli.run_swebench_pro_instance", fake_run)
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "swebench-pro",
-            "run",
-            "--root",
-            "/srv/evaluation",
-            "--instance-id",
-            "instance_owner__repo-b",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert len(captured) == 1
-    assert captured[0].tokensflow_enabled is False
-    assert captured[0].tokensflow_binary is None
-    assert captured[0].tokensflow_user_home is None
-    assert captured[0].tokensflow_egress_network is None
-    assert captured[0].proxy_url is None
 
 
 def test_cli_creates_a_luna_batch_atomically_paused(monkeypatch) -> None:
@@ -222,8 +180,6 @@ def test_cli_creates_a_luna_batch_atomically_paused(monkeypatch) -> None:
             "luna-paused-cli",
             "--model",
             "gpt-5.6-luna",
-            "--task-set",
-            "swebench-pro-stability-v1",
             "--start-paused",
         ],
     )
@@ -237,7 +193,6 @@ def test_cli_creates_a_luna_batch_atomically_paused(monkeypatch) -> None:
     assert isinstance(request.data, bytes)
     payload = json.loads(request.data)
     assert payload["model"] == "gpt-5.6-luna"
-    assert payload["task_set"] == "swebench-pro-stability-v1"
     assert payload["initial_control_intent"] == "pause"
 
 

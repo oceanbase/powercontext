@@ -1117,63 +1117,6 @@ td small {
   margin-left: auto;
 }
 
-.control-threshold-note {
-  margin-left: auto;
-  padding: 12px 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.runtime-facts {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-bottom: 24px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-}
-
-.runtime-facts article {
-  display: grid;
-  gap: 7px;
-  padding: 17px;
-  border-right: 1px solid var(--line);
-}
-
-.runtime-facts article:last-child {
-  border-right: 0;
-}
-
-.runtime-facts span,
-.runtime-facts small {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.runtime-facts strong {
-  font-size: 20px;
-}
-
-.runtime-table-section {
-  padding: 0;
-  overflow: hidden;
-}
-
-.runtime-table-section > .section-heading {
-  padding: 22px 24px 0;
-}
-
-.task-row--retry {
-  background: #fff8eb;
-  box-shadow: inset 3px 0 #c9862c;
-}
-
-.runtime-instance {
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .control-threshold input {
   min-height: 44px;
 }
@@ -1850,8 +1793,7 @@ td small {
     flex-direction: column;
   }
 
-  .control-facts,
-  .runtime-facts {
+  .control-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1860,14 +1802,6 @@ td small {
   }
 
   .control-facts article:nth-child(-n+2) {
-    border-bottom: 1px solid var(--line);
-  }
-
-  .runtime-facts article:nth-child(2) {
-    border-right: 0;
-  }
-
-  .runtime-facts article:nth-child(-n+2) {
     border-bottom: 1px solid var(--line);
   }
 }
@@ -1938,13 +1872,11 @@ td small {
     padding-right: 0;
   }
 
-  .control-facts,
-  .runtime-facts {
+  .control-facts {
     grid-template-columns: 1fr;
   }
 
-  .control-facts article,
-  .runtime-facts article {
+  .control-facts article {
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }

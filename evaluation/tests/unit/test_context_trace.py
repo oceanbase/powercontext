@@ -69,7 +69,7 @@ def test_recorder_preserves_stdout_bytes_and_appends_timestamped_events(tmp_path
         {"type": "agent_message", "message": "完成"},
     ]
     assert all(_parse_utc(event["observed_at"]) for event in observed)
-    assert stat.S_IMODE(sidecar.stat().st_mode) == 0o600
+    assert stat.S_IMODE(sidecar.stat().st_mode) == 0o640
 
 
 def test_context_trace_merges_prompt_codex_injections_and_official_result_in_time_order(tmp_path: Path) -> None:

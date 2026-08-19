@@ -31,19 +31,12 @@ export function AppShell({ api, path, batchId, navigate, children }: AppShellPro
 
   const encodedBatchId = batchId === null ? null : encodeURIComponent(batchId);
   const taskReport = path.match(/^\/report\/[^/]+\/tasks(?:\/|$)/) !== null;
-  const runtimeReport = path.match(/^\/report\/[^/]+\/running$/) !== null;
   const links = [
     {
       href: encodedBatchId === null ? "/" : `/report/${encodedBatchId}`,
       label: "总体报告",
-      current: !taskReport && !runtimeReport,
+      current: !taskReport,
       disabled: false,
-    },
-    {
-      href: encodedBatchId === null ? "/" : `/report/${encodedBatchId}/running`,
-      label: "当前运行任务",
-      current: runtimeReport,
-      disabled: encodedBatchId === null,
     },
     {
       href: encodedBatchId === null ? "/" : `/report/${encodedBatchId}/tasks`,
@@ -89,7 +82,7 @@ export function AppShell({ api, path, batchId, navigate, children }: AppShellPro
       </aside>
       <div className="app-body">
         <header className="environment-bar" aria-label="运行环境">
-          <span className="environment-name">评测环境</span>
+          <span className="environment-name">m0</span>
           {healthError ? (
             <span className="health health--error">服务状态未知</span>
           ) : health === null ? (

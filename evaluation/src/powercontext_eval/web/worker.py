@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import hmac
 import logging
 import os
 import sqlite3
@@ -22,15 +23,15 @@ from powercontext_eval.benchmarks.swebench_pro.catalog import CatalogError, SweB
 from powercontext_eval.benchmarks.swebench_pro.evaluator import OfficialResultError
 from powercontext_eval.benchmarks.swebench_pro.prediction import BinaryPatchError
 from powercontext_eval.codex import CodexCapacityError, CodexInfrastructureError, UnsafeCodexInvocation
-from powercontext_eval.errors import CommandCancelled, CommandError, GitSourceError, PowerContextEvalError
+from powercontext_eval.errors import CommandError, GitSourceError, PowerContextEvalError
 from powercontext_eval.git_source import GitSource
 from powercontext_eval.models import PowerContextRef
 from powercontext_eval.paths import EvaluationPaths
 from powercontext_eval.powercontext_sut import (
     InvalidTreatment,
-    PluginInspectionFailure,
-    ReadinessFailure,
+    MissingPowerContextInjection,
     UnsafeSutConfiguration,
+    auth_secret_variants,
 )
 from powercontext_eval.process import ProcessRunner
 from powercontext_eval.report import InvalidReportBundle
@@ -45,51 +46,23 @@ from powercontext_eval.runner import (
 from powercontext_eval.tokensflow import TokensFlowFinalizationDescriptor, TokensFlowFinalizationRegistrar
 from powercontext_eval.web.claiming import ClaimCoordinator, PeriodicUsageRefresher
 from powercontext_eval.web.config import WebConfig
+from powercontext_eval.web.controls import BatchPauseReason
 from powercontext_eval.web.finalization import DockerFinalizationRuntime, TokensFlowFinalizer
-from powercontext_eval.web.models import (
-    FailureCategory,
-    FailureCode,
-    RetryDisposition,
-    SafeFailure,
-    TaskPhase,
-    TaskRecord,
-    TaskResult,
-)
+from powercontext_eval.web.models import FailureCategory, SafeFailure, TaskPhase, TaskRecord, TaskResult
 from powercontext_eval.web.reporting import ReportingError, load_report
-from powercontext_eval.web.resources import AttemptLifecycleCleaner, ResourceProbe, default_workspace_reclaimer
-from powercontext_eval.web.revision import RUNTIME_SCHEMA_VERSION, current_build_revision
+from powercontext_eval.web.resources import ResourceProbe, default_workspace_reclaimer
 from powercontext_eval.web.store import (
     TaskConflict,
     TaskOwnershipError,
     TaskStore,
     TokensFlowFinalizationCreate,
 )
-from powercontext_eval.web.usage import CodexUsageProbe, UsageSnapshot
+from powercontext_eval.web.usage import ApiKeyUsageProbe, CodexUsageProbe, UsageSnapshot
 
-_INTERNAL_SUMMARY = "The evaluation worker failed unexpectedly. Inspect the retained worker logs."
+_INTERNAL_SUMMARY = "The evaluation worker failed unexpectedly. Inspect the retained m0 logs."
 _REPORT_SUMMARY = "Evaluation report validation failed."
-_TREATMENT_FAILURE_SUMMARIES = {
-    "Treatment evidence is malformed": "Treatment evidence was malformed.",
-    "Treatment evidence does not match the requested arm": "Treatment evidence did not match the requested arm.",
-    "PowerContext source HEAD does not match the configured commit": (
-        "PowerContext source revision did not match the pinned batch."
-    ),
-    "PowerContext source checkout must be clean": "PowerContext source checkout was not clean.",
-    "PowerContext plugin manifest is invalid": "PowerContext plugin manifest was invalid.",
-    "PowerContext plugin manifest version does not match configuration": (
-        "PowerContext plugin manifest version did not match the evaluation configuration."
-    ),
-    "PowerContext plugin lockfile is missing": "PowerContext plugin lockfile was missing.",
-    "PowerContext plugin lockfile is invalid": "PowerContext plugin lockfile was invalid.",
-    "Isolated Codex home does not contain the exact expected plugin": (
-        "Isolated Codex home did not contain the pinned PowerContext plugin."
-    ),
-    "Codex CLI version does not match the pinned experiment": (
-        "Codex CLI version did not match the pinned experiment."
-    ),
-    "PowerContext SQLite evidence is malformed": "PowerContext SQLite treatment evidence was malformed.",
-}
 _LOGGER = logging.getLogger(__name__)
+_FINALIZER_SHUTDOWN_POLL_SECONDS = 0.1
 
 
 class ThreadLike(Protocol):
@@ -122,10 +95,26 @@ class WorkspaceReclaimerSupervisor(Protocol):
     def run_forever(self, stop: threading.Event) -> None: ...
 
 
-class AttemptLifecycleSupervisor(Protocol):
-    def run_once(self) -> int: ...
-
-    def run_forever(self, stop: threading.Event) -> None: ...
+def _default_usage_probe(config: WebConfig) -> UsageProbe:
+    if config.codex_auth_mode == "api":
+        if config.codex_api_key is None or config.codex_openai_base_url is None:
+            raise ValueError("API-key mode requires Codex credentials")
+        if not any(
+            hmac.compare_digest(config.codex_api_key, secret) for secret in auth_secret_variants(config.auth_json)
+        ):
+            raise ValueError("Codex API key does not match the configured auth JSON")
+        return ApiKeyUsageProbe(
+            api_key=config.codex_api_key,
+            base_url=config.codex_openai_base_url,
+            model=config.codex_models[0],
+            timeout_seconds=config.usage_probe_timeout_seconds,
+        )
+    return CodexUsageProbe(
+        codex_binary=config.codex_binary,
+        auth_json=config.auth_json,
+        proxy_url=config.proxy_url,
+        timeout_seconds=config.usage_probe_timeout_seconds,
+    )
 
 
 class UsageRefreshSupervisor(Protocol):
@@ -152,13 +141,7 @@ class TaskPairWorker:
     ) -> None:
         self._config = config
         self._store = store
-        self._usage_probe = usage_probe or CodexUsageProbe(
-            codex_binary=config.codex_binary,
-            auth_json=config.auth_json,
-            codex_config=config.codex_config,
-            proxy_url=config.proxy_url,
-            timeout_seconds=config.usage_probe_timeout_seconds,
-        )
+        self._usage_probe = usage_probe or _default_usage_probe(config)
         self._batch_runner: Runner = runner or run_swebench_pro_instance
         self._legacy_runner: Runner = runner or run_minimal_swebench_pro
         self._source = source or GitSource(
@@ -211,9 +194,7 @@ class TaskPairWorker:
                     task,
                     SafeFailure(
                         category=FailureCategory.REPORT_GENERATION,
-                        failure_code=FailureCode.ARTIFACTS_ALREADY_EXIST,
                         summary="Evaluation artifacts already exist; refusing to overwrite them.",
-                        retry_disposition=RetryDisposition.TERMINAL,
                     ),
                     ownership_lost,
                 )
@@ -229,7 +210,7 @@ class TaskPairWorker:
                     return
                 phase = mapped
 
-            result = self._invoke_runner(task, on_phase, ownership_lost)
+            result = self._invoke_runner(task, on_phase)
             if ownership_lost.is_set():
                 return True
             task_result = self._validated_result(task, result)
@@ -250,7 +231,11 @@ class TaskPairWorker:
                 command_kind,
                 returncode,
             )
-            failure = _safe_failure(error, phase)
+            failure = _safe_failure(
+                error,
+                phase,
+                auto_retry_allowed=task.attempt_number <= self._config.codex_capacity_retry_max,
+            )
             attempt_finished = self._fail(task, failure, ownership_lost)
         finally:
             heartbeat_stop.set()
@@ -261,20 +246,15 @@ class TaskPairWorker:
         return True
 
     def run_forever(self, stop: threading.Event | None = None) -> None:
-        """Poll until stopped; process startup exclusively owns predecessor recovery."""
+        """Poll until stopped, recovering an expired predecessor before each claim."""
         stop_event = stop or self._stop
         while not stop_event.is_set():
             if not self.run_once():
                 self._sleep(self._config.poll_seconds)
 
-    def _invoke_runner(
-        self,
-        task: TaskRecord,
-        on_phase: Callable[[RunPhase], None],
-        cancel_event: threading.Event,
-    ) -> MinimalRunResult:
+    def _invoke_runner(self, task: TaskRecord, on_phase: Callable[[RunPhase], None]) -> MinimalRunResult:
         if task.batch_id is None:
-            return self._legacy_runner(self._legacy_run_config(task, cancel_event), on_phase=on_phase)
+            return self._legacy_runner(self._legacy_run_config(task), on_phase=on_phase)
         if task.instance_id is None:
             raise DatasetSchemaError("Batch child is missing an instance ID")
         catalog = self._catalog
@@ -282,12 +262,12 @@ class TaskPairWorker:
             catalog = SweBenchProCatalog.load(self._config.dataset_path)
             self._catalog = catalog
         return self._batch_runner(
-            self._batch_run_config(task, cancel_event),
+            self._batch_run_config(task),
             instance=catalog.require(task.instance_id),
             on_phase=on_phase,
         )
 
-    def _batch_run_config(self, task: TaskRecord, cancel_event: threading.Event | None = None) -> RunConfig:
+    def _batch_run_config(self, task: TaskRecord) -> RunConfig:
         if task.batch_id is None:
             raise ValueError("Batch run configuration requires a batch child")
         powercontext_ref = self._pinned_batch_ref(task.batch_id)
@@ -298,26 +278,23 @@ class TaskPairWorker:
             harness_root=self._config.harness_root,
             harness_python=self._config.harness_python,
             codex_binary=self._config.codex_binary,
-            tokensflow_enabled=self._config.tokensflow_enabled,
             tokensflow_binary=self._config.tokensflow_binary,
             tokensflow_user_home=self._config.tokensflow_user_home,
             tokensflow_egress_network=self._config.tokensflow_egress_network,
             uv_binary=self._config.uv_binary,
             registry_binary=self._config.registry_binary,
             auth_json=self._config.auth_json,
-            codex_config=self._config.codex_config,
             proxy_url=self._config.proxy_url,
-            docker_network_pool=self._config.docker_network_pool,
-            extra_no_proxy_hosts=self._config.extra_no_proxy_hosts,
             run_id=_execution_run_id(task),
             model=task.request.model,
             reasoning_effort=task.request.reasoning_effort,
+            codex_openai_base_url=self._config.codex_openai_base_url,
+            codex_timeout_seconds=self._config.codex_timeout_seconds,
             finalization_registrar=self._finalization_registrar(task),
-            container_env=dict(task.request.container_env),
-            cancel_event=cancel_event,
+            container_env={**task.request.container_env, **self._config.private_container_env},
         )
 
-    def _legacy_run_config(self, task: TaskRecord, cancel_event: threading.Event | None = None) -> MinimalRunConfig:
+    def _legacy_run_config(self, task: TaskRecord) -> MinimalRunConfig:
         return MinimalRunConfig(
             root=self._config.run_root,
             powercontext_source=self._config.powercontext_source,
@@ -326,27 +303,22 @@ class TaskPairWorker:
             harness_python=self._config.harness_python,
             raw_sample_path=self._config.raw_sample_path,
             codex_binary=self._config.codex_binary,
-            tokensflow_enabled=self._config.tokensflow_enabled,
             tokensflow_binary=self._config.tokensflow_binary,
             tokensflow_user_home=self._config.tokensflow_user_home,
             tokensflow_egress_network=self._config.tokensflow_egress_network,
             uv_binary=self._config.uv_binary,
             registry_binary=self._config.registry_binary,
             auth_json=self._config.auth_json,
-            codex_config=self._config.codex_config,
             proxy_url=self._config.proxy_url,
-            docker_network_pool=self._config.docker_network_pool,
-            extra_no_proxy_hosts=self._config.extra_no_proxy_hosts,
             run_id=_execution_run_id(task),
             model=task.request.model,
             reasoning_effort=task.request.reasoning_effort,
+            codex_openai_base_url=self._config.codex_openai_base_url,
+            codex_timeout_seconds=self._config.codex_timeout_seconds,
             finalization_registrar=self._finalization_registrar(task),
-            cancel_event=cancel_event,
         )
 
-    def _finalization_registrar(self, task: TaskRecord) -> TokensFlowFinalizationRegistrar | None:
-        if not self._config.tokensflow_enabled:
-            return None
+    def _finalization_registrar(self, task: TaskRecord) -> TokensFlowFinalizationRegistrar:
         attempt_id = task.attempt_id
         if attempt_id is None:
             raise ValueError("TokensFlow finalization requires an attempt ID")
@@ -489,7 +461,6 @@ class EvaluationWorker:
         thread_factory: ThreadFactory = threading.Thread,
         finalizer: FinalizerSupervisor | None = None,
         workspace_reclaimer: WorkspaceReclaimerSupervisor | None = None,
-        attempt_lifecycle: AttemptLifecycleSupervisor | None = None,
         usage_refresher: UsageRefreshSupervisor | None = None,
         resource_probe: ResourceProbe | None = None,
     ) -> None:
@@ -497,36 +468,23 @@ class EvaluationWorker:
         self._store = store
         self._clock = clock or (lambda: datetime.now(UTC))
         self._stop = threading.Event()
-        shared_probe = usage_probe or CodexUsageProbe(
-            codex_binary=config.codex_binary,
-            auth_json=config.auth_json,
-            codex_config=config.codex_config,
-            proxy_url=config.proxy_url,
-            timeout_seconds=config.usage_probe_timeout_seconds,
-        )
+        self._finalizer_stop = threading.Event()
+        shared_probe = usage_probe or _default_usage_probe(config)
         coordinator = ClaimCoordinator(
             config,
             store,
             usage_probe=shared_probe,
             clock=self._clock,
             resource_probe=resource_probe,
-            deployment_gate=store.deployment_admission_open,
         )
         self._coordinator = coordinator
-        self._finalizer: FinalizerSupervisor | None = None
-        if config.tokensflow_enabled:
-            self._finalizer = finalizer or TokensFlowFinalizer(
-                store,
-                DockerFinalizationRuntime(config.run_root, cancel_event=self._stop),
-                clock=self._clock,
-                task_parallelism=config.task_parallelism,
-            )
-        self._workspace_reclaimer = workspace_reclaimer or default_workspace_reclaimer(config, store)
-        self._attempt_lifecycle = attempt_lifecycle or AttemptLifecycleCleaner(
+        self._finalizer = finalizer or TokensFlowFinalizer(
             store,
-            config.run_root,
+            DockerFinalizationRuntime(config.run_root, cancel_event=self._finalizer_stop),
             clock=self._clock,
+            task_parallelism=config.task_parallelism,
         )
+        self._workspace_reclaimer = workspace_reclaimer or default_workspace_reclaimer(config, store)
         self._usage_refresher = usage_refresher or PeriodicUsageRefresher(coordinator)
         base_worker_id = worker_id or f"worker-{uuid4().hex}"
 
@@ -562,14 +520,7 @@ class EvaluationWorker:
         with _nonblocking_worker_lock(self._config.database_path) as locked:
             if not locked:
                 return False
-            startup_now = self._clock()
-            self._publish_runtime_revision(now=startup_now)
-            recovered = self._store.begin_startup_recovery(now=startup_now)
-            if recovered:
-                self._attempt_lifecycle.run_once()
-            ran = self._slots[0].run_once()
-            self._attempt_lifecycle.run_once()
-            return ran
+            return self._slots[0].run_once()
 
     def run_forever(self) -> None:
         """Own the process lock and supervise all configured task-pair slots."""
@@ -577,13 +528,19 @@ class EvaluationWorker:
         with _nonblocking_worker_lock(self._config.database_path) as locked:
             if not locked:
                 return
-            startup_now = self._clock()
-            self._publish_runtime_revision(now=startup_now)
-            self._store.begin_startup_recovery(now=startup_now)
-            self._attempt_lifecycle.run_once()
             self._store.record_worker_capacity(self._config.task_parallelism, now=self._clock())
             failures: list[BaseException] = []
             failures_lock = threading.Lock()
+
+            def pause_after_slot_failure() -> None:
+                try:
+                    self._store.pause_runnable_batches(
+                        reason=BatchPauseReason.INFRASTRUCTURE_FAILURE,
+                        now=self._clock(),
+                    )
+                except Exception as error:  # noqa: BLE001 - preserve the original supervisor failure too
+                    with failures_lock:
+                        failures.append(error)
 
             def run_slot(slot: TaskPairWorker) -> None:
                 try:
@@ -592,16 +549,20 @@ class EvaluationWorker:
                     with failures_lock:
                         failures.append(error)
                     self.stop()
+                    pause_after_slot_failure()
 
             def run_usage_refresher() -> None:
                 try:
                     self._usage_refresher.run_forever(self._stop, self._config.usage_probe_seconds)
                 except Exception as error:  # noqa: BLE001 - usage gating must fail closed on supervisor defects
+                    self._store.pause_runnable_batches(
+                        reason=BatchPauseReason.USAGE_UNAVAILABLE,
+                        now=self._clock(),
+                    )
                     _LOGGER.warning(
                         "Account usage refresher stopped unexpectedly (error_type=%s)",
                         type(error).__name__,
                     )
-                    self.stop()
 
             threads = tuple(
                 threading.Thread(
@@ -616,24 +577,15 @@ class EvaluationWorker:
             usage_refresh_thread: threading.Thread | None = None
             finalizer_thread: threading.Thread | None = None
             workspace_reclaimer_thread: threading.Thread | None = None
-            attempt_lifecycle_thread: threading.Thread | None = None
             try:
-                attempt_lifecycle_thread = threading.Thread(
-                    target=self._attempt_lifecycle.run_forever,
-                    args=(self._stop,),
-                    daemon=False,
-                    name="attempt-lifecycle-cleaner",
-                )
-                attempt_lifecycle_thread.start()
                 for thread in threads:
                     thread.start()
                     started.append(thread)
             except Exception:  # noqa: BLE001 - partial startup must stop and join every started slot
                 self.stop()
+                pause_after_slot_failure()
                 for thread in started:
                     thread.join()
-                if attempt_lifecycle_thread is not None:
-                    attempt_lifecycle_thread.join()
                 raise RuntimeError("Evaluation worker slot failed") from None
             try:
                 usage_refresh_thread = threading.Thread(
@@ -644,26 +596,28 @@ class EvaluationWorker:
                 usage_refresh_thread.start()
             except Exception as error:  # noqa: BLE001 - claims remain fail closed if refreshing cannot start
                 usage_refresh_thread = None
+                self._store.pause_runnable_batches(
+                    reason=BatchPauseReason.USAGE_UNAVAILABLE,
+                    now=self._clock(),
+                )
                 _LOGGER.warning(
                     "Account usage refresher failed to start (error_type=%s)",
                     type(error).__name__,
                 )
-                self.stop()
-            if self._finalizer is not None:
-                try:
-                    finalizer_thread = threading.Thread(
-                        target=self._finalizer.run_forever,
-                        args=(self._stop, self._config.tokensflow_finalizer_poll_seconds),
-                        daemon=False,
-                        name="tokensflow-finalizer",
-                    )
-                    finalizer_thread.start()
-                except Exception as error:  # noqa: BLE001 - durable rows remain recoverable while evaluation continues
-                    finalizer_thread = None
-                    _LOGGER.warning(
-                        "TokensFlow finalizer supervisor failed to start (error_type=%s)",
-                        type(error).__name__,
-                    )
+            try:
+                finalizer_thread = threading.Thread(
+                    target=self._finalizer.run_forever,
+                    args=(self._finalizer_stop, self._config.tokensflow_finalizer_poll_seconds),
+                    daemon=False,
+                    name="tokensflow-finalizer",
+                )
+                finalizer_thread.start()
+            except Exception as error:  # noqa: BLE001 - durable rows remain recoverable while evaluation continues
+                finalizer_thread = None
+                _LOGGER.warning(
+                    "TokensFlow finalizer supervisor failed to start (error_type=%s)",
+                    type(error).__name__,
+                )
             try:
                 workspace_reclaimer_thread = threading.Thread(
                     target=self._workspace_reclaimer.run_forever,
@@ -682,22 +636,17 @@ class EvaluationWorker:
                 thread.join()
             if usage_refresh_thread is not None:
                 usage_refresh_thread.join()
-            if finalizer_thread is not None:
-                finalizer_thread.join()
             if workspace_reclaimer_thread is not None:
                 workspace_reclaimer_thread.join()
-            if attempt_lifecycle_thread is not None:
-                attempt_lifecycle_thread.join()
+            if finalizer_thread is not None:
+                try:
+                    while finalizer_thread.is_alive() and self._store.list_open_tokensflow_finalizations():
+                        finalizer_thread.join(timeout=_FINALIZER_SHUTDOWN_POLL_SECONDS)
+                finally:
+                    self._finalizer_stop.set()
+                    finalizer_thread.join()
             if failures:
                 raise RuntimeError("Evaluation worker slot failed") from None
-
-    def _publish_runtime_revision(self, *, now: datetime) -> None:
-        self._store.record_runtime_revision(
-            "worker",
-            build_revision=current_build_revision(),
-            schema_version=RUNTIME_SCHEMA_VERSION,
-            now=now,
-        )
 
 
 def _execution_run_id(task: TaskRecord) -> str:
@@ -753,125 +702,41 @@ def _nonblocking_worker_lock(database_path: Path) -> Iterator[bool]:
         os.close(descriptor)
 
 
-def _safe_failure(error: Exception, phase: TaskPhase | None) -> SafeFailure:
-    if isinstance(error, CommandCancelled):
-        return SafeFailure(
-            category=FailureCategory.WORKER_INTERRUPTION,
-            failure_code=FailureCode.WORKER_INTERRUPTION,
-            phase=phase,
-            summary="Evaluation execution was interrupted after worker ownership changed.",
-        )
+def _safe_failure(error: Exception, phase: TaskPhase | None, *, auto_retry_allowed: bool = False) -> SafeFailure:
     if isinstance(error, CodexCapacityError):
         return SafeFailure(
             category=FailureCategory.CODEX_CAPACITY,
-            failure_code=FailureCode.CODEX_CAPACITY,
             phase=phase,
             summary="The upstream Codex model was at capacity.",
+            auto_retry=auto_retry_allowed,
         )
-    fixed: tuple[FailureCategory, FailureCode, str, RetryDisposition]
+    if isinstance(error, MissingPowerContextInjection):
+        return SafeFailure(
+            category=FailureCategory.TREATMENT_VALIDATION,
+            phase=phase,
+            summary="Treatment validation failed.",
+            auto_retry=auto_retry_allowed,
+        )
+    fixed: tuple[FailureCategory, str]
     if isinstance(error, GitSourceError):
-        fixed = (
-            FailureCategory.SOURCE_RESOLUTION,
-            FailureCode.SOURCE_RESOLUTION,
-            "PowerContext source resolution failed.",
-            RetryDisposition.RETRY,
-        )
-    elif isinstance(error, CatalogError):
-        fixed = (
-            FailureCategory.ENVIRONMENT_PREPARATION,
-            FailureCode.CATALOG,
-            "Evaluation benchmark catalog is invalid.",
-            RetryDisposition.TERMINAL,
-        )
-    elif isinstance(error, DatasetSchemaError):
-        fixed = (
-            FailureCategory.ENVIRONMENT_PREPARATION,
-            FailureCode.DATASET_SCHEMA,
-            "Evaluation dataset schema is invalid.",
-            RetryDisposition.TERMINAL,
-        )
-    elif isinstance(error, UnsafeSutConfiguration):
-        fixed = (
-            FailureCategory.ENVIRONMENT_PREPARATION,
-            FailureCode.UNSAFE_SUT_CONFIGURATION,
-            "Evaluation SUT configuration is unsafe.",
-            RetryDisposition.TERMINAL,
-        )
+        fixed = FailureCategory.SOURCE_RESOLUTION, "PowerContext source resolution failed."
+    elif isinstance(error, (CatalogError, DatasetSchemaError, UnsafeSutConfiguration)):
+        fixed = FailureCategory.ENVIRONMENT_PREPARATION, "Evaluation environment preparation failed."
     elif isinstance(error, GoldCheckFailed):
-        fixed = (
-            FailureCategory.GOLD_VALIDATION,
-            FailureCode.GOLD_VALIDATION,
-            "Gold patch validation failed.",
-            RetryDisposition.RETRY,
-        )
-    elif isinstance(error, CodexInfrastructureError):
-        fixed = (
-            FailureCategory.CODEX_EXECUTION,
-            FailureCode.CODEX_EXECUTION,
-            "Codex execution infrastructure failed.",
-            RetryDisposition.RETRY,
-        )
-    elif isinstance(error, UnsafeCodexInvocation):
-        fixed = (
-            FailureCategory.CODEX_EXECUTION,
-            FailureCode.UNSAFE_CODEX_INVOCATION,
-            "Codex invocation was unsafe.",
-            RetryDisposition.TERMINAL,
-        )
-    elif isinstance(error, BinaryPatchError):
-        fixed = (
-            FailureCategory.CODEX_EXECUTION,
-            FailureCode.CODEX_EXECUTION,
-            "Codex patch did not satisfy the evaluation contract.",
-            RetryDisposition.RETRY,
-        )
-    elif isinstance(error, ReadinessFailure):
-        fixed = (
-            FailureCategory.TREATMENT_VALIDATION,
-            FailureCode.READINESS,
-            error.safe_summary,
-            RetryDisposition.RETRY,
-        )
-    elif isinstance(error, PluginInspectionFailure):
-        fixed = (
-            FailureCategory.TREATMENT_VALIDATION,
-            FailureCode.PLUGIN_INSPECTION,
-            error.safe_summary,
-            RetryDisposition.RETRY,
-        )
+        fixed = FailureCategory.GOLD_VALIDATION, "Gold patch validation failed."
+    elif isinstance(error, (CodexInfrastructureError, UnsafeCodexInvocation, BinaryPatchError)):
+        fixed = FailureCategory.CODEX_EXECUTION, "Codex execution failed."
     elif isinstance(error, InvalidTreatment):
-        fixed = (
-            FailureCategory.TREATMENT_VALIDATION,
-            FailureCode.INVALID_TREATMENT_CONTRACT,
-            _TREATMENT_FAILURE_SUMMARIES.get(str(error), "Treatment validation failed."),
-            RetryDisposition.TERMINAL,
-        )
+        fixed = FailureCategory.TREATMENT_VALIDATION, "Treatment validation failed."
     elif isinstance(error, OfficialResultError):
-        fixed = (
-            FailureCategory.OFFICIAL_EVALUATOR,
-            FailureCode.OFFICIAL_EVALUATOR,
-            "Official evaluation failed.",
-            RetryDisposition.RETRY,
-        )
+        fixed = FailureCategory.OFFICIAL_EVALUATOR, "Official evaluation failed."
     elif isinstance(error, (ReportingError, InvalidReportBundle, ArtifactError)):
-        fixed = (
-            FailureCategory.REPORT_GENERATION,
-            FailureCode.REPORT_GENERATION,
-            _REPORT_SUMMARY,
-            RetryDisposition.RETRY,
-        )
+        fixed = FailureCategory.REPORT_GENERATION, _REPORT_SUMMARY
     elif isinstance(error, (CommandError, PowerContextEvalError)):
-        category, summary = _phase_failure(phase)
-        fixed = category, _phase_failure_code(phase), summary, RetryDisposition.RETRY
+        fixed = _phase_failure(phase)
     else:
-        fixed = FailureCategory.INTERNAL, FailureCode.INTERNAL, _INTERNAL_SUMMARY, RetryDisposition.RETRY
-    return SafeFailure(
-        category=fixed[0],
-        failure_code=fixed[1],
-        phase=phase,
-        summary=fixed[2],
-        retry_disposition=fixed[3],
-    )
+        fixed = FailureCategory.INTERNAL, _INTERNAL_SUMMARY
+    return SafeFailure(category=fixed[0], phase=phase, summary=fixed[1])
 
 
 def _safe_command_failure_fields(error: Exception) -> tuple[str, str]:
@@ -898,16 +763,4 @@ def _phase_failure(phase: TaskPhase | None) -> tuple[FailureCategory, str]:
         TaskPhase.OFFICIAL_EVALUATION: (FailureCategory.OFFICIAL_EVALUATOR, "Official evaluation failed."),
         TaskPhase.GENERATING_REPORT: (FailureCategory.REPORT_GENERATION, _REPORT_SUMMARY),
         None: (FailureCategory.INTERNAL, _INTERNAL_SUMMARY),
-    }[phase]
-
-
-def _phase_failure_code(phase: TaskPhase | None) -> FailureCode:
-    return {
-        TaskPhase.PREPARING: FailureCode.INTERNAL,
-        TaskPhase.VALIDATING_GOLD: FailureCode.GOLD_VALIDATION,
-        TaskPhase.RUNNING_OFF: FailureCode.CODEX_EXECUTION,
-        TaskPhase.RUNNING_ON: FailureCode.CODEX_EXECUTION,
-        TaskPhase.OFFICIAL_EVALUATION: FailureCode.OFFICIAL_EVALUATOR,
-        TaskPhase.GENERATING_REPORT: FailureCode.REPORT_GENERATION,
-        None: FailureCode.INTERNAL,
     }[phase]

@@ -27,7 +27,7 @@ from powercontext_eval.benchmarks.swebench_pro.evaluator import (
     TestGroupResult,
 )
 from powercontext_eval.benchmarks.swebench_pro.prediction import encode_predictions
-from powercontext_eval.powercontext_sut import LOOPBACK_NO_PROXY, ProxyRelayConfig, direct_egress_environment
+from powercontext_eval.powercontext_sut import LOOPBACK_NO_PROXY, ProxyRelayConfig
 from powercontext_eval.process import CommandResult, ProcessRunner
 
 INSTANCE_ID = "instance_flipt-io__flipt-518ec324b66a07fdd95464a5e9ca5fe7681ad8f9"
@@ -49,7 +49,7 @@ DATASET_FIELDS = {
     "selected_test_files_to_run",
     "dockerhub_tag",
 }
-UPSTREAM_PROXY_URL = "http://127.0.0.1:18080"
+UPSTREAM_PROXY_URL = "http://127.0.0.1:7890"
 RELAY_URL = "http://172.17.0.1:45678"
 
 
@@ -173,7 +173,7 @@ def test_official_evaluator_uses_exact_cli_and_retains_raw_output(tmp_path: Path
     }
 
 
-def test_official_evaluator_and_codex_exec_share_docker_pressure_budget(tmp_path: Path) -> None:
+def test_official_evaluator_budget_does_not_throttle_codex_exec(tmp_path: Path) -> None:
     guard = threading.Lock()
     start = threading.Barrier(10)
     budget_entered = threading.Event()
@@ -245,7 +245,7 @@ def test_official_evaluator_and_codex_exec_share_docker_pressure_budget(tmp_path
     try:
         assert budget_entered.wait(timeout=2)
         time.sleep(0.05)
-        assert maximum == 4
+        assert maximum == 8
     finally:
         release.set()
         for thread in threads:
@@ -362,7 +362,7 @@ def test_official_evaluator_uses_private_container_reachable_proxy_config_and_cl
     assert process.directory_mode == 0o700
     assert process.file_mode == 0o600
     assert process.environment is not None
-    assert process.environment == {**direct_egress_environment(), "DOCKER_CONFIG": str(process.docker_config_dir)}
+    assert set(process.environment) == {"DOCKER_CONFIG"}
     assert process.argv is not None
     assert all(UPSTREAM_PROXY_URL not in argument for argument in process.argv)
     assert process.docker_config_dir is not None
@@ -400,7 +400,7 @@ def test_official_evaluator_cleans_proxy_config_and_relay_after_process_failure(
     assert UPSTREAM_PROXY_URL not in retained
 
 
-def test_official_evaluator_without_proxy_clears_proxy_environment_and_skips_relay(tmp_path: Path) -> None:
+def test_official_evaluator_without_proxy_preserves_existing_environment_and_skips_relay(tmp_path: Path) -> None:
     harness, raw_path, prediction_path, output_dir = _official_evaluator_inputs(tmp_path)
     process = _InspectingProcess()
     relay = _FakeRelay()
@@ -419,7 +419,7 @@ def test_official_evaluator_without_proxy_clears_proxy_environment_and_skips_rel
     )
 
     assert result.resolved is True
-    assert process.environment == direct_egress_environment()
+    assert process.environment == {}
     assert process.docker_config_dir is None
     assert relay.starts == []
     assert relay.stop_count == 0

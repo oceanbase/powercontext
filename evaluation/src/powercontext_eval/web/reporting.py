@@ -15,6 +15,11 @@ from pydantic import ValidationError
 
 from powercontext_eval.artifacts import ArmState
 from powercontext_eval.benchmarks.swebench_pro.adapter import DATASET_REVISION, HARNESS_COMMIT, SweBenchProInstance
+from powercontext_eval.codex import (
+    DEFAULT_CODEX_TIMEOUT_SECONDS,
+    MAX_CODEX_TIMEOUT_SECONDS,
+    MIN_CODEX_TIMEOUT_SECONDS,
+)
 from powercontext_eval.report import ArmReport, ReportBundle, TestGroupReport
 from powercontext_eval.web.batches import (
     BatchRecord,
@@ -343,7 +348,7 @@ def _load_batch_bundle(run_dir: Path, run_root: Path) -> ReportBundle:
 def _bundle_for_task(task: TaskRecord, runs_root: Path) -> ReportBundle:
     if task.status is not TaskStatus.SUCCEEDED or task.result is None:
         raise InvalidReportArtifact
-    bundle = _load_batch_bundle(task_run_dir(task, runs_root), runs_root)
+    bundle = _load_batch_bundle(_task_run_dir(task, runs_root), runs_root)
     if (
         bundle.off.arm != "off"
         or bundle.on.arm != "on"
@@ -355,7 +360,7 @@ def _bundle_for_task(task: TaskRecord, runs_root: Path) -> ReportBundle:
     return bundle
 
 
-def task_run_dir(task: TaskRecord, runs_root: Path) -> Path:
+def _task_run_dir(task: TaskRecord, runs_root: Path) -> Path:
     if task.result is None:
         raise InvalidReportArtifact
     if task.attempt_number == 1:
@@ -440,6 +445,22 @@ def _task_item(
     )
 
 
+def _batch_codex_timeout(configuration: dict[str, str]) -> str:
+    raw = configuration.pop("codex_timeout_seconds", str(DEFAULT_CODEX_TIMEOUT_SECONDS))
+    try:
+        value = int(raw)
+    except ValueError:
+        raise InvalidReportArtifact from None
+    if raw != str(value) or not MIN_CODEX_TIMEOUT_SECONDS <= value <= MAX_CODEX_TIMEOUT_SECONDS:
+        raise InvalidReportArtifact
+    return raw
+
+
+def _aggregate_batch_codex_timeouts(values: set[str]) -> str:
+    ordered = sorted(values, key=int)
+    return ordered[0] if len(ordered) == 1 else f"mixed:{','.join(ordered)}"
+
+
 def _metric_aggregate(values: dict[str, list[int]]) -> TokenMetricAggregate:
     off = sum(values["off"])
     on = sum(values["on"])
@@ -512,6 +533,7 @@ def load_batch_report(
     }
     revisions: dict[str, str] | None = None
     configuration: dict[str, str] | None = None
+    codex_timeout_values: set[str] = set()
     estimate_samples: list[EstimateSample] = []
     for task in tasks:
         catalog.require(task.request.instance_id)
@@ -546,6 +568,7 @@ def load_batch_report(
                 )
             candidate_revisions = dict(bundle.revisions)
             candidate_configuration = {key: value for key, value in bundle.configuration.items() if key != "instance"}
+            codex_timeout_values.add(_batch_codex_timeout(candidate_configuration))
             if revisions is None:
                 revisions = candidate_revisions
                 configuration = candidate_configuration
@@ -566,6 +589,8 @@ def load_batch_report(
             "model": batch.request.model,
             "reasoning_effort": batch.request.reasoning_effort,
         }
+    elif codex_timeout_values:
+        configuration["codex_timeout_seconds"] = _aggregate_batch_codex_timeouts(codex_timeout_values)
     configuration.update(
         {
             "task_set": batch.request.task_set,
@@ -813,7 +838,7 @@ def load_context_page(
         raise InvalidReportArtifact
     if limit < 1 or offset < 0:
         raise ValueError("Context page bounds are invalid")
-    events = _load_context_events(task_run_dir(task, runs_root), runs_root, arm)
+    events = _load_context_events(_task_run_dir(task, runs_root), runs_root, arm)
     return ContextEventPage(items=events[offset : offset + limit], total=len(events), limit=limit, offset=offset)
 
 
@@ -829,7 +854,7 @@ def load_context_event(
 
     if sequence < 1 or task.batch_id != batch.batch_id or task.status is not TaskStatus.SUCCEEDED:
         raise InvalidReportArtifact
-    events = _load_context_events(task_run_dir(task, runs_root), runs_root, arm)
+    events = _load_context_events(_task_run_dir(task, runs_root), runs_root, arm)
     if sequence > len(events):
         raise InvalidReportArtifact
     return events[sequence - 1]

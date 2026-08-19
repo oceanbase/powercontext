@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { EvaluationApi } from "../api";
-import type { AccountUsage, BatchControlEvent, BatchRecord, BatchReport } from "../types";
+import type { BatchControlEvent, BatchRecord, BatchReport, UsageSnapshot } from "../types";
 import { formatUsageWindow } from "../usageFormat";
 
 interface BatchControlsProps {
@@ -36,15 +36,7 @@ const reasonLabels = {
 } as const;
 
 export function BatchControls({ api, batch, report, onUpdated }: BatchControlsProps) {
-  const [accountUsage, setAccountUsage] = useState<AccountUsage | null>(
-    report.latest_usage === null
-      ? null
-      : {
-          mode: "subscription",
-          sufficient: report.latest_usage.used_percent < batch.control.usage_pause_percent,
-          usage: report.latest_usage,
-        },
-  );
+  const [usage, setUsage] = useState<UsageSnapshot | null>(report.latest_usage);
   const [events, setEvents] = useState<BatchControlEvent[]>([]);
   const [threshold, setThreshold] = useState(batch.control.usage_pause_percent);
   const [pending, setPending] = useState<string | null>(null);
@@ -52,24 +44,15 @@ export function BatchControls({ api, batch, report, onUpdated }: BatchControlsPr
 
   const refreshFacts = useCallback(() => {
     const controller = new AbortController();
-    Promise.allSettled([
+    Promise.all([
       api.getAccountUsage(controller.signal),
       api.listBatchControlEvents(batch.batch_id, controller.signal),
     ])
-      .then(([usageResult, eventsResult]) => {
-        if (controller.signal.aborted) return;
-        if (usageResult.status === "fulfilled") setAccountUsage(usageResult.value);
-        if (eventsResult.status === "fulfilled") setEvents(eventsResult.value);
-        if (usageResult.status === "rejected" && eventsResult.status === "rejected") {
-          setMessage("最新用量和控制记录暂时无法读取。");
-        } else if (usageResult.status === "rejected") {
-          setMessage("最新用量暂时无法读取；控制记录已更新。");
-        } else if (eventsResult.status === "rejected") {
-          setMessage("控制记录暂时无法读取；用量状态已更新。");
-        } else {
-          setMessage("");
-        }
-      });
+      .then(([nextUsage, nextEvents]) => {
+        setUsage(nextUsage);
+        setEvents(nextEvents);
+      })
+      .catch(() => setMessage("最新用量或控制记录暂时无法读取。"));
     return controller;
   }, [api, batch.batch_id]);
 
@@ -102,8 +85,6 @@ export function BatchControls({ api, batch, report, onUpdated }: BatchControlsPr
   };
 
   const estimate = report.estimate;
-  const apiKeyMode = accountUsage?.mode === "api_key";
-  const usage = accountUsage?.usage ?? report.latest_usage;
   const estimateLabel = estimate.quality === "unavailable"
     ? "暂无可靠估算"
     : `${estimate.quality === "preliminary" ? "初步估算" : "已测量"} · ${number(estimate.sample_size)} 个样本`;
@@ -125,10 +106,8 @@ export function BatchControls({ api, batch, report, onUpdated }: BatchControlsPr
         </article>
         <article>
           <span>Codex 账户用量</span>
-          <strong>{apiKeyMode ? "API Key 模式" : usage === null ? "正在读取" : `${usage.used_percent}%`}</strong>
-          {apiKeyMode ? (
-            <small>不检查订阅用量，运行准入始终视为充足</small>
-          ) : usage !== null && (
+          <strong>{usage === null ? "暂不可用" : `${usage.used_percent}%`}</strong>
+          {usage !== null && (
             <small>
               计量窗口 {formatUsageWindow(usage.window_duration_minutes)}
               {" · "}采样 {dateTime(usage.observed_at)}
@@ -138,7 +117,7 @@ export function BatchControls({ api, batch, report, onUpdated }: BatchControlsPr
         </article>
         <article>
           <span>剩余用量</span>
-          <strong>{apiKeyMode ? "充足" : usage === null ? "—" : `${usage.remaining_percent}%`}</strong>
+          <strong>{usage === null ? "—" : `${usage.remaining_percent}%`}</strong>
         </article>
         <article>
           <span>剩余估算</span>
@@ -189,40 +168,34 @@ export function BatchControls({ api, batch, report, onUpdated }: BatchControlsPr
           </button>
         )}
 
-        {apiKeyMode ? (
-          <span className="control-threshold-note">API Key 模式不使用用量暂停阈值</span>
-        ) : (
-          <>
-            <label className="control-threshold">
-              批次暂停阈值
-              <input
-                aria-label="批次暂停阈值"
-                type="number"
-                min={1}
-                max={100}
-                value={Number.isNaN(threshold) ? "" : threshold}
-                onChange={(event) => setThreshold(event.target.valueAsNumber)}
-              />
-            </label>
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={
-                pending !== null
-                || !Number.isInteger(threshold)
-                || threshold < 1
-                || threshold > 100
-                || threshold === batch.control.usage_pause_percent
-              }
-              onClick={() => mutate(
-                "threshold",
-                () => api.updateBatchThreshold(batch.batch_id, threshold, batch.control.version),
-              )}
-            >
-              保存阈值
-            </button>
-          </>
-        )}
+        <label className="control-threshold">
+          批次暂停阈值
+          <input
+            aria-label="批次暂停阈值"
+            type="number"
+            min={1}
+            max={100}
+            value={Number.isNaN(threshold) ? "" : threshold}
+            onChange={(event) => setThreshold(event.target.valueAsNumber)}
+          />
+        </label>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={
+            pending !== null
+            || !Number.isInteger(threshold)
+            || threshold < 1
+            || threshold > 100
+            || threshold === batch.control.usage_pause_percent
+          }
+          onClick={() => mutate(
+            "threshold",
+            () => api.updateBatchThreshold(batch.batch_id, threshold, batch.control.version),
+          )}
+        >
+          保存阈值
+        </button>
       </div>
 
       {message && <p className="error-message">{message}</p>}

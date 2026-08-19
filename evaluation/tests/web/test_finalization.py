@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from powercontext_eval.errors import CommandTimedOut
 from powercontext_eval.powercontext_sut import DockerSut
 from powercontext_eval.process import CommandResult
 from powercontext_eval.web.finalization import DockerFinalizationRuntime, TokensFlowFinalizer
@@ -684,6 +685,9 @@ class LifecycleRunner:
     def run(self, argv: Sequence[str], **kwargs: object) -> CommandResult:
         del kwargs
         command = tuple(argv)
+        if command[-1] == "tokensflow-finalizer-private-home":
+            self.events.append("private-home")
+            return CommandResult(command, "/safe", 0, "", "")
         if command[:2] == ("docker", "exec") and "/bin/sh" in command:
             self.events.append("stop")
             self.daemon_stopped = True
@@ -713,7 +717,7 @@ def test_finalizer_quiesces_daemon_before_upload_doctor_and_cleanup(tmp_path: Pa
 
     assert finalizer.run_once() is True
 
-    assert runner.events == ["stop", "upload", "doctor", "cleanup"]
+    assert runner.events == ["stop", "upload", "doctor", "private-home", "cleanup"]
     assert store.tokensflow_finalizations_for_attempt(job.attempt_id)[0].state is FinalizationState.PASSED
 
 
@@ -723,9 +727,11 @@ class AbsentContainerRunner:
         self.commands: list[tuple[str, ...]] = []
 
     def run(self, argv: Sequence[str], **kwargs: object) -> CommandResult:
-        del kwargs
         command = tuple(argv)
         self.commands.append(command)
+        if command[-1] == "tokensflow-finalizer-private-home":
+            return CommandResult(command, "/safe", 0, "", "")
+        del kwargs
         stderr = (
             f"Error: No such object: {self.container_name}"
             if command[:3] == ("docker", "container", "inspect")
@@ -744,6 +750,8 @@ class CleanupBudgetRunner:
         timeout = kwargs.get("timeout")
         assert isinstance(timeout, (int, float))
         self.timeouts.append(float(timeout))
+        if command[-1] == "tokensflow-finalizer-private-home":
+            return CommandResult(command, "/safe", 0, "", "")
         if command[:3] == ("docker", "rm", "-f"):
             return CommandResult(command, "/safe", 1, "", "removal failed")
         if command[:3] == ("docker", "container", "inspect"):
@@ -756,12 +764,70 @@ def test_force_cleanup_commands_share_one_total_timeout_budget(tmp_path: Path) -
     job = _register(store, key="cleanup-command-budget")
     (tmp_path / job.runtime_path / "root-home").mkdir(parents=True)
     runner = CleanupBudgetRunner(job.container_name)
-    monotonic_times = iter((0.0, 0.0, 20.0))
+    monotonic_times = iter((0.0, 0.0, 20.0, 20.0))
     runtime = DockerFinalizationRuntime(tmp_path, runner=runner, monotonic=lambda: next(monotonic_times))
 
     assert runtime.cleanup(job, graceful=False) is True
 
-    assert runner.timeouts == [30.0, 10.0]
+    assert runner.timeouts == [30.0, 10.0, 10.0]
+
+
+class TimedOutCleanupRunner:
+    def __init__(self, container_name: str) -> None:
+        self.container_name = container_name
+        self.commands: list[tuple[str, ...]] = []
+        self.inspections = iter(("running", "exited"))
+        self.removal_attempts = 0
+
+    def run(self, argv: Sequence[str], **kwargs: object) -> CommandResult:
+        del kwargs
+        command = tuple(argv)
+        self.commands.append(command)
+        if command[-1] == "tokensflow-finalizer-private-home":
+            return CommandResult(command, "/safe", 0, "", "")
+        if command[:3] == ("docker", "rm", "-f"):
+            self.removal_attempts += 1
+            if self.removal_attempts == 1:
+                result = CommandResult(command, "/safe", 124, "", "timed out")
+                raise CommandTimedOut("timed out", result)
+            return CommandResult(command, "/safe", 0, "", "")
+        if command[:3] == ("docker", "container", "inspect"):
+            return CommandResult(command, "/safe", 0, next(self.inspections), "")
+        raise AssertionError(f"unexpected command: {command!r}")
+
+
+def test_force_cleanup_waits_for_timed_out_docker_removal_to_settle(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    job = _register(store, key="cleanup-timeout-settle")
+    (tmp_path / job.runtime_path / "root-home").mkdir(parents=True)
+    runner = TimedOutCleanupRunner(job.container_name)
+    now = 0.0
+
+    def monotonic() -> float:
+        return now
+
+    def sleeper(seconds: float) -> None:
+        nonlocal now
+        now += seconds
+
+    runtime = DockerFinalizationRuntime(tmp_path, runner=runner, monotonic=monotonic, sleeper=sleeper)
+
+    assert runtime.cleanup(job, graceful=False) is True
+    assert runner.commands == [
+        (
+            "docker",
+            "exec",
+            job.container_name,
+            "/bin/sh",
+            "-c",
+            'find /root /workspace /runtime -xdev \\( -type d -o -type f \\) -exec chmod a+rwX -- "{}" +',
+            "tokensflow-finalizer-private-home",
+        ),
+        ("docker", "rm", "-f", job.container_name),
+        ("docker", "container", "inspect", "--format={{.State.Status}}", job.container_name),
+        ("docker", "container", "inspect", "--format={{.State.Status}}", job.container_name),
+        ("docker", "rm", "-f", job.container_name),
+    ]
 
 
 def test_finalizer_cleanup_removes_tokensflow_binary_snapshot_with_wrapper(tmp_path: Path) -> None:
@@ -782,6 +848,7 @@ def test_finalizer_cleanup_removes_tokensflow_binary_snapshot_with_wrapper(tmp_p
     assert runtime.cleanup(job, graceful=False) is True
 
     assert not control.exists()
+    assert not (runtime_path / "root-home").exists()
 
 
 def test_restart_after_queue_pass_and_container_removal_finishes_idempotent_cleanup(tmp_path: Path) -> None:
@@ -810,6 +877,29 @@ def test_restart_after_queue_pass_and_container_removal_finishes_idempotent_clea
     assert persisted.state is FinalizationState.PASSED
     assert persisted.queue_passed is True
     assert not private_home.exists()
+    assert ("docker", "container", "inspect", job.container_name) in runner.commands
+
+
+class MissingRuntimeAbsentContainerRunner(AbsentContainerRunner):
+    def __init__(self, container_name: str, expected_cwd: Path) -> None:
+        super().__init__(container_name)
+        self.expected_cwd = expected_cwd
+
+    def run(self, argv: Sequence[str], **kwargs: object) -> CommandResult:
+        assert kwargs["cwd"] == self.expected_cwd
+        return super().run(argv, **kwargs)
+
+
+def test_cleanup_finishes_when_container_and_runtime_are_already_absent(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    job = _register(store, key="missing-runtime-and-container")
+    runtime_path = tmp_path / job.runtime_path
+    assert not runtime_path.exists()
+    runner = MissingRuntimeAbsentContainerRunner(job.container_name, tmp_path)
+    runtime = DockerFinalizationRuntime(tmp_path, runner=runner)
+
+    assert runtime.cleanup(job, graceful=False) is True
+    assert not runtime_path.exists()
     assert ("docker", "container", "inspect", job.container_name) in runner.commands
 
 

@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import FrameType
-from typing import TYPE_CHECKING, Annotated, Any, Protocol, cast
+from typing import TYPE_CHECKING, Annotated, Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -18,9 +18,9 @@ from urllib.request import Request, urlopen
 import typer
 from pydantic import ValidationError
 
-from powercontext_eval.benchmarks.swebench_pro.catalog import PUBLIC_V2_TASK_SET, SweBenchProCatalog, TaskSet
+from powercontext_eval.benchmarks.swebench_pro.catalog import SweBenchProCatalog
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT
-from powercontext_eval.powercontext_sut import DEFAULT_DOCKER_NETWORK_POOL, run_codex_contract_smoke
+from powercontext_eval.powercontext_sut import run_codex_contract_smoke
 from powercontext_eval.runner import RunConfig, run_swebench_pro_instance
 from powercontext_eval.web.batches import BatchCreate
 
@@ -95,27 +95,12 @@ def web(root_path: Annotated[Path | None, typer.Option("--root")] = None) -> Non
 def worker(root_path: Annotated[Path | None, typer.Option("--root")] = None) -> None:
     """Run queued task pairs at configured parallelism until shutdown is requested."""
     from powercontext_eval.web.store import TaskStore
-    from powercontext_eval.web.usage import CodexUsageProbe
     from powercontext_eval.web.worker import EvaluationWorker
 
     config = _web_config(root_path)
-    store = TaskStore(
-        config.database_path,
-        lease_duration=timedelta(seconds=config.lease_seconds),
-        max_attempts=config.max_attempts,
-    )
+    store = TaskStore(config.database_path, lease_duration=timedelta(seconds=config.lease_seconds))
     store.initialize()
-    service = EvaluationWorker(
-        config,
-        store,
-        usage_probe=CodexUsageProbe(
-            codex_binary=config.codex_binary,
-            auth_json=config.auth_json,
-            codex_config=config.codex_config,
-            proxy_url=config.proxy_url,
-            timeout_seconds=config.usage_probe_timeout_seconds,
-        ),
-    )
+    service = EvaluationWorker(config, store)
     with _worker_signal_handlers(service):
         service.run_forever()
 
@@ -156,68 +141,47 @@ def codex_contract_smoke(
 
 @swebench_pro_app.command("run")
 def swebench_pro_run(
-    root_path: str = typer.Option(..., "--root"),
-    powercontext_source: str | None = typer.Option(None),
+    root_path: str = typer.Option("/data/powercontext-eval", "--root"),
+    powercontext_source: str = typer.Option("/data/powercontext-eval/source/powercontext.git"),
     powercontext_ref: str = typer.Option("latest"),
-    harness_root: str | None = typer.Option(None),
-    harness_python: str | None = typer.Option(None),
-    dataset_path: str | None = typer.Option(None),
+    harness_root: str = typer.Option("/data/powercontext-eval/cache/swebench-pro.git"),
+    harness_python: str = typer.Option("/data/powercontext-eval/venvs/swebench-pro-ca10a60/bin/python"),
+    dataset_path: str = typer.Option(
+        "/data/powercontext-eval/cache/swebench-pro.git/helper_code/sweap_eval_full_v2.jsonl"
+    ),
     instance_id: str = typer.Option(...),
-    codex_bin: str | None = typer.Option(None),
-    tokensflow_enabled: bool = typer.Option(False, "--tokensflow/--no-tokensflow"),
-    tokensflow_bin: str | None = typer.Option(None),
-    tokensflow_user_home: str | None = typer.Option(None),
-    tokensflow_egress_network: str | None = typer.Option(None),
-    uv_bin: str | None = typer.Option(None),
-    registry_bin: str | None = typer.Option(None),
-    auth_json: str | None = typer.Option(None),
-    proxy_url: str | None = typer.Option(None),
-    docker_network_pool: str = typer.Option(DEFAULT_DOCKER_NETWORK_POOL),
-    extra_no_proxy_hosts: str = typer.Option(""),
+    codex_bin: str = typer.Option("/data/powercontext-eval/bin/codex"),
+    tokensflow_bin: str = typer.Option("/data/powercontext-eval/bin/tokensflow"),
+    tokensflow_user_home: str = typer.Option("/data/powercontext-eval/tokensflow-home"),
+    tokensflow_egress_network: str = typer.Option(...),
+    uv_bin: str = typer.Option("/data/powercontext-eval/bin/uv"),
+    registry_bin: str = typer.Option("/data/powercontext-eval/bin/regctl"),
+    auth_json: str = typer.Option("/data/powercontext-eval/codex-home/auth.json"),
+    proxy_url: str = typer.Option("http://127.0.0.1:7890"),
     model: str = typer.Option(DEFAULT_CODEX_MODEL, "--model"),
     reasoning_effort: str = typer.Option(DEFAULT_REASONING_EFFORT, "--reasoning-effort"),
     run_id: str | None = typer.Option(None),
 ) -> None:
     """Run Gold, PowerContext OFF/ON, official grading, and report generation."""
 
-    root = Path(root_path)
-    harness = Path(harness_root) if harness_root is not None else root / "cache" / "swebench-pro.git"
-    dataset = Path(dataset_path) if dataset_path is not None else harness / "helper_code" / "sweap_eval_full_v2.jsonl"
-    binaries = root / "bin"
+    from pathlib import Path
 
-    catalog = SweBenchProCatalog.load(dataset)
+    catalog = SweBenchProCatalog.load(Path(dataset_path))
     result = run_swebench_pro_instance(
         RunConfig(
-            root=root,
-            powercontext_source=(
-                Path(powercontext_source) if powercontext_source is not None else root / "source" / "powercontext.git"
-            ),
+            root=Path(root_path),
+            powercontext_source=Path(powercontext_source),
             powercontext_ref=powercontext_ref,
-            harness_root=harness,
-            harness_python=(
-                Path(harness_python)
-                if harness_python is not None
-                else root / "venvs" / "swebench-pro" / "bin" / "python"
-            ),
-            codex_binary=Path(codex_bin) if codex_bin is not None else binaries / "codex",
-            tokensflow_enabled=tokensflow_enabled,
-            tokensflow_binary=(
-                Path(tokensflow_bin)
-                if tokensflow_bin is not None
-                else (binaries / "tokensflow" if tokensflow_enabled else None)
-            ),
-            tokensflow_user_home=(
-                Path(tokensflow_user_home)
-                if tokensflow_user_home is not None
-                else (root / "tokensflow-home" if tokensflow_enabled else None)
-            ),
+            harness_root=Path(harness_root),
+            harness_python=Path(harness_python),
+            codex_binary=Path(codex_bin),
+            tokensflow_binary=Path(tokensflow_bin),
+            tokensflow_user_home=Path(tokensflow_user_home),
             tokensflow_egress_network=tokensflow_egress_network,
-            uv_binary=Path(uv_bin) if uv_bin is not None else binaries / "uv",
-            registry_binary=Path(registry_bin) if registry_bin is not None else binaries / "regctl",
-            auth_json=Path(auth_json) if auth_json is not None else root / "codex-home" / "auth.json",
+            uv_binary=Path(uv_bin),
+            registry_binary=Path(registry_bin),
+            auth_json=Path(auth_json),
             proxy_url=proxy_url,
-            docker_network_pool=docker_network_pool,
-            extra_no_proxy_hosts=tuple(host for host in extra_no_proxy_hosts.split(",") if host),
             run_id=run_id or datetime.now(UTC).strftime("run-%Y%m%d-%H%M%S"),
             model=model,
             reasoning_effort=reasoning_effort,
@@ -242,7 +206,6 @@ def swebench_pro_create_batch(
     idempotency_key: str = typer.Option(..., "--idempotency-key"),
     console_url: str = typer.Option("http://127.0.0.1:8787", "--console-url"),
     powercontext_ref: str = typer.Option("latest", "--powercontext-ref"),
-    task_set: str = typer.Option(PUBLIC_V2_TASK_SET, "--task-set"),
     model: str = typer.Option(DEFAULT_CODEX_MODEL, "--model"),
     usage_pause_percent: int = typer.Option(80, "--usage-pause-percent", min=1, max=100),
     start_paused: bool = typer.Option(False, "--start-paused/--start-running"),
@@ -254,7 +217,7 @@ def swebench_pro_create_batch(
         batch = BatchCreate(
             powercontext_ref=powercontext_ref,
             benchmark="swebench-pro",
-            task_set=cast(TaskSet, task_set),
+            task_set="swebench-pro-public-v2",
             model=model,
             reasoning_effort=DEFAULT_REASONING_EFFORT,
             treatment_mode="off_on",

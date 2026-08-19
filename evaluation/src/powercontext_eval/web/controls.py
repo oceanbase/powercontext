@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from powercontext_eval.benchmarks.swebench_pro.catalog import PUBLIC_V2_TASK_SET, TaskSet
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, is_safe_codex_model
 from powercontext_eval.models import PowerContextRef
 from powercontext_eval.web.models import TaskStatus
@@ -42,10 +41,9 @@ class BatchPauseReason(StrEnum):
 
 
 class BatchPreviewRequest(_FrozenModel):
-    """Inputs required to preview one pinned task set before confirmation."""
+    """Inputs required to preview a full public-v2 run before confirmation."""
 
     powercontext_ref: str
-    task_set: TaskSet = PUBLIC_V2_TASK_SET
     model: str = DEFAULT_CODEX_MODEL
     usage_pause_percent: Annotated[int, Field(ge=1, le=100)] = 80
 

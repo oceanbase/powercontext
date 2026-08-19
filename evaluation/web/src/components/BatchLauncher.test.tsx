@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -24,18 +24,6 @@ function preview(overrides: Record<string, unknown> = {}) {
 }
 
 describe("BatchLauncher", () => {
-  it("shows API-key accounting without a subscription usage snapshot", async () => {
-    const user = userEvent.setup();
-    const previewBatch = vi.fn().mockResolvedValue(preview({ usage: null }));
-    render(<BatchLauncher api={apiStub({ previewBatch })} onCreated={() => undefined} />);
-
-    await user.click(screen.getByRole("button", { name: "预览评测" }));
-
-    expect(await screen.findByText("API Key 计费")).toBeVisible();
-    expect(screen.getByText("不适用")).toBeVisible();
-    expect(screen.getByText("不采集订阅用量")).toBeVisible();
-  });
-
   it("previews without creating work, then confirms the exact fixed batch", async () => {
     const user = userEvent.setup();
     const previewBatch = vi.fn().mockResolvedValue(preview());
@@ -47,12 +35,7 @@ describe("BatchLauncher", () => {
     await user.click(screen.getByRole("button", { name: "预览评测" }));
 
     expect(previewBatch).toHaveBeenCalledWith(
-      {
-        powercontext_ref: "latest",
-        task_set: "swebench-pro-public-v2",
-        model: "gpt-5.6-sol",
-        usage_pause_percent: 80,
-      },
+      { powercontext_ref: "latest", model: "gpt-5.6-sol", usage_pause_percent: 80 },
       expect.any(AbortSignal),
     );
     expect(createBatch).not.toHaveBeenCalled();
@@ -108,12 +91,7 @@ describe("BatchLauncher", () => {
     await user.click(screen.getByRole("button", { name: "预览评测" }));
 
     expect(previewBatch).toHaveBeenCalledWith(
-      {
-        powercontext_ref: "latest",
-        task_set: "swebench-pro-public-v2",
-        model: "gpt-5.6-luna",
-        usage_pause_percent: 80,
-      },
+      { powercontext_ref: "latest", model: "gpt-5.6-luna", usage_pause_percent: 80 },
       expect.any(AbortSignal),
     );
     await user.click(await screen.findByRole("button", { name: "确认并开始评测" }));
@@ -123,40 +101,12 @@ describe("BatchLauncher", () => {
     ));
   });
 
-  it("previews and creates the pinned 24-task stability suite", async () => {
-    const user = userEvent.setup();
-    const previewBatch = vi.fn().mockResolvedValue(
-      preview({ task_set: "swebench-pro-stability-v1", total_tasks: 24 }),
-    );
-    const createBatch = vi.fn().mockResolvedValue(
-      batchRecord({
-        total_tasks: 24,
-        request: { ...batchRecord().request, task_set: "swebench-pro-stability-v1" },
-      }),
-    );
-    render(<BatchLauncher api={apiStub({ previewBatch, createBatch })} onCreated={() => undefined} />);
-
-    await user.selectOptions(screen.getByRole("combobox", { name: "任务集" }), "swebench-pro-stability-v1");
-    await user.click(screen.getByRole("button", { name: "预览评测" }));
-
-    expect(previewBatch).toHaveBeenCalledWith(
-      expect.objectContaining({ task_set: "swebench-pro-stability-v1" }),
-      expect.any(AbortSignal),
-    );
-    expect(await screen.findByText("24 个基准任务")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "确认并开始评测" }));
-    await waitFor(() => expect(createBatch).toHaveBeenCalledWith(
-      expect.objectContaining({ task_set: "swebench-pro-stability-v1" }),
-      expect.any(AbortSignal),
-    ));
-  });
-
   it("only offers models published by runtime capabilities", async () => {
     render(<BatchLauncher api={apiStub()} onCreated={() => undefined} />);
 
     const model = await screen.findByRole("combobox", { name: "Codex 模型" });
     expect(model).toHaveValue("gpt-5.6-sol");
-    expect(within(model).getAllByRole("option").map((option) => option.textContent)).toEqual(["gpt-5.6-sol"]);
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["gpt-5.6-sol"]);
   });
 
   it("creates a batch already paused when the operator selects the atomic pause option", async () => {

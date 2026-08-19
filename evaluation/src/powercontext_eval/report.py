@@ -13,7 +13,6 @@ from pydantic_core import PydanticSerializationError
 
 from powercontext_eval.artifacts import ArmState
 from powercontext_eval.benchmarks.swebench_pro.gold_overrides import (
-    OFFICIAL_EVALUATION_DIRECT,
     OFFICIAL_EVALUATION_DOCKER_PROXY,
     OFFICIAL_EVALUATION_PROXY_BYPASSED,
     SOURCE559_DATASET_PATCH_SHA256,
@@ -104,7 +103,7 @@ class GoldValidationAudit(BaseModel):
     dataset_patch_status: Literal["unverified", "known_failed"]
     reference_validation_status: Literal["not_applicable", "passed"]
     attempt_gold_validation_status: Literal["pending", "passed", "failed"]
-    official_evaluation_transport: Literal["direct", "docker_proxy", "proxy_bypassed_for_test_isolation"] = (
+    official_evaluation_transport: Literal["docker_proxy", "proxy_bypassed_for_test_isolation"] = (
         OFFICIAL_EVALUATION_DOCKER_PROXY
     )
     official_evaluation_test_selection: Literal[
@@ -119,11 +118,8 @@ class GoldValidationAudit(BaseModel):
     @model_validator(mode="after")
     def validate_provenance(self) -> Self:
         if self.mode == "dataset_patch":
-            if self.official_evaluation_transport not in {
-                OFFICIAL_EVALUATION_DIRECT,
-                OFFICIAL_EVALUATION_DOCKER_PROXY,
-            }:
-                raise ValueError("Dataset Gold validation transport is invalid")
+            if self.official_evaluation_transport != OFFICIAL_EVALUATION_DOCKER_PROXY:
+                raise ValueError("Dataset Gold validation must use the Docker proxy transport")
             if self.validation_patch_sha256 != self.dataset_patch_sha256:
                 raise ValueError("Dataset Gold validation must use the dataset patch")
             if self.dataset_patch_status != "unverified" or self.reference_validation_status != "not_applicable":
@@ -143,10 +139,7 @@ class GoldValidationAudit(BaseModel):
             elif self.official_evaluation_test_selection != "dataset_selected_files":
                 raise ValueError("Official test-selection correction is not valid for this instance")
         else:
-            if self.official_evaluation_transport not in {
-                OFFICIAL_EVALUATION_DIRECT,
-                OFFICIAL_EVALUATION_PROXY_BYPASSED,
-            }:
+            if self.official_evaluation_transport != OFFICIAL_EVALUATION_PROXY_BYPASSED:
                 raise ValueError("Gold override validation requires the audited proxy bypass")
             if self.official_evaluation_test_selection != "dataset_selected_files":
                 raise ValueError("Gold override validation must retain the dataset test selection")

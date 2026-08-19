@@ -252,7 +252,7 @@ def test_generation_readiness_probe_uses_one_bounded_text_request() -> None:
 
     asyncio.run(probe_pydantic_ai_model(FunctionModel(respond), timeout_seconds=1))
 
-    assert observed_max_tokens == [1]
+    assert observed_max_tokens == [16]
 
 
 def test_generation_readiness_probe_maps_bad_provider_endpoint_without_leaking_body() -> None:

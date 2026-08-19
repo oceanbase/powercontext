@@ -211,6 +211,25 @@ def test_recall_records_exact_injected_context_only_when_eval_trace_is_enabled(
     assert stat.S_IMODE(trace.stat().st_mode) == 0o600
 
 
+def test_evaluation_recall_query_includes_the_required_seeded_memory(
+    recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    required_memory = "Preserve compatibility-visible identifiers and run unchanged official tests."
+    required_path = tmp_path / "evaluation-required-memory.txt"
+    required_path.write_text(required_memory)
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path))
+    monkeypatch.setenv("POWERCONTEXT_EVAL_REQUIRED_MEMORY_PATH", str(required_path))
+    prompt = "current task " * 1_000
+
+    query = recall_module._evaluation_recall_query(prompt, "eval:run-1:on")
+
+    assert query.startswith(required_memory + "\n\nCurrent task:\n")
+    assert len(query) == 8_192
+    assert recall_module._evaluation_recall_query(prompt, "project:test") == prompt
+
+
 def test_recall_does_not_write_an_evaluation_trace_by_default(
     recall_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
