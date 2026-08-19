@@ -2690,25 +2690,19 @@ body {
   background: var(--pc-code);
 }
 
-.article-content .md-typeset div.highlight::before,
-.record-content .md-typeset div.highlight::before {
-  display: block;
-  min-height: 36px;
-  border-bottom: 1px solid var(--pc-code-border);
-  background: color-mix(in srgb, var(--pc-code) 78%, var(--pc-blue-700));
-  content: "";
-}
-
 .article-content .md-typeset pre,
 .record-content .md-typeset pre {
   margin: 0;
   background: var(--pc-code);
-  padding: 20px;
+  padding: 20px 48px 20px 20px;
 }
 
 .article-content .md-typeset pre > code,
 .record-content .md-typeset pre > code {
+  border: 0;
+  border-radius: 0;
   background: transparent;
+  box-shadow: none;
   color: var(--pc-code-text);
   font-size: 12px;
   line-height: 1.8;
