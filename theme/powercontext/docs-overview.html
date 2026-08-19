@@ -1,0 +1,19 @@
+{% extends "main.html" %}
+
+{% block content %}
+  <h1>{{ page.title }}</h1>
+  <p>{{ page.meta["overview"]["intro"] }}</p>
+  {% for section in page.meta["overview"]["sections"] %}
+    <h2>{{ section["title"] }}</h2>
+    <p>{{ section["description"] }}</p>
+    <div class="pc-card-grid">
+      {% for card in section["cards"] %}
+        <a class="pc-card" href="{{ card['href'] | url }}">
+          <strong>{{ card["title"] }}</strong>
+          <span>{{ card["description"] }}</span>
+          <i aria-hidden="true">→</i>
+        </a>
+      {% endfor %}
+    </div>
+  {% endfor %}
+{% endblock %}

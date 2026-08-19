@@ -1,43 +1,5 @@
 {% extends "main.html" %}
 
-{% set canonical = page.canonical_url | string %}
-{% set is_zh = "/zh/" in canonical %}
-{% if is_zh %}
-  {% set hero_label = "开源 · 项目级 · 本地运行" %}
-  {% set hero_title_first = "让项目上下文" %}
-  {% set hero_title_second = "留得住。" %}
-  {% set hero_lead = "PowerContext 让下一次 Agent 会话恢复决定、结果、当前状态和下一步，不再依赖聊天记录。" %}
-  {% set hero_note = "支持 Codex、DeepSeek Harness、Python、HTTP 和 MCP。" %}
-  {% set primary_label = "开始使用" %}
-  {% set secondary_label = "查看 GitHub" %}
-  {% set continuity_label = "跨越会话" %}
-  {% set continuity_title = "从上次停下的地方继续。" %}
-  {% set continuity_lead = "PowerContext 把项目 Memory 放在对话之外。集成层会在下一轮开始前准备相关上下文。" %}
-  {% set ownership_label = "默认本地" %}
-  {% set ownership_title_first = "让工作留在" %}
-  {% set ownership_title_second = "它所在的地方。" %}
-  {% set ownership_lead = "用 SQLite 本地运行 Server。Codex、DeepSeek Harness、CLI、Python、HTTP 和 MCP 访问同一份持久化 Memory。" %}
-  {% set ownership_cta = "阅读快速入门" %}
-  {% set ownership_link = "浏览文档" %}
-{% else %}
-  {% set hero_label = "Open source · Project-scoped · Runs locally" %}
-  {% set hero_title_first = "Project context" %}
-  {% set hero_title_second = "that lasts." %}
-  {% set hero_lead = "PowerContext lets a later agent session recover decisions, outcomes, current state, and next steps without relying on chat history." %}
-  {% set hero_note = "Connect through Codex, DeepSeek Harness, Python, HTTP, or MCP." %}
-  {% set primary_label = "Get started" %}
-  {% set secondary_label = "View on GitHub" %}
-  {% set continuity_label = "Across sessions" %}
-  {% set continuity_title = "Pick up the project where you left it." %}
-  {% set continuity_lead = "PowerContext stores project Memory outside the conversation. Integrations prepare relevant context before the next turn." %}
-  {% set ownership_label = "Local by default" %}
-  {% set ownership_title_first = "Run it where" %}
-  {% set ownership_title_second = "your work lives." %}
-  {% set ownership_lead = "Run the Server locally with SQLite. Codex, DeepSeek Harness, the CLI, Python, HTTP, and MCP use the same persistent Memory." %}
-  {% set ownership_cta = "Read the quickstart" %}
-  {% set ownership_link = "Explore documentation" %}
-{% endif %}
-
 {% block htmltitle %}<title>{{ config.site_name }}</title>{% endblock %}
 
 {% block scripts %}
@@ -60,33 +22,34 @@
         <div class="hero-inner shell">
           <div class="hero-composition">
             <div class="hero-copy">
-              <p class="hero-label">{{ hero_label }}</p>
-              <h1 id="hero-title">{{ hero_title_first }}<br>{{ hero_title_second }}</h1>
-              <p class="hero-lead">{{ hero_lead }}</p>
+              <p class="hero-label">{{ page.meta["home"]["hero"]["label"] }}</p>
+              <h1 id="hero-title">{% for line in page.meta["home"]["hero"]["title"] %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h1>
+              <p class="hero-lead">{{ page.meta["home"]["hero"]["lead"] }}</p>
               <div class="hero-actions">
-                <a class="primary-button large" href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ primary_label }}</a>
-                <a class="quiet-button large" href="https://github.com/oceanbase/powercontext">{{ secondary_label }}</a>
+                {% for action in page.meta["home"]["hero"]["actions"] %}
+                  <a class="{{ 'primary-button' if action['kind'] == 'primary' else 'quiet-button' }} large" href="{{ action['href'] | url }}">{{ action["label"] }}</a>
+                {% endfor %}
               </div>
             </div>
             <div class="hero-kv" data-pc-spiral aria-hidden="true">
               <canvas data-pc-spiral-canvas></canvas>
             </div>
           </div>
-          <p class="hero-note">{{ hero_note }}</p>
+          <p class="hero-note">{{ page.meta["home"]["hero"]["note"] }}</p>
         </div>
       </section>
 
       <section class="continuity-section" aria-labelledby="continuity-title">
         <div class="shell">
           <div class="continuity-intro">
-            <p class="section-label">{{ continuity_label }}</p>
-            <h2 id="continuity-title">{{ continuity_title }}</h2>
-            <p>{{ continuity_lead }}</p>
+            <p class="section-label">{{ page.meta["home"]["continuity"]["label"] }}</p>
+            <h2 id="continuity-title">{{ page.meta["home"]["continuity"]["title"] }}</h2>
+            <p>{{ page.meta["home"]["continuity"]["lead"] }}</p>
           </div>
           <ol class="continuity-flow">
-            <li><span>01</span><h3>{{ "Capture" if not is_zh else "采集" }}</h3><p>{{ "Record prompts as Source evidence while a host session runs." if not is_zh else "在宿主会话运行时，把提示词记录为 Source 证据。" }}</p></li>
-            <li><span>02</span><h3>{{ "Maintain" if not is_zh else "维护" }}</h3><p>{{ "Remember, search, revise, retire, and audit project Memory." if not is_zh else "记录、搜索、修订、停用并审计项目 Memory。" }}</p></li>
-            <li><span>03</span><h3>{{ "Recall" if not is_zh else "恢复" }}</h3><p>{{ "Prepare bounded context for a later session in the same project." if not is_zh else "为同一项目的下一次会话准备有边界的上下文。" }}</p></li>
+            {% for step in page.meta["home"]["continuity"]["steps"] %}
+              <li><span>0{{ loop.index }}</span><h3>{{ step["title"] }}</h3><p>{{ step["description"] }}</p></li>
+            {% endfor %}
           </ol>
         </div>
       </section>
@@ -94,15 +57,15 @@
       <section class="ownership-section" aria-labelledby="ownership-title">
         <div class="ownership-grid shell">
           <div>
-            <p class="section-label">{{ ownership_label }}</p>
-            <h2 id="ownership-title">{{ ownership_title_first }}<br>{{ ownership_title_second }}</h2>
+            <p class="section-label">{{ page.meta["home"]["ownership"]["label"] }}</p>
+            <h2 id="ownership-title">{% for line in page.meta["home"]["ownership"]["title"] %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h2>
           </div>
           <div class="ownership-copy">
-            <p>{{ ownership_lead }}</p>
-            <div class="command-block"><code><span>$</span> powercontext server run</code></div>
+            <p>{{ page.meta["home"]["ownership"]["lead"] }}</p>
+            <div class="command-block"><code><span>$</span> {{ page.meta["home"]["ownership"]["command"] }}</code></div>
             <div class="ownership-actions">
-              <a class="primary-button large" href="{{ ('zh/docs/tutorials/codex-quickstart/' if is_zh else 'en/docs/tutorials/codex-quickstart/') | url }}">{{ ownership_cta }}</a>
-              <a class="text-link" href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ ownership_link }} <span aria-hidden="true">→</span></a>
+              <a class="primary-button large" href="{{ page.meta['home']['ownership']['primary_action']['href'] | url }}">{{ page.meta["home"]["ownership"]["primary_action"]["label"] }}</a>
+              <a class="text-link" href="{{ page.meta['home']['ownership']['secondary_action']['href'] | url }}">{{ page.meta["home"]["ownership"]["secondary_action"]["label"] }} <span aria-hidden="true">→</span></a>
             </div>
           </div>
         </div>

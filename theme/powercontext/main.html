@@ -81,6 +81,7 @@
       {% include "partials/path.html" %}
     {% endif %}
     <article class="md-content__inner md-typeset{% if is_record %} record-body{% endif %}">
+      {% block content %}
       {% if is_docs and page_type.value != "docs-overview" and not is_reference %}
         <div class="article-kind">
           {% if is_tutorial %}{{ "教程" if is_zh else "Tutorial" }}
@@ -104,6 +105,7 @@
         </header>
       {% endif %}
       {% include "partials/content.html" %}
+      {% endblock %}
     </article>
   </div>
 {% endblock %}
