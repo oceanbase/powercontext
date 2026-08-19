@@ -3162,19 +3162,18 @@ body {
 
   .md-main__inner:has(.docs-content) > .pc-page-sidebar--navigation,
   .md-main__inner:has(.docs-content) > .pc-page-sidebar--toc {
-    position: relative;
-    top: auto;
-    align-self: stretch;
-    height: auto;
-    max-height: none;
+    position: sticky;
+    top: 96px;
+    align-self: start;
+    height: calc(100vh - 112px);
+    max-height: calc(100vh - 112px);
   }
 
   .md-main__inner:has(.docs-content) > .pc-page-sidebar--navigation .md-sidebar__scrollwrap,
   .md-main__inner:has(.docs-content) > .pc-page-sidebar--toc .md-sidebar__scrollwrap {
-    position: sticky;
+    position: static;
     inset: auto;
-    top: 96px;
-    max-height: calc(100vh - 112px);
+    max-height: 100%;
     overflow-y: auto;
   }
 }
