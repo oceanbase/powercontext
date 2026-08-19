@@ -321,8 +321,8 @@
 
 .md-nav__item .md-nav__link--active,
 .md-nav__item--active > .md-nav__link {
-  background: transparent !important;
-  border-radius: 0 !important;
+  background: transparent;
+  border-radius: 0;
   color: var(--pc-accent);
   font-weight: 650;
   position: relative;
@@ -410,7 +410,7 @@
 }
 
 .pc-footer__nav a {
-  color: var(--pc-header-muted) !important;
+  color: var(--pc-header-muted);
   font-size: 13px;
   text-decoration: none;
 }
@@ -428,7 +428,7 @@
 
 .pc-footer__copyright,
 .pc-footer__copyright a {
-  color: var(--pc-header-muted) !important;
+  color: var(--pc-header-muted);
   font-size: 12px;
 }
 
@@ -2545,7 +2545,7 @@ body {
 }
 
 .docs-overview .md-typeset > h1 {
-  max-width: none;
+  max-width: 730px;
   margin: 56px 0 0;
   font-size: clamp(40px, 4vw, 52px);
   font-weight: 550;
@@ -2666,9 +2666,22 @@ body {
   padding: 2px 5px;
 }
 
-.article-content .md-typeset .highlight,
+.article-content .doc-heading code.highlight,
+.article-content .doc-heading code.highlight span {
+  color: var(--pc-ink);
+}
+
+.article-content .doc-heading code.highlight {
+  display: inline;
+  margin: 0;
+  border: 0;
+  background: var(--pc-blue-50);
+  padding: 2px 5px;
+}
+
+.article-content .md-typeset div.highlight,
 .article-content .md-typeset .highlighttable,
-.record-content .md-typeset .highlight,
+.record-content .md-typeset div.highlight,
 .record-content .md-typeset .highlighttable {
   overflow: hidden;
   margin: 20px 0 0;
@@ -2677,8 +2690,8 @@ body {
   background: var(--pc-code);
 }
 
-.article-content .md-typeset .highlight::before,
-.record-content .md-typeset .highlight::before {
+.article-content .md-typeset div.highlight::before,
+.record-content .md-typeset div.highlight::before {
   display: block;
   min-height: 36px;
   border-bottom: 1px solid var(--pc-code-border);
@@ -3446,6 +3459,11 @@ body,
   background: var(--pc-surface);
 }
 
+body {
+  width: 100vw;
+  overflow-x: hidden;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -3524,6 +3542,14 @@ body,
 .md-typeset a.primary-button:hover,
 .md-typeset a.primary-button:focus {
   color: #fff;
+}
+
+[data-md-color-scheme="slate"] .md-typeset a.primary-button,
+[data-md-color-scheme="slate"] .md-typeset a.primary-button:hover,
+[data-md-color-scheme="slate"] .md-typeset a.primary-button:focus {
+  border-color: var(--pc-accent);
+  background: var(--pc-accent);
+  color: #07152b;
 }
 
 .hero-inner.shell {
