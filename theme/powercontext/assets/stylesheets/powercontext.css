@@ -2124,6 +2124,16 @@ body {
   font-size: 12px;
 }
 
+@media screen and (min-width: 1121px) {
+  body:has(.record-content) .md-footer__inner {
+    margin-left: calc(
+      (100% - min(var(--pc-wide), 100% - 48px)) / 2
+      + (min(var(--pc-wide), 100% - 48px) - 988px) / 2
+    );
+    margin-right: 0;
+  }
+}
+
 .md-main__inner:has(.pc-listing) {
   display: block;
   max-width: var(--pc-wide);
