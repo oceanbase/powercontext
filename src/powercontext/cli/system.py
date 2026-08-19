@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from importlib.metadata import version
 from pathlib import Path
 from shutil import which
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from urllib.error import HTTPError
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 import typer
@@ -24,6 +27,9 @@ HELP_OPTION_NAMES = ("-h", "--help")
 DEFAULT_MARKETPLACE_SOURCE = "oceanbase/powercontext"
 DEFAULT_MARKETPLACE_REF = "master"
 PLUGIN_NAME = "powercontext"
+CLAUDE_MARKETPLACE_NAME = "powercontext"
+_GITHUB_REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$")
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 setup_app = typer.Typer(
     name="setup",
@@ -45,6 +51,10 @@ class SetupError(RuntimeError):
     @classmethod
     def codex_unavailable(cls) -> SetupError:
         return cls("Codex CLI is not installed or is not on PATH.")
+
+    @classmethod
+    def claude_unavailable(cls) -> SetupError:
+        return cls("Claude Code CLI is not installed or is not on PATH.")
 
     @classmethod
     def dsh_unavailable(cls) -> SetupError:
@@ -84,7 +94,35 @@ class SetupError(RuntimeError):
 
     @classmethod
     def missing_result(cls, name: str) -> SetupError:
-        return cls(f"Codex did not return {name}")
+        return cls(f"Integration CLI did not return {name}")
+
+    @classmethod
+    def claude_plugin_not_enabled(cls) -> SetupError:
+        return cls("Claude Code did not report an enabled PowerContext plugin after installation.")
+
+    @classmethod
+    def claude_marketplace_source_mismatch(cls, requested: str, existing: str) -> SetupError:
+        return cls(
+            f"Claude Code marketplace `{CLAUDE_MARKETPLACE_NAME}` uses {existing}, "
+            f"but setup requested {requested}. Remove it with "
+            f"`claude plugin marketplace remove {CLAUDE_MARKETPLACE_NAME} --scope user`, then rerun setup."
+        )
+
+    @classmethod
+    def claude_server_url_credentials(cls) -> SetupError:
+        return cls("PowerContext Server URL must not contain credentials.")
+
+    @classmethod
+    def claude_server_url_scheme(cls) -> SetupError:
+        return cls("PowerContext Server URL must use HTTP or HTTPS.")
+
+    @classmethod
+    def claude_server_url_suffix(cls) -> SetupError:
+        return cls("PowerContext Server URL must not contain a query or fragment.")
+
+    @classmethod
+    def claude_server_url_transport(cls) -> SetupError:
+        return cls("Unencrypted PowerContext Server URLs must be loopback addresses.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +130,16 @@ class CodexSetupResult:
     marketplace: str
     plugin: str
     plugin_version: str
+    data_dir: str
+
+
+@dataclass(frozen=True, slots=True)
+class ClaudeCodeSetupResult:
+    marketplace: str
+    plugin: str
+    plugin_version: str
+    settings_file: str
+    cache_dir: str
     data_dir: str
 
 
@@ -164,6 +212,53 @@ def setup_codex(
     typer.echo(f"Plugin: {result.plugin}@{result.marketplace} ({result.plugin_version})")
     typer.echo(f"Data directory: {result.data_dir}")
     typer.echo("Next: run `powercontext server run`, start a new Codex session, then review `/hooks`.")
+
+
+@setup_app.command("claude-code")
+def setup_claude_code(
+    source: Annotated[
+        str,
+        typer.Option(help="Claude Code marketplace Git source or local path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote marketplace source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    server_url: Annotated[
+        str,
+        typer.Option(help="PowerContext Server base URL configured for the plugin."),
+    ] = "http://127.0.0.1:8000",
+    capture_prompts: Annotated[
+        bool,
+        typer.Option(help="Capture Claude Code user prompts as ordinary Source evidence."),
+    ] = True,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install the PowerContext Claude Code plugin."""
+
+    plan = _claude_setup_plan()
+    _write_claude_setup_plan(plan)
+    try:
+        result = install_claude_code_plugin(
+            source=source,
+            ref=ref,
+            server_url=server_url,
+            capture_prompts=capture_prompts,
+        )
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext Claude Code setup complete.")
+    typer.echo(f"Plugin: {result.plugin}@{result.marketplace} ({result.plugin_version})")
+    typer.echo(f"Settings: {result.settings_file}")
+    typer.echo("Next: run `powercontext server run`, start a new Claude Code session, then review `/hooks` and `/mcp`.")
 
 
 @setup_app.command("dsh")
@@ -242,6 +337,21 @@ def doctor_codex(
         raise typer.Exit(code=1)
 
 
+@doctor_app.command("claude-code")
+def doctor_claude_code(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional Claude Code CLI and PowerContext plugin."""
+
+    diagnostics = run_claude_code_diagnostics()
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
 @doctor_app.command("dsh")
 def doctor_dsh(
     json_output: Annotated[
@@ -284,6 +394,89 @@ def install_codex_plugin(*, source: str, ref: str) -> CodexSetupResult:
         plugin=_required_string(plugin, "name"),
         plugin_version=_required_string(plugin, "version"),
         data_dir=str(data_dir),
+    )
+
+
+def install_claude_code_plugin(
+    *,
+    source: str,
+    ref: str,
+    server_url: str,
+    capture_prompts: bool,
+) -> ClaudeCodeSetupResult:
+    """Install and verify the plugin from one local or Git marketplace source."""
+
+    if which("claude") is None:
+        raise SetupError.claude_unavailable()
+    server_url = _normalize_claude_server_url(server_url)
+
+    marketplace_source = _normalize_claude_marketplace_source(source, ref=ref)
+    marketplaces = _run_claude_json("plugin", "marketplace", "list")
+    marketplace = _claude_marketplace(marketplaces, CLAUDE_MARKETPLACE_NAME)
+    if marketplace is not None and not _claude_marketplace_matches(marketplace, marketplace_source):
+        raise SetupError.claude_marketplace_source_mismatch(
+            marketplace_source,
+            _describe_claude_marketplace_source(marketplace),
+        )
+    marketplace_existed = marketplace is not None
+
+    plugins = _run_claude_json("plugin", "list")
+    previous_plugin = _claude_plugin(plugins)
+    plugin_existed = previous_plugin is not None
+    settings_snapshot = _snapshot_claude_settings() if plugin_existed else None
+    marketplace_added = False
+    plugin_added = False
+    try:
+        if not marketplace_existed:
+            _run_claude("plugin", "marketplace", "add", marketplace_source, "--scope", "user")
+            marketplace_added = True
+        _run_claude(
+            "plugin",
+            "install",
+            f"{PLUGIN_NAME}@{CLAUDE_MARKETPLACE_NAME}",
+            "--scope",
+            "user",
+            "--config",
+            f"server_url={server_url.rstrip('/')}",
+            "--config",
+            f"capture_prompts={str(capture_prompts).lower()}",
+        )
+        plugin_added = not plugin_existed
+        installed = _run_claude_json("plugin", "list")
+        plugin = _require_enabled_claude_plugin(installed)
+    except SetupError:
+        if plugin_added:
+            with suppress(SetupError):
+                _run_claude(
+                    "plugin",
+                    "uninstall",
+                    f"{PLUGIN_NAME}@{CLAUDE_MARKETPLACE_NAME}",
+                    "--scope",
+                    "user",
+                )
+        elif plugin_existed:
+            with suppress(OSError):
+                _restore_claude_settings(settings_snapshot)
+        if marketplace_added:
+            with suppress(SetupError):
+                _run_claude(
+                    "plugin",
+                    "marketplace",
+                    "remove",
+                    CLAUDE_MARKETPLACE_NAME,
+                    "--scope",
+                    "user",
+                )
+        raise
+
+    plan = _claude_setup_plan()
+    return ClaudeCodeSetupResult(
+        marketplace=CLAUDE_MARKETPLACE_NAME,
+        plugin=PLUGIN_NAME,
+        plugin_version=_required_string(plugin, "version"),
+        settings_file=plan["settings_file"],
+        cache_dir=plan["cache_dir"],
+        data_dir=plan["data_dir"],
     )
 
 
@@ -349,6 +542,43 @@ def run_codex_diagnostics() -> dict[str, Diagnostic]:
             status=DiagnosticStatus.OK if plugin is not None else DiagnosticStatus.FAILED,
             detail=(
                 f"{plugin.get('pluginId')} enabled={plugin.get('enabled')}"
+                if plugin is not None
+                else "PowerContext plugin is not installed"
+            ),
+        ),
+    }
+
+
+def run_claude_code_diagnostics() -> dict[str, Diagnostic]:
+    """Collect diagnostics for the optional Claude Code integration."""
+
+    executable = which("claude")
+    if executable is None:
+        return {
+            "claude_code": Diagnostic(
+                status=DiagnosticStatus.FAILED,
+                detail="Claude Code CLI is not installed or is not on PATH",
+            ),
+            "plugin": Diagnostic(
+                status=DiagnosticStatus.SKIPPED,
+                detail="not checked because Claude Code CLI is unavailable",
+            ),
+        }
+    try:
+        result = _run_claude_json("plugin", "list")
+    except SetupError as error:
+        return {
+            "claude_code": Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error)),
+            "plugin": Diagnostic(status=DiagnosticStatus.SKIPPED, detail="plugin list is unavailable"),
+        }
+    plugin = _claude_plugin(result)
+    plugin_enabled = plugin is not None and plugin.get("enabled") is True
+    return {
+        "claude_code": Diagnostic(status=DiagnosticStatus.OK, detail=executable),
+        "plugin": Diagnostic(
+            status=DiagnosticStatus.OK if plugin_enabled else DiagnosticStatus.FAILED,
+            detail=(
+                f"{plugin.get('id')} enabled={plugin.get('enabled')}"
                 if plugin is not None
                 else "PowerContext plugin is not installed"
             ),
@@ -475,6 +705,139 @@ def _normalize_marketplace_source(source: str) -> tuple[str, bool]:
     return (str(candidate.resolve()), True) if is_local else (source, False)
 
 
+def _normalize_claude_marketplace_source(source: str, *, ref: str) -> str:
+    candidate = Path(source).expanduser()
+    is_local = source.startswith((".", "/", "~")) or candidate.is_absolute() or candidate.exists()
+    if is_local:
+        return str(candidate.resolve())
+    if not ref:
+        return source
+    if _GITHUB_REPOSITORY.fullmatch(source):
+        return f"{source}@{ref}"
+    return f"{source}#{ref}"
+
+
+def _normalize_claude_server_url(value: str) -> str:
+    normalized = value.strip().rstrip("/")
+    parsed = urlsplit(normalized)
+    if parsed.username is not None or parsed.password is not None:
+        raise SetupError.claude_server_url_credentials()
+    if parsed.hostname is None or parsed.scheme not in {"http", "https"}:
+        raise SetupError.claude_server_url_scheme()
+    if parsed.query or parsed.fragment:
+        raise SetupError.claude_server_url_suffix()
+    if parsed.scheme == "http" and parsed.hostname.lower() not in _LOOPBACK_HOSTS:
+        raise SetupError.claude_server_url_transport()
+    path = parsed.path.rstrip("/")
+    if path.endswith("/mcp"):
+        path = path.removesuffix("/mcp")
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", "")).rstrip("/")
+
+
+def _claude_config_dir() -> Path:
+    configured = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(configured).expanduser() if configured else Path.home() / ".claude"
+
+
+def _claude_setup_plan() -> dict[str, str]:
+    config_dir = _claude_config_dir()
+    return {
+        "settings_file": str(config_dir / "settings.json"),
+        "cache_dir": str(config_dir / "plugins" / "cache" / CLAUDE_MARKETPLACE_NAME / PLUGIN_NAME / "<version>"),
+        "data_dir": str(config_dir / "plugins" / "data" / f"{PLUGIN_NAME}-{CLAUDE_MARKETPLACE_NAME}"),
+    }
+
+
+def _write_claude_setup_plan(plan: dict[str, str]) -> None:
+    typer.echo("Claude Code setup plan (no changes made yet):", err=True)
+    typer.echo(f"  Settings entry: {plan['settings_file']}", err=True)
+    typer.echo(f"  Plugin cache: {plan['cache_dir']}", err=True)
+    typer.echo(f"  Plugin data: {plan['data_dir']}", err=True)
+    typer.echo("  Permissions: read/write access to the Claude Code configuration directory", err=True)
+    typer.echo(
+        f"  Rollback: claude plugin uninstall {PLUGIN_NAME}@{CLAUDE_MARKETPLACE_NAME} --scope user",
+        err=True,
+    )
+    typer.echo(
+        f"  Rollback: claude plugin marketplace remove {CLAUDE_MARKETPLACE_NAME} --scope user",
+        err=True,
+    )
+
+
+def _claude_marketplace(value: object, name: str) -> dict[str, Any] | None:
+    if not isinstance(value, list):
+        return None
+    for item in value:
+        if isinstance(item, dict) and item.get("name") == name:
+            return cast(dict[str, Any], item)
+    return None
+
+
+def _claude_marketplace_matches(marketplace: dict[str, Any], requested: str) -> bool:
+    source_kind = marketplace.get("source")
+    if source_kind == "directory":
+        existing_path = marketplace.get("path")
+        if not isinstance(existing_path, str):
+            return False
+        return os.path.normcase(str(Path(existing_path).resolve())) == os.path.normcase(str(Path(requested).resolve()))
+    if source_kind == "github":
+        requested_repo, separator, requested_ref = requested.partition("@")
+        existing_repo = marketplace.get("repo")
+        existing_ref = marketplace.get("ref")
+        return (
+            isinstance(existing_repo, str)
+            and existing_repo.casefold() == requested_repo.casefold()
+            and (existing_ref or "") == (requested_ref if separator else "")
+        )
+    if source_kind == "git":
+        requested_url, separator, requested_ref = requested.rpartition("#")
+        existing_url = marketplace.get("url")
+        existing_ref = marketplace.get("ref")
+        return (
+            isinstance(existing_url, str)
+            and existing_url == (requested_url if separator else requested)
+            and (existing_ref or "") == (requested_ref if separator else "")
+        )
+    return False
+
+
+def _describe_claude_marketplace_source(marketplace: dict[str, Any]) -> str:
+    fields = {name: marketplace[name] for name in ("source", "path", "repo", "url", "ref") if name in marketplace}
+    return json.dumps(fields, sort_keys=True)
+
+
+def _claude_plugin(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, list):
+        return None
+    for item in value:
+        if isinstance(item, dict) and item.get("id") == f"{PLUGIN_NAME}@{CLAUDE_MARKETPLACE_NAME}":
+            return cast(dict[str, Any], item)
+    return None
+
+
+def _require_enabled_claude_plugin(value: object) -> dict[str, Any]:
+    plugin = _claude_plugin(value)
+    if plugin is None or plugin.get("enabled") is not True:
+        raise SetupError.claude_plugin_not_enabled()
+    return plugin
+
+
+def _snapshot_claude_settings() -> bytes | None:
+    settings_file = _claude_config_dir() / "settings.json"
+    try:
+        return settings_file.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def _restore_claude_settings(snapshot: bytes | None) -> None:
+    settings_file = _claude_config_dir() / "settings.json"
+    if snapshot is None:
+        settings_file.unlink(missing_ok=True)
+        return
+    settings_file.write_bytes(snapshot)
+
+
 def _run_codex_json(*arguments: str) -> dict[str, Any]:
     command = ["codex", *arguments, "--json"]
     try:
@@ -499,6 +862,38 @@ def _run_codex_json(*arguments: str) -> dict[str, Any]:
     return result
 
 
+def _run_claude(*arguments: str) -> subprocess.CompletedProcess[str]:
+    executable = which("claude")
+    if executable is None:
+        raise SetupError.claude_unavailable()
+    command = [executable, *arguments]
+    try:
+        completed = subprocess.run(  # noqa: S603 - arguments are passed directly to the fixed Claude executable.
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise SetupError.command_unavailable(command, error) from error
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit code {completed.returncode}"
+        raise SetupError.command_failed(command, detail)
+    return completed
+
+
+def _run_claude_json(*arguments: str) -> object:
+    command = [*arguments, "--json"]
+    completed = _run_claude(*command)
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise SetupError.invalid_command_output(["claude", *command], "invalid JSON") from error
+
+
 def _required_string(value: dict[str, Any], name: str) -> str:
     result = value.get(name)
     if not isinstance(result, str) or not result:
@@ -507,12 +902,15 @@ def _required_string(value: dict[str, Any], name: str) -> str:
 
 
 __all__ = [
+    "ClaudeCodeSetupResult",
     "CodexSetupResult",
     "Diagnostic",
     "DiagnosticStatus",
     "SetupError",
     "doctor_app",
+    "install_claude_code_plugin",
     "install_codex_plugin",
+    "run_claude_code_diagnostics",
     "run_codex_diagnostics",
     "run_diagnostics",
     "setup_app",

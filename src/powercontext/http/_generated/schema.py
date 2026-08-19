@@ -317,6 +317,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             "application/json": {"schema": {"$ref": "#/components/schemas/SearchMemoryResponse"}}
                         },
                     },
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},

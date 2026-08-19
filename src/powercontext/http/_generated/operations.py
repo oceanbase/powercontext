@@ -390,6 +390,7 @@ SEARCH_MEMORY = Operation[SearchMemoryRequest, SearchMemoryResponse](
             "description": "Matching Memory entries, or an empty result when the scope has no Memory.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
+        409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
