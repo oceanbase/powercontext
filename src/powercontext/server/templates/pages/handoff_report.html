@@ -17,8 +17,23 @@
     </div>
     <div class="report-hero-controls">
       <div class="scope-picker report-project-picker">
-        <label for="project-select" data-i18n="projects">Projects</label>
-        <select id="project-select"></select>
+        <label for="project-search" data-i18n="projects">Projects</label>
+        <div class="project-combobox" id="project-combobox">
+          <input
+            id="project-search"
+            type="search"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="project-options"
+            aria-expanded="false"
+            autocomplete="off"
+            spellcheck="false"
+            data-i18n-placeholder="searchProjectsPlaceholder"
+            placeholder="Search by project name or ID"
+          >
+          <div class="project-options" id="project-options" role="listbox" hidden></div>
+        </div>
+        <span class="project-search-status" id="project-search-status" role="status" aria-live="polite"></span>
       </div>
       <div class="report-actions">
         <button class="secondary-button page-button" id="refresh-report" type="button" data-i18n="refresh">Refresh</button>
@@ -113,23 +128,42 @@
             <p class="snapshot-label" data-i18n="currentSnapshot">Current Handoff snapshot</p>
             <h3 id="handoff-contents-title" data-i18n="handoffContents">Handoff content</h3>
             <p data-i18n="handoffContentsSubtitle">
-              Objective, current state, next action, and known omissions for continuation
+              Edit the Handoff as one document. Every save creates a new Handoff Revision.
             </p>
+          </div>
+          <div class="handoff-editor-actions" id="handoff-editor-actions" hidden>
+            <button
+              class="secondary-button page-button"
+              id="edit-handoff-content"
+              type="button"
+              data-i18n="editHandoffContent"
+              data-i18n-aria-label="editHandoffContentLabel"
+            >
+              Edit
+            </button>
+            <button
+              class="primary-button"
+              id="save-handoff-revision"
+              type="submit"
+              form="handoff-content-editor"
+              data-i18n="saveRevision"
+              hidden
+            >
+              Save Revision
+            </button>
+            <button
+              class="secondary-button page-button"
+              id="cancel-handoff-edit"
+              type="button"
+              data-i18n="cancelEdit"
+              hidden
+            >
+              Cancel
+            </button>
           </div>
         </div>
         <div class="handoff-content-list" id="handoff-content-list"></div>
-        <div class="handoff-snapshot-actions">
-          <button
-            class="primary-button"
-            id="open-handoff-workbench"
-            type="button"
-            aria-controls="handoff-workbench-panel"
-            aria-expanded="false"
-            data-i18n="openHandoffWorkbench"
-          >
-            Open Handoff workspace
-          </button>
-        </div>
+        <div class="handoff-save-status" id="handoff-save-status" role="status" aria-live="polite"></div>
 
         <details class="continuity-panel">
           <summary class="continuity-panel-summary">
@@ -168,185 +202,9 @@
               ></button>
             </div>
             <div class="continuity-note" id="continuity-note" role="status" aria-live="polite"></div>
-            <form class="task-outcome-form" id="task-outcome-form" hidden>
-              <div>
-                <h4 data-i18n="recordOutcome">Record task outcome</h4>
-                <p data-i18n="recordOutcomeNote">This result will link to the exact accepted Receipt shown above.</p>
-              </div>
-              <label for="task-outcome-status">
-                <span data-i18n="outcomeStatus">Outcome status</span>
-                <select id="task-outcome-status">
-                  <option value="succeeded" data-i18n="succeeded">Succeeded</option>
-                  <option value="partial" data-i18n="partial">Partial</option>
-                  <option value="blocked" data-i18n="blocked">Blocked</option>
-                  <option value="failed" data-i18n="failed">Failed</option>
-                  <option value="cancelled" data-i18n="cancelled">Cancelled</option>
-                  <option value="unknown" data-i18n="unknown">Unknown</option>
-                </select>
-              </label>
-              <label for="task-outcome-summary">
-                <span data-i18n="outcomeSummary">Result summary</span>
-                <textarea id="task-outcome-summary" rows="3" maxlength="8192" required></textarea>
-              </label>
-              <label for="task-outcome-observation">
-                <span data-i18n="outcomeObservation">Observed result</span>
-                <textarea id="task-outcome-observation" rows="3" maxlength="8192" required></textarea>
-              </label>
-              <div class="workbench-action-row">
-                <button class="primary-button" id="record-task-outcome" type="submit" data-i18n="recordOutcome">
-                  Record task outcome
-                </button>
-                <div class="workbench-feedback" id="task-outcome-feedback" role="status" aria-live="polite"></div>
-              </div>
-            </form>
           </div>
         </details>
       </article>
-    </div>
-  </section>
-
-  <section
-    class="data-section handoff-workbench"
-    id="handoff-workbench-panel"
-    aria-labelledby="handoff-workbench-title"
-    hidden
-  >
-    <div class="section-heading workbench-heading">
-      <div>
-        <h2 id="handoff-workbench-title" data-i18n="handoffWorkbench">Handoff workspace</h2>
-        <p data-i18n="handoffWorkbenchSubtitle">
-          Edit and send the selected Workstream, or complete receiver preflight and confirmation
-        </p>
-      </div>
-      <button class="secondary-button page-button" id="close-handoff-workbench" type="button" data-i18n="closeHandoffWorkbench">
-        Close Handoff workspace
-      </button>
-    </div>
-    <div class="workbench-selection">
-      <span data-i18n="selectedWorkstream">Handoff work</span>
-      <strong id="workbench-selected-title"></strong>
-      <code id="workbench-selected-revision"></code>
-    </div>
-    <select id="handoff-workstream" hidden aria-hidden="true" tabindex="-1"></select>
-
-    <div class="workbench-empty" id="handoff-workbench-empty" data-i18n="noWorkstreams" hidden>
-      No Workstreams are registered for this Project.
-    </div>
-
-    <div id="handoff-workbench-content" hidden>
-      <div class="handoff-workbench-grid">
-        <form class="handoff-editor" id="handoff-editor">
-          <header>
-            <div>
-              <p class="workbench-step" data-i18n="senderStep">Sender</p>
-              <h3 data-i18n="editBeforeSend">Edit before sending</h3>
-            </div>
-            <code class="workbench-scope" id="handoff-workbench-scope"></code>
-          </header>
-          <p class="workbench-note" data-i18n="editBeforeSendNote">Nothing is committed until you send this card.</p>
-
-          <label for="handoff-objective">
-            <span data-i18n="objective">Objective</span>
-            <textarea id="handoff-objective" rows="3" maxlength="8192" required></textarea>
-          </label>
-
-          <label for="handoff-state">
-            <span data-i18n="currentStateLines">Current state, one item per line</span>
-            <textarea id="handoff-state" rows="5" maxlength="8192" required></textarea>
-          </label>
-
-          <div class="workbench-field-row">
-            <label for="handoff-disposition">
-              <span data-i18n="disposition">Disposition</span>
-              <select id="handoff-disposition">
-                <option value="continuable" data-i18n="continuable">Continuable</option>
-                <option value="blocked" data-i18n="blocked">Blocked</option>
-                <option value="complete" data-i18n="complete">Complete</option>
-              </select>
-            </label>
-            <label for="handoff-next-action">
-              <span data-i18n="nextAction">Next action</span>
-              <textarea id="handoff-next-action" rows="3" maxlength="8192"></textarea>
-            </label>
-          </div>
-
-          <label for="handoff-omissions">
-            <span data-i18n="omissionLines">Known omissions, one item per line</span>
-            <textarea id="handoff-omissions" rows="3" maxlength="8192"></textarea>
-          </label>
-
-          <div class="workbench-action-row">
-            <button class="primary-button" id="send-handoff" type="submit" data-i18n="sendHandoff">Send Handoff</button>
-            <div class="workbench-feedback" id="send-handoff-status" role="status" aria-live="polite"></div>
-          </div>
-        </form>
-
-        <section class="handoff-preflight" aria-labelledby="preflight-title">
-          <header>
-            <div>
-              <p class="workbench-step" data-i18n="receiverStep">Receiver</p>
-              <h3 id="preflight-title" data-i18n="preflightTitle">Automatic preflight</h3>
-            </div>
-            <span class="preflight-state" id="preflight-state" data-state="idle" data-i18n="preflightRunning">Checking</span>
-          </header>
-          <p class="workbench-note" data-i18n="preflightNote">
-            Citation availability is checked automatically and stays separate from the receiver's live-state confirmations.
-          </p>
-          <div class="preflight-summary" id="preflight-summary" aria-live="polite"></div>
-          <ul class="preflight-checks" id="preflight-checks"></ul>
-
-          <fieldset class="receiver-checks">
-            <legend data-i18n="receiverChecks">Receiver checks</legend>
-            <label for="receiver-live-state">
-              <span data-i18n="liveStateCheck">Live workspace</span>
-              <select id="receiver-live-state">
-                <option value="not_checked" data-i18n="notChecked">Not checked</option>
-                <option value="confirmed" data-i18n="confirmed">Confirmed</option>
-                <option value="mismatch" data-i18n="mismatch">Mismatch</option>
-              </select>
-            </label>
-            <label for="receiver-capability">
-              <span data-i18n="capabilityCheck">Capability</span>
-              <select id="receiver-capability">
-                <option value="not_checked" data-i18n="notChecked">Not checked</option>
-                <option value="confirmed" data-i18n="confirmed">Confirmed</option>
-                <option value="insufficient" data-i18n="insufficient">Insufficient</option>
-              </select>
-            </label>
-            <label for="receiver-authorization">
-              <span data-i18n="authorizationCheck">Authorization</span>
-              <select id="receiver-authorization">
-                <option value="not_checked" data-i18n="notChecked">Not checked</option>
-                <option value="confirmed" data-i18n="confirmed">Confirmed</option>
-                <option value="insufficient" data-i18n="insufficient">Insufficient</option>
-              </select>
-            </label>
-          </fieldset>
-
-          <label for="handoff-receiver">
-            <span data-i18n="receiverIdentity">Receiver identity</span>
-            <input id="handoff-receiver" type="text" maxlength="256" autocomplete="off">
-          </label>
-          <label for="handoff-receiver-message">
-            <span data-i18n="receiverMessage">Clarification or decline reason</span>
-            <textarea id="handoff-receiver-message" rows="3" maxlength="8192"></textarea>
-          </label>
-
-          <div class="handoff-choice-grid" role="group" aria-labelledby="handoff-choice-title">
-            <span class="screen-reader-only" id="handoff-choice-title" data-i18n="handoffDecision">Handoff decision</span>
-            <button class="primary-button" type="button" data-handoff-choice="accepted" data-i18n="acceptHandoff">
-              Accept and continue
-            </button>
-            <button class="secondary-button" type="button" data-handoff-choice="needs_clarification" data-i18n="requestClarification">
-              Request clarification
-            </button>
-            <button class="danger-button" type="button" data-handoff-choice="declined" data-i18n="declineHandoff">
-              Decline
-            </button>
-          </div>
-          <div class="workbench-feedback" id="handoff-choice-status" role="status" aria-live="polite"></div>
-        </section>
-      </div>
     </div>
   </section>
 
@@ -413,5 +271,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=report-first-ia-v3"></script>
+<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=unified-editor-v1"></script>
 {% endblock %}

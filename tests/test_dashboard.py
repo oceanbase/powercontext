@@ -108,14 +108,18 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
     assert 'data-period-mode="month"' in enabled_page.text
     assert 'id="period-start" type="date"' in enabled_page.text
     assert 'id="period-end" type="date"' in enabled_page.text
-    assert 'id="handoff-editor"' in enabled_page.text
-    assert 'id="send-handoff"' in enabled_page.text
-    assert 'data-handoff-choice="accepted"' in enabled_page.text
-    assert 'data-handoff-choice="needs_clarification"' in enabled_page.text
-    assert 'data-handoff-choice="declined"' in enabled_page.text
-    assert 'id="receiver-live-state"' in enabled_page.text
-    assert 'id="receiver-capability"' in enabled_page.text
-    assert 'id="receiver-authorization"' in enabled_page.text
+    assert 'id="handoff-content-list"' in enabled_page.text
+    assert 'id="handoff-save-status"' in enabled_page.text
+    assert 'id="handoff-editor-actions"' in enabled_page.text
+    assert 'id="edit-handoff-content"' in enabled_page.text
+    assert 'id="save-handoff-revision"' in enabled_page.text
+    assert 'form="handoff-content-editor"' in enabled_page.text
+    assert 'id="cancel-handoff-edit"' in enabled_page.text
+    assert 'id="handoff-editor"' not in enabled_page.text
+    assert "data-handoff-choice=" not in enabled_page.text
+    assert 'id="receiver-live-state"' not in enabled_page.text
+    assert 'id="receiver-capability"' not in enabled_page.text
+    assert 'id="receiver-authorization"' not in enabled_page.text
     assert 'id="continuity-timeline"' in enabled_page.text
     assert 'id="continuity-timeline-toggle"' in enabled_page.text
     assert 'aria-controls="continuity-timeline"' in enabled_page.text
@@ -125,8 +129,13 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
     assert 'id="revision-history-summary"' in enabled_page.text
     assert 'id="transfer-state-status"' in enabled_page.text
     assert 'id="outcome-state-status"' in enabled_page.text
-    assert 'id="task-outcome-form"' in enabled_page.text
-    assert 'id="project-select"' in enabled_page.text
+    assert 'id="task-outcome-form"' not in enabled_page.text
+    assert 'id="project-select"' not in enabled_page.text
+    assert 'id="project-search"' in enabled_page.text
+    assert 'role="combobox"' in enabled_page.text
+    assert 'aria-controls="project-options"' in enabled_page.text
+    assert 'id="project-options" role="listbox"' in enabled_page.text
+    assert 'id="project-search-status" role="status"' in enabled_page.text
     assert 'id="workstream-list"' in enabled_page.text
     assert 'id="workstream-switcher-toolbar"' in enabled_page.text
     assert 'id="workstream-search"' in enabled_page.text
@@ -135,15 +144,9 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
     assert 'id="next-workstream"' in enabled_page.text
     assert 'id="workstream-filter-empty"' in enabled_page.text
     assert 'id="handoff-snapshot"' in enabled_page.text
-    assert 'id="open-handoff-workbench"' in enabled_page.text
-    assert 'aria-controls="handoff-workbench-panel"' in enabled_page.text
-    assert 'id="handoff-workbench-panel"' in enabled_page.text
-    assert 'id="close-handoff-workbench"' in enabled_page.text
-    assert enabled_page.text.index('id="close-handoff-workbench"') < enabled_page.text.index(
-        'class="workbench-selection"'
-    )
-    assert 'id="handoff-workstream" hidden aria-hidden="true" tabindex="-1"' in enabled_page.text
-    assert 'id="handoff-workstream-help"' not in enabled_page.text
+    assert 'id="open-handoff-workbench"' not in enabled_page.text
+    assert 'id="handoff-workbench-panel"' not in enabled_page.text
+    assert 'id="handoff-workstream"' not in enabled_page.text
     assert 'id="activity-title"' in enabled_page.text
     assert 'id="activity-breakdown-list"' in enabled_page.text
     assert '<details class="continuity-panel">' in enabled_page.text
@@ -156,15 +159,12 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
         'class="data-section workstream-browser"'
     )
     assert enabled_page.text.index('class="data-section workstream-browser"') < enabled_page.text.index(
-        'id="handoff-workbench-panel"'
-    )
-    assert enabled_page.text.index('id="handoff-workbench-panel"') < enabled_page.text.index(
         'class="data-section activity-section"'
     )
     assert enabled_page.text.index('class="data-section activity-section"') < enabled_page.text.index(
         '<details class="report-metadata">'
     )
-    assert "handoff-report.js?v=report-first-ia-v3" in enabled_page.text
+    assert "handoff-report.js?v=unified-editor-v1" in enabled_page.text
     assert protected_projects.status_code == 401
 
 

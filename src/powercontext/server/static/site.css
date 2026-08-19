@@ -461,6 +461,89 @@ button:disabled {
   border-color: var(--pc-accent);
 }
 
+.project-combobox {
+  position: relative;
+}
+
+.project-combobox > input {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--pc-rule-strong);
+  border-radius: var(--pc-radius-control);
+  background: var(--pc-surface);
+  color: var(--pc-ink);
+  padding: 8px 10px;
+}
+
+.project-combobox > input:hover,
+.project-combobox > input:focus {
+  border-color: var(--pc-accent);
+}
+
+.project-options {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  max-height: min(360px, 54vh);
+  border: 1px solid var(--pc-rule-strong);
+  border-radius: var(--pc-radius-control);
+  background: var(--pc-surface);
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--pc-chrome) 18%, transparent);
+  overflow-y: auto;
+}
+
+.project-option {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  border: 0;
+  border-bottom: 1px solid var(--pc-rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--pc-ink);
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.project-option:last-child {
+  border-bottom: 0;
+}
+
+.project-option:hover,
+.project-option[data-active="true"] {
+  background: var(--pc-accent-soft);
+}
+
+.project-option[aria-selected="true"] {
+  box-shadow: inset 3px 0 0 var(--pc-accent);
+}
+
+.project-option strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.project-option code {
+  color: var(--pc-muted);
+  font: 10px/1.4 var(--pc-font-code);
+  overflow-wrap: anywhere;
+}
+
+.project-options-empty {
+  margin: 0;
+  color: var(--pc-muted);
+  padding: 18px 12px;
+  text-align: center;
+}
+
+.project-search-status {
+  min-height: 17px;
+  color: var(--pc-muted);
+  font-size: 11px;
+}
+
 .hero-meta {
   color: var(--pc-muted);
   font-size: 12px;
@@ -1171,6 +1254,13 @@ button:disabled {
   padding: 20px 22px 22px;
 }
 
+.snapshot-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
 .snapshot-heading h3,
 .snapshot-heading p {
   margin: 0;
@@ -1190,6 +1280,18 @@ button:disabled {
   color: var(--pc-accent);
   font-size: 11px;
   font-weight: 700;
+}
+
+.handoff-editor-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.handoff-editor-actions button {
+  white-space: nowrap;
 }
 
 .handoff-snapshot-actions {
@@ -2222,6 +2324,76 @@ button:disabled {
   margin-top: 6px;
 }
 
+.handoff-content-card > .handoff-content-block,
+.handoff-content-editor > .handoff-content-block {
+  display: grid;
+  grid-template-columns: minmax(110px, 150px) minmax(0, 1fr);
+  gap: 8px 18px;
+  margin-top: 12px;
+  border: 1px solid var(--pc-rule);
+  border-radius: var(--pc-radius-control);
+  background: var(--pc-surface-secondary);
+  padding: 13px 14px;
+}
+
+.handoff-content-block > header,
+.handoff-content-block > label {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.handoff-content-card > .handoff-content-block > :not(header),
+.handoff-content-editor > .handoff-content-block > :not(label) {
+  grid-column: 2;
+}
+
+.handoff-content-block .status-badge {
+  justify-self: start;
+}
+
+.handoff-block-empty {
+  color: var(--pc-muted);
+}
+
+.handoff-content-editor {
+  display: grid;
+  gap: 0;
+}
+
+.handoff-content-editor label {
+  color: var(--pc-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.handoff-content-editor :is(textarea, select) {
+  width: 100%;
+  border: 1px solid var(--pc-rule-strong);
+  border-radius: var(--pc-radius-control);
+  background: var(--pc-surface);
+  color: var(--pc-ink);
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.handoff-content-editor :is(textarea, select):hover,
+.handoff-content-editor :is(textarea, select):focus {
+  border-color: var(--pc-accent);
+}
+
+.handoff-save-status {
+  min-height: 20px;
+  margin-top: 10px;
+  color: var(--pc-success);
+  font-size: 12px;
+}
+
+.handoff-save-status.is-error {
+  color: var(--pc-danger);
+}
+
 .handoff-content-empty {
   margin: 14px 0 0;
   color: var(--pc-muted);
@@ -2377,6 +2549,25 @@ button:disabled {
     gap: 5px;
   }
 
+  .snapshot-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .handoff-editor-actions {
+    justify-content: flex-start;
+  }
+
+  .handoff-content-editor > .handoff-content-block {
+    grid-template-columns: 1fr;
+  }
+
+  .handoff-content-card > .handoff-content-block > :not(header),
+  .handoff-content-editor > .handoff-content-block > :not(label) {
+    grid-column: 1;
+  }
+
   .hero {
     align-items: flex-start;
     flex-direction: column;
@@ -2428,6 +2619,10 @@ button:disabled {
   .report-project-picker {
     width: 100%;
     min-width: 0;
+  }
+
+  .project-options {
+    max-height: min(320px, 52vh);
   }
 
   .header-tools {
