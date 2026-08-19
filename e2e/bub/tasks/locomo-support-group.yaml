@@ -28,7 +28,7 @@ provenance:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: locomo-support-group
-  checksum: 13b88f406933d47c3a826d30143a2d5404f1990a0166b3d98ec25a24bcc0069c
+  checksum: 01fec08696a68bf4b6c70529a8d8cf864fe8e7e2a3915a263a653bfe380a5b69
 execution:
   type: bub
   model: false

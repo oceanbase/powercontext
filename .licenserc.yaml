@@ -55,5 +55,8 @@ header:
     - 'theme/powercontext/assets/stylesheets/pygments-github-dark.css'
     - '**/py.typed'
     - 'src/powercontext/http/_generated/**'
+    - '.gitattributes'
+    - '**/*.service.in'
+    - '**/*.jsonl'
 
   comment: on-failure
