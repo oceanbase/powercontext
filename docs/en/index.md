@@ -37,11 +37,9 @@ home:
     title:
       - Keep what lasts.
       - Hand off the work.
-    lead: >-
-      Memory keeps decisions, constraints, conventions, and next steps for later work. You can search, revise, or
-      retire an entry; its history remains available. A Handoff carries the current objective, verified progress,
-      blockers, and next action. It stays temporary until you commit it as a project milestone. LOCOMO result: 1,398
-      of 1,540 answers correct (90.78%), with 1.38 s p95 search latency.
+    lead: Memory keeps decisions, constraints, conventions, and next steps in a searchable history. Revise or retire an entry without losing the record.
+    handoff: A Handoff captures the current objective, verified progress, blockers, and next action. Commit it when the work becomes a project milestone.
+    result: "LOCOMO: 90.78% correct · 1.38 s p95 search latency"
     command: powercontext server run
     primary_action:
       label: Read the quickstart

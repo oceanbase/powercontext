@@ -61,7 +61,11 @@
             <h2 id="ownership-title">{% for line in page.meta["home"]["ownership"]["title"] %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h2>
           </div>
           <div class="ownership-copy">
-            <p>{{ page.meta["home"]["ownership"]["lead"] }}</p>
+            <div class="ownership-lead">
+              <p>{{ page.meta["home"]["ownership"]["lead"] }}</p>
+              <p>{{ page.meta["home"]["ownership"]["handoff"] }}</p>
+            </div>
+            <p class="ownership-result">{{ page.meta["home"]["ownership"]["result"] }}</p>
             <div class="command-block"><code><span>$</span> {{ page.meta["home"]["ownership"]["command"] }}</code></div>
             <div class="ownership-actions">
               <a class="primary-button large" href="{{ page.meta['home']['ownership']['primary_action']['href'] | url }}">{{ page.meta["home"]["ownership"]["primary_action"]["label"] }}</a>

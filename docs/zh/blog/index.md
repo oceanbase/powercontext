@@ -7,18 +7,15 @@ hide:
   - footer
 ---
 
-<header class="editorial-header">
-  <h1>博客</h1>
-  <p>PowerContext 维护者记录的实现细节与运行经验。</p>
-</header>
+# 博客
 
-<div class="editorial-list blog-index">
-  <a class="editorial-row editorial-link-row blog-post-row" href="project-memory-beyond-the-chat-window/">
-    <div class="editorial-meta"><strong>项目记录</strong><span>设计预览</span></div>
-    <div class="editorial-body">
-      <h2>对话结束后，项目记忆仍然存在</h2>
-      <p>PowerContext 为什么把决策、当前状态和后续步骤保存在持久的项目作用域中。</p>
-      <span class="row-action">阅读文章 <span aria-hidden="true">→</span></span>
-    </div>
-  </a>
-</div>
+<p class="pc-page-lead">由 PowerContext 维护者发布的工程实践与设计解释。</p>
+
+<section class="pc-blog-empty">
+  <p class="pc-blog-empty__date">尚无文章</p>
+  <div>
+    <h2>工程记录从已经实现的工作开始。</h2>
+    <p>项目目前通过 RFC 记录产品与 API 决策。只有形成具体实现经验或运行结论后，内容才会发布在这里。</p>
+    <p><a href="../rfcs/">阅读当前 RFC <span aria-hidden="true">→</span></a></p>
+  </div>
+</section>

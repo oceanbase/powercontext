@@ -41,7 +41,6 @@ nav = [
         ] },
         { "Blog" = [
             { "Overview" = "en/blog/index.md" },
-            { "Project memory beyond the chat window" = "en/blog/project-memory-beyond-the-chat-window.md" },
         ] },
         { "Changelog" = "en/changelog/index.md" },
         { "RFCs & Meetings" = [
@@ -104,7 +103,6 @@ nav = [
         ] },
         { "博客" = [
             { "概览" = "zh/blog/index.md" },
-            { "对话结束后，项目记忆仍然存在" = "zh/blog/project-memory-beyond-the-chat-window.md" },
         ] },
         { "更新日志" = "zh/changelog/index.md" },
         { "RFC 与会议纪要" = [
