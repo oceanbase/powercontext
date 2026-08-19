@@ -1,9 +1,26 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import { describe, expect, it } from 'vitest'
-import { handlePcCommand } from '../src/commands.ts'
+import { handlePcCommand, registerCommands } from '../src/commands.ts'
 import { PowerContextClient } from '../src/client.ts'
 import type { PluginRuntime } from '../src/invoke.ts'
 import { resolveConfig } from '../src/config.ts'
 import { buildSourceId } from '../src/capture.ts'
+import { deriveScopeId } from '../src/scope.ts'
 
 function runtime(fetchImpl: typeof fetch): PluginRuntime {
   const config = resolveConfig({ baseUrl: 'http://127.0.0.1:8000' })
@@ -26,6 +43,51 @@ describe('handlePcCommand', () => {
     const result = await handlePcCommand('review approve only-id', runtime(async () => new Response('{}')), 'project:demo')
     expect(result.kind).toBe('error')
     expect(result.text).toContain('Usage: /pc review approve')
+  })
+})
+
+describe('registerCommands missing session cwd', () => {
+  function registerHandler(pluginRuntime: PluginRuntime) {
+    let handler: ((invocation: {
+      rawInput: string
+      signal: AbortSignal
+      agent: { session: { header: { cwd?: string } } }
+    }) => Promise<{ kind: string; text: string }>) | undefined
+    registerCommands({
+      get: (name) => name === 'commands'
+        ? { register: (definition: { handler: typeof handler }) => { handler = definition.handler } }
+        : undefined,
+    }, pluginRuntime)
+    if (!handler) throw new Error('expected /pc handler')
+    return handler
+  }
+
+  it('returns an unscoped error when cwd is missing and scopeId is not configured', async () => {
+    const pluginRuntime = runtime(async () => new Response('{}'))
+    pluginRuntime.config = { ...pluginRuntime.config, scopeId: undefined }
+    pluginRuntime.resolveScope = (cwd) => deriveScopeId(cwd)
+    const handler = registerHandler(pluginRuntime)
+    const result = await handler({
+      rawInput: 'search public API',
+      signal: AbortSignal.timeout(1000),
+      agent: { session: { header: {} } },
+    })
+    expect(result.kind).toBe('error')
+    expect(result.text).toContain('scopeId')
+  })
+
+  it('uses configured scopeId when cwd is missing', async () => {
+    const pluginRuntime = runtime(async () => new Response('{}'))
+    pluginRuntime.config = { ...pluginRuntime.config, scopeId: 'project:demo' }
+    pluginRuntime.resolveScope = (cwd) => deriveScopeId(cwd, { configuredScopeId: 'project:demo' })
+    const handler = registerHandler(pluginRuntime)
+    const result = await handler({
+      rawInput: '',
+      signal: AbortSignal.timeout(1000),
+      agent: { session: { header: { cwd: undefined } } },
+    })
+    expect(result.kind).toBe('success')
+    expect(result.text).toContain('scope=project:demo')
   })
 })
 

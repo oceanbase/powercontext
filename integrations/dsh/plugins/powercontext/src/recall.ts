@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
@@ -8,6 +24,7 @@ import {
   TransportError,
 } from './errors.ts'
 import { validatePreparedContext } from './prepared-context.ts'
+import { sessionCwd } from './scope.ts'
 
 export interface TextBlock {
   readonly type: string
@@ -26,13 +43,13 @@ export type PreStepDecision = { kind: 'reject' } | EnterDecision | { kind: strin
 export interface RecallInput {
   messages: PromptMessage[]
   next: () => Promise<PreStepDecision>
-  cwd: string
+  cwd?: string
   sessionId: string
   turnId: string
   signal?: AbortSignal
   client: PowerContextClient
   config: ResolvedConfig
-  resolveScope: (cwd: string) => Promise<string>
+  resolveScope: (cwd?: string) => Promise<string | undefined>
   wrapContent: (text: string) => unknown
   log: (event: Record<string, unknown>) => void
 }
@@ -127,6 +144,10 @@ async function recallThenCapture(
 ): Promise<string | undefined> {
   try {
     const scopeId = await input.resolveScope(input.cwd)
+    if (!scopeId) {
+      input.log({ event: 'context_prepare', outcome: 'skipped', reason: 'missing_session_cwd' })
+      return undefined
+    }
     const content = await recallContent(input, query, scopeId)
     if (userPrompt) {
       await captureUserPrompt({
@@ -134,7 +155,7 @@ async function recallThenCapture(
         config: input.config,
         scopeId,
         prompt: userPrompt,
-        cwd: input.cwd,
+        cwd: sessionCwd(input.cwd),
         sessionId: input.sessionId,
         turnId: input.turnId,
         signal: input.signal,

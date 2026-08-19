@@ -1,0 +1,26 @@
+name: License Check
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: license-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  license:
+    name: Check License Header
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check License Header
+        uses: apache/skywalking-eyes/header@v0.8.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          config: .licenserc.yaml
+          mode: check
