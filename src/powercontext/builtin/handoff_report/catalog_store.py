@@ -19,7 +19,6 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
-    String,
     Table,
     Text,
     UniqueConstraint,
@@ -46,6 +45,7 @@ from powercontext.builtin.handoff_report.models import (
     ProjectDescriptor,
     WorkstreamDescriptor,
 )
+from powercontext.builtin.persistence.tables import identity_string
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
 
 HANDOFF_REPORT_CATALOG_METADATA = MetaData()
@@ -53,10 +53,10 @@ HANDOFF_REPORT_CATALOG_METADATA = MetaData()
 HANDOFF_REPORT_PROJECTS_TABLE = Table(
     "pc_handoff_report_projects",
     HANDOFF_REPORT_CATALOG_METADATA,
-    Column("project_id", String(MAX_REPORT_ID_LENGTH), primary_key=True),
-    Column("project_key", String(MAX_PROJECT_KEY_LENGTH), nullable=False, unique=True),
+    Column("project_id", identity_string(MAX_REPORT_ID_LENGTH), primary_key=True),
+    Column("project_key", identity_string(MAX_PROJECT_KEY_LENGTH), nullable=False, unique=True),
     Column("version", Integer, nullable=False),
-    Column("catalog_state", String(16), nullable=False),
+    Column("catalog_state", identity_string(16), nullable=False),
     Column("payload", Text, nullable=False),
     CheckConstraint("version > 0", name="ck_pc_handoff_report_projects_version_positive"),
 )
@@ -64,9 +64,9 @@ HANDOFF_REPORT_PROJECTS_TABLE = Table(
 HANDOFF_REPORT_PROJECT_REVISIONS_TABLE = Table(
     "pc_handoff_report_project_revisions",
     HANDOFF_REPORT_CATALOG_METADATA,
-    Column("project_id", String(MAX_REPORT_ID_LENGTH), primary_key=True),
+    Column("project_id", identity_string(MAX_REPORT_ID_LENGTH), primary_key=True),
     Column("version", Integer, primary_key=True),
-    Column("effective_at", String(32), nullable=False),
+    Column("effective_at", identity_string(32), nullable=False),
     Column("payload", Text, nullable=False),
     CheckConstraint("version > 0", name="ck_pc_handoff_report_project_revisions_version_positive"),
 )
@@ -80,11 +80,11 @@ Index(
 HANDOFF_REPORT_WORKSTREAMS_TABLE = Table(
     "pc_handoff_report_workstreams",
     HANDOFF_REPORT_CATALOG_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("project_id", String(MAX_REPORT_ID_LENGTH), nullable=False),
-    Column("workstream_key", String(MAX_WORKSTREAM_KEY_LENGTH)),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("project_id", identity_string(MAX_REPORT_ID_LENGTH), nullable=False),
+    Column("workstream_key", identity_string(MAX_WORKSTREAM_KEY_LENGTH)),
     Column("version", Integer, nullable=False),
-    Column("catalog_state", String(16), nullable=False),
+    Column("catalog_state", identity_string(16), nullable=False),
     Column("payload", Text, nullable=False),
     UniqueConstraint(
         "project_id",
@@ -102,10 +102,10 @@ Index(
 HANDOFF_REPORT_WORKSTREAM_REVISIONS_TABLE = Table(
     "pc_handoff_report_workstream_revisions",
     HANDOFF_REPORT_CATALOG_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
     Column("version", Integer, primary_key=True),
-    Column("project_id", String(MAX_REPORT_ID_LENGTH), nullable=False),
-    Column("effective_at", String(32), nullable=False),
+    Column("project_id", identity_string(MAX_REPORT_ID_LENGTH), nullable=False),
+    Column("effective_at", identity_string(32), nullable=False),
     Column("payload", Text, nullable=False),
     CheckConstraint("version > 0", name="ck_pc_handoff_report_workstream_revisions_version_positive"),
 )
