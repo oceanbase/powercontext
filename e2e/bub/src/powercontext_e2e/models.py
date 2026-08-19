@@ -23,6 +23,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .catalog import E2ETask
 
+SHARED_TRIAL_SKIPPED_ERROR = "Skipped after an earlier task stopped the shared Harbor trial."
+
 
 class EvidenceModel(BaseModel):
     model_config = ConfigDict(extra="forbid")

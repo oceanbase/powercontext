@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from .models import (
+    SHARED_TRIAL_SKIPPED_ERROR,
     CaseEvaluation,
     EvaluationReport,
     EvaluationValue,
@@ -35,6 +37,24 @@ class MemoryEvaluator:
     @staticmethod
     def evaluate(observation: TaskObservation, *, experiment: str) -> EvaluationReport:
         task = observation.task
+        attributes = _attributes(observation)
+        if SHARED_TRIAL_SKIPPED_ERROR in observation.errors:
+            return EvaluationReport(
+                experiment=experiment,
+                cases=(
+                    CaseEvaluation(
+                        name=task.id,
+                        assertions={
+                            "execution_completed": EvaluationValue(
+                                value=False,
+                                reason=SHARED_TRIAL_SKIPPED_ERROR,
+                            )
+                        },
+                        labels={"task_outcome": EvaluationValue(value="skipped")},
+                        attributes=attributes,
+                    ),
+                ),
+            )
         evaluation = task.evaluation
         eligible_records = [record for record in observation.capture_records if record.event in CAPTURE_EVENTS]
         captured_records = [record for record in eligible_records if record.status == "captured"]
@@ -89,15 +109,6 @@ class MemoryEvaluator:
         )
         thresholds = evaluation.thresholds
 
-        attributes = {
-            "commit": observation.environment.commit,
-            "database": observation.environment.database,
-            "dataset": task.dataset.name or str(task.dataset.path),
-            "execution_adapter": task.execution.type,
-            "harbor_task_id": task.dataset.task_id,
-            "run_id": observation.run_id,
-            "workload_id": task.id,
-        }
         metrics = {
             "capture_events": len(eligible_records),
             "captured_sources": len(captured_records),
@@ -171,7 +182,7 @@ class MemoryEvaluator:
                 for name, reward in sorted(observation.harbor.rewards.items())
             },
         }
-        labels = {"task_outcome": EvaluationValue(value=_task_outcome(observation.harbor))}
+        labels = {"task_outcome": EvaluationValue(value=_task_outcome(observation.harbor, observation.status))}
         return EvaluationReport(
             experiment=experiment,
             cases=(
@@ -192,9 +203,24 @@ def _contains_fragments(value: str, expected: tuple[str, ...]) -> bool:
     return all(fragment.casefold() in folded for fragment in expected)
 
 
-def _task_outcome(harbor: HarborTrialObservation) -> str:
+def _attributes(observation: TaskObservation) -> dict[str, str]:
+    task = observation.task
+    return {
+        "commit": observation.environment.commit,
+        "database": observation.environment.database,
+        "dataset": task.dataset.name or str(task.dataset.path),
+        "execution_adapter": task.execution.type,
+        "harbor_task_id": task.dataset.task_id,
+        "run_id": observation.run_id,
+        "workload_id": task.id,
+    }
+
+
+def _task_outcome(harbor: HarborTrialObservation, status: Literal["completed", "failed"]) -> str:
     if harbor.exception_type is not None:
         return f"error:{harbor.exception_type}"
+    if status == "failed":
+        return "not_passed"
     if not harbor.rewards:
         return "unscored"
     return "passed" if all(float(reward) >= 1 for reward in harbor.rewards.values()) else "not_passed"

@@ -49,6 +49,12 @@ def main() -> None:
         help="Select one category; repeat to select more than one.",
     )
     acceptance_parser.add_argument("--output", type=Path, required=True)
+    acceptance_parser.add_argument(
+        "--failure-policy",
+        choices=("collect-all", "fail-fast"),
+        default="collect-all",
+        help="Continue through case failures or stop the Harbor trial at the first failed step.",
+    )
 
     rescore_parser = subparsers.add_parser("rescore")
     rescore_parser.add_argument("replay", type=Path)
@@ -71,6 +77,7 @@ def main() -> None:
                 selected,
                 output_dir=args.output,
                 settings=settings,
+                failure_policy=args.failure_policy,
             )
         )
     raise SystemExit(0 if passed else 1)

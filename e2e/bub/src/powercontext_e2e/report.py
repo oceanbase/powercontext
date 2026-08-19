@@ -57,6 +57,17 @@ def render_report(observation: TaskObservation, report: EvaluationReport) -> str
     return markdown.render(document)
 
 
+def render_evaluation_summary(report: EvaluationReport) -> str:
+    markdown = Markdown(renderer=MarkdownRenderer)
+    document = block.Document()
+    document.children = [
+        *_nodes(markdown, "# PowerContext end-to-end Memory evaluation"),
+        block.BlankLine(0),
+        *_nodes(markdown, f"```text\n{_evaluation_text(report)}\n```"),
+    ]
+    return markdown.render(document)
+
+
 def _nodes(markdown: Markdown, source: str) -> list[Element]:
     return list(markdown.parse(source).children)
 

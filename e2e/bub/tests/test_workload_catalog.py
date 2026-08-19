@@ -16,7 +16,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from powercontext_e2e.catalog import load_tasks, select_tasks
+from powercontext_e2e.runner import group_tasks
 
 
 def test_workloads_can_be_selected_by_multiple_ids_or_category() -> None:
@@ -51,3 +54,12 @@ def test_workloads_can_be_selected_by_multiple_ids_or_category() -> None:
         "locomo-temporal-banker",
         "project-database-decision",
     ]
+
+
+def test_batch_category_cannot_escape_the_runtime_dataset() -> None:
+    repository = Path(__file__).resolve().parents[3]
+    task = load_tasks(repository / "e2e" / "bub" / "tasks" / "locomo-support-group.yaml")[0]
+    task = task.model_copy(update={"categories": (*task.categories[:-1], "batch:x/../../evil")})
+
+    with pytest.raises(ValueError, match="valid batch category"):
+        group_tasks((task,))
