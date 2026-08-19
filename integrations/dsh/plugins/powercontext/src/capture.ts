@@ -9,7 +9,7 @@ export interface CaptureInput {
   config: ResolvedConfig
   scopeId: string
   prompt: string
-  cwd: string
+  cwd?: string
   sessionId: string
   turnId: string
   signal?: AbortSignal
@@ -58,7 +58,7 @@ export async function captureUserPrompt(input: CaptureInput): Promise<void> {
       metadata: {
         origin: 'dsh',
         event: 'user_prompt_submit',
-        cwd: input.cwd,
+        ...input.cwd ? { cwd: input.cwd } : {},
         session_id: input.sessionId,
         turn_id: input.turnId,
       },

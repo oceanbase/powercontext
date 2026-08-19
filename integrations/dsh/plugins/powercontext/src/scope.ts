@@ -5,7 +5,14 @@ import { resolve } from 'node:path'
 const MAX_SCOPE_LENGTH = 256
 const SCP_REMOTE = /^(?:[^@/\s]+@)?(?<host>[^:/\s]+):(?<path>.+)$/
 
+export const UNSCOPED_MESSAGE = 'No project workspace on this session. Set scopeId or open a workspace.'
+
 export type GitRunner = (cwd: string, args: string[]) => Promise<string | undefined>
+
+export function sessionCwd(cwd: string | undefined): string | undefined {
+  const value = cwd?.trim()
+  return value ? value : undefined
+}
 
 function bounded(prefix: string, value: string): string {
   const candidate = `${prefix}:${value}`
@@ -73,13 +80,18 @@ export function spawnGit(cwd: string, args: string[]): Promise<string | undefine
 }
 
 export async function deriveScopeId(
-  cwd: string,
+  cwd: string | undefined,
   options: { configuredScopeId?: string; git?: GitRunner } = {},
-): Promise<string> {
+): Promise<string | undefined> {
   if (options.configuredScopeId) return boundedExplicit(options.configuredScopeId)
-  const git = options.git ?? spawnGit
-  const rootValue = await git(cwd, ['rev-parse', '--show-toplevel'])
-  const projectRoot = resolve(rootValue || cwd)
+  const workspace = sessionCwd(cwd)
+  if (!workspace) return undefined
+  return deriveWorkspaceScope(workspace, options.git ?? spawnGit)
+}
+
+async function deriveWorkspaceScope(workspace: string, git: GitRunner): Promise<string> {
+  const rootValue = await git(workspace, ['rev-parse', '--show-toplevel'])
+  const projectRoot = resolve(rootValue || workspace)
   const remote = await git(projectRoot, ['config', '--get', 'remote.origin.url'])
   const normalized = remote ? normalizeGitRemote(remote) : undefined
   if (normalized) return bounded('git', normalized)

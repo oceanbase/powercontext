@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from collections.abc import Mapping
 from contextlib import suppress
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from time import monotonic
@@ -107,6 +109,13 @@ def main(settings: CodexPluginSettings | None = None) -> int:
                         deadline=http_deadline,
                     )
         if context:
+            with suppress(Exception):
+                _record_evaluation_trace(
+                    payload,
+                    query=prompt,
+                    injected_text=context,
+                    scope_id=scope_id,
+                )
             json.dump(
                 {
                     "hookSpecificOutput": {
@@ -321,6 +330,56 @@ def _recall_context(
         _emit_context_event("empty", http_status=200, context_status=status, content_bytes=content_bytes)
         return None
     return cast(str, prepared["content"])
+
+
+def _record_evaluation_trace(
+    payload: Mapping[str, object],
+    *,
+    query: str,
+    injected_text: str,
+    scope_id: str,
+) -> None:
+    """Append the exact injected context when the isolated evaluator requests an audit trace."""
+
+    raw_path = os.environ.get("POWERCONTEXT_EVAL_TRACE_PATH")
+    if raw_path is None or not raw_path.strip():
+        eval_home = os.environ.get("POWERCONTEXT_HOME")
+        if not scope_id.startswith("eval:") or eval_home is None or not eval_home.strip():
+            return
+        home = Path(eval_home)
+        if not home.is_absolute():
+            return
+        raw_path = os.fspath(home / "evaluation-injections.jsonl")
+    event: dict[str, object] = {
+        "event_type": "powercontext_injection",
+        "observed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "query": query,
+        "injected_text": injected_text,
+        # The prepared-context v1 response deliberately does not expose raw search hits.
+        "hits": [],
+        "scope_id": scope_id,
+    }
+    session_id = _payload_identifier(payload, "session_id", "conversation_id", "thread_id")
+    turn_id = _payload_identifier(payload, "turn_id", "request_id")
+    if session_id is not None:
+        event["session_id"] = session_id
+    if turn_id is not None:
+        event["turn_id"] = turn_id
+    encoded = (json.dumps(event, separators=(",", ":")) + "\n").encode()
+    flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(raw_path, flags, 0o600)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "ab", closefd=False) as trace:
+            trace.write(encoded)
+            trace.flush()
+    finally:
+        os.close(descriptor)
 
 
 def _emit_context_event(

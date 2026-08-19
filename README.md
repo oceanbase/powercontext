@@ -8,47 +8,16 @@
 
 PowerContext gives agents durable, project-scoped context. A later session can recover a decision, outcome, current state, or next step without relying on chat history. PowerContext includes a local Server, SQLite storage, an async Python client, a Core SDK, a CLI, a Codex plugin, and a DeepSeek Harness plugin.
 
+## Get started
 
-## Install for Codex or DeepSeek Harness
+Use [Install and run](docs/en/docs/how-to/install-and-run.md) for prerequisites, installation, Server startup, and
+verification. Then choose a host integration:
 
-Prerequisites:
+- [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) provides a first cross-session Memory workflow.
+- [Configure Codex](docs/en/docs/how-to/configure-codex.md) and
+  [Configure DeepSeek Harness](docs/en/docs/how-to/configure-dsh.md) cover host-specific setup.
 
-- macOS or Linux;
-- [uv](https://docs.astral.sh/uv/getting-started/installation/);
-- Codex CLI and/or DeepSeek Harness (`dsh`).
-
-```bash
-uv tool install "powercontext[cli,server]==0.0.1"
-powercontext --version
-```
-
-The version command should print `0.0.1`. Configure the matching host plugin from the same release tag:
-
-```bash
-powercontext setup codex --source oceanbase/powercontext --ref v0.0.1
-powercontext setup dsh --source oceanbase/powercontext --ref v0.0.1
-```
-
-Start the local service in a terminal:
-
-```bash
-powercontext server run
-```
-
-The Server listens on `http://127.0.0.1:8000` by default and stores its SQLite database in the platform-specific user data directory. Keep this process running while using PowerContext. In another terminal, verify the package, Server,
-and Codex integration:
-
-```bash
-powercontext doctor
-powercontext doctor codex
-powercontext doctor dsh
-```
-
-Runtime or database failures make the Server not ready. A configured inference failure is reported as degraded without removing the Server from traffic; the separate Codex and DeepSeek Harness commands do not affect Server health.
-
-Start a new Codex session after setup. Open `/hooks` once and approve the PowerContext hook if Codex asks for trust.
-
-See the [Codex quickstart](docs/en/docs/tutorials/codex-quickstart.md) for a first cross-session workflow.
+For other tasks, start from the [documentation overview](docs/en/docs/index.md).
 
 ## Choose an interface
 

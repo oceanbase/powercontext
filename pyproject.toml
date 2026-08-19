@@ -101,7 +101,7 @@ extra-paths = [
 ]
 
 [tool.ty.src]
-exclude = ["e2e/bub", "integrations/bub"]
+exclude = ["e2e/bub", "integrations/bub", "evaluation"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -61,7 +61,7 @@ function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
 
 function registerRecall(ctx: Context, runtime: PluginRuntime, createUserMessage: CreateUserMessage): void {
   ctx.on('agent/pre-step', (async (payload: {
-    agent: { session: { header: { id: string; cwd: string } } }
+    agent: { session: { header: { id: string; cwd?: string } } }
     messages: PromptMessage[]
     turn: number
     signal: AbortSignal

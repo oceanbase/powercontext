@@ -1,5 +1,6 @@
 import { invokeOperation, renderToolResult, toolResultSchema, type PluginRuntime, type ToolResult } from './invoke.ts'
 import type { JsonObject } from './client.ts'
+import { sessionCwd, UNSCOPED_MESSAGE } from './scope.ts'
 
 type DefineTool = (definition: Record<string, unknown>) => unknown
 type PreToolDecision = { kind: 'allow' } | { kind: 'deny'; reason?: string } | { kind: 'ask'; reason?: string }
@@ -21,11 +22,7 @@ const MUTATING_TOOL_NAMES = new Set([
   'pc_skill_generate',
 ])
 
-type Exec = { signal: AbortSignal; agent?: { session: { header: { cwd: string } } } }
-
-function cwdOf(exec: Exec): string {
-  return exec.agent?.session.header.cwd || process.cwd()
-}
+type Exec = { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } }
 
 function citationParam(description: string): Record<string, unknown> {
   return {
@@ -42,7 +39,8 @@ async function run(
   operationId: string,
   payload: JsonObject,
 ): Promise<ToolResult> {
-  const scopeId = await runtime.resolveScope(cwdOf(exec))
+  const scopeId = await runtime.resolveScope(sessionCwd(exec.agent?.session.header.cwd))
+  if (!scopeId) return { ok: false, code: 'unscoped', message: UNSCOPED_MESSAGE }
   return invokeOperation(runtime.client, operationId, payload, scopeId, exec.signal)
 }
 
