@@ -2875,8 +2875,8 @@ body {
 .editorial-header {
   display: grid;
   align-items: end;
-  gap: 72px;
-  grid-template-columns: 190px minmax(0, 720px);
+  gap: 42px;
+  grid-template-columns: 220px minmax(0, 720px);
 }
 
 .editorial-header h1 {
@@ -2885,6 +2885,7 @@ body {
   font-weight: 560;
   letter-spacing: -0.045em;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .editorial-header > p {
@@ -2903,8 +2904,8 @@ body {
 
 .editorial-row {
   display: grid;
-  gap: 72px;
-  grid-template-columns: 190px minmax(0, 720px);
+  gap: 42px;
+  grid-template-columns: 220px minmax(0, 720px);
   border-bottom: 1px solid var(--pc-rule);
   padding-block: 32px;
 }
