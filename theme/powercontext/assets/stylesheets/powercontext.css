@@ -2873,10 +2873,7 @@ body {
 }
 
 .editorial-header {
-  display: grid;
-  align-items: end;
-  gap: 42px;
-  grid-template-columns: 220px minmax(0, 720px);
+  display: block;
 }
 
 .editorial-header h1 {
@@ -2890,7 +2887,7 @@ body {
 
 .editorial-header > p {
   max-width: 64ch;
-  margin: 0 0 3px;
+  margin: 22px 0 0;
   color: var(--pc-muted);
   font-size: 16px;
   line-height: 1.65;
