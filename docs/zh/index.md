@@ -1,43 +1,46 @@
 ---
 template: home.html
 title: PowerContext
-description: PowerContext 将人类与智能体协作过程转化为可交接的上下文。
+description: 让项目决定、约束和下一步在 Codex 与 Claude Code 会话之间继续可用。
 hide:
   - navigation
   - toc
   - footer
 home:
   hero:
-    label: 开源 · 项目级 · 本地运行
+    label: 开源 · 项目级 · 默认本地
     title:
-      - 让项目上下文
-      - 留得住。
-    lead: PowerContext 让下一次 Agent 会话恢复决定、结果、当前状态和下一步，不再依赖聊天记录。
-    note: 支持 Codex、DeepSeek Harness、Python、HTTP 和 MCP。
+      - 换一个会话，
+      - 项目继续向前。
+    lead: PowerContext 把项目里的决定、约束和下一步保存在对话之外。再次打开 Codex 或 Claude Code 时，相关上下文已经准备好。
+    note: Codex、Claude Code、Python、HTTP 和 MCP 连接同一份项目 Memory。
     actions:
-      - label: 开始使用
-        href: zh/docs/
+      - label: 从 Codex 开始
+        href: zh/docs/tutorials/codex-quickstart/
         kind: primary
-      - label: 查看 GitHub
-        href: https://github.com/oceanbase/powercontext
+      - label: 了解上下文如何延续
+        href: zh/docs/explanation/memory-and-handoff/
         kind: secondary
   continuity:
-    label: 跨越会话
-    title: 从上次停下的地方继续。
-    lead: PowerContext 把项目 Memory 放在对话之外。集成层会在下一轮开始前准备相关上下文。
+    label: 同一项目，两次会话
+    title: 项目背景，不必重讲。
+    lead: 决定只需记录一次。后续会话可以恢复它，并核对来源和精确 Revision。
     steps:
-      - title: 采集
-        description: 在宿主会话运行时，把提示词记录为 Source 证据。
-      - title: 维护
-        description: 记录、搜索、修订、停用并审计项目 Memory。
-      - title: 恢复
-        description: 为同一项目的下一次会话准备有边界的上下文。
+      - title: 记录
+        description: 在 Codex 中留下规则：Handoff 默认保持临时，用户明确要求后才提交。
+      - title: 继续
+        description: 在 Claude Code 中打开同一项目，不必重新解释之前的对话。
+      - title: 核对
+        description: 恢复这条规则，同时查看它的来源和精确 Revision。
   ownership:
-    label: 默认本地
+    label: Memory 与 Handoff
     title:
-      - 让工作留在
-      - 它所在的地方。
-    lead: 用 SQLite 本地运行 Server。Codex、DeepSeek Harness、CLI、Python、HTTP 和 MCP 访问同一份持久化 Memory。
+      - 留下长期信息，
+      - 交接当前工作。
+    lead: >-
+      Memory 保存以后仍会用到的决定、约束、约定和下一步。你可以搜索、修订或停用条目，历史仍会保留。Handoff
+      交付当前目标、已验证进展、阻塞项和下一步行动。它默认保持临时，明确提交后才成为项目里程碑。LOCOMO
+      成绩：1,540 个问题中答对 1,398 个（90.78%），搜索 p95 延迟 1.38 秒。
     command: powercontext server run
     primary_action:
       label: 阅读快速入门

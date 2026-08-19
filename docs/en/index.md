@@ -1,43 +1,47 @@
 ---
 template: home.html
 title: PowerContext
-description: PowerContext turns human-agent work into handoff-ready context.
+description: Keep project decisions, constraints, and next steps available across Codex and Claude Code sessions.
 hide:
   - navigation
   - toc
   - footer
 home:
   hero:
-    label: Open source · Project-scoped · Runs locally
+    label: Open source · Project scoped · Local by default
     title:
-      - Project context
-      - that lasts.
-    lead: PowerContext lets a later agent session recover decisions, outcomes, current state, and next steps without relying on chat history.
-    note: Connect through Codex, DeepSeek Harness, Python, HTTP, or MCP.
+      - Start a new session.
+      - Keep moving.
+    lead: PowerContext keeps project decisions, constraints, and next steps outside the chat. When Codex or Claude Code opens the project again, the relevant context is ready.
+    note: Codex, Claude Code, Python, HTTP, and MCP share the same project Memory.
     actions:
-      - label: Get started
-        href: en/docs/
+      - label: Start with Codex
+        href: en/docs/tutorials/codex-quickstart/
         kind: primary
-      - label: View on GitHub
-        href: https://github.com/oceanbase/powercontext
+      - label: How context carries over
+        href: en/docs/explanation/memory-and-handoff/
         kind: secondary
   continuity:
-    label: Across sessions
-    title: Pick up the project where you left it.
-    lead: PowerContext stores project Memory outside the conversation. Integrations prepare relevant context before the next turn.
+    label: One project, two sessions
+    title: Do not start from scratch.
+    lead: Record a decision once. The next session can recover it with its source and exact revision.
     steps:
-      - title: Capture
-        description: Record prompts as Source evidence while a host session runs.
-      - title: Maintain
-        description: Remember, search, revise, retire, and audit project Memory.
-      - title: Recall
-        description: Prepare bounded context for a later session in the same project.
+      - title: Save
+        description: In Codex, record that a Handoff stays temporary until the user asks to commit it.
+      - title: Continue
+        description: Open the same project in Claude Code without replaying the earlier chat.
+      - title: Check
+        description: Recover the rule together with its source and exact revision.
   ownership:
-    label: Local by default
+    label: Memory and Handoff
     title:
-      - Run it where
-      - your work lives.
-    lead: Run the Server locally with SQLite. Codex, DeepSeek Harness, the CLI, Python, HTTP, and MCP use the same persistent Memory.
+      - Keep what lasts.
+      - Hand off the work.
+    lead: >-
+      Memory keeps decisions, constraints, conventions, and next steps for later work. You can search, revise, or
+      retire an entry; its history remains available. A Handoff carries the current objective, verified progress,
+      blockers, and next action. It stays temporary until you commit it as a project milestone. LOCOMO result: 1,398
+      of 1,540 answers correct (90.78%), with 1.38 s p95 search latency.
     command: powercontext server run
     primary_action:
       label: Read the quickstart
