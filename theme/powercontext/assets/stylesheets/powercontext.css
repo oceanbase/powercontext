@@ -3250,58 +3250,6 @@ body {
   font-size: 12px;
 }
 
-.md-main__inner:has(.pc-blog-article) {
-  display: block;
-  max-width: none;
-  margin: 0;
-  padding: 0;
-}
-
-.blog-article {
-  width: min(760px, calc(100% - 48px));
-  margin-inline: auto;
-  padding-block: 58px 112px;
-}
-
-.blog-article .md-content__inner {
-  max-width: none;
-  margin: 0;
-  padding: 0;
-}
-
-.blog-article .md-content__inner::before {
-  display: none;
-}
-
-.blog-article-document > h1 {
-  max-width: 15ch;
-  margin: 0;
-  font-size: clamp(42px, 5vw, 58px);
-  font-weight: 560;
-  letter-spacing: -0.05em;
-  line-height: 1.02;
-}
-
-.blog-article-document > h2 {
-  margin: 42px 0 14px;
-  font-size: 25px;
-  font-weight: 580;
-  letter-spacing: -0.03em;
-}
-
-.blog-article-document > p,
-.blog-article-document > ul,
-.blog-article-document > ol {
-  color: var(--pc-text);
-  font-size: 15px;
-  line-height: 1.85;
-}
-
-.blog-article-document > hr {
-  margin-block: 38px;
-  border-bottom-color: var(--pc-rule-strong);
-}
-
 .pc-home .md-typeset .continuity-flow {
   display: grid;
   margin: 0;
@@ -3319,13 +3267,6 @@ body {
 
 .pc-home .md-typeset .continuity-flow > li::marker {
   content: "";
-}
-
-@media screen and (max-width: 720px) {
-  .blog-article {
-    width: calc(100% - 30px);
-    padding-block: 42px 84px;
-  }
 }
 
 /* Keep Blog, Releases, and RFC listings on one editorial grid. */

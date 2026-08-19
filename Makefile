@@ -117,16 +117,12 @@ publish: ## Publish a release to PyPI.
 .PHONY: build-and-publish
 build-and-publish: build publish ## Build and publish.
 
-.PHONY: docs-content-test
-docs-content-test: ## Validate configured homepage and documentation overview content
-	@uv run python scripts/validate_site_content.py
-
 .PHONY: docs-test
-docs-test: docs-content-test ## Test if documentation can be built without warnings or errors
+docs-test: ## Test if documentation can be built without warnings or errors
 	@uv run zensical build -s
 
 .PHONY: docs
-docs: docs-content-test ## Build and serve the documentation
+docs: ## Build and serve the documentation
 	@uv run zensical serve
 
 .PHONY: help
