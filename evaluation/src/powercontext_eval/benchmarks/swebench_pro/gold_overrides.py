@@ -65,7 +65,7 @@ index 37d7bfbc35..d368ed2cfd 100644
 +
 +	return pool, nil
 +}
-+ 
++
 diff --git a/lib/srv/alpnproxy/local_proxy.go b/lib/srv/alpnproxy/local_proxy.go
 index c9df27f88f..83e4078c61 100644
 --- a/lib/srv/alpnproxy/local_proxy.go
@@ -84,7 +84,7 @@ index 40fb3df0f0..22c09b0951 100644
 +++ b/tool/tsh/proxy.go
 @@ -17,6 +17,7 @@ limitations under the License.
  package main
- 
+
  import (
 +	"crypto/tls"
  	"fmt"
@@ -93,7 +93,7 @@ index 40fb3df0f0..22c09b0951 100644
 @@ -42,16 +43,42 @@ func onProxyCommandSSH(cf *CLIConf) error {
  		return trace.Wrap(err)
  	}
- 
+
 +	// Get the local agent to access cluster CA certificates
 +	localAgent := client.LocalAgent()
 +	if localAgent == nil {
