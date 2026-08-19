@@ -17,6 +17,7 @@ id: locomo-open-pastries
 categories:
   - acceptance
   - sample
+batch: locomo
 provenance:
   source: benchmark/locomo/dataset/locomo10.json
   revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
@@ -28,7 +29,7 @@ provenance:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: locomo-open-pastries
-  checksum: c1c4df25435b4faba60fada92891a3423cd4826236c04daf84e7ee721e6dd094
+  checksum: b55af4f1a3d673afa2df02a26f7026b3018ffa5bcac58cd9f8b99bef1a0d5ed6
 execution:
   type: bub
   model: false

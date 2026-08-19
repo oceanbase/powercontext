@@ -94,6 +94,7 @@ class HarborTrialObservation(EvidenceModel):
     trial_name: str | None = None
     trial_uri: str | None = None
     task_checksum: str | None = None
+    source_task_checksum: str | None = Field(default=None, exclude_if=lambda value: value is None)
     rewards: dict[str, float | int] = Field(default_factory=dict)
     exception_type: str | None = None
     exception_message: str | None = None
@@ -120,9 +121,10 @@ class TaskObservation(EvidenceModel):
         alias="schema",
     )
     run_id: str
+    scope_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
     environment: RunEnvironment
     task: E2ETask
-    status: Literal["completed", "failed"]
+    status: Literal["completed", "failed", "skipped"]
     errors: tuple[str, ...] = ()
     harbor: HarborTrialObservation
     capture_records: tuple[CaptureRecord, ...] = ()

@@ -115,8 +115,12 @@ class MemoryEvaluator:
                 reason=None if observation.status == "completed" else "; ".join(observation.errors),
             ),
             "task_provenance_matches": EvaluationValue(
-                value=observation.harbor.task_checksum == task.dataset.checksum,
-                reason=f"Expected {task.dataset.checksum!r}; observed {observation.harbor.task_checksum!r}.",
+                value=(observation.harbor.source_task_checksum or observation.harbor.task_checksum)
+                == task.dataset.checksum,
+                reason=(
+                    f"Expected {task.dataset.checksum!r}; observed "
+                    f"{observation.harbor.source_task_checksum or observation.harbor.task_checksum!r}."
+                ),
             ),
             "native_acp_evidence_recorded": EvaluationValue(
                 value=not missing_native_artifacts,
