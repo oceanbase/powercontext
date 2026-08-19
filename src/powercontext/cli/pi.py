@@ -55,8 +55,8 @@ def install_pi_plugin(*, source: str, ref: str) -> PiSetupResult:
         raise SetupError.data_directory(data_dir, error) from error
     package_dir = resolve_pi_plugin_dir(source=source, ref=ref)
     require_pi_package(package_dir)
-    _remove_existing_pi_packages()
     _run_pi("install", str(package_dir))
+    _remove_existing_pi_packages(keep=package_dir)
     return PiSetupResult(
         package=PI_PACKAGE_NAME,
         package_path=str(package_dir),
@@ -241,11 +241,13 @@ def _is_powercontext_pi_listing(listing: _PiPackageListing) -> bool:
     return source == f"npm:{PI_PACKAGE_NAME}" or PI_PLUGIN_RELATIVE.as_posix() in source
 
 
-def _remove_existing_pi_packages() -> None:
-    """Replace prior user-scoped PowerContext package paths during setup."""
+def _remove_existing_pi_packages(*, keep: Path) -> None:
+    """Remove superseded user-scoped PowerContext package paths after a successful install."""
 
     for listing in _listed_pi_packages(_run_pi("list")):
         if listing.scope != "user" or not _is_powercontext_pi_listing(listing):
+            continue
+        if _is_current_pi_package_listing(listing, keep):
             continue
         if listing.source.startswith(("npm:", "git:", "github:", "http:", "https:", "ssh:")):
             _run_pi("remove", listing.source)
@@ -253,6 +255,15 @@ def _remove_existing_pi_packages() -> None:
             _run_pi("remove", str(listing.installed_path))
         elif Path(listing.source).is_absolute():
             _run_pi("remove", listing.source)
+
+
+def _is_current_pi_package_listing(listing: _PiPackageListing, keep: Path) -> bool:
+    """Return whether a Pi listing already points at the package just installed."""
+
+    current = keep.resolve()
+    if listing.installed_path is not None and listing.installed_path.resolve() == current:
+        return True
+    return Path(listing.source).expanduser().resolve() == current
 
 
 def _clone_github_source(source: str, ref: str, target: Path) -> None:

@@ -87,6 +87,38 @@ def test_setup_pi_refreshes_remote_source_and_replaces_previous_package(tmp_path
     assert (current_root / "source.txt").read_text(encoding="utf-8") == "another/powercontext@master"
 
 
+def test_setup_pi_keeps_the_existing_package_when_refresh_installation_fails(tmp_path: Path, monkeypatch) -> None:
+    import powercontext.cli.pi as pi_cli
+
+    data_dir = tmp_path / "data"
+    checkout = tmp_path / "replacement"
+    _write_pi_package(checkout)
+    existing = _write_pi_package(tmp_path / "existing")
+    installed_packages = {str(existing)}
+
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
+    monkeypatch.setattr(pi_cli, "which", lambda _name: "/usr/bin/pi")
+
+    def fake_pi(*arguments: str) -> str:
+        command, *values = arguments
+        if command == "list":
+            return "\n".join(["User packages:", f"  {existing}", f"    {existing}"])
+        if command == "install":
+            raise SetupError.command_failed(["pi", "install"], "simulated Pi installation failure")
+        if command == "remove":
+            installed_packages.discard(values[0])
+            return ""
+        raise AssertionError
+
+    monkeypatch.setattr(pi_cli, "_run_pi", fake_pi)
+
+    result = CliRunner().invoke(create_cli([setup_app]), ["setup", "pi", "--source", str(checkout)])
+
+    assert result.exit_code == 1
+    assert "simulated Pi installation failure" in result.output
+    assert installed_packages == {str(existing)}
+
+
 def test_setup_pi_does_not_echo_source_credentials(tmp_path: Path, monkeypatch) -> None:
     import powercontext.cli.pi as pi_cli
 

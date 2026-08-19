@@ -23,7 +23,7 @@ def is_local_source(source: str) -> bool:
 
 
 def github_clone_url(source: str) -> str:
-    """Return a clone URL for a GitHub slug or credential-free GitHub URL."""
+    """Return a clone URL for a GitHub slug, HTTPS URL, or SSH shorthand."""
 
     text = source.strip()
     if text.startswith("git@github.com:"):
@@ -33,7 +33,7 @@ def github_clone_url(source: str) -> str:
 
     parsed = urlsplit(text)
     if parsed.scheme:
-        if parsed.scheme not in {"http", "https"} or parsed.netloc != _GITHUB_HOST or parsed.query or parsed.fragment:
+        if parsed.scheme != "https" or parsed.netloc != _GITHUB_HOST or parsed.query or parsed.fragment:
             raise InvalidGitHubSourceError
         return f"{parsed.scheme}://{_GITHUB_HOST}/{_repository_path(parsed.path)}"
 

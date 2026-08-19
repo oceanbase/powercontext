@@ -86,7 +86,7 @@ class SetupError(RuntimeError):
 
     @classmethod
     def invalid_dsh_source(cls) -> SetupError:
-        return cls("invalid DeepSeek Harness source; use a local path or credential-free GitHub repository")
+        return cls("invalid DeepSeek Harness source; use a local path or an HTTPS/SSH GitHub repository")
 
     @classmethod
     def invalid_pi_ref(cls, ref: str) -> SetupError:
@@ -94,7 +94,7 @@ class SetupError(RuntimeError):
 
     @classmethod
     def invalid_pi_source(cls) -> SetupError:
-        return cls("invalid Pi source; use a local path or credential-free GitHub repository")
+        return cls("invalid Pi source; use a local path or an HTTPS/SSH GitHub repository")
 
     @classmethod
     def git_clone_failed(cls) -> SetupError:
