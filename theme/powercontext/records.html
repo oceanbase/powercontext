@@ -17,10 +17,9 @@
 {% endblock %}
 
 {% block container %}
-  <div class="md-content pc-records-index records-page shell" data-md-component="content">
+  <div class="md-content pc-listing pc-records-index records-page" data-md-component="content">
     <article class="md-content__inner md-typeset">
       <header class="records-header">
-        <p class="eyebrow">{{ "项目记录" if is_zh else "Project records" }}</p>
         <h1>{{ "RFC 与" if is_zh else "RFCs and" }}<br>{{ "会议纪要。" if is_zh else "meeting notes." }}</h1>
         <p>{{ "RFC 记录设计提案和决策；会议纪要记录阶段进展、演示、决策和后续工作。" if is_zh else "RFCs record design proposals and decisions. Meeting notes preserve updates, demonstrations, decisions, and follow-up work." }}</p>
         <a class="quiet-button large" href="{{ config.repo_url }}">{{ "打开仓库 ↗" if is_zh else "Open repository ↗" }}</a>
@@ -37,7 +36,7 @@
             {% if top_item.title == records_title %}
               {% for record_group in top_item.children %}
                 {% if (is_meetings and record_group.title == meetings_title) or (not is_meetings and record_group.title == rfc_title) %}
-                  <section class="record-index"{% if is_meetings %} aria-labelledby="record-index-title"{% else %} aria-label="{{ 'RFC 列表' if is_zh else 'RFC list' }}"{% endif %}>
+                  <section class="record-index pc-listing-list"{% if is_meetings %} aria-labelledby="record-index-title"{% else %} aria-label="{{ 'RFC 列表' if is_zh else 'RFC list' }}"{% endif %}>
                     {% if is_meetings %}
                       <div class="record-index-title">
                         <h2 id="record-index-title">{{ "会议纪要" if is_zh else "Meeting notes" }}</h2>
@@ -47,9 +46,9 @@
                     {% endif %}
                     {% for record in record_group.children %}
                       {% if loop.index0 > 0 and record.title not in ["RFC Template", "RFC 模板"] %}
-                        <a class="record-row record-row--compact" href="{{ record.url | url }}">
-                          <span class="record-number">{{ "0000" if record.title in ["RFC Template", "RFC 模板"] else record.title[:4] }}</span>
-                          <div class="record-proposal">
+                        <a class="record-row record-row--compact pc-listing-row" href="{{ record.url | url }}">
+                          <span class="record-number pc-listing-meta">{{ "0000" if record.title in ["RFC Template", "RFC 模板"] else record.title[:4] }}</span>
+                          <div class="record-proposal pc-listing-content">
                             <h2>{% if is_meetings or record.title in ["RFC Template", "RFC 模板"] %}{{ record.title }}{% else %}{{ record.title[5:] }}{% endif %}</h2>
                             {% if not is_meetings %}<code>{{ record.title | lower | replace(" ", "_") }}</code>{% endif %}
                           </div>

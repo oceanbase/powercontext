@@ -12,10 +12,10 @@ hide:
   <p>Tagged PowerContext releases and changes that affect users. Design proposals remain in RFCs until they ship.</p>
 </header>
 
-<div class="editorial-list release-list">
-  <article class="editorial-row release-entry">
-    <div class="editorial-meta release-meta"><strong>v0.0.1</strong><span>Aug 13, 2026</span><span>Latest release</span></div>
-    <div class="editorial-body release-body">
+<div class="editorial-list release-list pc-listing-list">
+  <article class="editorial-row release-entry pc-listing-row">
+    <div class="editorial-meta release-meta pc-listing-meta"><strong>v0.0.1</strong><span>Aug 13, 2026</span><span>Latest release</span></div>
+    <div class="editorial-body release-body pc-listing-content">
       <h2>First PowerContext release</h2>
       <p>This release establishes durable, project-scoped context across agent sessions.</p>
       <ul class="release-highlights">
@@ -28,9 +28,9 @@ hide:
     </div>
   </article>
 
-  <section class="editorial-row release-archive" aria-labelledby="powermem-archive">
-    <div class="editorial-meta"><strong>PowerMem</strong><span>Earlier project</span></div>
-    <div class="editorial-body">
+  <section class="editorial-row release-archive pc-listing-row" aria-labelledby="powermem-archive">
+    <div class="editorial-meta pc-listing-meta"><strong>PowerMem</strong><span>Earlier project</span></div>
+    <div class="editorial-body pc-listing-content">
       <h2 id="powermem-archive">PowerMem release archive</h2>
       <p>PowerContext succeeds PowerMem. Earlier PowerMem versions remain available in the shared GitHub release history.</p>
       <a class="row-action" href="https://github.com/oceanbase/powercontext/releases">View all releases <span aria-hidden="true">→</span></a>

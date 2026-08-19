@@ -12,10 +12,10 @@ hide:
   <p>这里记录 PowerContext 的正式版本，以及会影响使用方式的变化。尚未交付的设计仍保留在 RFC 中。</p>
 </header>
 
-<div class="editorial-list release-list">
-  <article class="editorial-row release-entry">
-    <div class="editorial-meta release-meta"><strong>v0.0.1</strong><span>2026 年 8 月 13 日</span><span>最新版本</span></div>
-    <div class="editorial-body release-body">
+<div class="editorial-list release-list pc-listing-list">
+  <article class="editorial-row release-entry pc-listing-row">
+    <div class="editorial-meta release-meta pc-listing-meta"><strong>v0.0.1</strong><span>2026 年 8 月 13 日</span><span>最新版本</span></div>
+    <div class="editorial-body release-body pc-listing-content">
       <h2>PowerContext 首个版本</h2>
       <p>这个版本提供跨 Agent 会话、按项目划分的持久上下文。</p>
       <ul class="release-highlights">
@@ -28,9 +28,9 @@ hide:
     </div>
   </article>
 
-  <section class="editorial-row release-archive" aria-labelledby="powermem-archive">
-    <div class="editorial-meta"><strong>PowerMem</strong><span>前身项目</span></div>
-    <div class="editorial-body">
+  <section class="editorial-row release-archive pc-listing-row" aria-labelledby="powermem-archive">
+    <div class="editorial-meta pc-listing-meta"><strong>PowerMem</strong><span>前身项目</span></div>
+    <div class="editorial-body pc-listing-content">
       <h2 id="powermem-archive">PowerMem 版本存档</h2>
       <p>PowerContext 是 PowerMem 的后续项目。早期 PowerMem 版本仍保留在同一份 GitHub 发布记录中。</p>
       <a class="row-action" href="https://github.com/oceanbase/powercontext/releases">查看全部版本 <span aria-hidden="true">→</span></a>
