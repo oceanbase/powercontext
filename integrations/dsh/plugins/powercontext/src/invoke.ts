@@ -127,6 +127,6 @@ export async function invokeOperation(
 export interface PluginRuntime {
   client: PowerContextClient
   config: ResolvedConfig
-  resolveScope: (cwd: string) => Promise<string>
+  resolveScope: (cwd?: string) => Promise<string | undefined>
   log: (event: Record<string, unknown>) => void
 }

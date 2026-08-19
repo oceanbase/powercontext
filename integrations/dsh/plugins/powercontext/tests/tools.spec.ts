@@ -81,4 +81,33 @@ describe('agent tool surface', () => {
     await expect(preExecute?.({ name: 'pc_search' }, next)).resolves.toEqual({ kind: 'allow' })
     expect(next).toHaveBeenCalledOnce()
   })
+
+  it('returns unscoped when the session has no workspace and scopeId is not configured', async () => {
+    const registered: Array<{
+      name: string
+      execute: (args: Record<string, unknown>, exec: unknown) => Promise<unknown>
+    }> = []
+    registerTools(
+      {
+        tools: { register: (tool) => registered.push(tool as never) },
+        on: () => undefined,
+      },
+      {
+        client: {} as never,
+        config: { maxBytes: 8000 },
+        resolveScope: async (cwd?: string) => cwd ? 'local:from-cwd' : undefined,
+        log: vi.fn(),
+      } as unknown as PluginRuntime,
+      (definition) => definition,
+    )
+    const search = registered.find((tool) => tool.name === 'pc_search')
+    const result = await search?.execute({ query: 'public API' }, {
+      signal: AbortSignal.timeout(1000),
+      agent: { session: { header: { id: 's1' } } },
+    })
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'unscoped',
+    })
+  })
 })

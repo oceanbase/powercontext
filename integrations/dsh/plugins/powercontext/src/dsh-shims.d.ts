@@ -31,7 +31,7 @@ declare module '@deepseek-ai/dsh-agent' {
     | { kind: 'reject' }
     | { kind: 'enter'; messages: unknown[] }
   export type Agent = {
-    session: { header: { id: string; cwd: string } }
+    session: { header: { id: string; cwd?: string } }
   }
 }
 

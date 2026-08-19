@@ -1,5 +1,6 @@
 import type { JsonObject } from './client.ts'
 import { invokeOperation, type PluginRuntime, type ToolResult } from './invoke.ts'
+import { UNSCOPED_MESSAGE } from './scope.ts'
 
 export interface CommandResult {
   kind: 'success' | 'error'
@@ -104,7 +105,7 @@ export function registerCommands(
     register: (definition: {
       name: string
       description: string
-      handler: (invocation: { rawInput: string; signal: AbortSignal; agent: { session: { header: { cwd: string } } } }) => Promise<CommandResult>
+      handler: (invocation: { rawInput: string; signal: AbortSignal; agent: { session: { header: { cwd?: string } } } }) => Promise<CommandResult>
     }) => unknown
   } | undefined
   if (!commands) return
@@ -113,6 +114,7 @@ export function registerCommands(
     description: 'PowerContext status, search, review, and diagnostics',
     handler: async (invocation) => {
       const scopeId = await runtime.resolveScope(invocation.agent.session.header.cwd)
+      if (!scopeId) return { kind: 'error', text: UNSCOPED_MESSAGE }
       return handlePcCommand(invocation.rawInput, runtime, scopeId, invocation.signal)
     },
   })
