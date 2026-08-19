@@ -3,6 +3,9 @@ docs/source
 # Agent skills are restored from skills-lock.json.
 .agents/skills/
 
+# Local visual brainstorming sessions.
+.superpowers/
+
 # From https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
 
 # Byte-compiled / optimized / DLL files
@@ -18,6 +21,11 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+node_modules/
+evaluation/web/node_modules/
+evaluation/web/playwright-report/
+evaluation/web/test-results/
+evaluation/web/*.tsbuildinfo
 downloads/
 eggs/
 .eggs/
@@ -215,3 +223,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# PowerContext DeepSeek Harness plugin (Node)
+integrations/dsh/node_modules/
+integrations/dsh/coverage/
+integrations/dsh/*.tgz
+!integrations/dsh/plugins/powercontext/lib/
+!integrations/dsh/plugins/powercontext/lib/**

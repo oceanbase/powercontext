@@ -1,0 +1,1 @@
+,powercontext.remember text='James is a Liverpool fan and does not miss their matches. John is a Manchester City fan and expects the two teams to fight for the championship.' kind='conversation-fact' reason='Pinned LoCoMo-derived e2e sample'

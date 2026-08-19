@@ -1,0 +1,34 @@
+schema: powercontext.e2e-task/v1
+id: locomo-multihop-football
+categories:
+  - acceptance
+  - sample
+provenance:
+  source: benchmark/locomo/dataset/locomo10.json
+  revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
+  selection: category-3-first-two-explicit-named-facts/v1
+  case_ids:
+    - conv-47
+    - conv-47:q026
+    - D13
+dataset:
+  path: e2e/bub/harbor-tasks
+  task_id: locomo-multihop-football
+  checksum: 3798f20ed095811a3ad32bd321f54048d149562452d97a800e3d9448904fb168
+execution:
+  type: bub
+  model: false
+  max_steps: 10
+  max_tokens: 4096
+evaluation:
+  expected_memory:
+    - Liverpool
+    - Manchester City
+  probes:
+    - id: football-team-fans
+      query: Are John and James fans of the same football team?
+      expected_context:
+        - Liverpool
+        - Manchester City
+  thresholds:
+    probe_coverage: 1

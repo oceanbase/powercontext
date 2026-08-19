@@ -21,7 +21,11 @@ To install a tested branch or tag, replace `master` after the final `@`. Use the
 
 ```bash
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
+powercontext setup dsh --source oceanbase/powercontext --ref <ref>
 ```
+
+For host-specific options, see [Configure Codex](configure-codex.md) and
+[Configure DeepSeek Harness](configure-dsh.md).
 
 ## Run the local Server
 
@@ -43,15 +47,17 @@ With no environment variables, the Server:
 ```bash
 powercontext doctor
 powercontext doctor codex
+powercontext doctor dsh
 powercontext ready
 powercontext capabilities
 ```
 
-`doctor` checks the installed package, Server liveness, and Server readiness without requiring Codex. Server
+`doctor` checks the installed package, Server liveness, and Server readiness without requiring an integration. Server
 readiness covers the database and each configured inference provider. Runtime or database failures return
 `not_ready`; an inference failure returns `degraded` without removing database-backed operations from traffic.
-`doctor codex` separately checks the optional Codex CLI and PowerContext plugin. The content commands exercise the
-public HTTP SDK path.
+`doctor codex` and `doctor dsh` separately check the optional host CLI and PowerContext plugin. `ready` and
+`capabilities` show the readiness and enabled capabilities of the running service. For complete status definitions and
+recovery steps, see [Troubleshoot](troubleshoot.md).
 
 ## Update or replace an installation
 
@@ -60,9 +66,10 @@ To replace the installed tool with a chosen ref:
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
+powercontext setup dsh --source oceanbase/powercontext --ref <ref>
 ```
 
-Restart the Server and open a new Codex session after updating. Existing SQLite data remains in the user data
+Restart the Server and open a new host session after updating. Existing SQLite data remains in the user data
 directory unless `POWERCONTEXT_HOME` or the database URL changes.
 
 ## Install a Python role

@@ -1,0 +1,33 @@
+{
+  "name": "powercontext",
+  "version": "0.1.0",
+  "description": "Restore project memory and transfer current work through PowerContext.",
+  "author": {
+    "name": "PowerContext Team",
+    "email": "open_oceanbase@oceanbase.com",
+    "url": "https://github.com/oceanbase"
+  },
+  "homepage": "https://github.com/oceanbase/powercontext",
+  "repository": "https://github.com/oceanbase/powercontext",
+  "license": "Apache-2.0",
+  "keywords": [
+    "claude-code",
+    "context",
+    "handoff",
+    "memory"
+  ],
+  "userConfig": {
+    "server_url": {
+      "type": "string",
+      "title": "PowerContext Server URL",
+      "description": "HTTP base URL of the running PowerContext Server",
+      "default": "http://127.0.0.1:8000"
+    },
+    "capture_prompts": {
+      "type": "boolean",
+      "title": "Capture user prompts",
+      "description": "Store user prompts as ordinary Content Source evidence",
+      "default": true
+    }
+  }
+}
