@@ -26,6 +26,8 @@ collaboration. It turns shared work into project context that can be understood,
 
 ### [LoCoMo](https://github.com/snap-research/locomo)
 
+![LOCOMO benchmark comparison showing PowerContext accuracy, search latency, and answer token usage against PowerMem and a full-context baseline](docs/assets/locomo-benchmark-comparison.svg)
+
 | Metric | PowerContext | [PowerMem](https://www.powermem.ai/benchmark) | Full-context baseline |
 | --- | ---: | ---: | ---: |
 | Accuracy | **90.78%** (1,398/1,540) | 87.79% | 52.9% |
@@ -44,6 +46,8 @@ resolution rate from **82.35%** to **86.73%**, an improvement of **4.38 percenta
 
 The evaluation ran in a Codex environment, with both the PowerContext OFF and ON groups using the `gpt-5.6-sol`
 model.
+
+![SWE-bench Pro public v2 comparison showing an increase from 82.35% with PowerContext off to 86.73% with PowerContext on](docs/assets/swe-bench-pro-public-v2-comparison.svg)
 
 | Result | PowerContext OFF | PowerContext ON | Change |
 | --- | ---: | ---: | ---: |
