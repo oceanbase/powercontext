@@ -15,13 +15,53 @@ All remote interfaces operate on the same Server and persistent Artifact storage
 | Python Client SDK | Typed async calls to a running Server | `powercontext[client]` |
 | Core SDK | In-process Source, Artifact, Trigger, and composition contracts | base package |
 | HTTP | Service integration from any language | `powercontext[server]` |
-| MCP | Agent tools for Memory and Candidate Review | enabled by Server |
+| MCP | Agent tools for Memory and work continuity | enabled by Server |
 
 ## Codex plugin
 
-The project-context skill tells Codex when to search, remember, revise, or retire Memory. The prompt hook recalls
-relevant entries and captures user input as Source evidence. MCP tools perform explicit operations. The plugin never
-starts or embeds the Server.
+The project-context skill tells Codex when to search, remember, revise, retire, delegate, hand off, acknowledge, or
+record an outcome. The prompt hook recalls relevant entries and captures user input as Source evidence. MCP tools
+perform explicit operations. The plugin never starts or embeds the Server.
+
+## Work continuity
+
+The Server exposes one high-level loop across HTTP, the Python Client, and MCP:
+
+```text
+create_work_contract
+  -> work
+  -> handoff_current_work
+  -> continue_handoff + acknowledge_handoff
+  -> record_task_outcome
+```
+
+`create_work_contract` records the objective, scope, completion criteria, authority notes, and consequential open
+questions for newly delegated work. `handoff_current_work` captures caller-inspected state and returns a temporary
+Prepared Handoff; it does not publish a milestone. Call `commit_handoff` separately when the user wants a durable
+milestone.
+
+The receiver calls `continue_handoff` with a prepared, exact, or latest selection. When starting from latest, the
+returned exact Revision is shown and inspected before acknowledgement. `acknowledge_handoff` accepts prepared or exact,
+never latest. It refuses acceptance when any Handoff evidence is unavailable or when live-state, capability, and
+authorization are not all `confirmed`. A receiver can instead record `needs_clarification` or `declined`. The receipt
+and its three confirmations are untrusted observations; they grant no identity, tool, or execution authority.
+
+`record_task_outcome` preserves `succeeded`, `partial`, `blocked`, `failed`, `cancelled`, or `unknown` and exact check
+states. To cover a committed Handoff result, `handoff_receipt_ref` identifies the active accepted exact Receipt; an
+unlinked Outcome in the same scope does not cover it. The operation stores a `task-outcome` Source that existing
+Experience incubation can inspect, but does not generate or approve an Experience by itself. Integrations call it only
+at a real completion or interruption boundary, not solely because a prompt, Stop event, or Session ended.
+
+Claims and checks are either `declared` with no evidence or `verified` with exact same-scope citations. A readable
+citation proves identity and availability, not freshness. Current instructions, live workspace state, capabilities,
+and authorization still take precedence over all Work and Handoff records.
+
+Each Handoff Report JSON Workstream projection also returns `handoff_revision_count`,
+`handoff_history_truncated`, and `handoff_history`. History contains at most the latest 20 Revision summaries through
+the frozen selection in ascending Revision order; the page presents them latest-first and refreshes every five
+seconds. Unsent edits or an active Handoff action pause automatic refresh. The Codex scope resolver can bind the
+current Git workspace once to a fixed Workstream scope. That binding takes precedence over Git remote and path
+derivation, but remains below explicit scope configuration.
 
 ## DeepSeek Harness plugin
 

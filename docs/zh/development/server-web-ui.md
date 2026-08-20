@@ -98,9 +98,11 @@ document-level 结构放在 `base.html`。一个片段已经被复用，或者�
 
 ## 添加 Handoff Report 页面
 
-启用 Dashboard 和 Handoff Report 时，Server 在 `/handoff-reports` 托管项目交接页面。根路径 `/` 仍保留原有 scoped statistics Dashboard，两个页面只复用 `base.html`、header、footer、`auth.js`、主题和 locale storage，不共享统计或报告计算逻辑。
+启用 Handoff Report 后，Server 会在 `/handoff-reports` 托管项目交接页面，不再要求同时启用 scoped statistics Dashboard 或配置其 scope 列表。单独启用 Dashboard 时，根路径 `/` 仍提供原有统计页面。两个页面只复用 `base.html`、header、footer、`auth.js`、主题和 locale storage，不共享统计或报告计算逻辑。
 
-Handoff Report 页面通过 `POST /v1/handoff-reports/projects/list` 获取当前 token 可访问的 Project，并以 `project_id` 为稳定值渲染标签页。标签同时显示 Project title 和完整 `project_id`，避免同名 Project 无法区分。切换标签后，浏览器通过 `POST /v1/handoff-reports/get` 请求该 Project 的 canonical JSON；页面只负责格式化和展示 `summary`、`coverage`、Workstream 状态、Activity 数量、objective、current state、next action、known omissions 和 digest，不重新计算报告口径。
+Handoff Report 页面通过 `POST /v1/handoff-reports/projects/list` 获取当前 token 可访问的 Project，并以不可变的 `project_id` 作为可搜索项目选择器的值。搜索同时匹配 Project title、`project_id` 和 Project key；每个选项显示 title 和完整 `project_id`，浏览器最多渲染前 50 个匹配项，并提示用户继续输入以缩小范围。选择项目后，浏览器只加载该 Project 的 Workstream，并通过 `POST /v1/handoff-reports/get` 请求 canonical JSON。页面把 Workstream 展示为顶部横向切换区，切换项下方使用完整宽度显示当前精确交接快照，不再提供第二个选择器。切换区发生溢出时会显示上一项、下一项和当前位置，并自动让所选工作项保持可见；工作项超过 8 个时，还会显示按名称或 scope 搜索的输入框。
+
+当前快照把目标、当前状态、处置状态、下一步和已知缺失作为一份完整交接内容展示。一个“编辑”操作会同时打开五个字段，一个“保存新版本”操作会把完整内容 prepare 并 commit 为新的不可变 Handoff Revision。编辑器打开期间暂停项目和工作项切换以及自动刷新。页面不提供接手方决策操作，已有连续性记录继续通过只读时间线展示。活动周期控件与活动区域放在一起，因为它们只影响 Activity 数量。除显式保存交接版本外，浏览器只格式化 `summary`、`coverage`、Workstream 状态、Activity 数量和 digest，不重新计算报告口径。
 
 页面默认请求 Project 时区内的当日周期，并提供本日、ISO 本周、自然月和自定义起止日期筛选。日期输入的结束日按包含当天解释，发给 API 时转换为下一日零点的排他边界；每次请求都启用上一等长周期 Activity 对比。周期筛选和 Markdown 下载使用完全相同的 `period` 参数。由于 Handoff 尚无权威 commit timestamp，当 `handoff_boundary_coverage=unavailable` 时，页面必须明确说明 Handoff 状态来自当前 exact selection，周期只精确筛选 Activity，不能把当前状态伪装成历史期末状态。
 

@@ -119,8 +119,16 @@ class SetupError(RuntimeError):
         return cls(
             f"Claude Code marketplace `{CLAUDE_MARKETPLACE_NAME}` uses {existing}, "
             f"but setup requested {requested}. Remove it with "
-            f"`claude plugin marketplace remove {CLAUDE_MARKETPLACE_NAME} --scope user`, then rerun setup."
+            f"`claude plugin marketplace remove {CLAUDE_MARKETPLACE_NAME}`, then rerun setup."
         )
+
+    @classmethod
+    def invalid_claude_settings(cls, path: Path) -> SetupError:
+        return cls(f"Claude Code settings at {path} must contain a JSON object with object-valued plugin options.")
+
+    @classmethod
+    def claude_settings_write(cls, path: Path, error: OSError) -> SetupError:
+        return cls(f"Cannot update Claude Code settings at {path}: {error}")
 
     @classmethod
     def claude_server_url_credentials(cls) -> SetupError:
@@ -437,7 +445,7 @@ def install_claude_code_plugin(
     plugins = _run_claude_json("plugin", "list")
     previous_plugin = _claude_plugin(plugins)
     plugin_existed = previous_plugin is not None
-    settings_snapshot = _snapshot_claude_settings() if plugin_existed else None
+    settings_snapshot = _snapshot_claude_settings()
     marketplace_added = False
     plugin_added = False
     try:
@@ -450,14 +458,11 @@ def install_claude_code_plugin(
             f"{PLUGIN_NAME}@{CLAUDE_MARKETPLACE_NAME}",
             "--scope",
             "user",
-            "--config",
-            f"server_url={server_url.rstrip('/')}",
-            "--config",
-            f"capture_prompts={str(capture_prompts).lower()}",
         )
         plugin_added = not plugin_existed
         installed = _run_claude_json("plugin", "list")
         plugin = _require_enabled_claude_plugin(installed)
+        _configure_claude_plugin(server_url=server_url, capture_prompts=capture_prompts)
     except SetupError:
         if plugin_added:
             with suppress(SetupError):
@@ -468,9 +473,8 @@ def install_claude_code_plugin(
                     "--scope",
                     "user",
                 )
-        elif plugin_existed:
-            with suppress(OSError):
-                _restore_claude_settings(settings_snapshot)
+        with suppress(OSError):
+            _restore_claude_settings(settings_snapshot)
         if marketplace_added:
             with suppress(SetupError):
                 _run_claude(
@@ -478,8 +482,6 @@ def install_claude_code_plugin(
                     "marketplace",
                     "remove",
                     CLAUDE_MARKETPLACE_NAME,
-                    "--scope",
-                    "user",
                 )
         raise
 
@@ -773,7 +775,7 @@ def _write_claude_setup_plan(plan: dict[str, str]) -> None:
         err=True,
     )
     typer.echo(
-        f"  Rollback: claude plugin marketplace remove {CLAUDE_MARKETPLACE_NAME} --scope user",
+        f"  Rollback: claude plugin marketplace remove {CLAUDE_MARKETPLACE_NAME}",
         err=True,
     )
 
@@ -801,7 +803,7 @@ def _claude_marketplace_matches(marketplace: dict[str, Any], requested: str) -> 
         return (
             isinstance(existing_repo, str)
             and existing_repo.casefold() == requested_repo.casefold()
-            and (existing_ref or "") == (requested_ref if separator else "")
+            and _claude_marketplace_ref_matches(existing_ref, requested_ref if separator else "")
         )
     if source_kind == "git":
         requested_url, separator, requested_ref = requested.rpartition("#")
@@ -810,9 +812,15 @@ def _claude_marketplace_matches(marketplace: dict[str, Any], requested: str) -> 
         return (
             isinstance(existing_url, str)
             and existing_url == (requested_url if separator else requested)
-            and (existing_ref or "") == (requested_ref if separator else "")
+            and _claude_marketplace_ref_matches(existing_ref, requested_ref if separator else "")
         )
     return False
+
+
+def _claude_marketplace_ref_matches(existing: object, requested: str) -> bool:
+    """Accept omitted Claude JSON refs while still rejecting an explicit mismatch."""
+
+    return existing is None or existing == "" or existing == requested
 
 
 def _describe_claude_marketplace_source(marketplace: dict[str, Any]) -> str:
@@ -844,12 +852,63 @@ def _snapshot_claude_settings() -> bytes | None:
         return None
 
 
+def _configure_claude_plugin(*, server_url: str, capture_prompts: bool) -> None:
+    """Merge non-sensitive plugin options unsupported by the Claude install CLI."""
+
+    settings_file = _claude_config_dir() / "settings.json"
+    try:
+        settings = json.loads(settings_file.read_text(encoding="utf-8")) if settings_file.exists() else {}
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        if isinstance(error, OSError):
+            raise SetupError.claude_settings_write(settings_file, error) from error
+        raise SetupError.invalid_claude_settings(settings_file) from error
+    if not isinstance(settings, dict):
+        raise SetupError.invalid_claude_settings(settings_file)
+
+    plugin_configs = settings.setdefault("pluginConfigs", {})
+    if not isinstance(plugin_configs, dict):
+        raise SetupError.invalid_claude_settings(settings_file)
+    plugin_id = f"{PLUGIN_NAME}@{CLAUDE_MARKETPLACE_NAME}"
+    plugin_config = plugin_configs.setdefault(plugin_id, {})
+    if not isinstance(plugin_config, dict):
+        raise SetupError.invalid_claude_settings(settings_file)
+    options = plugin_config.setdefault("options", {})
+    if not isinstance(options, dict):
+        raise SetupError.invalid_claude_settings(settings_file)
+    options.update({
+        "server_url": server_url,
+        "capture_prompts": capture_prompts,
+    })
+    try:
+        _write_bytes_atomically(settings_file, (json.dumps(settings, indent=2) + "\n").encode())
+    except OSError as error:
+        raise SetupError.claude_settings_write(settings_file, error) from error
+
+
 def _restore_claude_settings(snapshot: bytes | None) -> None:
     settings_file = _claude_config_dir() / "settings.json"
     if snapshot is None:
         settings_file.unlink(missing_ok=True)
         return
-    settings_file.write_bytes(snapshot)
+    _write_bytes_atomically(settings_file, snapshot)
+
+
+def _write_bytes_atomically(path: Path, content: bytes) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(temporary_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.write(descriptor, content)
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = None
+        os.replace(temporary_path, path)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        with suppress(FileNotFoundError):
+            temporary_path.unlink()
 
 
 def _run_codex_json(*arguments: str) -> dict[str, Any]:

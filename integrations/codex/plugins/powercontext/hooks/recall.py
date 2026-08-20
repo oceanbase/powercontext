@@ -34,7 +34,7 @@ _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from hooks import prepared_context as _prepared_context  # noqa: E402
-from scripts.project_scope import derive_scope_id  # noqa: E402
+from scripts.project_scope import resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
@@ -46,7 +46,7 @@ _READ_CHUNK_BYTES = 65_536
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-codex-plugin/0.1.0",
+    "User-Agent": "powercontext-codex-plugin/0.2.0",
 }
 
 
@@ -103,7 +103,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         if not isinstance(prompt, str) or not prompt.strip() or not isinstance(cwd, str):
             _emit_context_event("skipped")
             return 0
-        scope_id = derive_scope_id(cwd, configured_scope_id=settings.scope_id)
+        scope_id = resolve_scope_id(cwd, configured_scope_id=settings.scope_id)
         context = _recall_context(prompt, scope_id, settings=settings, deadline=http_deadline)
         if settings.capture_prompts and len(prompt) <= _MAX_SOURCE_LENGTH:
             with suppress(Exception):

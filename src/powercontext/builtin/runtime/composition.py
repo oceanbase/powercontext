@@ -37,7 +37,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryReranker,
 )
 from powercontext.builtin.artifacts.skill import CodexSkillProvider, ExternalSkillProvider, SkillGenerator
-from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
+from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter, RuntimeWorkContinuityReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.handoff_report.sqlite import HANDOFF_REPORT_TABLES
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
@@ -278,6 +278,7 @@ async def open_builtin_runtime(
             runtime.handoff_report = HandoffReportApplication(
                 contexts.database,
                 RuntimeHandoffReadAdapter(runtime.handoff),
+                continuity=RuntimeWorkContinuityReadAdapter(runtime.work),
             )
         if config.runtime.schedule_seconds is not None and configured_pipeline is None:
             raise BuiltinConfigurationError("scheduled-pipeline")

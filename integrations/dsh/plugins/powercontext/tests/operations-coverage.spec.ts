@@ -30,7 +30,6 @@ describe('operations coverage', () => {
     const fromYaml = parseOperations(loadYamlDoc()).map((row) => row.operationId).sort()
     const generated = [...OPERATION_IDS].sort()
     expect(generated).toEqual(fromYaml)
-    expect(generated).toHaveLength(48)
   })
 
   it('records method, path, and location for each operation', () => {

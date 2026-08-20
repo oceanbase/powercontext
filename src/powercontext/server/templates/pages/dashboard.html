@@ -33,17 +33,17 @@
     </div>
     <div>
       <div class="scope-picker">
-        <label for="scope-select" data-i18n="selectScope">Select scope</label>
+        <label for="scope-select" data-i18n="selectScope">Scope</label>
         <select id="scope-select"></select>
       </div>
       <div class="hero-meta">
-        <span class="period-note" data-i18n="period30">30 days</span>
+        <span class="period-note" data-i18n="period30">Last 30 days</span>
         <span aria-hidden="true"> · </span><span id="as-of"></span>
       </div>
     </div>
   </div>
 
-  <section class="overview" aria-label="Scope overview">
+  <section class="overview" aria-label="Scope overview" data-i18n-aria-label="scopeOverview">
     <div class="key-metric">
       <div class="metric-label" data-i18n="estimatedReduction">Estimated token reduction</div>
       <div class="metric-value" id="token-reduction">0</div>
@@ -73,7 +73,7 @@
     <div class="section-heading">
       <div>
         <h2 id="families-title" data-i18n="artifactFamilies">Artifact families</h2>
-        <p data-i18n="artifactSubtitle">Current Artifacts and Candidates awaiting review</p>
+        <p data-i18n="artifactSubtitle">Current Artifacts and pending Candidates</p>
       </div>
     </div>
     <table class="family-table">
@@ -94,5 +94,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}?v=state-races"></script>
+<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}?v=locale-complete-v1"></script>
 {% endblock %}

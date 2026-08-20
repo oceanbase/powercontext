@@ -135,10 +135,11 @@ def create_server_app(
         tracing=resolved_tracing,
         handoff_report_enabled=resolved.handoff_report.enabled,
     )
-    if resolved.dashboard.enabled:
+    if resolved.dashboard.enabled or resolved.handoff_report.enabled:
         mount_web_ui(
             app,
             scopes={scope.scope_id: scope.display_name for scope in resolved.dashboard.scopes},
+            dashboard_enabled=resolved.dashboard.enabled,
             handoff_report_enabled=resolved.handoff_report.enabled,
         )
     if metrics is not None:

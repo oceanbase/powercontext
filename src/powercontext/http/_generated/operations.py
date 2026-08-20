@@ -7,6 +7,7 @@ from typing import Generic, Literal, TypeVar
 from pydantic import BaseModel, JsonValue
 
 from powercontext.http._generated.models import (
+    AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
@@ -19,6 +20,7 @@ from powercontext.http._generated.models import (
     CommittedHandoff,
     ContinueHandoffRequest,
     CreateHandoffReportProjectRequest,
+    CreateWorkContractRequest,
     DetachHandoffReportWorkspaceRequest,
     ExperienceArtifact,
     ExternalSkillResolution,
@@ -36,7 +38,9 @@ from powercontext.http._generated.models import (
     GetMemoryEntryRequest,
     GetSkillRequest,
     GetStatsRequest,
+    HandoffAcknowledgement,
     HandoffActivation,
+    HandoffCurrentWorkRequest,
     HandoffDraft,
     HandoffReportActivityPage,
     HandoffReportResponse,
@@ -59,6 +63,7 @@ from powercontext.http._generated.models import (
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
+    PreparedWorkHandoff,
     PrepareHandoffRequest,
     ProjectDescriptor,
     ProjectPage,
@@ -68,6 +73,7 @@ from powercontext.http._generated.models import (
     PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
     RecordHandoffReportActivityRequest,
+    RecordTaskOutcomeRequest,
     RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
@@ -84,6 +90,7 @@ from powercontext.http._generated.models import (
     StoredHandoffReportActivity,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
+    WorkSourceReceipt,
     WorkstreamDescriptor,
     WorkstreamPage,
 )
@@ -207,6 +214,103 @@ PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
             "description": "Final context ready for direct injection, or a normal empty result.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+CREATE_WORK_CONTRACT = Operation[CreateWorkContractRequest, WorkSourceReceipt](
+    method="POST",
+    path="/v1/work/contracts/create",
+    operation_id="create_work_contract",
+    request_type=CreateWorkContractRequest,
+    request_location="body",
+    response_type=WorkSourceReceipt,
+    success_status=202,
+    summary="Create a grounded Work Contract",
+    tags=("work",),
+    responses={
+        202: {
+            "description": "The Work Contract is durably captured as exact Source evidence.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+HANDOFF_CURRENT_WORK = Operation[HandoffCurrentWorkRequest, PreparedWorkHandoff](
+    method="POST",
+    path="/v1/work/handoffs/prepare-current",
+    operation_id="handoff_current_work",
+    request_type=HandoffCurrentWorkRequest,
+    request_location="body",
+    response_type=PreparedWorkHandoff,
+    success_status=200,
+    summary="Hand off current work in one high-level operation",
+    tags=("work",),
+    responses={
+        200: {
+            "description": "The captured boundary and Prepared Handoff ready for explicit transfer.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+ACKNOWLEDGE_HANDOFF = Operation[AcknowledgeHandoffRequest, HandoffAcknowledgement](
+    method="POST",
+    path="/v1/work/handoffs/acknowledge",
+    operation_id="acknowledge_handoff",
+    request_type=AcknowledgeHandoffRequest,
+    request_location="body",
+    response_type=HandoffAcknowledgement,
+    success_status=200,
+    summary="Resolve and acknowledge a Handoff",
+    tags=("work",),
+    responses={
+        200: {
+            "description": "The resolved Handoff and durable receiver acknowledgement.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+RECORD_TASK_OUTCOME = Operation[RecordTaskOutcomeRequest, WorkSourceReceipt](
+    method="POST",
+    path="/v1/work/outcomes/record",
+    operation_id="record_task_outcome",
+    request_type=RecordTaskOutcomeRequest,
+    request_location="body",
+    response_type=WorkSourceReceipt,
+    success_status=202,
+    summary="Record a completion-aware Task Outcome",
+    tags=("work",),
+    responses={
+        202: {
+            "description": "The Task Outcome is durably captured for Handoff evidence and reviewed "
+            "Experience incubation.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},

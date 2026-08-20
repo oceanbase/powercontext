@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, ValidationError
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
@@ -36,10 +38,15 @@ from powercontext.builtin.artifacts.handoff import (
     ActivateHandoff,
     Handoff,
     HandoffActivation,
+    HandoffArtifactCitation,
     HandoffAudience,
+    HandoffCitation,
     HandoffDraft,
+    HandoffOmission,
     HandoffResolution,
     HandoffService,
+    HandoffSourceCitation,
+    HandoffStatement,
     PreparedHandoff,
     PrepareHandoff,
 )
@@ -120,7 +127,13 @@ from powercontext.builtin.runtime.readiness import (
     RuntimeReadinessChecks,
 )
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
-from powercontext.builtin.sources import ContentCapture, ExternalSkillImportMode, SourceCursor, validate_scope_id
+from powercontext.builtin.sources import (
+    ContentCapture,
+    ContentSource,
+    ExternalSkillImportMode,
+    SourceCursor,
+    validate_scope_id,
+)
 from powercontext.builtin.statistics import (
     ModelUsageOperation,
     ModelUsagePurpose,
@@ -128,8 +141,30 @@ from powercontext.builtin.statistics import (
     Statistics,
     StatisticsPeriod,
 )
+from powercontext.builtin.work import (
+    HANDOFF_BOUNDARY_SOURCE_KIND,
+    HANDOFF_RECEIPT_SOURCE_KIND,
+    TASK_OUTCOME_SOURCE_KIND,
+    WORK_CONTRACT_SOURCE_KIND,
+    AcknowledgeHandoff,
+    CreateWorkContract,
+    HandoffAcknowledgement,
+    HandoffCurrentWork,
+    HandoffReceipt,
+    PreparedWorkHandoff,
+    RecordTaskOutcome,
+    TaskOutcome,
+    WorkClaim,
+    WorkContinuity,
+    WorkContract,
+    WorkSourceKind,
+    WorkSourceReceipt,
+    content_digest,
+    project_work_continuity,
+)
 from powercontext.context import PowerContext
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
+from powercontext.sources import SourceRef
 
 if TYPE_CHECKING:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -558,6 +593,12 @@ class ScopedHandoffApplication:
         async with self._runtime._context(self.scope_id) as context:
             return await context.artifacts.handoff.revisions()
 
+    async def validate_evidence(self, citations: tuple[HandoffCitation, ...], /) -> None:
+        """Validate exact same-scope evidence for a higher-level Work record."""
+
+        async with self._runtime._context(self.scope_id) as context:
+            await context.artifacts.handoff.validate_evidence(citations)
+
     @staticmethod
     def render(
         handoff: HandoffDraft | PreparedHandoff | Handoff,
@@ -576,6 +617,126 @@ class HandoffApplication:
 
     def for_scope(self, scope_id: str, /) -> ScopedHandoffApplication:
         return ScopedHandoffApplication(self._runtime, scope_id)
+
+
+class ScopedWorkApplication:
+    """Orchestrate the minimal Delegation, Handoff, Continue, and Outcome loop."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def create_contract(self, request: CreateWorkContract, /) -> WorkSourceReceipt:
+        await self._validate(_contract_evidence(request.contract))
+        return await self._capture(WORK_CONTRACT_SOURCE_KIND, request.source_id, request.contract)
+
+    async def continuity(self, selected_handoff: ArtifactRef | None = None) -> WorkContinuity:
+        """Read a bounded timeline and loop coverage from the scoped Source journal."""
+
+        async with self._runtime._context(self.scope_id) as context:
+            entries = await context.sources.journal.entries()
+            if selected_handoff is None:
+                latest = await context.artifacts.handoff.latest()
+                selected_handoff = None if latest is None else latest.as_ref()
+        return project_work_continuity(self.scope_id, entries, selected_handoff=selected_handoff)
+
+    async def record_outcome(self, request: RecordTaskOutcome, /) -> WorkSourceReceipt:
+        await self._validate(_outcome_evidence(request.outcome))
+        if request.outcome.handoff_receipt_ref is not None:
+            await self._validate_outcome_receipt(request.outcome.handoff_receipt_ref)
+        return await self._capture(TASK_OUTCOME_SOURCE_KIND, request.source_id, request.outcome)
+
+    async def handoff_current(self, request: HandoffCurrentWork, /) -> PreparedWorkHandoff:
+        await self._validate(_claims_evidence((*request.handoff.state, request.handoff.next_action)))
+        boundary = await self._capture(HANDOFF_BOUNDARY_SOURCE_KIND, request.source_id, request.handoff)
+        boundary_citation = HandoffSourceCitation(source_ref=boundary.source_ref)
+        draft = HandoffDraft(
+            objective=request.handoff.objective,
+            state=tuple(_handoff_statement(claim, boundary_citation) for claim in request.handoff.state),
+            disposition=request.handoff.disposition,
+            next_action=(
+                None
+                if request.handoff.next_action is None
+                else _handoff_statement(request.handoff.next_action, boundary_citation)
+            ),
+            omissions=tuple(HandoffOmission(text=text) for text in request.handoff.omissions),
+        )
+        prepared = await self._runtime.handoff.for_scope(self.scope_id).finalize(draft)
+        return PreparedWorkHandoff(boundary=boundary, handoff=prepared)
+
+    async def acknowledge(self, request: AcknowledgeHandoff, /) -> HandoffAcknowledgement:
+        handoff = self._runtime.handoff.for_scope(self.scope_id)
+        if request.selection == "prepared":
+            if request.prepared is None:
+                raise InvalidRuntimeRequestError("handoff-selection")
+            resolution = await handoff.continue_from(request.prepared)
+        else:
+            if request.revision is None:
+                raise InvalidRuntimeRequestError("handoff-selection")
+            resolution = await handoff.continue_from(request.revision)
+        if resolution.status == "empty":
+            raise InvalidRuntimeRequestError("handoff-empty")
+
+        unavailable = _unavailable_evidence(resolution)
+        if request.status == "accepted" and unavailable:
+            raise InvalidRuntimeRequestError("handoff-evidence-unavailable")
+        receipt_record = HandoffReceipt(
+            receiver=request.receiver,
+            status=request.status,
+            selection=request.selection,
+            selected_revision=resolution.selected_revision,
+            prepared_digest=(None if request.prepared is None else content_digest(request.prepared)),
+            receiver_checks=request.receiver_checks,
+            evidence_status="unavailable" if unavailable else "available",
+            unavailable_evidence=unavailable,
+            message=request.message,
+        )
+        receipt = await self._capture(HANDOFF_RECEIPT_SOURCE_KIND, request.source_id, receipt_record)
+        return HandoffAcknowledgement(resolution=resolution, receipt=receipt)
+
+    async def _validate_outcome_receipt(self, receipt_ref: SourceRef) -> None:
+        async with self._runtime._context(self.scope_id) as context:
+            entries = await context.sources.journal.entries()
+        matching_entry = next((entry for entry in entries if entry.source_ref == receipt_ref), None)
+        if matching_entry is None or not isinstance(matching_entry.source, ContentSource):
+            raise InvalidRuntimeRequestError("task-outcome-handoff-receipt")
+        if matching_entry.source.metadata.get("kind") != HANDOFF_RECEIPT_SOURCE_KIND:
+            raise InvalidRuntimeRequestError("task-outcome-handoff-receipt")
+        try:
+            receipt = HandoffReceipt.model_validate_json(matching_entry.source.content)
+        except ValidationError as error:
+            raise InvalidRuntimeRequestError("task-outcome-handoff-receipt") from error
+        if receipt.status != "accepted" or receipt.selection != "exact" or receipt.selected_revision is None:
+            raise InvalidRuntimeRequestError("task-outcome-handoff-receipt")
+
+    async def _validate(self, citations: tuple[HandoffCitation, ...]) -> None:
+        if citations:
+            await self._runtime.handoff.for_scope(self.scope_id).validate_evidence(citations)
+
+    async def _capture(self, kind: WorkSourceKind, source_id: str, value: BaseModel) -> WorkSourceReceipt:
+        receipt = await self._runtime.sources.for_scope(self.scope_id).capture(
+            CaptureSource(
+                source_id=source_id,
+                content=value.model_dump_json(by_alias=True, exclude_none=False, indent=2),
+                metadata={"kind": kind, "schema": value.model_dump(by_alias=True)["schema"]},
+            )
+        )
+        return WorkSourceReceipt(
+            kind=kind,
+            source_ref=receipt.source_ref,
+            position=receipt.sequence,
+            content_digest=content_digest(value),
+        )
+
+
+class WorkApplication:
+    """Select the high-level Work application for one stable scope."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedWorkApplication:
+        return ScopedWorkApplication(self._runtime, scope_id)
 
 
 class ScopedExternalSkillApplication:
@@ -1047,6 +1208,7 @@ class BuiltinRuntime:
         self.experience = ExperienceApplication(self)
         self.external_skills = ExternalSkillApplication(self)
         self.handoff = HandoffApplication(self)
+        self.work = WorkApplication(self)
         self.memory = MemoryApplication(self)
         self.review = ReviewApplication(self)
         self.skill = SkillApplication(self)
@@ -1262,6 +1424,42 @@ class BuiltinRuntime:
         if self._statistics_service is None:
             raise _RuntimeStateError("statistics")
         return self._statistics_service(validate_scope_id(scope_id))
+
+
+def _contract_evidence(contract: WorkContract) -> tuple[HandoffCitation, ...]:
+    return _claims_evidence(contract.facts)
+
+
+def _outcome_evidence(outcome: TaskOutcome) -> tuple[HandoffCitation, ...]:
+    citations = [*_claims_evidence(outcome.observations)]
+    citations.extend(citation for check in outcome.checks for citation in check.evidence)
+    citations.extend(HandoffArtifactCitation(artifact_ref=reference) for reference in outcome.produced_artifacts)
+    return _unique_citations(citations)
+
+
+def _claims_evidence(claims: tuple[WorkClaim | None, ...]) -> tuple[HandoffCitation, ...]:
+    return _unique_citations(citation for claim in claims if claim is not None for citation in claim.evidence)
+
+
+def _unique_citations(citations: Iterable[HandoffCitation]) -> tuple[HandoffCitation, ...]:
+    unique: list[HandoffCitation] = []
+    for citation in citations:
+        if citation not in unique:
+            unique.append(citation)
+    return tuple(unique)
+
+
+def _handoff_statement(claim: WorkClaim, boundary: HandoffSourceCitation) -> HandoffStatement:
+    return HandoffStatement(
+        text=claim.text,
+        citations=_unique_citations((boundary, *claim.evidence)),
+    )
+
+
+def _unavailable_evidence(resolution: HandoffResolution) -> tuple[HandoffCitation, ...]:
+    return _unique_citations(
+        citation for check in resolution.evidence_checks for citation in check.unavailable_evidence
+    )
 
 
 def _utc_now() -> datetime:

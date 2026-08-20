@@ -14,7 +14,7 @@
 
 """Optional, read-only Handoff Report domain values."""
 
-from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
+from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter, RuntimeWorkContinuityReadAdapter
 from powercontext.builtin.handoff_report.application import (
     HandoffReportApplication,
     ReportActivityPage,
@@ -84,6 +84,7 @@ from powercontext.builtin.handoff_report.models import (
 from powercontext.builtin.handoff_report.rendering import render_markdown
 from powercontext.builtin.handoff_report.report import (
     HandoffReport,
+    HandoffRevisionSummary,
     ReportActivityCoverageStatus,
     ReportActivityStatus,
     ReportCoverage,
@@ -130,6 +131,7 @@ __all__ = [
     "HandoffReportService",
     "HandoffReportTooLargeError",
     "HandoffReportTrust",
+    "HandoffRevisionSummary",
     "InvalidStoredCatalogError",
     "ProjectConflictError",
     "ProjectDescriptor",
@@ -161,6 +163,7 @@ __all__ = [
     "RepositoryProvider",
     "RepositoryRef",
     "RuntimeHandoffReadAdapter",
+    "RuntimeWorkContinuityReadAdapter",
     "ScopeAlreadyGroupedError",
     "WorkspaceBinding",
     "WorkspaceBindingConflictError",
