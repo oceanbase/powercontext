@@ -22,6 +22,14 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.0
+        with:
+          version: "0.10.12"
+          enable-cache: true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -36,11 +44,12 @@ jobs:
           import os
           import re
           import subprocess
-          import tomllib
           from pathlib import Path
 
-          project = tomllib.loads(Path("pyproject.toml").read_text())
-          package_version = project["project"]["version"]
+          package_version = subprocess.check_output(
+              ["uvx", "--from", "hatchling", "--with", "hatch-vcs", "hatchling", "version"],
+              text=True,
+          ).strip()
           source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
           safe_version = re.sub(r"[^A-Za-z0-9_.-]+", "-", package_version).strip("-.")
@@ -69,6 +78,7 @@ jobs:
               --file docker/Dockerfile \
               --platform "$platform" \
               --tag "${IMAGE_NAME}:${IMAGE_TAG}" \
+              --build-arg "POWERCONTEXT_VERSION=${{ steps.metadata.outputs.package_version }}" \
               --cache-from "type=gha,scope=docker-${platform_suffix}" \
               --cache-to "type=gha,mode=max,scope=docker-${platform_suffix}" \
               --output "type=docker,dest=${output_file}" \

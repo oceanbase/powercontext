@@ -638,6 +638,8 @@ def test_default_doctor_preserves_not_ready_checks_in_human_and_json_output(monk
 
 
 def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "version", lambda _package: "0.0.2")
+
     def responses() -> list[_Response]:
         return [
             _Response(200, {"status": "ok"}),
