@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
@@ -28,7 +29,6 @@ from powercontext.builtin.runtime.config import (
     HandoffReportConfig,
     InferenceConfig,
     RuntimeConfig,
-    normalize_database_discriminator,
 )
 from powercontext.paths import default_database_path, sqlite_url
 
@@ -154,10 +154,12 @@ class ServerSettings(BaseSettings):
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
 
-    @model_validator(mode="before")
+    @field_validator("database", mode="before")
     @classmethod
     def default_database_to_sqlite(cls, value: object) -> object:
-        return normalize_database_discriminator(value)
+        if not isinstance(value, Mapping) or value.get("kind", "sqlite") != "sqlite":
+            return value
+        return {"kind": "sqlite", "url": _default_database().url, **value}
 
     @model_validator(mode="after")
     def require_authentication_for_dashboard(self) -> ServerSettings:

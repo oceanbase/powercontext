@@ -183,6 +183,7 @@ set its path together with the complete embedding profile:
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=provider:embedding-model
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=embedding-model-v1
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1024
+export POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:////srv/powercontext/powercontext.db
 export POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION=/opt/sqlite-extensions/vec1
 powercontext server run
 ```
