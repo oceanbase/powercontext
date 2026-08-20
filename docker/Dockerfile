@@ -18,8 +18,11 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ ./src/
 
+ARG POWERCONTEXT_VERSION
+
 RUN --mount=type=cache,id=powercontext-uv,target=/root/.cache/uv \
-    uv sync \
+    test -n "${POWERCONTEXT_VERSION}" \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" uv sync \
     --frozen \
     --no-dev \
     --no-editable \

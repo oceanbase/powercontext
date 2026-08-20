@@ -13,18 +13,20 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
-      - name: Set package version from Release tag
+      - name: Verify package version from Release tag
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           python - <<'PY'
           import os
           import re
-          from pathlib import Path
+          import subprocess
 
           release_tag = os.environ["RELEASE_TAG"]
           if release_tag.startswith("powercontext-v"):
@@ -36,18 +38,14 @@ jobs:
                   "Release tag must use vX.Y.Z, powercontext-vX.Y.Z, or X.Y.Z semantic versioning"
               )
 
-          pyproject_path = Path("pyproject.toml")
-          pyproject_text = pyproject_path.read_text()
-          updated, replacements = re.subn(
-              r'^version = ".*"$',
-              f'version = "{release_version}"',
-              pyproject_text,
-              count=1,
-              flags=re.MULTILINE,
-          )
-          if replacements != 1:
-              raise SystemExit("Could not update the project version for the Release package")
-          pyproject_path.write_text(updated)
+          package_version = subprocess.check_output(
+              ["uvx", "--from", "hatchling", "--with", "hatch-vcs", "hatchling", "version"],
+              text=True,
+          ).strip()
+          if package_version != release_version:
+              raise SystemExit(
+                  f"Release tag version {release_version!r} does not match VCS version {package_version!r}"
+              )
           PY
 
       - name: Build release distributions
