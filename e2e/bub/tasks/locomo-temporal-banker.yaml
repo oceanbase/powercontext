@@ -1,0 +1,34 @@
+schema: powercontext.e2e-task/v1
+id: locomo-temporal-banker
+categories:
+  - acceptance
+  - sample
+provenance:
+  source: benchmark/locomo/dataset/locomo10.json
+  revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
+  selection: category-2-first-short-answer-after-conv-26/v1
+  case_ids:
+    - conv-30
+    - conv-30:q001
+    - D1
+dataset:
+  path: e2e/bub/harbor-tasks
+  task_id: locomo-temporal-banker
+  checksum: a60f80624d3157cf32b243617b4caad1fb4340825e24f9f22036102298d9b203
+execution:
+  type: bub
+  model: false
+  max_steps: 10
+  max_tokens: 4096
+evaluation:
+  expected_memory:
+    - banker
+    - 19 January, 2023
+  probes:
+    - id: banker-job-loss-date
+      query: When Jon has lost his job as a banker?
+      expected_context:
+        - banker
+        - 19 January, 2023
+  thresholds:
+    probe_coverage: 1

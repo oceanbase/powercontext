@@ -8,6 +8,7 @@ import {
   TransportError,
 } from './errors.ts'
 import { validatePreparedContext } from './prepared-context.ts'
+import { sessionCwd } from './scope.ts'
 
 export interface TextBlock {
   readonly type: string
@@ -26,13 +27,13 @@ export type PreStepDecision = { kind: 'reject' } | EnterDecision | { kind: strin
 export interface RecallInput {
   messages: PromptMessage[]
   next: () => Promise<PreStepDecision>
-  cwd: string
+  cwd?: string
   sessionId: string
   turnId: string
   signal?: AbortSignal
   client: PowerContextClient
   config: ResolvedConfig
-  resolveScope: (cwd: string) => Promise<string>
+  resolveScope: (cwd?: string) => Promise<string | undefined>
   wrapContent: (text: string) => unknown
   log: (event: Record<string, unknown>) => void
 }
@@ -127,6 +128,10 @@ async function recallThenCapture(
 ): Promise<string | undefined> {
   try {
     const scopeId = await input.resolveScope(input.cwd)
+    if (!scopeId) {
+      input.log({ event: 'context_prepare', outcome: 'skipped', reason: 'missing_session_cwd' })
+      return undefined
+    }
     const content = await recallContent(input, query, scopeId)
     if (userPrompt) {
       await captureUserPrompt({
@@ -134,7 +139,7 @@ async function recallThenCapture(
         config: input.config,
         scopeId,
         prompt: userPrompt,
-        cwd: input.cwd,
+        cwd: sessionCwd(input.cwd),
         sessionId: input.sessionId,
         turnId: input.turnId,
         signal: input.signal,

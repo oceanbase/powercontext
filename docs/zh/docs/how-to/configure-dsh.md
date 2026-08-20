@@ -30,7 +30,7 @@ powercontext setup dsh --source .
 - 每轮模型开口前，先请求 Runtime 准备一个最终、有界的上下文值，再把用户输入采集为 Source 证据；
 - 具名 `pc_*` 工具通过公开 HTTP API 记忆、检索、修订、停用和审计 Memory。
 
-存在 Git remote 时，Memory scope 根据规范化后的 remote 生成；否则根据项目路径生成。只有在 scope 必须独立于这两者时，才设置 `POWERCONTEXT_DSH_SCOPE_ID`。
+存在 Git remote 时，Memory scope 根据规范化后的 remote 生成；否则根据会话工作区路径生成。会话没有工作区 cwd、或 scope 必须独立于这两者时，设置 `POWERCONTEXT_DSH_SCOPE_ID`。插件不会把 Harness 进程目录当成项目 scope。
 
 插件在模型分析提示词前只调用一次 `POST /v1/context/prepare`。显式 `remember_memory` 不需要模型。
 

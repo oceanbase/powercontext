@@ -28,9 +28,17 @@ from powercontext.builtin.artifacts.memory import (
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig
+from powercontext.builtin.runtime import (
+    InferenceConfig,
+    MemorySearchPage,
+    ScopedMemoryApplication,
+)
+from powercontext.builtin.runtime import (
+    SearchMemoryRequest as RuntimeSearchMemoryRequest,
+)
 from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient, ServerResponseError
+from powercontext.errors import RevisionConflictError
 from powercontext.http import (
     ActivateHandoffRequest,
     CaptureContentSourceRequest,
@@ -551,6 +559,36 @@ def test_runtime_conflicts_keep_http_and_sdk_error_context(tmp_path: Path) -> No
         assert caught.value.request_id is not None
 
     asyncio.run(stale_revision())
+
+
+def test_memory_search_returns_revision_conflict_as_http_409(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    async def conflicting_search(
+        _self: ScopedMemoryApplication,
+        _request: RuntimeSearchMemoryRequest,
+        /,
+    ) -> MemorySearchPage:
+        raise RevisionConflictError("stale", "current")
+
+    monkeypatch.setattr(ScopedMemoryApplication, "search", conflicting_search)
+    app = create_server_app(settings=_server_settings(tmp_path / "runtime.db"))
+
+    with TestClient(app) as transport:
+        response = transport.post(
+            "/v1/memory/search",
+            json={"scope_id": "project", "query": "stable searchable"},
+        )
+
+    assert response.status_code == 409
+    assert len(response.headers["X-PowerContext-Request-ID"]) == 16
+    assert int(response.headers["X-PowerContext-Request-ID"], 16) > 0
+    assert response.json()["error"] == {
+        "code": "revision_conflict",
+        "message": "The Memory Revision is stale.",
+        "details": None,
+    }
 
 
 def test_runtime_server_rejects_non_strict_transport_values(tmp_path: Path) -> None:

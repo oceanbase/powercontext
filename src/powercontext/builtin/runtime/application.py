@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
@@ -36,7 +36,11 @@ from powercontext.builtin.artifacts.memory import (
     MemoryEntryVersion,
     MemoryService,
 )
-from powercontext.builtin.artifacts.memory.errors import MemoryEntryNotFoundError
+from powercontext.builtin.artifacts.memory.errors import (
+    CapabilityNotSupportedError,
+    InvalidMemoryCitationError,
+    MemoryEntryNotFoundError,
+)
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillRegistryUnavailableError,
     ExternalSkillResolution,
@@ -89,7 +93,13 @@ from powercontext.builtin.runtime.models import (
     SourceReceipt,
 )
 from powercontext.builtin.runtime.prepared_context import PreparedContextBuild, PreparedContextBuilder
-from powercontext.builtin.runtime.protocols import BuiltinTriggers, PowerContextProvider
+from powercontext.builtin.runtime.protocols import (
+    BuiltinTriggers,
+    PowerContextProvider,
+    RuntimeSpan,
+    RuntimeTracing,
+    TraceAttribute,
+)
 from powercontext.builtin.runtime.readiness import (
     ReadinessCheckStatus,
     RuntimeReadiness,
@@ -114,6 +124,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_MEMORY_SEARCH_STAGE = "memory.search"
+_MEMORY_SEARCH_REQUESTED_MODE = "powercontext.memory.search.requested_mode"
+_MEMORY_SEARCH_LIMIT = "powercontext.memory.search.limit"
+_MEMORY_SEARCH_MEMORY_PRESENT = "powercontext.memory.search.memory_present"
+_MEMORY_SEARCH_MODE = "powercontext.memory.search.mode"
+_MEMORY_SEARCH_RESULT_COUNT = "powercontext.memory.search.result_count"
+
 ScopeIds = Callable[[], Awaitable[tuple[str, ...]]]
 ReviewServiceFactory = Callable[[str], ReviewService]
 GenerationServiceFactory = Callable[[str], ReviewedGenerationService]
@@ -127,6 +144,7 @@ ExperienceRecall = Callable[[str, str, int], Awaitable[tuple[ExperienceSearchHit
 StatisticsServiceFactory = Callable[[str], RelationalScopedStatistics]
 RecallTokenEstimator = Callable[[str, PreparedContextBuild], Awaitable[RecallTokenMeasurement | None]]
 Clock = Callable[[], datetime]
+_MEMORY_SEARCH_ATTEMPTS = 3
 
 
 class _RuntimeConfigurationError(ValueError):
@@ -259,34 +277,74 @@ class ScopedContextApplication:
         builder = PreparedContextBuilder()
         async with (
             self._runtime._context(self.scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_RECALL) as context,
-            self._runtime._lock(self.scope_id),
+            self._runtime._locked(self.scope_id),
         ):
-            service = context.artifacts.memory
-            current = await _head_or_none(service, context.artifacts.memory_artifact_id)
-            memory_hits = ()
-            if current is not None:
-                result = await service.search(
-                    request.query,
-                    memories=(current,),
-                    limit=builder.memory_candidate_limit,
-                    mode="auto",
+            with self._runtime._stage(
+                _MEMORY_SEARCH_STAGE,
+                attributes={
+                    _MEMORY_SEARCH_REQUESTED_MODE: "auto",
+                    _MEMORY_SEARCH_LIMIT: builder.memory_candidate_limit,
+                },
+            ) as span:
+                service = context.artifacts.memory
+                current = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                memory_hits = ()
+                if current is not None:
+                    result = await service.search(
+                        request.query,
+                        memories=(current,),
+                        limit=builder.memory_candidate_limit,
+                        mode="auto",
+                    )
+                    memory_hits = result.hits
+                if span is not None:
+                    attributes: dict[str, TraceAttribute] = {
+                        _MEMORY_SEARCH_MEMORY_PRESENT: current is not None,
+                        _MEMORY_SEARCH_RESULT_COUNT: len(memory_hits),
+                    }
+                    if current is not None:
+                        attributes[_MEMORY_SEARCH_MODE] = result.mode
+                    span.set_attributes(attributes)
+
+            experience_recall = self._runtime._experience_recall
+            with self._runtime._stage(
+                "experience.search",
+                attributes={
+                    "powercontext.experience.search.configured": experience_recall is not None,
+                    "powercontext.experience.search.limit": builder.experience_candidate_limit,
+                },
+            ) as span:
+                experience_hits = (
+                    ()
+                    if experience_recall is None
+                    else await experience_recall(
+                        self.scope_id,
+                        request.query,
+                        builder.experience_candidate_limit,
+                    )
                 )
-                memory_hits = result.hits
-            experience_hits = (
-                ()
-                if self._runtime._experience_recall is None
-                else await self._runtime._experience_recall(
-                    self.scope_id,
-                    request.query,
-                    builder.experience_candidate_limit,
+                if span is not None:
+                    span.set_attributes({"powercontext.experience.search.result_count": len(experience_hits)})
+
+            with self._runtime._stage(
+                "context.build",
+                attributes={
+                    "powercontext.context.build.memory_candidate_count": len(memory_hits),
+                    "powercontext.context.build.experience_candidate_count": len(experience_hits),
+                },
+            ) as span:
+                build = builder.build_result(
+                    request=request,
+                    memory_ref=None if current is None else current.as_ref(),
+                    hits=memory_hits,
+                    experience_hits=experience_hits,
                 )
-            )
-            build = builder.build_result(
-                request=request,
-                memory_ref=None if current is None else current.as_ref(),
-                hits=memory_hits,
-                experience_hits=experience_hits,
-            )
+                if span is not None:
+                    span.set_attributes({
+                        "powercontext.context.build.selected_count": len(build.origins),
+                        "powercontext.context.build.status": build.context.status,
+                        "powercontext.context.build.content_bytes": build.context.content_bytes,
+                    })
         if self._runtime._recall_token_estimator is not None:
             try:
                 measurement = await self._runtime._recall_token_estimator(self.scope_id, build)
@@ -326,7 +384,7 @@ class ScopedExperienceApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def propose(self, request: ProposeExperienceRequest, /) -> ExperienceCandidate:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             service = self._runtime._review(self.scope_id)
             return await service.propose_experience(
                 request.proposal,
@@ -342,7 +400,7 @@ class ScopedExperienceApplication:
                 self.scope_id,
                 generation_purpose=ModelUsagePurpose.EXPERIENCE_GENERATION,
             ),
-            self._runtime._lock(self.scope_id),
+            self._runtime._locked(self.scope_id),
         ):
             return await self._runtime._generation(self.scope_id).experience(
                 sources=request.sources,
@@ -369,7 +427,7 @@ class ScopedExperienceApplication:
                 self.scope_id,
                 generation_purpose=ModelUsagePurpose.EXPERIENCE_GENERATION,
             ),
-            self._runtime._lock(self.scope_id),
+            self._runtime._locked(self.scope_id),
         ):
             return await incubator(self.scope_id, window_limit)
 
@@ -392,7 +450,7 @@ class ScopedSkillApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def propose(self, request: ProposeSkillRequest, /) -> SkillCandidate:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             service = self._runtime._review(self.scope_id)
             return await service.propose_skill(
                 request.proposal,
@@ -408,7 +466,7 @@ class ScopedSkillApplication:
                 self.scope_id,
                 generation_purpose=ModelUsagePurpose.SKILL_GENERATION,
             ),
-            self._runtime._lock(self.scope_id),
+            self._runtime._locked(self.scope_id),
         ):
             return await self._runtime._generation(self.scope_id).skill(
                 origin=request.origin,
@@ -459,7 +517,7 @@ class ScopedHandoffApplication:
             return await context.artifacts.handoff.finalize(draft)
 
     async def commit(self, prepared: PreparedHandoff, /) -> Handoff:
-        async with self._runtime._context(self.scope_id) as context, self._runtime._lock(self.scope_id):
+        async with self._runtime._context(self.scope_id) as context, self._runtime._locked(self.scope_id):
             return await context.artifacts.handoff.commit(prepared)
 
     async def continue_from(
@@ -514,7 +572,7 @@ class ScopedExternalSkillApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def scan(self) -> ExternalSkillScanResult:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._external_skills(self.scope_id).scan()
 
     async def list(self, request: ListExternalSkillsRequest, /) -> ExternalSkillList:
@@ -539,7 +597,7 @@ class ScopedExternalSkillApplication:
                 self.scope_id,
                 generation_purpose=ModelUsagePurpose.SKILL_GENERATION,
             ),
-            self._runtime._lock(self.scope_id),
+            self._runtime._locked(self.scope_id),
         ):
             return await importer(
                 self.scope_id,
@@ -581,14 +639,14 @@ class ScopedReviewApplication:
             return await self._runtime._review(self.scope_id).get_candidate(request.candidate_id)
 
     async def approve(self, request: ApproveArtifactCandidateRequest, /) -> ReviewedCandidate:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._review(self.scope_id).approve(
                 request.candidate_id,
                 request.expected_version,
             )
 
     async def reject(self, request: RejectArtifactCandidateRequest, /) -> ReviewedCandidate:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._review(self.scope_id).reject(
                 request.candidate_id,
                 request.expected_version,
@@ -596,7 +654,7 @@ class ScopedReviewApplication:
             )
 
     async def revise(self, request: ReviseArtifactCandidateRequest, /) -> ReviewedCandidate:
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime._lock(self.scope_id):
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._review(self.scope_id).revise(
                 request.candidate_id,
                 request.expected_version,
@@ -630,7 +688,7 @@ class ScopedMemoryApplication:
             self.scope_id,
             embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
         ) as context:
-            async with self._runtime._lock(self.scope_id):
+            async with self._runtime._locked(self.scope_id):
                 service = context.artifacts.memory
                 current = await _head_or_none(service, context.artifacts.memory_artifact_id)
                 _validate_expected_revision(current, request.expected_revision)
@@ -653,22 +711,51 @@ class ScopedMemoryApplication:
             generation_purpose=ModelUsagePurpose.MEMORY_RECALL,
             embedding_purpose=ModelUsagePurpose.MEMORY_RECALL,
         ) as context:
-            service = context.artifacts.memory
-            current = await _head_or_none(service, context.artifacts.memory_artifact_id)
-            if current is None:
-                return MemorySearchPage(memory_ref=None, mode=None)
-            result = await service.search(
-                request.query,
-                memories=(current,),
-                limit=request.limit,
-                mode=request.mode,
-            )
-            return MemorySearchPage(
-                memory_ref=current.as_ref(),
-                mode=result.mode,
-                hits=result.hits,
-                rerank=result.rerank,
-            )
+            with self._runtime._stage(
+                _MEMORY_SEARCH_STAGE,
+                attributes={
+                    _MEMORY_SEARCH_REQUESTED_MODE: request.mode,
+                    _MEMORY_SEARCH_LIMIT: request.limit,
+                },
+            ) as span:
+                service = context.artifacts.memory
+                attempt = 1
+                while True:
+                    current = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                    if current is None:
+                        if span is not None:
+                            span.set_attributes({
+                                _MEMORY_SEARCH_MEMORY_PRESENT: False,
+                                _MEMORY_SEARCH_RESULT_COUNT: 0,
+                            })
+                        return MemorySearchPage(memory_ref=None, mode=None)
+                    try:
+                        result = await service.search(
+                            request.query,
+                            memories=(current,),
+                            limit=request.limit,
+                            mode=request.mode,
+                        )
+                    except (CapabilityNotSupportedError, InvalidMemoryCitationError) as error:
+                        latest = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                        if not _is_stale_memory_search(error) or latest is None or latest.as_ref() == current.as_ref():
+                            raise
+                        if attempt == _MEMORY_SEARCH_ATTEMPTS:
+                            raise RevisionConflictError(current, latest) from error
+                        attempt += 1
+                        continue
+                    if span is not None:
+                        span.set_attributes({
+                            _MEMORY_SEARCH_MEMORY_PRESENT: True,
+                            _MEMORY_SEARCH_MODE: result.mode,
+                            _MEMORY_SEARCH_RESULT_COUNT: len(result.hits),
+                        })
+                    return MemorySearchPage(
+                        memory_ref=current.as_ref(),
+                        mode=result.mode,
+                        hits=result.hits,
+                        rerank=result.rerank,
+                    )
 
     async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:
@@ -697,7 +784,7 @@ class ScopedMemoryApplication:
             self.scope_id,
             embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
         ) as context:
-            async with self._runtime._lock(self.scope_id):
+            async with self._runtime._locked(self.scope_id):
                 service = context.artifacts.memory
                 current, entry = await _current_citation(
                     service,
@@ -730,7 +817,7 @@ class ScopedMemoryApplication:
             self.scope_id,
             embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
         ) as context:
-            async with self._runtime._lock(self.scope_id):
+            async with self._runtime._locked(self.scope_id):
                 service = context.artifacts.memory
                 current, entry = await _current_citation(
                     service,
@@ -765,7 +852,7 @@ class ScopedMemoryApplication:
             embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
         ) as context:
             window_limit = self._runtime.source_window_limit if limit is None else limit
-            async with self._runtime._lock(self.scope_id):
+            async with self._runtime._locked(self.scope_id):
                 return await context.triggers.flush(limit=window_limit)
 
     async def cursor(self) -> SourceCursor:
@@ -914,6 +1001,7 @@ class BuiltinRuntime:
         recall_token_estimator: RecallTokenEstimator | None = None,
         readiness: RuntimeReadinessChecks | None = None,
         clock: Clock | None = None,
+        tracing: RuntimeTracing | None = None,
     ) -> None:
         if source_window_limit < 1:
             raise _RuntimeConfigurationError("source_window_limit")
@@ -929,6 +1017,7 @@ class BuiltinRuntime:
         self._recall_token_estimator = recall_token_estimator
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
         self._clock = _utc_now if clock is None else clock
+        self._tracing = tracing
         self.source_window_limit = source_window_limit
         self._locks: dict[str, asyncio.Lock] = {}
         self._processor_lock = asyncio.Lock()
@@ -1109,10 +1198,36 @@ class BuiltinRuntime:
             generation_purpose=generation_purpose,
             embedding_purpose=embedding_purpose,
         ):
-            yield await self._provider.get(validate_scope_id(scope_id))
+            # The stage covers provider resolution only; a third-party provider may do I/O here.
+            with self._stage("scope.context", attributes={}):
+                context = await self._provider.get(validate_scope_id(scope_id))
+            yield context
 
-    def _lock(self, scope_id: str) -> asyncio.Lock:
-        return self._locks.setdefault(validate_scope_id(scope_id), asyncio.Lock())
+    @asynccontextmanager
+    async def _locked(self, scope_id: str) -> AsyncIterator[None]:
+        """Serialize writes for one scope and trace only the wait, not the critical section."""
+
+        lock = self._locks.setdefault(validate_scope_id(scope_id), asyncio.Lock())
+        acquired = False
+        try:
+            # Injected tracing must never leak the lock, so the release is armed before the stage is closed.
+            with self._stage("scope.lock", attributes={"powercontext.scope.lock.contended": lock.locked()}):
+                await lock.acquire()
+                acquired = True
+            yield
+        finally:
+            if acquired:
+                lock.release()
+
+    def _stage(
+        self,
+        name: str,
+        *,
+        attributes: Mapping[str, TraceAttribute],
+    ) -> AbstractContextManager[RuntimeSpan | None]:
+        if self._tracing is None:
+            return nullcontext(None)
+        return self._tracing.stage(name, attributes=attributes)
 
     def _review(self, scope_id: str) -> ReviewService:
         if self._review_service is None:
@@ -1144,6 +1259,12 @@ async def _head_or_none(service: MemoryService, artifact_id: str) -> Memory | No
         return await service.head(artifact_id)
     except ArtifactNotFoundError:
         return None
+
+
+def _is_stale_memory_search(error: CapabilityNotSupportedError | InvalidMemoryCitationError) -> bool:
+    return (isinstance(error, CapabilityNotSupportedError) and error.capability == "head") or (
+        isinstance(error, InvalidMemoryCitationError) and error.code == "memory-mismatch"
+    )
 
 
 def _validate_expected_revision(memory: Memory | None, expected_revision: int | None) -> None:

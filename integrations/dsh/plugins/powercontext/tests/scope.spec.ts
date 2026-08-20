@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { deriveScopeId, normalizeGitRemote } from '../src/scope.ts'
+import { deriveScopeId, normalizeGitRemote, sessionCwd } from '../src/scope.ts'
 
 describe('normalizeGitRemote', () => {
   it('normalizes https, ssh, and scp remotes without credentials', () => {
@@ -38,5 +38,30 @@ describe('deriveScopeId', () => {
     const cwd = resolve('/tmp/no-git-project')
     const scope = await deriveScopeId(cwd, { git: async () => undefined })
     expect(scope).toBe(`local:${createHash('sha256').update(cwd).digest('hex')}`)
+  })
+
+  it('uses a configured scopeId even when session cwd is missing or blank', async () => {
+    const git = async () => {
+      throw new Error('git must not run when scopeId is configured')
+    }
+    expect(await deriveScopeId(undefined, { configuredScopeId: 'project:demo', git })).toBe('project:demo')
+    expect(await deriveScopeId('', { configuredScopeId: 'project:demo', git })).toBe('project:demo')
+    expect(await deriveScopeId('   ', { configuredScopeId: 'project:demo', git })).toBe('project:demo')
+  })
+
+  it('does not treat a missing or blank cwd as the process directory', async () => {
+    const git = async () => undefined
+    await expect(deriveScopeId(undefined, { git })).resolves.toBeUndefined()
+    await expect(deriveScopeId('', { git })).resolves.toBeUndefined()
+    await expect(deriveScopeId('   ', { git })).resolves.toBeUndefined()
+  })
+})
+
+describe('sessionCwd', () => {
+  it('treats missing and blank values as absent', () => {
+    expect(sessionCwd(undefined)).toBeUndefined()
+    expect(sessionCwd('')).toBeUndefined()
+    expect(sessionCwd('   ')).toBeUndefined()
+    expect(sessionCwd('/repo')).toBe('/repo')
   })
 })

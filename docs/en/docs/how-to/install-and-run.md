@@ -25,6 +25,9 @@ powercontext setup dsh --source oceanbase/powercontext --ref <ref>
 powercontext setup pi --source oceanbase/powercontext --ref <ref>
 ```
 
+For host-specific options, see [Configure Codex](configure-codex.md) and
+[Configure DeepSeek Harness](configure-dsh.md).
+
 ## Run the local Server
 
 ```bash
@@ -55,7 +58,8 @@ powercontext capabilities
 readiness covers the database and each configured inference provider. Runtime or database failures return
 `not_ready`; an inference failure returns `degraded` without removing database-backed operations from traffic.
 `doctor codex`, `doctor dsh`, and `doctor pi` separately check their optional host CLI and PowerContext integration. The content commands exercise the
-public HTTP SDK path.
+public HTTP SDK path. `ready` and `capabilities` show the readiness and enabled capabilities of the running service. For complete status definitions and
+recovery steps, see [Troubleshoot](troubleshoot.md).
 
 ## Update or replace an installation
 

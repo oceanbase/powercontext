@@ -18,6 +18,8 @@ from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     DefaultMemoryEvidenceProjector,
     MemoryCapabilities,
+    MemoryHit,
+    MemoryRerankDecision,
     MemoryReranker,
 )
 from powercontext.builtin.artifacts.skill import CodexSkillProvider, ExternalSkillProvider, SkillGenerator
@@ -43,6 +45,7 @@ from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime.application import BuiltinRuntime
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
+from powercontext.builtin.runtime.protocols import RuntimeTracing
 from powercontext.builtin.runtime.readiness import (
     READINESS_PROBE_TIMEOUT_SECONDS,
     CachedReadinessProbe,
@@ -100,6 +103,37 @@ class _ContentHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
         return super().project_source(source)
 
 
+class _TracingMemoryReranker:
+    """Trace one configured reranker without exposing Memory content."""
+
+    def __init__(self, delegate: MemoryReranker, tracing: RuntimeTracing) -> None:
+        self._delegate = delegate
+        self._tracing = tracing
+        self.policy_id = delegate.policy_id
+
+    async def rerank(
+        self,
+        query: str,
+        candidates: tuple[MemoryHit, ...],
+        limit: int,
+        /,
+    ) -> MemoryRerankDecision:
+        with self._tracing.stage(
+            "memory.rerank",
+            attributes={
+                "powercontext.memory.rerank.candidate_count": len(candidates),
+                "powercontext.memory.rerank.limit": limit,
+            },
+        ) as span:
+            decision = await self._delegate.rerank(query, candidates, limit)
+            span.set_attributes({
+                "powercontext.memory.rerank.selected_count": len(decision.selected_ranks),
+                "powercontext.memory.rerank.discarded_rank_count": decision.discarded_rank_count,
+                "powercontext.memory.rerank.used_fallback": decision.used_fallback,
+            })
+            return decision
+
+
 @asynccontextmanager
 async def open_builtin_runtime(
     config: BuiltinConfig,
@@ -115,6 +149,7 @@ async def open_builtin_runtime(
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
     instrumentation: InstrumentationSettings | None = None,
+    tracing: RuntimeTracing | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
@@ -145,11 +180,23 @@ async def open_builtin_runtime(
         configured_skill = generated_skill if skill_generator is None else skill_generator
         configured_handoff = generated_handoff if handoff_pipeline is None else handoff_pipeline
         configured_reranker = generated_reranker if memory_reranker is None else memory_reranker
-        configured_embedding_source = (
-            await _embedding_model(config.inference, resources, instrumentation)
-            if embedding_model is None
-            else embedding_model
-        )
+        if configured_reranker is not None and tracing is not None:
+            configured_reranker = _TracingMemoryReranker(configured_reranker, tracing)
+        if embedding_model is None:
+            configured_embedding_source, readiness_embedding = await _embedding_models(
+                config.inference,
+                resources,
+                instrumentation,
+            )
+        else:
+            from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
+
+            configured_embedding_source = embedding_model
+            readiness_embedding = (
+                embedding_model._without_instrumentation()
+                if isinstance(embedding_model, PydanticAIEmbeddingModel)
+                else embedding_model
+            )
         configured_embedding = (
             None if configured_embedding_source is None else UsageReportingEmbeddingModel(configured_embedding_source)
         )
@@ -183,9 +230,9 @@ async def open_builtin_runtime(
                 probe=generation_readiness,
                 blocking=False,
             )
-        if configured_embedding_source is not None:
+        if readiness_embedding is not None:
             readiness_probes["inference.embedding"] = ReadinessProbeDefinition(
-                probe=_embedding_readiness_probe(configured_embedding_source),
+                probe=_embedding_readiness_probe(readiness_embedding),
                 blocking=False,
             )
         runtime = await resources.enter_async_context(
@@ -210,6 +257,7 @@ async def open_builtin_runtime(
                 statistics_service=contexts.statistics,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 readiness=RuntimeReadinessChecks(readiness_probes),
+                tracing=tracing,
             )
         )
         if config.handoff_report.enabled:
@@ -453,13 +501,13 @@ async def _generation_pipelines(
     )
 
 
-async def _embedding_model(
+async def _embedding_models(
     settings: InferenceConfig,
     resources: AsyncExitStack,
     instrumentation: InstrumentationSettings | None,
-) -> EmbeddingModel | None:
+) -> tuple[EmbeddingModel | None, EmbeddingModel | None]:
     if settings.embedding_model is None:
-        return None
+        return None, None
 
     from pydantic_ai import Embedder
     from pydantic_ai.embeddings import infer_embedding_model
@@ -478,18 +526,26 @@ async def _embedding_model(
     model = infer_embedding_model(settings.embedding_model, provider_factory=provider_factory)
     for provider in providers:
         await resources.enter_async_context(provider)
-    return PydanticAIEmbeddingModel(
-        embedder=Embedder(model, instrument=instrumentation),
-        batch_size=settings.embedding_batch_size,
-        profile=EmbeddingProfile(
-            profile_id=_required(settings.embedding_profile_id),
-            model=settings.embedding_model,
-            dimension=_required(settings.embedding_dimension),
-            distance="l2",
-            normalization=settings.embedding_normalization,
-        ),
-        limits=InferenceLimits(timeout_seconds=settings.embedding_timeout_seconds),
+    profile = EmbeddingProfile(
+        profile_id=_required(settings.embedding_profile_id),
+        model=settings.embedding_model,
+        dimension=_required(settings.embedding_dimension),
+        distance="l2",
+        normalization=settings.embedding_normalization,
     )
+    limits = InferenceLimits(timeout_seconds=settings.embedding_timeout_seconds)
+
+    def adapter(instrument: InstrumentationSettings | bool | None) -> EmbeddingModel:
+        return PydanticAIEmbeddingModel(
+            embedder=Embedder(model, instrument=instrument),
+            batch_size=settings.embedding_batch_size,
+            profile=profile,
+            limits=limits,
+        )
+
+    # Readiness runs outside an application operation, so use the same provider model
+    # without instrumentation to avoid exporting an orphan inference span.
+    return adapter(instrumentation), adapter(False)
 
 
 def _embedding_readiness_probe(model: EmbeddingModel) -> ReadinessProbe:

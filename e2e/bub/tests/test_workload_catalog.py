@@ -10,7 +10,10 @@ def test_workloads_can_be_selected_by_multiple_ids_or_category() -> None:
     tasks = load_tasks(repository / "e2e" / "bub" / "tasks")
 
     assert [task.id for task in tasks] == [
+        "locomo-multihop-football",
+        "locomo-open-pastries",
         "locomo-support-group",
+        "locomo-temporal-banker",
         "project-database-decision",
         "terminal-bench-db-wal-recovery",
     ]
@@ -28,6 +31,9 @@ def test_workloads_can_be_selected_by_multiple_ids_or_category() -> None:
         "terminal-bench-db-wal-recovery",
     ]
     assert [task.id for task in acceptance] == [
+        "locomo-multihop-football",
+        "locomo-open-pastries",
         "locomo-support-group",
+        "locomo-temporal-banker",
         "project-database-decision",
     ]

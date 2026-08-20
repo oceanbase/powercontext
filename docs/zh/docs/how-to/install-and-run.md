@@ -24,6 +24,8 @@ powercontext setup dsh --source oceanbase/powercontext --ref <ref>
 powercontext setup pi --source oceanbase/powercontext --ref <ref>
 ```
 
+宿主专有选项见[配置 Codex](configure-codex.md)和[配置 DeepSeek Harness](configure-dsh.md)。
+
 ## 运行本地 Server
 
 ```bash
@@ -53,7 +55,7 @@ powercontext capabilities
 `doctor` 检查已安装的包、Server 存活状态和 Server 就绪状态，不要求安装集成。Server 就绪检查涵盖数据库和
 每个已配置的推理服务。Runtime 或数据库故障返回 `not_ready`；推理服务故障返回 `degraded`，不会使数据库
 操作退出流量。`doctor codex`、`doctor dsh` 和 `doctor pi` 分别检查对应的可选宿主 CLI 与 PowerContext 集成。内容命令会经过公开 HTTP SDK
-路径。
+路径。`ready` 和 `capabilities` 用于查看运行中服务的就绪状态和已启用能力。完整的状态解释和恢复步骤见[排查问题](troubleshoot.md)。
 
 ## 更新或替换安装
 

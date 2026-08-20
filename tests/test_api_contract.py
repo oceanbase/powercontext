@@ -183,6 +183,10 @@ def test_memory_operations_use_family_prefixed_paths_and_typed_requests() -> Non
     assert SEARCH_MEMORY.request_type is SearchMemoryRequest
 
 
+def test_memory_search_declares_the_revision_conflict_response() -> None:
+    assert SEARCH_MEMORY.responses[409] == {"$ref": "#/components/responses/Conflict"}
+
+
 def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_tools() -> None:
     assert PREPARE_CONTEXT.path == "/v1/context/prepare"
     assert PREPARE_CONTEXT.request_type is PrepareContextRequest
