@@ -88,15 +88,13 @@ class DashboardScopeConfig(BaseModel):
 
 
 class DashboardConfig(BaseModel):
-    """Optional personal Dashboard served by the local Server."""
+    """Personal Dashboard served by the local Server."""
 
-    enabled: bool = False
+    enabled: bool = True
     scopes: list[DashboardScopeConfig] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def validate_scopes(self) -> DashboardConfig:
-        if self.enabled and not self.scopes:
-            raise ValueError("Enabled Dashboard requires at least one scope")  # noqa: TRY003
         scope_ids = [scope.scope_id for scope in self.scopes]
         if len(scope_ids) != len(set(scope_ids)):
             raise ValueError("Dashboard scope IDs must be unique")  # noqa: TRY003
@@ -160,12 +158,6 @@ class ServerSettings(BaseSettings):
         if not isinstance(value, Mapping) or value.get("kind", "sqlite") != "sqlite":
             return value
         return {"kind": "sqlite", "url": _default_database().url, **value}
-
-    @model_validator(mode="after")
-    def require_authentication_for_dashboard(self) -> ServerSettings:
-        if self.dashboard.enabled and not self.auth.enabled:
-            raise ValueError("Dashboard requires Server bearer authentication")  # noqa: TRY003
-        return self
 
 
 __all__ = [

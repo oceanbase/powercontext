@@ -83,6 +83,8 @@ class _SequencedEmbeddingModel:
 
 
 def test_settings_load_server_environment(monkeypatch) -> None:
+    monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_SCOPES", raising=False)
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.2")
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
     monkeypatch.setenv(
@@ -122,6 +124,8 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.inference.generation_max_requests == 4
     assert settings.mcp.enabled is False
     assert settings.mcp.path == "/context"
+    assert settings.dashboard.enabled is True
+    assert settings.dashboard.scopes == []
     assert settings.external_skills.host_id == "workstation-1"
     assert settings.external_skills.codex_roots[0].root_id == "repository"
     assert settings.external_skills.codex_roots[0].path.as_posix() == "/srv/project/.agents/skills"

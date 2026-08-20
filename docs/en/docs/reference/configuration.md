@@ -35,6 +35,8 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP path |
 | `POWERCONTEXT_SERVER_AUTH_ENABLED` | `false` | Require one static bearer token for HTTP and MCP |
 | `POWERCONTEXT_SERVER_AUTH_TOKEN` | unset | Static bearer token; required when authentication is enabled |
+| `POWERCONTEXT_SERVER_DASHBOARD_ENABLED` | `true` | Enable the Dashboard at the Server root path `/` |
+| `POWERCONTEXT_SERVER_DASHBOARD_SCOPES` | `[]` | JSON array of selectable Dashboard scopes |
 | `POWERCONTEXT_SERVER_LOGGING_LEVEL` | `INFO` | Operational log level |
 | `POWERCONTEXT_SERVER_LOGGING_FORMAT` | `console` | `console` or structured `json` output |
 | `POWERCONTEXT_SERVER_LOGGING_ACCESS` | `true` | Log external HTTP and logical MCP request completion |
@@ -55,6 +57,10 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 Static bearer authentication is disabled by default. When enabled, API and MCP requests must include
 `Authorization: Bearer <token>`; the liveness and readiness endpoints remain public. Plain HTTP should remain on a
 loopback address. Use TLS before exposing an authenticated Server over a network.
+
+The Dashboard is enabled by default and shares the Server listener and port with the HTTP API and MCP. With no scopes
+configured, the page shows an empty state. Dashboard initialization failures are logged with their direct cause and do
+not prevent the Server HTTP API, MCP, or health checks from starting.
 
 Example with a controlled SQLite path and scheduled extraction:
 

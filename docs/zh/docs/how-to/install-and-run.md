@@ -35,8 +35,13 @@ powercontext server run
 
 - 监听 `127.0.0.1:8000`；
 - 在 `/mcp` 启用 Streamable HTTP MCP；
+- 在 `/` 启用 Dashboard；尚未配置 scope 时，页面会显示明确的空状态；
 - 在操作系统的用户数据目录中创建持久化 SQLite 数据库；
 - 无需推理服务即可支持显式 Memory 操作。
+
+启动成功后，终端会输出 Dashboard 地址，例如 `http://127.0.0.1:8000/`。Dashboard 与 HTTP API、MCP 共用 Server
+的监听地址和端口。Dashboard 初始化失败时，Server 会记录包含直接原因的 warning，并继续提供其他接口；可通过
+`POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false` 显式关闭 Dashboard。
 
 按 `Ctrl-C` 可正常关闭。再次运行该命令会打开同一个数据库。
 

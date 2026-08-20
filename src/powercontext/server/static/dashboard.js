@@ -21,7 +21,7 @@ import {
   fetchWithBearer,
   readServerToken,
   storeServerToken
-} from "./auth.js?v=session-shell";
+} from "./auth.js?v=optional-auth";
 import {createPageUi, createRequestGate} from "./page-ui.js?v=locale-complete";
 
 const translations = {
@@ -154,6 +154,7 @@ const pageStatusRetry = document.getElementById("page-status-retry");
 const dashboard = document.getElementById("dashboard");
 const signOut = document.getElementById("sign-out");
 const scopeSelect = document.getElementById("scope-select");
+const authenticationRequired = document.documentElement.dataset.serverAuthRequired === "true";
 const svgNamespace = "http://www.w3.org/2000/svg";
 let currentView = null;
 let currentScopes = [];
@@ -191,12 +192,14 @@ signOut.addEventListener("click", () => {
 });
 
 async function authenticate(token, scopeId = "") {
-  if (!token) {
+  if (authenticationRequired && !token) {
     showLogin();
     return;
   }
 
-  storeServerToken(token);
+  if (authenticationRequired) {
+    storeServerToken(token);
+  }
   tokenInput.value = "";
   currentAuthError = null;
   const request = dashboardRequests.start();
@@ -240,7 +243,7 @@ async function authenticate(token, scopeId = "") {
 }
 
 async function loadStatistics(token, scopeId, request = null) {
-  if (!token) {
+  if (authenticationRequired && !token) {
     showLogin();
     return;
   }
@@ -309,7 +312,7 @@ function showPageStatus(messageKey, values = {}, retryable = false) {
   authShell.hidden = true;
   pageStatus.hidden = false;
   dashboard.hidden = true;
-  signOut.hidden = false;
+  signOut.hidden = !authenticationRequired;
 }
 
 function renderPageStatus() {
@@ -340,7 +343,7 @@ function renderDashboard(view) {
   authShell.hidden = true;
   pageStatus.hidden = true;
   dashboard.hidden = false;
-  signOut.hidden = false;
+  signOut.hidden = !authenticationRequired;
 
   renderScopes(view.scopes, statistics.scope_id);
   setText("dashboard-name", view.selectedScope.display_name);

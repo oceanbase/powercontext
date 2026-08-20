@@ -50,17 +50,22 @@ def mount_web_ui(
     scopes: Mapping[str, str],
     dashboard_enabled: bool = False,
     handoff_report_enabled: bool = False,
+    authentication_required: bool = False,
 ) -> None:
     """Mount Server-owned pages, static assets, and UI support endpoints."""
 
     dashboard_scopes = tuple(DashboardScope(scope_id=scope_id, display_name=name) for scope_id, name in scopes.items())
-    if dashboard_enabled and not dashboard_scopes:
-        raise ValueError("Dashboard requires at least one scope")  # noqa: TRY003
+    templates = _templates()
+    if dashboard_enabled:
+        templates.env.get_template("pages/dashboard.html")
+    if handoff_report_enabled:
+        templates.env.get_template("pages/handoff_report.html")
+    static_files = StaticFiles(packages=[("powercontext.server", "static")])
 
     router = APIRouter(include_in_schema=False)
 
     async def dashboard_page(request: Request) -> Response:
-        return _templates().TemplateResponse(
+        return templates.TemplateResponse(
             request=request,
             name="pages/dashboard.html",
             context={
@@ -68,12 +73,13 @@ def mount_web_ui(
                 "dashboard_enabled": True,
                 "handoff_report_enabled": handoff_report_enabled,
                 "home_route": "dashboard_home",
+                "authentication_required": authentication_required,
             },
             headers=_PAGE_HEADERS,
         )
 
     async def handoff_report_page(request: Request) -> Response:
-        return _templates().TemplateResponse(
+        return templates.TemplateResponse(
             request=request,
             name="pages/handoff_report.html",
             context={
@@ -81,6 +87,7 @@ def mount_web_ui(
                 "dashboard_enabled": dashboard_enabled,
                 "handoff_report_enabled": True,
                 "home_route": "dashboard_home" if dashboard_enabled else "handoff_report_dashboard",
+                "authentication_required": authentication_required,
             },
             headers=_PAGE_HEADERS,
         )
@@ -113,12 +120,12 @@ def mount_web_ui(
             name="handoff_report_dashboard",
         )
 
-    app.include_router(router)
     app.mount(
         "/static",
-        StaticFiles(packages=[("powercontext.server", "static")]),
+        static_files,
         name="web_static",
     )
+    app.include_router(router)
 
 
 @cache
