@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 schema: powercontext.e2e-task/v1
 id: locomo-temporal-banker
 categories:
@@ -14,7 +28,7 @@ provenance:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: locomo-temporal-banker
-  checksum: a60f80624d3157cf32b243617b4caad1fb4340825e24f9f22036102298d9b203
+  checksum: 6b7577995e466e35964a904b8c6dee83fc54e9b2818a8ee236b079126b6e0afe
 execution:
   type: bub
   model: false
