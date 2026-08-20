@@ -30,10 +30,11 @@ Before changing Claude Code settings, setup reports the settings entry, plugin c
 required permissions, and exact rollback commands. It then registers the Marketplace, installs the plugin at user
 scope, and verifies the enabled plugin through Claude Code's JSON output.
 
-Claude Code owns the user settings entry, Marketplace registry, versioned plugin cache, and plugin data directory.
-PowerContext resolves the displayed locations from `CLAUDE_CONFIG_DIR` or Claude Code's default configuration
-directory using platform-independent path handling. Setup delegates the mutations to Claude Code and prints the
-resolved locations before the first one.
+Claude Code owns the Marketplace registry, versioned plugin cache, and plugin data directory. Claude 2.1.133 does not
+accept configuration flags on `plugin install`, so setup atomically merges `server_url` and `capture_prompts` into
+the user-level `pluginConfigs` after installation while preserving unrelated settings; on failure it restores the
+pre-install snapshot. PowerContext resolves these locations from `CLAUDE_CONFIG_DIR` or Claude Code's default
+configuration directory.
 
 For a local checkout, pass its directory:
 
@@ -72,14 +73,16 @@ Skill.
 Scope resolution uses this order:
 
 1. `POWERCONTEXT_CLAUDE_SCOPE_ID`, when explicitly set;
-2. the normalized `remote.origin.url` of the Git top-level directory;
-3. a `local:sha256:<digest>` identifier derived from the resolved project directory.
+2. the Git-private Workstream binding shared with Codex;
+3. the normalized `remote.origin.url` of the Git top-level directory;
+4. a `local:sha256:<digest>` identifier derived from the resolved project directory.
 
-Git-backed Claude Code and Codex sessions therefore share the normalized remote scope. For this repository both
-derive:
+Claude Code and Codex therefore resolve the exact same scope in a checkout that has a Workstream binding. Without a
+binding they still share the normalized remote scope. Bind a known Workstream with the bundled resolver:
 
-```text
-git:github.com/oceanbase/powercontext
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/project_scope.py" \
+  --cwd "$PWD" --bind-workstream "WORKSTREAM_SCOPE_ID"
 ```
 
 The local fallback is stable for one resolved directory, but it is not intended to join unrelated checkouts. Set an
@@ -90,9 +93,11 @@ explicit scope only when that separation or sharing is deliberate.
 The bundled MCP Server exposes the existing PowerContext operations. Claude can search and list Memory, and can
 create, revise, or retire an entry when the user explicitly asks to persist a change.
 
-For a task transfer, the bundled Skill guides Claude through Source capture, Handoff activation, Draft inspection,
-finalization, and `continue_handoff` with the complete Prepared Handoff. Prepared Handoffs are temporary carriers.
-`commit_handoff` creates a durable milestone and is used only when the user explicitly requests one.
+For a task transfer, the bundled Skill guides Claude to prepare current work with `handoff_current_work` and, for an
+explicit imperative such as “handoff this work,” pass the returned `handoff` unchanged to `commit_handoff`. The
+receiver uses `continue_handoff` with the exact Revision, verifies it, and records an `acknowledge_handoff` receipt;
+completed work uses `record_task_outcome` with that receipt. A Prepared Handoff is temporary, while an exact Revision
+is the durable cross-agent transfer point.
 
 Automatic recall does not depend on Claude deciding to call MCP. Conversely, MCP Memory writes do not replace prompt
 capture: the Hook stores each enabled prompt as ordinary Source evidence, and the Server decides whether later Source
@@ -145,7 +150,9 @@ claude
 ```
 
 The Hook and MCP `headersHelper` read this process environment value. The helper emits no `Authorization` header when
-the variable is absent. Never put the token in the Server URL, plugin options, `.mcp.json`, Source metadata, or logs.
+the variable is absent. It uses a Python 3 command that does not depend on plugin-path expansion, avoiding both Claude
+2.1.133's failure to expand `${CLAUDE_PLUGIN_ROOT}` in `headersHelper` and a `python` command that may resolve to
+Python 2. Never put the token in the Server URL, plugin options, `.mcp.json`, Source metadata, or logs.
 
 Plain HTTP is accepted only for `127.0.0.1`, `localhost`, or `::1`. Use HTTPS when Claude Code connects to a remote
 Server.
@@ -183,7 +190,7 @@ Remove the plugin and Marketplace:
 
 ```bash
 claude plugin uninstall powercontext@powercontext --scope user
-claude plugin marketplace remove powercontext --scope user
+claude plugin marketplace remove powercontext
 ```
 
 Uninstalling the plugin from its last scope also removes its `${CLAUDE_PLUGIN_DATA}` directory unless Claude Code is

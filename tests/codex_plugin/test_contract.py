@@ -50,6 +50,42 @@ def test_scope_override_wins(scope_module: ModuleType, tmp_path: Path) -> None:
     )
 
 
+def test_scope_binding_is_persisted_in_git_private_state(
+    scope_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    git_directory = tmp_path / ".git"
+    git_directory.mkdir()
+    monkeypatch.setattr(
+        scope_module,
+        "_git_value",
+        lambda _cwd, *arguments: str(git_directory) if arguments == ("rev-parse", "--absolute-git-dir") else None,
+    )
+
+    assert scope_module.bind_workstream_scope(str(tmp_path), "handoff-ui-review") == "handoff-ui-review"
+    assert scope_module.read_bound_scope_id(str(tmp_path)) == "handoff-ui-review"
+    assert scope_module.resolve_scope_id(str(tmp_path)) == "handoff-ui-review"
+    assert scope_module.resolve_scope_id(str(tmp_path), configured_scope_id="scope:override") == "scope:override"
+    state_path = git_directory / "powercontext" / "codex-workspace.json"
+    assert state_path.stat().st_mode & 0o777 == 0o600
+
+    assert scope_module.clear_workstream_scope(str(tmp_path)) is True
+    assert scope_module.read_bound_scope_id(str(tmp_path)) is None
+    assert scope_module.clear_workstream_scope(str(tmp_path)) is False
+
+
+def test_scope_binding_requires_a_git_workspace(
+    scope_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(scope_module, "_git_value", lambda *_args: None)
+
+    with pytest.raises(ValueError, match="requires a Git workspace"):
+        scope_module.bind_workstream_scope(str(tmp_path), "handoff-ui-review")
+
+
 def test_codex_settings_precedence_and_validation(
     recall_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -139,13 +175,32 @@ def test_codex_settings_normalize_the_mcp_path_to_http_base(
     assert settings_module._http_base_url("https://memory.example/api/mcp/") == "https://memory.example/api"
 
 
-def test_project_context_skill_preserves_the_explicit_handoff_boundary() -> None:
+def test_project_context_skill_uses_the_high_level_work_continuity_loop() -> None:
     content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text()
 
-    assert "capture_content_source" in content
-    assert "activate_handoff" in content
-    assert "`boundary_source`" in content
-    assert "canonical temporary" in content
-    assert "finalize_handoff" in content
+    assert 'description: Create and commit a current-work Handoff when the user says "交接"' in content
+    assert '"$PLUGIN_ROOT/.venv/bin/python" "$PLUGIN_ROOT/scripts/project_scope.py"' in content
+    assert "uv run --frozen" not in content
+    assert "create_work_contract" in content
+    assert "select_handoff_workstream" in content
+    assert "handoff_current_work" in content
+    assert "acknowledge_handoff" in content
+    assert "record_task_outcome" in content
+    assert "Complete a one-turn durable Handoff" in content
+    assert "do not ask for a second confirmation" in content
+    assert "native\npicker" in content
+    assert "Pass the returned `handoff` member unchanged" in content
+    assert "no durable Handoff milestone was committed" in content
+    assert "canonical temporary carrier" in content
     assert 'selection: "prepared"' in content
-    assert "Call `commit_handoff` only when" in content
+    assert "call `commit_handoff` only when" in content
+    assert "Do not treat every session stop as task completion" in content
+
+
+def test_powercontext_plugin_advertises_the_one_turn_handoff() -> None:
+    manifest = json.loads((PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text())
+    prompts = manifest["interface"]["defaultPrompt"]
+
+    assert len(prompts) <= 3
+    assert all(len(prompt) <= 128 for prompt in prompts)
+    assert "Hand off and commit the current work in one turn." in prompts

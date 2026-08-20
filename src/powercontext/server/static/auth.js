@@ -48,6 +48,8 @@ export function clearServerToken() {
 
 export function fetchWithBearer(resource, token, options = {}) {
   const headers = new Headers(options.headers);
-  headers.set("Authorization", `Bearer ${token}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   return fetch(resource, {...options, headers, cache: options.cache || "no-store"});
 }

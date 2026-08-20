@@ -21,6 +21,8 @@ from datetime import UTC, datetime
 
 from pydantic import JsonValue
 
+from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.handoff import Handoff
 from powercontext.builtin.handoff_report.canonical import finalize_digests
 from powercontext.builtin.handoff_report.errors import (
     HandoffReportEvidenceCheckUnavailableError,
@@ -33,11 +35,14 @@ from powercontext.builtin.handoff_report.models import (
     WorkstreamDescriptor,
     activity_sort_key,
 )
-from powercontext.builtin.handoff_report.protocols import HandoffReadAdapter
+from powercontext.builtin.handoff_report.protocols import HandoffReadAdapter, WorkContinuityReadAdapter
 from powercontext.builtin.handoff_report.report import (
     MAX_REPORT_ACTIVITIES,
+    MAX_REPORT_HANDOFF_HISTORY,
+    MAX_REPORT_HANDOFF_HISTORY_EXCERPT_LENGTH,
     MAX_REPORT_WORKSTREAMS,
     HandoffReport,
+    HandoffRevisionSummary,
     ReportActivityCoverageStatus,
     ReportActivityStatus,
     ReportCoverage,
@@ -50,13 +55,20 @@ from powercontext.builtin.handoff_report.report import (
     WorkstreamReport,
 )
 from powercontext.builtin.handoff_report.selection import select_optimistic_stable_handoffs
+from powercontext.builtin.work import WorkContinuity
 
 
 class HandoffReportService:
     """Assemble reports without entering Handoff prepare, commit, or Continue control flow."""
 
-    def __init__(self, handoffs: HandoffReadAdapter, /) -> None:
+    def __init__(
+        self,
+        handoffs: HandoffReadAdapter,
+        /,
+        continuity: WorkContinuityReadAdapter | None = None,
+    ) -> None:
         self._handoffs = handoffs
+        self._continuity = continuity
 
     async def generate(
         self,
@@ -89,10 +101,16 @@ class HandoffReportService:
         projected: list[WorkstreamReport] = []
         for descriptor, entry in zip(ordered_workstreams, selection, strict=True):
             scoped_activity = activities_by_scope.get(descriptor.scope_id, ())
+            continuity = (
+                WorkContinuity(scope_id=descriptor.scope_id)
+                if self._continuity is None
+                else await self._continuity.get(descriptor.scope_id, entry.handoff_ref)
+            )
             if entry.handoff_ref is None:
                 projected.append(
                     WorkstreamReport(
                         workstream=descriptor,
+                        continuity=continuity,
                         handoff_ref=None,
                         content=None,
                         activities=scoped_activity,
@@ -108,6 +126,10 @@ class HandoffReportService:
             handoff = await self._handoffs.get(descriptor.scope_id, entry.handoff_ref)
             if handoff.as_ref() != entry.handoff_ref:
                 raise HandoffReportInconsistentError(descriptor.scope_id)
+            revision_count, revision_history = await self._revision_history(
+                descriptor.scope_id,
+                entry.handoff_ref,
+            )
             checks: ReportEvidenceChecks = "not_checked"
             evidence_unavailable = False
             if include_evidence_checks:
@@ -118,8 +140,12 @@ class HandoffReportService:
             projected.append(
                 WorkstreamReport(
                     workstream=descriptor,
+                    continuity=continuity,
                     handoff_ref=entry.handoff_ref,
                     content=handoff.content,
+                    handoff_revision_count=revision_count,
+                    handoff_history_truncated=revision_count > len(revision_history),
+                    handoff_history=revision_history,
                     evidence_checks=checks,
                     evidence_unavailable=evidence_unavailable,
                     activities=scoped_activity,
@@ -187,6 +213,31 @@ class HandoffReportService:
         )
         return finalize_digests(report)
 
+    async def _revision_history(
+        self,
+        scope_id: str,
+        selected_ref: ArtifactRef,
+        /,
+    ) -> tuple[int, tuple[HandoffRevisionSummary, ...]]:
+        revisions = await self._handoffs.revisions(scope_id)
+        lifecycle = tuple(
+            handoff
+            for handoff in revisions
+            if handoff.as_ref().family == selected_ref.family and handoff.artifact_id == selected_ref.artifact_id
+        )
+        references = tuple(handoff.as_ref() for handoff in lifecycle)
+        if tuple(reference.revision for reference in references) != tuple(
+            sorted({reference.revision for reference in references})
+        ):
+            raise HandoffReportInconsistentError(scope_id)
+        try:
+            selected_index = references.index(selected_ref)
+        except ValueError as error:
+            raise HandoffReportInconsistentError(scope_id) from error
+        selected_history = lifecycle[: selected_index + 1]
+        recent_history = selected_history[-MAX_REPORT_HANDOFF_HISTORY:]
+        return len(selected_history), tuple(_revision_summary(handoff) for handoff in recent_history)
+
 
 def _validate_inputs(
     project: ProjectDescriptor,
@@ -210,6 +261,25 @@ def _validate_inputs(
         if event.project_id != project.project_id:
             raise ValueError("every Activity Event must belong to the requested Project")  # noqa: TRY003
     return ordered
+
+
+def _revision_summary(handoff: Handoff, /) -> HandoffRevisionSummary:
+    next_action = handoff.content.next_action
+    return HandoffRevisionSummary(
+        reference=handoff.as_ref(),
+        objective_excerpt=_history_excerpt(handoff.content.objective),
+        disposition=handoff.content.disposition,
+        next_action_excerpt=None if next_action is None else _history_excerpt(next_action.text),
+        state_count=len(handoff.content.state),
+        omission_count=len(handoff.content.omissions),
+    )
+
+
+def _history_excerpt(value: str, /) -> str:
+    compact = " ".join(value.split())
+    if len(compact) <= MAX_REPORT_HANDOFF_HISTORY_EXCERPT_LENGTH:
+        return compact
+    return compact[: MAX_REPORT_HANDOFF_HISTORY_EXCERPT_LENGTH - 1].rstrip() + "…"
 
 
 def _group_activities(

@@ -28,9 +28,10 @@ powercontext setup claude-code --source oceanbase/powercontext --ref master
 修改 Claude Code 设置前，setup 会报告设置项、插件缓存、持久化数据位置、所需权限和准确的回滚命令。
 之后命令会注册 Marketplace、以 user scope 安装插件，并通过 Claude Code 的 JSON 输出确认插件已启用。
 
-用户设置项、Marketplace registry、按版本保存的插件缓存和插件数据目录都由 Claude Code 管理。
-PowerContext 通过平台无关的路径处理，从 `CLAUDE_CONFIG_DIR` 或 Claude Code 默认配置目录解析需要展示的位置。
-setup 会把实际变更交给 Claude Code，并在第一次变更前输出解析后的位置。
+Marketplace registry、按版本保存的插件缓存和插件数据目录由 Claude Code 管理。Claude 2.1.133 的
+`plugin install` 不支持配置参数，因此 setup 会在安装成功后，把 `server_url` 和 `capture_prompts`
+原子合并到用户级 `pluginConfigs`，并保留其他设置；失败时恢复安装前快照。PowerContext 从
+`CLAUDE_CONFIG_DIR` 或 Claude Code 默认配置目录解析这些位置。
 
 使用本地 checkout 时，传入目录：
 
@@ -67,13 +68,16 @@ v1 不安装 `Stop` Hook，不读取 transcript，也不自动采集 Claude 的�
 scope 按以下顺序解析：
 
 1. 显式设置的 `POWERCONTEXT_CLAUDE_SCOPE_ID`；
-2. Git 顶层目录中规范化后的 `remote.origin.url`；
-3. 从解析后的项目目录生成的 `local:sha256:<digest>` 标识。
+2. 与 Codex 共用的 Git-private Workstream 绑定；
+3. Git 顶层目录中规范化后的 `remote.origin.url`；
+4. 从解析后的项目目录生成的 `local:sha256:<digest>` 标识。
 
-因此，在 Git 项目中，Claude Code 和 Codex 会话共享规范化后的 remote scope。对于本仓库，两者都会得到：
+因此，在已经绑定 Workstream 的 checkout 中，Claude Code 和 Codex 会话会优先得到完全相同的 scope。
+未绑定时，两者仍会共享规范化后的 remote scope。可以用随附 resolver 显式绑定：
 
-```text
-git:github.com/oceanbase/powercontext
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/project_scope.py" \
+  --cwd "$PWD" --bind-workstream "WORKSTREAM_SCOPE_ID"
 ```
 
 local fallback 在同一个解析后目录中保持稳定，但不用于连接无关的 checkout。只有确实需要主动隔离或共享时，
@@ -84,9 +88,10 @@ local fallback 在同一个解析后目录中保持稳定，但不用于连接�
 随附的 MCP Server 暴露已有的 PowerContext 操作。Claude 可以搜索和列出 Memory；只有用户明确要求持久化变更时，
 才创建、修订或废弃 Memory entry。
 
-转交任务时，随附 Skill 会引导 Claude 依次采集 Source、激活 Handoff、检查 Draft、完成 finalization，再把完整的
-Prepared Handoff 传给 `continue_handoff`。Prepared Handoff 是临时载体；`commit_handoff` 会创建持久化里程碑，
-只有用户明确要求时才调用。
+转交任务时，随附 Skill 会引导 Claude 用 `handoff_current_work` 准备当前工作，并在“交接”等明确命令下把返回的
+`handoff` 原样传给 `commit_handoff`。接收方用 `continue_handoff` 读取 exact Revision，核验后通过
+`acknowledge_handoff` 回执；完成任务时用 `record_task_outcome` 关联该回执。Prepared Handoff 仍是临时载体，
+exact Revision 才是跨 Agent 的持久交接点。
 
 自动召回不依赖 Claude 是否决定调用 MCP。反过来，MCP Memory 写入也不能替代 prompt 采集：启用采集后，Hook
 会把每条 prompt 保存为普通 Source 证据，之后是否从 Source 生成 Memory 由 Server 决定。
@@ -135,6 +140,8 @@ claude
 ```
 
 Hook 与 MCP `headersHelper` 都读取该进程环境变量。变量不存在时，helper 不会发送 `Authorization` header。
+helper 使用不依赖插件路径展开的 Python 3 命令，避免 Claude 2.1.133 在 `headersHelper` 中不展开
+`${CLAUDE_PLUGIN_ROOT}`，也避免 `python` 可能指向 Python 2。
 不要把 token 放入 Server URL、插件选项、`.mcp.json`、Source metadata 或日志。
 
 明文 HTTP 只允许连接 `127.0.0.1`、`localhost` 或 `::1`。Claude Code 连接远程 Server 时必须使用 HTTPS。
@@ -170,7 +177,7 @@ powercontext doctor claude-code
 
 ```bash
 claude plugin uninstall powercontext@powercontext --scope user
-claude plugin marketplace remove powercontext --scope user
+claude plugin marketplace remove powercontext
 ```
 
 从最后一个 scope 卸载插件时，Claude Code 也会删除 `${CLAUDE_PLUGIN_DATA}`；除非卸载时传入

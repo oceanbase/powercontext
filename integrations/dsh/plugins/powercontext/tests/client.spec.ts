@@ -147,7 +147,7 @@ describe('PowerContextClient', () => {
       const spec = OPERATIONS[id]
       await client.request(id, spec.location === 'query' ? { scope_id: 's' } : { marker: id })
     }
-    expect(seen).toHaveLength(48)
+    expect(seen).toHaveLength(OPERATION_IDS.length)
     OPERATION_IDS.forEach((id, index) => {
       const spec = OPERATIONS[id]
       expect(seen[index].method).toBe(spec.method)

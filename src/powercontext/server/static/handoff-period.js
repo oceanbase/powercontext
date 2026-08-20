@@ -67,7 +67,7 @@ export function formatDateRange(startDate, endDate, locale) {
   });
   const start = formatter.format(dateKeyToDate(startDate));
   const end = formatter.format(dateKeyToDate(endDate));
-  return startDate === endDate ? start : `${start} – ${end}`;
+  return startDate === endDate ? start : `${start} - ${end}`;
 }
 
 function dateKeyInTimeZone(value, timezone) {

@@ -15,10 +15,15 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence import GenerationConflictError
+from powercontext.builtin.persistence.cursors import SourceCursorRepository, StoredSourceCursor
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.tables import SHARED_TABLES
 from powercontext.builtin.sources import SourceCursor
 from tests.builtin.persistence.contract import repository_profile
 
@@ -54,5 +59,58 @@ def test_source_cursor_uses_generation_compare_and_swap() -> None:
                         expected_generation=first.generation,
                     )
                 assert error.value.actual == 2
+
+    asyncio.run(scenario())
+
+
+def test_source_cursor_initial_creation_is_safe_across_connections(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        barrier = asyncio.Barrier(2)
+
+        class SynchronizedRepository(SourceCursorRepository):
+            async def load(
+                self,
+                connection: AsyncConnection,
+                scope_id: str,
+                binding_name: str,
+                /,
+                *,
+                for_update: bool = False,
+            ) -> StoredSourceCursor | None:
+                result = await super().load(connection, scope_id, binding_name, for_update=for_update)
+                if not for_update and result is None:
+                    await barrier.wait()
+                return result
+
+        url = f"sqlite+aiosqlite:///{tmp_path / 'cursor-race.db'}"
+        config = SQLiteConfig(url=url)
+
+        async def create_cursor(profile: SQLiteProfile, sequence: int) -> StoredSourceCursor | GenerationConflictError:
+            repository = SynchronizedRepository()
+            try:
+                async with profile.database.transaction() as connection:
+                    return await repository.save(
+                        connection,
+                        "scope-a",
+                        "memory-source-window",
+                        SourceCursor(sequence=sequence),
+                        expected_generation=None,
+                    )
+            except GenerationConflictError as error:
+                return error
+
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as first_profile:  # noqa: SIM117
+            async with SQLiteProfile.open(config, tables=SHARED_TABLES) as second_profile:
+                results = await asyncio.gather(
+                    create_cursor(first_profile, 1),
+                    create_cursor(second_profile, 2),
+                )
+
+        created = [result for result in results if isinstance(result, StoredSourceCursor)]
+        conflicts = [result for result in results if isinstance(result, GenerationConflictError)]
+        assert len(created) == 1
+        assert created[0].generation == 1
+        assert len(conflicts) == 1
+        assert conflicts[0].actual == 1
 
     asyncio.run(scenario())

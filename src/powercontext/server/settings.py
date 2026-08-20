@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
@@ -28,7 +29,6 @@ from powercontext.builtin.runtime.config import (
     HandoffReportConfig,
     InferenceConfig,
     RuntimeConfig,
-    normalize_database_discriminator,
 )
 from powercontext.paths import default_database_path, sqlite_url
 
@@ -88,15 +88,13 @@ class DashboardScopeConfig(BaseModel):
 
 
 class DashboardConfig(BaseModel):
-    """Optional personal Dashboard served by the local Server."""
+    """Personal Dashboard served by the local Server."""
 
-    enabled: bool = False
+    enabled: bool = True
     scopes: list[DashboardScopeConfig] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def validate_scopes(self) -> DashboardConfig:
-        if self.enabled and not self.scopes:
-            raise ValueError("Enabled Dashboard requires at least one scope")  # noqa: TRY003
         scope_ids = [scope.scope_id for scope in self.scopes]
         if len(scope_ids) != len(set(scope_ids)):
             raise ValueError("Dashboard scope IDs must be unique")  # noqa: TRY003
@@ -154,16 +152,12 @@ class ServerSettings(BaseSettings):
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
 
-    @model_validator(mode="before")
+    @field_validator("database", mode="before")
     @classmethod
     def default_database_to_sqlite(cls, value: object) -> object:
-        return normalize_database_discriminator(value)
-
-    @model_validator(mode="after")
-    def require_authentication_for_dashboard(self) -> ServerSettings:
-        if self.dashboard.enabled and not self.auth.enabled:
-            raise ValueError("Dashboard requires Server bearer authentication")  # noqa: TRY003
-        return self
+        if not isinstance(value, Mapping) or value.get("kind", "sqlite") != "sqlite":
+            return value
+        return {"kind": "sqlite", "url": _default_database().url, **value}
 
 
 __all__ = [

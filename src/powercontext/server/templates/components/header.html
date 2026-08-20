@@ -16,14 +16,21 @@
 
 <header class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="{{ url_for('dashboard_home') }}" aria-label="PowerContext Dashboard">
+    <a
+      class="brand"
+      href="{{ url_for(home_route) }}"
+      aria-label="PowerContext Dashboard"
+      data-i18n-aria-label="brandHomeLabel"
+    >
       <img class="brand-mark" src="{{ url_for('web_static', path='/oceanbase-logo.svg') }}" alt="">
       <span class="brand-owner">OceanBase</span>
       <span class="brand-divider" aria-hidden="true">|</span>
       <span class="brand-product">PowerContext</span>
     </a>
-    <nav class="primary-nav" aria-label="Primary navigation">
+    <nav class="primary-nav" aria-label="Primary navigation" data-i18n-aria-label="primaryNavigation">
+      {% if dashboard_enabled %}
       <a href="{{ url_for('dashboard_home') }}"{% if active_page == "dashboard" %} aria-current="page"{% endif %} data-i18n="dashboardTitle">Dashboard</a>
+      {% endif %}
       {% if handoff_report_enabled %}
       <a href="{{ url_for('handoff_report_dashboard') }}"{% if active_page == "handoff_report" %} aria-current="page"{% endif %} data-i18n="handoffReportTitle">Handoff Report</a>
       {% endif %}

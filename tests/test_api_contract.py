@@ -19,6 +19,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from powercontext.http import (
+    AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
@@ -28,6 +29,7 @@ from powercontext.http import (
     CommitHandoffRequest,
     CommittedHandoff,
     ContinueHandoffRequest,
+    CreateWorkContractRequest,
     ExternalSkillResolution,
     FinalizeHandoffRequest,
     GeneratedCandidateResponse,
@@ -35,7 +37,9 @@ from powercontext.http import (
     GenerateSkillRequest,
     GetMemoryEntryRequest,
     GetStatsRequest,
+    HandoffAcknowledgement,
     HandoffActivation,
+    HandoffCurrentWorkRequest,
     HandoffDraft,
     HandoffResolution,
     ImportExternalSkillRequest,
@@ -45,9 +49,11 @@ from powercontext.http import (
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
+    PreparedWorkHandoff,
     PrepareHandoffRequest,
     ProposeExperienceRequest,
     ProposeSkillRequest,
+    RecordTaskOutcomeRequest,
     ResolveExternalSkillRequest,
     ReviseArtifactCandidateRequest,
     ScanExternalSkillsRequest,
@@ -57,13 +63,16 @@ from powercontext.http import (
     SkillProposal,
     SkillValidationItem,
     StatsPeriod,
+    WorkSourceReceipt,
 )
 from powercontext.http._generated.operations import (
+    ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_WORK_CONTRACT,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
@@ -74,6 +83,7 @@ from powercontext.http._generated.operations import (
     GET_READINESS,
     GET_SKILL,
     GET_STATS,
+    HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
@@ -83,6 +93,7 @@ from powercontext.http._generated.operations import (
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
+    RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RESOLVE_EXTERNAL_SKILL,
@@ -384,6 +395,29 @@ def test_handoff_operations_expose_the_complete_explicit_lifecycle() -> None:
     assert COMMIT_HANDOFF.response_type is CommittedHandoff
     assert CONTINUE_HANDOFF.request_type is ContinueHandoffRequest
     assert CONTINUE_HANDOFF.response_type is HandoffResolution
+
+
+def test_work_operations_expose_the_high_level_continuity_loop() -> None:
+    operations = (
+        CREATE_WORK_CONTRACT,
+        HANDOFF_CURRENT_WORK,
+        ACKNOWLEDGE_HANDOFF,
+        RECORD_TASK_OUTCOME,
+    )
+
+    assert all(operation.path.startswith("/v1/work/") for operation in operations)
+    assert CREATE_WORK_CONTRACT.request_type is CreateWorkContractRequest
+    assert CREATE_WORK_CONTRACT.response_type is WorkSourceReceipt
+    assert CREATE_WORK_CONTRACT.success_status == 202
+    assert HANDOFF_CURRENT_WORK.request_type is HandoffCurrentWorkRequest
+    assert HANDOFF_CURRENT_WORK.response_type is PreparedWorkHandoff
+    assert HANDOFF_CURRENT_WORK.success_status == 200
+    assert ACKNOWLEDGE_HANDOFF.request_type is AcknowledgeHandoffRequest
+    assert ACKNOWLEDGE_HANDOFF.response_type is HandoffAcknowledgement
+    assert ACKNOWLEDGE_HANDOFF.success_status == 200
+    assert RECORD_TASK_OUTCOME.request_type is RecordTaskOutcomeRequest
+    assert RECORD_TASK_OUTCOME.response_type is WorkSourceReceipt
+    assert RECORD_TASK_OUTCOME.success_status == 202
 
 
 def test_source_reference_keeps_name_as_the_source_type() -> None:

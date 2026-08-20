@@ -10,6 +10,44 @@
 
 PowerContext 是 [PowerMem](https://www.powermem.ai/) 的升级版本，也是面向人机协作的上下文运行层。它将共同推进的工作沉淀为可理解、可交接、可延续的项目上下文。
 
+## 快速开始
+
+你需要 macOS 或 Linux、Python 3.11 或更高版本、[`uv`](https://docs.astral.sh/uv/)，以及至少一个支持的 Agent Host。
+
+### 1. 安装 PowerContext 和 Plugin
+
+```bash
+uv tool install "powercontext[cli,server]==0.0.2"
+
+# 选择一个或多个集成。
+powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
+powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
+powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
+powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
+```
+
+第一条命令会在隔离环境中安装 CLI 和本地 Server。后续 setup 命令会从匹配的仓库 tag 安装对应的
+Plugin。如需刷新现有安装，请再次运行 setup。Hermes 集成需要 Hermes Agent v0.20.4 或更高版本；配置和项目本地
+安装方式详见 [Hermes 集成指南](integrations/hermes/README.md)。
+
+### 2. 启动并验证本地 Server
+
+在一个终端中保持 Server 运行：
+
+```bash
+powercontext server run
+```
+
+在另一个终端中验证服务和 Plugin：
+
+```bash
+powercontext doctor
+powercontext doctor codex  # or: claude-code / dsh / hermes
+```
+
+默认情况下，Server 监听 `127.0.0.1:8000`，在 `/mcp` 提供 Streamable HTTP MCP，并将数据持久化到本地
+SQLite 数据库。显式 Memory 操作无需配置 inference provider 即可使用。
+
 ## 核心能力
 
 | 能力 | 核心价值 |
@@ -25,34 +63,19 @@ PowerContext 是 [PowerMem](https://www.powermem.ai/) 的升级版本，也是�
 
 ### [LoCoMo](https://github.com/snap-research/locomo)
 
-| 指标 | PowerContext | [PowerMem](https://www.powermem.ai/benchmark) | 全上下文基线 |
-| --- | ---: | ---: | ---: |
-| 准确率 | **90.78%**（1,398/1,540） | 87.79% | 52.9% |
-| 搜索 p95 延迟 | **1.38 秒** | 1.44 秒 | 17.12 秒 |
-| 每个问题的回答 token 数 | **约 1.65k** | 约 0.9k | 26k |
-
-PowerContext 的结果覆盖了该 benchmark 全部 10 个对话中的 1,540 道计分题。数据集选择、检索、judge、延迟、token 和 Artifact 边界详见
-[LoCoMo 评估详情](benchmark/locomo/README.md)。
+![LOCOMO benchmark comparison showing PowerContext accuracy, search latency, and answer token usage against PowerMem and a full-context baseline](docs/assets/locomo-benchmark-comparison.svg)
 
 ### [SWE-bench Pro public v2](https://github.com/scaleapi/SWE-bench_Pro-os)
 
-在 [SWE-bench Pro public v2](https://github.com/scaleapi/SWE-bench_Pro-os) 全部 **731 项任务**的配对评估中，
-启用 PowerContext 后，任务解决率从 **82.35%** 提升至 **86.73%**，提高了 **4.38 个百分点**。
+![SWE-bench Pro public v2 comparison showing an increase from 82.35% with PowerContext off to 86.73% with PowerContext on](docs/assets/swe-bench-pro-public-v2-comparison.svg)
 
 本次评估在 Codex 环境中运行，PowerContext OFF 与 ON 两组均使用 `gpt-5.6-sol` 模型。
-
-| 结果 | PowerContext OFF | PowerContext ON | 变化 |
-| --- | ---: | ---: | ---: |
-| 已解决任务 | 602 / 731 | **634 / 731** | **+32** |
-| 任务解决率 | 82.35% | **86.73%** | **+4.38 个百分点** |
-
-[SWE-bench Pro public v2 评估详情](evaluation/README.md)。
 
 ---
 
 ## 插件
 
-PowerContext 为 Codex、Claude Code 和 DeepSeek Harness 提供官方插件与安装指南。三个集成都通过
+PowerContext 为 Codex、Claude Code、DeepSeek Harness 和 Hermes Agent 提供官方插件与安装指南。四个集成都通过
 PowerContext Server 使用同一套作用域数据和保留历史的契约；插件不会自行启动或内嵌 Server。
 
 ### 官方集成
@@ -62,45 +85,9 @@ PowerContext Server 使用同一套作用域数据和保留历史的契约；插
 <td align="center" width="120"><img src="https://github.com/openai.png?size=120" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></td>
 <td align="center" width="120"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></td>
 <td align="center" width="120"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></td>
+<td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 </tr>
 </table>
-
-
-## 快速开始
-
-你需要 macOS 或 Linux、Python 3.11 或更高版本、[`uv`](https://docs.astral.sh/uv/) 和 Codex CLI。
-
-### 1. 安装 PowerContext 和 Plugin
-
-```bash
-uv tool install "powercontext[cli,server]==0.0.2"
-
-# Choose one or more integrations.
-powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
-powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
-powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
-```
-
-第一条命令会在隔离环境中安装 CLI 和本地 Server。第二条命令会从匹配的仓库 tag 安装对应的 Plugin。如需刷新现有安装，
-请再次运行 setup。
-
-### 2. 启动并验证本地 Server
-
-在一个终端中保持 Server 运行：
-
-```bash
-powercontext server run
-```
-
-在另一个终端中验证服务和 Plugin：
-
-```bash
-powercontext doctor
-powercontext doctor codex  # or: claude-code / dsh
-```
-
-默认情况下，Server 监听 `127.0.0.1:8000`，在 `/mcp` 提供 Streamable HTTP MCP，并将数据持久化到本地
-SQLite 数据库。显式 Memory 操作无需配置 inference provider 即可使用。
 
 ## 开发
 

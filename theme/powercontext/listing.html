@@ -28,11 +28,11 @@
 {% endblock %}
 
 {% block container %}
-  <div class="md-content pc-listing pc-listing--{{ page.meta.page_type | d('default', true) }}" data-md-component="content">
+  <div class="md-content pc-listing listing-page pc-listing--{{ page.meta.page_type | d('default', true) }}" data-md-component="content">
     {% if "navigation.path" in features %}
       {% include "partials/path.html" %}
     {% endif %}
-    <article class="md-content__inner md-typeset">
+    <article class="md-content__inner md-typeset editorial-page pc-listing__content">
       {% include "partials/content.html" %}
     </article>
   </div>

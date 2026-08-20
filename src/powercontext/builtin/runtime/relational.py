@@ -95,6 +95,7 @@ from powercontext.builtin.sources import (
     ExternalSkillImportMode,
     ExternalSkillSnapshotCapture,
     SourceCursor,
+    SourceJournalEntry,
     validate_scope_id,
 )
 from powercontext.builtin.statistics import RecallTokenMeasurement
@@ -547,6 +548,18 @@ class _RelationalSources:
                 return (await self._repository.get(connection, self._scope_id, ref)).journal_position
         except RepositoryNotFoundError:
             raise SourceNotFoundError(source) from None
+
+    async def entries(self) -> tuple[SourceJournalEntry, ...]:
+        async with self._database.connection(self._bound_connection) as connection:
+            rows = await self._repository.list(connection, self._scope_id)
+        return tuple(
+            SourceJournalEntry(
+                source_ref=row.ref,
+                source=row.value,
+                position=row.journal_position,
+            )
+            for row in rows
+        )
 
     def _as_ref(self, source: Source) -> SourceRef:
         return SourceRef(source_type=self._source_names[type(source)], source_id=source.name)

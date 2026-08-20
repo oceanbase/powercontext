@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="820" viewBox="0 0 1200 820" role="img" aria-labelledby="title description">
+  <title id="title">PowerContext LOCOMO benchmark comparison</title>
+  <desc id="description">Three horizontal bar charts compare PowerContext, PowerMem, and a full-context baseline on accuracy, search p95 latency, and answer tokens per question.</desc>
+
+  <rect width="1200" height="820" rx="24" fill="#ffffff"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="64" y="66" fill="#172033" font-size="32" font-weight="700">LOCOMO benchmark</text>
+    <text x="64" y="98" fill="#667085" font-size="17">Long-conversation question answering · 1,540 scored questions</text>
+
+    <g font-size="15" fill="#344054">
+      <rect x="64" y="122" width="15" height="15" rx="4" fill="#1677ff"/>
+      <text x="88" y="135">PowerContext</text>
+      <rect x="222" y="122" width="15" height="15" rx="4" fill="#55a6a6"/>
+      <text x="246" y="135">PowerMem</text>
+      <rect x="350" y="122" width="15" height="15" rx="4" fill="#98a2b3"/>
+      <text x="374" y="135">Full-context baseline</text>
+    </g>
+
+    <!-- Accuracy -->
+    <text x="64" y="190" fill="#172033" font-size="20" font-weight="700">Accuracy</text>
+    <text x="1136" y="190" fill="#1677ff" font-size="14" text-anchor="end">Higher is better ↑</text>
+    <g stroke="#e4e7ec" stroke-width="1">
+      <line x1="270" y1="212" x2="270" y2="324"/>
+      <line x1="480" y1="212" x2="480" y2="324"/>
+      <line x1="690" y1="212" x2="690" y2="324"/>
+      <line x1="900" y1="212" x2="900" y2="324"/>
+      <line x1="1110" y1="212" x2="1110" y2="324"/>
+    </g>
+    <g fill="#667085" font-size="13" text-anchor="middle">
+      <text x="270" y="340">0%</text>
+      <text x="480" y="340">25%</text>
+      <text x="690" y="340">50%</text>
+      <text x="900" y="340">75%</text>
+      <text x="1110" y="340">100%</text>
+    </g>
+    <g fill="#344054" font-size="15" text-anchor="end">
+      <text x="250" y="235">PowerContext</text>
+      <text x="250" y="274">PowerMem</text>
+      <text x="250" y="313">Full context</text>
+    </g>
+    <rect x="270" y="216" width="762.6" height="24" rx="6" fill="#1677ff"/>
+    <rect x="270" y="255" width="737.4" height="24" rx="6" fill="#55a6a6"/>
+    <rect x="270" y="294" width="444.4" height="24" rx="6" fill="#98a2b3"/>
+    <g fill="#344054" font-size="15" font-weight="600">
+      <text x="1042" y="234">90.78%</text>
+      <text x="1017" y="273">87.79%</text>
+      <text x="724" y="312">52.9%</text>
+    </g>
+
+    <!-- Latency -->
+    <line x1="64" y1="374" x2="1136" y2="374" stroke="#eaecf0"/>
+    <text x="64" y="420" fill="#172033" font-size="20" font-weight="700">Search p95 latency</text>
+    <text x="1136" y="420" fill="#1677ff" font-size="14" text-anchor="end">Lower is better ↓</text>
+    <g stroke="#e4e7ec" stroke-width="1">
+      <line x1="270" y1="442" x2="270" y2="554"/>
+      <line x1="480" y1="442" x2="480" y2="554"/>
+      <line x1="690" y1="442" x2="690" y2="554"/>
+      <line x1="900" y1="442" x2="900" y2="554"/>
+      <line x1="1110" y1="442" x2="1110" y2="554"/>
+    </g>
+    <g fill="#667085" font-size="13" text-anchor="middle">
+      <text x="270" y="570">0 s</text>
+      <text x="480" y="570">4.5 s</text>
+      <text x="690" y="570">9 s</text>
+      <text x="900" y="570">13.5 s</text>
+      <text x="1110" y="570">18 s</text>
+    </g>
+    <g fill="#344054" font-size="15" text-anchor="end">
+      <text x="250" y="465">PowerContext</text>
+      <text x="250" y="504">PowerMem</text>
+      <text x="250" y="543">Full context</text>
+    </g>
+    <rect x="270" y="446" width="64.4" height="24" rx="6" fill="#1677ff"/>
+    <rect x="270" y="485" width="67.2" height="24" rx="6" fill="#55a6a6"/>
+    <rect x="270" y="524" width="798.9" height="24" rx="6" fill="#98a2b3"/>
+    <g fill="#344054" font-size="15" font-weight="600">
+      <text x="344" y="464">1.38 s</text>
+      <text x="347" y="503">1.44 s</text>
+      <text x="1079" y="542">17.12 s</text>
+    </g>
+
+    <!-- Tokens -->
+    <line x1="64" y1="604" x2="1136" y2="604" stroke="#eaecf0"/>
+    <text x="64" y="650" fill="#172033" font-size="20" font-weight="700">Answer tokens per question</text>
+    <text x="1136" y="650" fill="#1677ff" font-size="14" text-anchor="end">Lower is better ↓</text>
+    <g stroke="#e4e7ec" stroke-width="1">
+      <line x1="270" y1="672" x2="270" y2="784"/>
+      <line x1="480" y1="672" x2="480" y2="784"/>
+      <line x1="690" y1="672" x2="690" y2="784"/>
+      <line x1="900" y1="672" x2="900" y2="784"/>
+      <line x1="1110" y1="672" x2="1110" y2="784"/>
+    </g>
+    <g fill="#667085" font-size="13" text-anchor="middle">
+      <text x="270" y="800">0</text>
+      <text x="480" y="800">6.5k</text>
+      <text x="690" y="800">13k</text>
+      <text x="900" y="800">19.5k</text>
+      <text x="1110" y="800">26k</text>
+    </g>
+    <g fill="#344054" font-size="15" text-anchor="end">
+      <text x="250" y="695">PowerContext</text>
+      <text x="250" y="734">PowerMem</text>
+      <text x="250" y="773">Full context</text>
+    </g>
+    <rect x="270" y="676" width="53.3" height="24" rx="6" fill="#1677ff"/>
+    <rect x="270" y="715" width="29.1" height="24" rx="6" fill="#55a6a6"/>
+    <rect x="270" y="754" width="840" height="24" rx="6" fill="#98a2b3"/>
+    <g fill="#344054" font-size="15" font-weight="600">
+      <text x="333" y="694">~1.65k</text>
+      <text x="309" y="733">~0.9k</text>
+      <text x="1120" y="772">26k</text>
+    </g>
+  </g>
+</svg>

@@ -32,6 +32,7 @@ from powercontext.builtin.sources.external_skill import (
 from powercontext.builtin.sources.journal import (
     SourceCursor,
     SourceJournal,
+    SourceJournalEntry,
     validate_scope_id,
 )
 
@@ -49,5 +50,6 @@ __all__ = [
     "ExternalSkillSnapshotSourceAdapter",
     "SourceCursor",
     "SourceJournal",
+    "SourceJournalEntry",
     "validate_scope_id",
 ]

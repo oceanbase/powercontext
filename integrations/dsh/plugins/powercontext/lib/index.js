@@ -111,6 +111,30 @@ const OPERATIONS = {
 		location: "body",
 		scope: true
 	},
+	create_work_contract: {
+		method: "POST",
+		path: "/v1/work/contracts/create",
+		location: "body",
+		scope: true
+	},
+	handoff_current_work: {
+		method: "POST",
+		path: "/v1/work/handoffs/prepare-current",
+		location: "body",
+		scope: true
+	},
+	acknowledge_handoff: {
+		method: "POST",
+		path: "/v1/work/handoffs/acknowledge",
+		location: "body",
+		scope: true
+	},
+	record_task_outcome: {
+		method: "POST",
+		path: "/v1/work/outcomes/record",
+		location: "body",
+		scope: true
+	},
 	activate_handoff: {
 		method: "POST",
 		path: "/v1/handoff/activate",

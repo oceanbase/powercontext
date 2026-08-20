@@ -29,10 +29,10 @@
 {% endif %}
 <nav class="{{ class }}" aria-label="{{ lang.t('nav') }}" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="{{ config.extra.homepage | d(nav.homepage.url, true) | url }}" title="OceanBase | {{ config.site_name | e }}" class="md-nav__button md-logo" aria-label="OceanBase {{ config.site_name }}" data-md-component="logo">
+    <a href="{{ config.extra.homepage | d(nav.homepage.url, true) | url }}" title="{{ config.site_name | e }}" class="md-nav__button md-logo" aria-label="{{ config.site_name | e }}" data-md-component="logo">
       {% include "partials/logo.html" %}
     </a>
-    OceanBase | {{ config.site_name }}
+    {{ config.site_name }}
   </label>
   {% if config.repo_url and not is_docs and not is_records %}
     <div class="md-nav__source">
@@ -45,7 +45,7 @@
       {% if current_language == "zh" %}
         {% if title == "中文" %}
           {% for nav_item in language_item.children %}
-            {% if (not is_docs and not is_records) or (is_docs and nav_item.title == "文档") or (is_records and nav_item.title == "RFC 与会议纪要") %}
+            {% if (not is_docs and not is_records) or (is_docs and nav_item.title in ["文档", "开发"]) or (is_records and nav_item.title == "RFC 与会议纪要") %}
               {% set path = "__nav_" ~ loop.index %}
               {{ item.render(nav_item, path, 1) }}
             {% endif %}
@@ -54,7 +54,7 @@
       {% else %}
         {% if title == "English" %}
           {% for nav_item in language_item.children %}
-            {% if (not is_docs and not is_records) or (is_docs and nav_item.title == "Docs") or (is_records and nav_item.title == "RFCs & Meetings") %}
+            {% if (not is_docs and not is_records) or (is_docs and nav_item.title in ["Docs", "Development"]) or (is_records and nav_item.title == "RFCs & Meetings") %}
               {% set path = "__nav_" ~ loop.index %}
               {{ item.render(nav_item, path, 1) }}
             {% endif %}

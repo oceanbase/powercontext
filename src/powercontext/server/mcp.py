@@ -19,23 +19,36 @@ from __future__ import annotations
 import httpx
 from fastapi import FastAPI
 from fastmcp import FastMCP
-from fastmcp.server.providers.openapi import MCPType, OpenAPIProvider
+from fastmcp.server.providers.openapi import (
+    MCPType,
+    OpenAPIProvider,
+    OpenAPIResource,
+    OpenAPIResourceTemplate,
+    OpenAPITool,
+)
 from fastmcp.utilities.lifespan import combine_lifespans
 from fastmcp.utilities.openapi import HTTPRoute
+from mcp.types import ToolAnnotations
 
 from powercontext.http._generated.operations import (
+    ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_WORK_CONTRACT,
     FINALIZE_HANDOFF,
     GET_ARTIFACT_CANDIDATE,
     GET_HANDOFF_REPORT,
     GET_HANDOFF_REPORT_WORKSPACE,
     GET_MEMORY_ENTRY,
+    HANDOFF_CURRENT_WORK,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_HANDOFF_REPORT_PROJECTS,
+    LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_ENTRIES,
+    RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RETIRE_MEMORY_ENTRY,
@@ -50,6 +63,7 @@ from powercontext.server.context import (
     current_request_id,
     reset_internal_bridge,
 )
+from powercontext.server.handoff_picker import register_handoff_workstream_picker
 from powercontext.server.metrics import McpMetricsMiddleware, ServerMetrics
 from powercontext.server.tracing import McpTracingMiddleware, ServerTracing
 
@@ -57,6 +71,10 @@ MCP_PATH = "/mcp"
 MCP_SERVER_NAME = "PowerContext Server"
 _MCP_OPERATION_IDS = frozenset({
     CAPTURE_CONTENT_SOURCE.operation_id,
+    CREATE_WORK_CONTRACT.operation_id,
+    HANDOFF_CURRENT_WORK.operation_id,
+    ACKNOWLEDGE_HANDOFF.operation_id,
+    RECORD_TASK_OUTCOME.operation_id,
     ACTIVATE_HANDOFF.operation_id,
     FINALIZE_HANDOFF.operation_id,
     COMMIT_HANDOFF.operation_id,
@@ -75,12 +93,52 @@ _MCP_OPERATION_IDS = frozenset({
     REJECT_ARTIFACT_CANDIDATE.operation_id,
     REVISE_ARTIFACT_CANDIDATE.operation_id,
 })
+_MCP_READ_ONLY_OPERATION_IDS = frozenset({
+    CONTINUE_HANDOFF.operation_id,
+    SEARCH_MEMORY.operation_id,
+    LIST_MEMORY_ENTRIES.operation_id,
+    GET_MEMORY_ENTRY.operation_id,
+    GET_HANDOFF_REPORT.operation_id,
+    GET_HANDOFF_REPORT_WORKSPACE.operation_id,
+    LIST_ARTIFACT_CANDIDATES.operation_id,
+    GET_ARTIFACT_CANDIDATE.operation_id,
+})
 
 
 def _select_mcp_type(route: HTTPRoute, _: MCPType) -> MCPType:
     if route.operation_id in _MCP_OPERATION_IDS:
         return MCPType.TOOL
     return MCPType.EXCLUDE
+
+
+def _annotate_mcp_component(
+    route: HTTPRoute,
+    component: OpenAPITool | OpenAPIResource | OpenAPIResourceTemplate,
+) -> None:
+    """Describe the side effects that an MCP host should use for approval decisions."""
+
+    if not isinstance(component, OpenAPITool):
+        return
+    if route.operation_id in _MCP_READ_ONLY_OPERATION_IDS:
+        component.annotations = ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            openWorldHint=False,
+        )
+    elif route.operation_id == HANDOFF_CURRENT_WORK.operation_id:
+        component.annotations = ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    elif route.operation_id == COMMIT_HANDOFF.operation_id:
+        component.annotations = ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
 
 
 def create_mcp_server(
@@ -101,11 +159,17 @@ def create_mcp_server(
         openapi_spec=server_app.openapi(),
         client=client,
         route_map_fn=_select_mcp_type,
+        mcp_component_fn=_annotate_mcp_component,
         # FastAPI has already validated the response model. A second JSON Schema
         # pass rejects valid OpenAPI 3.0 nullable references in empty results.
         validate_output=False,
     )
     server = FastMCP(name=MCP_SERVER_NAME, providers=[provider])
+    if {
+        LIST_HANDOFF_REPORT_PROJECTS.path,
+        LIST_HANDOFF_REPORT_WORKSTREAMS.path,
+    }.issubset(server_app.openapi()["paths"]):
+        register_handoff_workstream_picker(server, client)
     server.add_middleware(McpTracingMiddleware(resolved_tracing))
     if access_log:
         server.add_middleware(McpAccessLogMiddleware())
