@@ -12,6 +12,46 @@ PowerContext は [PowerMem](https://www.powermem.ai/) のアップグレード�
 コンテキストランタイムです。共同で進めた作業を、理解・引き継ぎ・継続が可能なプロジェクトコンテキストとして
 蓄積します。
 
+## クイックスタート
+
+macOS または Linux、Python 3.11 以降、[`uv`](https://docs.astral.sh/uv/)、および少なくとも 1 つの対応 Agent Host が必要です。
+
+### 1. PowerContext とプラグインをインストールする
+
+```bash
+uv tool install "powercontext[cli,server]==0.0.2"
+
+# 1 つ以上のインテグレーションを選択します。
+powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
+powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
+powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
+powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
+```
+
+最初のコマンドは、隔離された環境に CLI とローカル Server をインストールします。以降の setup コマンドは、
+対応するリポジトリの tag から各プラグインをインストールします。既存のインストールを更新するには、setup を
+再実行してください。Hermes インテグレーションには Hermes Agent v0.20.4 以降が必要です。設定とプロジェクトローカルの
+インストール方法については、[Hermes インテグレーションガイド](integrations/hermes/README.md)を参照してください。
+
+### 2. ローカル Server を起動して検証する
+
+1 つのターミナルで Server を起動したままにします。
+
+```bash
+powercontext server run
+```
+
+別のターミナルでサービスとプラグインを検証します。
+
+```bash
+powercontext doctor
+powercontext doctor codex  # または: claude-code / dsh / hermes
+```
+
+デフォルトでは、Server は `127.0.0.1:8000` で待ち受け、`/mcp` で Streamable HTTP MCP を公開し、
+ローカルの SQLite データベースにデータを永続化します。明示的な Memory 操作には inference provider の設定は
+不要です。
+
 ## 主な機能
 
 | 機能 | 提供する価値 |
@@ -27,36 +67,20 @@ PowerContext は [PowerMem](https://www.powermem.ai/) のアップグレード�
 
 ### [LoCoMo](https://github.com/snap-research/locomo)
 
-| 指標 | PowerContext | [PowerMem](https://www.powermem.ai/benchmark) | フルコンテキストのベースライン |
-| --- | ---: | ---: | ---: |
-| 精度 | **90.78%**（1,398/1,540） | 87.79% | 52.9% |
-| 検索 p95 レイテンシ | **1.38 秒** | 1.44 秒 | 17.12 秒 |
-| 質問ごとの回答 token 数 | **約 1.65k** | 約 0.9k | 26k |
-
-PowerContext の結果は、このベンチマークの全 10 会話に含まれる 1,540 問の採点対象すべてを網羅しています。
-データセットの選択、検索、judge、レイテンシ、token、Artifact の境界については、
-[LoCoMo 評価の詳細](benchmark/locomo/README.md)を参照してください。
+![LOCOMO benchmark comparison showing PowerContext accuracy, search latency, and answer token usage against PowerMem and a full-context baseline](docs/assets/locomo-benchmark-comparison.svg)
 
 ### [SWE-bench Pro public v2](https://github.com/scaleapi/SWE-bench_Pro-os)
 
-[SWE-bench Pro public v2](https://github.com/scaleapi/SWE-bench_Pro-os) の全 **731 タスク**を対象としたペア評価では、
-PowerContext を有効にすると、タスク解決率が **82.35%** から **86.73%** へと **4.38 ポイント**向上しました。
+![SWE-bench Pro public v2 comparison showing an increase from 82.35% with PowerContext off to 86.73% with PowerContext on](docs/assets/swe-bench-pro-public-v2-comparison.svg)
 
 この評価は Codex 環境で実行し、PowerContext OFF と ON の両グループで `gpt-5.6-sol` モデルを使用しました。
-
-| 結果 | PowerContext OFF | PowerContext ON | 変化 |
-| --- | ---: | ---: | ---: |
-| 解決済みタスク | 602 / 731 | **634 / 731** | **+32** |
-| タスク解決率 | 82.35% | **86.73%** | **+4.38 ポイント** |
-
-[SWE-bench Pro public v2 評価の詳細](evaluation/README.md)。
 
 ---
 
 ## プラグイン
 
-PowerContext は Codex、Claude Code、DeepSeek Harness 向けの公式プラグインとインストールガイドを提供します。
-3 つのインテグレーションはすべて、PowerContext Server を通じて同じスコープ付きデータと履歴を保持する契約を
+PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent 向けの公式プラグインとインストールガイドを提供します。
+4 つのインテグレーションはすべて、PowerContext Server を通じて同じスコープ付きデータと履歴を保持する契約を
 使用します。プラグインが Server を自動的に起動したり、組み込んだりすることはありません。
 
 ### 公式インテグレーション
@@ -66,46 +90,9 @@ PowerContext は Codex、Claude Code、DeepSeek Harness 向けの公式プラグ
 <td align="center" width="120"><img src="https://github.com/openai.png?size=120" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></td>
 <td align="center" width="120"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></td>
 <td align="center" width="120"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></td>
+<td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 </tr>
 </table>
-
-## クイックスタート
-
-macOS または Linux、Python 3.11 以降、[`uv`](https://docs.astral.sh/uv/)、Codex CLI が必要です。
-
-### 1. PowerContext とプラグインをインストールする
-
-```bash
-uv tool install "powercontext[cli,server]==0.0.2"
-
-# 1 つ以上のインテグレーションを選択します。
-powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
-powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
-powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
-```
-
-最初のコマンドは、隔離された環境に CLI とローカル Server をインストールします。以降の setup コマンドは、
-対応するリポジトリの tag から各プラグインをインストールします。既存のインストールを更新するには、setup を
-再実行してください。
-
-### 2. ローカル Server を起動して検証する
-
-1 つのターミナルで Server を起動したままにします。
-
-```bash
-powercontext server run
-```
-
-別のターミナルでサービスとプラグインを検証します。
-
-```bash
-powercontext doctor
-powercontext doctor codex  # または: claude-code / dsh
-```
-
-デフォルトでは、Server は `127.0.0.1:8000` で待ち受け、`/mcp` で Streamable HTTP MCP を公開し、
-ローカルの SQLite データベースにデータを永続化します。明示的な Memory 操作には inference provider の設定は
-不要です。
 
 ## 開発
 

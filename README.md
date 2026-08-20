@@ -11,6 +11,46 @@
 PowerContext is the upgraded version of [PowerMem](https://www.powermem.ai/) and a context runtime for human-agent
 collaboration. It turns shared work into project context that can be understood, handed off, and continued.
 
+## Quick start
+
+You need macOS or Linux, Python 3.11 or newer, [`uv`](https://docs.astral.sh/uv/), and at least one supported agent
+host.
+
+### 1. Install PowerContext and the plugins
+
+```bash
+uv tool install "powercontext[cli,server]==0.0.2"
+
+# Choose one or more integrations.
+powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
+powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
+powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
+powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
+```
+
+The first command installs the CLI and local Server in an isolated environment. The subsequent setup commands
+install the corresponding plugins from the matching repository tag. Run setup again to refresh an existing
+installation. Hermes integration requires Hermes Agent v0.20.4 or newer; see the
+[Hermes integration guide](integrations/hermes/README.md) for configuration and project-local installation.
+
+### 2. Start and verify the local Server
+
+Keep the Server running in one terminal:
+
+```bash
+powercontext server run
+```
+
+In another terminal, verify the service and plugin:
+
+```bash
+powercontext doctor
+powercontext doctor codex  # or: claude-code / dsh / hermes
+```
+
+By default, the Server listens on `127.0.0.1:8000`, exposes Streamable HTTP MCP at `/mcp`, and persists data in a
+local SQLite database. Explicit Memory operations work without configuring an inference provider.
+
 ## Core capabilities
 
 | Capability | Core value |
@@ -28,41 +68,20 @@ collaboration. It turns shared work into project context that can be understood,
 
 ![LOCOMO benchmark comparison showing PowerContext accuracy, search latency, and answer token usage against PowerMem and a full-context baseline](docs/assets/locomo-benchmark-comparison.svg)
 
-| Metric | PowerContext | [PowerMem](https://www.powermem.ai/benchmark) | Full-context baseline |
-| --- | ---: | ---: | ---: |
-| Accuracy | **90.78%** (1,398/1,540) | 87.79% | 52.9% |
-| Search p95 latency | **1.38 s** | 1.44 s | 17.12 s |
-| Answer tokens per question | **~1.65k** | ~0.9k | 26k |
-
-The PowerContext result covers all 1,540 scored questions across the benchmark's 10 conversations. See the
-[LoCoMo evaluation details](benchmark/locomo/README.md) for dataset selection, retrieval, judging, latency, token, and
-Artifact boundaries.
-
 ### [SWE-bench Pro public v2](https://github.com/scaleapi/SWE-bench_Pro-os)
-
-In a paired evaluation over all **731 tasks** in
-[SWE-bench Pro public v2](https://github.com/scaleapi/SWE-bench_Pro-os), enabling PowerContext increased the task
-resolution rate from **82.35%** to **86.73%**, an improvement of **4.38 percentage points**.
-
-The evaluation ran in a Codex environment, with both the PowerContext OFF and ON groups using the `gpt-5.6-sol`
-model.
 
 ![SWE-bench Pro public v2 comparison showing an increase from 82.35% with PowerContext off to 86.73% with PowerContext on](docs/assets/swe-bench-pro-public-v2-comparison.svg)
 
-| Result | PowerContext OFF | PowerContext ON | Change |
-| --- | ---: | ---: | ---: |
-| Resolved tasks | 602 / 731 | **634 / 731** | **+32** |
-| Resolution rate | 82.35% | **86.73%** | **+4.38 percentage points** |
-
-[SWE-bench Pro public v2 evaluation details](evaluation/README.md).
+The evaluation ran in a Codex environment, with both the PowerContext OFF and ON groups using the `gpt-5.6-sol`
+model.
 
 ---
 
 ## Plugins
 
-PowerContext provides official plugins and installation guides for Codex, Claude Code, and DeepSeek Harness. All
-three integrations use the same scoped data and history-preserving contracts through PowerContext Server; the
-plugins do not start or embed the Server.
+PowerContext provides official plugins and installation guides for Codex, Claude Code, DeepSeek Harness, and Hermes
+Agent. All four integrations use the same scoped data and history-preserving contracts through PowerContext Server;
+the plugins do not start or embed the Server.
 
 ### Official integrations
 
@@ -74,43 +93,6 @@ plugins do not start or embed the Server.
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 </tr>
 </table>
-
-## Quick start
-
-You need macOS or Linux, Python 3.11 or newer, [`uv`](https://docs.astral.sh/uv/), and Codex CLI.
-
-### 1. Install PowerContext and the plugins
-
-```bash
-uv tool install "powercontext[cli,server]==0.0.2"
-
-# Choose one or more integrations.
-powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
-powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
-powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
-```
-
-The first command installs the CLI and local Server in an isolated environment. The subsequent setup commands
-install the corresponding plugins from the matching repository tag. Run setup again to refresh an existing
-installation.
-
-### 2. Start and verify the local Server
-
-Keep the Server running in one terminal:
-
-```bash
-powercontext server run
-```
-
-In another terminal, verify the service and plugin:
-
-```bash
-powercontext doctor
-powercontext doctor codex  # or: claude-code / dsh
-```
-
-By default, the Server listens on `127.0.0.1:8000`, exposes Streamable HTTP MCP at `/mcp`, and persists data in a
-local SQLite database. Explicit Memory operations work without configuring an inference provider.
 
 ## Development
 
