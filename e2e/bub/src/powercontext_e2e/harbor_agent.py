@@ -33,6 +33,7 @@ REMOTE_CODEX_HOME = "/installed-agent/codex"
 REMOTE_SOURCE = "/opt/powercontext/source"
 REMOTE_TOOL_DIR = "/installed-agent/tools"
 BUB_VERSION = version("bub")
+POWERCONTEXT_VERSION = version("powercontext")
 BUB_ACP_SERVER_VERSION = "0.0.2"
 
 
@@ -102,7 +103,8 @@ def _install_bub_command() -> str:
         f"cp {REMOTE_CODEX_AUTH} {REMOTE_CODEX_HOME}/auth.json; "
         f"chmod 600 {REMOTE_CODEX_HOME}/auth.json; "
         "fi; "
-        f"{_tool_environment()} {uv} tool install --force "
+        f"SETUPTOOLS_SCM_PRETEND_VERSION={shlex.quote(POWERCONTEXT_VERSION)} {_tool_environment()} "
+        f"{uv} tool install --force "
         f"--with {REMOTE_SOURCE} --with {REMOTE_SOURCE}/integrations/bub "
         f"{shlex.quote(f'bub=={BUB_VERSION}')}"
     )

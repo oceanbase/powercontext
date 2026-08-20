@@ -40,7 +40,7 @@ WORKDIR /workspace/powercontext
 
 COPY . .
 
-ARG POWERCONTEXT_VERSION=0.0.0
+ARG POWERCONTEXT_VERSION=0.0.1
 
 RUN --mount=type=cache,id=powercontext-bub-e2e-uv,target=/root/.cache/uv \
     test -n "${POWERCONTEXT_VERSION}" \
