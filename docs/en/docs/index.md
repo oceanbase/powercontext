@@ -1,29 +1,33 @@
 ---
-title: PowerContext documentation
-description: Install PowerContext, connect Codex, and choose the right integration surface.
+template: docs-overview.html
+title: Start with one project
+description: Install PowerContext, verify context across sessions, and choose the next task.
+page_type: docs-overview
+overview:
+  intro: Complete one cross-session loop first. Use the documentation navigation for setup, reference, and development details.
+  sections:
+    - title: Continue the project
+      description: Save one decision, recover it in another session, or hand off current work.
+      cards:
+        - title: Codex quickstart
+          description: Install the local Server, save one project decision, and recover it in a new session.
+          href: en/docs/tutorials/codex-quickstart/
+        - title: Continue in Claude Code
+          description: Open the same project Memory from Claude Code and Codex.
+          href: en/docs/how-to/configure-claude-code/
+        - title: Hand off current work
+          description: Prepare a checked Handoff for another task, session, or model.
+          href: en/docs/how-to/handoff-with-codex/
+    - title: Understand and operate
+      description: Decide what persists, configure the Server, or resolve a broken setup.
+      cards:
+        - title: Memory and Handoff
+          description: Learn what belongs in durable Memory and what should remain a temporary Handoff.
+          href: en/docs/explanation/memory-and-handoff/
+        - title: Configuration
+          description: Set storage, providers, interfaces, and runtime behavior.
+          href: en/docs/reference/configuration/
+        - title: Troubleshoot
+          description: Diagnose connection, configuration, and integration problems.
+          href: en/docs/how-to/troubleshoot/
 ---
-
-# PowerContext documentation
-
-PowerContext stores project context that people and agents can use in later tasks. It runs as a local or remote Server
-and exposes the same persisted data through Codex, Claude Code, DeepSeek Harness, Python, HTTP, and MCP.
-
-If this is your first use, start with the [Codex quickstart](tutorials/codex-quickstart.md). When you finish, you can
-read and maintain Memory in a later Codex session for the same project.
-
-## Choose your path
-
-- For an end-to-end first experience, read the [Codex quickstart](tutorials/codex-quickstart.md).
-- To install, start, update, or relocate a local service, read [Install and run](how-to/install-and-run.md).
-- To control project scope, prompt capture, or local authentication, read [Configure Codex](how-to/configure-codex.md).
-- To configure another host, read [Configure Claude Code](how-to/configure-claude-code.md) or
-  [Configure DeepSeek Harness](how-to/configure-dsh.md).
-- To understand the boundary between durable Memory and a temporary Handoff, read
-  [Memory and Handoff](explanation/memory-and-handoff.md).
-- To transfer current work to another task, session, or model, read [Hand off work in Codex](how-to/handoff-with-codex.md).
-- For installation, Server, plugin, or Hook failures, read [Troubleshoot](how-to/troubleshoot.md).
-
-## Look up details
-
-- [Interfaces](reference/interfaces.md): Codex, Claude Code, DeepSeek Harness, CLI, Client SDK, Core SDK, HTTP, and MCP.
-- [Configuration](reference/configuration.md): defaults and environment variables.

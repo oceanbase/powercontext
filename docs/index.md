@@ -1,5 +1,4 @@
 ---
-template: home.html
 title: PowerContext
 description: PowerContext turns human-agent work into handoff-ready context.
 hide:

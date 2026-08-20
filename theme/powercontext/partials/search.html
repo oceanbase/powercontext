@@ -14,5 +14,10 @@
   ~ limitations under the License.
 -->
 
-<img class="pc-wordmark__image pc-wordmark__image--color" src="{{ 'assets/images/powercontext-color.png' | url }}" alt="PowerContext">
-<img class="pc-wordmark__image pc-wordmark__image--reverse" src="{{ 'assets/images/powercontext-reverse.png' | url }}" alt="" aria-hidden="true">
+{% set canonical = page.canonical_url | string %}
+{% set is_zh = "/zh/" in canonical %}
+<div class="md-search" data-md-component="search" role="dialog" aria-label="{{ lang.t('search') }}">
+  <button type="button" class="md-search__button pc-search-trigger">
+    {{ "搜索文档" if is_zh else "Search docs" }}
+  </button>
+</div>
