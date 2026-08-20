@@ -23,6 +23,7 @@ nav = [
             { "Integrations" = [
                 { "Configure Codex" = "en/docs/how-to/configure-codex.md" },
                 { "Configure Claude Code" = "en/docs/how-to/configure-claude-code.md" },
+                { "Configure Pydantic AI" = "en/docs/how-to/configure-pydantic-ai.md" },
                 { "Configure DeepSeek Harness" = "en/docs/how-to/configure-dsh.md" },
                 { "Trace with Phoenix" = "en/docs/how-to/trace-with-phoenix.md" },
             ] },
@@ -86,6 +87,7 @@ nav = [
             { "集成方式" = [
                 { "配置 Codex" = "zh/docs/how-to/configure-codex.md" },
                 { "配置 Claude Code" = "zh/docs/how-to/configure-claude-code.md" },
+                { "配置 Pydantic AI" = "zh/docs/how-to/configure-pydantic-ai.md" },
                 { "配置 DeepSeek Harness" = "zh/docs/how-to/configure-dsh.md" },
                 { "用 Phoenix 查看 trace" = "zh/docs/how-to/trace-with-phoenix.md" },
             ] },

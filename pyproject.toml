@@ -112,13 +112,15 @@ python-version = "3.11"
 extra-paths = [
     "./integrations/claude-code/plugins/powercontext",
     "./integrations/codex/plugins/powercontext",
+    "./integrations/pydantic-ai/src",
 ]
 
 [tool.ty.src]
-exclude = ["e2e/bub", "integrations/bub", "evaluation"]
+exclude = ["e2e/bub", "integrations/bub", "integrations/pydantic-ai", "evaluation"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["integrations/pydantic-ai/src"]
 markers = [
     "real_e2e: uses real Codex, external model providers, and the configured database",
 ]
