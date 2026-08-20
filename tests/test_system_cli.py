@@ -614,7 +614,7 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
             "package": {
                 "ok": True,
                 "status": "ok",
-                "detail": "powercontext 0.0.1",
+                "detail": "powercontext 0.0.2",
             },
             "server_liveness": {
                 "ok": True,

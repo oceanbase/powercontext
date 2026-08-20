@@ -59,9 +59,14 @@ jobs:
           import urllib.request
 
           tag = os.environ["RELEASE_TAG"]
-          version = tag.removeprefix("v")
+          if tag.startswith("powercontext-v"):
+              version = tag.removeprefix("powercontext-v")
+          else:
+              version = tag.removeprefix("v")
           if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", version):
-              raise SystemExit("release_tag must use vX.Y.Z or X.Y.Z semantic versioning")
+              raise SystemExit(
+                  "release_tag must use vX.Y.Z, powercontext-vX.Y.Z, or X.Y.Z semantic versioning"
+              )
 
           package = os.environ["RELEASE_PACKAGE"]
           if package not in {"auto", "powercontext", "powermem"}:
