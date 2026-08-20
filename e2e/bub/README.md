@@ -76,7 +76,10 @@ The built-in manifests are:
 
 | ID | Dataset | Categories | Purpose |
 | --- | --- | --- | --- |
+| `locomo-multihop-football` | local Harbor multi-step task | `acceptance`, `sample` | Pinned LoCoMo-derived sample (multi-hop) |
+| `locomo-open-pastries` | local Harbor multi-step task | `acceptance`, `sample` | Pinned LoCoMo-derived sample (open-domain listing) |
 | `locomo-support-group` | local Harbor multi-step task | `acceptance`, `sample` | Pinned LoCoMo-derived sample |
+| `locomo-temporal-banker` | local Harbor multi-step task | `acceptance`, `sample` | Pinned LoCoMo-derived sample (temporal) |
 | `project-database-decision` | local Harbor multi-step task | `acceptance`, `sample`, `smoke` | Durable project decision |
 | `terminal-bench-db-wal-recovery` | `terminal-bench@2.0` | `long-horizon`, `terminal-bench` | Long-running capture and recall |
 

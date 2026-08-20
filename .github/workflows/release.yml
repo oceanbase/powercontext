@@ -27,9 +27,14 @@ jobs:
           from pathlib import Path
 
           release_tag = os.environ["RELEASE_TAG"]
-          release_version = release_tag.removeprefix("v")
+          if release_tag.startswith("powercontext-v"):
+              release_version = release_tag.removeprefix("powercontext-v")
+          else:
+              release_version = release_tag.removeprefix("v")
           if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", release_version):
-              raise SystemExit("Release tag must use vX.Y.Z or X.Y.Z semantic versioning")
+              raise SystemExit(
+                  "Release tag must use vX.Y.Z, powercontext-vX.Y.Z, or X.Y.Z semantic versioning"
+              )
 
           pyproject_path = Path("pyproject.toml")
           pyproject_text = pyproject_path.read_text()
