@@ -32,6 +32,7 @@ from powercontext.builtin.artifacts.handoff import HandoffGenerationPipeline
 from powercontext.builtin.artifacts.memory import CandidatePipeline
 from powercontext.builtin.artifacts.skill import ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.inference import EmbeddingModel
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinRuntime
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
@@ -83,6 +84,8 @@ def create_server_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _log_lifecycle("server.starting", "PowerContext Server is starting")
+        if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
+            _log_in_memory_database_warning()
         async with open_builtin_runtime(
             config,
             scheduler_path=default_scheduler_path() if scheduler_path is None else scheduler_path,
@@ -135,10 +138,11 @@ def create_server_app(
         tracing=resolved_tracing,
         handoff_report_enabled=resolved.handoff_report.enabled,
     )
-    if resolved.dashboard.enabled:
+    if resolved.dashboard.enabled or resolved.handoff_report.enabled:
         mount_web_ui(
             app,
             scopes={scope.scope_id: scope.display_name for scope in resolved.dashboard.scopes},
+            dashboard_enabled=resolved.dashboard.enabled,
             handoff_report_enabled=resolved.handoff_report.enabled,
         )
     if metrics is not None:
@@ -240,6 +244,16 @@ def _log_lifecycle(event: str, message: str) -> None:
         logging.INFO,
         message,
         extra={"event": event, "unit": "server"},
+    )
+
+
+def _log_in_memory_database_warning() -> None:
+    log_safely(
+        logger,
+        logging.WARNING,
+        "PowerContext Server is using an in-memory SQLite database; "
+        "all main database data will be lost when the process stops",
+        extra={"event": "server.database.in_memory", "unit": "server"},
     )
 
 

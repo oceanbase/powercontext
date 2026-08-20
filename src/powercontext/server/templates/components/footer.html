@@ -16,7 +16,12 @@
 
 <footer class="site-footer">
   <div class="site-footer-inner">
-    <a class="footer-brand" href="{{ url_for('dashboard_home') }}" aria-label="PowerContext Dashboard">
+    <a
+      class="footer-brand"
+      href="{{ url_for(home_route) }}"
+      aria-label="PowerContext Dashboard"
+      data-i18n-aria-label="brandHomeLabel"
+    >
       <img class="brand-mark" src="{{ url_for('web_static', path='/oceanbase-logo.svg') }}" alt="">
       <span>OceanBase</span>
       <span class="brand-divider" aria-hidden="true">|</span>

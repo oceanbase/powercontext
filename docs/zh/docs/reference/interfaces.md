@@ -15,12 +15,46 @@ description: 在 Codex 插件、DeepSeek Harness 插件、CLI、Python SDK、HTT
 | Python Client SDK | 对运行中的 Server 发起类型化异步调用 | `powercontext[client]` |
 | Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | 基础包 |
 | HTTP | 从任意语言集成服务 | `powercontext[server]` |
-| MCP | 面向 Agent 的 Memory 与 Candidate Review 工具 | 由 Server 启用 |
+| MCP | 面向 Agent 的 Memory 与工作连续性工具 | 由 Server 启用 |
 
 ## Codex 插件
 
-project-context skill 指导 Codex 何时检索、记忆、修订或停用 Memory。Prompt Hook 会恢复相关条目，并把
-用户输入采集为 Source 证据；MCP 工具执行显式操作。插件不会启动或内嵌 Server。
+project-context skill 指导 Codex 何时检索、记忆、修订、停用、委托、交接、回执或记录结果。Prompt Hook 会恢复相关
+条目，并把用户输入采集为 Source 证据；MCP 工具执行显式操作。插件不会启动或内嵌 Server。
+
+## 工作连续性
+
+Server 通过 HTTP、Python Client 和 MCP 暴露同一个高层闭环：
+
+```text
+create_work_contract
+  -> 推进工作
+  -> handoff_current_work
+  -> continue_handoff + acknowledge_handoff
+  -> record_task_outcome
+```
+
+`create_work_contract` 为新委托记录目标、范围、完成标准、授权说明和关键待决问题。`handoff_current_work` 采集调用方已
+检查的当前状态并返回临时 Prepared Handoff；它不会发布里程碑。只有用户需要持久化里程碑时，才另行调用
+`commit_handoff`。
+
+接收方先用 prepared、exact 或 latest selection 调用 `continue_handoff`；如果从 latest 开始，必须把返回的 exact Revision
+展示并检查后再记录回执。`acknowledge_handoff` 只接受 prepared 或 exact，不接受 latest。任一 Handoff evidence 不可用，
+或 live-state、capability、authorization 没有全部确认为 `confirmed` 时，都会拒绝 accepted。接收方也可以记录
+`needs_clarification` 或 `declined`。回执及三项确认只记录不可信观察，不能授予身份、工具或执行权限。
+
+`record_task_outcome` 原样保留 `succeeded`、`partial`、`blocked`、`failed`、`cancelled` 或 `unknown`，以及精确检查
+状态。需要关闭 committed Handoff 结果时，`handoff_receipt_ref` 必须引用当前 accepted exact Receipt；同 scope 中无关联的
+Outcome 不会覆盖它。该 operation 保存现有 Experience 孵化可读取的 `task-outcome` Source，但不会自行生成或批准
+Experience。Integration 只应在真实完成或中断边界调用它，不能仅因 Prompt、Stop 或 Session 结束而调用。
+
+Claim 和 check 要么是没有 evidence 的 `declared`，要么是拥有同 scope 精确 citation 的 `verified`。Citation 可读只证明
+身份和可用性，不证明事实仍然新鲜。当前指令、实时 workspace、能力和授权始终优先于 Work 与 Handoff 记录。
+
+Handoff Report 的 JSON Workstream projection 同时返回 `handoff_revision_count`、`handoff_history_truncated` 和
+`handoff_history`。History 最多包含 frozen selection 之前最近 20 个 Revision 摘要，按 Revision 升序返回；页面按最新
+优先展示，并每 5 秒自动刷新。未发送编辑或正在执行的交接动作会暂停自动刷新。Codex scope resolver 支持把当前 Git
+工作区一次绑定到固定 Workstream scope，绑定优先于 Git remote 和路径推导，但低于显式 scope 配置。
 
 ## DeepSeek Harness 插件
 

@@ -72,6 +72,26 @@ def test_server_access_log_uses_operation_id_and_skips_health(caplog, tmp_path) 
     assert records[0].transport == "http"
 
 
+def test_server_warns_when_using_an_in_memory_database(caplog, tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "scheduler.db",
+    )
+
+    with caplog.at_level(logging.WARNING, logger="powercontext.server.factory"), TestClient(app) as client:
+        response = client.get("/health/live")
+
+    assert response.status_code == 200
+    assert any(
+        record.levelno == logging.WARNING
+        and "all main database data will be lost when the process stops" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 def test_server_logging_settings_normalize_the_level(monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_LOGGING_LEVEL", "warning")
     monkeypatch.setenv("POWERCONTEXT_SERVER_LOGGING_FORMAT", "json")

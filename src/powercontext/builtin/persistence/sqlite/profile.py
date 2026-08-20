@@ -62,6 +62,12 @@ class SQLiteConfig(BaseModel):
             raise ValueError("SQLite profile URL must use sqlite+aiosqlite")  # noqa: TRY003
         return value
 
+    @property
+    def is_in_memory(self) -> bool:
+        """Return whether this profile stores its database only in process memory."""
+
+        return _is_memory_url(self.url)
+
 
 class SQLiteProfile:
     """An initialized SQLite database profile."""
@@ -82,7 +88,7 @@ class SQLiteProfile:
 
         _create_database_directory(config.url)
         engine_options: dict[str, object] = {"echo": config.echo}
-        if _is_memory_url(config.url):
+        if config.is_in_memory:
             engine_options["poolclass"] = StaticPool
         engine = create_async_engine(config.url, **engine_options)
         _configure_sqlite(engine, config)

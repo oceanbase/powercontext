@@ -8,7 +8,20 @@ The integration uses each public surface for the job it fits:
 - the `UserPromptSubmit` hook first calls `POST /v1/context/prepare`, then
   independently captures the current prompt with `POST /v1/sources/content`;
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives Codex the curated
-  memory tools.
+  Memory and work-continuity tools.
+
+The `project-context` skill uses four high-level work operations instead of
+assembling the low-level Handoff lifecycle manually: `create_work_contract`,
+`handoff_current_work`, `acknowledge_handoff`, and `record_task_outcome`.
+When the user says `交接`, `交接当前工作`, `handoff this work`, or an equivalent
+imperative, the Skill inspects the current conversation and repository, calls
+`handoff_current_work`, and immediately commits the returned `handoff` member
+through the artifact-level `commit_handoff` operation. The imperative itself
+is the explicit authorization
+for that durable milestone; preview or design requests remain read-only.
+Acknowledgements and historical authorization notes never grant Codex new
+execution authority, and the prompt hook does not infer completion from Stop or
+SessionEnd.
 
 Managed Skills use a separate, explicit handoff. A reviewer approves the exact
 Candidate through HTTP or the Client CLI, then the user exports that immutable
@@ -38,6 +51,9 @@ The hook runtime is declared by the plugin's `pyproject.toml` and launched with
 `uv`; this keeps its `pydantic-settings` dependency isolated and reproducible.
 The hook uses a small synchronous standard-library HTTP adapter because Codex
 executes it as a short-lived process. It does not expose that adapter as an SDK.
+The `project-context` Skill reuses the installed hook virtual environment when
+deriving project scope, so a read-only Codex turn does not need to mutate the
+`uv` cache.
 
 Set `POWERCONTEXT_CODEX_SCOPE_ID` to override automatic project scoping. By
 default, the scope comes from the normalized Git remote, or from the project

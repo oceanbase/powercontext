@@ -81,7 +81,7 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "git:github.com/oceanbase/powercontext",
     )
     captured: list[tuple[str, str]] = []
@@ -120,7 +120,7 @@ def test_user_prompt_compatibility_fallback_is_supported(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     captured: list[str] = []
@@ -154,7 +154,7 @@ def test_unexpected_recall_failure_does_not_prevent_prompt_capture(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     captured: list[str] = []
@@ -189,7 +189,7 @@ def test_capture_failure_does_not_prevent_context_injection(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     monkeypatch.setattr(
@@ -228,7 +228,7 @@ def test_recall_and_capture_share_one_http_deadline(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
 
@@ -262,7 +262,7 @@ def test_prompt_capture_can_be_disabled(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
 

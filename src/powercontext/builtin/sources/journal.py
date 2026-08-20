@@ -16,12 +16,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
-from powercontext.sources import Source
+from powercontext.sources import Source, SourceRef
 
 
 def validate_scope_id(value: str) -> str:
@@ -40,8 +41,19 @@ class SourceCursor(BaseModel):
     sequence: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class SourceJournalEntry:
+    """One canonical Source paired with its stable scoped journal position."""
+
+    source_ref: SourceRef
+    source: Source
+    position: int
+
+
 @runtime_checkable
 class SourceJournal(Protocol):
     """Read stable positions from one scoped Source catalog."""
 
     async def position(self, source: Source, /) -> int: ...
+
+    async def entries(self) -> tuple[SourceJournalEntry, ...]: ...

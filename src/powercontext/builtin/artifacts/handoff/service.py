@@ -135,6 +135,12 @@ class HandoffService:
 
         return await self._backend.revisions(self.artifact_id)
 
+    async def validate_evidence(self, citations: Iterable[HandoffCitation], /) -> None:
+        """Validate exact same-scope evidence used by a higher-level work record."""
+
+        for citation in citations:
+            await self._evidence_resolver.validate(citation)
+
     async def continue_from(
         self,
         handoff: PreparedHandoff | ArtifactRef,
