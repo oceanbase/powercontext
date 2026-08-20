@@ -18,7 +18,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ ./src/
 
-ARG POWERCONTEXT_VERSION
+ARG POWERCONTEXT_VERSION=0.0.0
 
 RUN --mount=type=cache,id=powercontext-uv,target=/root/.cache/uv \
     test -n "${POWERCONTEXT_VERSION}" \
