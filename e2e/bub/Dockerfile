@@ -40,7 +40,11 @@ WORKDIR /workspace/powercontext
 
 COPY . .
 
+ARG POWERCONTEXT_VERSION=0.0.0
+
 RUN --mount=type=cache,id=powercontext-bub-e2e-uv,target=/root/.cache/uv \
+    test -n "${POWERCONTEXT_VERSION}" \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" \
     uv sync --project e2e/bub --frozen --no-dev --no-editable
 
 COPY --chmod=0755 e2e/bub/container-entrypoint.sh /usr/local/bin/powercontext-e2e-container
