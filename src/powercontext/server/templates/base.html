@@ -15,7 +15,7 @@
 -->
 
 <!doctype html>
-<html lang="en" data-server-session="missing">
+<html lang="en" data-server-session="{{ 'missing' if authentication_required else 'active' }}" data-server-auth-required="{{ 'true' if authentication_required else 'false' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -23,7 +23,8 @@
   <link rel="icon" href="{{ url_for('web_static', path='/oceanbase-logo.svg') }}" type="image/svg+xml">
   <script>
     try {
-      document.documentElement.dataset.serverSession = sessionStorage.getItem("powercontext.server.token")
+      const authenticationRequired = document.documentElement.dataset.serverAuthRequired === "true";
+      document.documentElement.dataset.serverSession = !authenticationRequired || sessionStorage.getItem("powercontext.server.token")
         ? "active"
         : "missing";
     } catch (error) {

@@ -37,8 +37,14 @@ With no environment variables, the Server:
 
 - binds to `127.0.0.1:8000`;
 - enables Streamable HTTP MCP at `/mcp`;
+- enables the Dashboard at `/`; when no scopes are configured, the page shows an explicit empty state;
 - creates a persistent SQLite database in the operating system's user data directory;
 - supports explicit Memory operations without an inference provider.
+
+After startup, the terminal prints the Dashboard URL, such as `http://127.0.0.1:8000/`. The Dashboard shares the
+Server listener and port with the HTTP API and MCP. If Dashboard initialization fails, the Server logs a warning with
+the direct cause and continues serving the other interfaces. Set `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false` to
+disable the Dashboard explicitly.
 
 `Ctrl-C` performs a clean shutdown. Restarting the command reopens the same database.
 

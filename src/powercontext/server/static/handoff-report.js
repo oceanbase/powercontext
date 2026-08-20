@@ -21,7 +21,7 @@ import {
   fetchWithBearer,
   readServerToken,
   storeServerToken
-} from "./auth.js?v=session-shell";
+} from "./auth.js?v=optional-auth";
 import {formatDateRange, resolvePeriodSelection, validateDateRange} from "./handoff-period.js";
 import {createPageUi, createRequestGate} from "./page-ui.js?v=locale-complete";
 
@@ -31,6 +31,7 @@ const autoRefreshIntervalMilliseconds = 5_000;
 const continuityTimelineRecentLimit = 6;
 const workstreamSearchThreshold = 8;
 const projectOptionRenderLimit = 50;
+const authenticationRequired = document.documentElement.dataset.serverAuthRequired === "true";
 const translations = {
   en: {
     pageTitle: "PowerContext Handoff Report",
@@ -633,11 +634,13 @@ document.addEventListener("visibilitychange", () => {
 });
 
 async function authenticate(token) {
-  if (!token) {
+  if (authenticationRequired && !token) {
     showLogin();
     return;
   }
-  storeServerToken(token);
+  if (authenticationRequired) {
+    storeServerToken(token);
+  }
   tokenInput.value = "";
   currentAuthError = null;
   const request = beginReportRequest();
@@ -720,7 +723,7 @@ async function loadReport(token, projectId, {background = false, selectedScopeId
   if (reportLoading) {
     return false;
   }
-  if (!token) {
+  if (authenticationRequired && !token) {
     showLogin();
     return false;
   }
@@ -878,7 +881,7 @@ function showReportFailure(key, values = {}) {
   currentPageStatus = null;
   pageStatus.hidden = true;
   reportShell.hidden = false;
-  signOut.hidden = false;
+  signOut.hidden = !authenticationRequired;
   showReportError(key, values);
 }
 
@@ -919,7 +922,7 @@ function showPageStatus(messageKey, values = {}, retryable = false) {
   authShell.hidden = true;
   pageStatus.hidden = false;
   reportShell.hidden = true;
-  signOut.hidden = false;
+  signOut.hidden = !authenticationRequired;
 }
 
 function renderPageStatus() {
@@ -1094,7 +1097,7 @@ function renderReport(report) {
   authShell.hidden = true;
   pageStatus.hidden = true;
   reportShell.hidden = false;
-  signOut.hidden = false;
+  signOut.hidden = !authenticationRequired;
   clearReportError();
   setText("project-name", report.project.title);
   setText("report-updated", translate("updated", {value: formatDateTime(report.generated_at)}));

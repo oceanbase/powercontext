@@ -138,13 +138,7 @@ def create_server_app(
         tracing=resolved_tracing,
         handoff_report_enabled=resolved.handoff_report.enabled,
     )
-    if resolved.dashboard.enabled or resolved.handoff_report.enabled:
-        mount_web_ui(
-            app,
-            scopes={scope.scope_id: scope.display_name for scope in resolved.dashboard.scopes},
-            dashboard_enabled=resolved.dashboard.enabled,
-            handoff_report_enabled=resolved.handoff_report.enabled,
-        )
+    _mount_optional_web_ui(app, resolved)
     if metrics is not None:
         app.add_api_route(
             "/metrics",
@@ -178,6 +172,33 @@ def create_server_app(
             tracing=resolved_tracing,
         )
     return app
+
+
+def _mount_optional_web_ui(app: FastAPI, settings: ServerSettings) -> None:
+    app.state.dashboard_started = False
+    app.state.dashboard_startup_error = None
+    if not (settings.dashboard.enabled or settings.handoff_report.enabled):
+        return
+    try:
+        mount_web_ui(
+            app,
+            scopes={scope.scope_id: scope.display_name for scope in settings.dashboard.scopes},
+            dashboard_enabled=settings.dashboard.enabled,
+            handoff_report_enabled=settings.handoff_report.enabled,
+            authentication_required=settings.auth.enabled,
+        )
+        if settings.dashboard.enabled:
+            app.state.dashboard_started = True
+    except Exception as error:
+        app.state.dashboard_startup_error = str(error)
+        unit = "Dashboard" if settings.dashboard.enabled else "Handoff Report"
+        log_safely(
+            logger,
+            logging.WARNING,
+            f"PowerContext {unit} failed to start: {error}",
+            exc_info=error,
+            extra={"event": "web_ui.start_failed", "unit": "web_ui"},
+        )
 
 
 class _ServerReadinessProbe:

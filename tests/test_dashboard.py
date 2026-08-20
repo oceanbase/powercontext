@@ -14,11 +14,11 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import HandoffReportConfig
@@ -34,14 +34,70 @@ from powercontext.server.settings import (
 _AUTH_HEADERS = {"Authorization": "Bearer dashboard-secret"}
 
 
-def test_dashboard_cannot_run_without_server_authentication() -> None:
-    dashboard = DashboardConfig(
-        enabled=True,
-        scopes=[DashboardScopeConfig(scope_id="person:psiace", display_name="PsiACE")],
+def test_dashboard_is_enabled_by_default_without_authentication_or_scopes(tmp_path, monkeypatch) -> None:
+    for name in (
+        "POWERCONTEXT_SERVER_AUTH_ENABLED",
+        "POWERCONTEXT_SERVER_AUTH_TOKEN",
+        "POWERCONTEXT_SERVER_DASHBOARD_ENABLED",
+        "POWERCONTEXT_SERVER_DASHBOARD_SCOPES",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    settings = ServerSettings(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'dashboard-default.db'}"),
+        mcp=McpConfig(enabled=False),
+    )
+    app = create_server_app(settings=settings)
+
+    with TestClient(app) as client:
+        home = client.get("/")
+        scopes = client.get("/dashboard/scopes")
+
+    assert settings.dashboard.enabled is True
+    assert settings.dashboard.scopes == []
+    assert home.status_code == 200
+    assert 'data-server-session="active"' in home.text
+    assert 'data-server-auth-required="false"' in home.text
+    assert scopes.status_code == 200
+    assert scopes.json() == []
+
+
+def test_dashboard_can_be_disabled_explicitly(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            dashboard=DashboardConfig(enabled=False),
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'dashboard-disabled.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
     )
 
-    with pytest.raises(ValidationError, match="Dashboard requires Server bearer authentication"):
-        ServerSettings(dashboard=dashboard)
+    with TestClient(app) as client:
+        home = client.get("/")
+        health = client.get("/health/live")
+
+    assert home.status_code == 404
+    assert health.status_code == 200
+
+
+def test_dashboard_mount_failure_does_not_prevent_server_startup(tmp_path, monkeypatch, caplog) -> None:
+    def fail_to_mount(*_args, **_kwargs) -> None:
+        raise RuntimeError("static assets are unavailable")  # noqa: TRY003 - verifies direct failure reporting
+
+    monkeypatch.setattr("powercontext.server.factory.mount_web_ui", fail_to_mount)
+    caplog.set_level(logging.WARNING, logger="powercontext.server.factory")
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'dashboard-fallback.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        health = client.get("/health/live")
+        dashboard = client.get("/")
+
+    assert health.status_code == 200
+    assert dashboard.status_code == 404
+    assert "PowerContext Dashboard failed to start: static assets are unavailable" in caplog.text
 
 
 def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
@@ -79,11 +135,12 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     assert 'id="page-status" hidden' in home.text
     assert 'class="server-content" id="dashboard"' in home.text
     assert 'id="dashboard" hidden' not in home.text
+    assert 'data-server-auth-required="true"' in home.text
     assert 'data-i18n-aria-label="brandHomeLabel"' in home.text
     assert 'data-i18n-aria-label="primaryNavigation"' in home.text
     assert 'data-i18n-aria-label="scopeOverview"' in home.text
     assert 'data-i18n-aria-label="activityAria"' in home.text
-    assert "dashboard.js?v=locale-complete-v1" in home.text
+    assert "dashboard.js?v=default-startup-locale-v1" in home.text
     assert scopes.json() == [
         {"scope_id": "person:psiace", "display_name": "PsiACE"},
         {"scope_id": "project:powercontext", "display_name": "PowerContext"},
@@ -178,13 +235,14 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
     assert enabled_page.text.index('class="data-section activity-section"') < enabled_page.text.index(
         '<details class="report-metadata">'
     )
-    assert "handoff-report.js?v=unified-editor-v1" in enabled_page.text
+    assert "handoff-report.js?v=default-startup-unified-editor-v1" in enabled_page.text
     assert protected_projects.status_code == 401
 
 
 def _handoff_report_settings(database_path: Path, *, enabled: bool) -> ServerSettings:
     return ServerSettings(
         auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-secret")),
+        dashboard=DashboardConfig(enabled=False),
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
         mcp=McpConfig(enabled=False),
         handoff_report=HandoffReportConfig(enabled=enabled),
