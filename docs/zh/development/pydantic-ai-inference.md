@@ -32,13 +32,12 @@ vector search 需要 embedding model 和完整的 deployment profile：
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL="provider:embedding-model"
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID="project-embedding-v1"
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION="1536"
-export POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION="/opt/sqlite-extensions/vec1"
 ```
 
 provider credential 仍使用所选 Pydantic AI provider 支持的环境变量，不属于 PowerContext model 字段。
 
 Server 会拒绝不完整的 embedding profile。`embedding_model`、`embedding_profile_id` 和
-`embedding_dimension` 必须一起配置。Vec1 也依赖这组配置，因为 index dimension 必须与持久化向量一致。
+`embedding_dimension` 必须一起配置。SQLite vector search 使用这组配置，因为 index dimension 必须与持久化向量一致。
 
 ## 直接组合 generation
 
@@ -95,8 +94,8 @@ embedding_model = PydanticAIEmbeddingModel(
 )
 ```
 
-将这个 adapter 传给 `open_builtin_contexts()` 或 `open_builtin_runtime()`，并通过 `SQLiteConfig` 选择 Vec1
-extension。向量进入持久化之前，adapter 会校验输出数量、顺序、dimension 和数值有效性，并执行 profile 声明的单位归一化。
+将这个 adapter 与 `SQLiteConfig` 一起传给 `open_builtin_contexts()` 或 `open_builtin_runtime()` 后，会自动启用捆绑的
+sqlite-vec index。向量进入持久化之前，adapter 会校验输出数量、顺序、dimension 和数值有效性，并执行 profile 声明的单位归一化。
 
 `EmbeddingProfile` 是 deployment contract，不是描述性 metadata。持久化 projection 和 query embedding 必须使用
 同一个 profile。model、dimension 或 normalization 发生变化后，应从权威 Memory revision 重建 projection。

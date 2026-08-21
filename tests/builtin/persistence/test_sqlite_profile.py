@@ -51,6 +51,7 @@ def test_sqlite_pragmas_enforce_lineage_source_foreign_keys() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile:
             async with profile.database.transaction() as connection:
                 assert await connection.scalar(select(func.sqlite_version())) is not None
+                assert (await connection.exec_driver_sql("SELECT vec_version()")).scalar_one() != ""
                 pragma = await connection.exec_driver_sql("PRAGMA foreign_keys")
                 assert int(pragma.scalar() or 0) == 1
                 await connection.execute(

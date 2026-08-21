@@ -15,10 +15,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
-from pathlib import Path
-
-import pytest
 
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
@@ -53,23 +49,10 @@ class _KeywordEmbeddingModel:
         return EmbeddingResult(vectors=vectors)
 
 
-def _vec1_extension() -> Path:
-    configured = os.environ.get("POWERCONTEXT_VEC1_EXTENSION")
-    if configured is None:
-        pytest.skip("POWERCONTEXT_VEC1_EXTENSION is not configured")
-    extension = Path(configured)
-    if not extension.is_file():
-        pytest.skip("POWERCONTEXT_VEC1_EXTENSION does not point to a file")
-    return extension
-
-
-def test_sqlite_vec1_supports_vector_and_hybrid_search(tmp_path) -> None:
+def test_sqlite_vec_supports_vector_and_hybrid_search(tmp_path) -> None:
     async def scenario() -> None:
         model = _KeywordEmbeddingModel()
-        config = SQLiteConfig(
-            url=f"sqlite+aiosqlite:///{tmp_path / 'memory.db'}",
-            vec1_extension=_vec1_extension(),
-        )
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'memory.db'}")
         async with open_builtin_contexts(
             BuiltinConfig(database=config),
             embedding_model=model,

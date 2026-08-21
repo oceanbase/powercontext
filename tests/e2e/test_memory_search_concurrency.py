@@ -238,10 +238,4 @@ def _database_config(
             pytest.skip("set POWERCONTEXT_TEST_OCEANBASE_URL to a dedicated OceanBase MySQL-mode test database")
         return OceanBaseConfig(url=SecretStr(url))
 
-    extension = os.environ.get("POWERCONTEXT_VEC1_EXTENSION")
-    if mode in {"vector", "hybrid"} and (extension is None or not Path(extension).is_file()):
-        pytest.skip("set POWERCONTEXT_VEC1_EXTENSION to a Vec1 extension file")
-    return SQLiteConfig(
-        url=f"sqlite+aiosqlite:///{tmp_path / f'memory-search-{mode}.db'}",
-        vec1_extension=None if extension is None else Path(extension),
-    )
+    return SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / f'memory-search-{mode}.db'}")
