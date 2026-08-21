@@ -83,7 +83,9 @@ boundary flushing fail open; explicit durable writes require interactive confirm
 powercontext setup codex
 powercontext setup dsh
 powercontext setup pi
+powercontext setup select
 powercontext doctor
+powercontext doctor integrations
 powercontext doctor codex
 powercontext doctor dsh
 powercontext doctor pi
@@ -115,10 +117,11 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 All content commands call the configured Server. The optional `server` role adds `powercontext server run`; it does
 not create a second content profile inside the CLI.
 
-`powercontext doctor` checks the package and Server without requiring an integration. `powercontext doctor codex`
-checks the Codex CLI and PowerContext plugin explicitly. `powercontext doctor dsh` checks the DeepSeek Harness CLI
-and that dump-config lists the plugin id `powercontext-dsh`. `powercontext doctor pi` checks the Pi executable and
-that Pi lists the PowerContext package.
+`powercontext doctor` checks the package and Server without requiring an integration. `powercontext doctor integrations`
+prints a read-only matrix for every first-class host; a missing CLI is `missing` and does not fail the command.
+`powercontext doctor codex` checks the Codex CLI and PowerContext plugin explicitly and still fails when that CLI is
+missing. `powercontext doctor dsh` checks the DeepSeek Harness CLI and that dump-config lists the plugin id
+`powercontext-dsh`. `powercontext doctor pi` checks the Pi executable and that Pi lists the PowerContext package.
 
 Generation and revision commands accept repeatable `--source-ref TYPE/ID` and
 `--artifact-ref FAMILY/ID@REVISION` options instead of serialized request files. `--target FAMILY/ID@REVISION`

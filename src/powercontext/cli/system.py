@@ -449,6 +449,47 @@ def setup_hermes(
     typer.echo("Next: run `hermes memory setup`, select PowerContext, then start Hermes.")
 
 
+@setup_app.command("select")
+def setup_select(
+    host: Annotated[
+        list[str] | None,
+        typer.Option(help="First-class host to install. Repeatable. Required with --json or a non-TTY."),
+    ] = None,
+    source: Annotated[
+        str,
+        typer.Option(help="Git source or local path passed to each selected installer."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    server_url: Annotated[
+        str,
+        typer.Option(help="PowerContext Server base URL configured for Claude Code."),
+    ] = "http://127.0.0.1:8000",
+    capture_prompts: Annotated[
+        bool,
+        typer.Option(help="Capture Claude Code user prompts as ordinary Source evidence."),
+    ] = True,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install selected first-class host plugins without scanning PATH."""
+
+    from powercontext.cli.hosts import run_setup_select
+
+    run_setup_select(
+        hosts=host,
+        source=source,
+        ref=ref,
+        server_url=server_url,
+        capture_prompts=capture_prompts,
+        json_output=json_output,
+    )
+
+
 @doctor_app.callback()
 def doctor(
     context: typer.Context,
@@ -551,6 +592,20 @@ def doctor_hermes(
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)
+
+
+@doctor_app.command("integrations")
+def doctor_integrations(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Report first-class host CLI and integration status without failing on missing CLIs."""
+
+    from powercontext.cli.hosts import run_doctor_integrations
+
+    run_doctor_integrations(json_output=json_output)
 
 
 def install_codex_plugin(*, source: str, ref: str) -> CodexSetupResult:
