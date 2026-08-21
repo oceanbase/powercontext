@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from powercontext_e2e.catalog import load_tasks, select_tasks
+from powercontext_e2e.runner import group_tasks
 
 
 def test_workloads_can_be_selected_by_multiple_ids_or_category() -> None:
@@ -51,3 +52,12 @@ def test_workloads_can_be_selected_by_multiple_ids_or_category() -> None:
         "locomo-temporal-banker",
         "project-database-decision",
     ]
+    locomo = tuple(task for task in tasks if task.batch == "locomo")
+    assert [task.id for task in locomo] == [
+        "locomo-multihop-football",
+        "locomo-open-pastries",
+        "locomo-support-group",
+        "locomo-temporal-banker",
+    ]
+    assert len(group_tasks(tuple(task for task in acceptance if task.batch == "locomo"))) == 1
+    assert group_tasks((next(task for task in locomo if task.id == "locomo-support-group"),))[0].batch is None

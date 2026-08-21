@@ -98,6 +98,11 @@ class E2ETask(CatalogModel):
     schema_: Literal["powercontext.e2e-task/v1"] = Field(alias="schema")
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     categories: tuple[str, ...] = Field(min_length=1)
+    batch: str | None = Field(
+        default=None,
+        pattern=r"^[a-z0-9][a-z0-9_-]*$",
+        exclude_if=lambda value: value is None,
+    )
     provenance: Provenance | None = None
     dataset: HarborDatasetSpec
     execution: BubExecutionSpec

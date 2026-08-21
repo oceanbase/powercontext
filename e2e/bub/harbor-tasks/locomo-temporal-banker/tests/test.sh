@@ -15,4 +15,8 @@
 
 set -eu
 
+if [ -e /logs/agent/powercontext-step-failed ]; then
+    exit 1
+fi
+
 echo 1 > /logs/verifier/reward.txt
