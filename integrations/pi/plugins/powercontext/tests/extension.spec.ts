@@ -168,6 +168,88 @@ describe('PowerContext Pi extension', () => {
     expect(JSON.parse(String(flush?.[1]?.body))).toEqual({ scope_id: 'project:demo' })
   })
 
+  it('retries an immediate flush after a transient failure', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_FLUSH_ON_CAPTURE', 'true')
+    vi.stubEnv('POWERCONTEXT_PI_FLUSH_MAX_CALLS', '4')
+    let flushAttempts = 0
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/context/prepare')) {
+        return new Response(JSON.stringify({
+          schema: 'powercontext.prepared-context.v1',
+          status: 'empty',
+          content: null,
+          content_bytes: 0,
+        }))
+      }
+      if (url.endsWith('/v1/sources/content')) return new Response(JSON.stringify({ position: 7 }))
+      if (url.endsWith('/v1/memory/flush')) {
+        flushAttempts += 1
+        return flushAttempts === 1
+          ? new Response(JSON.stringify({ error: { message: 'temporary failure' } }), { status: 500 })
+          : new Response(JSON.stringify({ current_cursor: 7 }))
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+    const beforeAgentStart = installExtension().get('before_agent_start')
+
+    await beforeAgentStart?.({
+      prompt: 'continue implementation',
+      systemPrompt: 'Base instructions',
+    }, {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    })
+
+    expect(flushAttempts).toBe(2)
+  })
+
+  it('retains a captured position for compaction after immediate flush retries fail', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_FLUSH_ON_CAPTURE', 'true')
+    vi.stubEnv('POWERCONTEXT_PI_FLUSH_MAX_CALLS', '1')
+    let flushAttempts = 0
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/context/prepare')) {
+        return new Response(JSON.stringify({
+          schema: 'powercontext.prepared-context.v1',
+          status: 'empty',
+          content: null,
+          content_bytes: 0,
+        }))
+      }
+      if (url.endsWith('/v1/sources/content')) return new Response(JSON.stringify({ position: 7 }))
+      if (url.endsWith('/v1/memory/flush')) {
+        flushAttempts += 1
+        return flushAttempts === 1
+          ? new Response(JSON.stringify({ error: { message: 'temporary failure' } }), { status: 500 })
+          : new Response(JSON.stringify({ current_cursor: 7 }))
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+    const handlers = installExtension()
+    const context = {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    }
+
+    await handlers.get('before_agent_start')?.({
+      prompt: 'continue implementation',
+      systemPrompt: 'Base instructions',
+    }, context)
+    expect(flushAttempts).toBe(1)
+
+    await handlers.get('session_before_compact')?.({}, context)
+
+    expect(flushAttempts).toBe(2)
+  })
+
   it('does not persist a prompt when capture is disabled', async () => {
     vi.stubEnv('POWERCONTEXT_PI_CAPTURE_PROMPTS', 'false')
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({

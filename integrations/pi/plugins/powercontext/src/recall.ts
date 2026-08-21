@@ -89,6 +89,7 @@ export async function recallBeforeAgentStart(input: BeforeAgentStartInput): Prom
       sessionId: sessionId(input.sessionId),
       turnId: nextTurnId(input.branch),
       signal,
+      onFlushFailure: (position) => input.runtime.recordCapture?.(scopeId, position),
     })
     if (position !== undefined && !input.runtime.config.flushOnCapture) {
       input.runtime.recordCapture?.(scopeId, position)

@@ -32,6 +32,7 @@ export interface CaptureInput {
   sessionId: string
   turnId: string
   signal?: AbortSignal
+  onFlushFailure?: (position: number) => void
 }
 
 export function buildSourceId(scopeId: string, sessionId: string, turnId: string, prompt: string): string {
@@ -46,14 +47,19 @@ function sourcePosition(value: unknown): number | undefined {
   return position
 }
 
-async function flushThrough(input: CaptureInput, position: number): Promise<void> {
+async function flushThrough(input: CaptureInput, position: number): Promise<boolean> {
   for (let index = 0; index < input.config.flushMaxCalls; index += 1) {
-    const result = await input.client.request('flush_memory', { scope_id: input.scopeId }, input.signal)
-    const cursor = result.kind === 'json' && result.value && typeof result.value === 'object'
-      ? (result.value as { current_cursor?: unknown }).current_cursor
-      : undefined
-    if (typeof cursor === 'number' && cursor >= position) return
+    try {
+      const result = await input.client.request('flush_memory', { scope_id: input.scopeId }, input.signal)
+      const cursor = result.kind === 'json' && result.value && typeof result.value === 'object'
+        ? (result.value as { current_cursor?: unknown }).current_cursor
+        : undefined
+      if (typeof cursor === 'number' && cursor >= position) return true
+    } catch {
+      // A transient flush failure should not discard the captured position.
+    }
   }
+  return false
 }
 
 export async function captureUserPrompt(input: CaptureInput): Promise<number | undefined> {
@@ -78,7 +84,13 @@ export async function captureUserPrompt(input: CaptureInput): Promise<number | u
       },
     }, input.signal)
     const position = result.kind === 'json' ? sourcePosition(result.value) : undefined
-    if (input.config.flushOnCapture && position !== undefined) await flushThrough(input, position)
+    if (input.config.flushOnCapture && position !== undefined && !(await flushThrough(input, position))) {
+      try {
+        input.onFlushFailure?.(position)
+      } catch {
+        // Pending-source bookkeeping is auxiliary; it must not affect the turn.
+      }
+    }
     return position
   } catch {
     // Source persistence is auxiliary; it must not delay or break the Pi turn.
