@@ -75,6 +75,10 @@ class SetupError(RuntimeError):
         return cls("DeepSeek Harness CLI is not installed or is not on PATH.")
 
     @classmethod
+    def hermes_unavailable(cls) -> SetupError:
+        return cls("Hermes CLI is not installed or is not on PATH.")
+
+    @classmethod
     def missing_dsh_plugin(cls, path: Path) -> SetupError:
         return cls(f"PowerContext DSH plugin was not found under {path}.")
 
@@ -89,6 +93,26 @@ class SetupError(RuntimeError):
     @classmethod
     def invalid_dsh_source(cls, source: str) -> SetupError:
         return cls(f"invalid DeepSeek Harness source: {source}")
+
+    @classmethod
+    def invalid_hermes_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid Hermes ref: {ref}")
+
+    @classmethod
+    def invalid_hermes_source(cls, source: str) -> SetupError:
+        return cls(f"invalid Hermes source: {source}")
+
+    @classmethod
+    def missing_hermes_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext Hermes plugin was not found under {path}.")
+
+    @classmethod
+    def hermes_plugin_write(cls, path: Path, error: OSError) -> SetupError:
+        return cls(f"Cannot install PowerContext Hermes plugin at {path}: {error}")
+
+    @classmethod
+    def unsupported_hermes_version(cls, actual: str, minimum: str) -> SetupError:
+        return cls(f"Hermes Agent v{actual} is unsupported; PowerContext requires Hermes Agent v{minimum} or newer.")
 
     @classmethod
     def data_directory(cls, path: Path, error: OSError) -> SetupError:
@@ -322,6 +346,46 @@ def setup_dsh(
     typer.echo("Next: run `powercontext server run`, then start `dsh web`.")
 
 
+@setup_app.command("hermes")
+def setup_hermes(
+    source: Annotated[
+        str,
+        typer.Option(help="PowerContext Git source or local checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install the PowerContext Hermes memory provider."""
+
+    from powercontext.cli.hermes import install_hermes_plugin, run_hermes_diagnostics
+
+    try:
+        result = install_hermes_plugin(source=source, ref=ref)
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    diagnostics = run_hermes_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext Hermes setup complete.")
+    typer.echo(f"Plugin: {result.plugin} ({result.plugin_path})")
+    typer.echo(f"Hermes home: {result.hermes_home}")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: run `hermes memory setup`, select PowerContext, then start Hermes.")
+
+
 @doctor_app.callback()
 def doctor(
     context: typer.Context,
@@ -386,6 +450,23 @@ def doctor_dsh(
     from powercontext.cli.dsh import run_dsh_diagnostics
 
     diagnostics = run_dsh_diagnostics()
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("hermes")
+def doctor_hermes(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional Hermes CLI and PowerContext memory provider."""
+
+    from powercontext.cli.hermes import run_hermes_diagnostics
+
+    diagnostics = run_hermes_diagnostics()
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)
