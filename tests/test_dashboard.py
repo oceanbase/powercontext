@@ -173,7 +173,7 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
     assert 'id="auth-shell" hidden' not in enabled_page.text
     assert 'id="page-status" hidden' in enabled_page.text
     assert 'class="server-content" id="handoff-report"' in enabled_page.text
-    assert 'id="handoff-report" hidden' not in enabled_page.text
+    assert 'id="handoff-report" hidden' in enabled_page.text
     assert 'data-period-mode="day"' in enabled_page.text
     assert 'data-period-mode="week"' in enabled_page.text
     assert 'data-period-mode="month"' in enabled_page.text
@@ -235,8 +235,35 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
     assert enabled_page.text.index('class="data-section activity-section"') < enabled_page.text.index(
         '<details class="report-metadata">'
     )
-    assert "handoff-report.js?v=default-startup-unified-editor-v1" in enabled_page.text
+    assert "handoff-report.js?v=default-startup-unified-editor-preview-v1" in enabled_page.text
     assert protected_projects.status_code == 401
+
+
+def test_handoff_report_page_contains_a_data_free_preview_template(tmp_path) -> None:
+    app = create_server_app(settings=_handoff_report_settings(tmp_path / "handoff-preview.db", enabled=True))
+
+    with TestClient(app) as client:
+        page = client.get("/handoff-reports")
+
+    preview_markup = page.text.split('id="handoff-report-preview"', maxsplit=1)[1].split(
+        'id="handoff-report"', maxsplit=1
+    )[0]
+    preview_values = [
+        fragment.split(">", maxsplit=1)[1].split("<", maxsplit=1)[0]
+        for fragment in preview_markup.split("data-preview-placeholder")[1:]
+    ]
+
+    assert page.status_code == 200
+    assert 'aria-describedby="preview-notice"' in preview_markup
+    assert "hidden" in preview_markup.split(">", maxsplit=1)[0]
+    assert 'id="preview-retry"' in preview_markup
+    assert 'role="status" aria-live="polite"' in preview_markup
+    assert preview_values
+    assert set(preview_values) == {"—"}
+    assert ">0<" not in preview_markup
+    assert "<input" not in preview_markup
+    assert "<select" not in preview_markup
+    assert 'id="download-report"' not in preview_markup
 
 
 def _handoff_report_settings(database_path: Path, *, enabled: bool) -> ServerSettings:
