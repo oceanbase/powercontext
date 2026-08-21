@@ -38,6 +38,7 @@ from powercontext.http import (
     ReadinessResponse,
     ReadinessStatus,
 )
+from powercontext.paths import sqlite_url
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
@@ -138,7 +139,7 @@ def test_server_settings_vec1_preserves_file_database(tmp_path, monkeypatch) -> 
 
     settings = ServerSettings()
 
-    assert settings.database.url == f"sqlite+aiosqlite:///{data_dir / 'powercontext.db'}"
+    assert settings.database.url == sqlite_url(data_dir / "powercontext.db")
 
 
 def test_server_settings_select_oceanbase(monkeypatch) -> None:
