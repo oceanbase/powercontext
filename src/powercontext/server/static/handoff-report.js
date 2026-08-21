@@ -77,7 +77,24 @@ const translations = {
     coverageCaptured: "Captured Activity is included through cursor {cursor}. Counts describe observed events, not completion percentage.",
     coverageNotConfigured: "Activity adapters are not configured. Missing Activity must not be read as no work occurring.",
     coverageUnavailable: "Activity coverage is unavailable for this report.",
-    noProjects: "No Handoff Report Projects are configured.",
+    noProjects: "No Handoff Report Project is configured.",
+    reportTemplateTitle: "Handoff Report template",
+    preview: "Preview",
+    previewNotice: "This data-free preview explains the report structure. All values are shown as \u201c\u2014\u201d and do not represent real project status.",
+    previewRetryHint: "Configure a Project, then retry to load its report.",
+    previewPlaceholder: "\u2014",
+    projectSummary: "Project summary and scope",
+    projectSummarySubtitle: "Project identity, selected scope, and reporting period",
+    project: "Project",
+    scope: "Scope",
+    handoffStatus: "Workstream and Handoff status",
+    handoffStatusSubtitle: "Continuation state and reporting status for each Workstream",
+    previewCoverageDescription: "Coverage values appear here after a Project report is available.",
+    activityComparison: "Activity and period comparison",
+    activityComparisonSubtitle: "Observed Activity in the selected and previous periods",
+    currentPeriod: "Current period",
+    previousPeriod: "Previous period",
+    change: "Change",
     authRejected: "The Server rejected this token.",
     requestFailed: "The Handoff Report request failed with HTTP {status}.",
     serverUnavailable: "The Server is unavailable.",
@@ -161,6 +178,23 @@ const translations = {
     coverageNotConfigured: "Activity Adapter 尚未配置；缺少 Activity 不能解释为没有发生工作。",
     coverageUnavailable: "当前报告无法取得 Activity 覆盖信息。",
     noProjects: "尚未配置 Handoff Report Project。",
+    reportTemplateTitle: "交接报告模板",
+    preview: "预览",
+    previewNotice: "这是用于说明报告结构的无数据预览。所有值均以“\u2014”表示，不代表真实项目状态。",
+    previewRetryHint: "配置 Project 后，请重试以加载真实报告。",
+    previewPlaceholder: "\u2014",
+    projectSummary: "项目摘要与范围",
+    projectSummarySubtitle: "项目身份、选定 Scope 与报告周期",
+    project: "项目",
+    scope: "Scope",
+    handoffStatus: "Workstream 与 Handoff 状态",
+    handoffStatusSubtitle: "各 Workstream 的继续状态与汇报状态",
+    previewCoverageDescription: "配置 Project 并生成报告后，此处将显示覆盖信息。",
+    activityComparison: "Activity 与周期对比",
+    activityComparisonSubtitle: "选定周期与上一周期内观察到的 Activity",
+    currentPeriod: "本期",
+    previousPeriod: "上期",
+    change: "变化",
     authRejected: "Server 拒绝了该 Token。",
     requestFailed: "Handoff Report 请求失败（HTTP {status}）。",
     serverUnavailable: "Server 无法访问。",
@@ -186,6 +220,8 @@ const tokenInput = document.getElementById("token");
 const pageStatus = document.getElementById("page-status");
 const pageStatusMessage = document.getElementById("page-status-message");
 const pageStatusRetry = document.getElementById("page-status-retry");
+const previewShell = document.getElementById("handoff-report-preview");
+const previewRetryButton = document.getElementById("preview-retry");
 const reportShell = document.getElementById("handoff-report");
 const reportError = document.getElementById("report-error");
 const projectSelect = document.getElementById("project-select");
@@ -239,6 +275,10 @@ pageStatusRetry.addEventListener("click", async () => {
   } else {
     await loadReport(token, currentProject.project_id);
   }
+});
+
+previewRetryButton.addEventListener("click", async () => {
+  await authenticate(readServerToken());
 });
 
 refreshButton.addEventListener("click", async () => {
@@ -296,14 +336,15 @@ async function authenticate(token) {
   currentAuthError = null;
   const request = beginReportRequest();
   try {
-    currentProjects = await listProjects(token);
+    const projects = await listProjects(token);
     if (!request.isCurrent()) {
       return;
     }
+    currentProjects = projects;
     if (currentProjects.length === 0) {
       currentProject = null;
       currentReport = null;
-      showPageStatus("noProjects", {}, true);
+      showReportPreview();
       return;
     }
     const remembered = readSelectedProject();
@@ -451,6 +492,7 @@ function showLogin(messageKey = "", values = {}) {
   clearReport();
   authShell.hidden = false;
   pageStatus.hidden = true;
+  previewShell.hidden = true;
   reportShell.hidden = true;
   signOut.hidden = true;
   tokenInput.focus();
@@ -461,6 +503,7 @@ function showPageStatus(messageKey, values = {}, retryable = false) {
   renderPageStatus();
   authShell.hidden = true;
   pageStatus.hidden = false;
+  previewShell.hidden = true;
   reportShell.hidden = true;
   signOut.hidden = false;
 }
@@ -481,6 +524,16 @@ function renderAuthError() {
     : translate(currentAuthError.key, currentAuthError.values);
 }
 
+function showReportPreview() {
+  currentPageStatus = null;
+  clearReport();
+  authShell.hidden = true;
+  pageStatus.hidden = true;
+  previewShell.hidden = false;
+  reportShell.hidden = true;
+  signOut.hidden = false;
+}
+
 function renderProjectOptions(projects, selectedProjectId) {
   projectSelect.replaceChildren();
   for (const project of projects) {
@@ -496,6 +549,7 @@ function renderReport(report) {
   currentPageStatus = null;
   authShell.hidden = true;
   pageStatus.hidden = true;
+  previewShell.hidden = true;
   reportShell.hidden = false;
   signOut.hidden = false;
   clearReportError();
@@ -721,6 +775,7 @@ async function downloadMarkdown() {
 }
 
 function setBusy(busy) {
+  previewRetryButton.disabled = busy;
   refreshButton.disabled = busy;
   downloadButton.disabled = busy;
   applyCustomPeriodButton.disabled = busy;

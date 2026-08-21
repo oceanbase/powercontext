@@ -102,6 +102,8 @@ document-level 结构放在 `base.html`。一个片段已经被复用，或者�
 
 Handoff Report 页面通过 `POST /v1/handoff-reports/projects/list` 获取当前 token 可访问的 Project，并以 `project_id` 为稳定值渲染标签页。标签同时显示 Project title 和完整 `project_id`，避免同名 Project 无法区分。切换标签后，浏览器通过 `POST /v1/handoff-reports/get` 请求该 Project 的 canonical JSON；页面只负责格式化和展示 `summary`、`coverage`、Workstream 状态、Activity 数量、objective、current state、next action、known omissions 和 digest，不重新计算报告口径。
 
+Project 列表请求成功但没有 active Project 时，页面展示明确标记的无数据模板预览，而不是空白状态。预览说明项目摘要与范围、覆盖情况、Workstream 与 Handoff 状态、继续工作所需内容以及 Activity 周期对比，所有值均以长横线（`—`）表示。点击重试会重新加载 Project catalog；出现可用 Project 后，真实报告会替换预览。预览不会创建 Project，也不会请求伪造的报告。
+
 页面默认请求 Project 时区内的当日周期，并提供本日、ISO 本周、自然月和自定义起止日期筛选。日期输入的结束日按包含当天解释，发给 API 时转换为下一日零点的排他边界；每次请求都启用上一等长周期 Activity 对比。周期筛选和 Markdown 下载使用完全相同的 `period` 参数。由于 Handoff 尚无权威 commit timestamp，当 `handoff_boundary_coverage=unavailable` 时，页面必须明确说明 Handoff 状态来自当前 exact selection，周期只精确筛选 Activity，不能把当前状态伪装成历史期末状态。
 
 概览请求可以关闭 evidence check 以降低延迟；Markdown 下载必须重新请求 `format=markdown`、`download=true` 且默认启用 evidence check。浏览器不得从已经渲染的 DOM 或 canonical JSON 自行拼接 Markdown。Handoff Report 功能关闭时不注册 `/handoff-reports` 页面和对应 API，原 Dashboard 路径、scope 切换和统计请求保持不变。

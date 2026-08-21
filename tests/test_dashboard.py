@@ -93,7 +93,7 @@ def test_handoff_report_page_is_available_only_when_both_features_are_enabled(tm
     assert 'id="auth-shell" hidden' not in enabled_page.text
     assert 'id="page-status" hidden' in enabled_page.text
     assert 'class="server-content" id="handoff-report"' in enabled_page.text
-    assert 'id="handoff-report" hidden' not in enabled_page.text
+    assert 'id="handoff-report" hidden' in enabled_page.text
     assert 'data-period-mode="day"' in enabled_page.text
     assert 'data-period-mode="week"' in enabled_page.text
     assert 'data-period-mode="month"' in enabled_page.text
@@ -103,8 +103,46 @@ def test_handoff_report_page_is_available_only_when_both_features_are_enabled(tm
     assert 'id="project-tabs"' not in enabled_page.text
     assert '<section class="report-overview"' in enabled_page.text
     assert '<dl class="report-overview"' not in enabled_page.text
-    assert "handoff-report.js?v=state-races" in enabled_page.text
     assert protected_projects.status_code == 401
+
+
+def test_handoff_report_page_contains_a_data_free_preview_template(tmp_path) -> None:
+    app = create_server_app(settings=_dashboard_settings(tmp_path / "handoff-preview.db", handoff_report_enabled=True))
+
+    with TestClient(app) as client:
+        page = client.get("/handoff-reports")
+
+    preview_markup = page.text.split('id="handoff-report-preview"', maxsplit=1)[1].split(
+        'id="handoff-report"', maxsplit=1
+    )[0]
+
+    assert page.status_code == 200
+    assert 'aria-labelledby="preview-title" hidden' in page.text
+    assert 'id="preview-retry"' in preview_markup
+    assert 'role="status" aria-live="polite"' in preview_markup
+    assert 'data-i18n="previewNotice"' in preview_markup
+    for section_key in (
+        "projectSummary",
+        "coverage",
+        "handoffStatus",
+        "objective",
+        "currentState",
+        "nextAction",
+        "omissions",
+        "activityComparison",
+    ):
+        assert f'data-i18n="{section_key}"' in preview_markup
+
+    placeholder_values = [
+        fragment.split(">", maxsplit=1)[1].split("<", maxsplit=1)[0]
+        for fragment in preview_markup.split("data-preview-placeholder")[1:]
+    ]
+    assert placeholder_values
+    assert set(placeholder_values) == {"—"}
+    assert ">0<" not in preview_markup
+    assert "<input" not in preview_markup
+    assert "<select" not in preview_markup
+    assert 'id="download-report"' not in preview_markup
 
 
 def _dashboard_settings(database_path: Path, *, handoff_report_enabled: bool) -> ServerSettings:
