@@ -24,6 +24,13 @@ powercontext setup dsh --source oceanbase/powercontext --ref <ref>
 powercontext setup pi --source oceanbase/powercontext --ref <ref>
 ```
 
+单宿主命令仍是显式路径。若要一次安装多个一级宿主，可重复传入 `--host`；在 TTY 上省略 `--host` 则从目录中选择。
+不带子命令的 `powercontext setup` 仍然只打印帮助：
+
+```bash
+powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref <ref>
+```
+
 宿主专有选项见[配置 Codex](configure-codex.md)和[配置 DeepSeek Harness](configure-dsh.md)。
 
 ## 运行本地 Server

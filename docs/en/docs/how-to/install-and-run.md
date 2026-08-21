@@ -25,6 +25,14 @@ powercontext setup dsh --source oceanbase/powercontext --ref <ref>
 powercontext setup pi --source oceanbase/powercontext --ref <ref>
 ```
 
+Per-host commands remain the explicit path. To install more than one first-class host in one run, pass `--host`
+repeatedly, or omit `--host` on a TTY to choose from the catalog. `powercontext setup` with no subcommand still
+prints help:
+
+```bash
+powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref <ref>
+```
+
 For host-specific options, see [Configure Codex](configure-codex.md) and
 [Configure DeepSeek Harness](configure-dsh.md).
 

@@ -74,6 +74,7 @@ Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久
 powercontext setup codex
 powercontext setup dsh
 powercontext setup pi
+powercontext setup select
 powercontext doctor
 powercontext doctor codex
 powercontext doctor dsh

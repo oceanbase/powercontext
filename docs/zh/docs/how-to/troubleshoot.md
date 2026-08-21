@@ -48,6 +48,8 @@ command -v pi
 
 必要时把 uv tool bin 目录加入 `PATH`。宿主 CLI 不可用时，`powercontext setup codex`、
 `powercontext setup claude-code`、`powercontext setup dsh` 和 `powercontext setup pi` 都会报告错误，而不会尝试安装。
+`powercontext setup select` 只安装你选中的宿主。某个选中宿主未安装时，该行失败，但不会阻塞其余选中项；未选中的
+宿主即使已在 `PATH` 上也不会安装。
 
 ## 插件缺失或版本不一致
 

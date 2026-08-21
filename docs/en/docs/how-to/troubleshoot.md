@@ -48,7 +48,9 @@ command -v pi
 
 Add the uv tool bin directory to `PATH` if needed. `powercontext setup codex`, `powercontext setup claude-code`,
 `powercontext setup dsh`, and `powercontext setup pi` report an error rather than attempting installation when the host
-CLI is unavailable.
+CLI is unavailable. `powercontext setup select` installs only the hosts you choose. A selected host that is missing
+still fails that row and does not block the other selected hosts. An unselected host is skipped even if its CLI is on
+`PATH`.
 
 ## The plugin is missing or stale
 
