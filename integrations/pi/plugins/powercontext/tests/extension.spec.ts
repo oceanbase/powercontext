@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import powercontextPi from '../extensions/powercontext.ts'
 
@@ -199,6 +215,60 @@ describe('PowerContext Pi extension', () => {
     })).resolves.toBeUndefined()
 
     expect(fetch.mock.calls.some(([url]) => url === 'http://127.0.0.1:8000/v1/sources/content')).toBe(false)
+  })
+
+  it('does not persist a prompt containing a conventional password assignment', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      schema: 'powercontext.prepared-context.v1',
+      status: 'empty',
+      content: null,
+      content_bytes: 0,
+    })))
+    vi.stubGlobal('fetch', fetch)
+    const beforeAgentStart = installExtension().get('before_agent_start')
+
+    await expect(beforeAgentStart?.({
+      prompt: 'password = hunter2',
+      systemPrompt: 'Base instructions',
+    }, {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    })).resolves.toBeUndefined()
+
+    expect(fetch.mock.calls.some(([url]) => url === 'http://127.0.0.1:8000/v1/sources/content')).toBe(false)
+  })
+
+  it('captures ordinary text containing marker-like substrings', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/context/prepare')) {
+        return new Response(JSON.stringify({
+          schema: 'powercontext.prepared-context.v1',
+          status: 'empty',
+          content: null,
+          content_bytes: 0,
+        }))
+      }
+      if (url.endsWith('/v1/sources/content')) return new Response('{}')
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+    const beforeAgentStart = installExtension().get('before_agent_start')
+
+    await expect(beforeAgentStart?.({
+      prompt: 'use risk-based prioritization',
+      systemPrompt: 'Base instructions',
+    }, {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    })).resolves.toBeUndefined()
+
+    expect(fetch.mock.calls.some(([url]) => url === 'http://127.0.0.1:8000/v1/sources/content')).toBe(true)
   })
 
   it('does not persist a prompt above the source size limit', async () => {
