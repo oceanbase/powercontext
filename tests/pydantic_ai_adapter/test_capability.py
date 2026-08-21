@@ -92,7 +92,10 @@ def test_empty_context_is_not_injected(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(RecordingClient.instances[0].prepare_requests) == 1
 
 
-def test_unreachable_server_fails_open_for_recall(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unreachable_server_fails_open_for_recall(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     RecordingClient.reset()
     RecordingClient.prepare_result = TransportError("/v1/context/prepare")
     monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
@@ -108,7 +111,12 @@ def test_unreachable_server_fails_open_for_recall(monkeypatch: pytest.MonkeyPatc
         )
         return (await agent.run("continue while offline")).output
 
-    assert asyncio.run(scenario()) == "model still completes"
+    with caplog.at_level(logging.DEBUG, logger="powercontext_pydantic_ai.capability"):
+        assert asyncio.run(scenario()) == "model still completes"
+
+    failures = [record for record in caplog.records if "context preparation failed open" in record.getMessage()]
+    assert len(failures) == 1
+    assert failures[0].exc_info is not None
 
 
 def test_authentication_failure_logs_one_credential_free_configuration_warning(

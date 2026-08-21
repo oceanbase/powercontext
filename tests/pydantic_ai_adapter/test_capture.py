@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -147,10 +148,51 @@ def test_shared_capture_redacts_codex_auth_values_outside_sensitive_keys(
     assert "[REDACTED]" in content
 
 
-def test_capture_failure_does_not_change_tool_or_model_results(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_shared_capture_caches_codex_auth_until_the_file_changes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    first_secret = "first-codex-auth-secret"  # noqa: S105 - synthetic redaction sentinel.
+    second_secret = "second-longer-codex-auth-secret"  # noqa: S105 - synthetic redaction sentinel.
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    auth_path = codex_home / "auth.json"
+    auth_path.write_text(json.dumps({"tokens": {"access_token": first_secret}}))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    original_read_text = Path.read_text
+    auth_reads = 0
+
+    def count_auth_reads(path: Path, *args: Any, **kwargs: Any) -> str:
+        nonlocal auth_reads
+        if path == auth_path:
+            auth_reads += 1
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", count_auth_reads)
+
+    first = render_capture_event("tool_result", 1, {"result": first_secret}, 8192)
+    repeated = render_capture_event("tool_result", 2, {"result": first_secret}, 8192)
+
+    assert first_secret not in first
+    assert first_secret not in repeated
+    assert auth_reads == 1
+
+    auth_path.write_text(json.dumps({"tokens": {"access_token": second_secret}}))
+    refreshed = render_capture_event("tool_result", 3, {"result": second_secret}, 8192)
+
+    assert second_secret not in refreshed
+    assert auth_reads == 2
+
+
+def test_capture_failure_does_not_change_tool_or_model_results_or_log_arbitrary_exception_messages(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     RecordingClient.reset()
     RecordingClient.prepare_result = prepared_response(None)
-    RecordingClient.capture_error = TransportError("/v1/sources/content")
+    secret = "capture-exception-secret"  # noqa: S105 - synthetic logging sentinel.
+    RecordingClient.capture_error = RuntimeError(f"provider echoed {secret}")
     monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
 
     async def useful_tool(ctx: RunContext[object], value: int) -> dict[str, int]:
@@ -180,13 +222,20 @@ def test_capture_failure_does_not_change_tool_or_model_results(monkeypatch: pyte
         )
         return (await agent.run("run useful tool")).output
 
-    assert asyncio.run(scenario()) == "tool result preserved"
+    with caplog.at_level(logging.DEBUG, logger="powercontext_pydantic_ai.capability"):
+        assert asyncio.run(scenario()) == "tool result preserved"
+
     client = RecordingClient.instances[0]
     assert len(client.capture_requests) >= 1
     assert client.flush_requests == []
+    assert "RuntimeError" in caplog.text
+    assert secret not in caplog.text
 
 
-def test_flush_failure_does_not_change_model_result(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_flush_failure_does_not_change_model_result(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     RecordingClient.reset()
     RecordingClient.prepare_result = prepared_response(None)
     RecordingClient.flush_error = TransportError("/v1/memory/flush")
@@ -203,5 +252,10 @@ def test_flush_failure_does_not_change_model_result(monkeypatch: pytest.MonkeyPa
         )
         return (await agent.run("finish despite flush failure")).output
 
-    assert asyncio.run(scenario()) == "flush failed open"
+    with caplog.at_level(logging.DEBUG, logger="powercontext_pydantic_ai.capability"):
+        assert asyncio.run(scenario()) == "flush failed open"
+
     assert RecordingClient.instances[0].flush_requests
+    failures = [record for record in caplog.records if "capture flush failed open" in record.getMessage()]
+    assert failures
+    assert all(record.exc_info is not None for record in failures)

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -105,13 +106,29 @@ def is_sensitive_key(key: str) -> bool:
     return any(part in folded for part in SENSITIVE_KEY_PARTS)
 
 
-def _codex_auth_secrets() -> set[str]:
-    codex_home = Path(os.getenv("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
+def _codex_auth_secrets() -> frozenset[str]:
+    auth_path = Path(os.getenv("CODEX_HOME", str(Path.home() / ".codex"))).expanduser() / "auth.json"
     try:
-        auth = json.loads((codex_home / "auth.json").read_text(encoding="utf-8"))
+        stat = auth_path.stat()
+    except OSError:
+        return frozenset()
+    fingerprint = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+    return _cached_codex_auth_secrets(str(auth_path), fingerprint)
+
+
+@lru_cache(maxsize=8)
+def _cached_codex_auth_secrets(
+    auth_path: str,
+    fingerprint: tuple[int, int, int, int, int],
+) -> frozenset[str]:
+    """Read Codex credentials once for each observed auth-file version."""
+
+    del fingerprint
+    try:
+        auth = json.loads(Path(auth_path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return set()
-    return _sensitive_values(auth)
+        return frozenset()
+    return frozenset(_sensitive_values(auth))
 
 
 def _sensitive_values(value: Any, *, sensitive: bool = False) -> set[str]:

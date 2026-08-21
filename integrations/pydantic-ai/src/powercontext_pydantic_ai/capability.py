@@ -212,7 +212,11 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             response = await self._toolset._require_client().prepare_context(request)
         except ClientError as exc:
             self._auth_reporter.report(exc, "context preparation")
-            logger.debug("PowerContext context preparation failed open: %s", type(exc).__name__)
+            logger.debug(
+                "PowerContext context preparation failed open: %s",
+                type(exc).__name__,
+                exc_info=exc,
+            )
             return None
         return response.content
 
@@ -256,9 +260,13 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
                 )
             except ClientError as exc:
                 self._auth_reporter.report(exc, "event capture")
-                logger.debug("PowerContext event capture failed open: %s", type(exc).__name__)
+                logger.debug(
+                    "PowerContext event capture failed open: %s",
+                    type(exc).__name__,
+                    exc_info=exc,
+                )
                 return
-            except Exception as exc:  # Capture must never change an agent result.
+            except Exception as exc:  # Arbitrary exception messages can contain captured data.
                 logger.debug("PowerContext event capture failed open: %s", type(exc).__name__)
                 return
 
@@ -279,9 +287,10 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
                 "PowerContext %s capture flush failed open: %s",
                 "final" if final else "checkpoint",
                 type(exc).__name__,
+                exc_info=exc,
             )
             return
-        except Exception as exc:  # Flush must never change an agent result.
+        except Exception as exc:  # Arbitrary exception messages can contain captured data.
             logger.debug(
                 "PowerContext %s capture flush failed open: %s",
                 "final" if final else "checkpoint",
