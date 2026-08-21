@@ -43,6 +43,7 @@ builtin = [
     "pydantic-settings>=2.7,<3",
     "pyobvector>=0.2.28,<0.3",
     "sqlalchemy[asyncio]>=2,<3",
+    "sqlite-vec>=0.1.9,<0.2",
 ]
 client = [
     "httpx[socks]>=0.28,<1",

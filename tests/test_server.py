@@ -55,7 +55,7 @@ class _FailingEmbeddingModel:
         model="test:embedding",
         dimension=3,
         distance="l2",
-        normalization="none",
+        normalization="unit",
     )
 
     def __init__(self, error: Exception) -> None:
@@ -129,16 +129,6 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.external_skills.host_id == "workstation-1"
     assert settings.external_skills.codex_roots[0].root_id == "repository"
     assert settings.external_skills.codex_roots[0].path.as_posix() == "/srv/project/.agents/skills"
-
-
-def test_server_settings_vec1_preserves_file_database(tmp_path, monkeypatch) -> None:
-    data_dir = tmp_path / "powercontext-data"
-    monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
-    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION", str(tmp_path / "vec1"))
-
-    settings = ServerSettings()
-
-    assert settings.database.url == f"sqlite+aiosqlite:///{data_dir / 'powercontext.db'}"
 
 
 def test_server_settings_select_oceanbase(monkeypatch) -> None:

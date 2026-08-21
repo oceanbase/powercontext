@@ -56,7 +56,7 @@ export POWERCONTEXT_SERVER_DATABASE_KIND="oceanbase"
 export POWERCONTEXT_SERVER_DATABASE_URL="mysql+aoceanbase://user:password@host:2881/powercontext?charset=utf8mb4"
 ```
 
-Both database choices expose full-text search through the same Server API. With an embedding model, SQLite uses Vec1
+Both database choices expose full-text search through the same Server API. With an embedding model, SQLite uses sqlite-vec
 and OceanBase uses HNSW for `vector` and `hybrid` searches.
 
 Inference configuration is documented in [Configure Pydantic AI inference](pydantic-ai-inference.md).

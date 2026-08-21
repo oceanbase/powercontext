@@ -53,7 +53,7 @@ from powercontext.builtin.persistence.oceanbase.memory_index import (
 )
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
-from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVec1Index
+from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVectorIndex
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime.application import BuiltinRuntime
@@ -317,10 +317,8 @@ async def open_builtin_contexts(
     if isinstance(database, SQLiteConfig):
         experience_index = SQLiteExperienceFTSIndex()
         indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
-        if database.vec1_extension is not None:
-            if embedding_model is None:
-                raise ValueError("SQLite Vec1 requires an embedding model")  # noqa: TRY003
-            indexes.append(SQLiteMemoryVec1Index(database.vec1_extension, embedding_model.profile))
+        if embedding_model is not None:
+            indexes.append(SQLiteMemoryVectorIndex(embedding_model.profile))
         index = CompositeMemoryIndex(*indexes)
         async with SQLiteProfile.open(
             database,

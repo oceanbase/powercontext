@@ -593,8 +593,8 @@ def test_vector_search_exports_embedding_under_memory_search_without_recording_t
         lambda _model, **_kwargs: TestEmbeddingModel(dimensions=3),
     )
     monkeypatch.setattr(
-        "powercontext.builtin.runtime.composition.SQLiteMemoryFTSIndex",
-        _VectorMemoryIndex,
+        "powercontext.builtin.runtime.composition.SQLiteMemoryVectorIndex",
+        lambda _profile: _VectorMemoryIndex(),
     )
 
     exporter = InMemorySpanExporter()

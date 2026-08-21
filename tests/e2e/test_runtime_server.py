@@ -597,13 +597,7 @@ def test_server_databases_share_vector_and_hybrid_search_behavior(
             pytest.skip("set POWERCONTEXT_TEST_OCEANBASE_URL to a dedicated OceanBase MySQL-mode test database")
         database = OceanBaseConfig(url=SecretStr(OCEANBASE_URL))
     else:
-        configured = os.environ.get("POWERCONTEXT_VEC1_EXTENSION")
-        if configured is None or not Path(configured).is_file():
-            pytest.skip("set POWERCONTEXT_VEC1_EXTENSION to a Vec1 extension file")
-        database = SQLiteConfig(
-            url=f"sqlite+aiosqlite:///{tmp_path / 'vector-runtime.db'}",
-            vec1_extension=Path(configured),
-        )
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'vector-runtime.db'}")
     scope_id = f"vector-e2e-{uuid4()}"
     app = create_server_app(
         settings=ServerSettings(

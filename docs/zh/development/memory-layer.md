@@ -88,19 +88,14 @@ operation 返回相同的 citation 字段。
 `mode="auto"` 会选择当前可用的最强模式，并可在 query embedding 暂时不可用时回退到 FTS。显式请求 `vector`
 或 `hybrid` 时，如果 profile 没有提供相应能力，操作会失败。
 
-## 启用 SQLite Vec1
+## 启用 SQLite 向量检索
 
-只有同时提供 0.7 或更高版本的 Vec1 loadable extension 和 embedding model，SQLite 才会启用向量检索。
-PowerContext 不负责安装或构建这个 native extension；请提供适用于目标操作系统和架构的 library：
+提供 embedding model 后，SQLite 会启用向量检索。`powercontext[builtin]` 已捆绑 `sqlite-vec`，无需配置 extension
+路径或单独安装 native library：
 
 ```python
-from pathlib import Path
-
 config = BuiltinConfig(
-    database=SQLiteConfig(
-        url="sqlite+aiosqlite:///powercontext.db",
-        vec1_extension=Path("/opt/sqlite-extensions/vec1"),
-    )
+    database=SQLiteConfig(url="sqlite+aiosqlite:///powercontext.db")
 )
 async with open_builtin_runtime(
     config,
@@ -109,7 +104,7 @@ async with open_builtin_runtime(
     ...
 ```
 
-SQLite profile 会组合 FTS5 和 Vec1 strategy，并通过 Memory capabilities 报告 `fts`、`vector` 和 `hybrid`。持久化
+SQLite profile 会组合 FTS5 和 sqlite-vec strategy，并通过 Memory capabilities 报告 `fts`、`vector` 和 `hybrid`。持久化
 projection 与 query vector 必须使用同一个 `EmbeddingProfile`，包括 model name、dimension、distance 和
 normalization。更换 profile 后，应先重建 projection，再恢复 vector search。
 
@@ -141,7 +136,7 @@ async with open_builtin_runtime(
 
 OceanBase profile 与 SQLite 使用相同的 index 组合方式。全文 strategy 始终可用；提供 embedding model 后，会增加
 `VECTOR` projection 和 HNSW strategy，并启用 `vector` 与 `hybrid` mode。SQLite FTS5 与 OceanBase FULLTEXT
-服务于同一组 Runtime 和 Server search 调用，Vec1 与 HNSW 也通过同一接口提供向量检索。
+服务于同一组 Runtime 和 Server search 调用，sqlite-vec 与 HNSW 也通过同一接口提供向量检索。
 
 ## 运行检查
 
@@ -150,7 +145,7 @@ OceanBase profile 与 SQLite 使用相同的 index 组合方式。全文 strateg
 - 所选 profile 能够成功打开并完成初始化；
 - 每个 tenant 或 project 映射到预期的 scope ID；
 - 定时 extraction 已经配置 candidate pipeline；
-- Vec1 配置包含匹配的 embedding model；
+- SQLite vector search 配置了匹配的 embedding model；
 - OceanBase vector search 配置了匹配的 embedding model；
 - capability response 与实际初始化的 index 一致；
 - database 和 scheduler 资源会随进程生命周期关闭。
