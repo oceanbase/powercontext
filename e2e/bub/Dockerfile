@@ -40,8 +40,14 @@ WORKDIR /workspace/powercontext
 
 COPY . .
 
+ARG POWERCONTEXT_VERSION
+
 RUN --mount=type=cache,id=powercontext-bub-e2e-uv,target=/root/.cache/uv \
-    uv sync --project e2e/bub --frozen --no-dev --no-editable
+    test -n "${POWERCONTEXT_VERSION}" \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" \
+    uv sync --project e2e/bub --frozen --no-dev --no-editable --refresh-package powercontext \
+    && test "$(e2e/bub/.venv/bin/python -c 'from importlib.metadata import version; print(version("powercontext"))')" \
+    = "${POWERCONTEXT_VERSION}"
 
 COPY --chmod=0755 e2e/bub/container-entrypoint.sh /usr/local/bin/powercontext-e2e-container
 

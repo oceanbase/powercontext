@@ -14,7 +14,7 @@
 
 [project]
 name = "powercontext"
-version = "0.0.2"
+dynamic = ["version"]
 description = "PowerContext turns human-agent work into handoff-ready context."
 authors = [{ name = "PowerContext Team", email = "open_oceanbase@oceanbase.com" }]
 readme = "README.md"
@@ -100,8 +100,11 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/powercontext"]

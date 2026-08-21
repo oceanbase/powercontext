@@ -41,7 +41,7 @@ real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE de
 
 .PHONY: harness-sync
 harness-sync: ## Install the Bub replay harness environment.
-	@uv sync --project e2e/bub
+	@uv sync --project e2e/bub --locked
 
 .PHONY: harness-check
 harness-check: ## Validate the Bub replay harness and committed scenarios.
