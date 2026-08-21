@@ -79,9 +79,9 @@ model.
 
 ## Plugins
 
-PowerContext provides official plugins and installation guides for Codex, Claude Code, DeepSeek Harness, and Hermes
-Agent. All four integrations use the same scoped data and history-preserving contracts through PowerContext Server;
-the plugins do not start or embed the Server.
+PowerContext provides official plugins and installation guides for Codex, Claude Code, DeepSeek Harness, Hermes
+Agent, and Pi. All five integrations use the same scoped data and history-preserving contracts through PowerContext
+Server; the host integrations do not start or embed the Server.
 
 ### Official integrations
 
@@ -94,6 +94,8 @@ the plugins do not start or embed the Server.
 </tr>
 </table>
 
+Pi is provided as a native package; see [Configure Pi](docs/en/docs/how-to/configure-pi.md) for its project-context
+workflow.
 ## Development
 
 Install the locked development environment and hooks:

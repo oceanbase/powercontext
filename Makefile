@@ -99,6 +99,12 @@ js-api-generate-check: ## Verify generated JS operations are current.
 js-test: ## Run DeepSeek Harness plugin unit tests.
 	@pnpm --dir integrations/dsh/plugins/powercontext test
 
+.PHONY: pi-test
+pi-test: ## Install and test the Pi package.
+	@pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile
+	@pnpm --dir integrations/pi/plugins/powercontext test
+	@pnpm --dir integrations/pi/plugins/powercontext run typecheck
+
 .PHONY: build
 build: clean-build ## Build wheel file
 	@echo "🚀 Creating wheel file"

@@ -230,3 +230,11 @@ integrations/dsh/coverage/
 integrations/dsh/*.tgz
 !integrations/dsh/plugins/powercontext/lib/
 !integrations/dsh/plugins/powercontext/lib/**
+
+# PowerContext Pi package (Node)
+integrations/pi/node_modules/
+integrations/pi/coverage/
+integrations/pi/*.tgz
+integrations/pi/plugins/powercontext/node_modules/
+integrations/pi/plugins/powercontext/coverage/
+integrations/pi/plugins/powercontext/*.tgz

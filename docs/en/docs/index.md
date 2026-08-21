@@ -15,6 +15,9 @@ overview:
         - title: Continue in Claude Code
           description: Open the same project Memory from Claude Code and Codex.
           href: en/docs/how-to/configure-claude-code/
+        - title: Continue in Pi
+          description: Open project context in Pi with the native package.
+          href: en/docs/how-to/configure-pi/
         - title: Hand off current work
           description: Prepare a checked Handoff for another task, session, or model.
           href: en/docs/how-to/handoff-with-codex/

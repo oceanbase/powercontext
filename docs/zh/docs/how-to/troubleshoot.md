@@ -1,6 +1,6 @@
 ---
 title: 排查问题
-description: 诊断 PowerContext 安装、Server、数据库、Codex、Claude Code 和 DeepSeek Harness 插件问题。
+description: 诊断 PowerContext 安装、Server、数据库和宿主集成问题。
 ---
 
 # 排查问题
@@ -19,6 +19,7 @@ powercontext doctor
 powercontext doctor codex
 powercontext doctor claude-code
 powercontext doctor dsh
+powercontext doctor pi
 ```
 
 ## 安装时无法读取 Git 地址
@@ -32,7 +33,7 @@ git ls-remote https://github.com/oceanbase/powercontext.git HEAD
 如果失败，请配置 Git 使用的 credential helper 或 SSH key，再重新运行 `uv tool install`。`uv` 使用 Git
 凭据配置；PowerContext 不接收或保存仓库凭据。
 
-## 找不到 `powercontext`、`codex`、`claude` 或 `dsh`
+## 找不到 `powercontext`、`codex`、`claude`、`dsh` 或 `pi`
 
 执行：
 
@@ -42,10 +43,11 @@ command -v powercontext
 command -v codex
 command -v claude
 command -v dsh
+command -v pi
 ```
 
 必要时把 uv tool bin 目录加入 `PATH`。宿主 CLI 不可用时，`powercontext setup codex`、
-`powercontext setup claude-code` 和 `powercontext setup dsh` 会报告错误，不会继续安装插件。
+`powercontext setup claude-code`、`powercontext setup dsh` 和 `powercontext setup pi` 都会报告错误，而不会尝试安装。
 
 ## 插件缺失或版本不一致
 
@@ -53,6 +55,8 @@ command -v dsh
 
 ```bash
 powercontext doctor codex
+powercontext doctor dsh
+powercontext doctor pi
 ```
 
 使用与工具一致的 ref 重新安装：
@@ -89,6 +93,16 @@ dsh --profile web --dump-config
 然后开启新的 DeepSeek Harness 会话，并确认 dump-config 含有 `id: powercontext-dsh`。DSH 插件目录必须包含
 `lib/index.js`。
 
+对于 Pi，执行：
+
+```bash
+powercontext doctor pi
+powercontext setup pi --source oceanbase/powercontext --ref <ref>
+pi list
+```
+
+然后开启新的 Pi 会话，并确认 `pi list` 列出了 PowerContext package source。
+
 ## Server 检查失败
 
 启动服务：
@@ -104,7 +118,7 @@ powercontext doctor --server-url http://127.0.0.1:9000
 powercontext --server-url http://127.0.0.1:9000 ready
 ```
 
-随附的 Codex 和 Claude Code 插件默认使用 8000 端口。liveness 失败表示进程无法响应健康请求，此时不会继续检查
+随附的 Codex 和 Claude Code 插件以及 Pi package 默认使用 8000 端口。liveness 失败表示进程无法响应健康请求，此时不会继续检查
 readiness。HTTP 503 的 `not_ready` 表示 Runtime 或数据库无法接受工作；HTTP 200 的 `degraded` 表示已配置的
 推理能力异常，但数据库操作仍然可用。Human 与 JSON 输出都会保留 Server 返回的各项检查状态。
 
@@ -146,7 +160,7 @@ powercontext capabilities
 
 ## Server 停止后编程 Agent 仍继续工作
 
-这是预期行为。两个 Prompt Hook 都会 fail open，Memory 故障不能阻塞普通 Codex 或 Claude Code 工作。
+这是预期行为。Codex、Claude Code 和 Pi 集成都遵循 fail open，Memory 故障不能阻塞普通工作。
 重启 Server 后即可恢复召回和采集，现有数据库会被自动重新打开。
 
 ## Codex 没有注入召回上下文
@@ -194,3 +208,17 @@ claude
 ```
 
 不要把 token 加入 `.mcp.json`、Server URL 或插件选项。重启后使用 `/mcp` 确认 `powercontext` Server 已连接。
+
+## Pi 没有注入召回上下文
+
+先分别检查 package 和 Server：
+
+```bash
+powercontext doctor pi
+powercontext doctor
+```
+
+安装 package 或修改 `POWERCONTEXT_PI_*` 变量后，请重启 Pi。在新的 Pi 会话中运行 `/pc doctor`，直接检查已配置的
+Server。召回会刻意静默并正常降级：Server 不可用、重定向、超时或返回无效 PreparedContext 时，Pi 会继续运行且不
+添加上下文。恢复 Server 后，运行 `powercontext capabilities`，确认 Context versions 中包含
+`powercontext.prepared-context.v1`。

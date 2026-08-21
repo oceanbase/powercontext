@@ -1,6 +1,6 @@
 ---
 title: 接口
-description: 在 Codex 插件、DeepSeek Harness 插件、CLI、Python SDK、HTTP 和 MCP 之间选择。
+description: 在 Codex 插件、DeepSeek Harness 插件、Pi package、CLI、Python SDK、HTTP 和 MCP 之间选择。
 ---
 
 # 接口
@@ -11,6 +11,7 @@ description: 在 Codex 插件、DeepSeek Harness 插件、CLI、Python SDK、HTT
 | --- | --- | --- |
 | Codex 插件 | 在 Codex 中跨会话恢复和显式维护 Memory | `powercontext setup codex` |
 | DeepSeek Harness 插件 | 在 DeepSeek Harness 中跨会话恢复和显式维护 Memory | `powercontext setup dsh` |
+| Pi package | 在 Pi 中跨会话恢复、使用原生 Memory/Handoff 工具和 skill | `powercontext setup pi` |
 | CLI | 配置、诊断、Server 控制、能力检查和人工 Candidate 审核 | `powercontext[cli,server]` |
 | Python Client SDK | 对运行中的 Server 发起类型化异步调用 | `powercontext[client]` |
 | Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | 基础包 |
@@ -61,14 +62,22 @@ Handoff Report 的 JSON Workstream projection 同时返回 `handoff_revision_cou
 project-context skill 指导 DeepSeek Harness 何时检索、记忆、修订或停用 Memory。每轮模型开口前，插件会恢复相关
 条目，并把用户输入采集为 Source 证据；具名 `pc_*` 工具执行显式 HTTP 操作。插件不会启动或内嵌 Server。
 
+## Pi package
+
+原生 Pi package 提供 `project-context` skill、具名 `pc_*` Memory/Handoff 工具和 `/pc` 诊断命令。每次普通 agent
+启动前，它请求一个严格校验且有界的 PreparedContext，并独立采集符合条件的用户提示词作为 Source 证据。它不会同步
+Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久化写入必须在交互式环境中确认。
+
 ## CLI
 
 ```text
 powercontext setup codex
 powercontext setup dsh
+powercontext setup pi
 powercontext doctor
 powercontext doctor codex
 powercontext doctor dsh
+powercontext doctor pi
 powercontext server run
 powercontext ready
 powercontext capabilities
@@ -99,7 +108,7 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 
 `powercontext doctor` 检查安装包和 Server，不要求任何集成；`powercontext doctor codex` 显式检查 Codex CLI
 和 PowerContext 插件；`powercontext doctor dsh` 检查 DeepSeek Harness CLI，以及 dump-config 是否列出插件 id
-`powercontext-dsh`。
+`powercontext-dsh`；`powercontext doctor pi` 检查 Pi 可执行文件，以及 Pi 是否列出了 PowerContext package。
 
 Generation 和 revision 命令通过可重复的 `--source-ref TYPE/ID` 与
 `--artifact-ref FAMILY/ID@REVISION` 接收精确引用，不再读取序列化请求文件。
