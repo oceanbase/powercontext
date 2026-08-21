@@ -1820,6 +1820,15 @@ client = [
     { name = "opentelemetry-api" },
     { name = "pydantic-settings" },
 ]
+seekdb = [
+    { name = "aiosqlite" },
+    { name = "apscheduler" },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "openai"] },
+    { name = "pydantic-settings" },
+    { name = "pylibseekdb", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "pyobvector" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+]
 server = [
     { name = "aiosqlite" },
     { name = "apscheduler" },
@@ -1870,6 +1879,7 @@ requires-dist = [
     { name = "opentelemetry-sdk", marker = "extra == 'server'", specifier = ">=1.30,<2" },
     { name = "platformdirs", marker = "extra == 'cli'", specifier = ">=4,<5" },
     { name = "platformdirs", marker = "extra == 'server'", specifier = ">=4,<5" },
+    { name = "powercontext", extras = ["builtin"], marker = "extra == 'seekdb'" },
     { name = "powercontext", extras = ["builtin"], marker = "extra == 'server'" },
     { name = "powercontext", extras = ["client"], marker = "extra == 'cli'" },
     { name = "prometheus-client", marker = "extra == 'server'", specifier = ">=0.21,<1" },
@@ -1878,13 +1888,14 @@ requires-dist = [
     { name = "pydantic-settings", marker = "extra == 'builtin'", specifier = ">=2.7,<3" },
     { name = "pydantic-settings", marker = "extra == 'client'", specifier = ">=2.7,<3" },
     { name = "pydantic-settings", marker = "extra == 'server'", specifier = ">=2.7,<3" },
+    { name = "pylibseekdb", marker = "(sys_platform == 'darwin' and extra == 'seekdb') or (sys_platform == 'linux' and extra == 'seekdb')", specifier = ">=1.3.0.post4,<2" },
     { name = "pyobvector", marker = "extra == 'builtin'", specifier = ">=0.2.28,<0.3" },
     { name = "rfc8785", specifier = ">=0.1.4,<1" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'builtin'", specifier = ">=2,<3" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.16,<1" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34,<1" },
 ]
-provides-extras = ["builtin", "client", "server", "tracing-otlp", "cli"]
+provides-extras = ["builtin", "seekdb", "client", "server", "tracing-otlp", "cli"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2185,6 +2196,21 @@ wheels = [
 [package.optional-dependencies]
 crypto = [
     { name = "cryptography" },
+]
+
+[[package]]
+name = "pylibseekdb"
+version = "1.3.0.post4"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/56/7b/6f32f431c72b79673fa2d63c0f2e073b5435f76dd96d8f0da244c1da6f18/pylibseekdb-1.3.0.post4-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:b1fc2cebc222c398044bc494d2814f59c37c2795a352c8c8f8e2638b2d3180a7", size = 127323462, upload-time = "2026-08-12T01:52:11.49Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f5/0d/c36fb774730d6846cd787744f302f4c0c5d4f10f77d053615c3cfd39c2f2/pylibseekdb-1.3.0.post4-cp311-cp311-macosx_15_0_arm64.whl", hash = "sha256:6b81347bb6358cbbc285034bf8c90efe6c2e7271d44a3662c783ee3082612716", size = 110698053, upload-time = "2026-08-06T02:34:51.952Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/4c/43/4169d9485b6de641187bf56f5549d318a4d06df01f92ae9f8dfb9b6d99a1/pylibseekdb-1.3.0.post4-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:2e59856d1f994ba9c32a58c47f368b0e271127e92e4e47f8831a3093147068ea", size = 111250532, upload-time = "2026-08-06T02:34:18.222Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/5f/07/d49a43e1211d03fb54bc41ba777debac253bb252d65a5b9cf3771b95ab86/pylibseekdb-1.3.0.post4-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:5d6934330d218c4e3edf9d2ec9cb339f6c0a73c587883edb58c90904f6f2d6e7", size = 126090712, upload-time = "2026-08-06T02:33:13.891Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f6/78/75d5993ca18a3e64cc2ca4e2e8f2738865f93cfc5cebd7ec134314dc347b/pylibseekdb-1.3.0.post4-cp312-abi3-macosx_13_0_x86_64.whl", hash = "sha256:7d2065c58d7accfe8e9281487969c996d8ef8d9d6b8a2e7a3cdfc6c5363ff4d5", size = 127321326, upload-time = "2026-08-12T01:51:59.289Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/cd/61/ae4c488692e9ad1a126c6f7af85d1480da711ff419dc54d6919052386c2a/pylibseekdb-1.3.0.post4-cp312-abi3-macosx_15_0_arm64.whl", hash = "sha256:1365f13dab633eadb2f8f305f8af638adacc5bfb9e71abd877190476d30d1589", size = 110695544, upload-time = "2026-08-06T02:35:00.77Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/fc/a7/e84f65b0ae5eaa8e1adaad3cf7609017c4e9cfd7b957f56efcd87ce14916/pylibseekdb-1.3.0.post4-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:5052794da997f3311f9b57c0bf29d492bf184118fe03829df74975bce7beecf5", size = 111246811, upload-time = "2026-08-06T02:34:28.585Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/19/e9/49507c0859bf0898f99f2b0978baba6cfaca9563e4ba20242be014ee7e6c/pylibseekdb-1.3.0.post4-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:ee2700b5990e5e4f11c4b980b182cf7b066817ddd91c7b876152b88a7c24a7ea", size = 126086694, upload-time = "2026-08-06T02:33:28.048Z" },
 ]
 
 [[package]]

@@ -30,7 +30,7 @@ from powercontext.builtin.runtime.config import (
     InferenceConfig,
     RuntimeConfig,
 )
-from powercontext.paths import default_database_path, sqlite_url
+from powercontext.paths import default_database_path, default_seekdb_path, sqlite_url
 
 
 def _default_database() -> SQLiteConfig:
@@ -151,6 +151,18 @@ class ServerSettings(BaseSettings):
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
+
+    @field_validator("database", mode="before")
+    @classmethod
+    def default_seekdb_database_path(cls, value: object) -> object:
+        if not isinstance(value, Mapping) or value.get("kind") != "seekdb":
+            return value
+        path = value.get("path")
+        if "path" in value and not (isinstance(path, str) and not path.strip()):
+            return value
+        normalized = dict(value)
+        normalized["path"] = default_seekdb_path()
+        return normalized
 
     @field_validator("database", mode="before")
     @classmethod
