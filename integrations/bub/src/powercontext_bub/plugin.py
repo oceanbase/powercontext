@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +31,7 @@ from pydantic import Field, HttpUrl
 from pydantic_settings import SettingsConfigDict
 
 from powercontext.client import InvalidResponseError, PowerContextClient, ServerResponseError, TransportError
+from powercontext.client.capture import render_capture_event
 from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest
 
 STATE_KEY = "_powercontext"
@@ -43,7 +43,6 @@ Relevant host-supplied context is injected automatically before each model call.
 Use powercontext.search for follow-up recall beyond the injected context.
 Use powercontext.remember when the user establishes a durable decision, preference, constraint, or procedure."""
 CAPTURE_SCHEMA = "powercontext.bub-capture-event/v1"
-SENSITIVE_KEY_PARTS = ("api_key", "authorization", "cookie", "password", "secret", "token")
 
 
 @config(name="powercontext")
@@ -208,7 +207,7 @@ class PowerContextPlugin:
             sequence = capture_state["capture_sequence"]
             session_id = str(state.get("session_id", "unknown"))
             source_id = _source_id(self.scope_id, session_id, sequence, event, run_id)
-            content = _capture_content(event, sequence, payload, self.settings.capture_max_bytes)
+            content = render_capture_event(event, sequence, payload, self.settings.capture_max_bytes)
             request = CaptureContentSourceRequest(
                 scope_id=self.scope_id,
                 source_id=source_id,
@@ -325,83 +324,5 @@ def _source_id(scope_id: str, session_id: str, sequence: int, event: str, run_id
     return f"bub-event:{hashlib.sha256(identity.encode()).hexdigest()}"
 
 
-def _capture_content(event: str, sequence: int, payload: dict[str, Any], max_bytes: int) -> str:
-    safe_payload = _sanitize(payload)
-    content = _redact_known_secrets(
-        json.dumps(
-            {"event": event, "sequence": sequence, "payload": safe_payload},
-            ensure_ascii=True,
-            sort_keys=True,
-            default=str,
-        )
-    )
-    encoded = content.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return content
-
-    envelope = {"event": event, "sequence": sequence, "payload_excerpt": "", "truncated": True}
-    lower_bound = 0
-    upper_bound = len(content)
-    rendered = json.dumps(envelope, ensure_ascii=True, sort_keys=True)
-    while lower_bound <= upper_bound:
-        candidate_length = (lower_bound + upper_bound) // 2
-        envelope["payload_excerpt"] = content[:candidate_length]
-        candidate = json.dumps(envelope, ensure_ascii=True, sort_keys=True)
-        if len(candidate.encode("utf-8")) <= max_bytes:
-            rendered = candidate
-            lower_bound = candidate_length + 1
-        else:
-            upper_bound = candidate_length - 1
-    return rendered
-
-
-def _sanitize(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            str(key): "[REDACTED]" if _is_sensitive_key(str(key)) else _sanitize(item) for key, item in value.items()
-        }
-    if isinstance(value, list | tuple):
-        return [_sanitize(item) for item in value]
-    return value
-
-
-def _is_sensitive_key(key: str) -> bool:
-    folded = key.casefold().replace("-", "_")
-    return any(part in folded for part in SENSITIVE_KEY_PARTS)
-
-
 def _error_name(error: Exception | None) -> str | None:
     return None if error is None else type(error).__name__
-
-
-def _redact_known_secrets(value: str) -> str:
-    secrets = {secret for name, secret in os.environ.items() if secret and len(secret) >= 8 and _is_sensitive_key(name)}
-    secrets.update(_codex_auth_secrets())
-    for secret in secrets:
-        value = value.replace(secret, "[REDACTED]")
-    return value
-
-
-def _codex_auth_secrets() -> set[str]:
-    codex_home = Path(os.getenv("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
-    try:
-        auth = json.loads((codex_home / "auth.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return set()
-    return _sensitive_values(auth)
-
-
-def _sensitive_values(value: Any, *, sensitive: bool = False) -> set[str]:
-    if isinstance(value, dict):
-        secrets: set[str] = set()
-        for key, item in value.items():
-            secrets.update(_sensitive_values(item, sensitive=sensitive or _is_sensitive_key(str(key))))
-        return secrets
-    if isinstance(value, list | tuple):
-        secrets = set()
-        for item in value:
-            secrets.update(_sensitive_values(item, sensitive=sensitive))
-        return secrets
-    if sensitive and isinstance(value, str) and len(value) >= 8:
-        return {value}
-    return set()

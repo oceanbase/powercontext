@@ -1,6 +1,6 @@
 ---
 title: Interfaces
-description: Choose between the Codex plugin, DeepSeek Harness plugin, CLI, Python SDKs, HTTP, and MCP.
+description: Choose between Agent integrations, the CLI, Python SDKs, HTTP, and MCP.
 ---
 
 # Interfaces
@@ -10,6 +10,7 @@ All remote interfaces operate on the same Server and persistent Artifact storage
 | Interface | Intended use | Install |
 | --- | --- | --- |
 | Codex plugin | Cross-session recall and explicit Memory maintenance in Codex | `powercontext setup codex` |
+| Pydantic AI adapter | Memory tools, automatic context preparation, and optional trajectory capture | `powercontext-pydantic-ai` |
 | DeepSeek Harness plugin | Cross-session recall and explicit Memory maintenance in DeepSeek Harness | `powercontext setup dsh` |
 | CLI | Setup, diagnostics, Server control, capability checks, and human Candidate review | `powercontext[cli,server]` |
 | Python Client SDK | Typed async calls to a running Server | `powercontext[client]` |
@@ -68,6 +69,14 @@ derivation, but remains below explicit scope configuration.
 The project-context skill tells DeepSeek Harness when to search, remember, revise, or retire Memory. Before each model
 step the plugin recalls relevant entries and captures user input as Source evidence. Named `pc_*` tools perform explicit
 HTTP operations. The plugin never starts or embeds the Server.
+
+## Pydantic AI adapter
+
+The independent `powercontext-pydantic-ai` distribution contributes three Memory tools through the public Python
+Client and can automatically prepend bounded `PreparedContext`. Optional capture stores redacted, bounded visible
+model and completed tool events, performs checkpoint Flush, and flushes remaining Sources after the run. MCP needs no
+adapter package but does not provide automatic context preparation, capture, or Flush. See
+[Configure Pydantic AI](../how-to/configure-pydantic-ai.md).
 
 ## CLI
 

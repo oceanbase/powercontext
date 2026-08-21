@@ -18,6 +18,8 @@ check: ## Run code quality tools.
 	@uv run prek run -a
 	@echo "🚀 Static type checking: Running ty"
 	@uv run ty check
+	@echo "🚀 Static type checking: Running ty for the Pydantic AI integration"
+	@uv run ty check integrations/pydantic-ai/src
 
 .PHONY: test
 test: ## Test the code with pytest
