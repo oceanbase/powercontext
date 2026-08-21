@@ -30,6 +30,19 @@ powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
 Plugin。如需刷新现有安装，请再次运行 setup。Hermes 集成需要 Hermes Agent v0.20.4 或更高版本；配置和项目本地
 安装方式详见 [Hermes 集成指南](integrations/hermes/README.md)。
 
+### Pi Coding Agent
+
+安装 Pi 后，请使用包含原生 Pi package 的 PowerContext 版本。以下命令以当前 `master` 分支为例：
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup pi --source oceanbase/powercontext --ref master
+powercontext doctor pi
+```
+
+如使用包含 Pi 的正式 tag，请在前两条命令中将 `master` 替换为同一 tag。有关依赖、配置和项目上下文工作流，请参阅
+[配置 Pi](docs/zh/docs/how-to/configure-pi.md)。
+
 ### 2. 启动并验证本地 Server
 
 在一个终端中保持 Server 运行：
@@ -75,8 +88,8 @@ SQLite 数据库。显式 Memory 操作无需配置 inference provider 即可使
 
 ## 插件
 
-PowerContext 为 Codex、Claude Code、DeepSeek Harness 和 Hermes Agent 提供官方插件与安装指南。四个集成都通过
-PowerContext Server 使用同一套作用域数据和保留历史的契约；插件不会自行启动或内嵌 Server。
+PowerContext 为 Codex、Claude Code、DeepSeek Harness、Hermes Agent 和 Pi Coding Agent 提供官方集成与安装指南。
+五种集成都通过 PowerContext Server 使用同一套作用域数据和保留历史的契约；Host 集成不会自行启动或内嵌 Server。
 
 ### 官方集成
 
@@ -86,8 +99,11 @@ PowerContext Server 使用同一套作用域数据和保留历史的契约；插
 <td align="center" width="120"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></td>
 <td align="center" width="120"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
 </tr>
 </table>
+
+Pi Coding Agent 通过原生 package 而非 Host plugin 接入；详见[配置 Pi](docs/zh/docs/how-to/configure-pi.md)。
 
 ## 开发
 
