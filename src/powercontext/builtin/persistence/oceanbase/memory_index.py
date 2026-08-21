@@ -21,7 +21,6 @@ from sqlalchemy import (
     BigInteger,
     Column,
     MetaData,
-    String,
     Table,
     UniqueConstraint,
     bindparam,
@@ -49,6 +48,7 @@ from powercontext.builtin.persistence.tables import (
     MAX_MEMORY_HASH_LENGTH,
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
+    identity_string,
 )
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
@@ -213,13 +213,13 @@ class OceanBaseMemoryVectorIndex:
             _OCEANBASE_VECTOR_TABLE_NAME,
             metadata,
             Column("vector_id", BigInteger, primary_key=True, autoincrement=True),
-            Column("scope_id", String(MAX_SCOPE_ID_LENGTH), nullable=False),
-            Column("memory_artifact_id", String(MAX_ARTIFACT_ID_LENGTH), nullable=False),
+            Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+            Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), nullable=False),
             Column("head_revision", BigInteger, nullable=False),
-            Column("entry_id", String(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
-            Column("entry_version_id", String(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
-            Column("entry_content_hash", String(MAX_MEMORY_HASH_LENGTH), nullable=False),
-            Column("embedding_content_hash", String(MAX_MEMORY_HASH_LENGTH), nullable=False),
+            Column("entry_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+            Column("entry_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+            Column("entry_content_hash", identity_string(MAX_MEMORY_HASH_LENGTH), nullable=False),
+            Column("embedding_content_hash", identity_string(MAX_MEMORY_HASH_LENGTH), nullable=False),
             Column("embedding", VECTOR(profile.dimension), nullable=False),
             UniqueConstraint(
                 "scope_id",

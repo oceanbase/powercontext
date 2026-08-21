@@ -28,7 +28,6 @@ from sqlalchemy import (
     Column,
     ForeignKeyConstraint,
     Integer,
-    String,
     Table,
     UniqueConstraint,
     delete,
@@ -59,6 +58,7 @@ from powercontext.builtin.persistence.tables import (
     MAX_MEMORY_HASH_LENGTH,
     MEMORY_ENTRY_HEADS_TABLE,
     SHARED_METADATA,
+    identity_string,
 )
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
@@ -78,13 +78,13 @@ SQLITE_MEMORY_VECTOR_ENTRIES_TABLE = Table(
     "pc_memory_vector_entries",
     SHARED_METADATA,
     Column("vector_id", Integer, primary_key=True, autoincrement=True),
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), nullable=False),
-    Column("memory_artifact_id", String(MAX_ARTIFACT_ID_LENGTH), nullable=False),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), nullable=False),
     Column("head_revision", Integer, nullable=False),
-    Column("entry_id", String(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
-    Column("entry_version_id", String(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
-    Column("entry_content_hash", String(MAX_MEMORY_HASH_LENGTH), nullable=False),
-    Column("embedding_content_hash", String(MAX_MEMORY_HASH_LENGTH), nullable=False),
+    Column("entry_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+    Column("entry_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+    Column("entry_content_hash", identity_string(MAX_MEMORY_HASH_LENGTH), nullable=False),
+    Column("embedding_content_hash", identity_string(MAX_MEMORY_HASH_LENGTH), nullable=False),
     UniqueConstraint(
         "scope_id",
         "memory_artifact_id",

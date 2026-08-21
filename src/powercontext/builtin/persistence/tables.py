@@ -29,7 +29,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.mysql import MEDIUMBLOB, MEDIUMTEXT
+from sqlalchemy.dialects.mysql import MEDIUMBLOB, MEDIUMTEXT, VARCHAR
 
 from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
@@ -46,6 +46,26 @@ from powercontext.limits import (
 
 SHARED_METADATA = MetaData()
 
+_MYSQL_IDENTITY_COLLATION = "utf8mb4_bin"
+
+
+def identity_string(length: int):
+    """Opaque identity text compared byte-exactly on every backend.
+
+    SQLite compares ``String`` values with BINARY semantics. MySQL/OceanBase
+    otherwise inherit the server default ``utf8mb4_general_ci``, which would
+    collapse case-variant and accent-variant ``scope_id`` / ``source_id`` keys.
+
+    ``create_all(checkfirst=True)`` does not rewrite existing column collations,
+    and OceanBase rejects ``ALTER COLUMN ... COLLATE`` when foreign keys exist.
+    Existing MySQL/OceanBase schemas must be recreated to pick up this type.
+    """
+
+    return String(length).with_variant(
+        VARCHAR(length, charset="utf8mb4", collation=_MYSQL_IDENTITY_COLLATION),
+        "mysql",
+    )
+
 
 def _canonical_payload_type():
     return LargeBinary().with_variant(MEDIUMBLOB(), "mysql")
@@ -58,9 +78,9 @@ def _entry_text_type():
 SOURCES_TABLE = Table(
     "pc_sources",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("source_type", String(MAX_SOURCE_TYPE_LENGTH), primary_key=True),
-    Column("source_id", String(MAX_SOURCE_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_type", identity_string(MAX_SOURCE_TYPE_LENGTH), primary_key=True),
+    Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
     Column("payload", _canonical_payload_type(), nullable=False),
     Column("journal_position", BigInteger, nullable=False),
     UniqueConstraint("scope_id", "journal_position", name="uq_pc_sources_scope_journal_position"),
@@ -69,7 +89,7 @@ SOURCES_TABLE = Table(
 SOURCE_JOURNAL_HEADS_TABLE = Table(
     "pc_source_journal_heads",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
     Column("position", BigInteger, nullable=False),
     CheckConstraint("position >= 0", name="ck_pc_source_journal_heads_position_nonnegative"),
 )
@@ -77,9 +97,9 @@ SOURCE_JOURNAL_HEADS_TABLE = Table(
 ARTIFACTS_TABLE = Table(
     "pc_artifacts",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("family", String(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
-    Column("artifact_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, primary_key=True),
     Column("content", _canonical_payload_type(), nullable=False),
 )
@@ -87,9 +107,9 @@ ARTIFACTS_TABLE = Table(
 ARTIFACT_HEADS_TABLE = Table(
     "pc_artifact_heads",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("family", String(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
-    Column("artifact_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, nullable=False),
     Column("searchable_text", _entry_text_type()),
     ForeignKeyConstraint(
@@ -109,13 +129,13 @@ ARTIFACT_HEADS_TABLE = Table(
 ARTIFACT_LINEAGE_SOURCES_TABLE = Table(
     "pc_artifact_lineage_sources",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("family", String(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
-    Column("artifact_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, primary_key=True),
     Column("ordinal", Integer, primary_key=True),
-    Column("source_type", String(MAX_SOURCE_TYPE_LENGTH), nullable=False),
-    Column("source_id", String(MAX_SOURCE_ID_LENGTH), nullable=False),
+    Column("source_type", identity_string(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), nullable=False),
     ForeignKeyConstraint(
         ("scope_id", "family", "artifact_id", "revision"),
         (
@@ -136,13 +156,13 @@ ARTIFACT_LINEAGE_SOURCES_TABLE = Table(
 ARTIFACT_LINEAGE_ARTIFACTS_TABLE = Table(
     "pc_artifact_lineage_artifacts",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("family", String(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
-    Column("artifact_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, primary_key=True),
     Column("ordinal", Integer, primary_key=True),
-    Column("upstream_family", String(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
-    Column("upstream_artifact_id", String(MAX_ARTIFACT_ID_LENGTH), nullable=False),
+    Column("upstream_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("upstream_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), nullable=False),
     Column("upstream_revision", Integer, nullable=False),
     ForeignKeyConstraint(
         ("scope_id", "family", "artifact_id", "revision"),
@@ -169,15 +189,15 @@ ARTIFACT_LINEAGE_ARTIFACTS_TABLE = Table(
 ARTIFACT_CANDIDATE_VERSIONS_TABLE = Table(
     "pc_artifact_candidate_versions",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("candidate_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("candidate_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("version", Integer, primary_key=True),
-    Column("family", String(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
     Column("proposal", _canonical_payload_type(), nullable=False),
     Column("source_refs", _canonical_payload_type(), nullable=False),
     Column("artifact_refs", _canonical_payload_type(), nullable=False),
-    Column("target_family", String(MAX_ARTIFACT_FAMILY_LENGTH)),
-    Column("target_artifact_id", String(MAX_ARTIFACT_ID_LENGTH)),
+    Column("target_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH)),
+    Column("target_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
     Column("target_revision", Integer),
     Column("reason", _entry_text_type()),
     ForeignKeyConstraint(
@@ -201,13 +221,13 @@ ARTIFACT_CANDIDATE_VERSIONS_TABLE = Table(
 ARTIFACT_CANDIDATE_HEADS_TABLE = Table(
     "pc_artifact_candidate_heads",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("candidate_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
-    Column("family", String(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("candidate_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
     Column("version", Integer, nullable=False),
-    Column("status", String(16), nullable=False),
-    Column("result_family", String(MAX_ARTIFACT_FAMILY_LENGTH)),
-    Column("result_artifact_id", String(MAX_ARTIFACT_ID_LENGTH)),
+    Column("status", identity_string(16), nullable=False),
+    Column("result_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH)),
+    Column("result_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
     Column("result_revision", Integer),
     Column("decision_reason", _entry_text_type()),
     ForeignKeyConstraint(
@@ -247,8 +267,8 @@ ARTIFACT_CANDIDATE_HEADS_TABLE = Table(
 SOURCE_CURSORS_TABLE = Table(
     "pc_source_cursors",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("binding_name", String(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
     Column("cursor", _canonical_payload_type(), nullable=False),
     Column("generation", BigInteger, nullable=False),
     CheckConstraint("generation >= 0", name="ck_pc_source_cursors_generation_nonnegative"),
@@ -257,17 +277,17 @@ SOURCE_CURSORS_TABLE = Table(
 EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
     "pc_external_skill_registrations",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("external_skill_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
-    Column("provider", String(MAX_SOURCE_TYPE_LENGTH), nullable=False),
-    Column("agent_kind", String(MAX_SOURCE_TYPE_LENGTH), nullable=False),
-    Column("host_id", String(MAX_EXTERNAL_SKILL_HOST_ID_LENGTH), nullable=False),
-    Column("installation_scope", String(16), nullable=False),
-    Column("locator", String(MAX_EXTERNAL_SKILL_LOCATOR_LENGTH), nullable=False),
-    Column("locator_hash", String(64), nullable=False),
-    Column("fingerprint", String(64), nullable=False),
-    Column("name", String(MAX_EXTERNAL_SKILL_NAME_LENGTH), nullable=False),
-    Column("description", String(MAX_EXTERNAL_SKILL_DESCRIPTION_LENGTH), nullable=False),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("external_skill_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("provider", identity_string(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    Column("agent_kind", identity_string(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    Column("host_id", identity_string(MAX_EXTERNAL_SKILL_HOST_ID_LENGTH), nullable=False),
+    Column("installation_scope", identity_string(16), nullable=False),
+    Column("locator", identity_string(MAX_EXTERNAL_SKILL_LOCATOR_LENGTH), nullable=False),
+    Column("locator_hash", identity_string(64), nullable=False),
+    Column("fingerprint", identity_string(64), nullable=False),
+    Column("name", identity_string(MAX_EXTERNAL_SKILL_NAME_LENGTH), nullable=False),
+    Column("description", identity_string(MAX_EXTERNAL_SKILL_DESCRIPTION_LENGTH), nullable=False),
     UniqueConstraint(
         "scope_id",
         "provider",
@@ -285,10 +305,10 @@ EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
 MODEL_USAGE_DAILY_TABLE = Table(
     "pc_model_usage_daily",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
     Column("usage_date", Date, primary_key=True),
-    Column("purpose", String(64), primary_key=True),
-    Column("operation", String(16), primary_key=True),
+    Column("purpose", identity_string(64), primary_key=True),
+    Column("operation", identity_string(16), primary_key=True),
     Column("requests", BigInteger, nullable=False),
     Column("input_tokens", BigInteger, nullable=False),
     Column("output_tokens", BigInteger, nullable=False),
@@ -306,10 +326,10 @@ MODEL_USAGE_DAILY_TABLE = Table(
 RECALL_TOKEN_DAILY_TABLE = Table(
     "pc_recall_token_daily",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
     Column("usage_date", Date, primary_key=True),
-    Column("estimator_id", String(128), primary_key=True),
-    Column("estimator_version", String(64), primary_key=True),
+    Column("estimator_id", identity_string(128), primary_key=True),
+    Column("estimator_version", identity_string(64), primary_key=True),
     Column("preparations", BigInteger, nullable=False),
     Column("ready_preparations", BigInteger, nullable=False),
     Column("comparable_preparations", BigInteger, nullable=False),
@@ -349,18 +369,18 @@ MAX_MEMORY_HASH_LENGTH = 64
 MEMORY_ENTRY_VERSIONS_TABLE = Table(
     "pc_memory_entry_versions",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("family", String(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
-    Column("memory_artifact_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
-    Column("entry_id", String(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
-    Column("entry_version_id", String(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("entry_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+    Column("entry_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
     Column("version", Integer, nullable=False),
-    Column("previous_version_id", String(MAX_MEMORY_ENTRY_ID_LENGTH)),
-    Column("kind", String(MAX_MEMORY_ENTRY_KIND_LENGTH), nullable=False),
+    Column("previous_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH)),
+    Column("kind", identity_string(MAX_MEMORY_ENTRY_KIND_LENGTH), nullable=False),
     Column("text", _entry_text_type(), nullable=False),
     Column("source_refs", _canonical_payload_type(), nullable=False),
     Column("artifact_refs", _canonical_payload_type(), nullable=False),
-    Column("entry_content_hash", String(MAX_MEMORY_HASH_LENGTH), nullable=False),
+    Column("entry_content_hash", identity_string(MAX_MEMORY_HASH_LENGTH), nullable=False),
     Column("created_in_revision", Integer, nullable=False),
     UniqueConstraint(
         "scope_id",
@@ -396,13 +416,13 @@ MEMORY_ENTRY_VERSIONS_TABLE = Table(
 MEMORY_ENTRY_HEADS_TABLE = Table(
     "pc_memory_entry_heads",
     SHARED_METADATA,
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("family", String(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
-    Column("memory_artifact_id", String(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("head_revision", Integer, nullable=False),
-    Column("entry_id", String(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
-    Column("entry_version_id", String(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
-    Column("entry_content_hash", String(MAX_MEMORY_HASH_LENGTH), nullable=False),
+    Column("entry_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
+    Column("entry_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+    Column("entry_content_hash", identity_string(MAX_MEMORY_HASH_LENGTH), nullable=False),
     Column("searchable_text", _entry_text_type(), nullable=False),
     ForeignKeyConstraint(
         ("scope_id", "family", "memory_artifact_id", "head_revision"),

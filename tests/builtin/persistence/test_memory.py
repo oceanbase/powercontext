@@ -55,6 +55,7 @@ def test_memory_schema_is_mysql_compilable_and_respects_key_and_payload_limits()
     versions = str(CreateTable(MEMORY_ENTRY_VERSIONS_TABLE).compile(dialect=dialect))
     heads = str(CreateTable(MEMORY_ENTRY_HEADS_TABLE).compile(dialect=dialect))
 
+    assert "scope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" in versions
     assert "text MEDIUMTEXT NOT NULL" in versions
     assert "source_refs MEDIUMBLOB NOT NULL" in versions
     assert "artifact_refs MEDIUMBLOB NOT NULL" in versions
