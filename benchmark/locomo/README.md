@@ -186,5 +186,6 @@ Each run writes under `benchmark/locomo/results/<run-id>/`:
 The `results/` directory is ignored because raw outputs can be large and deployment-specific. Publish a reviewed,
 non-secret result separately when it should become repository evidence.
 
-The reviewed full-run comparison for the built-in `coding` and `conversation` extraction profiles is published in
-[`CONVERSATION_PROFILE_AB.md`](CONVERSATION_PROFILE_AB.md).
+Reviewed non-secret comparison reports should be published as separate artifacts with the
+`run.json` identity (dataset hash, extraction profile, top-k, judge profile, and model names).
+This repository does not currently include a reviewed coding-versus-conversation A/B report.

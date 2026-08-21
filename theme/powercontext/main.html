@@ -1,4 +1,48 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
 {% extends "base.html" %}
+
+{% set canonical = page.canonical_url | string %}
+{% set is_zh = "/zh/" in canonical %}
+{% set is_docs = "/docs/" in canonical or "/development/" in canonical or "/modules/" in canonical %}
+{% set is_reference = "/docs/reference/" in canonical or "/modules/" in canonical %}
+{% set is_tutorial = "/docs/tutorials/" in canonical %}
+{% set is_how_to = "/docs/how-to/" in canonical %}
+{% set is_development = "/development/" in canonical %}
+{% set is_record = "/rfcs/" in canonical or "/meetings/" in canonical %}
+{% set is_record_index = page.title in ["PowerContext RFCs", "PowerContext RFC", "Meeting notes", "会议纪要"] %}
+{% set record_nav_title = namespace(value=page.title) %}
+{% if is_record %}
+  {% set language_title = "中文" if is_zh else "English" %}
+  {% set records_title = "RFC 与会议纪要" if is_zh else "RFCs & Meetings" %}
+  {% for language_item in nav.items %}
+    {% if language_item.title == language_title %}
+      {% for top_item in language_item.children %}
+        {% if top_item.title == records_title %}
+          {% for record_group in top_item.children %}
+            {% for record_item in record_group.children %}
+              {% if record_item.active %}{% set record_nav_title.value = record_item.title %}{% endif %}
+            {% endfor %}
+          {% endfor %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
 
 {% block extrahead %}
   {{ super() }}
@@ -9,4 +53,75 @@
 {% block scripts %}
   {{ super() }}
   <script src="{{ 'assets/javascripts/language-switcher.js' | url }}"></script>
+{% endblock %}
+
+{% block site_nav %}
+  <div class="md-sidebar md-sidebar--primary pc-page-sidebar pc-page-sidebar--navigation{% if is_docs %} docs-sidebar{% endif %}" data-md-component="sidebar" data-md-type="navigation">
+    <div class="md-sidebar__scrollwrap">
+      <div class="md-sidebar__inner">{% include "partials/nav.html" %}</div>
+    </div>
+  </div>
+  <div class="md-sidebar md-sidebar--secondary pc-page-sidebar pc-page-sidebar--toc" data-md-component="sidebar" data-md-type="toc">
+    <div class="md-sidebar__scrollwrap">
+      <div class="md-sidebar__inner">{% include "partials/toc.html" %}</div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block container %}
+  {% set page_type = namespace(value="article") %}
+  {% if is_record %}
+    {% set page_type.value = "record" %}
+  {% elif is_reference %}
+    {% set page_type.value = "reference" %}
+  {% elif is_docs %}
+    {% set page_type.value = "guide" %}
+  {% endif %}
+  {% if page.meta is defined and page.meta is mapping and "page_type" in page.meta %}
+    {% set page_type.value = page.meta["page_type"] %}
+  {% endif %}
+  <div class="md-content pc-page pc-page--{{ page_type.value }}{% if is_docs %} docs-content{% if page_type.value == 'docs-overview' %} docs-overview{% else %} article-content{% endif %}{% if is_reference %} reference-content{% endif %}{% endif %}{% if is_record %} record-content{% endif %}" data-md-component="content">
+    {% if is_docs %}
+      <nav class="pc-breadcrumbs" aria-label="{{ lang.t('nav') }}">
+        {% if page_type.value == "docs-overview" %}
+          <a href="{{ ('zh/' if is_zh else 'en/') | url }}">{{ "首页" if is_zh else "Home" }}</a>
+          <span aria-hidden="true">/</span>
+          <span>{{ "文档" if is_zh else "Documentation" }}</span>
+        {% else %}
+          <a href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ "文档" if is_zh else "Docs" }}</a>
+          <span aria-hidden="true">/</span>
+          <span>{% if is_tutorial %}{{ "开始使用" if is_zh else "Get started" }}{% elif is_how_to %}{{ "操作指南" if is_zh else "How-to guides" }}{% elif is_reference %}{{ "参考" if is_zh else "Reference" }}{% elif is_development %}{{ "开发" if is_zh else "Development" }}{% else %}{{ "文档" if is_zh else "Documentation" }}{% endif %}</span>
+        {% endif %}
+      </nav>
+    {% elif "navigation.path" in features %}
+      {% include "partials/path.html" %}
+    {% endif %}
+    <article class="md-content__inner md-typeset{% if is_record %} record-body{% endif %}">
+      {% block content %}
+      {% if is_docs and page_type.value != "docs-overview" and not is_reference %}
+        <div class="article-kind">
+          {% if is_tutorial %}{{ "教程" if is_zh else "Tutorial" }}
+          {% elif is_how_to %}{{ "操作指南" if is_zh else "How-to guide" }}
+          {% elif is_reference %}{{ "参考" if is_zh else "Reference" }}
+          {% elif is_development %}{{ "开发文档" if is_zh else "Development" }}
+          {% else %}{{ "文档" if is_zh else "Documentation" }}{% endif %}
+        </div>
+      {% elif is_record and not is_record_index %}
+        <header class="record-generated-header">
+          {% if "/meetings/" in canonical %}
+            <div class="article-kind">{{ "会议纪要" if is_zh else "Meeting record" }}</div>
+            <h1>{{ record_nav_title.value }}</h1>
+          {% elif record_nav_title.value in ["RFC Template", "RFC 模板"] %}
+            <div class="article-kind">RFC 0000</div>
+            <h1>{{ record_nav_title.value }}</h1>
+          {% else %}
+            <div class="article-kind">RFC {{ record_nav_title.value[:4] }}</div>
+            <h1>{{ record_nav_title.value[5:] }}</h1>
+          {% endif %}
+        </header>
+      {% endif %}
+      {% include "partials/content.html" %}
+      {% endblock %}
+    </article>
+  </div>
 {% endblock %}

@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """One-engine SQLite profile using SQLAlchemy's aiosqlite dialect."""
 
 from __future__ import annotations
@@ -48,6 +62,12 @@ class SQLiteConfig(BaseModel):
             raise ValueError("SQLite profile URL must use sqlite+aiosqlite")  # noqa: TRY003
         return value
 
+    @property
+    def is_in_memory(self) -> bool:
+        """Return whether this profile stores its database only in process memory."""
+
+        return _is_memory_url(self.url)
+
 
 class SQLiteProfile:
     """An initialized SQLite database profile."""
@@ -68,7 +88,7 @@ class SQLiteProfile:
 
         _create_database_directory(config.url)
         engine_options: dict[str, object] = {"echo": config.echo}
-        if _is_memory_url(config.url):
+        if config.is_in_memory:
             engine_options["poolclass"] = StaticPool
         engine = create_async_engine(config.url, **engine_options)
         _configure_sqlite(engine, config)

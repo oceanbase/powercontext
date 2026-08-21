@@ -1,4 +1,18 @@
-"""Generate the DeepSeek Harness operations table from OpenAPI."""
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Generate TypeScript HTTP operation tables from OpenAPI."""
 
 from __future__ import annotations
 
@@ -10,9 +24,30 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "openapi" / "powercontext.yaml"
-GENERATED_PATH = ROOT / "integrations" / "dsh" / "plugins" / "powercontext" / "src" / "operations.generated.ts"
+GENERATED_PATHS = (
+    ROOT / "integrations" / "dsh" / "plugins" / "powercontext" / "src" / "operations.generated.ts",
+    ROOT / "integrations" / "pi" / "plugins" / "powercontext" / "src" / "operations.generated.ts",
+)
 DRIFT_MESSAGE = "Generated JS operations drifted; run 'make js-api-generate' and review the result."
 HTTP_METHODS = ("get", "post", "put", "patch", "delete")
+LICENSE_HEADER = """\
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+"""
 
 
 def render_operations_source(doc: dict[str, Any]) -> str:
@@ -23,7 +58,7 @@ def render_operations_source(doc: dict[str, Any]) -> str:
         )
     body = "\n".join(_render_row(row) for row in rows)
     return (
-        "// generated from openapi/powercontext.yaml; do not edit.\n"
+        f"{LICENSE_HEADER}// generated from openapi/powercontext.yaml; do not edit.\n"
         "\n"
         "export const OPERATIONS = {\n"
         f"{body}\n"
@@ -65,12 +100,13 @@ def main() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text(encoding="utf-8"))
     source = render_operations_source(contract)
     if args.check:
-        current = GENERATED_PATH.read_text(encoding="utf-8") if GENERATED_PATH.is_file() else ""
-        if current.replace("\r\n", "\n") != source.replace("\r\n", "\n"):
+        current = [path.read_text(encoding="utf-8") if path.is_file() else "" for path in GENERATED_PATHS]
+        if any(item.replace("\r\n", "\n") != source.replace("\r\n", "\n") for item in current):
             raise SystemExit(DRIFT_MESSAGE)
         return
-    GENERATED_PATH.parent.mkdir(parents=True, exist_ok=True)
-    GENERATED_PATH.write_text(source, encoding="utf-8", newline="\n")
+    for path in GENERATED_PATHS:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8", newline="\n")
 
 
 def _render_row(row: dict[str, Any]) -> str:

@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Ready-to-run Server composition over the built-in runtime."""
 
 from __future__ import annotations
@@ -18,6 +32,7 @@ from powercontext.builtin.artifacts.handoff import HandoffGenerationPipeline
 from powercontext.builtin.artifacts.memory import CandidatePipeline
 from powercontext.builtin.artifacts.skill import ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.inference import EmbeddingModel
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinRuntime
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
@@ -69,6 +84,8 @@ def create_server_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _log_lifecycle("server.starting", "PowerContext Server is starting")
+        if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
+            _log_in_memory_database_warning()
         async with open_builtin_runtime(
             config,
             scheduler_path=default_scheduler_path() if scheduler_path is None else scheduler_path,
@@ -121,12 +138,7 @@ def create_server_app(
         tracing=resolved_tracing,
         handoff_report_enabled=resolved.handoff_report.enabled,
     )
-    if resolved.dashboard.enabled:
-        mount_web_ui(
-            app,
-            scopes={scope.scope_id: scope.display_name for scope in resolved.dashboard.scopes},
-            handoff_report_enabled=resolved.handoff_report.enabled,
-        )
+    _mount_optional_web_ui(app, resolved)
     if metrics is not None:
         app.add_api_route(
             "/metrics",
@@ -160,6 +172,33 @@ def create_server_app(
             tracing=resolved_tracing,
         )
     return app
+
+
+def _mount_optional_web_ui(app: FastAPI, settings: ServerSettings) -> None:
+    app.state.dashboard_started = False
+    app.state.dashboard_startup_error = None
+    if not (settings.dashboard.enabled or settings.handoff_report.enabled):
+        return
+    try:
+        mount_web_ui(
+            app,
+            scopes={scope.scope_id: scope.display_name for scope in settings.dashboard.scopes},
+            dashboard_enabled=settings.dashboard.enabled,
+            handoff_report_enabled=settings.handoff_report.enabled,
+            authentication_required=settings.auth.enabled,
+        )
+        if settings.dashboard.enabled:
+            app.state.dashboard_started = True
+    except Exception as error:
+        app.state.dashboard_startup_error = str(error)
+        unit = "Dashboard" if settings.dashboard.enabled else "Handoff Report"
+        log_safely(
+            logger,
+            logging.WARNING,
+            f"PowerContext {unit} failed to start: {error}",
+            exc_info=error,
+            extra={"event": "web_ui.start_failed", "unit": "web_ui"},
+        )
 
 
 class _ServerReadinessProbe:
@@ -226,6 +265,16 @@ def _log_lifecycle(event: str, message: str) -> None:
         logging.INFO,
         message,
         extra={"event": event, "unit": "server"},
+    )
+
+
+def _log_in_memory_database_warning() -> None:
+    log_safely(
+        logger,
+        logging.WARNING,
+        "PowerContext Server is using an in-memory SQLite database; "
+        "all main database data will be lost when the process stops",
+        extra={"event": "server.database.in_memory", "unit": "server"},
     )
 
 

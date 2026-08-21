@@ -19,22 +19,56 @@ directory. It is safe to run again. Pass the same `--ref` used to install the Po
 Open a new Codex session after setup. Use `/hooks` to inspect and, when prompted, trust the PowerContext
 `UserPromptSubmit` hook.
 
-## Understand what the plugin does
+## Understand automatic recall, Memory, and Handoff
 
 The plugin has two paths to the same Server:
 
 - a prompt hook asks the Runtime to prepare one final, bounded context value, then independently captures the
   user's prompt as Source evidence;
-- MCP gives Codex explicit tools to remember, search, revise, retire, and audit Memory.
+- MCP gives Codex explicit tools to read and maintain Memory, plus an explicit Handoff workflow.
 
-Memory scope comes from the normalized Git remote when one is available, or from the project path otherwise. A later
-Codex session opened in the same project resolves the same scope. Set `POWERCONTEXT_CODEX_SCOPE_ID` only when you need
-an explicit scope that is independent of both.
+## Hand off the current work in one turn
+
+In a Codex session with the plugin installed and the PowerContext Server available, enter:
+
+```text
+handoff this work
+```
+
+The `project-context` Skill treats that imperative as explicit authorization to create one durable Handoff milestone.
+If the catalog contains multiple Workstreams, Codex first opens a native picker; one Workstream is selected
+automatically when it is the only candidate. Codex binds the selected Workstream to the checkout, inspects the current
+conversation and repository, assembles the objective, branch and worktree state, changed files, observed checks,
+blockers, omissions, and next action, then calls `handoff_current_work` followed by `commit_handoff`. After a successful
+commit, Codex reports the selected Workstream and exact Handoff Revision; the user does not need to fill in the Handoff
+content or confirm the commit again.
+
+`交接`, `交接当前工作`, and `commit a handoff` use the same behavior. To inspect the proposed content without writing,
+ask to `preview the handoff without committing`; the Skill renders the proposed fields in chat and calls no write
+tool. Discussing Handoff design or asking how it works does not authorize a write.
+
+Codex resolves scope in this order: an explicit `POWERCONTEXT_CODEX_SCOPE_ID`, a Workstream scope persistently bound
+to the current Git workspace, the normalized Git remote, and finally the project path. Later Codex sessions in the
+same workspace reuse that scope.
+
+The picker returns the Workstream's human-facing `work_id` and authoritative `scope_id`. The `project-context` Skill
+passes that exact scope to the resolver's `--bind-workstream` operation and verifies the result. The binding lives in
+`powercontext/codex-workspace.json` below the Git-private directory, outside the worktree and commits. A one-line
+Handoff then continues the selected Workstream's Artifact lifecycle and creates the next Revision. If the MCP client
+does not support native elicitation, the tool returns structured choices instead; the integration must still obtain an
+explicit selection and must not choose silently.
 
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The Runtime labels
 Memory-derived items as untrusted history, preserves exact citations, and owns final selection and rendering. Explicit
-search remains available through the Client and MCP; it is not a second automatic recall step.
+search remains available through the Client and MCP; it is not a second automatic recall step. Automatically injected
+content and Handoffs are historical information. Codex must still check current code, user requests, and system
+instructions before acting on them.
+
+Memory stores durable, reusable decisions, constraints, and state. A Handoff temporarily transfers the current task to
+another task, session, or model. It must be explicitly prepared, inspected, and delivered, rather than substituted with
+a few Memory entries. Read [Memory and Handoff](../explanation/memory-and-handoff.md) for the boundary and
+[Hand off work in Codex](handoff-with-codex.md) for the procedure.
 
 ## Control prompt capture
 

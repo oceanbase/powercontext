@@ -1,3 +1,8 @@
+---
+template: records.html
+title: PowerContext RFC
+---
+
 # PowerContext RFC
 
 RFC 记录重要的设计提案及其决策。

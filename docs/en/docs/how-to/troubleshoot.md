@@ -1,6 +1,6 @@
 ---
 title: Troubleshoot
-description: Diagnose PowerContext installation, Server, database, Codex, Claude Code, and DeepSeek Harness plugin problems.
+description: Diagnose PowerContext installation, Server, database, and host integration problems.
 ---
 
 # Troubleshoot
@@ -19,6 +19,7 @@ the top-level result and every check include `ok` and `status`. Check optional h
 powercontext doctor codex
 powercontext doctor claude-code
 powercontext doctor dsh
+powercontext doctor pi
 ```
 
 ## Installation cannot read the Git URL
@@ -32,7 +33,7 @@ git ls-remote https://github.com/oceanbase/powercontext.git HEAD
 If this fails, configure the credential helper or SSH key used by Git, then rerun `uv tool install`. `uv` uses Git's
 credential configuration; PowerContext does not accept or store repository credentials.
 
-## `powercontext`, `codex`, `claude`, or `dsh` is not found
+## `powercontext`, `codex`, `claude`, `dsh`, or `pi` is not found
 
 Run:
 
@@ -42,10 +43,12 @@ command -v powercontext
 command -v codex
 command -v claude
 command -v dsh
+command -v pi
 ```
 
-Add the uv tool bin directory to `PATH` if needed. `powercontext setup codex`, `powercontext setup claude-code`, and
-`powercontext setup dsh` report an error rather than installing a plugin when the host CLI is unavailable.
+Add the uv tool bin directory to `PATH` if needed. `powercontext setup codex`, `powercontext setup claude-code`,
+`powercontext setup dsh`, and `powercontext setup pi` report an error rather than attempting installation when the host
+CLI is unavailable.
 
 ## The plugin is missing or stale
 
@@ -53,6 +56,8 @@ Confirm the integration failure without involving the Server:
 
 ```bash
 powercontext doctor codex
+powercontext doctor dsh
+powercontext doctor pi
 ```
 
 Reinstall it from the same ref as the tool:
@@ -90,6 +95,16 @@ dsh --profile web --dump-config
 Then start a new DeepSeek Harness session and confirm dump-config lists `id: powercontext-dsh`. The DSH plugin
 directory must contain `lib/index.js`.
 
+For Pi, run:
+
+```bash
+powercontext doctor pi
+powercontext setup pi --source oceanbase/powercontext --ref <ref>
+pi list
+```
+
+Then start a new Pi session and confirm `pi list` includes the PowerContext package source.
+
 ## The Server check fails
 
 Start the service:
@@ -106,8 +121,8 @@ powercontext doctor --server-url http://127.0.0.1:9000
 powercontext --server-url http://127.0.0.1:9000 ready
 ```
 
-The bundled Codex and Claude Code plugins use port 8000 by default. A liveness failure means the process cannot answer health
-requests, so readiness is not checked. `not_ready` with HTTP 503 means the Runtime or database cannot accept work.
+The bundled Codex and Claude Code plugins and Pi package use port 8000 by default. A liveness failure means the process
+cannot answer health requests, so readiness is not checked. `not_ready` with HTTP 503 means the Runtime or database cannot accept work.
 `degraded` with HTTP 200 means a configured inference capability failed while database-backed operations remain
 available. Human and JSON output retain the Server's individual check statuses.
 
@@ -152,7 +167,7 @@ powercontext capabilities
 
 ## The coding agent continues when the Server is down
 
-This is expected. Both prompt hooks fail open so a Memory outage cannot block ordinary Codex or Claude Code work.
+This is expected. The Codex, Claude Code, and Pi integrations fail open so a Memory outage cannot block ordinary work.
 Restart the Server to restore recall and capture; the existing database is reopened automatically.
 
 ## Codex does not inject recalled context
@@ -202,3 +217,18 @@ claude
 
 Do not add the token to `.mcp.json`, the Server URL, or plugin options. Use `/mcp` after restart to confirm that the
 `powercontext` Server is connected.
+
+## Pi does not inject recalled context
+
+First check the package and Server separately:
+
+```bash
+powercontext doctor pi
+powercontext doctor
+```
+
+Restart Pi after installing the package or changing `POWERCONTEXT_PI_*` variables. In a new Pi session, run
+`/pc doctor` to check the configured Server directly. Recall is intentionally silent and fail-open: if the Server is
+unavailable, redirects, times out, or returns an invalid PreparedContext, Pi continues without adding context. Restore
+the Server, then run `powercontext capabilities` and confirm that Context versions lists
+`powercontext.prepared-context.v1`.

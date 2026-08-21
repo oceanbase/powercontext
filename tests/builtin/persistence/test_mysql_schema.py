@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from sqlalchemy import BigInteger, Date, Integer, String
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
@@ -29,6 +43,14 @@ def _column_budget(column) -> int:
     if isinstance(column.type, Date):
         return 3
     raise _UnbudgetedColumnTypeError(column.type)
+
+
+def test_mysql_ddl_uses_utf8mb4_bin_for_identity_keys() -> None:
+    dialect = mysql.dialect()
+    ddl = str(CreateTable(SOURCES_TABLE).compile(dialect=dialect))
+    assert "scope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" in ddl
+    assert "source_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" in ddl
+    assert "source_type VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" in ddl
 
 
 def test_mysql_ddl_uses_mediumblob_for_every_canonical_payload() -> None:

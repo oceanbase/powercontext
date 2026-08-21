@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # syntax=docker/dockerfile:1.7
 
 FROM docker.io/astral/uv:0.10.12 AS uv
@@ -26,8 +40,14 @@ WORKDIR /workspace/powercontext
 
 COPY . .
 
+ARG POWERCONTEXT_VERSION
+
 RUN --mount=type=cache,id=powercontext-bub-e2e-uv,target=/root/.cache/uv \
-    uv sync --project e2e/bub --frozen --no-dev --no-editable
+    test -n "${POWERCONTEXT_VERSION}" \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" \
+    uv sync --project e2e/bub --frozen --no-dev --no-editable --refresh-package powercontext \
+    && test "$(e2e/bub/.venv/bin/python -c 'from importlib.metadata import version; print(version("powercontext"))')" \
+    = "${POWERCONTEXT_VERSION}"
 
 COPY --chmod=0755 e2e/bub/container-entrypoint.sh /usr/local/bin/powercontext-e2e-container
 

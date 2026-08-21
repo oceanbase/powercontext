@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
 
 import io
@@ -67,7 +81,7 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "git:github.com/oceanbase/powercontext",
     )
     captured: list[tuple[str, str]] = []
@@ -106,7 +120,7 @@ def test_user_prompt_compatibility_fallback_is_supported(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     captured: list[str] = []
@@ -140,7 +154,7 @@ def test_unexpected_recall_failure_does_not_prevent_prompt_capture(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     captured: list[str] = []
@@ -175,7 +189,7 @@ def test_capture_failure_does_not_prevent_context_injection(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     monkeypatch.setattr(
@@ -214,7 +228,7 @@ def test_recall_and_capture_share_one_http_deadline(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
 
@@ -248,7 +262,7 @@ def test_prompt_capture_can_be_disabled(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
 

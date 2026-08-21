@@ -1,12 +1,28 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Recall memory and capture the current Codex prompt without blocking Codex."""
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 from collections.abc import Mapping
 from contextlib import suppress
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from time import monotonic
@@ -18,7 +34,7 @@ _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from hooks import prepared_context as _prepared_context  # noqa: E402
-from scripts.project_scope import derive_scope_id  # noqa: E402
+from scripts.project_scope import resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
@@ -30,7 +46,7 @@ _READ_CHUNK_BYTES = 65_536
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-codex-plugin/0.1.0",
+    "User-Agent": "powercontext-codex-plugin/0.2.0",
 }
 
 
@@ -87,7 +103,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         if not isinstance(prompt, str) or not prompt.strip() or not isinstance(cwd, str):
             _emit_context_event("skipped")
             return 0
-        scope_id = derive_scope_id(cwd, configured_scope_id=settings.scope_id)
+        scope_id = resolve_scope_id(cwd, configured_scope_id=settings.scope_id)
         context = _recall_context(prompt, scope_id, settings=settings, deadline=http_deadline)
         if settings.capture_prompts and len(prompt) <= _MAX_SOURCE_LENGTH:
             with suppress(Exception):
@@ -107,6 +123,13 @@ def main(settings: CodexPluginSettings | None = None) -> int:
                         deadline=http_deadline,
                     )
         if context:
+            with suppress(Exception):
+                _record_evaluation_trace(
+                    payload,
+                    query=prompt,
+                    injected_text=context,
+                    scope_id=scope_id,
+                )
             json.dump(
                 {
                     "hookSpecificOutput": {
@@ -321,6 +344,56 @@ def _recall_context(
         _emit_context_event("empty", http_status=200, context_status=status, content_bytes=content_bytes)
         return None
     return cast(str, prepared["content"])
+
+
+def _record_evaluation_trace(
+    payload: Mapping[str, object],
+    *,
+    query: str,
+    injected_text: str,
+    scope_id: str,
+) -> None:
+    """Append the exact injected context when the isolated evaluator requests an audit trace."""
+
+    raw_path = os.environ.get("POWERCONTEXT_EVAL_TRACE_PATH")
+    if raw_path is None or not raw_path.strip():
+        eval_home = os.environ.get("POWERCONTEXT_HOME")
+        if not scope_id.startswith("eval:") or eval_home is None or not eval_home.strip():
+            return
+        home = Path(eval_home)
+        if not home.is_absolute():
+            return
+        raw_path = os.fspath(home / "evaluation-injections.jsonl")
+    event: dict[str, object] = {
+        "event_type": "powercontext_injection",
+        "observed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "query": query,
+        "injected_text": injected_text,
+        # The prepared-context v1 response deliberately does not expose raw search hits.
+        "hits": [],
+        "scope_id": scope_id,
+    }
+    session_id = _payload_identifier(payload, "session_id", "conversation_id", "thread_id")
+    turn_id = _payload_identifier(payload, "turn_id", "request_id")
+    if session_id is not None:
+        event["session_id"] = session_id
+    if turn_id is not None:
+        event["turn_id"] = turn_id
+    encoded = (json.dumps(event, separators=(",", ":")) + "\n").encode()
+    flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(raw_path, flags, 0o600)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "ab", closefd=False) as trace:
+            trace.write(encoded)
+            trace.flush()
+    finally:
+        os.close(descriptor)
 
 
 def _emit_context_event(

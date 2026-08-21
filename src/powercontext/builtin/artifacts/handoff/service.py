@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Product orchestration for temporary and committed Handoffs."""
 
 from __future__ import annotations
@@ -120,6 +134,12 @@ class HandoffService:
         """Return committed milestones in ascending Revision order."""
 
         return await self._backend.revisions(self.artifact_id)
+
+    async def validate_evidence(self, citations: Iterable[HandoffCitation], /) -> None:
+        """Validate exact same-scope evidence used by a higher-level work record."""
+
+        for citation in citations:
+            await self._evidence_resolver.validate(citation)
 
     async def continue_from(
         self,

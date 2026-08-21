@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Deterministic Markdown rendering for canonical Handoff Reports."""
 
 from __future__ import annotations
@@ -43,6 +57,15 @@ _LABELS = {
         "vcs": "VCS 上下文",
         "evidence": "证据引用",
         "evidence_checks": "Evidence 检查",
+        "revision_history": "Handoff Revision 历史",
+        "revision_history_summary": "共 {total} 个 Revision，显示最近 {shown} 个。",  # noqa: RUF001
+        "revision_state_count": "状态条目",
+        "revision_omission_count": "缺失条目",
+        "continuity": "连续性时间线",
+        "transfer_state": "交接状态",
+        "outcome_state": "结果状态",
+        "journal_order_notice": "按 Source journal 的稳定位置排序；位置表示先后顺序，不代表时间戳。",  # noqa: RUF001
+        "invalid_work_records": "无法读取的 Work 记录",
         "metadata": "报告元数据",
         "selection_digest": "Selection Digest",
         "report_digest": "Report Digest",
@@ -88,6 +111,15 @@ _LABELS = {
         "vcs": "VCS Context",
         "evidence": "Evidence References",
         "evidence_checks": "Evidence Checks",
+        "revision_history": "Handoff Revision History",
+        "revision_history_summary": "{total} Revisions total. Showing the latest {shown}.",
+        "revision_state_count": "State Items",
+        "revision_omission_count": "Omissions",
+        "continuity": "Continuity Timeline",
+        "transfer_state": "Transfer State",
+        "outcome_state": "Outcome State",
+        "journal_order_notice": "Ordered by stable Source journal position; positions show sequence, not timestamps.",
+        "invalid_work_records": "Unreadable Work Records",
         "metadata": "Report Metadata",
         "selection_digest": "Selection Digest",
         "report_digest": "Report Digest",
@@ -212,12 +244,61 @@ def _render_workstream(item: WorkstreamReport, labels: dict[str, str]) -> list[s
         elif item.evidence_checks:
             lines.extend(f"- {_code_span(check.claim)}: {_code_span(check.status)}" for check in item.evidence_checks)
             lines.append("")
+    lines.extend(_render_revision_history(item, labels))
+    continuity = item.continuity
+    lines.extend((f"#### {labels['continuity']}", ""))
+    lines.extend((
+        f"- {labels['transfer_state']}: {_code_span(continuity.coverage.transfer_state)}",
+        f"- {labels['outcome_state']}: {_code_span(continuity.coverage.outcome_state)}",
+        f"- {labels['invalid_work_records']}: {continuity.invalid_record_count}",
+        f"- {_text(labels['journal_order_notice'])}",
+    ))
+    if continuity.events:
+        for event in continuity.events:
+            detail = event.summary or event.actor or labels["none"]
+            lines.append(
+                f"- {_code_span(f'#{event.position}')} {_code_span(event.kind)} / "
+                f"{_code_span(event.status)}: {_text(detail)}"
+            )
+    else:
+        lines.append(labels["none"])
+    lines.append("")
     lines.extend((f"#### {labels['activities']}", ""))
     if item.activities:
         for event in item.activities:
             lines.extend(_render_activity(event, labels))
     else:
         lines.extend((labels["none"], ""))
+    return lines
+
+
+def _render_revision_history(item: WorkstreamReport, labels: dict[str, str]) -> list[str]:
+    lines = [f"#### {labels['revision_history']}", ""]
+    if item.handoff_history:
+        lines.extend((
+            _text(
+                labels["revision_history_summary"].format(
+                    total=item.handoff_revision_count,
+                    shown=len(item.handoff_history),
+                )
+            ),
+            "",
+        ))
+        for revision in reversed(item.handoff_history):
+            reference = revision.reference
+            lines.append(
+                f"- {_code_span(f'@{reference.revision}')} {_code_span(revision.disposition)}: "
+                f"{_text(revision.objective_excerpt)}"
+            )
+            lines.append(
+                f"  - {labels['revision_state_count']}: {revision.state_count}; "
+                f"{labels['revision_omission_count']}: {revision.omission_count}"
+            )
+            if revision.next_action_excerpt is not None:
+                lines.append(f"  - {labels['next']}: {_text(revision.next_action_excerpt)}")
+    else:
+        lines.append(labels["none"])
+    lines.append("")
     return lines
 
 

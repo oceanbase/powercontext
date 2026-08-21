@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" role="img" aria-labelledby="title description">
+  <title id="title">PowerContext SWE-bench Pro public v2 comparison</title>
+  <desc id="description">A horizontal bar chart compares an 82.35 percent task resolution rate with PowerContext off and an 86.73 percent rate with PowerContext on.</desc>
+
+  <rect width="1200" height="430" rx="24" fill="#ffffff"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="64" y="66" fill="#172033" font-size="32" font-weight="700">SWE-bench Pro public v2</text>
+    <text x="64" y="98" fill="#667085" font-size="17">Paired Codex evaluation · 731 tasks · gpt-5.6-sol</text>
+
+    <g font-size="15" fill="#344054">
+      <rect x="64" y="122" width="15" height="15" rx="4" fill="#98a2b3"/>
+      <text x="88" y="135">PowerContext OFF</text>
+      <rect x="240" y="122" width="15" height="15" rx="4" fill="#1677ff"/>
+      <text x="264" y="135">PowerContext ON</text>
+    </g>
+
+    <text x="64" y="190" fill="#172033" font-size="20" font-weight="700">Task resolution rate</text>
+    <text x="1136" y="190" fill="#1677ff" font-size="14" text-anchor="end">Higher is better ↑</text>
+
+    <g stroke="#e4e7ec" stroke-width="1">
+      <line x1="270" y1="216" x2="270" y2="332"/>
+      <line x1="480" y1="216" x2="480" y2="332"/>
+      <line x1="690" y1="216" x2="690" y2="332"/>
+      <line x1="900" y1="216" x2="900" y2="332"/>
+      <line x1="1110" y1="216" x2="1110" y2="332"/>
+    </g>
+    <g fill="#667085" font-size="13" text-anchor="middle">
+      <text x="270" y="352">0%</text>
+      <text x="480" y="352">25%</text>
+      <text x="690" y="352">50%</text>
+      <text x="900" y="352">75%</text>
+      <text x="1110" y="352">100%</text>
+    </g>
+
+    <g fill="#344054" font-size="15" text-anchor="end">
+      <text x="250" y="252">PowerContext OFF</text>
+      <text x="250" y="307">PowerContext ON</text>
+    </g>
+    <rect x="270" y="232" width="691.7" height="30" rx="7" fill="#98a2b3"/>
+    <rect x="270" y="287" width="728.5" height="30" rx="7" fill="#1677ff"/>
+
+    <g fill="#344054" font-size="16" font-weight="600">
+      <text x="973" y="253">82.35% · 602 / 731</text>
+      <text x="1010" y="308">86.73% · 634 / 731</text>
+    </g>
+
+    <rect x="806" y="378" width="330" height="34" rx="17" fill="#eaf2ff"/>
+    <text x="971" y="400" fill="#0969da" font-size="15" font-weight="700" text-anchor="middle">+4.38 percentage points · +32 tasks</text>
+  </g>
+</svg>

@@ -1,6 +1,27 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
 <footer class="site-footer">
   <div class="site-footer-inner">
-    <a class="footer-brand" href="{{ url_for('dashboard_home') }}" aria-label="PowerContext Dashboard">
+    <a
+      class="footer-brand"
+      href="{{ url_for(home_route) }}"
+      aria-label="PowerContext Dashboard"
+      data-i18n-aria-label="brandHomeLabel"
+    >
       <img class="brand-mark" src="{{ url_for('web_static', path='/oceanbase-logo.svg') }}" alt="">
       <span>OceanBase</span>
       <span class="brand-divider" aria-hidden="true">|</span>

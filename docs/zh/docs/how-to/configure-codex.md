@@ -19,21 +19,48 @@ powercontext setup codex --source oceanbase/powercontext --ref master
 配置完成后开启新的 Codex 会话。通过 `/hooks` 查看 PowerContext `UserPromptSubmit` Hook，并在收到提示时
 授予信任。
 
-## 理解插件行为
+## 理解自动恢复、Memory 和 Handoff
 
 插件通过两条路径访问同一个 Server：
 
 - Prompt Hook 请求 Runtime 准备一个最终、有界的上下文值，然后独立地把用户提示词采集为
   Source 证据；
-- MCP 为 Codex 提供记忆、检索、修订、停用和审计 Memory 的显式工具。
+- MCP 为 Codex 提供读取和维护 Memory 的显式工具，以及明确的 Handoff 工作流。
 
-存在 Git remote 时，Memory scope 根据规范化后的 remote 生成；否则根据项目路径生成。在同一项目中开启
-的新 Codex 会话会得到相同 scope。只有在 scope 必须独立于这两者时，才设置
-`POWERCONTEXT_CODEX_SCOPE_ID`。
+## 一句话交接当前工作
+
+在已经安装插件且 PowerContext Server 可用的 Codex 会话中，直接输入：
+
+```text
+交接
+```
+
+`project-context` Skill 会把这句话视为创建持久交接里程碑的明确授权。如果目录中存在多个 Workstream，Codex 会先
+打开原生工作选择框；只有一个候选时会自动选中。选定后，Codex 把该 Workstream 绑定到当前工作区，在同一轮中检查
+当前对话和仓库，整理目标、分支与工作区状态、改动文件、已执行检查、阻塞项、缺失项和下一步，然后依次调用
+`handoff_current_work` 和 `commit_handoff`。提交成功后，Codex 返回所选 Workstream 和 exact Handoff Revision；用户
+不需要再填写交接内容或重复确认提交。
+
+`交接当前工作`、`把当前工作交接出去` 和 `handoff this work` 使用相同行为。若只想检查内容而不写入，请明确说
+`预览交接，不要提交`；Skill 此时只在对话中渲染建议内容，不调用写工具。讨论 Handoff 设计或询问 Handoff
+如何工作也不会触发持久化。
+
+Codex scope 按以下顺序解析：显式的 `POWERCONTEXT_CODEX_SCOPE_ID`、当前 Git 工作区持久绑定的 Workstream
+scope、规范化后的 Git remote、项目路径。同一工作区后续开启的新 Codex 会话会复用同一个 scope。
+
+选择工具返回面向用户的 `work_id` 和权威 `scope_id`。`project-context` Skill 会把这个 exact scope 传给 scope
+resolver 的 `--bind-workstream` 操作，并再次校验解析结果。绑定写在 Git 私有目录的
+`powercontext/codex-workspace.json` 中，不进入工作树或提交。随后，新 Handoff 会继续写入所选 Workstream 的同一
+Artifact lifecycle，并得到下一个 Revision。如果 MCP 客户端不支持原生 elicitation，工具会改为返回结构化候选
+列表；集成仍然必须取得用户的明确选择，不得静默选择。
 
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
 `powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为不可信历史、保留
-精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。
+精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。自动注入的
+内容和 Handoff 都是历史信息；Codex 在据此行动前仍应与当前代码、用户要求和系统指令核对。
+
+Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于临时移交当前任务，不能用几条 Memory 替代。概念边界见
+[理解 Memory 和 Handoff](../explanation/memory-and-handoff.md)，操作步骤见[在 Codex 中交接工作](handoff-with-codex.md)。
 
 ## 控制提示词采集
 

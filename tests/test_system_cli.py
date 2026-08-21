@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
 
 import json
@@ -187,7 +201,7 @@ def test_setup_claude_code_reports_mutations_then_installs_and_verifies(
     assert str(config_dir / "settings.json") in result.stderr
     assert "read/write access" in result.stderr
     assert "claude plugin uninstall powercontext@powercontext --scope user" in result.stderr
-    assert "claude plugin marketplace remove powercontext --scope user" in result.stderr
+    assert "claude plugin marketplace remove powercontext" in result.stderr
     assert run_claude_json.call_args_list[0].args == ("plugin", "marketplace", "list")
     assert run_claude_json.call_args_list[1].args == ("plugin", "list")
     assert run_claude.call_args_list[0].args == (
@@ -204,12 +218,16 @@ def test_setup_claude_code_reports_mutations_then_installs_and_verifies(
         "powercontext@powercontext",
         "--scope",
         "user",
-        "--config",
-        "server_url=http://127.0.0.1:9000",
-        "--config",
-        "capture_prompts=false",
     )
     assert run_claude_json.call_args_list[2].args == ("plugin", "list")
+    assert json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))["pluginConfigs"] == {
+        "powercontext@powercontext": {
+            "options": {
+                "server_url": "http://127.0.0.1:9000",
+                "capture_prompts": False,
+            }
+        }
+    }
 
 
 def test_setup_claude_code_rolls_back_only_new_objects_after_verification_failure(monkeypatch) -> None:
@@ -238,8 +256,6 @@ def test_setup_claude_code_rolls_back_only_new_objects_after_verification_failur
         "marketplace",
         "remove",
         "powercontext",
-        "--scope",
-        "user",
     )
 
 
@@ -359,7 +375,7 @@ def test_setup_claude_code_rejects_a_conflicting_existing_marketplace_before_mut
     monkeypatch.setattr(system_cli, "_run_claude_json", run_claude_json)
     monkeypatch.setattr(system_cli, "_run_claude", run_claude)
 
-    with pytest.raises(system_cli.SetupError, match="marketplace remove powercontext --scope user"):
+    with pytest.raises(system_cli.SetupError, match="marketplace remove powercontext"):
         system_cli.install_claude_code_plugin(
             source="oceanbase/powercontext",
             ref="tested-ref",
@@ -386,7 +402,16 @@ def test_claude_marketplace_remote_ref_syntax(source: str, ref: str, expected: s
     assert system_cli._normalize_claude_marketplace_source(source, ref=ref) == expected
 
 
-def test_setup_claude_code_normalizes_an_mcp_url_before_installing(monkeypatch) -> None:
+def test_claude_marketplace_accepts_json_that_omits_the_configured_ref() -> None:
+    assert system_cli._claude_marketplace_matches(
+        {"source": "github", "repo": "oceanbase/powercontext"},
+        "oceanbase/powercontext@master",
+    )
+
+
+def test_setup_claude_code_normalizes_an_mcp_url_before_installing(tmp_path: Path, monkeypatch) -> None:
+    config_dir = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
     monkeypatch.setattr(
         system_cli,
@@ -409,7 +434,52 @@ def test_setup_claude_code_normalizes_an_mcp_url_before_installing(monkeypatch) 
         capture_prompts=True,
     )
 
-    assert "server_url=https://memory.example/api" in run_claude.call_args.args
+    options = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))["pluginConfigs"][
+        "powercontext@powercontext"
+    ]["options"]
+    assert options["server_url"] == "https://memory.example/api"
+    assert "--config" not in run_claude.call_args.args
+
+
+def test_setup_claude_code_preserves_unrelated_settings_when_updating_options(tmp_path: Path, monkeypatch) -> None:
+    config_dir = tmp_path / "claude"
+    config_dir.mkdir()
+    settings_file = config_dir / "settings.json"
+    settings_file.write_text(
+        json.dumps({
+            "unrelated": {"preserved": True},
+            "pluginConfigs": {
+                "powercontext@powercontext": {
+                    "custom": "preserved",
+                    "options": {"server_url": "http://127.0.0.1:7000", "other": 1},
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
+    installed = [{"id": "powercontext@powercontext", "version": "0.1.0", "enabled": True}]
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
+    monkeypatch.setattr(system_cli, "_run_claude", Mock())
+
+    system_cli.install_claude_code_plugin(
+        source="oceanbase/powercontext",
+        ref="master",
+        server_url="http://127.0.0.1:8000",
+        capture_prompts=False,
+    )
+
+    settings = json.loads(settings_file.read_text(encoding="utf-8"))
+    assert settings["unrelated"] == {"preserved": True}
+    assert settings["pluginConfigs"]["powercontext@powercontext"] == {
+        "custom": "preserved",
+        "options": {
+            "server_url": "http://127.0.0.1:8000",
+            "capture_prompts": False,
+            "other": 1,
+        },
+    }
 
 
 @pytest.mark.parametrize(
@@ -568,6 +638,8 @@ def test_default_doctor_preserves_not_ready_checks_in_human_and_json_output(monk
 
 
 def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "version", lambda _package: "0.0.2")
+
     def responses() -> list[_Response]:
         return [
             _Response(200, {"status": "ok"}),
@@ -600,7 +672,7 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
             "package": {
                 "ok": True,
                 "status": "ok",
-                "detail": "powercontext 0.0.1",
+                "detail": "powercontext 0.0.2",
             },
             "server_liveness": {
                 "ok": True,

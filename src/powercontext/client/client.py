@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Small handwritten facade over the public HTTP contract."""
 
 from __future__ import annotations
@@ -12,6 +26,7 @@ from pydantic import TypeAdapter, ValidationError
 from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
 from powercontext.client.tracing import ClientSpan
 from powercontext.http import (
+    AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
@@ -24,6 +39,7 @@ from powercontext.http import (
     CommittedHandoff,
     ContinueHandoffRequest,
     CreateHandoffReportProjectRequest,
+    CreateWorkContractRequest,
     DetachHandoffReportWorkspaceRequest,
     ErrorResponse,
     ExperienceArtifact,
@@ -42,7 +58,9 @@ from powercontext.http import (
     GetMemoryEntryRequest,
     GetSkillRequest,
     GetStatsRequest,
+    HandoffAcknowledgement,
     HandoffActivation,
+    HandoffCurrentWorkRequest,
     HandoffDraft,
     HandoffReportActivityPage,
     HandoffReportResponse,
@@ -65,6 +83,7 @@ from powercontext.http import (
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
+    PreparedWorkHandoff,
     PrepareHandoffRequest,
     ProjectDescriptor,
     ProjectPage,
@@ -74,6 +93,7 @@ from powercontext.http import (
     PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
     RecordHandoffReportActivityRequest,
+    RecordTaskOutcomeRequest,
     RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
@@ -90,10 +110,12 @@ from powercontext.http import (
     StoredHandoffReportActivity,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
+    WorkSourceReceipt,
     WorkstreamDescriptor,
     WorkstreamPage,
 )
 from powercontext.http._generated.operations import (
+    ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
     ATTACH_HANDOFF_REPORT_WORKSPACE,
@@ -101,6 +123,7 @@ from powercontext.http._generated.operations import (
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_HANDOFF_REPORT_PROJECT,
+    CREATE_WORK_CONTRACT,
     DETACH_HANDOFF_REPORT_WORKSPACE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
@@ -117,6 +140,7 @@ from powercontext.http._generated.operations import (
     GET_READINESS,
     GET_SKILL,
     GET_STATS,
+    HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
@@ -131,6 +155,7 @@ from powercontext.http._generated.operations import (
     PROPOSE_SKILL,
     PURGE_HANDOFF_REPORT_ACTIVITIES,
     RECORD_HANDOFF_REPORT_ACTIVITY,
+    RECORD_TASK_OUTCOME,
     REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
@@ -370,6 +395,26 @@ class PowerContextClient:
         """Capture raw content as durable Source evidence."""
 
         return await self._request(CAPTURE_CONTENT_SOURCE, request)
+
+    async def create_work_contract(self, request: CreateWorkContractRequest) -> WorkSourceReceipt:
+        """Create one grounded delegation baseline as durable Source evidence."""
+
+        return await self._request(CREATE_WORK_CONTRACT, request)
+
+    async def handoff_current_work(self, request: HandoffCurrentWorkRequest) -> PreparedWorkHandoff:
+        """Capture inspected current state and prepare a temporary Handoff."""
+
+        return await self._request(HANDOFF_CURRENT_WORK, request)
+
+    async def acknowledge_handoff(self, request: AcknowledgeHandoffRequest) -> HandoffAcknowledgement:
+        """Resolve a Handoff and durably record the receiver's acknowledgement."""
+
+        return await self._request(ACKNOWLEDGE_HANDOFF, request)
+
+    async def record_task_outcome(self, request: RecordTaskOutcomeRequest) -> WorkSourceReceipt:
+        """Record one completion-aware attempt outcome without erasing uncertainty."""
+
+        return await self._request(RECORD_TASK_OUTCOME, request)
 
     async def flush_memory(self, request: FlushMemoryRequest) -> FlushMemoryResponse:
         """Run one bounded Source-to-Memory activation."""

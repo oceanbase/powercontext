@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Source-window cursor persistence."""
 
 from __future__ import annotations
@@ -7,6 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import insert, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
@@ -37,21 +52,18 @@ class SourceCursorRepository:
         scope_id: str,
         binding_name: str,
         /,
+        *,
+        for_update: bool = False,
     ) -> StoredSourceCursor | None:
         _require_identifier("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
         _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
-        row = (
-            (
-                await connection.execute(
-                    select(SOURCE_CURSORS_TABLE).where(
-                        SOURCE_CURSORS_TABLE.c.scope_id == scope_id,
-                        SOURCE_CURSORS_TABLE.c.binding_name == binding_name,
-                    )
-                )
-            )
-            .mappings()
-            .one_or_none()
+        statement = select(SOURCE_CURSORS_TABLE).where(
+            SOURCE_CURSORS_TABLE.c.scope_id == scope_id,
+            SOURCE_CURSORS_TABLE.c.binding_name == binding_name,
         )
+        if for_update:
+            statement = statement.with_for_update()
+        row = (await connection.execute(statement)).mappings().one_or_none()
         return None if row is None else _decode_row(row)
 
     async def save(
@@ -74,14 +86,29 @@ class SourceCursorRepository:
             if existing is not None:
                 raise GenerationConflictError(binding_name, None, existing.generation)
             generation = 1
-            await connection.execute(
-                insert(SOURCE_CURSORS_TABLE).values(
-                    scope_id=scope_id,
-                    binding_name=binding_name,
-                    cursor=payload,
-                    generation=generation,
+            try:
+                async with connection.begin_nested():
+                    await connection.execute(
+                        insert(SOURCE_CURSORS_TABLE).values(
+                            scope_id=scope_id,
+                            binding_name=binding_name,
+                            cursor=payload,
+                            generation=generation,
+                        )
+                    )
+            except IntegrityError:
+                # Another runtime may have inserted the same cursor after our
+                # initial read. Normalize that database race to the same CAS
+                # conflict used for concurrent updates.
+                existing = await self.load(
+                    connection,
+                    scope_id,
+                    binding_name,
+                    for_update=True,
                 )
-            )
+                if existing is None:
+                    raise
+                raise GenerationConflictError(binding_name, None, existing.generation) from None
         else:
             generation = expected_generation + 1
             result = await connection.execute(

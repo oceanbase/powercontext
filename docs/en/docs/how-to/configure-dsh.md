@@ -30,7 +30,7 @@ The plugin has two paths to the same Server:
 - before each model step it asks the Runtime to prepare one final, bounded context value, then independently captures the user's prompt as Source evidence;
 - named `pc_*` tools call the public HTTP API to remember, search, revise, retire, and audit Memory.
 
-Memory scope comes from the normalized Git remote when one is available, or from the project path otherwise. Set `POWERCONTEXT_DSH_SCOPE_ID` only when you need an explicit scope that is independent of both.
+Memory scope comes from the normalized Git remote when one is available, or from the session workspace path otherwise. Set `POWERCONTEXT_DSH_SCOPE_ID` when the session has no workspace cwd, or when the scope must be independent of both. The plugin does not fall back to the Harness process directory.
 
 The plugin calls `POST /v1/context/prepare` once before the model analyzes the prompt. Explicit `remember_memory` calls do not require a model.
 

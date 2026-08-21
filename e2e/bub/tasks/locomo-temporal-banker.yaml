@@ -1,0 +1,48 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+schema: powercontext.e2e-task/v1
+id: locomo-temporal-banker
+categories:
+  - acceptance
+  - sample
+provenance:
+  source: benchmark/locomo/dataset/locomo10.json
+  revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
+  selection: category-2-first-short-answer-after-conv-26/v1
+  case_ids:
+    - conv-30
+    - conv-30:q001
+    - D1
+dataset:
+  path: e2e/bub/harbor-tasks
+  task_id: locomo-temporal-banker
+  checksum: 6b7577995e466e35964a904b8c6dee83fc54e9b2818a8ee236b079126b6e0afe
+execution:
+  type: bub
+  model: false
+  max_steps: 10
+  max_tokens: 4096
+evaluation:
+  expected_memory:
+    - banker
+    - 19 January, 2023
+  probes:
+    - id: banker-job-loss-date
+      query: When Jon has lost his job as a banker?
+      expected_context:
+        - banker
+        - 19 January, 2023
+  thresholds:
+    probe_coverage: 1

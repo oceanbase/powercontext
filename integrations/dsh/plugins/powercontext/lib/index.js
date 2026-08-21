@@ -1,9 +1,25 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import { createRequire } from "node:module";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { pathToFileURL } from "node:url";
 
 //#region src/errors.ts
 const REQUEST_ID_HEADER = "X-PowerContext-Request-ID";
@@ -92,6 +108,30 @@ const OPERATIONS = {
 	prepare_context: {
 		method: "POST",
 		path: "/v1/context/prepare",
+		location: "body",
+		scope: true
+	},
+	create_work_contract: {
+		method: "POST",
+		path: "/v1/work/contracts/create",
+		location: "body",
+		scope: true
+	},
+	handoff_current_work: {
+		method: "POST",
+		path: "/v1/work/handoffs/prepare-current",
+		location: "body",
+		scope: true
+	},
+	acknowledge_handoff: {
+		method: "POST",
+		path: "/v1/work/handoffs/acknowledge",
+		location: "body",
+		scope: true
+	},
+	record_task_outcome: {
+		method: "POST",
+		path: "/v1/work/outcomes/record",
 		location: "body",
 		scope: true
 	},
@@ -679,6 +719,98 @@ async function invokeOperation(client, operationId, payload, scopeId, signal) {
 }
 
 //#endregion
+//#region src/scope.ts
+const MAX_SCOPE_LENGTH = 256;
+const SCP_REMOTE = /^(?:[^@/\s]+@)?(?<host>[^:/\s]+):(?<path>.+)$/;
+const UNSCOPED_MESSAGE = "No project workspace on this session. Set scopeId or open a workspace.";
+function sessionCwd(cwd) {
+	const value = cwd?.trim();
+	return value ? value : void 0;
+}
+function bounded(prefix, value) {
+	const candidate = `${prefix}:${value}`;
+	if (candidate.length <= MAX_SCOPE_LENGTH) return candidate;
+	return `${prefix}:sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+function boundedExplicit(value) {
+	if (value.length <= MAX_SCOPE_LENGTH) return value;
+	return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+function normalizePath(path) {
+	let normalized = path.replaceAll("\\", "/").split("/").filter(Boolean).join("/");
+	if (normalized.endsWith(".git")) normalized = normalized.slice(0, -4);
+	return normalized.replace(/\/+$/, "");
+}
+function normalizeGitRemote(remote) {
+	const value = remote.trim();
+	if (!value) return void 0;
+	const scpMatch = !value.includes("://") ? value.match(SCP_REMOTE) : null;
+	if (scpMatch?.groups) {
+		const host$1 = scpMatch.groups.host.toLowerCase();
+		const path$1 = normalizePath(scpMatch.groups.path);
+		return path$1 ? `${host$1}/${path$1}` : void 0;
+	}
+	let parsed;
+	try {
+		parsed = new URL(value);
+	} catch {
+		return;
+	}
+	if (![
+		"http:",
+		"https:",
+		"ssh:",
+		"git:"
+	].includes(parsed.protocol) || !parsed.hostname) return;
+	const host = parsed.port ? `${parsed.hostname.toLowerCase()}:${parsed.port}` : parsed.hostname.toLowerCase();
+	const path = normalizePath(parsed.pathname);
+	return path ? `${host}/${path}` : void 0;
+}
+function spawnGit(cwd, args) {
+	return new Promise((resolveResult) => {
+		const child = spawn("git", args, {
+			cwd,
+			windowsHide: true
+		});
+		const chunks = [];
+		const timer = setTimeout(() => {
+			child.kill();
+			resolveResult(void 0);
+		}, 2e3);
+		child.stdout.on("data", (chunk) => chunks.push(chunk));
+		child.on("error", () => {
+			clearTimeout(timer);
+			resolveResult(void 0);
+		});
+		child.on("close", (code) => {
+			clearTimeout(timer);
+			if (code !== 0) {
+				resolveResult(void 0);
+				return;
+			}
+			resolveResult(Buffer.concat(chunks).toString("utf8").trim() || void 0);
+		});
+	});
+}
+async function deriveScopeId(cwd, options = {}) {
+	if (options.configuredScopeId) return boundedExplicit(options.configuredScopeId);
+	const workspace = sessionCwd(cwd);
+	if (!workspace) return void 0;
+	return deriveWorkspaceScope(workspace, options.git ?? spawnGit);
+}
+async function deriveWorkspaceScope(workspace, git) {
+	const projectRoot = resolve(await git(workspace, ["rev-parse", "--show-toplevel"]) || workspace);
+	const remote = await git(projectRoot, [
+		"config",
+		"--get",
+		"remote.origin.url"
+	]);
+	const normalized = remote ? normalizeGitRemote(remote) : void 0;
+	if (normalized) return bounded("git", normalized);
+	return `local:${createHash("sha256").update(projectRoot).digest("hex")}`;
+}
+
+//#endregion
 //#region src/commands.ts
 function formatResult(result) {
 	return JSON.stringify(result, null, 2);
@@ -795,6 +927,10 @@ function registerCommands(ctx, runtime) {
 		description: "PowerContext status, search, review, and diagnostics",
 		handler: async (invocation) => {
 			const scopeId = await runtime.resolveScope(invocation.agent.session.header.cwd);
+			if (!scopeId) return {
+				kind: "error",
+				text: UNSCOPED_MESSAGE
+			};
 			return handlePcCommand(invocation.rawInput, runtime, scopeId, invocation.signal);
 		}
 	});
@@ -916,7 +1052,7 @@ async function captureUserPrompt(input) {
 			metadata: {
 				origin: "dsh",
 				event: "user_prompt_submit",
-				cwd: input.cwd,
+				...input.cwd ? { cwd: input.cwd } : {},
 				session_id: input.sessionId,
 				turn_id: input.turnId
 			}
@@ -1069,13 +1205,21 @@ async function runRecallPreStep(input) {
 async function recallThenCapture(input, query, userPrompt) {
 	try {
 		const scopeId = await input.resolveScope(input.cwd);
+		if (!scopeId) {
+			input.log({
+				event: "context_prepare",
+				outcome: "skipped",
+				reason: "missing_session_cwd"
+			});
+			return;
+		}
 		const content = await recallContent(input, query, scopeId);
 		if (userPrompt) await captureUserPrompt({
 			client: input.client,
 			config: input.config,
 			scopeId,
 			prompt: userPrompt,
-			cwd: input.cwd,
+			cwd: sessionCwd(input.cwd),
 			sessionId: input.sessionId,
 			turnId: input.turnId,
 			signal: input.signal,
@@ -1085,89 +1229,6 @@ async function recallThenCapture(input, query, userPrompt) {
 	} catch {
 		return;
 	}
-}
-
-//#endregion
-//#region src/scope.ts
-const MAX_SCOPE_LENGTH = 256;
-const SCP_REMOTE = /^(?:[^@/\s]+@)?(?<host>[^:/\s]+):(?<path>.+)$/;
-function bounded(prefix, value) {
-	const candidate = `${prefix}:${value}`;
-	if (candidate.length <= MAX_SCOPE_LENGTH) return candidate;
-	return `${prefix}:sha256:${createHash("sha256").update(value).digest("hex")}`;
-}
-function boundedExplicit(value) {
-	if (value.length <= MAX_SCOPE_LENGTH) return value;
-	return `sha256:${createHash("sha256").update(value).digest("hex")}`;
-}
-function normalizePath(path) {
-	let normalized = path.replaceAll("\\", "/").split("/").filter(Boolean).join("/");
-	if (normalized.endsWith(".git")) normalized = normalized.slice(0, -4);
-	return normalized.replace(/\/+$/, "");
-}
-function normalizeGitRemote(remote) {
-	const value = remote.trim();
-	if (!value) return void 0;
-	const scpMatch = !value.includes("://") ? value.match(SCP_REMOTE) : null;
-	if (scpMatch?.groups) {
-		const host$1 = scpMatch.groups.host.toLowerCase();
-		const path$1 = normalizePath(scpMatch.groups.path);
-		return path$1 ? `${host$1}/${path$1}` : void 0;
-	}
-	let parsed;
-	try {
-		parsed = new URL(value);
-	} catch {
-		return;
-	}
-	if (![
-		"http:",
-		"https:",
-		"ssh:",
-		"git:"
-	].includes(parsed.protocol) || !parsed.hostname) return;
-	const host = parsed.port ? `${parsed.hostname.toLowerCase()}:${parsed.port}` : parsed.hostname.toLowerCase();
-	const path = normalizePath(parsed.pathname);
-	return path ? `${host}/${path}` : void 0;
-}
-function spawnGit(cwd, args) {
-	return new Promise((resolveResult) => {
-		const child = spawn("git", args, {
-			cwd,
-			windowsHide: true
-		});
-		const chunks = [];
-		const timer = setTimeout(() => {
-			child.kill();
-			resolveResult(void 0);
-		}, 2e3);
-		child.stdout.on("data", (chunk) => chunks.push(chunk));
-		child.on("error", () => {
-			clearTimeout(timer);
-			resolveResult(void 0);
-		});
-		child.on("close", (code) => {
-			clearTimeout(timer);
-			if (code !== 0) {
-				resolveResult(void 0);
-				return;
-			}
-			resolveResult(Buffer.concat(chunks).toString("utf8").trim() || void 0);
-		});
-	});
-}
-async function deriveScopeId(cwd, options = {}) {
-	if (options.configuredScopeId) return boundedExplicit(options.configuredScopeId);
-	const git = options.git ?? spawnGit;
-	const projectRoot = resolve(await git(cwd, ["rev-parse", "--show-toplevel"]) || cwd);
-	const remote = await git(projectRoot, [
-		"config",
-		"--get",
-		"remote.origin.url"
-	]);
-	const normalized = remote ? normalizeGitRemote(remote) : void 0;
-	if (normalized) return bounded("git", normalized);
-	return `local:${createHash("sha256").update(projectRoot).digest("hex")}`;
 }
 
 //#endregion
@@ -1288,9 +1349,6 @@ const MUTATING_TOOL_NAMES = new Set([
 	"pc_experience_generate",
 	"pc_skill_generate"
 ]);
-function cwdOf(exec) {
-	return exec.agent?.session.header.cwd || process.cwd();
-}
 function citationParam(description) {
 	return {
 		type: "object",
@@ -1300,7 +1358,12 @@ function citationParam(description) {
 	};
 }
 async function run(runtime, exec, operationId, payload) {
-	const scopeId = await runtime.resolveScope(cwdOf(exec));
+	const scopeId = await runtime.resolveScope(sessionCwd(exec.agent?.session.header.cwd));
+	if (!scopeId) return {
+		ok: false,
+		code: "unscoped",
+		message: UNSCOPED_MESSAGE
+	};
 	return invokeOperation(runtime.client, operationId, payload, scopeId, exec.signal);
 }
 function present(title, kind) {

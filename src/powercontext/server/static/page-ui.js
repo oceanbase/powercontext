@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 "use strict";
 
 const themeKey = "powercontext.dashboard.theme";
@@ -23,7 +39,16 @@ export function createRequestGate() {
 export function createPageUi(translations, onLocaleChange = () => {}) {
   const themeToggle = document.getElementById("theme-toggle");
   const languageToggle = document.getElementById("language-toggle");
-  let currentLocale = document.documentElement.lang === "zh" ? "zh" : "en";
+  let localePreference = null;
+  try {
+    const savedLocale = localStorage.getItem(localeKey);
+    if (savedLocale === "zh" || savedLocale === "en") {
+      localePreference = savedLocale;
+    }
+  } catch (error) {
+    // Browser language and the current page remain available without storage.
+  }
+  let currentLocale = localePreference || (document.documentElement.lang === "zh" ? "zh" : "en");
 
   function translate(key, values = {}) {
     const template = translations[currentLocale][key] || translations.en[key] || key;
@@ -38,6 +63,10 @@ export function createPageUi(translations, onLocaleChange = () => {}) {
     return currentLocale === "zh" ? "zh-CN" : "en";
   }
 
+  function hasLocalePreference() {
+    return localePreference !== null;
+  }
+
   function formatNumber(value) {
     return new Intl.NumberFormat(localeTag()).format(value);
   }
@@ -50,7 +79,7 @@ export function createPageUi(translations, onLocaleChange = () => {}) {
     const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     themeToggle.setAttribute("aria-label", translate(nextTheme === "dark" ? "switchDark" : "switchLight"));
     themeToggle.setAttribute("title", translate(nextTheme === "dark" ? "switchDark" : "switchLight"));
-    languageToggle.textContent = currentLocale === "en" ? translate("languageChinese") : "EN";
+    languageToggle.textContent = currentLocale === "en" ? translate("languageChinese") : translate("languageEnglish");
     languageToggle.setAttribute("aria-label", translate(currentLocale === "en" ? "switchChinese" : "switchEnglish"));
   }
 
@@ -67,11 +96,12 @@ export function createPageUi(translations, onLocaleChange = () => {}) {
   }
 
   function applyLocale(nextLocale, persist = true) {
-    currentLocale = nextLocale;
-    document.documentElement.lang = nextLocale;
+    currentLocale = nextLocale === "zh" ? "zh" : "en";
+    document.documentElement.lang = currentLocale;
     if (persist) {
+      localePreference = currentLocale;
       try {
-        localStorage.setItem(localeKey, nextLocale);
+        localStorage.setItem(localeKey, currentLocale);
       } catch (error) {
         // The selected locale still applies to the current page.
       }
@@ -80,8 +110,17 @@ export function createPageUi(translations, onLocaleChange = () => {}) {
     document.querySelectorAll("[data-i18n]").forEach((element) => {
       element.textContent = translate(element.dataset.i18n);
     });
+    document.querySelectorAll("[data-i18n-aria-label]").forEach((element) => {
+      element.setAttribute("aria-label", translate(element.dataset.i18nAriaLabel));
+    });
+    document.querySelectorAll("[data-i18n-title]").forEach((element) => {
+      element.setAttribute("title", translate(element.dataset.i18nTitle));
+    });
+    document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
+      element.setAttribute("placeholder", translate(element.dataset.i18nPlaceholder));
+    });
     updateControls();
-    onLocaleChange();
+    onLocaleChange({userInitiated: persist});
   }
 
   function initialize() {
@@ -100,5 +139,14 @@ export function createPageUi(translations, onLocaleChange = () => {}) {
     applyTheme(initialTheme, false);
   }
 
-  return {formatDateTime, formatNumber, initialize, locale, localeTag, translate};
+  return {
+    applyLocale,
+    formatDateTime,
+    formatNumber,
+    hasLocalePreference,
+    initialize,
+    locale,
+    localeTag,
+    translate
+  };
 }

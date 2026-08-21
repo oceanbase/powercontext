@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Optimistic Artifact revision persistence for actual Artifact types."""
 
 from __future__ import annotations
@@ -7,6 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import insert, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import (
@@ -61,30 +76,34 @@ class ArtifactRepository:
         artifact_type = self._artifact_type(draft.family)
         self._require_content(draft.family, draft.content)
         ref = ArtifactRef(family=draft.family, artifact_id=artifact_id, revision=1)
-        existing = await self._find_head(connection, scope_id, ref.family, ref.artifact_id)
-        if existing is not None:
-            current = await self.get(
+        conflict = await self._head_conflict(connection, scope_id, ref, draft)
+        if conflict is not None:
+            raise conflict
+        try:
+            artifact = await self._insert_revision(
                 connection,
                 scope_id,
-                ArtifactRef(family=ref.family, artifact_id=ref.artifact_id, revision=int(existing)),
+                artifact_type,
+                ref,
+                draft.content,
+                ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts),
             )
-            raise RevisionConflictError(draft, current)
-        artifact = await self._insert_revision(
-            connection,
-            scope_id,
-            artifact_type,
-            ref,
-            draft.content,
-            ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts),
-        )
-        await connection.execute(
-            insert(ARTIFACT_HEADS_TABLE).values(
-                scope_id=scope_id,
-                family=ref.family,
-                artifact_id=ref.artifact_id,
-                revision=ref.revision,
+            await connection.execute(
+                insert(ARTIFACT_HEADS_TABLE).values(
+                    scope_id=scope_id,
+                    family=ref.family,
+                    artifact_id=ref.artifact_id,
+                    revision=ref.revision,
+                )
             )
-        )
+        except IntegrityError:
+            # Another writer may have committed this lifecycle after the head
+            # read above. Only a committed head proves the draft is stale; any
+            # other constraint violation stays an integrity failure.
+            conflict = await self._head_conflict(connection, scope_id, ref, draft)
+            if conflict is None:
+                raise
+            raise conflict from None
         return artifact
 
     async def revise(
@@ -362,6 +381,25 @@ class ArtifactRepository:
                 for row in artifacts
             ),
         )
+
+    async def _head_conflict(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        ref: ArtifactRef,
+        draft: ArtifactDraft[Any],
+    ) -> RevisionConflictError | None:
+        """Return the conflict raised by an already committed lifecycle."""
+
+        head = await self._find_head(connection, scope_id, ref.family, ref.artifact_id)
+        if head is None:
+            return None
+        current = await self.get(
+            connection,
+            scope_id,
+            ArtifactRef(family=ref.family, artifact_id=ref.artifact_id, revision=head),
+        )
+        return RevisionConflictError(draft, current)
 
     async def _find_head(
         self,

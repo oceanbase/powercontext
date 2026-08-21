@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Scope-bound built-in contexts over one SQLAlchemy async database."""
 
 from __future__ import annotations
@@ -81,6 +95,7 @@ from powercontext.builtin.sources import (
     ExternalSkillImportMode,
     ExternalSkillSnapshotCapture,
     SourceCursor,
+    SourceJournalEntry,
     validate_scope_id,
 )
 from powercontext.builtin.statistics import RecallTokenMeasurement
@@ -533,6 +548,18 @@ class _RelationalSources:
                 return (await self._repository.get(connection, self._scope_id, ref)).journal_position
         except RepositoryNotFoundError:
             raise SourceNotFoundError(source) from None
+
+    async def entries(self) -> tuple[SourceJournalEntry, ...]:
+        async with self._database.connection(self._bound_connection) as connection:
+            rows = await self._repository.list(connection, self._scope_id)
+        return tuple(
+            SourceJournalEntry(
+                source_ref=row.ref,
+                source=row.value,
+                position=row.journal_position,
+            )
+            for row in rows
+        )
 
     def _as_ref(self, source: Source) -> SourceRef:
         return SourceRef(source_type=self._source_names[type(source)], source_id=source.name)

@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
 
 import asyncio
@@ -110,8 +124,14 @@ def _revalidate(report: HandoffReport) -> HandoffReport:
 
 
 class _Adapter:
-    def __init__(self, values: dict[str, Handoff | None]) -> None:
+    def __init__(
+        self,
+        values: dict[str, Handoff | None],
+        *,
+        histories: dict[str, tuple[Handoff, ...]] | None = None,
+    ) -> None:
         self.values = values
+        self.histories = {} if histories is None else histories
         self.exact_reads: list[tuple[str, ArtifactRef]] = []
 
     async def latest(self, scope_id: str, /) -> Handoff | None:
@@ -124,6 +144,8 @@ class _Adapter:
         return value
 
     async def revisions(self, scope_id: str, /) -> tuple[Handoff, ...]:
+        if scope_id in self.histories:
+            return self.histories[scope_id]
         value = self.values[scope_id]
         return () if value is None else (value,)
 
@@ -168,7 +190,10 @@ def test_service_assembles_exact_read_only_report_and_bilingual_markdown() -> No
 
         assert tuple(entry.scope_id for entry in report.end_selection) == ("scope-a", "scope-b")
         assert report.workstreams[0].content is not None
+        assert report.workstreams[0].handoff_revision_count == 1
+        assert tuple(item.reference.revision for item in report.workstreams[0].handoff_history) == (1,)
         assert report.workstreams[1].reporting_status == "no_handoff"
+        assert report.workstreams[1].handoff_history == ()
         assert report.coverage.activity_coverage == "not_configured"
         assert adapter.exact_reads == [("scope-a", report.end_selection[0].handoff_ref)]
 
@@ -179,6 +204,48 @@ def test_service_assembles_exact_read_only_report_and_bilingual_markdown() -> No
         assert "Activity Adapter 未配置" in chinese
         assert "PowerContext &lt;script&gt;" in chinese
         assert "Add the API\\." in chinese
+        assert "Handoff Revision 历史" in chinese
+        assert "Handoff Revision History" in english
+
+    asyncio.run(scenario())
+
+
+def test_service_projects_revision_history_only_through_the_frozen_selection() -> None:
+    async def scenario() -> None:
+        selected = _handoff(2, objective="Second objective", next_action="Review revision two")
+        later = _handoff(3, objective="Concurrent third objective", next_action="Do not include yet")
+        report = await HandoffReportService(
+            _Adapter(
+                {"scope-a": selected},
+                histories={"scope-a": (_handoff(1), selected, later)},
+            )
+        ).generate(
+            _project(),
+            (_workstream("scope-a", "Report"),),
+            generated_at=datetime(2026, 8, 5, tzinfo=UTC),
+        )
+
+        item = report.workstreams[0]
+        assert item.handoff_revision_count == 2
+        assert item.handoff_history_truncated is False
+        assert tuple(summary.reference.revision for summary in item.handoff_history) == (1, 2)
+        assert item.handoff_history[-1].objective_excerpt == "Second objective"
+        assert "Concurrent third objective" not in render_markdown(report)
+
+    asyncio.run(scenario())
+
+
+def test_service_bounds_revision_history_and_preserves_total_count() -> None:
+    async def scenario() -> None:
+        revisions = tuple(_handoff(revision, objective=f"Objective {revision}") for revision in range(1, 23))
+        report = await HandoffReportService(
+            _Adapter({"scope-a": revisions[-1]}, histories={"scope-a": revisions})
+        ).generate(_project(), (_workstream("scope-a", "Report"),))
+
+        item = report.workstreams[0]
+        assert item.handoff_revision_count == 22
+        assert item.handoff_history_truncated is True
+        assert tuple(summary.reference.revision for summary in item.handoff_history) == tuple(range(3, 23))
 
     asyncio.run(scenario())
 
@@ -353,7 +420,8 @@ def test_canonical_report_rejects_wrong_project_revision_and_handoff_projection(
         _revalidate(report.model_copy(update={"end_selection": (wrong_revision,)}))
 
     wrong_ref = ArtifactRef(family="handoff", artifact_id="different", revision=1)
-    wrong_handoff = item.model_copy(update={"handoff_ref": wrong_ref})
+    wrong_history = (item.handoff_history[-1].model_copy(update={"reference": wrong_ref}),)
+    wrong_handoff = item.model_copy(update={"handoff_ref": wrong_ref, "handoff_history": wrong_history})
     with pytest.raises(ValidationError, match="Handoff reference"):
         _revalidate(report.model_copy(update={"workstreams": (wrong_handoff,)}))
 

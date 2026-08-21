@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Install and diagnose the DeepSeek Harness PowerContext plugin."""
 
 from __future__ import annotations
@@ -10,6 +24,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 
+from powercontext.cli.git_source import (
+    InvalidGitHubSourceError,
+    clone_github_source,
+)
+from powercontext.cli.git_source import (
+    github_clone_url as _github_clone_url,
+)
+from powercontext.cli.git_source import (
+    is_local_source as _is_local_source,
+)
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.paths import powercontext_data_dir
 
@@ -131,14 +155,10 @@ def plugin_id_installed(output: str) -> bool:
 def github_clone_url(source: str) -> str:
     """Accept a GitHub slug or repository URL and return a clone URL."""
 
-    text = source.strip()
-    if text.startswith(("https://github.com/", "http://github.com/", "git@github.com:")):
-        return text if text.endswith(".git") else f"{text}.git"
-    if "://" in text or text.startswith("git@"):
-        raise SetupError.invalid_dsh_source(source)
-    if "/" in text and not text.startswith("."):
-        return f"https://github.com/{text}.git"
-    raise SetupError.invalid_dsh_source(source)
+    try:
+        return _github_clone_url(source)
+    except InvalidGitHubSourceError:
+        raise SetupError.invalid_dsh_source() from None
 
 
 def checkout_target(ref: str) -> Path:
@@ -155,11 +175,6 @@ def checkout_target(ref: str) -> Path:
     if target == root:
         raise SetupError.invalid_dsh_ref(ref)
     return target
-
-
-def _is_local_source(source: str) -> bool:
-    candidate = Path(source).expanduser()
-    return source.startswith((".", "/", "~")) or (len(source) >= 2 and source[1] == ":") or candidate.exists()
 
 
 def _is_dsh_plugin(path: Path) -> bool:
@@ -189,20 +204,10 @@ def _materialize_remote_checkout(source: str, ref: str) -> Path:
 
 
 def _clone_github_source(source: str, ref: str, target: Path) -> None:
-    command = ["git", "clone", "--depth", "1", "--branch", ref, github_clone_url(source), str(target)]
     try:
-        completed = subprocess.run(  # noqa: S603 - arguments are passed directly to git.
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        raise SetupError.command_unavailable(command, error) from error
-    if completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit code {completed.returncode}"
-        raise SetupError.command_failed(command, detail)
+        clone_github_source(source, ref, target)
+    except InvalidGitHubSourceError:
+        raise SetupError.invalid_dsh_source() from None
 
 
 def _run_dsh(*arguments: str) -> str:

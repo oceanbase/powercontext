@@ -1,11 +1,27 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
 
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
+from shutil import which
 from types import ModuleType
 
 import pytest
@@ -46,7 +62,7 @@ def test_hook_uses_exec_form_and_does_not_capture_stop() -> None:
 
     assert set(configuration["hooks"]) == {"UserPromptSubmit"}
     hook = configuration["hooks"]["UserPromptSubmit"][0]["hooks"][0]
-    assert hook["command"] == "python"
+    assert hook["command"] == "python3"
     assert hook["args"] == ["${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py"]
 
 
@@ -57,8 +73,33 @@ def test_mcp_uses_claude_top_level_server_map_and_optional_header_helper() -> No
     assert configuration["powercontext"] == {
         "type": "http",
         "url": "${user_config.server_url}/mcp",
-        "headersHelper": 'python "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_headers.py"',
+        "headersHelper": (
+            "python3 -c 'import json, os; value = "
+            'os.environ.get("POWERCONTEXT_CLAUDE_AUTHORIZATION"); '
+            'print(json.dumps({"Authorization": value} if value else {}))\''
+        ),
     }
+
+
+def test_mcp_header_helper_command_does_not_depend_on_plugin_root() -> None:
+    configuration = json.loads((PLUGIN_ROOT / ".mcp.json").read_text())
+    helper_command = configuration["powercontext"]["headersHelper"]
+    environment = {
+        **os.environ,
+        "POWERCONTEXT_CLAUDE_AUTHORIZATION": "Bearer test-token",
+    }
+
+    completed = subprocess.run(
+        shlex.split(helper_command),
+        cwd=REPOSITORY_ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert json.loads(completed.stdout) == {"Authorization": "Bearer test-token"}
+    assert "${CLAUDE_PLUGIN_ROOT}" not in helper_command
 
 
 def test_header_helper_omits_authorization_when_unset() -> None:
@@ -111,7 +152,16 @@ def test_scope_matches_codex_remote_normalization(
 
 
 def test_scope_override_wins(scope_module: ModuleType, tmp_path: Path) -> None:
-    assert scope_module.derive_scope_id(str(tmp_path), configured_scope_id="project:explicit") == "project:explicit"
+    assert scope_module.resolve_scope_id(str(tmp_path), configured_scope_id="project:explicit") == "project:explicit"
+
+
+def test_scope_reads_the_shared_git_private_workstream_binding(scope_module: ModuleType, tmp_path: Path) -> None:
+    git = which("git")
+    assert git is not None
+    subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
+
+    assert scope_module.bind_workstream_scope(str(tmp_path), "handoff-ui-review") == "handoff-ui-review"
+    assert scope_module.resolve_scope_id(str(tmp_path)) == "handoff-ui-review"
 
 
 @pytest.mark.parametrize(
@@ -144,10 +194,13 @@ def test_project_context_skill_preserves_explicit_memory_and_handoff_boundaries(
 
     assert "Do not call `remember_memory` merely" in content
     assert "Ordinary prompt Sources are not task outcomes" in content
-    assert "`boundary_source`" in content
-    assert "canonical temporary" in content
-    assert 'selection: "prepared"' in content
-    assert "Call `commit_handoff` only when" in content
+    assert "`select_handoff_workstream`" in content
+    assert "structured choices" in content
+    assert "`handoff_current_work`" in content
+    assert "returned `handoff` member unchanged" in content
+    assert "`continue_handoff`" in content
+    assert "`acknowledge_handoff`" in content
+    assert "`record_task_outcome`" in content
 
 
 def test_claude_integration_does_not_embed_machine_specific_windows_paths() -> None:

@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """SQLite-compatible relational Activity Event Store owned by Handoff Report."""
 
 from __future__ import annotations
@@ -14,7 +28,6 @@ from sqlalchemy import (
     Column,
     Index,
     MetaData,
-    String,
     Table,
     Text,
     UniqueConstraint,
@@ -42,6 +55,7 @@ from powercontext.builtin.handoff_report.repository import (
     StoredActivityEventError,
 )
 from powercontext.builtin.handoff_report.workspace_store import HANDOFF_REPORT_WORKSPACE_TABLES
+from powercontext.builtin.persistence.tables import identity_string
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
 
 HANDOFF_REPORT_METADATA = MetaData()
@@ -49,23 +63,23 @@ HANDOFF_REPORT_METADATA = MetaData()
 HANDOFF_REPORT_ACTIVITY_HEADS_TABLE = Table(
     "pc_handoff_report_activity_heads",
     HANDOFF_REPORT_METADATA,
-    Column("project_id", String(MAX_REPORT_ID_LENGTH), primary_key=True),
+    Column("project_id", identity_string(MAX_REPORT_ID_LENGTH), primary_key=True),
     Column("cursor", BigInteger, nullable=False),
 )
 
 HANDOFF_REPORT_ACTIVITIES_TABLE = Table(
     "pc_handoff_report_activities",
     HANDOFF_REPORT_METADATA,
-    Column("project_id", String(MAX_REPORT_ID_LENGTH), primary_key=True),
+    Column("project_id", identity_string(MAX_REPORT_ID_LENGTH), primary_key=True),
     Column("cursor", BigInteger, primary_key=True),
-    Column("event_id", String(MAX_REPORT_ID_LENGTH), nullable=False, unique=True),
-    Column("scope_id", String(MAX_SCOPE_ID_LENGTH)),
-    Column("source", String(64), nullable=False),
-    Column("source_event_id", String(MAX_REPORT_ID_LENGTH), nullable=False),
-    Column("occurred_at", String(32)),
-    Column("observed_at", String(32), nullable=False),
-    Column("period_at", String(32)),
-    Column("time_basis", String(32), nullable=False),
+    Column("event_id", identity_string(MAX_REPORT_ID_LENGTH), nullable=False, unique=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH)),
+    Column("source", identity_string(64), nullable=False),
+    Column("source_event_id", identity_string(MAX_REPORT_ID_LENGTH), nullable=False),
+    Column("occurred_at", identity_string(32)),
+    Column("observed_at", identity_string(32), nullable=False),
+    Column("period_at", identity_string(32)),
+    Column("time_basis", identity_string(32), nullable=False),
     Column("payload", Text, nullable=False),
     UniqueConstraint("source", "source_event_id", name="uq_pc_handoff_report_activities_source_event"),
 )

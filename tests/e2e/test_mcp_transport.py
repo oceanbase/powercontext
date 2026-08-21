@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import asyncio
 from pathlib import Path
 
@@ -113,24 +127,29 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
     tools = asyncio.run(exercise_tools())
 
     assert tools == {
+        "acknowledge_handoff",
         "activate_handoff",
         "approve_artifact_candidate",
         "capture_content_source",
         "commit_handoff",
         "continue_handoff",
+        "create_work_contract",
         "finalize_handoff",
         "get_artifact_candidate",
         "get_handoff_report",
         "get_handoff_report_workspace",
         "get_memory_entry",
+        "handoff_current_work",
         "list_artifact_candidates",
         "list_memory_entries",
+        "record_task_outcome",
         "reject_artifact_candidate",
         "remember_memory",
         "retire_memory_entry",
         "revise_artifact_candidate",
         "revise_memory_entry",
         "search_memory",
+        "select_handoff_workstream",
     }
 
 

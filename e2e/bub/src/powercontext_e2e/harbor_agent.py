@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Thin Harbor ACP adapter for Bub's native plugin environment."""
 
 from __future__ import annotations
@@ -19,6 +33,7 @@ REMOTE_CODEX_HOME = "/installed-agent/codex"
 REMOTE_SOURCE = "/opt/powercontext/source"
 REMOTE_TOOL_DIR = "/installed-agent/tools"
 BUB_VERSION = version("bub")
+POWERCONTEXT_VERSION = version("powercontext")
 BUB_ACP_SERVER_VERSION = "0.0.2"
 
 
@@ -88,7 +103,8 @@ def _install_bub_command() -> str:
         f"cp {REMOTE_CODEX_AUTH} {REMOTE_CODEX_HOME}/auth.json; "
         f"chmod 600 {REMOTE_CODEX_HOME}/auth.json; "
         "fi; "
-        f"{_tool_environment()} {uv} tool install --force "
+        f"SETUPTOOLS_SCM_PRETEND_VERSION={shlex.quote(POWERCONTEXT_VERSION)} {_tool_environment()} "
+        f"{uv} tool install --force "
         f"--with {REMOTE_SOURCE} --with {REMOTE_SOURCE}/integrations/bub "
         f"{shlex.quote(f'bub=={BUB_VERSION}')}"
     )

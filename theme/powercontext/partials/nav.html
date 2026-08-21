@@ -1,3 +1,19 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
 {# Keep the primary navigation scoped to the current language tree. #}
 {% import "partials/nav-item.html" as item with context %}
 {% set current_language = "zh" if page.canonical_url and "/zh/" in page.canonical_url else "en" %}
@@ -13,10 +29,10 @@
 {% endif %}
 <nav class="{{ class }}" aria-label="{{ lang.t('nav') }}" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="{{ config.extra.homepage | d(nav.homepage.url, true) | url }}" title="OceanBase | {{ config.site_name | e }}" class="md-nav__button md-logo" aria-label="OceanBase {{ config.site_name }}" data-md-component="logo">
+    <a href="{{ config.extra.homepage | d(nav.homepage.url, true) | url }}" title="{{ config.site_name | e }}" class="md-nav__button md-logo" aria-label="{{ config.site_name | e }}" data-md-component="logo">
       {% include "partials/logo.html" %}
     </a>
-    OceanBase | {{ config.site_name }}
+    {{ config.site_name }}
   </label>
   {% if config.repo_url and not is_docs and not is_records %}
     <div class="md-nav__source">
@@ -29,7 +45,7 @@
       {% if current_language == "zh" %}
         {% if title == "中文" %}
           {% for nav_item in language_item.children %}
-            {% if (not is_docs and not is_records) or (is_docs and nav_item.title == "文档") or (is_records and nav_item.title == "RFC 与会议纪要") %}
+            {% if (not is_docs and not is_records) or (is_docs and nav_item.title in ["文档", "开发"]) or (is_records and nav_item.title == "RFC 与会议纪要") %}
               {% set path = "__nav_" ~ loop.index %}
               {{ item.render(nav_item, path, 1) }}
             {% endif %}
@@ -38,7 +54,7 @@
       {% else %}
         {% if title == "English" %}
           {% for nav_item in language_item.children %}
-            {% if (not is_docs and not is_records) or (is_docs and nav_item.title == "Docs") or (is_records and nav_item.title == "RFCs & Meetings") %}
+            {% if (not is_docs and not is_records) or (is_docs and nav_item.title in ["Docs", "Development"]) or (is_records and nav_item.title == "RFCs & Meetings") %}
               {% set path = "__nav_" ~ loop.index %}
               {{ item.render(nav_item, path, 1) }}
             {% endif %}

@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Runtime-facing application service for Handoff Report operations."""
 
 from __future__ import annotations
@@ -28,7 +42,7 @@ from powercontext.builtin.handoff_report.models import (
     WorkstreamDescriptor,
     WorkstreamKind,
 )
-from powercontext.builtin.handoff_report.protocols import HandoffReadAdapter
+from powercontext.builtin.handoff_report.protocols import HandoffReadAdapter, WorkContinuityReadAdapter
 from powercontext.builtin.handoff_report.report import (
     MAX_REPORT_ACTIVITIES,
     MAX_REPORT_WORKSTREAMS,
@@ -74,12 +88,13 @@ class HandoffReportApplication:
         *,
         activities: ActivityEventRepository | None = None,
         workspace_bindings: WorkspaceBindingService | None = None,
+        continuity: WorkContinuityReadAdapter | None = None,
     ) -> None:
         self._database = database
         self._catalog = HandoffReportCatalog()
         self._activities = SQLiteActivityEventRepository() if activities is None else activities
         self._workspace_bindings = WorkspaceBindingService() if workspace_bindings is None else workspace_bindings
-        self._reports = HandoffReportService(handoffs)
+        self._reports = HandoffReportService(handoffs, continuity=continuity)
 
     async def create_project(
         self,

@@ -1,0 +1,84 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
+{% extends "main.html" %}
+
+{% set canonical = page.canonical_url | string %}
+{% set is_zh = "/zh/" in canonical %}
+{% set is_meetings = "/meetings/" in canonical %}
+{% set language_title = "中文" if is_zh else "English" %}
+{% set records_title = "RFC 与会议纪要" if is_zh else "RFCs & Meetings" %}
+{% set rfc_title = "RFC" if is_zh else "RFCs" %}
+{% set meetings_title = "会议纪要" if is_zh else "Meetings" %}
+
+{% block site_nav %}
+  <div class="md-sidebar md-sidebar--primary pc-mobile-sidebar" data-md-component="sidebar" data-md-type="navigation">
+    <div class="md-sidebar__scrollwrap">
+      <div class="md-sidebar__inner">{% include "partials/nav.html" %}</div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block container %}
+  <div class="md-content pc-listing pc-records-index records-page" data-md-component="content">
+    <article class="md-content__inner md-typeset">
+      <header class="records-header">
+        <h1>{{ "RFC 与" if is_zh else "RFCs and" }}<br>{{ "会议纪要。" if is_zh else "meeting notes." }}</h1>
+        <p>{{ "RFC 记录设计提案和决策；会议纪要记录阶段进展、演示、决策和后续工作。" if is_zh else "RFCs record design proposals and decisions. Meeting notes preserve updates, demonstrations, decisions, and follow-up work." }}</p>
+        <a class="quiet-button large" href="{{ config.repo_url }}">{{ "打开仓库 ↗" if is_zh else "Open repository ↗" }}</a>
+      </header>
+
+      <nav class="record-tabs" aria-label="{{ '记录类型' if is_zh else 'Record types' }}">
+        <a href="{{ ('zh/rfcs/' if is_zh else 'en/rfcs/') | url }}"{% if not is_meetings %} aria-current="page"{% endif %}>{{ rfc_title }}</a>
+        <a href="{{ ('zh/meetings/' if is_zh else 'en/meetings/') | url }}"{% if is_meetings %} aria-current="page"{% endif %}>{{ meetings_title }}</a>
+      </nav>
+
+      {% for language_item in nav.items %}
+        {% if language_item.title == language_title %}
+          {% for top_item in language_item.children %}
+            {% if top_item.title == records_title %}
+              {% for record_group in top_item.children %}
+                {% if (is_meetings and record_group.title == meetings_title) or (not is_meetings and record_group.title == rfc_title) %}
+                  <section class="record-index pc-listing-list"{% if is_meetings %} aria-labelledby="record-index-title"{% else %} aria-label="{{ 'RFC 列表' if is_zh else 'RFC list' }}"{% endif %}>
+                    {% if is_meetings %}
+                      <div class="record-index-title">
+                        <h2 id="record-index-title">{{ "会议纪要" if is_zh else "Meeting notes" }}</h2>
+                        <span>{{ (record_group.children | length) - 2 }} {{ "条记录" if is_zh else "records" }}</span>
+                      </div>
+                      <div class="record-columns record-columns--compact" aria-hidden="true"><span>{{ "日期" if is_zh else "Date" }}</span><span>{{ "记录" if is_zh else "Record" }}</span></div>
+                    {% endif %}
+                    {% for record in record_group.children %}
+                      {% if loop.index0 > 0 and record.title not in ["RFC Template", "RFC 模板"] %}
+                        <a class="record-row record-row--compact pc-listing-row" href="{{ record.url | url }}">
+                          <span class="record-number pc-listing-meta">{{ "0000" if record.title in ["RFC Template", "RFC 模板"] else record.title[:4] }}</span>
+                          <div class="record-proposal pc-listing-content">
+                            <h2>{% if is_meetings or record.title in ["RFC Template", "RFC 模板"] %}{{ record.title }}{% else %}{{ record.title[5:] }}{% endif %}</h2>
+                            {% if not is_meetings %}<code>{{ record.title | lower | replace(" ", "_") }}</code>{% endif %}
+                          </div>
+                        </a>
+                      {% endif %}
+                    {% endfor %}
+                  </section>
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+      {% endfor %}
+
+    </article>
+  </div>
+{% endblock %}

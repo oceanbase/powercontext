@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """OceanBase Memory search indexes using FULLTEXT and vector indexes."""
 
 from __future__ import annotations
@@ -7,7 +21,6 @@ from sqlalchemy import (
     BigInteger,
     Column,
     MetaData,
-    String,
     Table,
     UniqueConstraint,
     bindparam,
@@ -35,6 +48,7 @@ from powercontext.builtin.persistence.tables import (
     MAX_MEMORY_HASH_LENGTH,
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
+    identity_string,
 )
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
@@ -199,13 +213,13 @@ class OceanBaseMemoryVectorIndex:
             _OCEANBASE_VECTOR_TABLE_NAME,
             metadata,
             Column("vector_id", BigInteger, primary_key=True, autoincrement=True),
-            Column("scope_id", String(MAX_SCOPE_ID_LENGTH), nullable=False),
-            Column("memory_artifact_id", String(MAX_ARTIFACT_ID_LENGTH), nullable=False),
+            Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+            Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), nullable=False),
             Column("head_revision", BigInteger, nullable=False),
-            Column("entry_id", String(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
-            Column("entry_version_id", String(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
-            Column("entry_content_hash", String(MAX_MEMORY_HASH_LENGTH), nullable=False),
-            Column("embedding_content_hash", String(MAX_MEMORY_HASH_LENGTH), nullable=False),
+            Column("entry_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+            Column("entry_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+            Column("entry_content_hash", identity_string(MAX_MEMORY_HASH_LENGTH), nullable=False),
+            Column("embedding_content_hash", identity_string(MAX_MEMORY_HASH_LENGTH), nullable=False),
             Column("embedding", VECTOR(profile.dimension), nullable=False),
             UniqueConstraint(
                 "scope_id",

@@ -164,6 +164,117 @@ class RecallTokenDay(BaseModel):
     token_reduction: StrictInt
 
 
+class WorkClaimBasis(StrEnum):
+    DECLARED = "declared"
+    VERIFIED = "verified"
+
+
+class Schema(StrEnum):
+    POWERCONTEXT_WORK_CONTRACT_V1 = "powercontext.work-contract.v1"
+
+
+class Trust(StrEnum):
+    UNTRUSTED_INPUT = "untrusted_input"
+
+
+class InScopeItem(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+
+
+class Exclusion(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+
+
+class CompletionCriterion(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+
+
+class AuthorizationNote(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+
+
+class OpenQuestion(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+
+
+class Schema1(StrEnum):
+    POWERCONTEXT_CURRENT_WORK_HANDOFF_V1 = "powercontext.current-work-handoff.v1"
+
+
+class Omission(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+
+
+class WorkSourceKind(StrEnum):
+    WORK_CONTRACT = "work-contract"
+    HANDOFF_BOUNDARY = "handoff-boundary"
+    HANDOFF_RECEIPT = "handoff-receipt"
+    TASK_OUTCOME = "task-outcome"
+
+
+class HandoffReceiptStatus(StrEnum):
+    ACCEPTED = "accepted"
+    NEEDS_CLARIFICATION = "needs_clarification"
+    DECLINED = "declined"
+
+
+class HandoffAcknowledgementSelection(StrEnum):
+    PREPARED = "prepared"
+    EXACT = "exact"
+
+
+class LiveStateCheckStatus(StrEnum):
+    CONFIRMED = "confirmed"
+    MISMATCH = "mismatch"
+    NOT_CHECKED = "not_checked"
+
+
+class ReceiverReadinessCheckStatus(StrEnum):
+    CONFIRMED = "confirmed"
+    INSUFFICIENT = "insufficient"
+    NOT_CHECKED = "not_checked"
+
+
+class ReceiverChecks(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    live_state: LiveStateCheckStatus
+    capability: ReceiverReadinessCheckStatus
+    authorization: ReceiverReadinessCheckStatus
+
+
+class TaskOutcomeStatus(StrEnum):
+    SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
+
+
+class TaskCheckStatus(StrEnum):
+    PASSED = "passed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    TIMED_OUT = "timed_out"
+    UNAVAILABLE = "unavailable"
+    CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
+
+
+class Schema2(StrEnum):
+    POWERCONTEXT_TASK_OUTCOME_V1 = "powercontext.task-outcome.v1"
+
+
+class Trust2(StrEnum):
+    UNTRUSTED_OBSERVATION = "untrusted_observation"
+
+
+class RemainingWorkItem(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+
+
 class CaptureContentSourceRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -190,7 +301,7 @@ class Kind1(StrEnum):
     MEMORY = "memory"
 
 
-class Trust(StrEnum):
+class Trust3(StrEnum):
     UNTRUSTED_HISTORY = "untrusted_history"
 
 
@@ -339,11 +450,11 @@ class HandoffReportActivityVcsContext(BaseModel):
     head_revision: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
 
 
-class Schema(StrEnum):
+class Schema3(StrEnum):
     POWERCONTEXT_HANDOFF_REPORT_ACTIVITY_V1 = "powercontext.handoff-report-activity.v1"
 
 
-class Trust1(StrEnum):
+class Trust4(StrEnum):
     UNTRUSTED_OBSERVATION = "untrusted_observation"
 
 
@@ -392,7 +503,7 @@ class HandoffReportRepositoryRef(BaseModel):
     subpath: Annotated[StrictStr | None, Field(max_length=1024, min_length=1)]
 
 
-class Schema1(StrEnum):
+class Schema4(StrEnum):
     POWERCONTEXT_WORKSPACE_BINDING_V1 = "powercontext.workspace-binding.v1"
 
 
@@ -405,7 +516,7 @@ class HandoffReportWorkspaceBinding(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema1, Field(alias="schema")]
+    schema_: Annotated[Schema4, Field(alias="schema")]
     workspace_instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
     project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
     repository_ref: HandoffReportRepositoryRef
@@ -439,11 +550,11 @@ class DetachHandoffReportWorkspaceRequest(BaseModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
 
 
-class Schema2(StrEnum):
+class Schema5(StrEnum):
     POWERCONTEXT_PROJECT_V1 = "powercontext.project.v1"
 
 
-class Schema3(StrEnum):
+class Schema6(StrEnum):
     POWERCONTEXT_WORKSTREAM_V1 = "powercontext.workstream.v1"
 
 
@@ -871,6 +982,16 @@ class GetStatsRequest(BaseModel):
     period: StatsPeriod = StatsPeriod.FIELD_30D
 
 
+class WorkSourceReceipt(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: WorkSourceKind
+    source: SourceReference
+    position: Annotated[StrictInt, Field(ge=1)]
+    content_digest: Annotated[StrictStr, Field(max_length=71, min_length=71, pattern="^sha256:[0-9a-f]{64}$")]
+
+
 class CaptureContentSourceResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1079,7 +1200,7 @@ class HandoffReportActivity(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema, Field(alias="schema")]
+    schema_: Annotated[Schema3, Field(alias="schema")]
     event_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
     project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
     scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)]
@@ -1095,7 +1216,7 @@ class HandoffReportActivity(BaseModel):
     session_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)]
     vcs_context: Annotated[HandoffReportActivityVcsContext | None, Field(...)]
     evidence_refs: Annotated[list[HandoffReportExternalReference], Field(max_length=32)]
-    trust: Trust1
+    trust: Trust4
 
 
 class StoredHandoffReportActivity(BaseModel):
@@ -1119,7 +1240,7 @@ class ProjectDescriptor(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema2, Field(alias="schema")]
+    schema_: Annotated[Schema5, Field(alias="schema")]
     project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
     project_key: Annotated[StrictStr, Field(max_length=64, min_length=1)]
     title: Annotated[StrictStr, Field(max_length=256, min_length=1)]
@@ -1142,7 +1263,7 @@ class WorkstreamDescriptor(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema3, Field(alias="schema")]
+    schema_: Annotated[Schema6, Field(alias="schema")]
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
     project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
     key: Annotated[StrictStr | None, Field(max_length=64)]
@@ -1548,6 +1669,97 @@ class ActivateHandoffRequest(BaseModel):
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
 
 
+class WorkClaim(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    text: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    basis: WorkClaimBasis
+    evidence: Annotated[list[HandoffCitation], Field(max_length=31)]
+
+
+class WorkContract(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema, Field(alias="schema")]
+    trust: Trust
+    objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    facts: Annotated[list[WorkClaim], Field(max_length=64)]
+    in_scope: Annotated[list[InScopeItem], Field(max_length=64, min_length=1)]
+    exclusions: Annotated[list[Exclusion], Field(max_length=64)]
+    completion_criteria: Annotated[list[CompletionCriterion], Field(max_length=64, min_length=1)]
+    authorization_notes: Annotated[list[AuthorizationNote], Field(max_length=64)]
+    open_questions: Annotated[list[OpenQuestion], Field(max_length=64)]
+
+
+class CreateWorkContractRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    contract: WorkContract
+
+
+class CurrentWorkHandoff(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema1, Field(alias="schema")]
+    trust: Trust
+    objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    state: Annotated[list[WorkClaim], Field(max_length=64, min_length=1)]
+    disposition: HandoffDisposition
+    next_action: Annotated[WorkClaim | None, Field(...)]
+    omissions: Annotated[list[Omission], Field(max_length=64)]
+
+
+class HandoffCurrentWorkRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    handoff: CurrentWorkHandoff
+
+
+class TaskCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    status: TaskCheckStatus
+    details: Annotated[StrictStr | None, Field(max_length=8192, min_length=1, pattern=".*\\S.*")] = None
+    basis: WorkClaimBasis
+    evidence: Annotated[list[HandoffCitation], Field(max_length=32)]
+
+
+class TaskOutcome(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema2, Field(alias="schema")]
+    trust: Trust2
+    objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    status: TaskOutcomeStatus
+    summary: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    handoff_receipt_ref: SourceReference | None = None
+    observations: Annotated[list[WorkClaim], Field(max_length=64, min_length=1)]
+    checks: Annotated[list[TaskCheck], Field(max_length=64)]
+    produced_artifacts: Annotated[list[ArtifactReference], Field(max_length=32)]
+    remaining_work: Annotated[list[RemainingWorkItem], Field(max_length=64)]
+
+
+class RecordTaskOutcomeRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    outcome: TaskOutcome
+
+
 class HandoffContent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1575,7 +1787,7 @@ class HandoffResolution(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    trust: Trust
+    trust: Trust3
     status: HandoffResolutionStatus
     scope_id: StrictStr
     content: Annotated[HandoffContent | None, Field(...)]
@@ -1593,6 +1805,37 @@ class PreparedHandoff(BaseModel):
     scope_id: StrictStr
     base: Annotated[ArtifactReference | None, Field(...)]
     content: HandoffContent
+
+
+class PreparedWorkHandoff(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    boundary: WorkSourceReceipt
+    handoff: PreparedHandoff
+
+
+class AcknowledgeHandoffRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    receiver: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    status: HandoffReceiptStatus
+    selection: HandoffAcknowledgementSelection
+    receiver_checks: ReceiverChecks | None = None
+    prepared: PreparedHandoff | None = None
+    revision: ArtifactReference | None = None
+    message: Annotated[StrictStr | None, Field(max_length=8192, min_length=1, pattern=".*\\S.*")] = None
+
+
+class HandoffAcknowledgement(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    resolution: HandoffResolution
+    receipt: WorkSourceReceipt
 
 
 class CommitHandoffRequest(BaseModel):

@@ -1,8 +1,22 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 openapi: 3.0.3
 info:
   title: PowerContext API
   description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
-  version: 0.0.1
+  version: 0.0.2
 security:
   - BearerAuth: []
   - {}
@@ -119,6 +133,142 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PreparedContext"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/work/contracts/create:
+    post:
+      tags: [work]
+      summary: Create a grounded Work Contract
+      description: Persist an inspectable delegation baseline without granting execution authority.
+      operationId: create_work_contract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkContractRequest"
+      responses:
+        "202":
+          description: The Work Contract is durably captured as exact Source evidence.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkSourceReceipt"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/work/handoffs/prepare-current:
+    post:
+      tags: [work]
+      summary: Hand off current work in one high-level operation
+      description: Capture an inspected boundary and prepare a temporary evidence-bearing Handoff without committing it.
+      operationId: handoff_current_work
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HandoffCurrentWorkRequest"
+      responses:
+        "200":
+          description: The captured boundary and Prepared Handoff ready for explicit transfer.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreparedWorkHandoff"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/work/handoffs/acknowledge:
+    post:
+      tags: [work]
+      summary: Resolve and acknowledge a Handoff
+      description: Re-resolve one prepared or exact Handoff, check evidence, and capture the receiver's explicit live-state, capability, and authorization checks.
+      operationId: acknowledge_handoff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcknowledgeHandoffRequest"
+      responses:
+        "200":
+          description: The resolved Handoff and durable receiver acknowledgement.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandoffAcknowledgement"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/work/outcomes/record:
+    post:
+      tags: [work]
+      summary: Record a completion-aware Task Outcome
+      description: Preserve one attempt's status and checks, optionally linked to the exact accepted Handoff Receipt that the result covers.
+      operationId: record_task_outcome
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordTaskOutcomeRequest"
+      responses:
+        "202":
+          description: The Task Outcome is durably captured for Handoff evidence and reviewed Experience incubation.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkSourceReceipt"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "422":
@@ -369,6 +519,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SearchMemoryResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "422":
@@ -2099,6 +2251,357 @@ components:
         period:
           $ref: "#/components/schemas/StatsPeriod"
           default: 30d
+    WorkClaimBasis:
+      type: string
+      enum: [declared, verified]
+    WorkClaim:
+      type: object
+      additionalProperties: false
+      required: [text, basis, evidence]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        basis:
+          $ref: "#/components/schemas/WorkClaimBasis"
+        evidence:
+          type: array
+          maxItems: 31
+          items:
+            $ref: "#/components/schemas/HandoffCitation"
+    WorkContract:
+      type: object
+      additionalProperties: false
+      required: [schema, trust, objective, facts, in_scope, exclusions, completion_criteria, authorization_notes, open_questions]
+      properties:
+        schema:
+          type: string
+          enum: [powercontext.work-contract.v1]
+        trust:
+          type: string
+          enum: [untrusted_input]
+        objective:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        facts:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/WorkClaim"
+        in_scope:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            type: string
+            minLength: 1
+            maxLength: 8192
+            pattern: '.*\S.*'
+        exclusions:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            minLength: 1
+            maxLength: 8192
+            pattern: '.*\S.*'
+        completion_criteria:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            type: string
+            minLength: 1
+            maxLength: 8192
+            pattern: '.*\S.*'
+        authorization_notes:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            minLength: 1
+            maxLength: 8192
+            pattern: '.*\S.*'
+        open_questions:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            minLength: 1
+            maxLength: 8192
+            pattern: '.*\S.*'
+    CreateWorkContractRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, source_id, contract]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        contract:
+          $ref: "#/components/schemas/WorkContract"
+    CurrentWorkHandoff:
+      type: object
+      additionalProperties: false
+      required: [schema, trust, objective, state, disposition, next_action, omissions]
+      properties:
+        schema:
+          type: string
+          enum: [powercontext.current-work-handoff.v1]
+        trust:
+          type: string
+          enum: [untrusted_input]
+        objective:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        state:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/WorkClaim"
+        disposition:
+          $ref: "#/components/schemas/HandoffDisposition"
+        next_action:
+          $ref: "#/components/schemas/WorkClaim"
+          nullable: true
+        omissions:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            minLength: 1
+            maxLength: 8192
+            pattern: '.*\S.*'
+    HandoffCurrentWorkRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, source_id, handoff]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        handoff:
+          $ref: "#/components/schemas/CurrentWorkHandoff"
+    WorkSourceKind:
+      type: string
+      enum: [work-contract, handoff-boundary, handoff-receipt, task-outcome]
+    WorkSourceReceipt:
+      type: object
+      additionalProperties: false
+      required: [kind, source, position, content_digest]
+      properties:
+        kind:
+          $ref: "#/components/schemas/WorkSourceKind"
+        source:
+          $ref: "#/components/schemas/SourceReference"
+        position:
+          type: integer
+          minimum: 1
+        content_digest:
+          type: string
+          minLength: 71
+          maxLength: 71
+          pattern: '^sha256:[0-9a-f]{64}$'
+    PreparedWorkHandoff:
+      type: object
+      additionalProperties: false
+      required: [boundary, handoff]
+      properties:
+        boundary:
+          $ref: "#/components/schemas/WorkSourceReceipt"
+        handoff:
+          $ref: "#/components/schemas/PreparedHandoff"
+    HandoffReceiptStatus:
+      type: string
+      enum: [accepted, needs_clarification, declined]
+    HandoffAcknowledgementSelection:
+      type: string
+      enum: [prepared, exact]
+    LiveStateCheckStatus:
+      type: string
+      enum: [confirmed, mismatch, not_checked]
+    ReceiverReadinessCheckStatus:
+      type: string
+      enum: [confirmed, insufficient, not_checked]
+    ReceiverChecks:
+      type: object
+      additionalProperties: false
+      description: Untrusted receiver self-attestation kept separate from citation availability. All three values must be confirmed when status is accepted.
+      required: [live_state, capability, authorization]
+      properties:
+        live_state:
+          $ref: "#/components/schemas/LiveStateCheckStatus"
+        capability:
+          $ref: "#/components/schemas/ReceiverReadinessCheckStatus"
+        authorization:
+          $ref: "#/components/schemas/ReceiverReadinessCheckStatus"
+    AcknowledgeHandoffRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, source_id, receiver, status, selection]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        receiver:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        status:
+          $ref: "#/components/schemas/HandoffReceiptStatus"
+        selection:
+          $ref: "#/components/schemas/HandoffAcknowledgementSelection"
+        receiver_checks:
+          $ref: "#/components/schemas/ReceiverChecks"
+          nullable: true
+        prepared:
+          $ref: "#/components/schemas/PreparedHandoff"
+          nullable: true
+        revision:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        message:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+          nullable: true
+    HandoffAcknowledgement:
+      type: object
+      additionalProperties: false
+      required: [resolution, receipt]
+      properties:
+        resolution:
+          $ref: "#/components/schemas/HandoffResolution"
+        receipt:
+          $ref: "#/components/schemas/WorkSourceReceipt"
+    TaskOutcomeStatus:
+      type: string
+      enum: [succeeded, partial, blocked, failed, cancelled, unknown]
+    TaskCheckStatus:
+      type: string
+      enum: [passed, failed, skipped, timed_out, unavailable, cancelled, unknown]
+    TaskCheck:
+      type: object
+      additionalProperties: false
+      required: [name, status, basis, evidence]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        status:
+          $ref: "#/components/schemas/TaskCheckStatus"
+        details:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+          nullable: true
+        basis:
+          $ref: "#/components/schemas/WorkClaimBasis"
+        evidence:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/HandoffCitation"
+    TaskOutcome:
+      type: object
+      additionalProperties: false
+      required: [schema, trust, objective, status, summary, observations, checks, produced_artifacts, remaining_work]
+      properties:
+        schema:
+          type: string
+          enum: [powercontext.task-outcome.v1]
+        trust:
+          type: string
+          enum: [untrusted_observation]
+        objective:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        status:
+          $ref: "#/components/schemas/TaskOutcomeStatus"
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+        handoff_receipt_ref:
+          $ref: "#/components/schemas/SourceReference"
+          nullable: true
+        observations:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/WorkClaim"
+        checks:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/TaskCheck"
+        produced_artifacts:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/ArtifactReference"
+        remaining_work:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            minLength: 1
+            maxLength: 8192
+            pattern: '.*\S.*'
+    RecordTaskOutcomeRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, source_id, outcome]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        outcome:
+          $ref: "#/components/schemas/TaskOutcome"
     CaptureContentSourceRequest:
       type: object
       additionalProperties: false

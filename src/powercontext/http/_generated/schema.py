@@ -7,7 +7,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     "info": {
         "title": "PowerContext API",
         "description": "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.",
-        "version": "0.0.1",
+        "version": "0.0.2",
     },
     "paths": {
         "/health/live": {
@@ -108,6 +108,139 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedContext"}}},
                     },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/work/contracts/create": {
+            "post": {
+                "tags": ["work"],
+                "summary": "Create a grounded Work Contract",
+                "description": "Persist an inspectable delegation baseline without granting execution authority.",
+                "operationId": "create_work_contract",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/CreateWorkContractRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "202": {
+                        "description": "The Work Contract is durably captured as exact Source evidence.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkSourceReceipt"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/work/handoffs/prepare-current": {
+            "post": {
+                "tags": ["work"],
+                "summary": "Hand off current work in one high-level operation",
+                "description": "Capture an inspected "
+                "boundary and prepare a "
+                "temporary "
+                "evidence-bearing Handoff "
+                "without committing it.",
+                "operationId": "handoff_current_work",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/HandoffCurrentWorkRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The captured boundary and Prepared Handoff ready for explicit transfer.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/PreparedWorkHandoff"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/work/handoffs/acknowledge": {
+            "post": {
+                "tags": ["work"],
+                "summary": "Resolve and acknowledge a Handoff",
+                "description": "Re-resolve one prepared or "
+                "exact Handoff, check "
+                "evidence, and capture the "
+                "receiver's explicit "
+                "live-state, capability, and "
+                "authorization checks.",
+                "operationId": "acknowledge_handoff",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/AcknowledgeHandoffRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The resolved Handoff and durable receiver acknowledgement.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/HandoffAcknowledgement"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/work/outcomes/record": {
+            "post": {
+                "tags": ["work"],
+                "summary": "Record a completion-aware Task Outcome",
+                "description": "Preserve one attempt's status and "
+                "checks, optionally linked to the "
+                "exact accepted Handoff Receipt "
+                "that the result covers.",
+                "operationId": "record_task_outcome",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RecordTaskOutcomeRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "202": {
+                        "description": "The Task "
+                        "Outcome is "
+                        "durably "
+                        "captured "
+                        "for Handoff "
+                        "evidence "
+                        "and "
+                        "reviewed "
+                        "Experience "
+                        "incubation.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkSourceReceipt"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
@@ -1763,6 +1896,271 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["scope_id"],
+            },
+            "WorkClaimBasis": {"type": "string", "enum": ["declared", "verified"]},
+            "WorkClaim": {
+                "properties": {
+                    "text": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "basis": {"$ref": "#/components/schemas/WorkClaimBasis"},
+                    "evidence": {
+                        "items": {"$ref": "#/components/schemas/HandoffCitation"},
+                        "type": "array",
+                        "maxItems": 31,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["text", "basis", "evidence"],
+            },
+            "WorkContract": {
+                "properties": {
+                    "schema": {"type": "string", "enum": ["powercontext.work-contract.v1"]},
+                    "trust": {"type": "string", "enum": ["untrusted_input"]},
+                    "objective": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "facts": {"items": {"$ref": "#/components/schemas/WorkClaim"}, "type": "array", "maxItems": 64},
+                    "in_scope": {
+                        "items": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "maxItems": 64,
+                        "minItems": 1,
+                    },
+                    "exclusions": {
+                        "items": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "maxItems": 64,
+                    },
+                    "completion_criteria": {
+                        "items": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "maxItems": 64,
+                        "minItems": 1,
+                    },
+                    "authorization_notes": {
+                        "items": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "maxItems": 64,
+                    },
+                    "open_questions": {
+                        "items": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "maxItems": 64,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "schema",
+                    "trust",
+                    "objective",
+                    "facts",
+                    "in_scope",
+                    "exclusions",
+                    "completion_criteria",
+                    "authorization_notes",
+                    "open_questions",
+                ],
+            },
+            "CreateWorkContractRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "contract": {"$ref": "#/components/schemas/WorkContract"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "source_id", "contract"],
+            },
+            "CurrentWorkHandoff": {
+                "properties": {
+                    "schema": {"type": "string", "enum": ["powercontext.current-work-handoff.v1"]},
+                    "trust": {"type": "string", "enum": ["untrusted_input"]},
+                    "objective": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "state": {
+                        "items": {"$ref": "#/components/schemas/WorkClaim"},
+                        "type": "array",
+                        "maxItems": 64,
+                        "minItems": 1,
+                    },
+                    "disposition": {"$ref": "#/components/schemas/HandoffDisposition"},
+                    "next_action": {"$ref": "#/components/schemas/WorkClaim", "nullable": True},
+                    "omissions": {
+                        "items": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "maxItems": 64,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["schema", "trust", "objective", "state", "disposition", "next_action", "omissions"],
+            },
+            "HandoffCurrentWorkRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "handoff": {"$ref": "#/components/schemas/CurrentWorkHandoff"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "source_id", "handoff"],
+            },
+            "WorkSourceKind": {
+                "type": "string",
+                "enum": ["work-contract", "handoff-boundary", "handoff-receipt", "task-outcome"],
+            },
+            "WorkSourceReceipt": {
+                "properties": {
+                    "kind": {"$ref": "#/components/schemas/WorkSourceKind"},
+                    "source": {"$ref": "#/components/schemas/SourceReference"},
+                    "position": {"type": "integer", "minimum": 1.0},
+                    "content_digest": {
+                        "type": "string",
+                        "maxLength": 71,
+                        "minLength": 71,
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "source", "position", "content_digest"],
+            },
+            "PreparedWorkHandoff": {
+                "properties": {
+                    "boundary": {"$ref": "#/components/schemas/WorkSourceReceipt"},
+                    "handoff": {"$ref": "#/components/schemas/PreparedHandoff"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["boundary", "handoff"],
+            },
+            "HandoffReceiptStatus": {"type": "string", "enum": ["accepted", "needs_clarification", "declined"]},
+            "HandoffAcknowledgementSelection": {"type": "string", "enum": ["prepared", "exact"]},
+            "LiveStateCheckStatus": {"type": "string", "enum": ["confirmed", "mismatch", "not_checked"]},
+            "ReceiverReadinessCheckStatus": {"type": "string", "enum": ["confirmed", "insufficient", "not_checked"]},
+            "ReceiverChecks": {
+                "properties": {
+                    "live_state": {"$ref": "#/components/schemas/LiveStateCheckStatus"},
+                    "capability": {"$ref": "#/components/schemas/ReceiverReadinessCheckStatus"},
+                    "authorization": {"$ref": "#/components/schemas/ReceiverReadinessCheckStatus"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["live_state", "capability", "authorization"],
+                "description": "Untrusted receiver self-attestation "
+                "kept separate from citation "
+                "availability. All three values must "
+                "be confirmed when status is "
+                "accepted.",
+            },
+            "AcknowledgeHandoffRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "receiver": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "status": {"$ref": "#/components/schemas/HandoffReceiptStatus"},
+                    "selection": {"$ref": "#/components/schemas/HandoffAcknowledgementSelection"},
+                    "receiver_checks": {"$ref": "#/components/schemas/ReceiverChecks", "nullable": True},
+                    "prepared": {"$ref": "#/components/schemas/PreparedHandoff", "nullable": True},
+                    "revision": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "message": {
+                        "type": "string",
+                        "maxLength": 8192,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "source_id", "receiver", "status", "selection"],
+            },
+            "HandoffAcknowledgement": {
+                "properties": {
+                    "resolution": {"$ref": "#/components/schemas/HandoffResolution"},
+                    "receipt": {"$ref": "#/components/schemas/WorkSourceReceipt"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["resolution", "receipt"],
+            },
+            "TaskOutcomeStatus": {
+                "type": "string",
+                "enum": ["succeeded", "partial", "blocked", "failed", "cancelled", "unknown"],
+            },
+            "TaskCheckStatus": {
+                "type": "string",
+                "enum": ["passed", "failed", "skipped", "timed_out", "unavailable", "cancelled", "unknown"],
+            },
+            "TaskCheck": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "status": {"$ref": "#/components/schemas/TaskCheckStatus"},
+                    "details": {
+                        "type": "string",
+                        "maxLength": 8192,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "basis": {"$ref": "#/components/schemas/WorkClaimBasis"},
+                    "evidence": {
+                        "items": {"$ref": "#/components/schemas/HandoffCitation"},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "status", "basis", "evidence"],
+            },
+            "TaskOutcome": {
+                "properties": {
+                    "schema": {"type": "string", "enum": ["powercontext.task-outcome.v1"]},
+                    "trust": {"type": "string", "enum": ["untrusted_observation"]},
+                    "objective": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "status": {"$ref": "#/components/schemas/TaskOutcomeStatus"},
+                    "summary": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                    "handoff_receipt_ref": {"$ref": "#/components/schemas/SourceReference", "nullable": True},
+                    "observations": {
+                        "items": {"$ref": "#/components/schemas/WorkClaim"},
+                        "type": "array",
+                        "maxItems": 64,
+                        "minItems": 1,
+                    },
+                    "checks": {"items": {"$ref": "#/components/schemas/TaskCheck"}, "type": "array", "maxItems": 64},
+                    "produced_artifacts": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                    "remaining_work": {
+                        "items": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "maxItems": 64,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "schema",
+                    "trust",
+                    "objective",
+                    "status",
+                    "summary",
+                    "observations",
+                    "checks",
+                    "produced_artifacts",
+                    "remaining_work",
+                ],
+            },
+            "RecordTaskOutcomeRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "outcome": {"$ref": "#/components/schemas/TaskOutcome"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "source_id", "outcome"],
             },
             "CaptureContentSourceRequest": {
                 "properties": {

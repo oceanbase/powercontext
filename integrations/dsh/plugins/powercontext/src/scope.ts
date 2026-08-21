@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
@@ -5,7 +21,14 @@ import { resolve } from 'node:path'
 const MAX_SCOPE_LENGTH = 256
 const SCP_REMOTE = /^(?:[^@/\s]+@)?(?<host>[^:/\s]+):(?<path>.+)$/
 
+export const UNSCOPED_MESSAGE = 'No project workspace on this session. Set scopeId or open a workspace.'
+
 export type GitRunner = (cwd: string, args: string[]) => Promise<string | undefined>
+
+export function sessionCwd(cwd: string | undefined): string | undefined {
+  const value = cwd?.trim()
+  return value ? value : undefined
+}
 
 function bounded(prefix: string, value: string): string {
   const candidate = `${prefix}:${value}`
@@ -73,13 +96,18 @@ export function spawnGit(cwd: string, args: string[]): Promise<string | undefine
 }
 
 export async function deriveScopeId(
-  cwd: string,
+  cwd: string | undefined,
   options: { configuredScopeId?: string; git?: GitRunner } = {},
-): Promise<string> {
+): Promise<string | undefined> {
   if (options.configuredScopeId) return boundedExplicit(options.configuredScopeId)
-  const git = options.git ?? spawnGit
-  const rootValue = await git(cwd, ['rev-parse', '--show-toplevel'])
-  const projectRoot = resolve(rootValue || cwd)
+  const workspace = sessionCwd(cwd)
+  if (!workspace) return undefined
+  return deriveWorkspaceScope(workspace, options.git ?? spawnGit)
+}
+
+async function deriveWorkspaceScope(workspace: string, git: GitRunner): Promise<string> {
+  const rootValue = await git(workspace, ['rev-parse', '--show-toplevel'])
+  const projectRoot = resolve(rootValue || workspace)
   const remote = await git(projectRoot, ['config', '--get', 'remote.origin.url'])
   const normalized = remote ? normalizeGitRemote(remote) : undefined
   if (normalized) return bounded('git', normalized)

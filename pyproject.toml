@@ -1,6 +1,20 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 [project]
 name = "powercontext"
-version = "0.0.1"
+dynamic = ["version"]
 description = "PowerContext turns human-agent work into handoff-ready context."
 authors = [{ name = "PowerContext Team", email = "open_oceanbase@oceanbase.com" }]
 readme = "README.md"
@@ -86,8 +100,11 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/powercontext"]
@@ -95,10 +112,13 @@ packages = ["src/powercontext"]
 [tool.ty.environment]
 python = "./.venv"
 python-version = "3.11"
-extra-paths = ["./integrations/codex/plugins/powercontext"]
+extra-paths = [
+    "./integrations/claude-code/plugins/powercontext",
+    "./integrations/codex/plugins/powercontext",
+]
 
 [tool.ty.src]
-exclude = ["e2e/bub", "integrations/bub"]
+exclude = ["e2e/bub", "integrations/bub", "evaluation"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

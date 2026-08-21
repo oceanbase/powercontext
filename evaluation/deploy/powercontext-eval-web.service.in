@@ -1,0 +1,26 @@
+[Unit]
+Description=PowerContext evaluation console web service
+After=network.target
+
+[Service]
+Type=simple
+User=@EVALUATION_USER@
+Group=@EVALUATION_GROUP@
+WorkingDirectory=@REPOSITORY_ROOT@
+EnvironmentFile=@EVALUATION_ROOT@/config/evaluation-console.env
+Environment=UV_CACHE_DIR=@EVALUATION_ROOT@/cache/uv
+ExecStart=@UV_BINARY@ run --project evaluation powercontext-eval web
+KillMode=mixed
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadOnlyDirectories=/
+ReadWriteDirectories=@EVALUATION_ROOT@
+
+[Install]
+WantedBy=multi-user.target

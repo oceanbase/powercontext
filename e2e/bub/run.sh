@@ -1,4 +1,18 @@
 #!/bin/sh
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
@@ -46,15 +60,21 @@ else
 fi
 export POWERCONTEXT_E2E_CODEX_AUTH_MOUNT
 
-if [ "$command" = check ]; then
-    test "$#" -eq 0 || { echo "check does not accept workload arguments" >&2; exit 2; }
-    docker compose $compose_files config --quiet
-    exit
-fi
-
 if [ "$command" = down ]; then
     test "$#" -eq 0 || { echo "down does not accept workload arguments" >&2; exit 2; }
     docker compose $compose_files down --volumes --remove-orphans
+    exit
+fi
+
+if [ -z "${POWERCONTEXT_VERSION:-}" ]; then
+    POWERCONTEXT_VERSION=$(uvx --from hatchling --with hatch-vcs hatchling version)
+fi
+test -n "$POWERCONTEXT_VERSION" || { echo "POWERCONTEXT_VERSION must not be empty" >&2; exit 2; }
+export POWERCONTEXT_VERSION
+
+if [ "$command" = check ]; then
+    test "$#" -eq 0 || { echo "check does not accept workload arguments" >&2; exit 2; }
+    docker compose $compose_files config --quiet
     exit
 fi
 

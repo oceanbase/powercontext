@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """FastAPI application factory for the PowerContext Server."""
 
 from __future__ import annotations
@@ -178,6 +192,21 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     StatisticsPeriod as RuntimeStatisticsPeriod,
 )
+from powercontext.builtin.work import (
+    AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
+)
+from powercontext.builtin.work import (
+    CreateWorkContract as RuntimeCreateWorkContract,
+)
+from powercontext.builtin.work import (
+    HandoffAcknowledgement as RuntimeHandoffAcknowledgement,
+)
+from powercontext.builtin.work import (
+    HandoffCurrentWork as RuntimeHandoffCurrentWork,
+)
+from powercontext.builtin.work import PreparedWorkHandoff as RuntimePreparedWorkHandoff
+from powercontext.builtin.work import RecordTaskOutcome as RuntimeRecordTaskOutcome
+from powercontext.builtin.work import WorkSourceReceipt as RuntimeWorkSourceReceipt
 from powercontext.errors import (
     ArtifactNotFoundError,
     PowerContextError,
@@ -185,6 +214,7 @@ from powercontext.errors import (
     SourceConflictError,
 )
 from powercontext.http import (
+    AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
@@ -197,6 +227,7 @@ from powercontext.http import (
     CommittedHandoff,
     ContinueHandoffRequest,
     CreateHandoffReportProjectRequest,
+    CreateWorkContractRequest,
     DetachHandoffReportWorkspaceRequest,
     ErrorDetail,
     ErrorResponse,
@@ -216,6 +247,8 @@ from powercontext.http import (
     GetMemoryEntryRequest,
     GetSkillRequest,
     GetStatsRequest,
+    HandoffAcknowledgement,
+    HandoffCurrentWorkRequest,
     HandoffReportActivity,
     HandoffReportActivityPage,
     HandoffReportResponse,
@@ -237,6 +270,7 @@ from powercontext.http import (
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
+    PreparedWorkHandoff,
     PrepareHandoffRequest,
     ProjectDescriptor,
     ProjectPage,
@@ -247,6 +281,7 @@ from powercontext.http import (
     ReadinessResponse,
     ReadinessStatus,
     RecordHandoffReportActivityRequest,
+    RecordTaskOutcomeRequest,
     RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
@@ -263,6 +298,7 @@ from powercontext.http import (
     StoredHandoffReportActivity,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
+    WorkSourceReceipt,
     WorkstreamDescriptor,
     WorkstreamPage,
 )
@@ -279,6 +315,7 @@ from powercontext.http import (
     PreparedHandoff as TransportPreparedHandoff,
 )
 from powercontext.http._generated.operations import (
+    ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
     API_DESCRIPTION,
     API_TITLE,
@@ -289,6 +326,7 @@ from powercontext.http._generated.operations import (
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_HANDOFF_REPORT_PROJECT,
+    CREATE_WORK_CONTRACT,
     DETACH_HANDOFF_REPORT_WORKSPACE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
@@ -305,6 +343,7 @@ from powercontext.http._generated.operations import (
     GET_READINESS,
     GET_SKILL,
     GET_STATS,
+    HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
@@ -320,6 +359,7 @@ from powercontext.http._generated.operations import (
     PROPOSE_SKILL,
     PURGE_HANDOFF_REPORT_ACTIVITIES,
     RECORD_HANDOFF_REPORT_ACTIVITY,
+    RECORD_TASK_OUTCOME,
     REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
@@ -448,6 +488,20 @@ class _HandoffApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedHandoffApplication: ...
 
 
+class _ScopedWorkApplication(Protocol):
+    async def create_contract(self, request: RuntimeCreateWorkContract, /) -> RuntimeWorkSourceReceipt: ...
+
+    async def handoff_current(self, request: RuntimeHandoffCurrentWork, /) -> RuntimePreparedWorkHandoff: ...
+
+    async def acknowledge(self, request: RuntimeAcknowledgeHandoff, /) -> RuntimeHandoffAcknowledgement: ...
+
+    async def record_outcome(self, request: RuntimeRecordTaskOutcome, /) -> RuntimeWorkSourceReceipt: ...
+
+
+class _WorkApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedWorkApplication: ...
+
+
 class _ScopedMemoryApplication(Protocol):
     async def remember(self, request: RuntimeRememberMemoryRequest, /) -> MemoryMutationResult: ...
 
@@ -484,6 +538,7 @@ class ServerApplication(Protocol):
     experience: _ExperienceApplication
     external_skills: _ExternalSkillApplication
     handoff: _HandoffApplication
+    work: _WorkApplication
     memory: _MemoryApplication
     review: _ReviewApplication
     skill: _SkillApplication
@@ -597,6 +652,10 @@ def create_app(
     _add_route(app, REMEMBER_MEMORY, remember_memory)
     _add_route(app, SEARCH_MEMORY, search_memory)
     _add_route(app, PREPARE_CONTEXT, prepare_context)
+    _add_route(app, CREATE_WORK_CONTRACT, create_work_contract)
+    _add_route(app, HANDOFF_CURRENT_WORK, handoff_current_work)
+    _add_route(app, ACKNOWLEDGE_HANDOFF, acknowledge_handoff)
+    _add_route(app, RECORD_TASK_OUTCOME, record_task_outcome)
     _add_route(app, ACTIVATE_HANDOFF, activate_handoff)
     _add_route(app, PREPARE_HANDOFF, prepare_handoff)
     _add_route(app, FINALIZE_HANDOFF, finalize_handoff)
@@ -950,6 +1009,46 @@ async def prepare_context(
 ) -> PreparedContext:
     result = await application.context.for_scope(request.scope_id).prepare(mapping.prepare_context_request(request))
     return mapping.prepared_context_response(result)
+
+
+async def create_work_contract(
+    request: CreateWorkContractRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> WorkSourceReceipt:
+    result = await application.work.for_scope(request.scope_id).create_contract(
+        mapping.create_work_contract_request(request)
+    )
+    return mapping.work_source_receipt_response(result)
+
+
+async def handoff_current_work(
+    request: HandoffCurrentWorkRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> PreparedWorkHandoff:
+    result = await application.work.for_scope(request.scope_id).handoff_current(
+        mapping.handoff_current_work_request(request)
+    )
+    return mapping.prepared_work_handoff_response(result)
+
+
+async def acknowledge_handoff(
+    request: AcknowledgeHandoffRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> HandoffAcknowledgement:
+    result = await application.work.for_scope(request.scope_id).acknowledge(
+        mapping.acknowledge_handoff_request(request)
+    )
+    return mapping.handoff_acknowledgement_response(result)
+
+
+async def record_task_outcome(
+    request: RecordTaskOutcomeRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> WorkSourceReceipt:
+    result = await application.work.for_scope(request.scope_id).record_outcome(
+        mapping.record_task_outcome_request(request)
+    )
+    return mapping.work_source_receipt_response(result)
 
 
 async def prepare_handoff(

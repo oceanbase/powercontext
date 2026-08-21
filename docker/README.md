@@ -3,7 +3,12 @@
 Build the image from the repository root:
 
 ```bash
-docker build --file docker/Dockerfile --tag powercontext-server:local .
+POWERCONTEXT_VERSION=$(uvx --from hatchling --with hatch-vcs hatchling version)
+docker build \
+  --file docker/Dockerfile \
+  --build-arg "POWERCONTEXT_VERSION=${POWERCONTEXT_VERSION}" \
+  --tag powercontext-server:local \
+  .
 ```
 
 Run the Server with persistent SQLite and scheduler data:

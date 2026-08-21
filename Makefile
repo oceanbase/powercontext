@@ -41,7 +41,7 @@ real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE de
 
 .PHONY: harness-sync
 harness-sync: ## Install the Bub replay harness environment.
-	@uv sync --project e2e/bub
+	@uv sync --project e2e/bub --locked
 
 .PHONY: harness-check
 harness-check: ## Validate the Bub replay harness and committed scenarios.
@@ -98,6 +98,12 @@ js-api-generate-check: ## Verify generated JS operations are current.
 .PHONY: js-test
 js-test: ## Run DeepSeek Harness plugin unit tests.
 	@pnpm --dir integrations/dsh/plugins/powercontext test
+
+.PHONY: pi-test
+pi-test: ## Install and test the Pi package.
+	@pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile
+	@pnpm --dir integrations/pi/plugins/powercontext test
+	@pnpm --dir integrations/pi/plugins/powercontext run typecheck
 
 .PHONY: build
 build: clean-build ## Build wheel file

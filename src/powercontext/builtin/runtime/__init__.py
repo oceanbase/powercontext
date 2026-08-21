@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Built-in runtime configuration, lifecycle, and application services."""
 
 from powercontext.builtin.artifacts.handoff import (
@@ -42,9 +56,11 @@ from powercontext.builtin.runtime.application import (
     ScopedSkillApplication,
     ScopedSourceApplication,
     ScopedStatisticsApplication,
+    ScopedWorkApplication,
     SkillApplication,
     SourceApplication,
     StatisticsApplication,
+    WorkApplication,
 )
 from powercontext.builtin.runtime.composition import (
     BuiltinConfigurationError,
@@ -249,6 +265,7 @@ __all__ = [
     "ScopedSkillApplication",
     "ScopedSourceApplication",
     "ScopedStatisticsApplication",
+    "ScopedWorkApplication",
     "SearchMemoryRequest",
     "SkillApplication",
     "SkillCandidate",
@@ -260,6 +277,7 @@ __all__ = [
     "StatisticsApplication",
     "StatisticsPeriod",
     "UsageStatistics",
+    "WorkApplication",
     "open_builtin_contexts",
     "open_builtin_runtime",
 ]

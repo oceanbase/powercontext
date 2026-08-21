@@ -13,6 +13,7 @@ permissions:
 
 env:
   TRUFFLEHOG_IMAGE: ghcr.io/trufflesecurity/trufflehog:3.96.0
+  UV_VERSION: "0.10.12"
 
 concurrency:
   group: e2e-harness-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
@@ -24,9 +25,13 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
 
       - name: Validate harness and Compose definitions
         run: |
@@ -46,6 +51,13 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
 
       - name: Run deterministic scenarios
         env:

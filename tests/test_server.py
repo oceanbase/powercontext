@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import asyncio
 import logging
 import re
@@ -69,6 +83,8 @@ class _SequencedEmbeddingModel:
 
 
 def test_settings_load_server_environment(monkeypatch) -> None:
+    monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_SCOPES", raising=False)
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.2")
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
     monkeypatch.setenv(
@@ -108,9 +124,21 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.inference.generation_max_requests == 4
     assert settings.mcp.enabled is False
     assert settings.mcp.path == "/context"
+    assert settings.dashboard.enabled is True
+    assert settings.dashboard.scopes == []
     assert settings.external_skills.host_id == "workstation-1"
     assert settings.external_skills.codex_roots[0].root_id == "repository"
     assert settings.external_skills.codex_roots[0].path.as_posix() == "/srv/project/.agents/skills"
+
+
+def test_server_settings_vec1_preserves_file_database(tmp_path, monkeypatch) -> None:
+    data_dir = tmp_path / "powercontext-data"
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION", str(tmp_path / "vec1"))
+
+    settings = ServerSettings()
+
+    assert settings.database.url == f"sqlite+aiosqlite:///{data_dir / 'powercontext.db'}"
 
 
 def test_server_settings_select_oceanbase(monkeypatch) -> None:

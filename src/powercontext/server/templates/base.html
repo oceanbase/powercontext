@@ -1,12 +1,30 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
 <!doctype html>
-<html lang="en" data-server-session="missing">
+<html lang="en" data-server-session="{{ 'missing' if authentication_required else 'active' }}" data-server-auth-required="{{ 'true' if authentication_required else 'false' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}PowerContext{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('web_static', path='/oceanbase-logo.svg') }}" type="image/svg+xml">
   <script>
     try {
-      document.documentElement.dataset.serverSession = sessionStorage.getItem("powercontext.server.token")
+      const authenticationRequired = document.documentElement.dataset.serverAuthRequired === "true";
+      document.documentElement.dataset.serverSession = !authenticationRequired || sessionStorage.getItem("powercontext.server.token")
         ? "active"
         : "missing";
     } catch (error) {
@@ -26,7 +44,7 @@
       // Theme persistence is optional when browser storage is unavailable.
     }
   </script>
-  <link rel="stylesheet" href="{{ url_for('web_static', path='/site.css') }}?v=handoff-preview">
+  <link rel="stylesheet" href="{{ url_for('web_static', path='/site.css') }}?v=unified-editor-preview-v1">
   {% block head %}{% endblock %}
 </head>
 <body>

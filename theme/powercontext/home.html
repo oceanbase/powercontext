@@ -1,18 +1,20 @@
-{% extends "main.html" %}
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
 
-{% set canonical = page.canonical_url | string %}
-{% set is_zh = "/zh/" in canonical %}
-{% if is_zh %}
-  {% set hero_title = "让上下文经得起交接。" %}
-  {% set hero_lead = "PowerContext 为 Source、Artifact 和 Trigger 定义清晰契约，让后来的人或 Agent 能够检查、接手并继续一段工作。" %}
-  {% set primary_label = "阅读文档" %}
-  {% set secondary_label = "查看 API 参考" %}
-{% else %}
-  {% set hero_title = "Context that survives the handoff." %}
-  {% set hero_lead = "PowerContext defines explicit Source, Artifact, and Trigger contracts so later humans and agents can inspect, take over, and continue a piece of work." %}
-  {% set primary_label = "Read the documentation" %}
-  {% set secondary_label = "View the API reference" %}
-{% endif %}
+{% extends "main.html" %}
 
 {% block htmltitle %}<title>{{ config.site_name }}</title>{% endblock %}
 
@@ -32,22 +34,58 @@
 {% block container %}
   <div class="md-content pc-home" data-md-component="content">
     <article class="md-content__inner md-typeset">
-      <section class="pc-cover" aria-labelledby="pc-cover-title">
-        <div class="pc-cover__inner pc-home__inner">
-          <div class="pc-cover__statement">
-            <div class="pc-cover__copy">
-              <h1 id="pc-cover-title">{{ hero_title }}</h1>
-              <p>{{ hero_lead }}</p>
-              <div class="pc-cover__actions">
-                <a class="pc-action pc-action--primary" href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ primary_label }}</a>
-                <a class="pc-action pc-action--secondary" href="{{ ('zh/modules/' if is_zh else 'en/modules/') | url }}">{{ secondary_label }}</a>
+      <section class="brand-hero" aria-labelledby="hero-title">
+        <div class="hero-inner shell">
+          <div class="hero-composition">
+            <div class="hero-copy">
+              <p class="hero-label">{{ page.meta["home"]["hero"]["label"] }}</p>
+              <h1 id="hero-title">{% for line in page.meta["home"]["hero"]["title"] %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h1>
+              <p class="hero-lead">{{ page.meta["home"]["hero"]["lead"] }}</p>
+              <div class="hero-actions">
+                {% for action in page.meta["home"]["hero"]["actions"] %}
+                  <a class="{{ 'primary-button' if action['kind'] == 'primary' else 'quiet-button' }} large" href="{{ action['href'] | url }}">{{ action["label"] }}</a>
+                {% endfor %}
               </div>
             </div>
+            <div class="hero-kv" data-pc-spiral aria-hidden="true">
+              <canvas data-pc-spiral-canvas></canvas>
+            </div>
+          </div>
+          <p class="hero-note">{{ page.meta["home"]["hero"]["note"] }}</p>
+        </div>
+      </section>
 
-            <div class="pc-context-field" data-pc-context-field aria-hidden="true">
-              <div class="pc-context-field__stage">
-                <canvas class="pc-context-field__canvas" data-pc-context-canvas></canvas>
-              </div>
+      <section class="continuity-section" aria-labelledby="continuity-title">
+        <div class="shell">
+          <div class="continuity-intro">
+            <p class="section-label">{{ page.meta["home"]["continuity"]["label"] }}</p>
+            <h2 id="continuity-title">{{ page.meta["home"]["continuity"]["title"] }}</h2>
+            <p>{{ page.meta["home"]["continuity"]["lead"] }}</p>
+          </div>
+          <ol class="continuity-flow">
+            {% for step in page.meta["home"]["continuity"]["steps"] %}
+              <li><span>0{{ loop.index }}</span><h3>{{ step["title"] }}</h3><p>{{ step["description"] }}</p></li>
+            {% endfor %}
+          </ol>
+        </div>
+      </section>
+
+      <section class="ownership-section" aria-labelledby="ownership-title">
+        <div class="ownership-grid shell">
+          <div>
+            <p class="section-label">{{ page.meta["home"]["ownership"]["label"] }}</p>
+            <h2 id="ownership-title">{% for line in page.meta["home"]["ownership"]["title"] %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h2>
+          </div>
+          <div class="ownership-copy">
+            <div class="ownership-lead">
+              <p>{{ page.meta["home"]["ownership"]["lead"] }}</p>
+              <p>{{ page.meta["home"]["ownership"]["handoff"] }}</p>
+            </div>
+            <p class="ownership-result">{{ page.meta["home"]["ownership"]["result"] }}</p>
+            <div class="command-block"><code><span>$</span> {{ page.meta["home"]["ownership"]["command"] }}</code></div>
+            <div class="ownership-actions">
+              <a class="primary-button large" href="{{ page.meta['home']['ownership']['primary_action']['href'] | url }}">{{ page.meta["home"]["ownership"]["primary_action"]["label"] }}</a>
+              <a class="text-link" href="{{ page.meta['home']['ownership']['secondary_action']['href'] | url }}">{{ page.meta["home"]["ownership"]["secondary_action"]["label"] }} <span aria-hidden="true">→</span></a>
             </div>
           </div>
         </div>

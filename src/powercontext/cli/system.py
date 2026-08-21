@@ -1,3 +1,17 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Installation and diagnostics commands for an installed PowerContext tool."""
 
 from __future__ import annotations
@@ -61,6 +75,14 @@ class SetupError(RuntimeError):
         return cls("DeepSeek Harness CLI is not installed or is not on PATH.")
 
     @classmethod
+    def pi_unavailable(cls) -> SetupError:
+        return cls("Pi CLI is not installed or is not on PATH.")
+
+    @classmethod
+    def hermes_unavailable(cls) -> SetupError:
+        return cls("Hermes CLI is not installed or is not on PATH.")
+
+    @classmethod
     def missing_dsh_plugin(cls, path: Path) -> SetupError:
         return cls(f"PowerContext DSH plugin was not found under {path}.")
 
@@ -69,12 +91,52 @@ class SetupError(RuntimeError):
         return cls(f"PowerContext DSH plugin at {path} is missing lib/index.js. Build the plugin before setup.")
 
     @classmethod
+    def missing_pi_package(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext Pi package was not found under {path}.")
+
+    @classmethod
+    def incomplete_pi_package(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext Pi package at {path} is missing its extension or project-context skill.")
+
+    @classmethod
     def invalid_dsh_ref(cls, ref: str) -> SetupError:
         return cls(f"invalid DeepSeek Harness ref: {ref}")
 
     @classmethod
-    def invalid_dsh_source(cls, source: str) -> SetupError:
-        return cls(f"invalid DeepSeek Harness source: {source}")
+    def invalid_dsh_source(cls) -> SetupError:
+        return cls("invalid DeepSeek Harness source; use a local path or an HTTPS/SSH GitHub repository")
+
+    @classmethod
+    def invalid_pi_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid Pi ref: {ref}")
+
+    @classmethod
+    def invalid_pi_source(cls) -> SetupError:
+        return cls("invalid Pi source; use a local path or an HTTPS/SSH GitHub repository")
+
+    @classmethod
+    def git_clone_failed(cls) -> SetupError:
+        return cls("failed to clone the GitHub source")
+
+    @classmethod
+    def invalid_hermes_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid Hermes ref: {ref}")
+
+    @classmethod
+    def invalid_hermes_source(cls, source: str) -> SetupError:
+        return cls(f"invalid Hermes source: {source}")
+
+    @classmethod
+    def missing_hermes_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext Hermes plugin was not found under {path}.")
+
+    @classmethod
+    def hermes_plugin_write(cls, path: Path, error: OSError) -> SetupError:
+        return cls(f"Cannot install PowerContext Hermes plugin at {path}: {error}")
+
+    @classmethod
+    def unsupported_hermes_version(cls, actual: str, minimum: str) -> SetupError:
+        return cls(f"Hermes Agent v{actual} is unsupported; PowerContext requires Hermes Agent v{minimum} or newer.")
 
     @classmethod
     def data_directory(cls, path: Path, error: OSError) -> SetupError:
@@ -105,8 +167,16 @@ class SetupError(RuntimeError):
         return cls(
             f"Claude Code marketplace `{CLAUDE_MARKETPLACE_NAME}` uses {existing}, "
             f"but setup requested {requested}. Remove it with "
-            f"`claude plugin marketplace remove {CLAUDE_MARKETPLACE_NAME} --scope user`, then rerun setup."
+            f"`claude plugin marketplace remove {CLAUDE_MARKETPLACE_NAME}`, then rerun setup."
         )
+
+    @classmethod
+    def invalid_claude_settings(cls, path: Path) -> SetupError:
+        return cls(f"Claude Code settings at {path} must contain a JSON object with object-valued plugin options.")
+
+    @classmethod
+    def claude_settings_write(cls, path: Path, error: OSError) -> SetupError:
+        return cls(f"Cannot update Claude Code settings at {path}: {error}")
 
     @classmethod
     def claude_server_url_credentials(cls) -> SetupError:
@@ -300,6 +370,85 @@ def setup_dsh(
     typer.echo("Next: run `powercontext server run`, then start `dsh web`.")
 
 
+@setup_app.command("pi")
+def setup_pi(
+    source: Annotated[
+        str,
+        typer.Option(help="PowerContext Git source or local checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install the PowerContext Pi package and prepare local storage."""
+
+    from powercontext.cli.pi import install_pi_plugin, run_pi_diagnostics
+
+    try:
+        result = install_pi_plugin(source=source, ref=ref)
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    diagnostics = run_pi_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext Pi setup complete.")
+    typer.echo(f"Package: {result.package} ({result.package_path})")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: run `powercontext server run`, then start a new Pi session.")
+
+
+@setup_app.command("hermes")
+def setup_hermes(
+    source: Annotated[
+        str,
+        typer.Option(help="PowerContext Git source or local checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install the PowerContext Hermes memory provider."""
+
+    from powercontext.cli.hermes import install_hermes_plugin, run_hermes_diagnostics
+
+    try:
+        result = install_hermes_plugin(source=source, ref=ref)
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    diagnostics = run_hermes_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext Hermes setup complete.")
+    typer.echo(f"Plugin: {result.plugin} ({result.plugin_path})")
+    typer.echo(f"Hermes home: {result.hermes_home}")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: run `hermes memory setup`, select PowerContext, then start Hermes.")
+
+
 @doctor_app.callback()
 def doctor(
     context: typer.Context,
@@ -369,6 +518,41 @@ def doctor_dsh(
         raise typer.Exit(code=1)
 
 
+@doctor_app.command("pi")
+def doctor_pi(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional Pi CLI and PowerContext package."""
+
+    from powercontext.cli.pi import run_pi_diagnostics
+
+    diagnostics = run_pi_diagnostics()
+
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("hermes")
+def doctor_hermes(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional Hermes CLI and PowerContext memory provider."""
+
+    from powercontext.cli.hermes import run_hermes_diagnostics
+
+    diagnostics = run_hermes_diagnostics()
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
 def install_codex_plugin(*, source: str, ref: str) -> CodexSetupResult:
     """Install the plugin from one local or Git marketplace source."""
 
@@ -423,7 +607,7 @@ def install_claude_code_plugin(
     plugins = _run_claude_json("plugin", "list")
     previous_plugin = _claude_plugin(plugins)
     plugin_existed = previous_plugin is not None
-    settings_snapshot = _snapshot_claude_settings() if plugin_existed else None
+    settings_snapshot = _snapshot_claude_settings()
     marketplace_added = False
     plugin_added = False
     try:
@@ -436,14 +620,11 @@ def install_claude_code_plugin(
             f"{PLUGIN_NAME}@{CLAUDE_MARKETPLACE_NAME}",
             "--scope",
             "user",
-            "--config",
-            f"server_url={server_url.rstrip('/')}",
-            "--config",
-            f"capture_prompts={str(capture_prompts).lower()}",
         )
         plugin_added = not plugin_existed
         installed = _run_claude_json("plugin", "list")
         plugin = _require_enabled_claude_plugin(installed)
+        _configure_claude_plugin(server_url=server_url, capture_prompts=capture_prompts)
     except SetupError:
         if plugin_added:
             with suppress(SetupError):
@@ -454,9 +635,8 @@ def install_claude_code_plugin(
                     "--scope",
                     "user",
                 )
-        elif plugin_existed:
-            with suppress(OSError):
-                _restore_claude_settings(settings_snapshot)
+        with suppress(OSError):
+            _restore_claude_settings(settings_snapshot)
         if marketplace_added:
             with suppress(SetupError):
                 _run_claude(
@@ -464,8 +644,6 @@ def install_claude_code_plugin(
                     "marketplace",
                     "remove",
                     CLAUDE_MARKETPLACE_NAME,
-                    "--scope",
-                    "user",
                 )
         raise
 
@@ -759,7 +937,7 @@ def _write_claude_setup_plan(plan: dict[str, str]) -> None:
         err=True,
     )
     typer.echo(
-        f"  Rollback: claude plugin marketplace remove {CLAUDE_MARKETPLACE_NAME} --scope user",
+        f"  Rollback: claude plugin marketplace remove {CLAUDE_MARKETPLACE_NAME}",
         err=True,
     )
 
@@ -787,7 +965,7 @@ def _claude_marketplace_matches(marketplace: dict[str, Any], requested: str) -> 
         return (
             isinstance(existing_repo, str)
             and existing_repo.casefold() == requested_repo.casefold()
-            and (existing_ref or "") == (requested_ref if separator else "")
+            and _claude_marketplace_ref_matches(existing_ref, requested_ref if separator else "")
         )
     if source_kind == "git":
         requested_url, separator, requested_ref = requested.rpartition("#")
@@ -796,9 +974,15 @@ def _claude_marketplace_matches(marketplace: dict[str, Any], requested: str) -> 
         return (
             isinstance(existing_url, str)
             and existing_url == (requested_url if separator else requested)
-            and (existing_ref or "") == (requested_ref if separator else "")
+            and _claude_marketplace_ref_matches(existing_ref, requested_ref if separator else "")
         )
     return False
+
+
+def _claude_marketplace_ref_matches(existing: object, requested: str) -> bool:
+    """Accept omitted Claude JSON refs while still rejecting an explicit mismatch."""
+
+    return existing is None or existing == "" or existing == requested
 
 
 def _describe_claude_marketplace_source(marketplace: dict[str, Any]) -> str:
@@ -830,12 +1014,63 @@ def _snapshot_claude_settings() -> bytes | None:
         return None
 
 
+def _configure_claude_plugin(*, server_url: str, capture_prompts: bool) -> None:
+    """Merge non-sensitive plugin options unsupported by the Claude install CLI."""
+
+    settings_file = _claude_config_dir() / "settings.json"
+    try:
+        settings = json.loads(settings_file.read_text(encoding="utf-8")) if settings_file.exists() else {}
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        if isinstance(error, OSError):
+            raise SetupError.claude_settings_write(settings_file, error) from error
+        raise SetupError.invalid_claude_settings(settings_file) from error
+    if not isinstance(settings, dict):
+        raise SetupError.invalid_claude_settings(settings_file)
+
+    plugin_configs = settings.setdefault("pluginConfigs", {})
+    if not isinstance(plugin_configs, dict):
+        raise SetupError.invalid_claude_settings(settings_file)
+    plugin_id = f"{PLUGIN_NAME}@{CLAUDE_MARKETPLACE_NAME}"
+    plugin_config = plugin_configs.setdefault(plugin_id, {})
+    if not isinstance(plugin_config, dict):
+        raise SetupError.invalid_claude_settings(settings_file)
+    options = plugin_config.setdefault("options", {})
+    if not isinstance(options, dict):
+        raise SetupError.invalid_claude_settings(settings_file)
+    options.update({
+        "server_url": server_url,
+        "capture_prompts": capture_prompts,
+    })
+    try:
+        _write_bytes_atomically(settings_file, (json.dumps(settings, indent=2) + "\n").encode())
+    except OSError as error:
+        raise SetupError.claude_settings_write(settings_file, error) from error
+
+
 def _restore_claude_settings(snapshot: bytes | None) -> None:
     settings_file = _claude_config_dir() / "settings.json"
     if snapshot is None:
         settings_file.unlink(missing_ok=True)
         return
-    settings_file.write_bytes(snapshot)
+    _write_bytes_atomically(settings_file, snapshot)
+
+
+def _write_bytes_atomically(path: Path, content: bytes) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(temporary_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.write(descriptor, content)
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = None
+        os.replace(temporary_path, path)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        with suppress(FileNotFoundError):
+            temporary_path.unlink()
 
 
 def _run_codex_json(*arguments: str) -> dict[str, Any]:

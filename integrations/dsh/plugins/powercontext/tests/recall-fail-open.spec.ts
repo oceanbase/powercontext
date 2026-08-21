@@ -1,7 +1,24 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import { describe, expect, it, vi } from 'vitest'
 import { UnavailableError } from '../src/errors.ts'
 import { runRecallPreStep, type RecallInput } from '../src/recall.ts'
 import type { ResolvedConfig } from '../src/config.ts'
+import { deriveScopeId } from '../src/scope.ts'
 
 const config: ResolvedConfig = {
   baseUrl: 'http://127.0.0.1:8000',
@@ -215,5 +232,55 @@ describe('runRecallPreStep fail-open', () => {
       expect(wrapped.content[0].text).toContain('untrusted historical evidence')
       expect(wrapped.content[0].text).toContain(content)
     }
+  })
+
+  it('skips recall when cwd is missing and scopeId is not configured', async () => {
+    const next = vi.fn(async () => ({ kind: 'enter' as const, messages: [{ id: 'user' }] }))
+    const log = vi.fn()
+    const result = await runRecallPreStep(input({
+      next,
+      cwd: undefined,
+      config: { ...config, scopeId: undefined },
+      resolveScope: (cwd) => deriveScopeId(cwd),
+      log,
+    }))
+    expect(next).toHaveBeenCalledOnce()
+    expect(result).toEqual({ kind: 'enter', messages: [{ id: 'user' }] })
+    expect(log).toHaveBeenCalledWith({
+      event: 'context_prepare',
+      outcome: 'skipped',
+      reason: 'missing_session_cwd',
+    })
+  })
+
+  it('recalls with configured scopeId and omits a fabricated cwd from Source', async () => {
+    const request = vi.fn(async (operationId: string) => {
+      if (operationId === 'prepare_context') {
+        return {
+          kind: 'json' as const,
+          value: {
+            schema: 'powercontext.prepared-context.v1',
+            status: 'empty',
+            content: null,
+            content_bytes: 0,
+          },
+          status: 200,
+          requestId: undefined,
+        }
+      }
+      return { kind: 'json' as const, value: { status: 'accepted', position: 1 }, status: 202, requestId: undefined }
+    })
+    await runRecallPreStep(input({
+      cwd: undefined,
+      client: { request } as never,
+      resolveScope: (cwd) => deriveScopeId(cwd, { configuredScopeId: 'project:demo' }),
+    }))
+    const capture = request.mock.calls.find((call) => call[0] === 'capture_content_source')
+    expect(capture?.[0]).toBe('capture_content_source')
+    expect(capture?.[1]).toMatchObject({
+      scope_id: 'project:demo',
+      metadata: { origin: 'dsh', event: 'user_prompt_submit', session_id: 's1' },
+    })
+    expect((capture?.[1] as { metadata: { cwd?: string } }).metadata.cwd).toBeUndefined()
   })
 })

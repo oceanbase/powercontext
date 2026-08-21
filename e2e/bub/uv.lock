@@ -1599,7 +1599,6 @@ wheels = [
 
 [[package]]
 name = "powercontext"
-version = "0.0.1"
 source = { editable = "../../" }
 dependencies = [
     { name = "pydantic" },
@@ -1616,32 +1615,38 @@ client = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", marker = "extra == 'builtin'", specifier = ">=0.22,<1" },
+    { name = "aiosqlite", marker = "extra == 'server'", specifier = ">=0.22,<1" },
     { name = "apscheduler", marker = "extra == 'builtin'", specifier = ">=3.11,<4" },
+    { name = "apscheduler", marker = "extra == 'server'", specifier = ">=3.11,<4" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115,<1" },
     { name = "fastmcp", marker = "extra == 'server'", specifier = ">=3.4,<4" },
+    { name = "httpx", extras = ["socks"], marker = "extra == 'cli'", specifier = ">=0.28,<1" },
     { name = "httpx", extras = ["socks"], marker = "extra == 'client'", specifier = ">=0.28,<1" },
     { name = "jinja2", marker = "extra == 'server'", specifier = ">=3.1,<4" },
+    { name = "opentelemetry-api", marker = "extra == 'cli'", specifier = ">=1.30,<2" },
     { name = "opentelemetry-api", marker = "extra == 'client'", specifier = ">=1.30,<2" },
     { name = "opentelemetry-api", marker = "extra == 'server'", specifier = ">=1.30,<2" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'tracing-otlp'", specifier = ">=1.30,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'server'", specifier = ">=1.30,<2" },
     { name = "platformdirs", marker = "extra == 'cli'", specifier = ">=4,<5" },
     { name = "platformdirs", marker = "extra == 'server'", specifier = ">=4,<5" },
-    { name = "powercontext", extras = ["builtin"], marker = "extra == 'server'" },
-    { name = "powercontext", extras = ["client"], marker = "extra == 'cli'" },
     { name = "prometheus-client", marker = "extra == 'server'", specifier = ">=0.21,<1" },
     { name = "pydantic", specifier = ">=2.10,<3" },
-    { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'builtin'", specifier = ">=2.14.1,<3" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'builtin'", specifier = ">=2.27.1,<3" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'server'", specifier = ">=2.27.1,<3" },
     { name = "pydantic-settings", marker = "extra == 'builtin'", specifier = ">=2.7,<3" },
+    { name = "pydantic-settings", marker = "extra == 'cli'", specifier = ">=2.7,<3" },
     { name = "pydantic-settings", marker = "extra == 'client'", specifier = ">=2.7,<3" },
     { name = "pydantic-settings", marker = "extra == 'server'", specifier = ">=2.7,<3" },
     { name = "pyobvector", marker = "extra == 'builtin'", specifier = ">=0.2.28,<0.3" },
+    { name = "pyobvector", marker = "extra == 'server'", specifier = ">=0.2.28,<0.3" },
     { name = "rfc8785", specifier = ">=0.1.4,<1" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'builtin'", specifier = ">=2,<3" },
+    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'server'", specifier = ">=2,<3" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.16,<1" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34,<1" },
 ]
-provides-extras = ["builtin", "client", "server", "tracing-otlp", "cli"]
+provides-extras = ["builtin", "cli", "client", "server", "tracing-otlp"]
 
 [package.metadata.requires-dev]
 dev = [
