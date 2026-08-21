@@ -22,7 +22,7 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
-from powercontext.builtin.artifacts.skill import CodexSkillRoot
+from powercontext.builtin.artifacts.skill import AgentSkillTarget, CodexSkillRoot
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 
@@ -88,9 +88,10 @@ class InferenceConfig(BaseModel):
 
 
 class ExternalSkillsConfig(BaseModel):
-    """Explicit host-local roots used by the external Codex Skill provider."""
+    """Explicit host-local targets used by Agent-native Skill providers."""
 
     host_id: str | None = Field(default=None, min_length=1, max_length=128)
+    targets: tuple[AgentSkillTarget, ...] = ()
     codex_roots: tuple[CodexSkillRoot, ...] = ()
 
     @field_validator("host_id")
@@ -104,9 +105,19 @@ class ExternalSkillsConfig(BaseModel):
 
     @model_validator(mode="after")
     def require_host_for_roots(self) -> ExternalSkillsConfig:
-        if self.codex_roots and self.host_id is None:
-            raise ValueError("external Skill host_id is required when Codex roots are configured")  # noqa: TRY003
+        targets = self.agent_targets
+        if targets and self.host_id is None:
+            raise ValueError("external Skill host_id is required when Agent targets are configured")  # noqa: TRY003
+        target_ids = [target.target_id for target in targets]
+        if len(target_ids) != len(set(target_ids)):
+            raise ValueError("external Skill Agent target IDs must be unique")  # noqa: TRY003
         return self
+
+    @property
+    def agent_targets(self) -> tuple[AgentSkillTarget, ...]:
+        """Return unified targets, including legacy Codex root configuration."""
+
+        return (*self.targets, *(root.as_agent_target() for root in self.codex_roots))
 
 
 DatabaseConfig = SQLiteConfig | OceanBaseConfig

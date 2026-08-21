@@ -20,8 +20,9 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from powercontext.builtin.artifacts.skill import AgentSkillTarget
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime.config import HandoffReportConfig
+from powercontext.builtin.runtime.config import ExternalSkillsConfig, HandoffReportConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     BearerAuthConfig,
@@ -50,11 +51,17 @@ def test_dashboard_is_enabled_by_default_without_authentication_or_scopes(tmp_pa
 
     with TestClient(app) as client:
         home = client.get("/")
+        skills = client.get("/skills")
+        review = client.get("/reviews")
         scopes = client.get("/dashboard/scopes")
 
     assert settings.dashboard.enabled is True
     assert settings.dashboard.scopes == []
     assert home.status_code == 200
+    assert skills.status_code == 200
+    assert review.status_code == 200
+    assert 'class="server-content" id="skills-library"' in skills.text
+    assert 'class="server-content" id="review-inbox"' in review.text
     assert 'data-server-session="active"' in home.text
     assert 'data-server-auth-required="false"' in home.text
     assert scopes.status_code == 200
@@ -72,9 +79,13 @@ def test_dashboard_can_be_disabled_explicitly(tmp_path) -> None:
 
     with TestClient(app) as client:
         home = client.get("/")
+        skills = client.get("/skills")
+        review = client.get("/reviews")
         health = client.get("/health/live")
 
     assert home.status_code == 404
+    assert skills.status_code == 404
+    assert review.status_code == 404
     assert health.status_code == 200
 
 
@@ -121,11 +132,15 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
 
     with TestClient(app) as client:
         home = client.get("/")
+        skills = client.get("/skills")
+        review = client.get("/reviews")
         removed_dashboard_alias = client.get("/dashboard", headers=_AUTH_HEADERS)
         missing_scopes = client.get("/dashboard/scopes")
         scopes = client.get("/dashboard/scopes", headers=_AUTH_HEADERS)
 
     assert home.status_code == 200
+    assert skills.status_code == 200
+    assert review.status_code == 200
     assert removed_dashboard_alias.status_code == 404
     assert missing_scopes.status_code == 401
     assert scopes.status_code == 200
@@ -141,10 +156,236 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     assert 'data-i18n-aria-label="scopeOverview"' in home.text
     assert 'data-i18n-aria-label="activityAria"' in home.text
     assert "dashboard.js?v=default-startup-locale-v1" in home.text
+    assert 'data-i18n="skillsTitle"' in skills.text
+    assert 'aria-current="page" data-i18n="skillsTitle"' in skills.text
+    assert 'id="skills-scope-search"' in skills.text
+    assert 'role="combobox"' in skills.text
+    assert 'aria-controls="skills-scope-options"' in skills.text
+    assert 'id="skills-scope-options" role="listbox"' in skills.text
+    assert 'id="skills-search"' in skills.text
+    assert 'id="skills-authority-filter"' in skills.text
+    assert 'id="skills-list" role="listbox"' in skills.text
+    assert 'id="skills-managed-content"' in skills.text
+    assert 'id="skills-delivery"' in skills.text
+    assert 'id="skills-create-revision"' in skills.text
+    assert 'id="skills-publish-dialog"' in skills.text
+    assert "skills.js?v=agent-targets-v1" in skills.text
+    assert 'data-i18n="reviewTitle"' in review.text
+    assert 'aria-current="page" data-i18n="reviewTitle"' in review.text
+    assert 'id="review-scope-select"' not in review.text
+    assert 'id="review-scope-search"' in review.text
+    assert 'role="combobox"' in review.text
+    assert 'aria-controls="review-scope-options"' in review.text
+    assert 'id="review-scope-options" role="listbox"' in review.text
+    assert 'id="review-family-filter"' in review.text
+    assert 'id="review-status-filter"' in review.text
+    assert 'id="review-list" role="listbox"' in review.text
+    assert 'id="review-revision-form" hidden' in review.text
+    assert 'id="review-approve-dialog"' in review.text
+    assert 'id="review-reject-dialog"' in review.text
+    assert 'id="review-publication"' in review.text
+    assert 'id="review-create-skill-revision"' in review.text
+    assert 'id="review-revision-title"' in review.text
+    assert 'id="review-publish-dialog"' in review.text
+    assert "review.js?v=agent-targets-v1" in review.text
     assert scopes.json() == [
         {"scope_id": "person:psiace", "display_name": "PsiACE"},
         {"scope_id": "project:powercontext", "display_name": "PowerContext"},
     ]
+
+
+def test_review_publishes_an_approved_managed_skill_into_configured_agent_targets(tmp_path) -> None:
+    codex_skill_root = tmp_path / "repository" / ".agents" / "skills"
+    claude_skill_root = tmp_path / "repository" / ".claude" / "skills"
+    settings = ServerSettings(
+        auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-secret")),
+        dashboard=DashboardConfig(
+            enabled=True,
+            scopes=[DashboardScopeConfig(scope_id="project:powercontext", display_name="PowerContext")],
+        ),
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'managed-skill-publish.db'}"),
+        external_skills=ExternalSkillsConfig(
+            host_id="dashboard-test",
+            targets=(
+                AgentSkillTarget(
+                    target_id="codex-project",
+                    agent_kind="codex",
+                    installation_scope="project",
+                    path=codex_skill_root,
+                    allow_managed_publish=True,
+                ),
+                AgentSkillTarget(
+                    target_id="claude-project",
+                    agent_kind="claude_code",
+                    installation_scope="project",
+                    path=claude_skill_root,
+                    allow_managed_publish=True,
+                ),
+            ),
+        ),
+        mcp=McpConfig(enabled=False),
+    )
+    app = create_server_app(settings=settings)
+
+    with TestClient(app) as client:
+        source = client.post(
+            "/v1/sources/content",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "source_id": "managed-skill-evidence",
+                "content": "The contract workflow was reviewed and its validation passed.",
+            },
+        ).json()["source"]
+        candidate = client.post(
+            "/v1/skill/propose",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "proposal": {
+                    "name": "review-contract-change",
+                    "description": "Use when changing the reviewed public contract.",
+                    "instructions": "Regenerate the client and inspect the contract diff.",
+                    "validation": ["Run the contract tests."],
+                },
+                "source_refs": [source],
+                "artifact_refs": [],
+            },
+        ).json()
+        approved = client.post(
+            "/v1/artifact-candidates/approve",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "candidate_id": candidate["candidate_id"],
+                "expected_version": candidate["version"],
+            },
+        ).json()
+        selection = {
+            "scope_id": "project:powercontext",
+            "candidate_id": approved["candidate_id"],
+            "artifact": approved["result_artifact"],
+        }
+        unauthenticated = client.post("/dashboard/skill-projections/status", json=selection)
+        wrong_revision = client.post(
+            "/dashboard/skill-projections/status",
+            headers=_AUTH_HEADERS,
+            json={
+                **selection,
+                "artifact": {**approved["result_artifact"], "revision": approved["result_artifact"]["revision"] + 1},
+            },
+        )
+        before = client.post(
+            "/dashboard/skill-projections/status",
+            headers=_AUTH_HEADERS,
+            json=selection,
+        )
+        published = client.post(
+            "/dashboard/skill-projections/publish",
+            headers=_AUTH_HEADERS,
+            json={**selection, "target_id": "codex-project"},
+        )
+        claude_published = client.post(
+            "/dashboard/skill-projections/publish",
+            headers=_AUTH_HEADERS,
+            json={**selection, "target_id": "claude-project"},
+        )
+        registered = client.post(
+            "/v1/external-skills/list",
+            headers=_AUTH_HEADERS,
+            json={"scope_id": "project:powercontext", "include_unavailable": False},
+        )
+        revision_source = client.post(
+            "/v1/sources/content",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "source_id": "managed-skill-revision-evidence",
+                "content": "The packaged contract must also be verified after regeneration.",
+            },
+        ).json()["source"]
+        revision_candidate = client.post(
+            "/v1/skill/propose",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "proposal": {
+                    "name": "review-contract-change",
+                    "description": "Use when changing the reviewed public contract.",
+                    "instructions": "Regenerate the client, inspect the diff, and verify the packaged contract.",
+                    "validation": ["Run the contract tests."],
+                },
+                "source_refs": [revision_source],
+                "artifact_refs": [approved["result_artifact"]],
+                "target": approved["result_artifact"],
+                "reason": "Add package verification to the reviewed contract workflow.",
+            },
+        ).json()
+        revision_approved = client.post(
+            "/v1/artifact-candidates/approve",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "candidate_id": revision_candidate["candidate_id"],
+                "expected_version": revision_candidate["version"],
+            },
+        ).json()
+        revision_selection = {
+            "scope_id": "project:powercontext",
+            "candidate_id": revision_approved["candidate_id"],
+            "artifact": revision_approved["result_artifact"],
+        }
+        update_available = client.post(
+            "/dashboard/skill-projections/status",
+            headers=_AUTH_HEADERS,
+            json=revision_selection,
+        )
+        updated = client.post(
+            "/dashboard/skill-projections/publish",
+            headers=_AUTH_HEADERS,
+            json={**revision_selection, "target_id": "codex-project"},
+        )
+        claude_updated = client.post(
+            "/dashboard/skill-projections/publish",
+            headers=_AUTH_HEADERS,
+            json={**revision_selection, "target_id": "claude-project"},
+        )
+
+    codex_destination = codex_skill_root / "review-contract-change"
+    claude_destination = claude_skill_root / "review-contract-change"
+    assert unauthenticated.status_code == 401
+    assert wrong_revision.status_code == 409
+    assert wrong_revision.json()["error"]["code"] == "skill_projection_not_approved"
+    assert before.status_code == 200
+    assert before.json()["targets"][0]["state"] == "unpublished"
+    assert [target["agent_kind"] for target in before.json()["targets"]] == ["codex", "claude_code"]
+    assert published.status_code == 200
+    assert published.json()["targets"][0]["state"] == "current"
+    assert published.json()["targets"][0]["discovery"] == "available"
+    assert claude_published.status_code == 200
+    assert claude_published.json()["targets"][1]["state"] == "current"
+    assert claude_published.json()["targets"][1]["discovery"] == "available"
+    assert revision_approved["result_artifact"] == {
+        **approved["result_artifact"],
+        "revision": approved["result_artifact"]["revision"] + 1,
+    }
+    assert update_available.status_code == 200
+    assert update_available.json()["targets"][0]["state"] == "update_available"
+    assert updated.status_code == 200
+    assert updated.json()["targets"][0]["state"] == "current"
+    assert updated.json()["targets"][0]["published_revision"] == 2
+    assert claude_updated.status_code == 200
+    assert claude_updated.json()["targets"][1]["state"] == "current"
+    assert claude_updated.json()["targets"][1]["published_revision"] == 2
+    assert codex_destination.joinpath("SKILL.md").is_file()
+    assert claude_destination.joinpath("SKILL.md").is_file()
+    assert "verify the packaged contract" in codex_destination.joinpath("SKILL.md").read_text(encoding="utf-8")
+    assert "verify the packaged contract" in claude_destination.joinpath("SKILL.md").read_text(encoding="utf-8")
+    assert registered.status_code == 200
+    assert {skill["registration"]["locator"] for skill in registered.json()["skills"]} == {
+        str(codex_destination),
+        str(claude_destination),
+    }
 
 
 def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_path) -> None:
@@ -156,6 +397,8 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
         disabled_page = client.get("/handoff-reports")
     with TestClient(enabled_app) as client:
         enabled_page = client.get("/handoff-reports")
+        disabled_skills = client.get("/skills")
+        disabled_review = client.get("/reviews")
         disabled_dashboard = client.get("/")
         disabled_dashboard_scopes = client.get("/dashboard/scopes", headers=_AUTH_HEADERS)
         protected_projects = client.post(
@@ -165,9 +408,12 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
 
     assert disabled_page.status_code == 404
     assert enabled_page.status_code == 200
+    assert disabled_skills.status_code == 404
+    assert disabled_review.status_code == 404
     assert disabled_dashboard.status_code == 404
     assert disabled_dashboard_scopes.status_code == 404
     assert 'data-i18n="dashboardTitle"' not in enabled_page.text
+    assert 'data-i18n="skillsTitle"' not in enabled_page.text
     assert 'data-server-session="missing"' in enabled_page.text
     assert 'id="auth-shell"' in enabled_page.text
     assert 'id="auth-shell" hidden' not in enabled_page.text

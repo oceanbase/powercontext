@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: PowerContext paths, Server, Client, inference, and Codex environment variables.
+description: PowerContext paths, Server, Client, inference, and Agent integration environment variables.
 ---
 
 # Configuration
@@ -52,7 +52,7 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation timeout |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | Maximum texts sent in one embedding request |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | unset | Experience incubation interval; unset disables that job |
-| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | unset | JSON object containing the host identity and explicit Codex Skill roots |
+| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | unset | JSON object containing the host identity and explicit Agent Skill targets |
 
 Static bearer authentication is disabled by default. When enabled, API and MCP requests must include
 `Authorization: Bearer <token>`; the liveness and readiness endpoints remain public. Plain HTTP should remain on a
@@ -115,31 +115,43 @@ powercontext server run
 
 Each activation inspects a fixed window of at most 32 Sources and exposes only Content Sources whose metadata contains
 `"kind": "task-outcome"` to the model. It creates pending Experience Candidates in the Review Inbox; it does not
-approve them, place them in PreparedContext, create a managed Skill, export it for Codex, or execute anything.
+approve them, place them in PreparedContext, create a managed Skill, export it to an Agent target, or execute anything.
 The Memory and Experience jobs share the APScheduler sidecar under `POWERCONTEXT_HOME`, but keep independent job
 identities and business cursors. Unsetting one interval removes only that job.
 
-### External Codex Skills
+### Agent Skill targets
 
-Configure host-local roots as one JSON value:
+Configure Codex and Claude Code host-local targets as one JSON value:
 
 ```bash
 export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
   "host_id": "workstation-1",
-  "codex_roots": [
+  "targets": [
     {
-      "root_id": "repository",
+      "target_id": "codex-project",
+      "agent_kind": "codex",
       "installation_scope": "project",
-      "path": "/srv/project/.agents/skills"
+      "path": "/srv/project/.agents/skills",
+      "allow_managed_publish": true
+    },
+    {
+      "target_id": "claude-project",
+      "agent_kind": "claude_code",
+      "installation_scope": "project",
+      "path": "/srv/project/.claude/skills",
+      "allow_managed_publish": true
     }
   ]
 }'
 ```
 
-Root IDs must be unique. Supported installation scopes are `user`, `project`, and `plugin`. PowerContext scans only
-the immediate Skill package directories under these explicit roots; it does not infer a home directory, install
-packages, or grant execution authority. The `host_id`, locator, and registration are local-environment state, not a
-cross-host or cross-Agent contract.
+Target IDs must be unique. `agent_kind` supports `codex` and `claude_code`; installation scopes are `user`, `project`,
+and `plugin`. PowerContext scans only the immediate Skill package directories under these explicit targets; it does not
+infer a home directory, install packages, or grant execution authority. `allow_managed_publish` defaults to `false`;
+when true, the authenticated Skills Library or Review page may explicitly create or safely update an approved managed
+Skill in that target. The page still cannot submit an arbitrary path or overwrite a foreign or modified package. The
+`host_id`, locator, and registration are local-environment state, not a cross-host contract. Existing `codex_roots`
+configuration remains accepted as a Codex-only compatibility form; new configuration should use `targets`.
 
 The Server always creates non-recording OpenTelemetry request context so `X-PowerContext-Request-ID` can be derived from the
 inbound span. To enable recording and export for a CLI-managed Server, install

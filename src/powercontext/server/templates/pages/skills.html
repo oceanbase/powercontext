@@ -1,0 +1,213 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
+{% extends "base.html" %}
+
+{% block title %}PowerContext Skills Library{% endblock %}
+
+{% block content %}
+{% include "components/login.html" %}
+
+{% set status_title_key = "skillsTitle" %}
+{% set status_title = "Skills" %}
+{% include "components/status.html" %}
+
+<section class="server-content" id="skills-library">
+  <div class="hero skills-hero">
+    <div>
+      <p class="page-kind" data-i18n="skillsTitle">Skills</p>
+      <h1 data-i18n="skillsLibraryTitle">Skills Library</h1>
+      <p class="skills-intro" data-i18n="skillsIntro">Browse approved PowerContext Skills and Agent-local packages available in this scope.</p>
+    </div>
+    <div class="scope-picker skills-scope-picker">
+      <label for="skills-scope-search" data-i18n="selectScope">Scope</label>
+      <div class="scope-combobox" id="skills-scope-combobox">
+        <input
+          id="skills-scope-search"
+          type="search"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls="skills-scope-options"
+          aria-expanded="false"
+          autocomplete="off"
+          spellcheck="false"
+          data-i18n-placeholder="searchScopesPlaceholder"
+          placeholder="Search by scope name or ID"
+        >
+        <div class="scope-options" id="skills-scope-options" role="listbox" hidden></div>
+      </div>
+      <span class="scope-search-status" id="skills-scope-search-status" role="status" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <div class="skills-toolbar" aria-label="Skills filters" data-i18n-aria-label="skillsFilters">
+    <label class="skills-search-field">
+      <span data-i18n="searchSkills">Search</span>
+      <input
+        id="skills-search"
+        type="search"
+        autocomplete="off"
+        spellcheck="false"
+        data-i18n-placeholder="searchSkillsPlaceholder"
+        placeholder="Search by name, description, or identity"
+      >
+    </label>
+    <label>
+      <span data-i18n="authority">Authority</span>
+      <select id="skills-authority-filter">
+        <option value="" data-i18n="allSkills">All Skills</option>
+        <option value="managed" data-i18n="managedSkill">Managed</option>
+        <option value="external" data-i18n="externalSkill">External</option>
+      </select>
+    </label>
+    <button class="secondary-button skills-refresh" id="skills-refresh" type="button" data-i18n="refresh">Refresh</button>
+    <p class="skills-live-status" id="skills-live-status" role="status" aria-live="polite"></p>
+  </div>
+
+  <div class="skills-summary" aria-label="Skills summary" data-i18n-aria-label="skillsSummary">
+    <div>
+      <span data-i18n="managedSkills">Managed Skills</span>
+      <strong id="skills-managed-count">0</strong>
+    </div>
+    <div>
+      <span data-i18n="externalSkills">External Skills</span>
+      <strong id="skills-external-count">0</strong>
+    </div>
+    <p id="skills-summary-note" data-i18n="authorityNote">Managed Skills are governed Artifact Revisions. External Skills remain Agent-local packages.</p>
+  </div>
+
+  <div class="skills-workspace">
+    <section class="skills-index" aria-labelledby="skills-index-title">
+      <div class="skills-panel-heading">
+        <div>
+          <h2 id="skills-index-title" data-i18n="libraryInventory">Library inventory</h2>
+          <p id="skills-index-caption"></p>
+        </div>
+      </div>
+      <div class="skills-loading" id="skills-loading" aria-hidden="true" hidden>
+        <span></span><span></span><span></span>
+      </div>
+      <div class="skills-list" id="skills-list" role="listbox" aria-label="Skills" data-i18n-aria-label="skillsTitle"></div>
+      <div class="empty-state skills-empty" id="skills-empty" hidden>
+        <strong data-i18n="noSkills">No Skills match these filters.</strong>
+        <p data-i18n="noSkillsHint">Try another search or refresh local discovery.</p>
+      </div>
+    </section>
+
+    <section class="skills-detail" aria-labelledby="skills-detail-title">
+      <div class="skills-detail-empty" id="skills-detail-empty">
+        <p class="page-kind" data-i18n="skillDetail">Skill detail</p>
+        <h2 id="skills-detail-title" data-i18n="selectSkill">Select a Skill to inspect it.</h2>
+        <p data-i18n="selectSkillHint">Content, authority, lineage, and availability will appear here.</p>
+      </div>
+
+      <div id="skills-detail-content" hidden>
+        <header class="skills-detail-header">
+          <div>
+            <span class="skills-authority-label" id="skills-detail-authority"></span>
+            <h2 id="skills-detail-name"></h2>
+            <code id="skills-detail-identity"></code>
+          </div>
+          <span class="status-badge" id="skills-detail-status"></span>
+        </header>
+
+        <div class="skills-alert" id="skills-alert" role="alert" hidden></div>
+
+        <section class="skills-overview" aria-labelledby="skills-overview-title">
+          <h3 id="skills-overview-title" data-i18n="overview">Overview</h3>
+          <p id="skills-description"></p>
+          <dl id="skills-facts"></dl>
+        </section>
+
+        <section class="skills-instructions" id="skills-managed-content" aria-labelledby="skills-instructions-title" hidden>
+          <h3 id="skills-instructions-title" data-i18n="instructions">Instructions</h3>
+          <pre id="skills-instructions"></pre>
+          <h4 data-i18n="validation">Validation</h4>
+          <ol id="skills-validation"></ol>
+        </section>
+
+        <section class="skills-lineage" id="skills-lineage" aria-labelledby="skills-lineage-title" hidden>
+          <h3 id="skills-lineage-title" data-i18n="lineage">Lineage</h3>
+          <div class="skills-reference-groups">
+            <div>
+              <h4 data-i18n="sourceReferences">Source references</h4>
+              <ul id="skills-source-refs"></ul>
+            </div>
+            <div>
+              <h4 data-i18n="artifactReferences">Artifact references</h4>
+              <ul id="skills-artifact-refs"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="skills-delivery" id="skills-delivery" aria-labelledby="skills-delivery-title" hidden>
+          <div class="skills-delivery-heading">
+            <div>
+              <h3 id="skills-delivery-title" data-i18n="delivery">Delivery</h3>
+              <p data-i18n="deliveryIntro">Inspect or publish this approved Revision to an explicit Agent Skill root.</p>
+            </div>
+            <span class="status-badge" id="skills-projection-state" hidden></span>
+          </div>
+          <p class="skills-delivery-status" id="skills-delivery-status" role="status" aria-live="polite"></p>
+          <div class="skills-delivery-empty" id="skills-delivery-empty" hidden>
+            <strong data-i18n="noPublishTargets">No writable Skill target is configured.</strong>
+            <p data-i18n="noPublishTargetsHint">Enable managed publication on an explicit local Skill root.</p>
+          </div>
+          <div id="skills-delivery-content" hidden>
+            <label class="skills-delivery-target">
+              <span data-i18n="publishTarget">Publish target</span>
+              <select id="skills-delivery-target"></select>
+            </label>
+            <dl class="skills-delivery-facts">
+              <div>
+                <dt data-i18n="publishedRevision">Published revision</dt>
+                <dd id="skills-published-revision"></dd>
+              </div>
+              <div>
+                <dt data-i18n="discovery">Discovery</dt>
+                <dd id="skills-discovery"></dd>
+              </div>
+            </dl>
+            <div class="skills-delivery-path">
+              <span data-i18n="destination">Destination</span>
+              <code id="skills-destination"></code>
+            </div>
+          </div>
+          <div class="skills-detail-actions">
+            <button class="secondary-button" id="skills-create-revision" type="button" data-i18n="createSkillRevision">Create revision</button>
+            <button class="primary-button" id="skills-publish" type="button" data-i18n="publishSkill" hidden>Publish Skill</button>
+          </div>
+        </section>
+      </div>
+    </section>
+  </div>
+
+  <dialog class="review-dialog" id="skills-publish-dialog">
+    <form method="dialog">
+      <h2 data-i18n="publishSkillCandidate">Publish this managed Skill?</h2>
+      <p id="skills-publish-confirmation"></p>
+      <div class="review-dialog-actions">
+        <button class="secondary-button" value="cancel" type="submit" data-i18n="cancel">Cancel</button>
+        <button class="primary-button" id="skills-confirm-publish" value="default" type="submit" data-i18n="publishSkill">Publish Skill</button>
+      </div>
+    </form>
+  </dialog>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('web_static', path='/skills.js') }}?v=agent-targets-v1"></script>
+{% endblock %}

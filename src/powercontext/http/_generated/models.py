@@ -325,10 +325,12 @@ class SkillValidationItem(RootModel[StrictStr]):
 
 class Provider(StrEnum):
     CODEX = "codex"
+    CLAUDE_CODE = "claude_code"
 
 
 class AgentKind(StrEnum):
     CODEX = "codex"
+    CLAUDE_CODE = "claude_code"
 
 
 class ErrorDetail(BaseModel):

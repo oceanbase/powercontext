@@ -1,6 +1,6 @@
 ---
 title: Interfaces
-description: Choose between the Codex plugin, DeepSeek Harness plugin, Pi package, CLI, Python SDKs, HTTP, and MCP.
+description: Choose between the Codex and Claude Code plugins, DeepSeek Harness plugin, Pi package, CLI, Python SDKs, HTTP, and MCP.
 ---
 
 # Interfaces
@@ -196,10 +196,10 @@ cursor advancement commit together; a generation or write failure leaves the win
 prompt Sources are not Task Outcomes and are ignored by this job.
 
 Scheduling stops at the review boundary. It never approves an Experience, includes pending content in
-PreparedContext, derives a managed Skill, exports a Skill for Codex, or executes instructions. Skill authoring and
+PreparedContext, derives a managed Skill, exports a Skill for an Agent target, or executes instructions. Skill authoring and
 export remain explicit steps after the supporting Experience is approved.
 
-## Managed Skill export to Codex
+## Managed Skill export to Agent targets
 
 A configured generator can produce complete managed Skill content through `generate_skill`; a human or integration
 can submit already-complete typed content through `propose_skill`. The proposal contains a name, discovery
@@ -207,17 +207,18 @@ description, instructions, validation checks, and exact Source or Artifact linea
 reviewer approves the exact Candidate version.
 
 Approval creates an immutable Skill Revision. It does not install the Skill or grant execution authority. To make one
-approved Revision available to Codex, export it explicitly into a new repository or user Skill directory with
-`skill export --target codex`. The command writes `SKILL.md` and `powercontext.json`; the manifest records the exact
+approved Revision available to Codex or Claude Code, export it explicitly into a configured repository, user, or plugin
+Skill target. The projection writes `SKILL.md` and `powercontext.json`; the manifest records the Agent kind, exact
 Artifact reference and rendered-content hash. It refuses to replace an existing destination, so updates require an
 intentional new export rather than a silent overwrite.
 
 Codex can discover a repository-local export under `.agents/skills/<name>/SKILL.md`. The Artifact Revision remains
-the content authority; the directory is a host-local projection that can be rebuilt from the same exact Revision.
+the content authority; Claude Code uses `.claude/skills/<name>/SKILL.md` for the equivalent project target. Both
+directories are host-local projections that can be rebuilt from the same exact Revision.
 
 ## External Agent-native Skills
 
-External Skills remain authoritative in their original local packages. With explicitly configured Codex roots, the
+External Skills remain authoritative in their original local packages. With explicitly configured Agent targets, the
 Server can scan a scope-local, rebuildable Registry and report name, description, provider, Agent kind, host,
 installation scope, locator, and whole-package fingerprint. Exact resolve succeeds only when the same package remains
 readable on the configured host and its fingerprint still matches. It never installs a package or falls back to a
@@ -235,8 +236,8 @@ managed Artifact.
 | --- | --- | --- | --- | --- |
 | External Agent-native Skill | Original package | No for scan/list/resolve; yes for import/fork | No for discovery; yes after import/fork | Host-local Registry and exact resolve |
 | Experience | Exact approved Artifact Revision | Yes for generate/evolve; no for typed `propose` | Yes | Exact read and approved-head FTS recall in PreparedContext |
-| Managed Skill | Exact approved Artifact Revision | Yes for generate/evolve/import/fork; no for typed `propose` | Yes | Exact read and explicit Codex projection |
-| Codex projection | Its source managed Skill Revision | No | No additional review | Rebuildable host-local copy |
+| Managed Skill | Exact approved Artifact Revision | Yes for generate/evolve/import/fork; no for typed `propose` | Yes | Exact read and explicit Agent projection |
+| Agent projection | Its source managed Skill Revision | No | No additional review | Rebuildable Codex or Claude Code host-local copy |
 
 ## Core SDK
 
