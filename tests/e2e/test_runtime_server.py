@@ -232,6 +232,58 @@ def test_server_databases_share_source_to_memory_search_behavior(
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("database_kind", ["sqlite", "oceanbase"])
+def test_server_databases_keep_case_and_accent_variant_identities_distinct(
+    database_kind: str,
+    tmp_path: Path,
+) -> None:
+    if database_kind == "oceanbase":
+        if OCEANBASE_URL is None:
+            pytest.skip("set POWERCONTEXT_TEST_OCEANBASE_URL to a dedicated OceanBase MySQL-mode test database")
+        database = OceanBaseConfig(url=SecretStr(OCEANBASE_URL))
+    else:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'identity.db'}")
+    marker = uuid4().hex[:12]
+    writer_scope = f"PC-{marker}-Alpha"
+    reader_scope = writer_scope.lower()
+    accent_scope = f"{marker}-café"
+    plain_scope = f"{marker}-cafe"
+    memory_text = "Rotate the production signing key every ninety days."
+    app = create_server_app(
+        settings=ServerSettings(database=database, mcp=McpConfig(enabled=False)),
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+            ) as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport)
+            await client.remember_memory(RememberMemoryRequest(scope_id=writer_scope, kind="fact", text=memory_text))
+            leaked = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=reader_scope))
+            await client.remember_memory(
+                RememberMemoryRequest(scope_id=accent_scope, kind="fact", text="Espresso is on the third floor.")
+            )
+            accent_leaked = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=plain_scope))
+            source_scope = f"{marker}-src"
+            await client.capture_content_source(
+                CaptureContentSourceRequest(scope_id=source_scope, source_id="Turn-1", content="uppercase turn")
+            )
+            second = await client.capture_content_source(
+                CaptureContentSourceRequest(scope_id=source_scope, source_id="turn-1", content="lowercase turn")
+            )
+
+        assert not leaked.entries
+        assert leaked.memory is None
+        assert not accent_leaked.entries
+        assert second.position == 2
+
+    asyncio.run(scenario())
+
+
 def test_inference_failure_degrades_readiness_without_blocking_database_operations(tmp_path: Path) -> None:
     app = create_server_app(
         settings=_server_settings(tmp_path / "degraded.db"),
