@@ -930,7 +930,10 @@ class MemoryService:
             if version.memory_artifact_id != memory.artifact_id or version.entry_id != item.entry_id:
                 raise InvalidMemoryCitationError("cross-identity")
             material = self._material_from_version(version)
-            if material.content_hash != item.entry_content_hash:
+            if (
+                material.content_hash != item.entry_content_hash
+                or version.entry_content_hash != item.entry_content_hash
+            ):
                 raise InvalidMemoryCitationError("hash-mismatch")
             ordered.append(version)
         return tuple(ordered)

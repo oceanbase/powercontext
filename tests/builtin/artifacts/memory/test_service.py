@@ -18,6 +18,7 @@ import asyncio
 
 from powercontext.builtin.artifacts.memory import (
     Memory,
+    MemoryChange,
     MemoryCommit,
     MemoryContent,
     MemoryEntryInput,
@@ -29,6 +30,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryService,
 )
 from powercontext.builtin.artifacts.memory.canonical import entry_content_hash, memory_content_hash
+from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -149,11 +151,21 @@ def test_memory_organize_deduplicates_and_normalizes_existing_entries() -> None:
                         )
                         for version in versions
                     )
-                )
+                ),
+                changes=tuple(
+                    MemoryChange(
+                        op="add",
+                        entry_id=version.entry_id,
+                        from_entry_version_id=None,
+                        to_entry_version_id=version.entry_version_id,
+                    )
+                    for version in versions
+                ),
             )
             memory = Memory(artifact_id="memory", revision=1, content=content)
             projections = tuple(
-                MemoryProjection(entry_version=version, searchable_text="duplicate.") for version in versions
+                MemoryProjection(entry_version=version, searchable_text=analyze_text(version.text))
+                for version in versions
             )
             async with backend.begin() as unit_of_work:
                 await unit_of_work.commit(
