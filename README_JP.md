@@ -33,6 +33,20 @@ powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
 再実行してください。Hermes インテグレーションには Hermes Agent v0.20.4 以降が必要です。設定とプロジェクトローカルの
 インストール方法については、[Hermes インテグレーションガイド](integrations/hermes/README.md)を参照してください。
 
+### Pi Coding Agent
+
+Pi をインストールしたうえで、ネイティブ Pi package を含む PowerContext の ref を使用します。以下は現在の
+`master` ブランチを使う例です。
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup pi --source oceanbase/powercontext --ref master
+powercontext doctor pi
+```
+
+Pi を含むリリース tag を使う場合は、最初の 2 つのコマンドの `master` を同じ tag に置き換えてください。必要な
+環境、設定、プロジェクトコンテキストのワークフローは [Configure Pi](docs/en/docs/how-to/configure-pi.md) を参照してください。
+
 ### 2. ローカル Server を起動して検証する
 
 1 つのターミナルで Server を起動したままにします。
@@ -79,9 +93,9 @@ powercontext doctor codex  # または: claude-code / dsh / hermes
 
 ## プラグイン
 
-PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent 向けの公式プラグインとインストールガイドを提供します。
-4 つのインテグレーションはすべて、PowerContext Server を通じて同じスコープ付きデータと履歴を保持する契約を
-使用します。プラグインが Server を自動的に起動したり、組み込んだりすることはありません。
+PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent 向けの公式インテグレーションと
+インストールガイドを提供します。5 つのインテグレーションはすべて、PowerContext Server を通じて同じスコープ付きデータと
+履歴を保持する契約を使用します。Host インテグレーションが Server を自動的に起動したり、組み込んだりすることはありません。
 
 ### 公式インテグレーション
 
@@ -91,8 +105,12 @@ PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent 向けの
 <td align="center" width="120"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></td>
 <td align="center" width="120"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
 </tr>
 </table>
+
+Pi Coding Agent は Host plugin ではなくネイティブ package として提供されます。プロジェクトコンテキストのワークフローは
+[Configure Pi](docs/en/docs/how-to/configure-pi.md) を参照してください。
 
 ## 開発
 
