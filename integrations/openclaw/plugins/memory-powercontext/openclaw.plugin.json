@@ -1,0 +1,104 @@
+{
+  "id": "memory-powercontext",
+  "name": "Memory (PowerContext)",
+  "description": "PowerContext-backed semantic memory with bounded recall and review-gated promotion.",
+  "activation": {
+    "onStartup": false,
+    "onConfigPaths": [
+      "plugins.entries.memory-powercontext"
+    ]
+  },
+  "kind": "memory",
+  "contracts": {
+    "tools": [
+      "powercontext_memory_search",
+      "powercontext_memory_get",
+      "powercontext_memory_store",
+      "powercontext_memory_revise",
+      "powercontext_memory_retire"
+    ]
+  },
+  "toolMetadata": {
+    "powercontext_memory_store": {
+      "sideEffecting": true
+    },
+    "powercontext_memory_revise": {
+      "sideEffecting": true
+    },
+    "powercontext_memory_retire": {
+      "sideEffecting": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpoint": {
+        "allOf": [
+          {
+            "type": "string",
+            "format": "uri"
+          },
+          {
+            "type": "string",
+            "pattern": "^https?://"
+          }
+        ]
+      },
+      "tokenEnv": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+        "default": "POWERCONTEXT_CLIENT_API_TOKEN"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 250,
+        "maximum": 15000,
+        "default": 2500
+      },
+      "prepareMaxBytes": {
+        "type": "integer",
+        "minimum": 512,
+        "maximum": 32768,
+        "default": 8000
+      },
+      "autoRecall": {
+        "type": "boolean",
+        "default": true
+      },
+      "autoCapture": {
+        "type": "boolean",
+        "default": true
+      },
+      "captureMaxChars": {
+        "type": "integer",
+        "minimum": 128,
+        "maximum": 20000,
+        "default": 4000
+      },
+      "scopeMode": {
+        "type": "string",
+        "enum": [
+          "agent",
+          "project"
+        ],
+        "default": "agent"
+      }
+    }
+  },
+  "uiHints": {
+    "endpoint": {
+      "label": "PowerContext Endpoint",
+      "help": "Base URL of the PowerContext server."
+    },
+    "tokenEnv": {
+      "label": "PowerContext Token Environment Variable",
+      "help": "Environment variable containing the Bearer token, read by the Gateway process."
+    },
+    "scopeMode": {
+      "label": "Memory Scope",
+      "help": "Agent scope is the default. Project scope is used only when OpenClaw supplies exactly one trusted project identity for a turn."
+    }
+  }
+}

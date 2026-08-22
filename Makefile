@@ -99,6 +99,14 @@ js-api-generate-check: ## Verify generated JS operations are current.
 js-test: ## Run DeepSeek Harness plugin unit tests.
 	@pnpm --dir integrations/dsh/plugins/powercontext test
 
+.PHONY: openclaw-plugin-build
+openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext build
+
+.PHONY: openclaw-plugin-pack
+openclaw-plugin-pack: ## Build and pack the external OpenClaw memory plugin.
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext pack:local
+
 .PHONY: pi-test
 pi-test: ## Install and test the Pi package.
 	@pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile
