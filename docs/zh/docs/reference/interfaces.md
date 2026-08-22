@@ -11,6 +11,7 @@ description: 在 Codex 插件、DeepSeek Harness 插件、Pi package、CLI、Pyt
 | --- | --- | --- |
 | Codex 插件 | 在 Codex 中跨会话恢复和显式维护 Memory | `powercontext setup codex` |
 | DeepSeek Harness 插件 | 在 DeepSeek Harness 中跨会话恢复和显式维护 Memory | `powercontext setup dsh` |
+| LangGraph 适配器 | 在 LangGraph 图中提供 Memory 工具和有界召回 | `powercontext-langgraph` |
 | Pi package | 在 Pi 中跨会话恢复、使用原生 Memory/Handoff 工具和 skill | `powercontext setup pi` |
 | CLI | 配置、诊断、Server 控制、能力检查和人工 Candidate 审核 | `powercontext[cli,server]` |
 | Python Client SDK | 对运行中的 Server 发起类型化异步调用 | `powercontext[client]` |
@@ -61,6 +62,21 @@ Handoff Report 的 JSON Workstream projection 同时返回 `handoff_revision_cou
 
 project-context skill 指导 DeepSeek Harness 何时检索、记忆、修订或停用 Memory。每轮模型开口前，插件会恢复相关
 条目，并把用户输入采集为 Source 证据；具名 `pc_*` 工具执行显式 HTTP 操作。插件不会启动或内嵌 Server。
+
+## LangGraph 适配器
+
+`powercontext-langgraph` 通过公开的 Python Client 把 LangGraph 图连接到运行中的 Server，提供三个组件：
+`powercontext_tools()` 返回供模型显式读写 Memory 的 `BaseTool`；`PowerContextRecall` 是节点或
+`pre_model_hook`，在模型步骤前把一个有界 `PreparedContext` 作为标记为不可信历史证据的系统消息注入；
+`PowerContextScope` 是用于图 `context_schema` 的 dataclass，承载 scope 和单次运行的连接覆盖项。召回节点和工具
+从 LangGraph runtime 读取当前 scope，否则回退到 `POWERCONTEXT_LANGGRAPH_*` 环境配置。
+
+Scope 解析优先取显式 `scope_id`，其次取由 Git remote 推导的 scope，都没有时报错——这与 Codex resolver 相反，
+因为已部署的图其工作目录通常无法标识项目。`TOKEN` 是裸 token，由 Client 组装为 `Authorization: Bearer`，不同于
+Codex、Claude Code 和 DeepSeek Harness 插件使用的 `POWERCONTEXT_*_AUTHORIZATION` header。召回和工具都会失败开放：
+Server 不可用时图仍能到达终点，工具返回一段简短的不可用字符串。本次发布只覆盖 Memory 读写和有界召回；自动采集、
+checkpointing 和 Handoff 不在范围内。适配器有意不实现 `BaseStore`——Memory 模型不提供其所需的按 key 读取、upsert
+和删除操作。它不会启动或内嵌 Server。
 
 ## Pi package
 
