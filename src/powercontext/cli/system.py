@@ -100,10 +100,7 @@ class SetupError(RuntimeError):
 
     @classmethod
     def unsupported_openclaw_version(cls, version_text: str) -> SetupError:
-        return cls(
-            f"OpenClaw {version_text or 'version unknown'} is unsupported; "
-            "upgrade to >= 2026.8.1-beta.2"
-        )
+        return cls(f"OpenClaw {version_text or 'version unknown'} is unsupported; upgrade to >= 2026.8.1-beta.2")
 
     @classmethod
     def invalid_openclaw_scope(cls) -> SetupError:
