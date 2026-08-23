@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import suppress
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -1468,7 +1468,7 @@ def _error_response(
 def _validation_error_details(error: RequestValidationError) -> list[Any]:
     details: list[Any] = []
     for item in error.errors():
-        if isinstance(item, Mapping):
+        if isinstance(item, dict):
             details.append({key: value for key, value in item.items() if key != "input"})
         else:
             details.append(item)

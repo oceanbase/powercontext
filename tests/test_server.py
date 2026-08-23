@@ -558,6 +558,31 @@ def test_prepare_context_rejects_memory_specific_tuning_fields(tmp_path) -> None
     assert response.json()["error"]["code"] == "invalid_request"
 
 
+def test_prepare_context_rejects_unicode_surrogates_without_crashing(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    body = '{"scope_id":"project:test","query":"\\udcaa"}'.encode(
+        "utf-8",
+        "surrogatepass",
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/context/prepare",
+            content=body,
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "invalid_request"
+    assert "input" not in error["details"]["errors"][0]
+
+
 def test_prepare_context_rejects_invalid_request_without_input_field(tmp_path) -> None:
     app = create_server_app(
         settings=ServerSettings(
