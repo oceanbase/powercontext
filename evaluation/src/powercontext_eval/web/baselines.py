@@ -5,6 +5,12 @@
 # You may obtain a copy of the License at
 #
 # http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Immutable single-arm baseline and historical-comparison contracts."""
 
@@ -97,7 +103,9 @@ class BaselineItemRecord(_FrozenModel):
         if self.status is TaskStatus.SUCCEEDED:
             if self.source_attempt_id is None or self.resolved is None:
                 raise ValueError("Successful baseline items require an exact attempt and result")
-        elif any(value is not None for value in (self.resolved, self.input_tokens, self.output_tokens, self.total_tokens)):
+        elif any(
+            value is not None for value in (self.resolved, self.input_tokens, self.output_tokens, self.total_tokens)
+        ):
             raise ValueError("Unsuccessful baseline items cannot contain arm outcomes")
         if (
             self.input_tokens is not None

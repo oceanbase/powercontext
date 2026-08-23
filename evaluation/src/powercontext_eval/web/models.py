@@ -441,15 +441,9 @@ class ReportResponse(FrozenModel):
 
     @model_validator(mode="after")
     def require_distinct_arms(self) -> Self:
-        present = {
-            arm
-            for arm, response in ((Arm.OFF, self.off), (Arm.ON, self.on))
-            if response is not None
-        }
+        present = {arm for arm, response in ((Arm.OFF, self.off), (Arm.ON, self.on)) if response is not None}
         evidence = {
-            arm
-            for arm, response in ((Arm.OFF, self.evidence.off), (Arm.ON, self.evidence.on))
-            if response is not None
+            arm for arm, response in ((Arm.OFF, self.evidence.off), (Arm.ON, self.evidence.on)) if response is not None
         }
         if present != set(self.treatment_mode.arms) or evidence != present:
             raise ValueError("Report arms and evidence must match the treatment mode")

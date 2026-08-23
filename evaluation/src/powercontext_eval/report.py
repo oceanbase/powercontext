@@ -203,11 +203,7 @@ class ReportBundle(BaseModel):
 
     @model_validator(mode="after")
     def validate_arms(self) -> Self:
-        present = {
-            arm
-            for arm, report in ((Arm.OFF, self.off), (Arm.ON, self.on))
-            if report is not None
-        }
+        present = {arm for arm, report in ((Arm.OFF, self.off), (Arm.ON, self.on)) if report is not None}
         if present != set(self.treatment_mode.arms):
             raise ValueError("Report arms do not match the treatment mode")
         if self.off is not None and self.off.arm != "off":

@@ -393,22 +393,22 @@ def _run_swebench_pro_instance(
             stores[arm] = ArtifactStore(layout.arm_artifacts(arm), forbidden_values=secrets)
         prompt = instance.codex_prompt().encode()
         sut_config = SutConfig(
-                run_id=run_id,
-                task_image=task_image_id,
-                codex_binary=config.codex_binary,
-                uv_binary=config.uv_binary,
-                source_checkout=materialized,
-                plugin_checkout_sha=resolved.sha,
-                proxy=ProxyRelayConfig(config.proxy_url) if config.proxy_url is not None else None,
-                docker_network_pool=config.docker_network_pool,
-                extra_no_proxy_hosts=config.extra_no_proxy_hosts,
-                tokensflow_enabled=config.tokensflow_enabled,
-                tokensflow_binary=config.tokensflow_binary,
-                tokensflow_egress_network=config.tokensflow_egress_network,
-                model=config.model,
-                reasoning_effort=config.reasoning_effort,
-                finalization_registrar=config.finalization_registrar,
-                container_env=config.container_env,
+            run_id=run_id,
+            task_image=task_image_id,
+            codex_binary=config.codex_binary,
+            uv_binary=config.uv_binary,
+            source_checkout=materialized,
+            plugin_checkout_sha=resolved.sha,
+            proxy=ProxyRelayConfig(config.proxy_url) if config.proxy_url is not None else None,
+            docker_network_pool=config.docker_network_pool,
+            extra_no_proxy_hosts=config.extra_no_proxy_hosts,
+            tokensflow_enabled=config.tokensflow_enabled,
+            tokensflow_binary=config.tokensflow_binary,
+            tokensflow_egress_network=config.tokensflow_egress_network,
+            model=config.model,
+            reasoning_effort=config.reasoning_effort,
+            finalization_registrar=config.finalization_registrar,
+            container_env=config.container_env,
         )
         sut = DockerSut(process)
         if config.treatment_mode is TreatmentMode.OFF_ON:
@@ -472,10 +472,7 @@ def _run_swebench_pro_instance(
         arms,
     )
     emit_phase(RunPhase.GENERATING_REPORT)
-    arm_reports = {
-        arm: _arm_report(arm, official[arm], outcomes[arm], patch_sizes[arm])
-        for arm in selected_arms
-    }
+    arm_reports = {arm: _arm_report(arm, official[arm], outcomes[arm], patch_sizes[arm]) for arm in selected_arms}
     report = ReportBundle(
         title=(
             "PowerContext Codex SWE-bench Pro comparison"

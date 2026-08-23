@@ -331,9 +331,7 @@ def load_report(run_dir: Path, run_root: Path | None = None) -> ReportResponse:
             off=_arm_response("off", bundle.off) if bundle.off is not None else None,
             on=_arm_response("on", bundle.on) if bundle.on is not None else None,
             comparison=(
-                _comparisons(bundle.off, bundle.on)
-                if bundle.off is not None and bundle.on is not None
-                else None
+                _comparisons(bundle.off, bundle.on) if bundle.off is not None and bundle.on is not None else None
             ),
             evidence=EvidenceResponse(off=evidence.get(Arm.OFF), on=evidence.get(Arm.ON)),
             gold_validation=bundle.gold_validation,
@@ -386,18 +384,19 @@ def _bundle_for_task(task: TaskRecord, runs_root: Path) -> ReportBundle:
     if task.status is not TaskStatus.SUCCEEDED or task.result is None:
         raise InvalidReportArtifact
     bundle = _load_batch_bundle(task_run_dir(task, runs_root), runs_root)
-    if bundle.treatment_mode is not task.request.treatment_mode or bundle.configuration.get(
-        "instance"
-    ) != task.request.instance_id:
+    if (
+        bundle.treatment_mode is not task.request.treatment_mode
+        or bundle.configuration.get("instance") != task.request.instance_id
+    ):
         raise InvalidReportArtifact
     for arm, report in ((Arm.OFF, bundle.off), (Arm.ON, bundle.on)):
         if (report is None) != (arm not in task.request.treatment_mode.arms):
             raise InvalidReportArtifact
         if report is not None and report.resolved != task.result.resolved_for(arm):
             raise InvalidReportArtifact
-    if {
-        arm for arm in (Arm.OFF, Arm.ON) if task.result.resolved_for(arm) is not None
-    } != set(task.request.treatment_mode.arms):
+    if {arm for arm in (Arm.OFF, Arm.ON) if task.result.resolved_for(arm) is not None} != set(
+        task.request.treatment_mode.arms
+    ):
         raise InvalidReportArtifact
     return bundle
 
@@ -533,11 +532,7 @@ def load_batch_estimate_samples(
             or task.finished_at is None
         ):
             continue
-        arm_totals = [
-            _arm_total(report)
-            for report in (bundle.off, bundle.on)
-            if report is not None
-        ]
+        arm_totals = [_arm_total(report) for report in (bundle.off, bundle.on) if report is not None]
         if not arm_totals or any(total is None for total in arm_totals):
             continue
         samples.append(

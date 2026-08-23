@@ -402,8 +402,7 @@ def _run_with_fakes(
             observed_at = datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
             store.write_text(
                 "context/codex-observed.jsonl",
-                f'{{"sequence":1,"observed_at":"{observed_at}",'
-                '"event":{"type":"agent_message","message":"done"}}\n',
+                f'{{"sequence":1,"observed_at":"{observed_at}","event":{{"type":"agent_message","message":"done"}}}}\n',
             )
             events.append(arm)
             return SimpleNamespace(codex=CodexOutcome("", None))

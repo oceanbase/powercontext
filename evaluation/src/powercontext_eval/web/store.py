@@ -844,16 +844,12 @@ class TaskStore:
         """List newest immutable baselines first, with a stable sequence tie-breaker."""
 
         with self._connection() as connection:
-            rows = connection.execute(
-                "SELECT * FROM baselines ORDER BY created_at DESC, baseline_seq DESC"
-            ).fetchall()
+            rows = connection.execute("SELECT * FROM baselines ORDER BY created_at DESC, baseline_seq DESC").fetchall()
         return [self._baseline_record(row) for row in rows]
 
     def list_baseline_items(self, baseline_id: str) -> list[BaselineItemRecord]:
         with self._connection() as connection:
-            if connection.execute(
-                "SELECT 1 FROM baselines WHERE baseline_id = ?", (baseline_id,)
-            ).fetchone() is None:
+            if connection.execute("SELECT 1 FROM baselines WHERE baseline_id = ?", (baseline_id,)).fetchone() is None:
                 raise BaselineNotFound(f"Baseline not found: {baseline_id}")
             rows = connection.execute(
                 "SELECT * FROM baseline_items WHERE baseline_id = ? ORDER BY source_index ASC",
@@ -878,9 +874,12 @@ class TaskStore:
             for selection in selections:
                 if selection.current_arm not in batch.request.treatment_mode.arms:
                     raise TaskConflict("Selected current arm was not executed by this batch")
-                if connection.execute(
-                    "SELECT 1 FROM baselines WHERE baseline_id = ?", (selection.baseline_id,)
-                ).fetchone() is None:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM baselines WHERE baseline_id = ?", (selection.baseline_id,)
+                    ).fetchone()
+                    is None
+                ):
                     raise BaselineNotFound(f"Baseline not found: {selection.baseline_id}")
             connection.execute("DELETE FROM batch_baseline_selections WHERE batch_id = ?", (batch_id,))
             connection.executemany(
@@ -909,8 +908,7 @@ class TaskStore:
                 (batch_id,),
             ).fetchall()
         return tuple(
-            BaselineSelection(baseline_id=str(row["baseline_id"]), current_arm=str(row["current_arm"]))
-            for row in rows
+            BaselineSelection(baseline_id=str(row["baseline_id"]), current_arm=str(row["current_arm"])) for row in rows
         )
 
     def save_usage_snapshot(self, snapshot: UsageSnapshot) -> UsageSnapshot:
@@ -2787,7 +2785,9 @@ class TaskStore:
             source_task_id=str(row["source_task_id"]),
             source_attempt_id=str(row["source_attempt_id"]) if row["source_attempt_id"] is not None else None,
             status=TaskStatus(str(row["status"])),
-            resolved=(bool(_stored_int(row["resolved"], name="baseline resolution")) if row["resolved"] is not None else None),
+            resolved=(
+                bool(_stored_int(row["resolved"], name="baseline resolution")) if row["resolved"] is not None else None
+            ),
             input_tokens=(
                 _stored_int(row["input_tokens"], name="baseline input tokens")
                 if row["input_tokens"] is not None
