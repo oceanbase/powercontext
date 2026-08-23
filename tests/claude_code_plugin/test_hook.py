@@ -128,9 +128,7 @@ def test_user_prompt_submit_reads_utf8_stdin_on_windows_encodings(
     monkeypatch.setattr(
         hook_module,
         "_capture_prompt",
-        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: (
-            captured.append(prompt) or {"position": 1}
-        ),
+        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
     )
 
     payload = {
