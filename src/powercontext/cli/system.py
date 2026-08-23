@@ -75,6 +75,58 @@ class SetupError(RuntimeError):
         return cls("DeepSeek Harness CLI is not installed or is not on PATH.")
 
     @classmethod
+    def openclaw_unavailable(cls) -> SetupError:
+        return cls("OpenClaw CLI is not installed or is not on PATH.")
+
+    @classmethod
+    def pnpm_unavailable(cls) -> SetupError:
+        return cls("pnpm is not installed or is not on PATH; it is required to build the OpenClaw plugin.")
+
+    @classmethod
+    def missing_openclaw_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext OpenClaw plugin was not found under {path}.")
+
+    @classmethod
+    def unbuilt_openclaw_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext OpenClaw plugin at {path} is missing dist/index.js after build.")
+
+    @classmethod
+    def invalid_openclaw_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid OpenClaw ref: {ref}")
+
+    @classmethod
+    def invalid_openclaw_source(cls, source: str) -> SetupError:
+        return cls(f"invalid OpenClaw source: {source}")
+
+    @classmethod
+    def unsupported_openclaw_version(cls, version_text: str) -> SetupError:
+        return cls(f"OpenClaw {version_text or 'version unknown'} is unsupported; upgrade to >= 2026.8.1-beta.2")
+
+    @classmethod
+    def invalid_openclaw_scope(cls) -> SetupError:
+        return cls("OpenClaw scope must be agent or project")
+
+    @classmethod
+    def openclaw_server_url_scheme(cls) -> SetupError:
+        return cls("OpenClaw PowerContext Server URL must use HTTP or HTTPS")
+
+    @classmethod
+    def openclaw_server_url_credentials(cls) -> SetupError:
+        return cls("OpenClaw PowerContext Server URL must not contain credentials")
+
+    @classmethod
+    def openclaw_server_url_suffix(cls) -> SetupError:
+        return cls("OpenClaw PowerContext Server URL must not contain a query or fragment")
+
+    @classmethod
+    def pi_unavailable(cls) -> SetupError:
+        return cls("Pi CLI is not installed or is not on PATH.")
+
+    @classmethod
+    def hermes_unavailable(cls) -> SetupError:
+        return cls("Hermes CLI is not installed or is not on PATH.")
+
+    @classmethod
     def missing_dsh_plugin(cls, path: Path) -> SetupError:
         return cls(f"PowerContext DSH plugin was not found under {path}.")
 
@@ -83,12 +135,52 @@ class SetupError(RuntimeError):
         return cls(f"PowerContext DSH plugin at {path} is missing lib/index.js. Build the plugin before setup.")
 
     @classmethod
+    def missing_pi_package(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext Pi package was not found under {path}.")
+
+    @classmethod
+    def incomplete_pi_package(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext Pi package at {path} is missing its extension or project-context skill.")
+
+    @classmethod
     def invalid_dsh_ref(cls, ref: str) -> SetupError:
         return cls(f"invalid DeepSeek Harness ref: {ref}")
 
     @classmethod
-    def invalid_dsh_source(cls, source: str) -> SetupError:
-        return cls(f"invalid DeepSeek Harness source: {source}")
+    def invalid_dsh_source(cls) -> SetupError:
+        return cls("invalid DeepSeek Harness source; use a local path or an HTTPS/SSH GitHub repository")
+
+    @classmethod
+    def invalid_pi_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid Pi ref: {ref}")
+
+    @classmethod
+    def invalid_pi_source(cls) -> SetupError:
+        return cls("invalid Pi source; use a local path or an HTTPS/SSH GitHub repository")
+
+    @classmethod
+    def git_clone_failed(cls) -> SetupError:
+        return cls("failed to clone the GitHub source")
+
+    @classmethod
+    def invalid_hermes_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid Hermes ref: {ref}")
+
+    @classmethod
+    def invalid_hermes_source(cls, source: str) -> SetupError:
+        return cls(f"invalid Hermes source: {source}")
+
+    @classmethod
+    def missing_hermes_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext Hermes plugin was not found under {path}.")
+
+    @classmethod
+    def hermes_plugin_write(cls, path: Path, error: OSError) -> SetupError:
+        return cls(f"Cannot install PowerContext Hermes plugin at {path}: {error}")
+
+    @classmethod
+    def unsupported_hermes_version(cls, actual: str, minimum: str) -> SetupError:
+        return cls(f"Hermes Agent v{actual} is unsupported; PowerContext requires Hermes Agent v{minimum} or newer.")
 
     @classmethod
     def data_directory(cls, path: Path, error: OSError) -> SetupError:
@@ -162,6 +254,15 @@ class ClaudeCodeSetupResult:
     plugin_version: str
     settings_file: str
     cache_dir: str
+    data_dir: str
+
+
+@dataclass(frozen=True, slots=True)
+class OpenClawSetupResult:
+    plugin: str
+    plugin_path: str
+    server_url: str
+    scope_mode: str
     data_dir: str
 
 
@@ -322,6 +423,135 @@ def setup_dsh(
     typer.echo("Next: run `powercontext server run`, then start `dsh web`.")
 
 
+@setup_app.command("openclaw")
+def setup_openclaw(
+    source: Annotated[
+        str,
+        typer.Option(help="OpenClaw plugin Git source or local PowerContext checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    server_url: Annotated[
+        str,
+        typer.Option(help="PowerContext Server base URL configured for the plugin."),
+    ] = "http://127.0.0.1:8765",
+    scope_mode: Annotated[
+        str,
+        typer.Option("--scope-mode", help="Memory scope mode: agent or project."),
+    ] = "agent",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Build, install, and configure the PowerContext OpenClaw memory plugin."""
+
+    from powercontext.cli.openclaw import install_openclaw_plugin
+
+    try:
+        result = install_openclaw_plugin(
+            source=source,
+            ref=ref,
+            server_url=server_url,
+            scope_mode=scope_mode,
+        )
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext OpenClaw setup complete.")
+    typer.echo(f"Plugin: {result.plugin}")
+    typer.echo(f"Plugin path: {result.plugin_path}")
+    typer.echo(f"Server: {result.server_url}")
+    typer.echo(f"Scope: {result.scope_mode}")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: start a new OpenClaw session.")
+
+
+@setup_app.command("pi")
+def setup_pi(
+    source: Annotated[
+        str,
+        typer.Option(help="PowerContext Git source or local checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install the PowerContext Pi package and prepare local storage."""
+
+    from powercontext.cli.pi import install_pi_plugin, run_pi_diagnostics
+
+    try:
+        result = install_pi_plugin(source=source, ref=ref)
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    diagnostics = run_pi_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext Pi setup complete.")
+    typer.echo(f"Package: {result.package} ({result.package_path})")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: run `powercontext server run`, then start a new Pi session.")
+
+
+@setup_app.command("hermes")
+def setup_hermes(
+    source: Annotated[
+        str,
+        typer.Option(help="PowerContext Git source or local checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install the PowerContext Hermes memory provider."""
+
+    from powercontext.cli.hermes import install_hermes_plugin, run_hermes_diagnostics
+
+    try:
+        result = install_hermes_plugin(source=source, ref=ref)
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    diagnostics = run_hermes_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext Hermes setup complete.")
+    typer.echo(f"Plugin: {result.plugin} ({result.plugin_path})")
+    typer.echo(f"Hermes home: {result.hermes_home}")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: run `hermes memory setup`, select PowerContext, then start Hermes.")
+
+
 @doctor_app.callback()
 def doctor(
     context: typer.Context,
@@ -386,6 +616,41 @@ def doctor_dsh(
     from powercontext.cli.dsh import run_dsh_diagnostics
 
     diagnostics = run_dsh_diagnostics()
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("pi")
+def doctor_pi(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional Pi CLI and PowerContext package."""
+
+    from powercontext.cli.pi import run_pi_diagnostics
+
+    diagnostics = run_pi_diagnostics()
+
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("hermes")
+def doctor_hermes(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional Hermes CLI and PowerContext memory provider."""
+
+    from powercontext.cli.hermes import run_hermes_diagnostics
+
+    diagnostics = run_hermes_diagnostics()
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)
@@ -979,6 +1244,7 @@ __all__ = [
     "CodexSetupResult",
     "Diagnostic",
     "DiagnosticStatus",
+    "OpenClawSetupResult",
     "SetupError",
     "doctor_app",
     "install_claude_code_plugin",
@@ -987,4 +1253,5 @@ __all__ = [
     "run_codex_diagnostics",
     "run_diagnostics",
     "setup_app",
+    "setup_openclaw",
 ]

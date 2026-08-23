@@ -25,6 +25,7 @@ nav = [
                 { "Configure Claude Code" = "en/docs/how-to/configure-claude-code.md" },
                 { "Configure Pydantic AI" = "en/docs/how-to/configure-pydantic-ai.md" },
                 { "Configure DeepSeek Harness" = "en/docs/how-to/configure-dsh.md" },
+                { "Configure Pi" = "en/docs/how-to/configure-pi.md" },
                 { "Trace with Phoenix" = "en/docs/how-to/trace-with-phoenix.md" },
             ] },
             { "Reference" = [
@@ -89,6 +90,7 @@ nav = [
                 { "配置 Claude Code" = "zh/docs/how-to/configure-claude-code.md" },
                 { "配置 Pydantic AI" = "zh/docs/how-to/configure-pydantic-ai.md" },
                 { "配置 DeepSeek Harness" = "zh/docs/how-to/configure-dsh.md" },
+                { "配置 Pi" = "zh/docs/how-to/configure-pi.md" },
                 { "用 Phoenix 查看 trace" = "zh/docs/how-to/trace-with-phoenix.md" },
             ] },
             { "参考" = [

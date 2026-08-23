@@ -12,6 +12,7 @@ All remote interfaces operate on the same Server and persistent Artifact storage
 | Codex plugin | Cross-session recall and explicit Memory maintenance in Codex | `powercontext setup codex` |
 | Pydantic AI adapter | Memory tools, automatic context preparation, and optional trajectory capture | `powercontext-pydantic-ai` |
 | DeepSeek Harness plugin | Cross-session recall and explicit Memory maintenance in DeepSeek Harness | `powercontext setup dsh` |
+| Pi package | Cross-session recall, native Memory/Handoff tools, and skills in Pi | `powercontext setup pi` |
 | CLI | Setup, diagnostics, Server control, capability checks, and human Candidate review | `powercontext[cli,server]` |
 | Python Client SDK | Typed async calls to a running Server | `powercontext[client]` |
 | Core SDK | In-process Source, Artifact, Trigger, and composition contracts | base package |
@@ -78,14 +79,23 @@ model and completed tool events, performs checkpoint Flush, and flushes remainin
 adapter package but does not provide automatic context preparation, capture, or Flush. See
 [Configure Pydantic AI](../how-to/configure-pydantic-ai.md).
 
+## Pi package
+
+The native Pi package supplies the `project-context` skill, named `pc_*` Memory and Handoff tools, and `/pc`
+diagnostics. Before each normal agent start, it requests one strict, bounded PreparedContext value and independently
+captures an eligible user prompt as Source evidence. It does not synchronize Pi transcripts. Recall, capture, and
+boundary flushing fail open; explicit durable writes require interactive confirmation.
+
 ## CLI
 
 ```text
 powercontext setup codex
 powercontext setup dsh
+powercontext setup pi
 powercontext doctor
 powercontext doctor codex
 powercontext doctor dsh
+powercontext doctor pi
 powercontext server run
 powercontext ready
 powercontext capabilities
@@ -116,7 +126,8 @@ not create a second content profile inside the CLI.
 
 `powercontext doctor` checks the package and Server without requiring an integration. `powercontext doctor codex`
 checks the Codex CLI and PowerContext plugin explicitly. `powercontext doctor dsh` checks the DeepSeek Harness CLI
-and that dump-config lists the plugin id `powercontext-dsh`.
+and that dump-config lists the plugin id `powercontext-dsh`. `powercontext doctor pi` checks the Pi executable and
+that Pi lists the PowerContext package.
 
 Generation and revision commands accept repeatable `--source-ref TYPE/ID` and
 `--artifact-ref FAMILY/ID@REVISION` options instead of serialized request files. `--target FAMILY/ID@REVISION`

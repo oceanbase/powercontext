@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import CheckConstraint, Column, Integer, MetaData, String, Table, Text, insert, select, update
+from sqlalchemy import CheckConstraint, Column, Integer, MetaData, Table, Text, insert, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -40,20 +40,21 @@ from powercontext.builtin.handoff_report.models import (
     MAX_WORKSPACE_INSTANCE_ID_LENGTH,
     WorkspaceBinding,
 )
+from powercontext.builtin.persistence.tables import identity_string
 
 HANDOFF_REPORT_WORKSPACE_METADATA = MetaData()
 
 HANDOFF_REPORT_WORKSPACE_BINDINGS_TABLE = Table(
     "pc_handoff_report_workspace_bindings",
     HANDOFF_REPORT_WORKSPACE_METADATA,
-    Column("workspace_instance_id", String(MAX_WORKSPACE_INSTANCE_ID_LENGTH), primary_key=True),
-    Column("project_id", String(MAX_REPORT_ID_LENGTH), nullable=False),
-    Column("provider", String(32), nullable=False),
-    Column("repository_id", String(MAX_REPORT_REPOSITORY_ID_LENGTH)),
-    Column("normalized_remote", String(MAX_REPORT_NORMALIZED_REMOTE_LENGTH)),
-    Column("subpath", String(MAX_REPORT_SUBPATH_LENGTH)),
-    Column("state", String(16), nullable=False),
-    Column("confirmed_at", String(32), nullable=False),
+    Column("workspace_instance_id", identity_string(MAX_WORKSPACE_INSTANCE_ID_LENGTH), primary_key=True),
+    Column("project_id", identity_string(MAX_REPORT_ID_LENGTH), nullable=False),
+    Column("provider", identity_string(32), nullable=False),
+    Column("repository_id", identity_string(MAX_REPORT_REPOSITORY_ID_LENGTH)),
+    Column("normalized_remote", identity_string(MAX_REPORT_NORMALIZED_REMOTE_LENGTH)),
+    Column("subpath", identity_string(MAX_REPORT_SUBPATH_LENGTH)),
+    Column("state", identity_string(16), nullable=False),
+    Column("confirmed_at", identity_string(32), nullable=False),
     Column("version", Integer, nullable=False),
     Column("payload", Text, nullable=False),
     CheckConstraint("version > 0", name="ck_pc_handoff_report_workspace_bindings_version_positive"),

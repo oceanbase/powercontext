@@ -52,6 +52,18 @@ jobs:
       - name: Run end-to-end tests
         run: make e2e-test
 
+  pi-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up project tools
+        uses: jdx/mise-action@v2
+
+      - name: Test Pi package
+        run: make pi-test
+
 
   check-docs:
     runs-on: ubuntu-latest
