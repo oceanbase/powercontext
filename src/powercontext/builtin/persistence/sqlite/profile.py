@@ -83,6 +83,7 @@ class SQLiteProfile:
         config: SQLiteConfig,
         *,
         tables: tuple[Table, ...],
+        load_vector_extension: bool = False,
     ) -> AsyncIterator[SQLiteProfile]:
         """Create, initialize and exclusively own one SQLite engine."""
 
@@ -91,7 +92,7 @@ class SQLiteProfile:
         if config.is_in_memory:
             engine_options["poolclass"] = StaticPool
         engine = create_async_engine(config.url, **engine_options)
-        _configure_sqlite(engine, config)
+        _configure_sqlite(engine, config, load_vector_extension=load_vector_extension)
         database = AsyncDatabase.own(engine)
         profile = cls(database=database, tables=tables)
         try:
@@ -115,11 +116,16 @@ def _create_database_directory(value: str) -> None:
     Path(database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
 
 
-def _configure_sqlite(engine: AsyncEngine, config: SQLiteConfig) -> None:
+def _configure_sqlite(
+    engine: AsyncEngine,
+    config: SQLiteConfig,
+    *,
+    load_vector_extension: bool,
+) -> None:
     @event.listens_for(engine.sync_engine, "connect")
     def set_pragmas(dbapi_connection: DBAPIConnection, _connection_record: object) -> None:
-        run_async = dbapi_connection.run_async
-        run_async(_load_sqlite_vec)
+        if load_vector_extension:
+            dbapi_connection.run_async(_load_sqlite_vec)
         cursor = dbapi_connection.cursor()
         try:
             cursor.execute(f"PRAGMA busy_timeout = {config.busy_timeout_ms}")

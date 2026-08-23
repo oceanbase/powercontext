@@ -3,6 +3,9 @@
 - RFC PR: [oceanbase/powercontext#20](https://github.com/oceanbase/powercontext/pull/20)
 - Related RFCs: [RFC 0011](0011_remote_access_architecture.md), [RFC 0019](0019_local_source_memory_runtime.md)
 
+> **注意：** PowerContext 当前使用随 builtin 依赖捆绑的 sqlite-vec 提供 SQLite 向量检索。本 RFC 中关于 Vec1 的
+> 表述已不再适用，仅作为原始设计记录保留。
+
 # Summary
 
 本 RFC 定义首个基于 RFC 0011 架构和 RFC 0019 本地 Runtime 的具体远程 API。FastAPI Server 暴露

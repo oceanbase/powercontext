@@ -323,6 +323,7 @@ async def open_builtin_contexts(
         async with SQLiteProfile.open(
             database,
             tables=BUILTIN_TABLES + report_tables + index.tables,
+            load_vector_extension=embedding_model is not None,
         ) as profile:
             async with profile.database.transaction() as connection:
                 await index.initialize(connection)
