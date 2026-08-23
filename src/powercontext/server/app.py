@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -607,7 +607,7 @@ def create_app(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="invalid_request",
             message="The request violates the API contract.",
-            details={"errors": error.errors()},
+            details={"errors": _validation_error_details(error)},
         )
 
     @app.exception_handler(_RuntimeNotReadyError)
@@ -1463,6 +1463,16 @@ def _error_response(
 ) -> JSONResponse:
     error = ErrorResponse(error=ErrorDetail(code=code, message=message, details=details))
     return JSONResponse(status_code=response_status, content=error.model_dump(mode="json"))
+
+
+def _validation_error_details(error: RequestValidationError) -> list[Any]:
+    details: list[Any] = []
+    for item in error.errors():
+        if isinstance(item, Mapping):
+            details.append({key: value for key, value in item.items() if key != "input"})
+        else:
+            details.append(item)
+    return details
 
 
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:

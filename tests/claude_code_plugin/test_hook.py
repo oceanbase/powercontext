@@ -109,6 +109,46 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     assert captured == [("What decisions apply?", "git:github.com/oceanbase/powercontext")]
 
 
+def test_user_prompt_submit_reads_utf8_stdin_on_windows_encodings(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared_content = "prepared context"
+    captured: list[str] = []
+    monkeypatch.setattr(
+        hook_module,
+        "_prepare_context",
+        lambda _query, _scope, *, settings, deadline: _prepared(prepared_content),
+    )
+    monkeypatch.setattr(
+        hook_module,
+        "resolve_scope_id",
+        lambda _cwd, *, configured_scope_id: "git:github.com/oceanbase/powercontext",
+    )
+    monkeypatch.setattr(
+        hook_module,
+        "_capture_prompt",
+        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+    )
+
+    payload = {
+        "hook_event_name": "UserPromptSubmit",
+        "cwd": "/workspace/project",
+        "prompt": "查看当前记忆",
+    }
+    stdin = io.TextIOWrapper(
+        io.BytesIO(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
+        encoding="cp1252",
+    )
+    monkeypatch.setattr(sys, "stdin", stdin)
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert hook_module.main() == 0
+    assert captured == ["查看当前记忆"]
+    assert json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"] == prepared_content
+
+
 def test_user_prompt_compatibility_fallback_is_supported(
     hook_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,

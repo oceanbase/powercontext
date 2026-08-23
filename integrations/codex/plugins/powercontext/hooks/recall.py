@@ -95,7 +95,11 @@ def main(settings: CodexPluginSettings | None = None) -> int:
     try:
         settings = CodexPluginSettings() if settings is None else settings
         http_deadline = monotonic() + settings.http_budget_seconds
-        payload = cast(dict[str, Any], json.load(sys.stdin))
+        stdin = sys.stdin
+        if hasattr(stdin, "buffer"):
+            payload = cast(dict[str, Any], json.loads(stdin.buffer.read().decode("utf-8")))
+        else:
+            payload = cast(dict[str, Any], json.load(stdin))
         if not _is_user_prompt_submit(payload.get("hook_event_name")):
             return 0
         prompt = payload.get("prompt")

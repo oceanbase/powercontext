@@ -101,6 +101,46 @@ def test_recall_emits_bounded_untrusted_context(
     assert captured == [("What decisions apply?", "project:test")]
 
 
+def test_recall_reads_utf8_stdin_on_windows_encodings(
+    recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared_content = "prepared context"
+    captured: list[str] = []
+    monkeypatch.setattr(
+        recall_module,
+        "_prepare_context",
+        lambda _query, _scope, *, settings, deadline: _prepared(prepared_content),
+    )
+    monkeypatch.setattr(
+        recall_module,
+        "resolve_scope_id",
+        lambda _cwd, *, configured_scope_id: "project:test",
+    )
+    monkeypatch.setattr(
+        recall_module,
+        "_capture_prompt",
+        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+    )
+
+    payload = {
+        "hook_event_name": "UserPromptSubmit",
+        "cwd": "/workspace/project",
+        "prompt": "查看当前记忆",
+    }
+    stdin = io.TextIOWrapper(
+        io.BytesIO(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
+        encoding="cp1252",
+    )
+    monkeypatch.setattr(sys, "stdin", stdin)
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert recall_module.main() == 0
+    assert captured == ["查看当前记忆"]
+    assert json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"] == prepared_content
+
+
 def test_recall_failure_is_non_blocking(
     recall_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,

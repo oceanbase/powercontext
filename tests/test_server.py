@@ -558,6 +558,30 @@ def test_prepare_context_rejects_memory_specific_tuning_fields(tmp_path) -> None
     assert response.json()["error"]["code"] == "invalid_request"
 
 
+def test_prepare_context_rejects_invalid_request_without_input_field(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/context/prepare",
+            json={
+                "scope_id": "project:test",
+                "query": "query",
+                "candidate_limit": 2,
+            },
+        )
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "invalid_request"
+    assert "input" not in error["details"]["errors"][0]
+
+
 def test_stats_returns_inclusive_utc_periods_for_empty_scope(tmp_path) -> None:
     app = create_server_app(
         settings=ServerSettings(
