@@ -23,6 +23,7 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+from typing_extensions import override
 
 _MCP_CONFIGURATION_PATH = Path(__file__).with_name(".mcp.json")
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -60,11 +61,13 @@ class _McpConfiguration(BaseModel):
 class _McpEndpointSettingsSource(PydanticBaseSettingsSource):
     """Load the hook endpoint from the same file consumed by Codex MCP."""
 
+    @override
     def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
         if field_name == "server_url":
             return _server_url_from_mcp_configuration(), field_name, False
         return None, field_name, False
 
+    @override
     def __call__(self) -> dict[str, Any]:
         return {"server_url": _server_url_from_mcp_configuration()}
 
@@ -114,6 +117,7 @@ class CodexPluginSettings(BaseSettings):
         return value
 
     @classmethod
+    @override
     def settings_customise_sources(
         cls,
         settings_cls: type[BaseSettings],

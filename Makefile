@@ -16,8 +16,6 @@ check: ## Run code quality tools.
 	@uv lock --locked
 	@echo "🚀 Linting code: Running prek"
 	@uv run prek run -a
-	@echo "🚀 Static type checking: Running ty"
-	@uv run ty check
 
 .PHONY: test
 test: ## Test the code with pytest

@@ -24,6 +24,7 @@ from typing import Any
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from typing_extensions import override
 
 from powercontext.server.context import is_internal_bridge
 
@@ -164,6 +165,7 @@ class McpMetricsMiddleware(Middleware):
     def __init__(self, metrics: ServerMetrics) -> None:
         self.metrics = metrics
 
+    @override
     async def on_request(
         self,
         context: MiddlewareContext[Any],

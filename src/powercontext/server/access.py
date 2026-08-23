@@ -23,6 +23,7 @@ from typing import Any
 
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from typing_extensions import override
 
 from powercontext._logging import log_safely
 from powercontext.server.context import current_request_id, is_internal_bridge
@@ -76,6 +77,7 @@ class HttpAccessLogMiddleware:
 class McpAccessLogMiddleware(Middleware):
     """Log logical MCP protocol requests instead of Streamable HTTP frames."""
 
+    @override
     async def on_request(
         self,
         context: MiddlewareContext[Any],
