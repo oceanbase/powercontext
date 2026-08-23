@@ -75,6 +75,50 @@ class SetupError(RuntimeError):
         return cls("DeepSeek Harness CLI is not installed or is not on PATH.")
 
     @classmethod
+    def openclaw_unavailable(cls) -> SetupError:
+        return cls("OpenClaw CLI is not installed or is not on PATH.")
+
+    @classmethod
+    def pnpm_unavailable(cls) -> SetupError:
+        return cls("pnpm is not installed or is not on PATH; it is required to build the OpenClaw plugin.")
+
+    @classmethod
+    def missing_openclaw_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext OpenClaw plugin was not found under {path}.")
+
+    @classmethod
+    def unbuilt_openclaw_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext OpenClaw plugin at {path} is missing dist/index.js after build.")
+
+    @classmethod
+    def invalid_openclaw_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid OpenClaw ref: {ref}")
+
+    @classmethod
+    def invalid_openclaw_source(cls, source: str) -> SetupError:
+        return cls(f"invalid OpenClaw source: {source}")
+
+    @classmethod
+    def unsupported_openclaw_version(cls, version_text: str) -> SetupError:
+        return cls(f"OpenClaw {version_text or 'version unknown'} is unsupported; upgrade to >= 2026.8.1-beta.2")
+
+    @classmethod
+    def invalid_openclaw_scope(cls) -> SetupError:
+        return cls("OpenClaw scope must be agent or project")
+
+    @classmethod
+    def openclaw_server_url_scheme(cls) -> SetupError:
+        return cls("OpenClaw PowerContext Server URL must use HTTP or HTTPS")
+
+    @classmethod
+    def openclaw_server_url_credentials(cls) -> SetupError:
+        return cls("OpenClaw PowerContext Server URL must not contain credentials")
+
+    @classmethod
+    def openclaw_server_url_suffix(cls) -> SetupError:
+        return cls("OpenClaw PowerContext Server URL must not contain a query or fragment")
+
+    @classmethod
     def pi_unavailable(cls) -> SetupError:
         return cls("Pi CLI is not installed or is not on PATH.")
 
@@ -210,6 +254,15 @@ class ClaudeCodeSetupResult:
     plugin_version: str
     settings_file: str
     cache_dir: str
+    data_dir: str
+
+
+@dataclass(frozen=True, slots=True)
+class OpenClawSetupResult:
+    plugin: str
+    plugin_path: str
+    server_url: str
+    scope_mode: str
     data_dir: str
 
 
@@ -368,6 +421,56 @@ def setup_dsh(
     typer.echo(f"Plugin: {result.plugin} ({result.plugin_path})")
     typer.echo(f"Data directory: {result.data_dir}")
     typer.echo("Next: run `powercontext server run`, then start `dsh web`.")
+
+
+@setup_app.command("openclaw")
+def setup_openclaw(
+    source: Annotated[
+        str,
+        typer.Option(help="OpenClaw plugin Git source or local PowerContext checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    server_url: Annotated[
+        str,
+        typer.Option(help="PowerContext Server base URL configured for the plugin."),
+    ] = "http://127.0.0.1:8765",
+    scope_mode: Annotated[
+        str,
+        typer.Option("--scope-mode", help="Memory scope mode: agent or project."),
+    ] = "agent",
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Build, install, and configure the PowerContext OpenClaw memory plugin."""
+
+    from powercontext.cli.openclaw import install_openclaw_plugin
+
+    try:
+        result = install_openclaw_plugin(
+            source=source,
+            ref=ref,
+            server_url=server_url,
+            scope_mode=scope_mode,
+        )
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext OpenClaw setup complete.")
+    typer.echo(f"Plugin: {result.plugin}")
+    typer.echo(f"Plugin path: {result.plugin_path}")
+    typer.echo(f"Server: {result.server_url}")
+    typer.echo(f"Scope: {result.scope_mode}")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: start a new OpenClaw session.")
 
 
 @setup_app.command("pi")
@@ -1141,6 +1244,7 @@ __all__ = [
     "CodexSetupResult",
     "Diagnostic",
     "DiagnosticStatus",
+    "OpenClawSetupResult",
     "SetupError",
     "doctor_app",
     "install_claude_code_plugin",
@@ -1149,4 +1253,5 @@ __all__ = [
     "run_codex_diagnostics",
     "run_diagnostics",
     "setup_app",
+    "setup_openclaw",
 ]
