@@ -154,7 +154,7 @@ def test_health_and_capabilities_are_server_owned_and_secret_free(client: TestCl
     assert health_payload.pop("filesystem_min_free_inodes") == 1_000_000
     assert health_payload.pop("web_revision") != "unknown"
     assert health_payload.pop("worker_revision") is None
-    assert health_payload.pop("web_schema_version") == 2
+    assert health_payload.pop("web_schema_version") == 3
     assert health_payload.pop("worker_schema_version") is None
     assert health_payload.pop("deployment_consistent") is False
     assert health_payload == {
@@ -170,10 +170,17 @@ def test_health_and_capabilities_are_server_owned_and_secret_free(client: TestCl
         "instances": [INSTANCE],
         "models": ["gpt-5.6-sol"],
         "reasoning_efforts": ["medium"],
-        "treatment_modes": ["off_on"],
+        "treatment_modes": ["off_on", "on_only", "off_only"],
     }
     assert_safe(health)
     assert_safe(capabilities)
+
+
+def test_baseline_selection_accepts_a_json_array_before_batch_lookup(client: TestClient) -> None:
+    response = client.put("/api/batches/missing/baseline-selections", json={"selections": []})
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "batch_not_found"
 
 
 def test_health_fails_resource_admission_closed_when_capacity_is_unavailable(
@@ -378,7 +385,7 @@ def test_health_reads_four_active_pairs_and_published_capacity_from_store(
     assert health_payload.pop("filesystem_min_free_inodes") == 1_000_000
     assert health_payload.pop("web_revision") != "unknown"
     assert health_payload.pop("worker_revision") is None
-    assert health_payload.pop("web_schema_version") == 2
+    assert health_payload.pop("web_schema_version") == 3
     assert health_payload.pop("worker_schema_version") is None
     assert health_payload.pop("deployment_consistent") is False
     assert health_payload == {

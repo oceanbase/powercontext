@@ -749,6 +749,102 @@ td small {
   list-style: none;
 }
 
+.baseline-table-wrap {
+  overflow-x: auto;
+}
+
+.baseline-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.baseline-table th,
+.baseline-table td {
+  padding: 0.85rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.baseline-table td:first-child {
+  min-width: 13rem;
+  white-space: normal;
+}
+
+.baseline-table td small {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--muted);
+}
+
+.arm-badge {
+  display: inline-flex;
+  padding: 0.16rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.76rem;
+}
+
+.arm-badge--on {
+  color: #07563c;
+  background: #dff5e9;
+}
+
+.arm-badge--off {
+  color: #5b4520;
+  background: #f4ead3;
+}
+
+.baseline-picker {
+  display: grid;
+  gap: 0.45rem;
+  margin: 1rem 0;
+}
+
+.baseline-comparison-card {
+  padding: 1rem;
+  margin-top: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--surface);
+}
+
+.baseline-comparison-card > div,
+.baseline-save-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.baseline-comparison-card > div span {
+  color: var(--muted);
+}
+
+.baseline-comparison-card dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+}
+
+.baseline-comparison-card dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.baseline-comparison-card dd {
+  margin: 0.25rem 0 0;
+  font-weight: 700;
+}
+
+.baseline-save-row input {
+  min-width: 18rem;
+  flex: 1;
+}
+
 .report-index li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
