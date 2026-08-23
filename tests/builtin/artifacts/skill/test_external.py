@@ -112,8 +112,8 @@ def test_scan_skips_invalid_or_symlinked_packages(tmp_path: Path) -> None:
     try:
         (package / "linked").symlink_to(invalid, target_is_directory=True)
     except OSError as error:
-# Windows requires SeCreateSymbolicLinkPrivilege (WinError 1314) for this test fixture.
-# Enable Windows Developer Mode or run the test as Administrator to gain this privilege.
+        # Windows requires SeCreateSymbolicLinkPrivilege (WinError 1314) for this test fixture.
+        # Enable Windows Developer Mode or run the test as Administrator to gain this privilege.
 
         if os.name != "nt" or getattr(error, "winerror", None) != 1314:
             raise
