@@ -29,7 +29,7 @@ provenance:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: locomo-multihop-football
-  checksum: 90a2a2ea97636106f1a44c7880a005304047a9d77825a375dc4f2a8270f114a1
+  checksum: 773e967b07c26ab3b6e8e0de6f1f0d1c752e6d10c3227b5788796ee967aeff6f
 execution:
   type: bub
   model: false

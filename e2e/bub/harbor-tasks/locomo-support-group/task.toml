@@ -28,9 +28,6 @@ timeout_sec = 60.0
 build_timeout_sec = 300.0
 
 [[steps]]
-name = "reset"
-
-[[steps]]
 name = "capture"
 
 [[steps]]
