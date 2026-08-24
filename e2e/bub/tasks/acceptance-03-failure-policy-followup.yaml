@@ -1,4 +1,3 @@
-#!/bin/sh
 # Copyright (c) 2026 OceanBase.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,6 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -eu
-
-touch /workspace/failure-policy-followup-ran
+schema: powercontext.e2e-task/v1
+id: failure-policy-followup
+categories:
+  - acceptance
+  - fixture
+  - batch:acceptance
+dataset:
+  path: e2e/bub/harbor-tasks
+  task_id: failure-policy-followup
+  checksum: 350d4719cac43cd99e93ea7d92ca6bcb651e1e5f1805a041a1abbf58af5216fc
+execution:
+  type: bub
+  model: false
+  max_steps: 10
+  max_tokens: 4096
+evaluation:
+  expected_execution:
+    collect-all: completed
+    fail-fast: skipped

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, NamedTuple
@@ -25,21 +26,15 @@ from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
 from dirhash import dirhash
+from harbor.environments.definition import environment_content_hash
 from harbor.job import Job
 from harbor.models.environment_type import EnvironmentType
 from harbor.models.job.config import DatasetConfig, JobConfig
 from harbor.models.task.config import MultiStepRewardStrategy, TaskConfig
 from harbor.models.task.paths import TaskPaths
 from harbor.models.task.task import Task as HarborTask
-from harbor.models.trial.config import (
-    AgentConfig,
-    EnvironmentConfig,
-    ResourceMode,
-    ServiceVolumeConfig,
-)
-from harbor.models.trial.config import (
-    TaskConfig as HarborTrialTaskConfig,
-)
+from harbor.models.trial.config import AgentConfig, EnvironmentConfig, ResourceMode, ServiceVolumeConfig
+from harbor.models.trial.config import TaskConfig as HarborTrialTaskConfig
 from harbor.models.trial.paths import TrialPaths
 from harbor.models.trial.result import StepResult
 from powercontext.client import PowerContextClient
@@ -47,12 +42,11 @@ from powercontext.client.settings import ClientSettings
 from powercontext.http import ListMemoryEntriesRequest, PrepareContextRequest
 
 from .artifacts import write_artifacts
-from .catalog import E2ETask
-from .evaluation import MemoryEvaluator
+from .catalog import E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec
+from .evaluation import evaluate_observation
 from .evidence import fingerprint, load_resolved_instructions, redact, write_evaluation_report, write_evidence
 from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION
 from .models import (
-    SHARED_TRIAL_SKIPPED_ERROR,
     CaptureRecord,
     EvaluationReport,
     HarborTrialObservation,
@@ -76,6 +70,7 @@ from .settings import (
 )
 
 FailurePolicy = Literal["fail-fast", "collect-all"]
+TaskStatus = Literal["completed", "failed", "skipped"]
 BATCH_CATEGORY_PREFIX = "batch:"
 BATCH_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -110,30 +105,12 @@ class PreparedRuntime(NamedTuple):
     sources: tuple[SourceTask, ...]
 
 
-class SourceResult(NamedTuple):
-    status: Literal["completed", "failed", "skipped"]
-    errors: tuple[str, ...]
-    steps: tuple[StepResult, ...]
-
-
-class PreparedTask(NamedTuple):
+class TaskRun(NamedTuple):
     task: E2ETask
     run_id: str
     scope_id: str
     started_at: datetime
     memory_before: MemorySnapshot
-
-
-async def evaluate_task(
-    task: E2ETask,
-    *,
-    output_dir: Path,
-    settings: HarnessSettings,
-) -> bool:
-    observation = await run_task(task, output_dir=output_dir, settings=settings)
-    report = MemoryEvaluator.evaluate(observation, experiment=f"e2e:{task.id}")
-    write_artifacts(observation, report, output_dir, settings=settings)
-    return report.accepted
 
 
 async def evaluate_tasks(
@@ -143,31 +120,34 @@ async def evaluate_tasks(
     settings: HarnessSettings,
     failure_policy: FailurePolicy = "collect-all",
 ) -> bool:
-    if len(tasks) == 1:
-        return await evaluate_task(tasks[0], output_dir=output_dir, settings=settings)
     observations = await run_task_group(
         tasks,
         output_dir=output_dir,
         settings=settings,
         failure_policy=failure_policy,
     )
-    experiment = f"e2e:batch:{_task_batch(tasks[0])}"
     reports = tuple(
-        MemoryEvaluator.evaluate(observation, experiment=f"e2e:{observation.task.id}") for observation in observations
+        evaluate_observation(
+            observation,
+            experiment=f"e2e:{observation.task.id}",
+            failure_policy=failure_policy,
+        )
+        for observation in observations
     )
+    if len(observations) == 1:
+        write_artifacts(observations[0], reports[0], output_dir, settings=settings)
+        return reports[0].accepted
+
     for observation, report in zip(observations, reports, strict=True):
         write_artifacts(observation, report, output_dir / "tasks" / observation.task.id, settings=settings)
     aggregate = EvaluationReport(
-        experiment=experiment, cases=tuple(case for report in reports for case in report.cases)
+        experiment=f"e2e:batch:{_task_batch(tasks[0])}",
+        cases=tuple(case for report in reports for case in report.cases),
     )
-    _write_batch_summary(aggregate, output_dir, settings)
-    return aggregate.accepted
-
-
-def _write_batch_summary(report: EvaluationReport, output_dir: Path, settings: HarnessSettings) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    write_evaluation_report(output_dir / "eval-report.json", report=report, settings=settings)
-    write_evidence(output_dir / "report.md", render_evaluation_summary(report), settings)
+    write_evaluation_report(output_dir / "eval-report.json", report=aggregate, settings=settings)
+    write_evidence(output_dir / "report.md", render_evaluation_summary(aggregate), settings)
+    return aggregate.accepted
 
 
 async def run_tasks(
@@ -183,36 +163,31 @@ async def run_tasks(
 
     accepted = True
     for group in group_tasks(tasks):
-        group_accepted = await evaluate_tasks(
+        accepted &= await evaluate_tasks(
             group.tasks,
             output_dir=output_dir / group.output_id,
             settings=settings,
             failure_policy=failure_policy,
         )
-        accepted = group_accepted and accepted
     return accepted
 
 
 def group_tasks(tasks: tuple[E2ETask, ...]) -> tuple[ExecutionGroup, ...]:
-    """Group only selected tasks that share an explicit batch category."""
+    """Group selected tasks only when they share an explicit batch category."""
 
     groups: list[ExecutionGroup] = []
     positions: dict[str, int] = {}
     for task in tasks:
         batch = _task_batch(task)
         if batch is None:
-            groups.append(ExecutionGroup(tasks=(task,), batch=None))
-            continue
-        if batch not in positions:
+            groups.append(ExecutionGroup((task,), None))
+        elif batch not in positions:
             positions[batch] = len(groups)
-            groups.append(ExecutionGroup(tasks=(task,), batch=batch))
-            continue
-        index = positions[batch]
-        group = groups[index]
-        groups[index] = ExecutionGroup(tasks=(*group.tasks, task), batch=group.batch)
-    return tuple(
-        ExecutionGroup(tasks=group.tasks, batch=group.batch if len(group.tasks) > 1 else None) for group in groups
-    )
+            groups.append(ExecutionGroup((task,), batch))
+        else:
+            index = positions[batch]
+            groups[index] = ExecutionGroup((*groups[index].tasks, task), batch)
+    return tuple(ExecutionGroup(group.tasks, group.batch if len(group.tasks) > 1 else None) for group in groups)
 
 
 def _task_batch(task: E2ETask) -> str | None:
@@ -226,45 +201,6 @@ def _task_batch(task: E2ETask) -> str | None:
     return batches[0] if batches else None
 
 
-def _powercontext_client() -> PowerContextClient:
-    settings = ClientSettings()
-    token = None if settings.api_token is None else settings.api_token.get_secret_value()
-    return PowerContextClient(settings.server_url, token=token, timeout=settings.timeout)
-
-
-async def run_task(
-    task: E2ETask,
-    *,
-    output_dir: Path,
-    settings: HarnessSettings,
-) -> TaskObservation:
-    run_id = f"{task.id}-{uuid4().hex[:12]}"
-    scope_id = f"e2e:{run_id}"
-    prepared = PreparedTask(task, run_id, scope_id, datetime.now(UTC), MemorySnapshot())
-    errors: list[str] = []
-    artifacts = TaskArtifacts()
-    harbor = HarborTrialObservation()
-    execution_status: Literal["completed", "failed"] = "failed"
-
-    async with _powercontext_client() as client:
-        try:
-            await client.get_readiness()
-            prepared = prepared._replace(memory_before=await memory_snapshot(client, scope_id))
-            output_dir.mkdir(parents=True, exist_ok=True)
-            job = await Job.create(_job_config(task, run_id, scope_id, output_dir, settings))
-            result = await job.run()
-            harbor, _, trial_dir = _harbor_observation(result, settings)
-            if harbor.exception_type is not None:
-                errors.append(f"{harbor.exception_type}: {harbor.exception_message or ''}".strip())
-            else:
-                execution_status = "completed"
-            if trial_dir is not None:
-                artifacts = _load_task_artifacts(trial_dir, task.execution.native_artifact_names, settings)
-        except Exception as exc:
-            errors.append(redact(f"{type(exc).__name__}: {exc}", settings))
-        return await _finalize_task(client, prepared, execution_status, tuple(errors), harbor, artifacts, settings)
-
-
 async def run_task_group(
     tasks: tuple[E2ETask, ...],
     *,
@@ -272,79 +208,113 @@ async def run_task_group(
     settings: HarnessSettings,
     failure_policy: FailurePolicy = "collect-all",
 ) -> tuple[TaskObservation, ...]:
-    if len(tasks) < 2:
-        raise ValueError("A runtime batch requires at least two E2E tasks")  # noqa: TRY003
-    batch = _task_batch(tasks[0])
-    run_id = f"batch-{batch}-{uuid4().hex[:12]}"
-    prepared = prepare_runtime_task(
-        tasks,
-        output_dir=output_dir,
-        settings=settings,
-        failure_policy=failure_policy,
-        runtime_id=run_id,
+    if not tasks:
+        raise ValueError("At least one E2E task is required")  # noqa: TRY003
+
+    runtime = (
+        prepare_runtime_task(tasks, output_dir=output_dir, settings=settings, failure_policy=failure_policy)
+        if len(tasks) > 1
+        else None
     )
-    task_scopes = {task.id: f"e2e:{run_id}:{task.id}" for task in tasks}
-    prepared_tasks = {
-        task.id: PreparedTask(task, run_id, task_scopes[task.id], datetime.now(UTC), MemorySnapshot()) for task in tasks
-    }
-    invocation_scopes = tuple(task_scopes[source.task.id] for source in prepared.sources for _ in source.runtime_steps)
+    run_id = _run_id(tasks)
+    scopes = {task.id: f"e2e:{run_id}:{task.id}" if runtime else f"e2e:{run_id}" for task in tasks}
+    runs = {task.id: TaskRun(task, run_id, scopes[task.id], datetime.now(UTC), MemorySnapshot()) for task in tasks}
+    invocation_scopes = (
+        tuple(scopes[source.task.id] for source in runtime.sources for _ in source.runtime_steps) if runtime else ()
+    )
+    job_config = _job_config(
+        tasks[0],
+        run_id,
+        scopes[tasks[0].id],
+        output_dir,
+        settings,
+        runtime=runtime,
+        invocation_scopes=invocation_scopes,
+    )
     harbor = HarborTrialObservation()
-    step_results: tuple[Any, ...] = ()
+    step_results: tuple[StepResult, ...] = ()
     trial_dir: Path | None = None
     execution_errors: list[str] = []
 
     async with _powercontext_client() as client:
         try:
-            await client.get_readiness()
-            for task in tasks:
-                prepared_task = prepared_tasks[task.id]
-                prepared_tasks[task.id] = prepared_task._replace(
-                    memory_before=await memory_snapshot(client, prepared_task.scope_id)
-                )
-            job = await Job.create(
-                _batch_job_config(
-                    tasks[0],
-                    run_id,
-                    invocation_scopes,
-                    output_dir,
-                    settings,
-                    task_config=prepared.task_config,
-                )
-            )
-            result = await job.run()
-            harbor, step_results, trial_dir = _harbor_observation(result, settings)
+            memory_tasks = tuple(task for task in tasks if isinstance(task.evaluation, MemoryEvaluationSpec))
+            if memory_tasks:
+                await client.get_readiness()
+            for task in memory_tasks:
+                run = runs[task.id]
+                runs[task.id] = run._replace(memory_before=await memory_snapshot(client, run.scope_id))
+
+            output_dir.mkdir(parents=True, exist_ok=True)
+            harbor, step_results, trial_dir = _harbor_observation(await (await Job.create(job_config)).run(), settings)
             if harbor.exception_type is not None:
                 execution_errors.append(f"{harbor.exception_type}: {harbor.exception_message or ''}".strip())
         except Exception as exc:
             execution_errors.append(redact(f"{type(exc).__name__}: {exc}", settings))
 
-        source_results = _source_results(prepared.sources, step_results, tuple(execution_errors))
+        if runtime is None:
+            artifacts = _collect_task_artifacts(trial_dir, tasks[0], settings, errors=execution_errors)
+            reward_failed = _outcome_reward_failed(tasks[0], harbor.rewards)
+            status: TaskStatus = "failed" if execution_errors or reward_failed else "completed"
+            return (
+                await _finalize_task(
+                    client,
+                    runs[tasks[0].id],
+                    status,
+                    tuple(execution_errors),
+                    harbor,
+                    artifacts,
+                    settings,
+                ),
+            )
+
+        error_owner = next(
+            (
+                source.task.id
+                for source in reversed(runtime.sources)
+                if any(step.step_name in source.runtime_steps for step in step_results)
+            ),
+            runtime.sources[0].task.id,
+        )
         observations: list[TaskObservation] = []
-        for source in prepared.sources:
-            task = source.task
-            source_result = source_results[task.id]
-            artifacts = TaskArtifacts()
-            if trial_dir is not None and source_result.status != "skipped":
-                try:
-                    artifacts = _load_task_artifacts(
-                        trial_dir,
-                        task.execution.native_artifact_names,
-                        settings,
-                        step_names=source.runtime_steps,
-                    )
-                except Exception as exc:
-                    source_result = source_result._replace(
-                        status="failed",
-                        errors=(*source_result.errors, redact(f"{type(exc).__name__}: {exc}", settings)),
-                    )
-            source_harbor = _source_harbor_observation(harbor, source, source_result, settings)
+        for source in runtime.sources:
+            owned = tuple(step for step in step_results if step.step_name in source.runtime_steps)
+            missing = [step for step in source.runtime_steps if step not in {result.step_name for result in owned}]
+            verifier = owned[-1].verifier_result if owned else None
+            reward_failed = _outcome_reward_failed(
+                source.task,
+                None if verifier is None else verifier.rewards,
+            )
+            status: TaskStatus = (
+                "skipped"
+                if not owned and source.task.id != error_owner
+                else "failed"
+                if missing
+                or any(step.exception_info is not None for step in owned)
+                or reward_failed
+                or (source.task.id == error_owner and bool(execution_errors))
+                else "completed"
+            )
+            errors = list(execution_errors) if source.task.id == error_owner else []
+            if missing and owned:
+                errors.append(f"Harbor did not execute steps: {missing!r}")
+            artifacts = _collect_task_artifacts(
+                trial_dir,
+                source.task,
+                settings,
+                errors=errors,
+                step_names=source.runtime_steps if status != "skipped" else (),
+                whole_trial=False,
+            )
+            if errors:
+                status = "failed"
             observations.append(
                 await _finalize_task(
                     client,
-                    prepared_tasks[task.id],
-                    source_result.status,
-                    source_result.errors,
-                    source_harbor,
+                    runs[source.task.id],
+                    status,
+                    tuple(errors),
+                    _source_harbor_observation(harbor, source, status, owned, settings),
                     artifacts,
                     settings,
                 )
@@ -352,10 +322,26 @@ async def run_task_group(
         return tuple(observations)
 
 
+def _run_id(tasks: tuple[E2ETask, ...]) -> str:
+    name = tasks[0].id if len(tasks) == 1 else f"batch-{_task_batch(tasks[0])}"
+    return f"{name}-{uuid4().hex[:12]}"
+
+
+def _outcome_reward_failed(task: E2ETask, rewards: Mapping[str, float | int] | None) -> bool:
+    reward = None if rewards is None else rewards.get("reward")
+    return isinstance(task.evaluation, OutcomeEvaluationSpec) and reward is not None and float(reward) < 1
+
+
+def _powercontext_client() -> PowerContextClient:
+    settings = ClientSettings()
+    token = None if settings.api_token is None else settings.api_token.get_secret_value()
+    return PowerContextClient(settings.server_url, token=token, timeout=settings.timeout)
+
+
 async def _finalize_task(
     client: PowerContextClient,
-    prepared: PreparedTask,
-    execution_status: Literal["completed", "failed", "skipped"],
+    run: TaskRun,
+    status: TaskStatus,
     errors: tuple[str, ...],
     harbor: HarborTrialObservation,
     artifacts: TaskArtifacts,
@@ -364,121 +350,51 @@ async def _finalize_task(
     final_errors = list(errors)
     memory_after = MemorySnapshot()
     probes: tuple[RecallProbeObservation, ...] = ()
-    if execution_status != "skipped":
+    if status != "skipped" and isinstance(run.task.evaluation, MemoryEvaluationSpec):
         try:
-            memory_after = await memory_snapshot(client, prepared.scope_id)
+            memory_after = await memory_snapshot(client, run.scope_id)
+            probes = await _prepared_probes(client, run.task.evaluation, run.scope_id)
         except Exception as exc:
             final_errors.append(redact(f"{type(exc).__name__}: {exc}", settings))
-        try:
-            probes = await _prepared_probes(client, prepared.task, prepared.scope_id)
-        except Exception as exc:
-            final_errors.append(redact(f"{type(exc).__name__}: {exc}", settings))
+    if final_errors and status == "completed":
+        status = "failed"
 
     return TaskObservation(
-        run_id=prepared.run_id,
-        environment=_run_environment(prepared.task, prepared.started_at, settings),
-        task=prepared.task,
-        status="completed" if execution_status == "completed" and not final_errors else "failed",
+        run_id=run.run_id,
+        environment=_run_environment(run.task, run.started_at, settings),
+        task=run.task,
+        status=status,
         errors=tuple(final_errors),
         harbor=harbor,
         capture_records=artifacts.capture_records,
         native_artifacts=artifacts.native_artifacts,
         resolved_instructions=artifacts.resolved_instructions,
-        memory_before=prepared.memory_before,
+        memory_before=run.memory_before,
         memory_after=memory_after,
         probes=probes,
     )
 
 
-def _source_results(
-    sources: tuple[SourceTask, ...],
-    step_results: tuple[StepResult, ...],
-    execution_errors: tuple[str, ...],
-) -> dict[str, SourceResult]:
-    results: dict[str, SourceResult] = {}
-    for index, source in enumerate(sources):
-        owned = tuple(step for step in step_results if step.step_name in source.runtime_steps)
-        executed = {step.step_name for step in owned}
-        missing = [name for name in source.runtime_steps if name not in executed]
-        if not owned:
-            status: Literal["completed", "failed", "skipped"] = "failed" if index == 0 else "skipped"
-            errors = ("Harbor did not execute any steps.",) if index == 0 else (SHARED_TRIAL_SKIPPED_ERROR,)
-        elif missing or any(step.exception_info is not None for step in owned):
-            status = "failed"
-            errors = (f"Harbor did not execute steps: {missing!r}",) if missing else ()
-        else:
-            status = "completed"
-            errors = ()
-        results[source.task.id] = SourceResult(status, errors, owned)
-
-    if execution_errors:
-        source = next(
-            (source for source in reversed(sources) if results[source.task.id].status != "skipped"),
-            sources[0],
-        )
-        result = results[source.task.id]
-        results[source.task.id] = SourceResult("failed", (*result.errors, *execution_errors), result.steps)
-    return results
-
-
 def _source_harbor_observation(
     shared: HarborTrialObservation,
     source: SourceTask,
-    result: SourceResult,
+    status: TaskStatus,
+    steps: tuple[StepResult, ...],
     settings: HarnessSettings,
 ) -> HarborTrialObservation:
-    step_exception = next((step.exception_info for step in result.steps if step.exception_info is not None), None)
-    exception_type = None if step_exception is None else step_exception.exception_type
-    exception_message = None if step_exception is None else redact(step_exception.exception_message or "", settings)
-    if result.status == "failed" and step_exception is None and shared.exception_type is not None:
-        exception_type = shared.exception_type
-        exception_message = shared.exception_message
-    return HarborTrialObservation(
-        job_id=shared.job_id,
-        trial_name=shared.trial_name,
-        trial_uri=shared.trial_uri,
-        task_checksum=source.harbor_task.checksum,
-        rewards=_source_rewards(source, result.steps),
-        exception_type=exception_type,
-        exception_message=exception_message,
-        started_at=shared.started_at,
-        finished_at=shared.finished_at,
-    )
-
-
-def _source_rewards(source: SourceTask, steps: tuple[StepResult, ...]) -> dict[str, float | int]:
-    strategy = source.harbor_task.config.multi_step_reward_strategy
-    if strategy is MultiStepRewardStrategy.FINAL:
-        verifier = steps[-1].verifier_result if steps else None
-        return dict(verifier.rewards or {}) if verifier is not None else {}
-
-    rewards = [step.verifier_result.rewards or {} for step in steps if step.verifier_result is not None]
-    keys = {key for result in rewards for key in result}
-    if not rewards or not keys:
-        return {}
-    return {key: sum(result.get(key, 0) for result in rewards) / len(rewards) for key in keys}
-
-
-def _batch_job_config(
-    task: E2ETask,
-    job_name: str,
-    invocation_scopes: tuple[str, ...],
-    output_dir: Path,
-    settings: HarnessSettings,
-    *,
-    task_config: HarborTrialTaskConfig,
-) -> JobConfig:
-    config = _job_config(task, job_name, invocation_scopes[0], output_dir, settings)
-    agent = config.agents[0]
-    env = dict(agent.env)
-    env.pop("POWERCONTEXT_BUB_SCOPE_ID")
-    return config.model_copy(
-        update={
-            "agents": [agent.model_copy(update={"env": env, "kwargs": {"invocation_scopes": invocation_scopes}})],
-            "datasets": [],
-            "tasks": [task_config],
-        }
-    )
+    step_exception = next((step.exception_info for step in steps if step.exception_info is not None), None)
+    verifier = steps[-1].verifier_result if steps else None
+    updates: dict[str, Any] = {
+        "source_task_checksum": source.harbor_task.checksum,
+        "rewards": dict(verifier.rewards or {}) if verifier is not None else {},
+        "exception_type": None if step_exception is None else step_exception.exception_type,
+        "exception_message": (
+            None if step_exception is None else redact(step_exception.exception_message or "", settings)
+        ),
+    }
+    if status == "failed" and step_exception is None and shared.exception_type is not None:
+        updates.update(exception_type=shared.exception_type, exception_message=shared.exception_message)
+    return shared.model_copy(update=updates)
 
 
 def _job_config(
@@ -487,6 +403,9 @@ def _job_config(
     scope_id: str,
     output_dir: Path,
     settings: HarnessSettings,
+    *,
+    runtime: PreparedRuntime | None = None,
+    invocation_scopes: tuple[str, ...] = (),
 ) -> JobConfig:
     repository = settings.repository_path()
     mounts: list[ServiceVolumeConfig] = [
@@ -507,6 +426,7 @@ def _job_config(
             "bind": {"create_host_path": False},
         })
 
+    evaluation = task.evaluation
     agent_env = powercontext_bub_environment()
     if task.execution.model:
         agent_env.update(bub_environment())
@@ -517,10 +437,16 @@ def _job_config(
         "BUB_MAX_STEPS": str(task.execution.max_steps),
         "BUB_MAX_TOKENS": str(task.execution.max_tokens),
         "CODEX_HOME": "/installed-agent/codex",
-        "POWERCONTEXT_BUB_CAPTURE_CHECKPOINT_EVERY": str(task.evaluation.checkpoint_every_events),
-        "POWERCONTEXT_BUB_CAPTURE_EVENTS": str(task.evaluation.capture_events).lower(),
+        "POWERCONTEXT_BUB_CAPTURE_CHECKPOINT_EVERY": str(
+            evaluation.checkpoint_every_events if isinstance(evaluation, MemoryEvaluationSpec) else 5
+        ),
+        "POWERCONTEXT_BUB_CAPTURE_EVENTS": str(
+            evaluation.capture_events if isinstance(evaluation, MemoryEvaluationSpec) else False
+        ).lower(),
         "POWERCONTEXT_BUB_CAPTURE_LOG": "/logs/agent/powercontext-capture.jsonl",
-        "POWERCONTEXT_BUB_CAPTURE_MAX_BYTES": str(task.evaluation.max_event_bytes),
+        "POWERCONTEXT_BUB_CAPTURE_MAX_BYTES": str(
+            evaluation.max_event_bytes if isinstance(evaluation, MemoryEvaluationSpec) else 8192
+        ),
         "POWERCONTEXT_BUB_SCOPE_ID": scope_id,
     })
     if settings.agent_proxy_url is not None:
@@ -533,6 +459,10 @@ def _job_config(
             "https_proxy": proxy_url,
             "no_proxy": "127.0.0.1,localhost,host-gateway,powercontext",
         })
+    agent_kwargs: dict[str, Any] = {}
+    if runtime is not None:
+        agent_env.pop("POWERCONTEXT_BUB_SCOPE_ID")
+        agent_kwargs["invocation_scopes"] = invocation_scopes
 
     return JobConfig(
         job_name=run_id,
@@ -552,9 +482,11 @@ def _job_config(
             AgentConfig(
                 import_path="powercontext_e2e.harbor_agent:PowerContextBubAcpAgent",
                 env=agent_env,
+                kwargs=agent_kwargs,
             )
         ],
-        datasets=[_dataset_config(task, repository)],
+        datasets=[] if runtime else [_dataset_config(task, repository)],
+        tasks=[runtime.task_config] if runtime else [],
     )
 
 
@@ -571,23 +503,16 @@ def prepare_runtime_task(
     output_dir: Path,
     settings: HarnessSettings,
     failure_policy: FailurePolicy,
-    runtime_id: str | None = None,
 ) -> PreparedRuntime:
-    """Assemble compatible selected source tasks into one run-local Harbor task."""
-
-    if len(tasks) < 2:
-        raise ValueError("Runtime aggregation requires at least two tasks")  # noqa: TRY003
+    """Assemble compatible source tasks into one run-local Harbor task."""
 
     sources = _validate_batch_compatibility(tasks, settings)
     batch = _task_batch(tasks[0])
-    if batch is None:
-        raise ValueError("Runtime aggregation requires an explicit batch")  # noqa: TRY003
+    if len(tasks) < 2 or batch is None:
+        raise ValueError("Runtime aggregation requires at least two tasks in one explicit batch")  # noqa: TRY003
 
-    runtime_task_id = runtime_id or f"batch-{batch}-{uuid4().hex[:12]}"
-    runtime_root = output_dir / "harbor-runtime-dataset"
-    runtime_paths = TaskPaths(runtime_root / runtime_task_id)
+    runtime_paths = TaskPaths(output_dir / "harbor-runtime-dataset" / f"batch-{batch}-{uuid4().hex[:12]}")
     runtime_paths.task_dir.mkdir(parents=True)
-
     first_paths = sources[0].harbor_task.paths
     for source_dir, target_dir in (
         (first_paths.environment_dir, runtime_paths.environment_dir),
@@ -598,36 +523,33 @@ def prepare_runtime_task(
     runtime_paths.steps_dir.mkdir()
     for source in sources:
         for source_step, runtime_step in zip(source.source_steps, source.runtime_steps, strict=True):
-            shutil.copytree(
-                source.harbor_task.paths.step_dir(source_step),
-                runtime_paths.step_dir(runtime_step),
-            )
+            shutil.copytree(source.harbor_task.paths.step_dir(source_step), runtime_paths.step_dir(runtime_step))
 
-    runtime_config = _runtime_task_config(sources, failure_policy)
-    runtime_paths.config_path.write_text(runtime_config.model_dump_toml(), encoding="utf-8")
-
+    config = _runtime_task_config(sources, failure_policy)
+    runtime_paths.config_path.write_text(config.model_dump_toml(), encoding="utf-8")
     HarborTask(runtime_paths.task_dir)
     return PreparedRuntime(HarborTrialTaskConfig(path=runtime_paths.task_dir), sources)
 
 
-def _validate_batch_compatibility(
-    tasks: tuple[E2ETask, ...],
-    settings: HarnessSettings,
-) -> tuple[SourceTask, ...]:
+def _validate_batch_compatibility(tasks: tuple[E2ETask, ...], settings: HarnessSettings) -> tuple[SourceTask, ...]:
     batch = _task_batch(tasks[0])
     if batch is None or any(_task_batch(task) != batch for task in tasks):
         raise ValueError("Runtime aggregation requires one explicit shared batch")  # noqa: TRY003
     if any(task.dataset.path is None for task in tasks):
         raise ValueError(f"Batch {batch!r} requires local Harbor datasets")  # noqa: TRY003
-
     if len({task.id for task in tasks}) != len(tasks):
         raise ValueError(f"Batch {batch!r} task IDs must be unique")  # noqa: TRY003
+
     repository = settings.repository_path()
     sources = tuple(_load_source_task(task, repository) for task in tasks)
+    if any(
+        source.harbor_task.config.multi_step_reward_strategy is not MultiStepRewardStrategy.FINAL for source in sources
+    ):
+        raise ValueError(f"Batch {batch!r} requires Harbor's final multi-step reward strategy")  # noqa: TRY003
     first_profile = _runtime_profile(sources[0])
     for source in sources[1:]:
         profile = _runtime_profile(source)
-        if incompatible := [name for name in first_profile if profile[name] != first_profile[name]]:
+        if incompatible := [name for name, value in first_profile.items() if profile[name] != value]:
             raise ValueError(  # noqa: TRY003
                 f"Source task {source.task.id!r} has incompatible batch settings: {incompatible!r}"
             )
@@ -645,29 +567,30 @@ def _load_source_task(task: E2ETask, repository: Path) -> SourceTask:
         raise ValueError(f"Source task {task.id!r} cannot be loaded from {task_dir}") from exc  # noqa: TRY003
     if harbor_task.checksum != task.dataset.checksum:
         raise ValueError(f"Source task {task.id!r} checksum changed")  # noqa: TRY003
-    steps = _task_layout(task, harbor_task)
-    return SourceTask(task, harbor_task, steps)
+    return SourceTask(task, harbor_task, _task_layout(task, harbor_task))
 
 
 def _runtime_profile(source: SourceTask) -> dict[str, Any]:
     task = source.task
     paths = source.harbor_task.paths
+    evaluation = task.evaluation
     return {
         "dataset": task.dataset.model_dump(mode="json", exclude={"task_id", "checksum"}),
         "execution": task.execution.model_dump(mode="json"),
         "capture": (
-            task.evaluation.capture_events,
-            task.evaluation.checkpoint_every_events,
-            task.evaluation.max_event_bytes,
-        ),
+            evaluation.capture_events,
+            evaluation.checkpoint_every_events,
+            evaluation.max_event_bytes,
+        )
+        if isinstance(evaluation, MemoryEvaluationSpec)
+        else (False, 5, 8192),
         "harbor": source.harbor_task.config.model_dump(mode="json", exclude={"steps"}),
-        "environment": _directory_checksum(paths.environment_dir),
-        "tests": _directory_checksum(paths.tests_dir),
+        "environment": environment_content_hash(
+            paths.environment_dir,
+            docker_image=source.harbor_task.config.environment.docker_image,
+        ),
+        "tests": dirhash(paths.tests_dir, "sha256") if paths.tests_dir.is_dir() else None,
     }
-
-
-def _directory_checksum(path: Path) -> str | None:
-    return dirhash(path, "sha256") if path.is_dir() else None
 
 
 def _runtime_task_config(sources: tuple[SourceTask, ...], failure_policy: FailurePolicy) -> TaskConfig:
@@ -675,22 +598,16 @@ def _runtime_task_config(sources: tuple[SourceTask, ...], failure_policy: Failur
     steps = [
         step.model_copy(update={"name": runtime_name, "min_reward": min_reward})
         for source in sources
-        for step, runtime_name in zip(
-            source.harbor_task.config.steps or (),
-            source.runtime_steps,
-            strict=True,
-        )
+        for step, runtime_name in zip(source.harbor_task.config.steps or (), source.runtime_steps, strict=True)
     ]
     return sources[0].harbor_task.config.model_copy(update={"steps": steps})
 
 
 def _task_layout(task: E2ETask, harbor_task: HarborTask) -> tuple[str, ...]:
     steps = tuple(step.name for step in harbor_task.config.steps or ())
-    if not steps:
-        raise ValueError(f"Source task {task.id!r} has no Harbor steps")  # noqa: TRY003
-    if len(steps) != len(set(steps)):
-        raise ValueError(f"Source task {task.id!r} step names must be unique")  # noqa: TRY003
     paths = tuple(PurePosixPath(step) for step in steps)
+    if not steps or len(steps) != len(set(steps)):
+        raise ValueError(f"Source task {task.id!r} must have unique Harbor steps")  # noqa: TRY003
     if any(
         "\\" in step or path.is_absolute() or len(path.parts) != 1 or path.parts[0] == ".." or path.as_posix() != step
         for step, path in zip(steps, paths, strict=True)
@@ -727,19 +644,19 @@ async def prepared_context(client: PowerContextClient, scope_id: str, query: str
 
 async def _prepared_probes(
     client: PowerContextClient,
-    task: E2ETask,
+    evaluation: MemoryEvaluationSpec,
     scope_id: str,
 ) -> tuple[RecallProbeObservation, ...]:
-    observations = []
-    for probe in task.evaluation.probes:
-        observations.append(
+    probes = []
+    for probe in evaluation.probes:
+        probes.append(
             RecallProbeObservation(
                 id=probe.id,
                 query=probe.query,
                 prepared_context=await prepared_context(client, scope_id, probe.query),
             )
         )
-    return tuple(observations)
+    return tuple(probes)
 
 
 def _run_environment(task: E2ETask, started_at: datetime, settings: HarnessSettings) -> RunEnvironment:
@@ -755,9 +672,8 @@ def _run_environment(task: E2ETask, started_at: datetime, settings: HarnessSetti
 
 
 def _harbor_observation(
-    result: Any,
-    settings: HarnessSettings,
-) -> tuple[HarborTrialObservation, tuple[Any, ...], Path | None]:
+    result: Any, settings: HarnessSettings
+) -> tuple[HarborTrialObservation, tuple[StepResult, ...], Path | None]:
     if not result.trial_results:
         return (
             HarborTrialObservation(
@@ -793,9 +709,49 @@ def _trial_dir(trial_uri: str) -> Path | None:
     return Path(unquote(parsed.path)) if parsed.scheme == "file" else None
 
 
-def _load_capture_records(trial_dir: Path) -> tuple[CaptureRecord, ...]:
+def _task_artifacts(
+    trial_dir: Path | None,
+    task: E2ETask,
+    settings: HarnessSettings,
+    *,
+    step_names: tuple[str, ...] = (),
+    whole_trial: bool = True,
+) -> TaskArtifacts:
+    if trial_dir is None:
+        return TaskArtifacts()
+    roots = (trial_dir,) if whole_trial else tuple(TrialPaths(trial_dir).step_dir(name) for name in step_names)
+    prefixes = tuple(f"steps/{name}/" for name in step_names)
+    instructions = load_resolved_instructions(trial_dir, settings)
+    return TaskArtifacts(
+        tuple(record for root in roots for record in _load_capture_records(root)),
+        tuple(
+            artifact
+            for root in roots
+            for artifact in _native_artifacts(root, task.execution.native_artifact_names, relative_to=trial_dir)
+        ),
+        tuple(instruction for instruction in instructions if whole_trial or instruction.artifact.startswith(prefixes)),
+    )
+
+
+def _collect_task_artifacts(
+    trial_dir: Path | None,
+    task: E2ETask,
+    settings: HarnessSettings,
+    *,
+    errors: list[str],
+    step_names: tuple[str, ...] = (),
+    whole_trial: bool = True,
+) -> TaskArtifacts:
+    try:
+        return _task_artifacts(trial_dir, task, settings, step_names=step_names, whole_trial=whole_trial)
+    except Exception as exc:
+        errors.append(redact(f"{type(exc).__name__}: {exc}", settings))
+        return TaskArtifacts()
+
+
+def _load_capture_records(root: Path) -> tuple[CaptureRecord, ...]:
     records: list[CaptureRecord] = []
-    for path in sorted(trial_dir.rglob("powercontext-capture.jsonl")):
+    for path in sorted(root.rglob("powercontext-capture.jsonl")):
         records.extend(
             CaptureRecord.model_validate_json(line)
             for line in path.read_text(encoding="utf-8").splitlines()
@@ -809,25 +765,4 @@ def _native_artifacts(
 ) -> tuple[NativeArtifact, ...]:
     return tuple(
         fingerprint(path, relative_to=relative_to or root) for path in sorted(root.rglob("*")) if path.name in names
-    )
-
-
-def _load_task_artifacts(
-    trial_dir: Path,
-    native_artifact_names: frozenset[str],
-    settings: HarnessSettings,
-    *,
-    step_names: tuple[str, ...] = (),
-) -> TaskArtifacts:
-    roots = tuple(TrialPaths(trial_dir).step_dir(name) for name in step_names) or (trial_dir,)
-    instructions = load_resolved_instructions(trial_dir, settings)
-    prefixes = tuple(f"steps/{name}/" for name in step_names)
-    return TaskArtifacts(
-        tuple(record for root in roots for record in _load_capture_records(root)),
-        tuple(
-            artifact
-            for root in roots
-            for artifact in _native_artifacts(root, native_artifact_names, relative_to=trial_dir)
-        ),
-        tuple(instruction for instruction in instructions if not prefixes or instruction.artifact.startswith(prefixes)),
     )

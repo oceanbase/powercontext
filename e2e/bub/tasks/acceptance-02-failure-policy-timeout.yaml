@@ -13,31 +13,21 @@
 # limitations under the License.
 
 schema: powercontext.e2e-task/v1
-id: project-database-decision
+id: failure-policy-timeout
 categories:
   - acceptance
-  - sample
-  - smoke
+  - fixture
+  - batch:acceptance
 dataset:
   path: e2e/bub/harbor-tasks
-  task_id: project-database-decision
-  checksum: 8c1f9d11581c4cea3f7df56fd0ddfc03ce07f6ab29a86cde6a14c52a349264f9
+  task_id: failure-policy-timeout
+  checksum: d0f01c9a9f1b331ff3904ddc864c4aa5ec673fa2179d9947b853827fb54714d4
 execution:
   type: bub
   model: false
   max_steps: 10
   max_tokens: 4096
 evaluation:
-  expected_memory:
-    - OceanBase
-    - MySQL-compatible
-    - multi-node persistent storage
-  probes:
-    - id: database-decision
-      query: Which project decision selected multi-node persistent storage?
-      expected_context:
-        - OceanBase
-        - MySQL-compatible
-        - multi-node persistent storage
-  thresholds:
-    probe_coverage: 1
+  expected_execution:
+    collect-all: failed
+    fail-fast: failed

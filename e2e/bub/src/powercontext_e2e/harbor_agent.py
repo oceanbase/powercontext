@@ -62,21 +62,19 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
     @override
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
         try:
-            await environment.exec(command=f"rm -f {STEP_FAILURE_MARKER}")
+            await environment.exec(command=f"touch {STEP_FAILURE_MARKER}")
             if not self._invocation_scopes:
                 await super().run(instruction, environment, context)
             else:
                 if self._step_index >= len(self._invocation_scopes):
                     invocation = self._step_index + 1
-                    raise RuntimeError(  # noqa: TRY003, TRY301
+                    raise RuntimeError(  # noqa: TRY003
                         f"No E2E scope configured for agent invocation {invocation}"
                     )
                 scope_id = self._invocation_scopes[self._step_index]
                 with environment.scoped_exec_env({"POWERCONTEXT_BUB_SCOPE_ID": scope_id}):
                     await super().run(instruction, environment, context)
-        except Exception:
-            await environment.exec(command=f"touch {STEP_FAILURE_MARKER}")
-            raise
+            await environment.exec(command=f"rm -f {STEP_FAILURE_MARKER}")
         finally:
             self._step_index += 1
 

@@ -13,23 +13,16 @@
 # limitations under the License.
 
 schema: powercontext.e2e-task/v1
-id: locomo-multihop-football
+id: project-database-decision
 categories:
   - acceptance
   - sample
-  - batch:locomo
-provenance:
-  source: benchmark/locomo/dataset/locomo10.json
-  revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
-  selection: category-3-first-two-explicit-named-facts/v1
-  case_ids:
-    - conv-47
-    - conv-47:q026
-    - D13
+  - smoke
+  - batch:acceptance
 dataset:
   path: e2e/bub/harbor-tasks
-  task_id: locomo-multihop-football
-  checksum: d2700bd79b6f5e7d96bb0ab802c414a4a90fd652eb2612036a99aebd2b25f9e4
+  task_id: project-database-decision
+  checksum: 4d0e45489408dbece683ab91b0d77419bb90a202d1c66c1209e69315ad97e799
 execution:
   type: bub
   model: false
@@ -37,13 +30,15 @@ execution:
   max_tokens: 4096
 evaluation:
   expected_memory:
-    - Liverpool
-    - Manchester City
+    - OceanBase
+    - MySQL-compatible
+    - multi-node persistent storage
   probes:
-    - id: football-team-fans
-      query: Are John and James fans of the same football team?
+    - id: database-decision
+      query: Which project decision selected multi-node persistent storage?
       expected_context:
-        - Liverpool
-        - Manchester City
+        - OceanBase
+        - MySQL-compatible
+        - multi-node persistent storage
   thresholds:
     probe_coverage: 1

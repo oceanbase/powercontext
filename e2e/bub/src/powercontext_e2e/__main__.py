@@ -19,36 +19,39 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from collections.abc import Awaitable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from .settings import HarnessSettings
 
+if TYPE_CHECKING:
+    from .catalog import E2ETask
+
 
 async def _run_default_acceptance(
-    workloads: Awaitable[bool],
+    tasks: tuple[E2ETask, ...],
     *,
     output_dir: Path,
     settings: HarnessSettings,
 ) -> bool:
-    from .failure_acceptance import run_failure_acceptance
+    from .catalog import select_tasks
+    from .runner import run_tasks
 
-    workloads_passed = await _accepted(workloads, "Memory workload acceptance")
-    policy_passed = await _accepted(
-        run_failure_acceptance(output_dir / "failure-policy", settings),
-        "Harbor failure-policy acceptance",
+    collect_all_passed = await run_tasks(
+        select_tasks(tasks, categories=("acceptance",)),
+        output_dir=output_dir,
+        settings=settings,
+        failure_policy="collect-all",
     )
-    return workloads_passed and policy_passed
-
-
-async def _accepted(result: Awaitable[bool], name: str) -> bool:
-    try:
-        return await result
-    except Exception:
-        logger.exception(f"{name} failed.")
-        return False
+    fail_fast_passed = await run_tasks(
+        select_tasks(tasks, categories=("batch:acceptance",)),
+        output_dir=output_dir / "fail-fast",
+        settings=settings,
+        failure_policy="fail-fast",
+    )
+    return collect_all_passed and fail_fast_passed
 
 
 def main() -> None:
@@ -97,18 +100,19 @@ def main() -> None:
 
         tasks = load_tasks(args.manifest)
         selected = select_tasks(tasks, ids=tuple(args.id), categories=tuple(args.category))
-        workloads = run_tasks(
-            selected,
-            output_dir=args.output,
-            settings=settings,
-            failure_policy=args.failure_policy,
-        )
         passed = (
-            asyncio.run(workloads)
+            asyncio.run(
+                run_tasks(
+                    selected,
+                    output_dir=args.output,
+                    settings=settings,
+                    failure_policy=args.failure_policy,
+                )
+            )
             if args.id or args.category
             else asyncio.run(
                 _run_default_acceptance(
-                    workloads,
+                    tasks,
                     output_dir=args.output,
                     settings=settings,
                 )
