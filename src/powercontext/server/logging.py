@@ -91,6 +91,22 @@ class _HumanContextFilter(OperationalContextFilter):
         return True
 
 
+class _UvicornDisplayNameFilter(logging.Filter):
+    """Rewrite uvicorn's lifecycle logger name for display.
+
+    uvicorn hardcodes "uvicorn.error" for its lifecycle logger, which mostly
+    carries INFO startup lines but reads like an error channel. Rewriting the
+    record name here is display-only: the logger tree, level routing, and any
+    filtering keyed on the original name are untouched.
+    """
+
+    @override
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name == "uvicorn.error":
+            record.name = "uvicorn"
+        return True
+
+
 def configure_server_logging(config: ServerLoggingConfig) -> None:
     """Configure process logging for the foreground Server command."""
 
@@ -106,7 +122,10 @@ def configure_server_logging(config: ServerLoggingConfig) -> None:
     logging.config.dictConfig({
         "version": 1,
         "disable_existing_loggers": False,
-        "filters": {"operational": {"()": _HumanContextFilter}},
+        "filters": {
+            "operational": {"()": _HumanContextFilter},
+            "uvicorn_display_name": {"()": _UvicornDisplayNameFilter},
+        },
         "formatters": {"server": formatter},
         "handlers": {
             "server": {
@@ -126,6 +145,7 @@ def configure_server_logging(config: ServerLoggingConfig) -> None:
                 "handlers": ["server"],
                 "level": config.level,
                 "propagate": False,
+                "filters": ["uvicorn_display_name"],
             },
         },
     })

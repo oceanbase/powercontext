@@ -21,8 +21,36 @@ from fastapi.testclient import TestClient
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
-from powercontext.server.logging import JsonFormatter, OperationalContextFilter
+from powercontext.server.logging import JsonFormatter, OperationalContextFilter, _UvicornDisplayNameFilter
 from powercontext.server.settings import McpConfig, ServerLoggingConfig, ServerSettings
+
+
+def test_uvicorn_error_records_are_displayed_as_uvicorn() -> None:
+    record = logging.makeLogRecord({
+        "name": "uvicorn.error",
+        "levelno": logging.INFO,
+        "levelname": "INFO",
+        "msg": "Started server process",
+    })
+
+    _UvicornDisplayNameFilter().filter(record)
+
+    payload = json.loads(JsonFormatter().format(record))
+    assert payload["logger"] == "uvicorn"
+    assert payload["message"] == "Started server process"
+
+
+def test_uvicorn_display_name_filter_leaves_other_loggers_untouched() -> None:
+    record = logging.makeLogRecord({
+        "name": "powercontext.server.factory",
+        "levelno": logging.INFO,
+        "levelname": "INFO",
+        "msg": "PowerContext Server is ready",
+    })
+
+    _UvicornDisplayNameFilter().filter(record)
+
+    assert record.name == "powercontext.server.factory"
 
 
 def test_json_formatter_emits_stable_operational_fields() -> None:
