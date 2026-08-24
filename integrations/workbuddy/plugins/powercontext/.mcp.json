@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "powercontext": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": {},
+      "description": "PowerContext agent memory & handoff MCP server (local service on port 8000)",
+      "disabled": false
+    }
+  }
+}

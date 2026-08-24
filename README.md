@@ -79,8 +79,8 @@ model.
 ## Integrations
 
 PowerContext provides official integrations and installation guides for Codex, Claude Code, DeepSeek Harness, Hermes
-Agent, and Pi Coding Agent. These integrations use the same scoped data and history-preserving contracts through
-PowerContext Server; the host integrations do not start or embed the Server.
+Agent, Pi Coding Agent, and WorkBuddy. These integrations use the same scoped data and history-preserving contracts
+through PowerContext Server; the host integrations do not start or embed the Server.
 
 ### Official integrations
 
@@ -91,6 +91,7 @@ PowerContext Server; the host integrations do not start or embed the Server.
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-dsh.md"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
+<td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='10' fill='%231f6feb'/%3E%3Ctext x='24' y='31' font-family='Arial,Helvetica,sans-serif' font-size='18' font-weight='bold' fill='%23ffffff' text-anchor='middle'%3EWB%3C/text%3E%3C/svg%3E" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
 </tr>
 </table>
 
