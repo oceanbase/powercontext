@@ -56,6 +56,7 @@ from powercontext.http import (
     GetHandoffReportRequest,
     GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
+    GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
     HandoffAcknowledgement,
@@ -74,6 +75,8 @@ from powercontext.http import (
     ListHandoffReportActivitiesRequest,
     ListHandoffReportProjectsRequest,
     ListHandoffReportWorkstreamsRequest,
+    ListManagedSkillsRequest,
+    ListManagedSkillsResponse,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -88,11 +91,13 @@ from powercontext.http import (
     ProjectDescriptor,
     ProjectPage,
     ProposeExperienceRequest,
+    ProposeSkillPackageRequest,
     ProposeSkillRequest,
     PurgeHandoffReportActivitiesRequest,
     PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
     RecordHandoffReportActivityRequest,
+    RecordSkillUsageRequest,
     RecordTaskOutcomeRequest,
     RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
@@ -107,9 +112,13 @@ from powercontext.http import (
     SearchMemoryRequest,
     SearchMemoryResponse,
     SkillArtifact,
+    SkillGovernance,
+    SkillPackageDownload,
+    SkillPackageManifest,
     StoredHandoffReportActivity,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
+    UpdateSkillLifecycleRequest,
     WorkSourceReceipt,
     WorkstreamDescriptor,
     WorkstreamPage,
@@ -125,6 +134,7 @@ from powercontext.http._generated.operations import (
     CREATE_HANDOFF_REPORT_PROJECT,
     CREATE_WORK_CONTRACT,
     DETACH_HANDOFF_REPORT_WORKSPACE,
+    DOWNLOAD_SKILL_PACKAGE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
@@ -139,6 +149,7 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
+    GET_SKILL_PACKAGE_MANIFEST,
     GET_STATS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
@@ -147,14 +158,17 @@ from powercontext.http._generated.operations import (
     LIST_HANDOFF_REPORT_ACTIVITIES,
     LIST_HANDOFF_REPORT_PROJECTS,
     LIST_HANDOFF_REPORT_WORKSTREAMS,
+    LIST_MANAGED_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
+    PROPOSE_SKILL_PACKAGE,
     PURGE_HANDOFF_REPORT_ACTIVITIES,
     RECORD_HANDOFF_REPORT_ACTIVITY,
+    RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
     REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
@@ -167,6 +181,7 @@ from powercontext.http._generated.operations import (
     SEARCH_MEMORY,
     UPDATE_HANDOFF_REPORT_PROJECT,
     UPDATE_HANDOFF_REPORT_WORKSTREAM,
+    UPDATE_SKILL_LIFECYCLE,
     Operation,
 )
 
@@ -515,6 +530,36 @@ class PowerContextClient:
         """Read one exact approved managed Skill Revision."""
 
         return await self._request(GET_SKILL, request)
+
+    async def list_managed_skills(self, request: ListManagedSkillsRequest) -> ListManagedSkillsResponse:
+        """List or search current governed managed Skill heads."""
+
+        return await self._request(LIST_MANAGED_SKILLS, request)
+
+    async def update_skill_lifecycle(self, request: UpdateSkillLifecycleRequest) -> SkillGovernance:
+        """Apply one governance generation CAS lifecycle transition."""
+
+        return await self._request(UPDATE_SKILL_LIFECYCLE, request)
+
+    async def get_skill_package_manifest(self, request: GetSkillPackageRequest) -> SkillPackageManifest:
+        """Read verified exact package metadata and file inventory."""
+
+        return await self._request(GET_SKILL_PACKAGE_MANIFEST, request)
+
+    async def download_skill_package(self, request: GetSkillPackageRequest) -> SkillPackageDownload:
+        """Read canonical exact package ZIP bytes as bounded base64."""
+
+        return await self._request(DOWNLOAD_SKILL_PACKAGE, request)
+
+    async def propose_skill_package(self, request: ProposeSkillPackageRequest) -> ArtifactCandidate:
+        """Create a pending exact package Candidate without LLM rewriting."""
+
+        return await self._request(PROPOSE_SKILL_PACKAGE, request)
+
+    async def record_skill_usage(self, request: RecordSkillUsageRequest) -> CaptureContentSourceResponse:
+        """Capture one bounded exact Skill usage observation as immutable Source evidence."""
+
+        return await self._request(RECORD_SKILL_USAGE, request)
 
     async def scan_external_skills(self, request: ScanExternalSkillsRequest) -> ScanExternalSkillsResponse:
         """Refresh the configured host-local external Skill Registry."""

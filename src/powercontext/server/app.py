@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
@@ -55,14 +57,19 @@ from powercontext.builtin.artifacts.memory.errors import (
     MemoryEntryNotFoundError,
 )
 from powercontext.builtin.artifacts.skill import (
+    AgentSkillTarget,
     ExternalSkillNotFoundError,
     ExternalSkillRegistryUnavailableError,
     ExternalSkillSnapshotUnavailableError,
     Skill,
+    SkillPackageRef,
+    SkillPackageSnapshot,
+    SkillSearchHit,
 )
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillResolution as RuntimeExternalSkillResolution,
 )
+from powercontext.builtin.artifacts.skill.publication import ManagedSkillPublicationStatus
 from powercontext.builtin.handoff_report import (
     HandoffReportApplication,
     HandoffReportBusyError,
@@ -96,6 +103,16 @@ from powercontext.builtin.handoff_report.repository import (
     InvalidActivityRepositoryArgumentError,
 )
 from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
+from powercontext.builtin.persistence.artifact_governance import (
+    ArtifactGovernance,
+    ArtifactLifecycleState,
+    InvalidArtifactLifecycleError,
+)
+from powercontext.builtin.persistence.errors import (
+    PersistenceError,
+    RepositoryNotFoundError,
+    StoredPayloadConflictError,
+)
 from powercontext.builtin.review import (
     ArtifactTargetConflictError,
     CandidateConflictError,
@@ -192,6 +209,12 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     StatisticsPeriod as RuntimeStatisticsPeriod,
 )
+from powercontext.builtin.sources import (
+    ObservedInvocation,
+    ObservedOutcome,
+    ObservedValidation,
+    SkillUsageCapture,
+)
 from powercontext.builtin.work import (
     AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
 )
@@ -245,6 +268,7 @@ from powercontext.http import (
     GetHandoffReportRequest,
     GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
+    GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
     HandoffAcknowledgement,
@@ -262,6 +286,8 @@ from powercontext.http import (
     ListHandoffReportActivitiesRequest,
     ListHandoffReportProjectsRequest,
     ListHandoffReportWorkstreamsRequest,
+    ListManagedSkillsRequest,
+    ListManagedSkillsResponse,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -275,12 +301,14 @@ from powercontext.http import (
     ProjectDescriptor,
     ProjectPage,
     ProposeExperienceRequest,
+    ProposeSkillPackageRequest,
     ProposeSkillRequest,
     PurgeHandoffReportActivitiesRequest,
     PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
     ReadinessStatus,
     RecordHandoffReportActivityRequest,
+    RecordSkillUsageRequest,
     RecordTaskOutcomeRequest,
     RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
@@ -295,9 +323,14 @@ from powercontext.http import (
     SearchMemoryRequest,
     SearchMemoryResponse,
     SkillArtifact,
+    SkillGovernance,
+    SkillPackageDownload,
+    SkillPackageFile,
+    SkillPackageManifest,
     StoredHandoffReportActivity,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
+    UpdateSkillLifecycleRequest,
     WorkSourceReceipt,
     WorkstreamDescriptor,
     WorkstreamPage,
@@ -328,6 +361,7 @@ from powercontext.http._generated.operations import (
     CREATE_HANDOFF_REPORT_PROJECT,
     CREATE_WORK_CONTRACT,
     DETACH_HANDOFF_REPORT_WORKSPACE,
+    DOWNLOAD_SKILL_PACKAGE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
@@ -342,6 +376,7 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
+    GET_SKILL_PACKAGE_MANIFEST,
     GET_STATS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
@@ -350,6 +385,7 @@ from powercontext.http._generated.operations import (
     LIST_HANDOFF_REPORT_ACTIVITIES,
     LIST_HANDOFF_REPORT_PROJECTS,
     LIST_HANDOFF_REPORT_WORKSTREAMS,
+    LIST_MANAGED_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     OPENAPI_VERSION,
@@ -357,8 +393,10 @@ from powercontext.http._generated.operations import (
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
+    PROPOSE_SKILL_PACKAGE,
     PURGE_HANDOFF_REPORT_ACTIVITIES,
     RECORD_HANDOFF_REPORT_ACTIVITY,
+    RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
     REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
@@ -371,6 +409,7 @@ from powercontext.http._generated.operations import (
     SEARCH_MEMORY,
     UPDATE_HANDOFF_REPORT_PROJECT,
     UPDATE_HANDOFF_REPORT_WORKSTREAM,
+    UPDATE_SKILL_LIFECYCLE,
     Operation,
 )
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
@@ -432,6 +471,52 @@ class _ScopedSkillApplication(Protocol):
     async def generate(self, request: RuntimeGenerateSkillRequest, /) -> RuntimeGeneratedCandidateResult: ...
 
     async def get(self, request: RuntimeGetSkillRequest, /) -> Skill: ...
+
+    async def search(self, query: str, limit: int, /) -> tuple[SkillSearchHit, ...]: ...
+
+    async def list(
+        self, *, include_deprecated: bool = False, limit: int = 100
+    ) -> tuple[tuple[Skill, ArtifactGovernance], ...]: ...
+
+    async def package(self, artifact: ArtifactRef, /) -> SkillPackageSnapshot: ...
+
+    async def package_snapshot(self, package: SkillPackageRef, /) -> SkillPackageSnapshot: ...
+
+    async def upload_package(
+        self,
+        archive_bytes: bytes,
+        reason: str | None,
+        target: ArtifactRef | None,
+        /,
+    ) -> SkillCandidate: ...
+
+    async def record_usage(self, observation: SkillUsageCapture, /) -> SourceReceipt: ...
+
+    async def governance(self, artifact_id: str, /) -> ArtifactGovernance: ...
+
+    async def update_lifecycle(
+        self,
+        artifact_id: str,
+        expected_generation: int,
+        lifecycle_state: ArtifactLifecycleState,
+        replacement_artifact_id: str | None,
+        /,
+    ) -> ArtifactGovernance: ...
+
+    async def inspect_publication(
+        self, artifact: ArtifactRef, target: AgentSkillTarget, /
+    ) -> ManagedSkillPublicationStatus: ...
+
+    async def publish(
+        self,
+        artifact: ArtifactRef,
+        target: AgentSkillTarget,
+        /,
+        *,
+        allow_deprecated: bool = False,
+    ) -> ManagedSkillPublicationStatus: ...
+
+    async def unpublish(self, artifact: ArtifactRef, target: AgentSkillTarget, /) -> ManagedSkillPublicationStatus: ...
 
 
 class _SkillApplication(Protocol):
@@ -612,6 +697,7 @@ def create_app(
 
     @app.exception_handler(_RuntimeNotReadyError)
     @app.exception_handler(PowerContextError)
+    @app.exception_handler(PersistenceError)
     async def application_error(request: Request, error: Exception) -> JSONResponse:
         response_status, code, message, details = _map_error(error)
         return _error_response(response_status, code=code, message=message, details=details)
@@ -672,6 +758,12 @@ def create_app(
     _add_route(app, PROPOSE_SKILL, propose_skill)
     _add_route(app, GENERATE_SKILL, generate_skill)
     _add_route(app, GET_SKILL, get_skill)
+    _add_route(app, LIST_MANAGED_SKILLS, list_managed_skills)
+    _add_route(app, UPDATE_SKILL_LIFECYCLE, update_skill_lifecycle)
+    _add_route(app, GET_SKILL_PACKAGE_MANIFEST, get_skill_package_manifest)
+    _add_route(app, DOWNLOAD_SKILL_PACKAGE, download_skill_package)
+    _add_route(app, PROPOSE_SKILL_PACKAGE, propose_skill_package)
+    _add_route(app, RECORD_SKILL_USAGE, record_skill_usage)
     _add_route(app, SCAN_EXTERNAL_SKILLS, scan_external_skills)
     _add_route(app, LIST_EXTERNAL_SKILLS, list_external_skills)
     _add_route(app, RESOLVE_EXTERNAL_SKILL, resolve_external_skill)
@@ -1204,6 +1296,142 @@ async def get_skill(
     return mapping.skill_response(result)
 
 
+async def list_managed_skills(
+    request: ListManagedSkillsRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ListManagedSkillsResponse:
+    scoped = application.skill.for_scope(request.scope_id)
+    values: list[tuple[Skill, ArtifactGovernance]] = []
+    query = "" if request.query is None else request.query.strip()
+    if query:
+        for hit in await scoped.search(query, request.limit):
+            skill = await scoped.get(RuntimeGetSkillRequest(artifact=hit.artifact_ref))
+            values.append((skill, await scoped.governance(skill.artifact_id)))
+    else:
+        values.extend(await scoped.list(include_deprecated=request.include_deprecated, limit=request.limit))
+    if query and request.include_deprecated:
+        seen = {skill.artifact_id for skill, _governance in values}
+        for skill, governance in await scoped.list(include_deprecated=True, limit=request.limit):
+            search_text = "\n".join((
+                skill.content.name,
+                skill.content.description,
+                skill.content.instructions,
+                *skill.content.metadata.values(),
+            ))
+            if (
+                governance.lifecycle_state is ArtifactLifecycleState.DEPRECATED
+                and skill.artifact_id not in seen
+                and query.casefold() in search_text.casefold()
+            ):
+                values.append((skill, governance))
+    return ListManagedSkillsResponse(
+        skills=[mapping.managed_skill_library_entry(skill, governance) for skill, governance in values[: request.limit]]
+    )
+
+
+async def update_skill_lifecycle(
+    request: UpdateSkillLifecycleRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> SkillGovernance:
+    result = await application.skill.for_scope(request.scope_id).update_lifecycle(
+        request.artifact_id,
+        request.expected_generation,
+        ArtifactLifecycleState(request.lifecycle_state.value),
+        request.replacement_artifact_id,
+    )
+    return mapping.skill_governance(result)
+
+
+async def get_skill_package_manifest(
+    request: GetSkillPackageRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> SkillPackageManifest:
+    package = await application.skill.for_scope(request.scope_id).package(
+        mapping.runtime_artifact_reference(request.artifact)
+    )
+    return _skill_package_manifest(package)
+
+
+async def download_skill_package(
+    request: GetSkillPackageRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> SkillPackageDownload:
+    package = await application.skill.for_scope(request.scope_id).package(
+        mapping.runtime_artifact_reference(request.artifact)
+    )
+    return SkillPackageDownload(
+        package=package.reference.model_dump(mode="json"),
+        archive_base64=base64.b64encode(package.archive_bytes).decode("ascii"),
+    )
+
+
+async def propose_skill_package(
+    request: ProposeSkillPackageRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ArtifactCandidate:
+    try:
+        archive_bytes = base64.b64decode(request.archive_base64, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise InvalidRuntimeRequestError("skill-package-base64") from error
+    try:
+        candidate = await application.skill.for_scope(request.scope_id).upload_package(
+            archive_bytes,
+            request.reason,
+            None if request.target is None else mapping.runtime_artifact_reference(request.target),
+        )
+    except ValueError as error:
+        raise InvalidRuntimeRequestError("skill-package") from error
+    return mapping.candidate_response(candidate)
+
+
+async def record_skill_usage(
+    request: RecordSkillUsageRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> CaptureContentSourceResponse:
+    try:
+        receipt = await application.skill.for_scope(request.scope_id).record_usage(
+            SkillUsageCapture(
+                observation_id=request.observation_id,
+                skill_ref=mapping.runtime_artifact_reference(request.skill_ref),
+                package_digest=request.package_digest,
+                target_id=request.target_id,
+                selected=request.selected,
+                invoked=ObservedInvocation(request.invoked.value),
+                validation=ObservedValidation(request.validation.value),
+                outcome=ObservedOutcome(request.outcome.value),
+                task_source=(
+                    None if request.task_source is None else mapping.runtime_source_reference(request.task_source)
+                ),
+                environment_fingerprint=request.environment_fingerprint,
+            )
+        )
+    except ValueError as error:
+        raise InvalidRuntimeRequestError("skill-usage") from error
+    return mapping.capture_response(receipt)
+
+
+def _skill_package_manifest(package: SkillPackageSnapshot) -> SkillPackageManifest:
+    return SkillPackageManifest(
+        package=package.reference.model_dump(mode="json"),
+        name=package.metadata.name,
+        description=package.metadata.description,
+        license=package.metadata.license,
+        compatibility=package.metadata.compatibility,
+        metadata=package.metadata.metadata,
+        allowed_tools=package.metadata.allowed_tools,
+        files=[
+            SkillPackageFile(
+                path=entry.path,
+                digest=entry.digest,
+                size=entry.size,
+                media_type=entry.media_type,
+                executable=bool(entry.mode & 0o111),
+            )
+            for entry in package.entries
+        ],
+    )
+
+
 async def scan_external_skills(
     request: ScanExternalSkillsRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -1491,6 +1719,9 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
             "Artifact generation is not configured.",
             {"family": error.family},
         )
+    governance_error = _map_governance_error(error)
+    if governance_error is not None:
+        return governance_error
     candidate_error = _map_candidate_error(error)
     if candidate_error is not None:
         return candidate_error
@@ -1501,6 +1732,16 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     if report_error is not None:
         return report_error
     return _map_domain_error(error)
+
+
+def _map_governance_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, RepositoryNotFoundError):
+        return status.HTTP_404_NOT_FOUND, "not_found", "The requested value was not found.", None
+    if isinstance(error, StoredPayloadConflictError):
+        return status.HTTP_409_CONFLICT, "generation_conflict", "The requested state is stale.", None
+    if isinstance(error, InvalidArtifactLifecycleError):
+        return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_lifecycle", str(error), None
+    return None
 
 
 def _map_candidate_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:

@@ -25,7 +25,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.artifacts import Artifact
+from powercontext.artifacts import Artifact, ArtifactRef
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
     Experience,
@@ -57,10 +57,20 @@ from powercontext.builtin.artifacts.skill import (
     Skill,
     SkillContent,
     SkillGenerator,
+    SkillPackageRef,
+    SkillPackageSnapshot,
+    SkillSearchHit,
+    capture_skill_archive,
 )
+from powercontext.builtin.artifacts.skill.publication import ManagedSkillPublicationService
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError, TokenEstimator
+from powercontext.builtin.persistence.artifact_governance import (
+    ArtifactGovernance,
+    ArtifactGovernanceRepository,
+    ArtifactLifecycleState,
+)
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
@@ -74,17 +84,20 @@ from powercontext.builtin.persistence.handoff import (
 )
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
+from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
+from powercontext.builtin.persistence.skill_publications import SkillPublicationRepository
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.statistics import StatisticsRepository
-from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
     GenerationCapabilityUnavailableError,
     ReviewedGenerationService,
     SkillGenerationOrigin,
 )
+from powercontext.builtin.review.models import ArtifactCandidate
 from powercontext.builtin.review.service import ReviewService
-from powercontext.builtin.runtime.models import ExperienceIncubationResult, MemoryFlushResult
+from powercontext.builtin.runtime.models import ExperienceIncubationResult, MemoryFlushResult, SourceReceipt
 from powercontext.builtin.runtime.prepared_context import PreparedContextBuild
 from powercontext.builtin.runtime.protocols import BuiltinTriggers
 from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
@@ -92,8 +105,12 @@ from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_ADAPTER,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
+    SKILL_PACKAGE_UPLOAD_SOURCE_ADAPTER,
+    SKILL_USAGE_SOURCE_ADAPTER,
     ExternalSkillImportMode,
     ExternalSkillSnapshotCapture,
+    SkillPackageUploadCapture,
+    SkillUsageCapture,
     SourceCursor,
     SourceJournalEntry,
     validate_scope_id,
@@ -121,6 +138,8 @@ IdFactory = Callable[[str], str]
 _SOURCE_ADAPTERS: tuple[SourceAdapter[Any, Any, Any], ...] = (
     CONTENT_SOURCE_ADAPTER,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
+    SKILL_PACKAGE_UPLOAD_SOURCE_ADAPTER,
+    SKILL_USAGE_SOURCE_ADAPTER,
 )
 
 
@@ -130,9 +149,12 @@ class _Repositories:
 
     sources: SourceRepository
     artifacts: ArtifactRepository
+    governance: ArtifactGovernanceRepository
     candidates: CandidateRepository
     cursors: SourceCursorRepository
     external_skills: ExternalSkillRepository
+    skill_packages: SkillPackageRepository
+    skill_publications: SkillPublicationRepository
     statistics: StatisticsRepository
 
 
@@ -207,6 +229,7 @@ class _ScopedServices:
             candidates=self.repositories.candidates,
             artifacts=self.repositories.artifacts,
             experience_index=self.experience_index,
+            skill_packages=self.repositories.skill_packages,
             sources=self.repositories.sources,
             id_factory=self.id_factory,
             connection=connection,
@@ -310,12 +333,15 @@ class RelationalContexts:
         self.repositories = _Repositories(
             sources=SourceRepository(_SOURCE_ADAPTERS),
             artifacts=ArtifactRepository((Handoff, Memory, Experience, Skill)),
+            governance=ArtifactGovernanceRepository(),
             candidates=CandidateRepository({
                 Experience.family: ExperienceContent,
                 Skill.family: SkillContent,
             }),
             cursors=SourceCursorRepository(),
             external_skills=ExternalSkillRepository(),
+            skill_packages=SkillPackageRepository(),
+            skill_publications=SkillPublicationRepository(),
             statistics=StatisticsRepository(),
         )
         self._candidate_pipeline = candidate_pipeline
@@ -344,6 +370,7 @@ class RelationalContexts:
         self._source_locks: dict[str, asyncio.Lock] = {}
         self._activation_locks: dict[str, asyncio.Lock] = {}
         self._experience_locks: dict[str, asyncio.Lock] = {}
+        self._skill_publication_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
 
     def review(self, scope_id: str, /) -> ReviewService:
         """Return Candidate and reviewed Artifact operations bound to one scope."""
@@ -384,6 +411,188 @@ class RelationalContexts:
         async with self.database.transaction() as connection:
             return await self.experience_index.search(connection, scope, query, limit)
 
+    async def search_skills(
+        self,
+        scope_id: str,
+        query: str,
+        limit: int,
+        /,
+    ) -> tuple[SkillSearchHit, ...]:
+        """Recall relevant active managed Skill heads in one scope."""
+
+        if limit < 1:
+            raise ValueError("Skill search limit must be positive")  # noqa: TRY003
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            return await self.experience_index.search_skills(connection, scope, query, limit)
+
+    async def get_skill_governance(
+        self,
+        scope_id: str,
+        artifact_id: str,
+        /,
+    ) -> ArtifactGovernance:
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            return await self.repositories.governance.get(connection, scope, Skill.family, artifact_id)
+
+    async def list_skills(
+        self,
+        scope_id: str,
+        include_deprecated: bool,
+        limit: int,
+        /,
+    ) -> tuple[tuple[Skill, ArtifactGovernance], ...]:
+        """List current managed Skill heads with mutable governance state."""
+
+        if limit < 1:
+            raise ValueError("Skill Library limit must be positive")  # noqa: TRY003
+        scope = validate_scope_id(scope_id)
+        states = (
+            (ArtifactLifecycleState.ACTIVE.value, ArtifactLifecycleState.DEPRECATED.value)
+            if include_deprecated
+            else (ArtifactLifecycleState.ACTIVE.value,)
+        )
+        async with self.database.transaction() as connection:
+            rows = tuple(
+                (
+                    await connection.execute(
+                        select(
+                            ARTIFACT_HEADS_TABLE.c.artifact_id,
+                            ARTIFACT_HEADS_TABLE.c.revision,
+                        )
+                        .where(
+                            ARTIFACT_HEADS_TABLE.c.scope_id == scope,
+                            ARTIFACT_HEADS_TABLE.c.family == Skill.family,
+                            ARTIFACT_HEADS_TABLE.c.lifecycle_state.in_(states),
+                        )
+                        .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id)
+                        .limit(limit)
+                    )
+                ).mappings()
+            )
+            values = []
+            for row in rows:
+                artifact_id = str(row["artifact_id"])
+                skill = await self.repositories.artifacts.get(
+                    connection,
+                    scope,
+                    ArtifactRef(
+                        family=Skill.family,
+                        artifact_id=artifact_id,
+                        revision=int(row["revision"]),
+                    ),
+                )
+                governance = await self.repositories.governance.get(connection, scope, Skill.family, artifact_id)
+                values.append((cast(Skill, skill), governance))
+            return tuple(values)
+
+    async def update_skill_lifecycle(
+        self,
+        scope_id: str,
+        artifact_id: str,
+        expected_generation: int,
+        lifecycle_state: ArtifactLifecycleState,
+        replacement_artifact_id: str | None,
+        /,
+    ) -> ArtifactGovernance:
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            return await self.repositories.governance.transition(
+                connection,
+                scope,
+                Skill.family,
+                artifact_id,
+                expected_generation,
+                lifecycle_state,
+                replacement_artifact_id,
+            )
+
+    async def skill_package(
+        self,
+        scope_id: str,
+        artifact: ArtifactRef,
+        /,
+    ) -> SkillPackageSnapshot:
+        """Resolve and verify the exact package owned by an approved Skill Revision."""
+
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            value = await self.repositories.artifacts.get(connection, scope, artifact)
+            if not isinstance(value, Skill) or value.content.package is None:
+                raise ValueError("the Skill Revision is not package-backed")  # noqa: TRY003
+            return await self.repositories.skill_packages.get(connection, scope, value.content.package)
+
+    async def package_snapshot(
+        self,
+        scope_id: str,
+        package: SkillPackageRef,
+        /,
+    ) -> SkillPackageSnapshot:
+        """Resolve one exact package reference for inert Review inspection."""
+
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            return await self.repositories.skill_packages.get(connection, scope, package)
+
+    async def upload_skill_package(
+        self,
+        scope_id: str,
+        archive_bytes: bytes,
+        reason: str | None,
+        target: ArtifactRef | None,
+        /,
+    ) -> ArtifactCandidate[SkillContent]:
+        """Canonicalize an explicit upload and create a pending exact-import Candidate."""
+
+        scope = validate_scope_id(scope_id)
+        package = await asyncio.to_thread(capture_skill_archive, archive_bytes)
+        source = await SKILL_PACKAGE_UPLOAD_SOURCE_ADAPTER.resolve(
+            SkillPackageUploadCapture(
+                package=package.reference,
+                name=package.metadata.name,
+                description=package.metadata.description,
+            )
+        )
+        async with self.database.transaction() as connection:
+            await self.repositories.skill_packages.add(connection, scope, package)
+            stored = await self.repositories.sources.add(connection, scope, source)
+            artifacts = () if target is None else (target,)
+            return (
+                await self
+                ._services_for(scope)
+                .review(connection)
+                .propose_skill(
+                    package.as_skill_content(),
+                    sources=(stored.ref,),
+                    artifacts=artifacts,
+                    target=target,
+                    reason=reason,
+                )
+            )
+
+    async def record_skill_usage(
+        self,
+        scope_id: str,
+        observation: SkillUsageCapture,
+        /,
+    ) -> SourceReceipt:
+        """Validate and capture one exact, bounded Skill usage observation."""
+
+        scope = validate_scope_id(scope_id)
+        source = await SKILL_USAGE_SOURCE_ADAPTER.resolve(observation)
+        async with self.database.transaction() as connection:
+            value = await self.repositories.artifacts.get(connection, scope, observation.skill_ref)
+            if not isinstance(value, Skill) or value.content.package is None:
+                raise ValueError("usage must reference a package-backed Skill Revision")  # noqa: TRY003
+            expected_digest = f"sha256:{value.content.package.tree_digest}"
+            if observation.package_digest != expected_digest:
+                raise ValueError("usage package digest does not match the Skill Revision")  # noqa: TRY003
+            if observation.task_source is not None:
+                await self.repositories.sources.get(connection, scope, observation.task_source)
+            stored = await self.repositories.sources.add(connection, scope, source)
+            return SourceReceipt(source_ref=stored.ref, sequence=stored.journal_position)
+
     def external_skills(self, scope_id: str, /) -> ExternalSkillRegistryService:
         """Return the host-local external Skill Registry bound to one scope."""
 
@@ -396,6 +605,26 @@ class RelationalContexts:
             provider=self._external_skill_provider,
         )
 
+    def skill_publications(
+        self,
+        scope_id: str,
+        target_id: str,
+        artifact_id: str,
+        /,
+    ) -> ManagedSkillPublicationService:
+        """Return safe package publication operations serialized for one target binding."""
+
+        scope = validate_scope_id(scope_id)
+        return ManagedSkillPublicationService(
+            database=self.database,
+            scope_id=scope,
+            artifacts=self.repositories.artifacts,
+            governance=self.repositories.governance,
+            packages=self.repositories.skill_packages,
+            publications=self.repositories.skill_publications,
+            lock=self._skill_publication_locks.setdefault((scope, target_id, artifact_id), asyncio.Lock()),
+        )
+
     async def import_external_skill(
         self,
         scope_id: str,
@@ -405,17 +634,32 @@ class RelationalContexts:
         reason: str | None,
         /,
     ) -> GeneratedCandidateResult:
-        """Snapshot an exact external package only for an explicit managed import or fork."""
+        """Snapshot an exact package, preserving import bytes or using LLM only for a fork."""
 
-        if self._skill_generator is None:
+        if mode is ExternalSkillImportMode.FORK and self._skill_generator is None:
             raise GenerationCapabilityUnavailableError(Skill.family)
         scope = validate_scope_id(scope_id)
-        snapshot = await self.external_skills(scope).snapshot(external_skill_id, fingerprint)
+        capture = await self.external_skills(scope).snapshot(external_skill_id, fingerprint)
         source = await EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER.resolve(
-            ExternalSkillSnapshotCapture(snapshot=snapshot, mode=mode)
+            ExternalSkillSnapshotCapture(snapshot=capture.as_source_snapshot(), mode=mode)
         )
         async with self.database.transaction() as connection:
+            await self.repositories.skill_packages.add(connection, scope, capture.package)
             stored = await self.repositories.sources.add(connection, scope, source)
+            if mode is ExternalSkillImportMode.IMPORT:
+                candidate = (
+                    await self
+                    ._services_for(scope)
+                    .review(connection)
+                    .propose_skill(
+                        capture.package.as_skill_content(),
+                        sources=(stored.ref,),
+                        artifacts=(),
+                        target=None,
+                        reason=reason,
+                    )
+                )
+                return GeneratedCandidateResult(candidate=candidate)
         return await self.generation(scope).skill(
             origin=SkillGenerationOrigin.SOURCE,
             sources=(stored.ref,),

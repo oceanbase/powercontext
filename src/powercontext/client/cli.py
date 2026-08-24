@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +28,13 @@ import typer
 from pydantic import SecretStr, ValidationError
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.skill import (
+    AgentSkillTarget,
+    SkillContent,
+    capture_skill_archive,
+    materialize_skill_package,
+)
+from powercontext.builtin.artifacts.skill.projection import validate_skill_projection_target
 from powercontext.client.client import PowerContextClient
 from powercontext.client.errors import ClientError
 from powercontext.client.projections import SkillExportTarget, export_skill
@@ -46,6 +55,7 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
     HealthResponse,
@@ -700,16 +710,53 @@ async def _export_managed_skill(
         token = None if options.api_token is None else options.api_token.get_secret_value()
         async with PowerContextClient(options.server_url, token=token, timeout=options.timeout) as client:
             response = await client.get_skill(request)
-        exported = export_skill(
-            ArtifactRef(
-                family=response.artifact.family,
-                artifact_id=response.artifact.artifact_id,
-                revision=response.artifact.revision,
-            ),
-            response.content,
-            target,
-            destination,
-        )
+            if response.content.package is None:
+                exported = export_skill(
+                    ArtifactRef(
+                        family=response.artifact.family,
+                        artifact_id=response.artifact.artifact_id,
+                        revision=response.artifact.revision,
+                    ),
+                    response.content,
+                    target,
+                    destination,
+                )
+            else:
+                download = await client.download_skill_package(
+                    GetSkillPackageRequest(scope_id=request.scope_id, artifact=request.artifact)
+                )
+                try:
+                    archive_bytes = base64.b64decode(download.archive_base64, validate=True)
+                except (binascii.Error, ValueError) as error:
+                    raise ValueError("Server returned an invalid Skill package archive") from error  # noqa: TRY003
+                package = capture_skill_archive(archive_bytes)
+                if package.reference.model_dump(mode="json") != response.content.package.model_dump(mode="json"):
+                    raise ValueError(  # noqa: TRY003, TRY301
+                        "downloaded Skill package does not match the Artifact"
+                    )
+                runtime_content = SkillContent(
+                    name=response.content.name,
+                    description=response.content.description,
+                    instructions=response.content.instructions,
+                    validation=tuple(item.root for item in response.content.validation),
+                    package=package.reference,
+                    license=response.content.license,
+                    compatibility=response.content.compatibility,
+                    metadata=response.content.metadata or {},
+                    allowed_tools=response.content.allowed_tools,
+                )
+                validate_skill_projection_target(
+                    runtime_content,
+                    AgentSkillTarget(
+                        target_id="client",
+                        agent_kind=target.value,
+                        installation_scope="project",
+                        path=destination.parent,
+                        allow_managed_publish=True,
+                    ),
+                )
+                materialize_skill_package(package, destination)
+                exported = destination
     except ClientError as error:
         typer.echo(_error_message(error), err=True)
         raise typer.Exit(code=1) from error

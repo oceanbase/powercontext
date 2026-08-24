@@ -139,6 +139,43 @@
           <ol id="skills-validation"></ol>
         </section>
 
+        <section class="skills-package" id="skills-package" aria-labelledby="skills-package-title" hidden>
+          <h3 id="skills-package-title" data-i18n="packageContents">Package contents</h3>
+          <p id="skills-package-status" role="status" aria-live="polite"></p>
+          <div class="skills-package-browser">
+            <ul id="skills-package-files" aria-label="Package files" data-i18n-aria-label="packageFiles"></ul>
+            <div>
+              <code id="skills-package-path"></code>
+              <pre id="skills-package-preview"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="skills-governance" id="skills-governance" aria-labelledby="skills-governance-title" hidden>
+          <div class="skills-delivery-heading">
+            <div>
+              <h3 id="skills-governance-title" data-i18n="governance">Governance</h3>
+              <p data-i18n="governanceIntro">Deprecate or retire the logical Skill without changing immutable package bytes.</p>
+            </div>
+          </div>
+          <div class="skills-governance-controls">
+            <label>
+              <span data-i18n="lifecycleState">Lifecycle state</span>
+              <select id="skills-lifecycle-state">
+                <option value="active" data-i18n="active">Active</option>
+                <option value="deprecated" data-i18n="deprecated">Deprecated</option>
+                <option value="retired" data-i18n="retired">Retired</option>
+              </select>
+            </label>
+            <label>
+              <span data-i18n="replacementSkill">Replacement Skill ID (optional)</span>
+              <input id="skills-replacement-id" type="text" maxlength="256" autocomplete="off">
+            </label>
+            <button class="secondary-button" id="skills-apply-lifecycle" type="button" data-i18n="applyLifecycle">Apply lifecycle</button>
+          </div>
+          <p id="skills-governance-status" role="status" aria-live="polite"></p>
+        </section>
+
         <section class="skills-lineage" id="skills-lineage" aria-labelledby="skills-lineage-title" hidden>
           <h3 id="skills-lineage-title" data-i18n="lineage">Lineage</h3>
           <div class="skills-reference-groups">
@@ -180,6 +217,11 @@
                 <dt data-i18n="discovery">Discovery</dt>
                 <dd id="skills-discovery"></dd>
               </div>
+              <div>
+                <dt data-i18n="compatibility">Compatibility</dt>
+                <dd id="skills-compatibility"></dd>
+                <ul class="skills-compatibility-reasons" id="skills-compatibility-reasons"></ul>
+              </div>
             </dl>
             <div class="skills-delivery-path">
               <span data-i18n="destination">Destination</span>
@@ -188,6 +230,8 @@
           </div>
           <div class="skills-detail-actions">
             <button class="secondary-button" id="skills-create-revision" type="button" data-i18n="createSkillRevision">Create revision</button>
+            <input id="skills-revision-package" type="file" accept=".zip,application/zip" hidden>
+            <button class="secondary-button" id="skills-unpublish" type="button" data-i18n="unpublishSkill" hidden>Unpublish</button>
             <button class="primary-button" id="skills-publish" type="button" data-i18n="publishSkill" hidden>Publish Skill</button>
           </div>
         </section>
@@ -205,9 +249,20 @@
       </div>
     </form>
   </dialog>
+
+  <dialog class="review-dialog" id="skills-retire-dialog">
+    <form method="dialog">
+      <h2 data-i18n="retireSkillTitle">Retire this Skill?</h2>
+      <p data-i18n="retireSkillWarning">Retirement is irreversible. Existing publication must be removed separately.</p>
+      <div class="review-dialog-actions">
+        <button class="secondary-button" value="cancel" type="submit" data-i18n="cancel">Cancel</button>
+        <button class="danger-button" id="skills-confirm-retire" value="default" type="submit" data-i18n="retireSkill">Retire Skill</button>
+      </div>
+    </form>
+  </dialog>
 </section>
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/skills.js') }}?v=agent-targets-v1"></script>
+<script type="module" src="{{ url_for('web_static', path='/skills.js') }}?v=standard-packages-v1"></script>
 {% endblock %}

@@ -63,14 +63,26 @@ from powercontext.builtin.artifacts.memory.errors import (
     MemoryEntryNotFoundError,
 )
 from powercontext.builtin.artifacts.skill import (
+    AgentSkillTarget,
     ExternalSkillRegistryUnavailableError,
     ExternalSkillResolution,
     Skill,
+    SkillPackageRef,
+    SkillPackageSnapshot,
+    SkillSearchHit,
+)
+from powercontext.builtin.artifacts.skill.publication import (
+    ManagedSkillPublicationService,
+    ManagedSkillPublicationStatus,
 )
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
+from powercontext.builtin.persistence.artifact_governance import (
+    ArtifactGovernance,
+    ArtifactLifecycleState,
+)
 from powercontext.builtin.review.generation import GeneratedCandidateResult, ReviewedGenerationService
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
@@ -131,6 +143,7 @@ from powercontext.builtin.sources import (
     ContentCapture,
     ContentSource,
     ExternalSkillImportMode,
+    SkillUsageCapture,
     SourceCursor,
     validate_scope_id,
 )
@@ -184,12 +197,21 @@ ScopeIds = Callable[[], Awaitable[tuple[str, ...]]]
 ReviewServiceFactory = Callable[[str], ReviewService]
 GenerationServiceFactory = Callable[[str], ReviewedGenerationService]
 ExternalSkillRegistryFactory = Callable[[str], ExternalSkillRegistryService]
+SkillPublicationServiceFactory = Callable[[str, str, str], ManagedSkillPublicationService]
 ExternalSkillImporter = Callable[
     [str, str, str, ExternalSkillImportMode, str | None],
     Awaitable[GeneratedCandidateResult],
 ]
 ExperienceIncubator = Callable[[str, int], Awaitable[ExperienceIncubationResult]]
 ExperienceRecall = Callable[[str, str, int], Awaitable[tuple[ExperienceSearchHit, ...]]]
+SkillRecall = Callable[[str, str, int], Awaitable[tuple[SkillSearchHit, ...]]]
+SkillLister = Callable[[str, bool, int], Awaitable[tuple[tuple[Skill, ArtifactGovernance], ...]]]
+SkillGovernanceReader = Callable[[str, str], Awaitable[ArtifactGovernance]]
+SkillGovernanceUpdater = Callable[[str, str, int, ArtifactLifecycleState, str | None], Awaitable[ArtifactGovernance]]
+SkillPackageResolver = Callable[[str, ArtifactRef], Awaitable[SkillPackageSnapshot]]
+PackageSnapshotResolver = Callable[[str, SkillPackageRef], Awaitable[SkillPackageSnapshot]]
+SkillPackageUploader = Callable[[str, bytes, str | None, ArtifactRef | None], Awaitable[SkillCandidate]]
+SkillUsageRecorder = Callable[[str, SkillUsageCapture], Awaitable[SourceReceipt]]
 StatisticsServiceFactory = Callable[[str], RelationalScopedStatistics]
 RecallTokenEstimator = Callable[[str, PreparedContextBuild], Awaitable[RecallTokenMeasurement | None]]
 Clock = Callable[[], datetime]
@@ -210,6 +232,10 @@ class _RuntimeStateError(RuntimeError):
             "external-skill-registry": "External Skill Registry is not configured",
             "review": "Candidate Review services are not configured",
             "scheduler": "Built-in Runtime scheduler is already started",
+            "skill-publication": "Managed Skill publication services are not configured",
+            "skill-governance": "Managed Skill governance services are not configured",
+            "skill-package": "Managed Skill package services are not configured",
+            "skill-usage": "Managed Skill usage recording is not configured",
             "statistics": "Statistics services are not configured",
         }
         super().__init__(messages[code])
@@ -528,6 +554,118 @@ class ScopedSkillApplication:
     async def get(self, request: GetSkillRequest, /) -> Skill:
         async with self._runtime._scoped_operation(self.scope_id):
             return await self._runtime._review(self.scope_id).get_skill(request.artifact)
+
+    async def search(self, query: str, limit: int, /) -> tuple[SkillSearchHit, ...]:
+        recall = self._runtime._skill_recall
+        if recall is None:
+            return ()
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await recall(self.scope_id, query, limit)
+
+    async def list(
+        self,
+        *,
+        include_deprecated: bool = False,
+        limit: int = 100,
+    ) -> tuple[tuple[Skill, ArtifactGovernance], ...]:
+        lister = self._runtime._skill_lister
+        if lister is None:
+            return ()
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await lister(self.scope_id, include_deprecated, limit)
+
+    async def package(self, artifact: ArtifactRef, /) -> SkillPackageSnapshot:
+        resolver = self._runtime._skill_package_resolver
+        if resolver is None:
+            raise _RuntimeStateError("skill-package")
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await resolver(self.scope_id, artifact)
+
+    async def package_snapshot(self, package: SkillPackageRef, /) -> SkillPackageSnapshot:
+        resolver = self._runtime._package_snapshot_resolver
+        if resolver is None:
+            raise _RuntimeStateError("skill-package")
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await resolver(self.scope_id, package)
+
+    async def upload_package(
+        self,
+        archive_bytes: bytes,
+        reason: str | None,
+        target: ArtifactRef | None,
+        /,
+    ) -> SkillCandidate:
+        uploader = self._runtime._skill_package_uploader
+        if uploader is None:
+            raise _RuntimeStateError("skill-package")
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await uploader(self.scope_id, archive_bytes, reason, target)
+
+    async def record_usage(self, observation: SkillUsageCapture, /) -> SourceReceipt:
+        recorder = self._runtime._skill_usage_recorder
+        if recorder is None:
+            raise _RuntimeStateError("skill-usage")
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await recorder(self.scope_id, observation)
+
+    async def governance(self, artifact_id: str, /) -> ArtifactGovernance:
+        reader = self._runtime._skill_governance_reader
+        if reader is None:
+            raise _RuntimeStateError("skill-governance")
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await reader(self.scope_id, artifact_id)
+
+    async def update_lifecycle(
+        self,
+        artifact_id: str,
+        expected_generation: int,
+        lifecycle_state: ArtifactLifecycleState,
+        replacement_artifact_id: str | None,
+        /,
+    ) -> ArtifactGovernance:
+        updater = self._runtime._skill_governance_updater
+        if updater is None:
+            raise _RuntimeStateError("skill-governance")
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await updater(
+                self.scope_id,
+                artifact_id,
+                expected_generation,
+                lifecycle_state,
+                replacement_artifact_id,
+            )
+
+    async def inspect_publication(
+        self,
+        artifact: ArtifactRef,
+        target: AgentSkillTarget,
+        /,
+    ) -> ManagedSkillPublicationStatus:
+        async with self._runtime._scoped_operation(self.scope_id):
+            service = self._runtime._skill_publications(self.scope_id, target, artifact)
+            return await service.inspect(artifact, target)
+
+    async def publish(
+        self,
+        artifact: ArtifactRef,
+        target: AgentSkillTarget,
+        /,
+        *,
+        allow_deprecated: bool = False,
+    ) -> ManagedSkillPublicationStatus:
+        async with self._runtime._scoped_operation(self.scope_id):
+            service = self._runtime._skill_publications(self.scope_id, target, artifact)
+            return await service.publish(artifact, target, allow_deprecated=allow_deprecated)
+
+    async def unpublish(
+        self,
+        artifact: ArtifactRef,
+        target: AgentSkillTarget,
+        /,
+    ) -> ManagedSkillPublicationStatus:
+        async with self._runtime._scoped_operation(self.scope_id):
+            service = self._runtime._skill_publications(self.scope_id, target, artifact)
+            return await service.unpublish(artifact, target)
 
 
 class SkillApplication:
@@ -1169,9 +1307,18 @@ class BuiltinRuntime:
         review_service: ReviewServiceFactory | None = None,
         generation_service: GenerationServiceFactory | None = None,
         experience_recall: ExperienceRecall | None = None,
+        skill_recall: SkillRecall | None = None,
+        skill_lister: SkillLister | None = None,
+        skill_governance_reader: SkillGovernanceReader | None = None,
+        skill_governance_updater: SkillGovernanceUpdater | None = None,
+        skill_package_resolver: SkillPackageResolver | None = None,
+        package_snapshot_resolver: PackageSnapshotResolver | None = None,
+        skill_package_uploader: SkillPackageUploader | None = None,
+        skill_usage_recorder: SkillUsageRecorder | None = None,
         experience_incubator: ExperienceIncubator | None = None,
         external_skill_registry: ExternalSkillRegistryFactory | None = None,
         external_skill_importer: ExternalSkillImporter | None = None,
+        skill_publication_service: SkillPublicationServiceFactory | None = None,
         statistics_service: StatisticsServiceFactory | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
         readiness: RuntimeReadinessChecks | None = None,
@@ -1185,9 +1332,18 @@ class BuiltinRuntime:
         self._review_service = review_service
         self._generation_service = generation_service
         self._experience_recall = experience_recall
+        self._skill_recall = skill_recall
+        self._skill_lister = skill_lister
+        self._skill_governance_reader = skill_governance_reader
+        self._skill_governance_updater = skill_governance_updater
+        self._skill_package_resolver = skill_package_resolver
+        self._package_snapshot_resolver = package_snapshot_resolver
+        self._skill_package_uploader = skill_package_uploader
+        self._skill_usage_recorder = skill_usage_recorder
         self._experience_incubator = experience_incubator
         self._external_skill_registry = external_skill_registry
         self._external_skill_importer = external_skill_importer
+        self._skill_publication_service = skill_publication_service
         self._statistics_service = statistics_service
         self._recall_token_estimator = recall_token_estimator
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
@@ -1419,6 +1575,16 @@ class BuiltinRuntime:
         if self._external_skill_registry is None:
             raise ExternalSkillRegistryUnavailableError
         return self._external_skill_registry(validate_scope_id(scope_id))
+
+    def _skill_publications(
+        self,
+        scope_id: str,
+        target: AgentSkillTarget,
+        artifact: ArtifactRef,
+    ) -> ManagedSkillPublicationService:
+        if self._skill_publication_service is None:
+            raise _RuntimeStateError("skill-publication")
+        return self._skill_publication_service(validate_scope_id(scope_id), target.target_id, artifact.artifact_id)
 
     def _statistics(self, scope_id: str) -> RelationalScopedStatistics:
         if self._statistics_service is None:

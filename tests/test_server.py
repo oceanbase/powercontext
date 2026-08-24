@@ -106,7 +106,10 @@ def test_settings_load_server_environment(monkeypatch) -> None:
         (
             '{"host_id":"workstation-1","targets":['
             '{"target_id":"codex-project","agent_kind":"codex","installation_scope":"project",'
-            '"path":"/srv/project/.agents/skills","allow_managed_publish":true},'
+            '"path":"/srv/project/.agents/skills","allow_managed_publish":true,"environment":{'
+            '"operating_system":"linux","architecture":"x86_64","commands":{"python":"3.13.2"},'
+            '"network_policy":"restricted","writable_roots":["workspace"],'
+            '"dependency_install_policy":"denied","environment_names":["CI"]}},'
             '{"target_id":"claude-user","agent_kind":"claude_code","installation_scope":"user",'
             '"path":"/home/example/.claude/skills"}]}'
         ),
@@ -133,6 +136,9 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.external_skills.targets[0].target_id == "codex-project"
     assert settings.external_skills.targets[0].path.as_posix() == "/srv/project/.agents/skills"
     assert settings.external_skills.targets[0].allow_managed_publish is True
+    assert settings.external_skills.targets[0].environment is not None
+    assert settings.external_skills.targets[0].environment.commands == {"python": "3.13.2"}
+    assert settings.external_skills.targets[0].environment.environment_names == ("CI",)
     assert settings.external_skills.targets[1].agent_kind == "claude_code"
     assert settings.external_skills.targets[1].path.as_posix() == "/home/example/.claude/skills"
 

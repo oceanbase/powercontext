@@ -2806,6 +2806,7 @@ button:disabled {
 }
 
 .review-proposal,
+.review-package,
 .review-evidence,
 .review-lineage,
 .review-publication,
@@ -2813,6 +2814,7 @@ button:disabled {
   padding: 24px 28px;
 }
 
+.review-package,
 .review-evidence,
 .review-lineage,
 .review-publication,
@@ -2847,6 +2849,50 @@ button:disabled {
 .review-proposal dd,
 .review-lineage dd {
   margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-package-browser {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.38fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.review-package-browser ul {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-package-browser button {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 7px 9px;
+  color: var(--pc-text);
+  font: inherit;
+  text-align: left;
+}
+
+.review-package-browser button:hover,
+.review-package-browser button:focus-visible {
+  background: var(--pc-surface-secondary);
+}
+
+.review-package-browser pre {
+  min-height: 150px;
+  max-height: 420px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid var(--pc-rule);
+  border-radius: 8px;
+  background: var(--pc-surface-secondary);
+  padding: 14px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -3530,12 +3576,16 @@ button:disabled {
 
 .skills-overview,
 .skills-instructions,
+.skills-package,
+.skills-governance,
 .skills-lineage,
 .skills-delivery {
   padding: 24px 28px;
 }
 
 .skills-instructions,
+.skills-package,
+.skills-governance,
 .skills-lineage,
 .skills-delivery {
   border-top: 1px solid var(--pc-rule);
@@ -3611,6 +3661,122 @@ button:disabled {
 .skills-instructions li {
   padding-left: 3px;
   line-height: 1.55;
+}
+
+.skills-package > p,
+.skills-governance > p {
+  margin: -6px 0 12px;
+  color: var(--pc-muted);
+  font-size: 12px;
+}
+
+.skills-package-browser {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.36fr) minmax(0, 1fr);
+  min-height: 220px;
+  border: 1px solid var(--pc-rule);
+  border-radius: var(--pc-radius);
+  background: var(--pc-surface-secondary);
+  overflow: hidden;
+}
+
+.skills-package-browser ul {
+  max-height: 420px;
+  margin: 0;
+  border-right: 1px solid var(--pc-rule);
+  overflow: auto;
+  padding: 8px;
+  list-style: none;
+}
+
+.skills-package-browser button {
+  width: 100%;
+  border: 0;
+  border-radius: var(--pc-radius-control);
+  background: transparent;
+  color: var(--pc-text);
+  font: 11px/1.5 var(--pc-font-code);
+  padding: 7px 9px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.skills-package-browser button:hover,
+.skills-package-browser button:focus-visible,
+.skills-package-browser button[aria-current="true"] {
+  background: var(--pc-accent-soft);
+  color: var(--pc-accent);
+}
+
+.skills-package-browser > div {
+  min-width: 0;
+  padding: 12px;
+}
+
+.skills-package-browser > div > code {
+  color: var(--pc-muted);
+  font: 11px/1.5 var(--pc-font-code);
+}
+
+.skills-package-browser pre {
+  min-height: 170px;
+  max-height: 390px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid var(--pc-rule);
+  border-radius: var(--pc-radius-control);
+  background: var(--pc-surface);
+  color: var(--pc-ink);
+  font: 12px/1.65 var(--pc-font-code);
+  padding: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skills-governance-controls {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.6fr) minmax(240px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.skills-governance-controls label {
+  display: grid;
+  gap: 6px;
+  color: var(--pc-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.skills-governance-controls :is(input, select) {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--pc-rule-strong);
+  border-radius: var(--pc-radius-control);
+  outline: 0;
+  background: var(--pc-surface);
+  color: var(--pc-ink);
+  padding: 7px 10px;
+}
+
+.skills-governance-controls :is(input, select):focus {
+  border-color: var(--pc-accent);
+}
+
+.skills-status-active {
+  background: var(--pc-success-soft);
+  color: var(--pc-success);
+}
+
+.skills-status-deprecated {
+  background: var(--pc-warning-soft);
+  color: var(--pc-warning);
+}
+
+.skills-status-retired {
+  background: var(--pc-danger-soft);
+  color: var(--pc-danger);
 }
 
 .skills-reference-groups {
@@ -3727,6 +3893,16 @@ button:disabled {
   color: var(--pc-ink);
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+.skills-compatibility-reasons {
+  display: grid;
+  gap: 4px;
+  margin: 7px 0 0;
+  padding-left: 16px;
+  color: var(--pc-muted);
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .skills-delivery-path {
@@ -3933,8 +4109,16 @@ button:disabled {
 
   .skills-overview dl,
   .skills-reference-groups,
+  .skills-package-browser,
+  .skills-governance-controls,
   #skills-delivery-content {
     grid-template-columns: 1fr;
+  }
+
+  .skills-package-browser ul {
+    max-height: 190px;
+    border-right: 0;
+    border-bottom: 1px solid var(--pc-rule);
   }
 
   .skills-delivery-facts {

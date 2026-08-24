@@ -263,6 +263,11 @@ def test_experience_skill_and_review_operations_are_typed_and_family_routed() ->
         "description",
         "instructions",
         "validation",
+        "package",
+        "license",
+        "compatibility",
+        "metadata",
+        "allowed_tools",
     }
     assert schemas["ListArtifactCandidatesRequest"]["properties"]["limit"] == {
         "type": "integer",

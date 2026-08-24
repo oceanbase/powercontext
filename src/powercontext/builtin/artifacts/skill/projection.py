@@ -266,6 +266,14 @@ def _validate_agent_projection(content: SkillContent, destination: Path, agent_k
         )
 
 
+def validate_skill_projection_target(content: SkillContent, target: AgentSkillTarget, /) -> Path:
+    """Validate host-specific package constraints and return the exact destination."""
+
+    destination = target.path.expanduser().resolve(strict=False) / content.name
+    _validate_agent_projection(content, destination, target.agent_kind)
+    return destination
+
+
 def _agent_label(agent_kind: AgentKind) -> str:
     return "Codex" if agent_kind == "codex" else "Claude Code"
 
@@ -347,4 +355,5 @@ __all__ = [
     "inspect_skill_projection",
     "project_skill",
     "publish_skill_projection",
+    "validate_skill_projection_target",
 ]

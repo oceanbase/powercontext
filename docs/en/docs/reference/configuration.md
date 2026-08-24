@@ -101,9 +101,11 @@ change stored Memory or indexes. Provider and structured-output failures remain 
 reranking when search must remain independent of model availability. See
 [RFC 0080](../../rfcs/0080_memory_search_reranking.md) for the algorithm, concurrency, and API boundaries.
 
-The same configured generation model gates explicit Experience generation, managed Skill generation and evolution,
-and external Skill import or fork. Without it, these operations return a capability error before persisting a
-Candidate. Candidate Review, exact reads, and external Skill scan/list/resolve continue to work.
+The same configured generation model gates explicit Experience generation, managed Skill generation and semantic Skill
+fork/evolution. Exact external Skill import and complete package upload do not use a model: PowerContext validates and
+stores the canonical package bytes, then creates a pending Candidate with the same package digest. Without a generation
+model, semantic generation returns a capability error before persisting a Candidate; Review, package inspection and
+download, exact import, usage recording, and external Skill scan/list/resolve continue to work.
 
 Experience incubation is a separate APScheduler job with its own persisted Source cursor. Enable it with:
 
@@ -132,7 +134,16 @@ export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
       "agent_kind": "codex",
       "installation_scope": "project",
       "path": "/srv/project/.agents/skills",
-      "allow_managed_publish": true
+      "allow_managed_publish": true,
+      "environment": {
+        "operating_system": "linux",
+        "architecture": "x86_64",
+        "commands": {"python": "3.13.2", "bash": "5.2"},
+        "network_policy": "restricted",
+        "writable_roots": ["workspace"],
+        "dependency_install_policy": "denied",
+        "environment_names": ["CI"]
+      }
     },
     {
       "target_id": "claude-project",
@@ -149,9 +160,18 @@ Target IDs must be unique. `agent_kind` supports `codex` and `claude_code`; inst
 and `plugin`. PowerContext scans only the immediate Skill package directories under these explicit targets; it does not
 infer a home directory, install packages, or grant execution authority. `allow_managed_publish` defaults to `false`;
 when true, the authenticated Skills Library or Review page may explicitly create or safely update an approved managed
-Skill in that target. The page still cannot submit an arbitrary path or overwrite a foreign or modified package. The
+Skill in that target. Publication materializes the exact reviewed package, including scripts and references, without
+executing it or injecting a sidecar into the package. The same pages can safely unpublish only an intact package whose
+binding and tree digest still match; local drift and foreign content remain untouched. The page still cannot submit an
+arbitrary path or overwrite a foreign or modified package. The
 `host_id`, locator, and registration are local-environment state, not a cross-host contract. Existing `codex_roots`
 configuration remains accepted as a Codex-only compatibility form; new configuration should use `targets`.
+
+The optional `environment` object contains only observed, secret-free compatibility facts. Command values are version
+labels, and `environment_names` records names only, never values. PowerContext does not probe or execute package scripts
+to construct this profile. When it is absent, packages containing scripts report unknown compatibility; when present,
+the Skills Library compares known script interpreters with the observed command names and displays a reasoned assessment.
+The assessment does not grant network, filesystem, dependency-install, or environment access.
 
 The Server always creates non-recording OpenTelemetry request context so `X-PowerContext-Request-ID` can be derived from the
 inbound span. To enable recording and export for a CLI-managed Server, install

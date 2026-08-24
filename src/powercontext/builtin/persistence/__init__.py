@@ -29,6 +29,8 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
+from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
+from powercontext.builtin.persistence.skill_publications import SkillPublication, SkillPublicationRepository
 from powercontext.builtin.persistence.statistics import (
     StatisticsRepository,
     StoredInventoryCounts,
@@ -49,6 +51,9 @@ __all__ = (
     "PersistenceError",
     "RepositoryError",
     "RepositoryNotFoundError",
+    "SkillPackageRepository",
+    "SkillPublication",
+    "SkillPublicationRepository",
     "StatisticsRepository",
     "StoredInventoryCounts",
     "StoredModelUsage",

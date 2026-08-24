@@ -319,6 +319,128 @@ class ExperienceProposal(BaseModel):
     lesson: Annotated[StrictStr, Field(max_length=8000, min_length=1, pattern=".*\\S.*")]
 
 
+class SkillLifecycleState(StrEnum):
+    ACTIVE = "active"
+    DEPRECATED = "deprecated"
+    RETIRED = "retired"
+
+
+class SkillGovernance(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact: ArtifactReference
+    lifecycle_state: SkillLifecycleState
+    replacement_artifact_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1)]
+    governance_generation: Annotated[StrictInt, Field(ge=0)]
+
+
+class ListManagedSkillsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    query: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+    include_deprecated: StrictBool = False
+    limit: Annotated[StrictInt, Field(ge=1, le=200)] = 100
+
+
+class UpdateSkillLifecycleRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    expected_generation: Annotated[StrictInt, Field(ge=0)]
+    lifecycle_state: SkillLifecycleState
+    replacement_artifact_id: Annotated[
+        StrictStr | None, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")
+    ] = None
+
+
+class SkillPackageReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tree_digest: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    archive_digest: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    file_count: Annotated[StrictInt, Field(ge=1, le=256)]
+    uncompressed_size: Annotated[StrictInt, Field(ge=1, le=4194304)]
+    archive_size: Annotated[StrictInt, Field(ge=1, le=5242880)]
+
+
+class SkillPackageFile(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    path: Annotated[StrictStr, Field(max_length=512, min_length=1)]
+    digest: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    size: Annotated[StrictInt, Field(ge=0, le=4194304)]
+    media_type: Annotated[StrictStr, Field(max_length=255, min_length=1)]
+    executable: StrictBool
+
+
+class SkillPackageManifest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    package: SkillPackageReference
+    name: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+    description: Annotated[StrictStr, Field(max_length=1024, min_length=1)]
+    license: Annotated[StrictStr | None, Field(max_length=512, min_length=1)] = None
+    compatibility: Annotated[StrictStr | None, Field(max_length=500, min_length=1)] = None
+    metadata: Annotated[dict[str, StrictStr], Field(max_length=64)]
+    allowed_tools: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+    files: Annotated[list[SkillPackageFile], Field(max_length=256, min_length=1)]
+
+
+class GetSkillPackageRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    artifact: ArtifactReference
+
+
+class SkillPackageDownload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    package: SkillPackageReference
+    archive_base64: Annotated[StrictStr, Field(max_length=6990508, min_length=1, pattern="^[A-Za-z0-9+/]*={0,2}$")]
+
+
+class ProposeSkillPackageRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    archive_base64: Annotated[StrictStr, Field(max_length=6990508, min_length=1, pattern="^[A-Za-z0-9+/]*={0,2}$")]
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+    target: Annotated[
+        ArtifactReference | None,
+        Field(description="Exact managed Skill Revision replaced by this complete package Candidate."),
+    ] = None
+
+
+class Invoked(StrEnum):
+    TRUE = "true"
+    FALSE = "false"
+    UNKNOWN = "unknown"
+
+
+class Validation(StrEnum):
+    PASSED = "passed"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+
+
+class Outcome(StrEnum):
+    SUCCESS = "success"
+    FAILURE = "failure"
+    UNKNOWN = "unknown"
+
+
 class SkillValidationItem(RootModel[StrictStr]):
     root: Annotated[StrictStr, Field(max_length=2000, min_length=1, pattern="^\\S(?:.*\\S)?$")]
 
@@ -1056,8 +1178,30 @@ class SkillProposal(BaseModel):
     )
     name: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^\\S(?:.*\\S)?$")]
     description: Annotated[StrictStr, Field(max_length=2000, min_length=1, pattern="^\\S(?:.*\\S)?$")]
-    instructions: Annotated[StrictStr, Field(max_length=32000, min_length=1, pattern=".*\\S.*")]
-    validation: Annotated[list[SkillValidationItem], Field(max_length=32, min_length=1)]
+    instructions: Annotated[StrictStr, Field(max_length=131072)]
+    validation: Annotated[list[SkillValidationItem], Field(max_length=32)]
+    package: SkillPackageReference | None = None
+    license: Annotated[StrictStr | None, Field(max_length=512, min_length=1)] = None
+    compatibility: Annotated[StrictStr | None, Field(max_length=500, min_length=1)] = None
+    metadata: Annotated[dict[str, StrictStr] | None, Field(max_length=64)] = None
+    allowed_tools: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+
+
+class RecordSkillUsageRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    observation_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    skill_ref: ArtifactReference
+    package_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    target_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    selected: StrictBool
+    invoked: Invoked
+    validation: Validation
+    outcome: Outcome
+    task_source: SourceReference | None = None
+    environment_fingerprint: Annotated[StrictStr | None, Field(pattern="^sha256:[0-9a-f]{64}$")] = None
 
 
 class ExternalSkillRegistration(BaseModel):
@@ -1618,6 +1762,24 @@ class SkillArtifact(BaseModel):
     content: SkillProposal
     source_refs: list[SourceReference]
     artifact_refs: list[ArtifactReference]
+
+
+class ManagedSkillLibraryEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact: ArtifactReference
+    content: SkillProposal
+    source_refs: list[SourceReference]
+    artifact_refs: list[ArtifactReference]
+    governance: SkillGovernance
+
+
+class ListManagedSkillsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    skills: Annotated[list[ManagedSkillLibraryEntry], Field(max_length=200)]
 
 
 class UpdateHandoffReportProjectRequest(BaseModel):

@@ -20,6 +20,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Date,
+    DateTime,
     ForeignKeyConstraint,
     Integer,
     LargeBinary,
@@ -112,6 +113,9 @@ ARTIFACT_HEADS_TABLE = Table(
     Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, nullable=False),
     Column("searchable_text", _entry_text_type()),
+    Column("lifecycle_state", identity_string(16), nullable=False, server_default="active"),
+    Column("replacement_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
+    Column("governance_generation", BigInteger, nullable=False, server_default="0"),
     ForeignKeyConstraint(
         ("scope_id", "family", "artifact_id", "revision"),
         (
@@ -123,6 +127,18 @@ ARTIFACT_HEADS_TABLE = Table(
         ondelete="RESTRICT",
     ),
     CheckConstraint("revision > 0", name="ck_pc_artifact_heads_revision_positive"),
+    CheckConstraint(
+        "lifecycle_state IN ('active', 'deprecated', 'retired')",
+        name="ck_pc_artifact_heads_lifecycle_state",
+    ),
+    CheckConstraint(
+        "governance_generation >= 0",
+        name="ck_pc_artifact_heads_governance_generation_nonnegative",
+    ),
+    CheckConstraint(
+        "replacement_artifact_id IS NULL OR lifecycle_state = 'deprecated'",
+        name="ck_pc_artifact_heads_replacement_deprecated",
+    ),
 )
 
 
@@ -302,6 +318,57 @@ EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
     ),
 )
 
+SKILL_PACKAGES_TABLE = Table(
+    "pc_skill_packages",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("tree_digest", identity_string(64), primary_key=True),
+    Column("archive_digest", identity_string(64), nullable=False),
+    Column("archive_bytes", _canonical_payload_type(), nullable=False),
+    Column("manifest", _canonical_payload_type(), nullable=False),
+    Column("file_count", Integer, nullable=False),
+    Column("uncompressed_size", BigInteger, nullable=False),
+    Column("archive_size", BigInteger, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("file_count > 0 AND file_count <= 256", name="ck_pc_skill_packages_file_count"),
+    CheckConstraint(
+        "uncompressed_size > 0 AND uncompressed_size <= 4194304",
+        name="ck_pc_skill_packages_uncompressed_size",
+    ),
+    CheckConstraint(
+        "archive_size > 0 AND archive_size <= 5242880",
+        name="ck_pc_skill_packages_archive_size",
+    ),
+)
+
+SKILL_PUBLICATIONS_TABLE = Table(
+    "pc_skill_publications",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("target_id", identity_string(64), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("desired_revision", Integer, nullable=False),
+    Column("desired_tree_digest", identity_string(64), nullable=False),
+    Column("observed_revision", Integer),
+    Column("observed_tree_digest", identity_string(64)),
+    Column("destination", _entry_text_type(), nullable=False),
+    Column("state", identity_string(32), nullable=False),
+    Column("selected_runtime_variant", identity_string(128)),
+    Column("environment_fingerprint", identity_string(64)),
+    Column("generation", BigInteger, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("desired_revision > 0", name="ck_pc_skill_publications_desired_revision_positive"),
+    CheckConstraint(
+        "observed_revision IS NULL OR observed_revision > 0",
+        name="ck_pc_skill_publications_observed_revision_positive",
+    ),
+    CheckConstraint(
+        "state IN ('unpublished', 'current', 'update_available', 'conflict', 'drifted', 'incompatible')",
+        name="ck_pc_skill_publications_state",
+    ),
+    CheckConstraint("generation >= 0", name="ck_pc_skill_publications_generation_nonnegative"),
+)
+
 MODEL_USAGE_DAILY_TABLE = Table(
     "pc_model_usage_daily",
     SHARED_METADATA,
@@ -358,6 +425,8 @@ SHARED_TABLES = (
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     SOURCE_CURSORS_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
+    SKILL_PACKAGES_TABLE,
+    SKILL_PUBLICATIONS_TABLE,
 )
 
 

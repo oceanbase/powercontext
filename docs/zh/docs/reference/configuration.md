@@ -97,9 +97,10 @@ search request 最终 `limit` 的结果。它不会修改已存储 Memory 或索
 显式返回；如果搜索必须独立于模型可用性，请关闭 rerank。算法、并发与 API 边界见
 [RFC 0080](../../rfcs/0080_memory_search_reranking.md)。
 
-同一个 generation model 也控制显式 Experience generation、managed Skill generation/evolution，以及
-external Skill import/fork。未配置模型时，这些 operation 会在持久化 Candidate 前返回 capability error；
-Candidate Review、exact read 和 external Skill scan/list/resolve 仍可使用。
+同一个 generation model 也控制显式 Experience generation、managed Skill generation，以及语义化的 Skill
+fork/evolution。External Skill 精确导入和完整 package 上传不使用模型：PowerContext 会校验并保存 canonical package
+bytes，再创建 package digest 完全相同的 pending Candidate。未配置模型时，语义生成会在持久化 Candidate 前返回
+capability error；Review、package 检查与下载、精确导入、usage recording 和 external Skill scan/list/resolve 仍可使用。
 
 Experience 孵化使用独立的 APScheduler job 和持久化 Source cursor，可通过以下配置启用：
 
@@ -128,7 +129,16 @@ export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
       "agent_kind": "codex",
       "installation_scope": "project",
       "path": "/srv/project/.agents/skills",
-      "allow_managed_publish": true
+      "allow_managed_publish": true,
+      "environment": {
+        "operating_system": "linux",
+        "architecture": "x86_64",
+        "commands": {"python": "3.13.2", "bash": "5.2"},
+        "network_policy": "restricted",
+        "writable_roots": ["workspace"],
+        "dependency_install_policy": "denied",
+        "environment_names": ["CI"]
+      }
     },
     {
       "target_id": "claude-project",
@@ -145,8 +155,16 @@ export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
 和 `plugin`。PowerContext 只扫描这些显式 target 的直接 Skill package 子目录，不会推断 home 目录、安装 package
 或授予执行权限。`allow_managed_publish` 默认是 `false`；设为 `true` 后，authenticated Skills Library 或 Review
 页面可以把 approved managed Skill 显式创建或安全更新到该 target。页面仍不能提交任意路径，也不会覆盖外部或
-已被修改的 package。`host_id`、locator 和 registration 都是本地环境状态，不是跨 host contract。已有的
+已被修改的 package。发布会物化 Review 通过的完整精确 package（包括 scripts 和 references），不会执行其中内容，
+也不会向 package 注入 sidecar。相同页面只能在 binding 与 tree digest 仍匹配时安全取消发布；本地漂移和外部内容
+会保持不动。`host_id`、locator 和 registration 都是本地环境状态，不是跨 host contract。已有的
 `codex_roots` 配置继续作为 Codex-only 兼容格式被接受；新配置应使用 `targets`。
+
+可选的 `environment` object 只包含已观测且不含密钥的兼容性事实。Command value 是版本标签；
+`environment_names` 只记录名称，绝不记录值。PowerContext 不会为了构造该 profile 而探测或执行 package script。
+未配置时，包含 script 的 package 会显示未知兼容性；配置后，Skills Library 会把已知 script interpreter 与已观测
+command name 对比，并显示带原因的 Assessment。Assessment 不会授予 network、filesystem、dependency install 或
+environment 访问权。
 
 Server 始终创建 non-recording OpenTelemetry request context，从 inbound span 派生 `X-PowerContext-Request-ID`。如需为
 CLI 管理的 Server 启用 recording 和 export，请安装 `powercontext[cli,server,tracing-otlp]`、启用 tracing，

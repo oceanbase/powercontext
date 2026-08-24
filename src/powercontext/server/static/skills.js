@@ -76,6 +76,9 @@ const translations = {
     description: "Description",
     status: "Status",
     approved: "Approved",
+    active: "Active",
+    deprecated: "Deprecated",
+    retired: "Retired",
     available: "Available",
     unavailable: "Unavailable",
     artifact: "Artifact",
@@ -89,6 +92,26 @@ const translations = {
     entrypoint: "Entrypoint",
     instructions: "Instructions",
     validation: "Validation",
+    packageContents: "Package contents",
+    packageFiles: "Package files",
+    packageLoading: "Loading verified package contents...",
+    packageBinary: "Binary file preview is intentionally unavailable.",
+    packageTruncated: "Preview is limited to the first 64 KiB.",
+    packageLoadFailed: "Package contents could not be loaded. HTTP {status}.",
+    governanceGeneration: "Governance generation",
+    replacement: "Replacement",
+    governance: "Governance",
+    governanceIntro: "Deprecate or retire the logical Skill without changing immutable package bytes.",
+    lifecycleState: "Lifecycle state",
+    replacementSkill: "Replacement Skill ID (optional)",
+    applyLifecycle: "Apply lifecycle",
+    lifecycleUpdating: "Updating lifecycle...",
+    lifecycleUpdated: "Lifecycle updated to {state}.",
+    lifecycleFailed: "The lifecycle could not be updated. HTTP {status}.",
+    lifecycleConflict: "The Skill governance state changed. Refresh before trying again.",
+    retireSkillTitle: "Retire this Skill?",
+    retireSkillWarning: "Retirement is irreversible. Existing publication must be removed separately.",
+    retireSkill: "Retire Skill",
     lineage: "Lineage",
     sourceReferences: "Source references",
     artifactReferences: "Artifact references",
@@ -96,7 +119,9 @@ const translations = {
     noArtifactReferences: "No Artifact references",
     delivery: "Delivery",
     deliveryIntro: "Inspect or publish this approved Revision to an explicit Agent Skill target.",
-    createSkillRevision: "Create revision",
+    createSkillRevision: "Upload revision package",
+    revisionUploading: "Uploading complete successor package...",
+    revisionUploadFailed: "The successor package could not be proposed. HTTP {status}.",
     publishTarget: "Publish target",
     agentCodex: "Codex",
     agentClaudeCode: "Claude Code",
@@ -105,10 +130,23 @@ const translations = {
     installationPlugin: "Plugin",
     noPublishTargets: "No writable Skill target is configured.",
     noPublishTargetsHint: "Enable managed publication on an explicit local Agent target.",
+    standardPackageRequired: "This approved Skill predates standard package snapshots. Upload and approve a complete package as its next revision before publishing.",
     publishedRevision: "Published revision",
     destination: "Destination",
     discovery: "Discovery",
+    compatibility: "Compatibility",
+    compatible: "Compatible",
+    incompatible: "Incompatible",
+    unknown: "Unknown",
+    manual_review_required: "Manual review required",
     publishSkill: "Publish Skill",
+    unpublishSkill: "Unpublish",
+    unpublishSkillTitle: "Unpublish this managed Skill?",
+    unpublishConfirmation: "Remove the exact intact package from {target}. The approved Revision and package history remain available.",
+    unpublishing: "Unpublishing Skill...",
+    unpublicationSucceeded: "The managed package was safely removed from this Agent target.",
+    unpublicationFailed: "The managed package could not be safely removed. HTTP {status}.",
+    publishDeprecatedConfirmation: "This Skill is deprecated. Publish revision {revision} to {target} anyway? Existing PowerContext-managed content may be safely updated; foreign or modified content is never overwritten.",
     updateSkill: "Publish update",
     refreshDiscovery: "Refresh discovery",
     publishSkillCandidate: "Publish this managed Skill?",
@@ -194,6 +232,9 @@ const translations = {
     description: "描述",
     status: "状态",
     approved: "已批准",
+    active: "活跃",
+    deprecated: "已废弃",
+    retired: "已退役",
     available: "可用",
     unavailable: "不可用",
     artifact: "制品",
@@ -207,6 +248,26 @@ const translations = {
     entrypoint: "入口文件",
     instructions: "使用说明",
     validation: "验证要求",
+    packageContents: "技能包内容",
+    packageFiles: "技能包文件",
+    packageLoading: "正在加载已校验的技能包内容...",
+    packageBinary: "二进制文件不会在页面中预览。",
+    packageTruncated: "预览仅显示前 64 千字节。",
+    packageLoadFailed: "无法加载技能包内容（HTTP {status}）。",
+    governanceGeneration: "治理代次",
+    replacement: "替代技能",
+    governance: "治理",
+    governanceIntro: "无需修改不可变的技能包内容，即可废弃或退役这项逻辑技能。",
+    lifecycleState: "生命周期状态",
+    replacementSkill: "替代技能标识符（可选）",
+    applyLifecycle: "应用生命周期",
+    lifecycleUpdating: "正在更新生命周期...",
+    lifecycleUpdated: "生命周期已更新为“{state}”。",
+    lifecycleFailed: "无法更新生命周期（HTTP {status}）。",
+    lifecycleConflict: "技能治理状态已变化，请刷新后重试。",
+    retireSkillTitle: "退役这项技能？",
+    retireSkillWarning: "退役不可逆。已有发布需要单独安全下架。",
+    retireSkill: "退役技能",
     lineage: "沿袭关系",
     sourceReferences: "数据源引用",
     artifactReferences: "制品引用",
@@ -214,7 +275,9 @@ const translations = {
     noArtifactReferences: "无制品引用",
     delivery: "交付",
     deliveryIntro: "检查发布状态，或将已批准修订发布到明确配置的代理技能目录。",
-    createSkillRevision: "创建新修订",
+    createSkillRevision: "上传新修订包",
+    revisionUploading: "正在上传完整的后继技能包...",
+    revisionUploadFailed: "无法提交后继技能包（HTTP {status}）。",
     publishTarget: "发布目标",
     agentCodex: "Codex",
     agentClaudeCode: "Claude Code",
@@ -223,10 +286,23 @@ const translations = {
     installationPlugin: "插件级",
     noPublishTargets: "未配置可写的技能目标。",
     noPublishTargetsHint: "请在一个明确的本地技能目录上启用受管发布。",
+    standardPackageRequired: "这项已批准技能创建于标准技能包支持之前。请先上传完整技能包并批准为下一修订，再进行发布。",
     publishedRevision: "已发布修订",
     destination: "目标位置",
     discovery: "发现状态",
+    compatibility: "兼容性",
+    compatible: "兼容",
+    incompatible: "不兼容",
+    unknown: "未知",
+    manual_review_required: "需要人工检查",
     publishSkill: "发布技能",
+    unpublishSkill: "取消发布",
+    unpublishSkillTitle: "取消发布这项受管技能？",
+    unpublishConfirmation: "从 {target} 安全移除完全一致且未被修改的技能包。已批准修订和历史包仍会保留。",
+    unpublishing: "正在取消发布技能...",
+    unpublicationSucceeded: "已从该代理目标安全移除受管技能包。",
+    unpublicationFailed: "无法安全移除该受管技能包（HTTP {status}）。",
+    publishDeprecatedConfirmation: "这项技能已废弃。仍要将第 {revision} 版发布到 {target} 吗？系统只会安全更新由 PowerContext 管理的内容，不会覆盖外部内容或本地改动。",
     updateSkill: "发布更新",
     refreshDiscovery: "刷新发现状态",
     publishSkillCandidate: "发布这项受管技能？",
@@ -307,6 +383,16 @@ const facts = document.getElementById("skills-facts");
 const managedContent = document.getElementById("skills-managed-content");
 const instructions = document.getElementById("skills-instructions");
 const validation = document.getElementById("skills-validation");
+const packageSection = document.getElementById("skills-package");
+const packageStatus = document.getElementById("skills-package-status");
+const packageFiles = document.getElementById("skills-package-files");
+const packagePath = document.getElementById("skills-package-path");
+const packagePreview = document.getElementById("skills-package-preview");
+const governanceSection = document.getElementById("skills-governance");
+const lifecycleState = document.getElementById("skills-lifecycle-state");
+const replacementId = document.getElementById("skills-replacement-id");
+const applyLifecycleButton = document.getElementById("skills-apply-lifecycle");
+const governanceStatus = document.getElementById("skills-governance-status");
 const lineage = document.getElementById("skills-lineage");
 const sourceRefs = document.getElementById("skills-source-refs");
 const artifactRefs = document.getElementById("skills-artifact-refs");
@@ -318,12 +404,19 @@ const deliveryContent = document.getElementById("skills-delivery-content");
 const deliveryTarget = document.getElementById("skills-delivery-target");
 const publishedRevision = document.getElementById("skills-published-revision");
 const discovery = document.getElementById("skills-discovery");
+const compatibility = document.getElementById("skills-compatibility");
+const compatibilityReasons = document.getElementById("skills-compatibility-reasons");
 const destination = document.getElementById("skills-destination");
 const createRevisionButton = document.getElementById("skills-create-revision");
+const revisionPackageInput = document.getElementById("skills-revision-package");
+const unpublishButton = document.getElementById("skills-unpublish");
 const publishButton = document.getElementById("skills-publish");
 const publishDialog = document.getElementById("skills-publish-dialog");
+const publishDialogTitle = publishDialog.querySelector("h2");
 const publishConfirmation = document.getElementById("skills-publish-confirmation");
 const confirmPublishButton = document.getElementById("skills-confirm-publish");
+const retireDialog = document.getElementById("skills-retire-dialog");
+const confirmRetireButton = document.getElementById("skills-confirm-retire");
 
 const authenticationRequired = document.documentElement.dataset.serverAuthRequired === "true";
 const scopePreferenceKey = "powercontext.skills.scope";
@@ -334,17 +427,26 @@ let records = [];
 let currentScopeId = "";
 let selectedKey = "";
 let projectionView = null;
+let packageManifest = null;
+let packageSelectedPath = "";
+let packageError = null;
+let pendingPublicationAction = "publish";
 let currentAlert = null;
 let currentPageStatus = null;
 let currentAuthError = null;
 let libraryBusy = false;
 let projectionBusy = false;
 let actionBusy = false;
+let packageBusy = false;
+let lifecycleBusy = false;
+let revisionBusy = false;
 let scopeActiveIndex = -1;
 
 const scopeRequests = createRequestGate();
 const libraryRequests = createRequestGate();
 const projectionRequests = createRequestGate();
+const packageRequests = createRequestGate();
+const packagePreviewRequests = createRequestGate();
 const ui = createPageUi(translations, () => {
   renderAuthError();
   renderPageStatus();
@@ -392,20 +494,36 @@ refreshButton.addEventListener("click", () => {
 });
 
 deliveryTarget.addEventListener("change", renderDelivery);
+lifecycleState.addEventListener("change", renderGovernanceControls);
 
 createRevisionButton.addEventListener("click", () => {
   const record = selectedRecord();
-  if (!record || record.authority !== "managed") {
+  if (!record || record.authority !== "managed" || record.governance.lifecycle_state === "retired") {
     return;
   }
-  const params = new URLSearchParams({
-    scope: currentScopeId,
-    family: "skill",
-    status: "approved",
-    candidate: record.candidate.candidate_id,
-    action: "create-revision"
-  });
-  window.location.assign(`/reviews?${params.toString()}`);
+  revisionPackageInput.click();
+});
+
+revisionPackageInput.addEventListener("change", () => {
+  const [file] = revisionPackageInput.files;
+  revisionPackageInput.value = "";
+  if (file) {
+    void uploadRevisionPackage(file);
+  }
+});
+
+applyLifecycleButton.addEventListener("click", () => {
+  if (lifecycleState.value === "retired") {
+    retireDialog.showModal();
+    return;
+  }
+  void applyLifecycle();
+});
+
+confirmRetireButton.addEventListener("click", (event) => {
+  event.preventDefault();
+  retireDialog.close();
+  void applyLifecycle();
 });
 
 publishButton.addEventListener("click", () => {
@@ -418,13 +536,36 @@ publishButton.addEventListener("click", () => {
     revision: record.candidate.result_artifact.revision,
     target: `${agentLabel(target.agent_kind)} · ${target.target_id}`
   });
+  if (record.governance.lifecycle_state === "deprecated") {
+    publishConfirmation.textContent = translate("publishDeprecatedConfirmation", {
+      revision: record.candidate.result_artifact.revision,
+      target: `${agentLabel(target.agent_kind)} · ${target.target_id}`
+    });
+  }
+  pendingPublicationAction = "publish";
+  publishDialogTitle.textContent = translate("publishSkillCandidate");
+  confirmPublishButton.textContent = translate("publishSkill");
+  publishDialog.showModal();
+});
+
+unpublishButton.addEventListener("click", () => {
+  const target = selectedProjectionTarget();
+  if (!target || !canUnpublishProjection(target)) {
+    return;
+  }
+  pendingPublicationAction = "unpublish";
+  publishDialogTitle.textContent = translate("unpublishSkillTitle");
+  publishConfirmation.textContent = translate("unpublishConfirmation", {
+    target: `${agentLabel(target.agent_kind)} · ${target.target_id}`
+  });
+  confirmPublishButton.textContent = translate("unpublishSkill");
   publishDialog.showModal();
 });
 
 confirmPublishButton.addEventListener("click", (event) => {
   event.preventDefault();
   publishDialog.close();
-  void publishSelectedSkill();
+  void (pendingPublicationAction === "unpublish" ? unpublishSelectedSkill() : publishSelectedSkill());
 });
 
 pageStatusRetry.addEventListener("click", () => {
@@ -525,9 +666,13 @@ async function loadLibrary({refreshDiscovery = false, preserveSelection = false}
       ? previousSelection
       : (filteredRecords()[0]?.key || records[0]?.key || "");
     projectionView = null;
+    packageManifest = null;
+    packageSelectedPath = "";
+    packageError = null;
+    lifecycleState.dataset.recordKey = "";
     renderLibrary();
     renderDetail();
-    await loadProjectionStatus();
+    await Promise.all([loadProjectionStatus(), loadPackageManifest()]);
   } catch (error) {
     if (!request.isCurrent() || handleAuthenticationError(error)) {
       return;
@@ -543,37 +688,27 @@ async function loadLibrary({refreshDiscovery = false, preserveSelection = false}
 }
 
 async function loadApprovedManagedSkills() {
-  const candidates = [];
-  let cursor = null;
-  do {
-    const body = {
-      scope_id: currentScopeId,
+  const entries = await requestJson("/dashboard/skills/library", {
+    scope_id: currentScopeId,
+    include_deprecated: true,
+    limit: 200
+  });
+  return entries.map((entry) => {
+    const candidate = {
+      candidate_id: null,
       family: "skill",
-      status: "approved",
-      limit: 100
+      proposal: entry.content,
+      result_artifact: entry.artifact,
+      source_refs: entry.sources.map((reference) => ({
+        name: reference.source_type,
+        source_id: reference.source_id
+      })),
+      artifact_refs: entry.artifacts
     };
-    if (cursor) {
-      body.cursor = cursor;
-    }
-    const page = await requestJson("/v1/artifact-candidates/list", body);
-    candidates.push(...page.candidates);
-    cursor = page.next_cursor;
-  } while (cursor);
-
-  const latestByArtifact = new Map();
-  for (const candidate of candidates) {
-    if (!candidate.result_artifact || candidate.family !== "skill") {
-      continue;
-    }
-    const artifactId = candidate.result_artifact.artifact_id;
-    const current = latestByArtifact.get(artifactId);
-    if (!current || candidate.result_artifact.revision > current.result_artifact.revision) {
-      latestByArtifact.set(artifactId, candidate);
-    }
-  }
-  return [...latestByArtifact.values()].map((candidate) => ({
+    return {
     authority: "managed",
     candidate,
+    governance: entry.governance,
     key: `managed:${candidate.result_artifact.artifact_id}`,
     name: candidate.proposal.name,
     description: candidate.proposal.description,
@@ -584,7 +719,8 @@ async function loadApprovedManagedSkills() {
       candidate.candidate_id,
       formatArtifactReference(candidate.result_artifact)
     ].join("\n").toLocaleLowerCase()
-  }));
+    };
+  });
 }
 
 async function loadExternalSkills(refreshDiscovery) {
@@ -653,6 +789,86 @@ async function loadProjectionStatus() {
   }
 }
 
+async function loadPackageManifest() {
+  packageRequests.cancel();
+  packagePreviewRequests.cancel();
+  packageManifest = null;
+  packageSelectedPath = "";
+  packageError = null;
+  const record = selectedRecord();
+  renderPackageBrowser();
+  if (!record || record.authority !== "managed" || !record.candidate.proposal.package) {
+    return;
+  }
+  const request = packageRequests.start();
+  packageBusy = true;
+  renderPackageBrowser();
+  try {
+    const manifest = await requestJson("/dashboard/skill-packages/manifest", {
+      scope_id: currentScopeId,
+      package: record.candidate.proposal.package
+    });
+    if (!request.isCurrent() || selectedKey !== record.key) {
+      return;
+    }
+    packageManifest = manifest;
+    packageSelectedPath = manifest.files.some((file) => file.path === "SKILL.md")
+      ? "SKILL.md"
+      : (manifest.files[0]?.path || "");
+    renderPackageBrowser();
+    if (packageSelectedPath) {
+      await loadPackagePreview(packageSelectedPath);
+    }
+  } catch (error) {
+    if (!request.isCurrent() || handleAuthenticationError(error)) {
+      return;
+    }
+    packageError = {
+      key: error instanceof SkillsRequestError ? "packageLoadFailed" : "serverUnavailable",
+      values: {status: error.status}
+    };
+  } finally {
+    if (request.isCurrent()) {
+      packageBusy = false;
+      renderPackageBrowser();
+    }
+  }
+}
+
+async function loadPackagePreview(path) {
+  const record = selectedRecord();
+  if (!record || record.authority !== "managed" || !record.candidate.proposal.package) {
+    return;
+  }
+  const request = packagePreviewRequests.start();
+  packageSelectedPath = path;
+  packagePath.textContent = path;
+  packagePreview.textContent = translate("packageLoading");
+  renderPackageFileSelection();
+  try {
+    const preview = await requestJson("/dashboard/skill-packages/preview", {
+      scope_id: currentScopeId,
+      package: record.candidate.proposal.package,
+      path
+    });
+    if (!request.isCurrent() || selectedKey !== record.key || packageSelectedPath !== path) {
+      return;
+    }
+    const body = preview.binary ? translate("packageBinary") : (preview.content || "");
+    packagePreview.textContent = preview.truncated
+      ? `${body}\n\n${translate("packageTruncated")}`
+      : body;
+  } catch (error) {
+    if (!request.isCurrent() || handleAuthenticationError(error)) {
+      return;
+    }
+    packagePreview.textContent = translate(
+      error instanceof SkillsRequestError ? "packageLoadFailed" : "serverUnavailable",
+      {status: error.status}
+    );
+  }
+}
+
 async function publishSelectedSkill() {
   const record = selectedRecord();
   const target = selectedProjectionTarget();
@@ -669,7 +885,8 @@ async function publishSelectedSkill() {
       scope_id: currentScopeId,
       candidate_id: record.candidate.candidate_id,
       artifact: record.candidate.result_artifact,
-      target_id: target.target_id
+      target_id: target.target_id,
+      allow_deprecated: record.governance.lifecycle_state === "deprecated"
     });
     if (!request.isCurrent() || selectedKey !== record.key) {
       return;
@@ -698,6 +915,139 @@ async function publishSelectedSkill() {
       renderDetail();
     }
   }
+}
+
+async function unpublishSelectedSkill() {
+  const record = selectedRecord();
+  const target = selectedProjectionTarget();
+  if (!record || record.authority !== "managed" || !target || !canUnpublishProjection(target)) {
+    return;
+  }
+  const request = projectionRequests.start();
+  actionBusy = true;
+  currentAlert = null;
+  liveStatus.textContent = translate("unpublishing");
+  renderDelivery();
+  try {
+    const view = await requestJson("/dashboard/skill-projections/unpublish", {
+      scope_id: currentScopeId,
+      candidate_id: record.candidate.candidate_id,
+      artifact: record.candidate.result_artifact,
+      target_id: target.target_id
+    });
+    if (!request.isCurrent() || selectedKey !== record.key) {
+      return;
+    }
+    projectionView = view;
+    currentAlert = {key: "unpublicationSucceeded", tone: "success"};
+  } catch (error) {
+    if (!request.isCurrent() || handleAuthenticationError(error)) {
+      return;
+    }
+    currentAlert = error instanceof SkillsRequestError && error.status === 409
+      ? {key: "publicationConflict", tone: "error"}
+      : {
+        key: error instanceof SkillsRequestError ? "unpublicationFailed" : "serverUnavailable",
+        values: {status: error.status},
+        tone: "error"
+      };
+  } finally {
+    if (request.isCurrent()) {
+      actionBusy = false;
+      liveStatus.textContent = "";
+      renderDetail();
+    }
+  }
+}
+
+async function applyLifecycle() {
+  const record = selectedRecord();
+  if (!record || record.authority !== "managed" || lifecycleBusy) {
+    return;
+  }
+  lifecycleBusy = true;
+  governanceStatus.textContent = translate("lifecycleUpdating");
+  renderGovernanceControls();
+  try {
+    const governance = await requestJson("/dashboard/skills/lifecycle", {
+      scope_id: currentScopeId,
+      artifact_id: record.candidate.result_artifact.artifact_id,
+      expected_generation: record.governance.governance_generation,
+      lifecycle_state: lifecycleState.value,
+      replacement_artifact_id: lifecycleState.value === "deprecated"
+        ? (replacementId.value.trim() || null)
+        : null
+    });
+    if (selectedKey !== record.key) {
+      return;
+    }
+    record.governance = governance;
+    governanceStatus.textContent = translate("lifecycleUpdated", {
+      state: translate(governance.lifecycle_state)
+    });
+    renderLibrary();
+    renderDetail();
+  } catch (error) {
+    if (handleAuthenticationError(error)) {
+      return;
+    }
+    governanceStatus.textContent = translate(
+      error instanceof SkillsRequestError && error.status === 409
+        ? "lifecycleConflict"
+        : (error instanceof SkillsRequestError ? "lifecycleFailed" : "serverUnavailable"),
+      {status: error.status}
+    );
+  } finally {
+    lifecycleBusy = false;
+    renderGovernanceControls();
+  }
+}
+
+async function uploadRevisionPackage(file) {
+  const record = selectedRecord();
+  if (!record || record.authority !== "managed" || revisionBusy) {
+    return;
+  }
+  revisionBusy = true;
+  liveStatus.textContent = translate("revisionUploading");
+  renderDelivery();
+  try {
+    const archive = new Uint8Array(await file.arrayBuffer());
+    const candidate = await requestJson("/v1/skill/package/propose", {
+      scope_id: currentScopeId,
+      archive_base64: bytesToBase64(archive),
+      reason: "Complete successor package uploaded from the Skills Library.",
+      target: record.candidate.result_artifact
+    });
+    const params = new URLSearchParams({
+      scope: currentScopeId,
+      family: "skill",
+      status: "pending",
+      candidate: candidate.candidate_id
+    });
+    window.location.assign(`/reviews?${params.toString()}`);
+  } catch (error) {
+    if (!handleAuthenticationError(error)) {
+      currentAlert = {
+        key: error instanceof SkillsRequestError ? "revisionUploadFailed" : "serverUnavailable",
+        values: {status: error.status},
+        tone: "error"
+      };
+      renderDetail();
+    }
+  } finally {
+    revisionBusy = false;
+    liveStatus.textContent = "";
+    renderDelivery();
+  }
+}
+
+function bytesToBase64(bytes) {
+  const chunks = [];
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)));
+  }
+  return btoa(chunks.join(""));
 }
 
 function renderLibrary() {
@@ -763,6 +1113,8 @@ function renderDetail() {
 
   const isManaged = record.authority === "managed";
   managedContent.hidden = !isManaged;
+  packageSection.hidden = !isManaged || !record.candidate.proposal.package;
+  governanceSection.hidden = !isManaged;
   lineage.hidden = !isManaged;
   delivery.hidden = !isManaged;
   if (isManaged) {
@@ -770,6 +1122,8 @@ function renderDetail() {
     renderValidation(record.candidate.proposal.validation);
     renderReferences(sourceRefs, record.candidate.source_refs, formatSourceReference, "noSourceReferences");
     renderReferences(artifactRefs, record.candidate.artifact_refs, formatArtifactReference, "noArtifactReferences");
+    renderPackageBrowser();
+    renderGovernanceControls();
     renderDelivery();
   }
 }
@@ -782,7 +1136,12 @@ function clearDetail() {
   sourceRefs.replaceChildren();
   artifactRefs.replaceChildren();
   projectionRequests.cancel();
+  packageRequests.cancel();
+  packagePreviewRequests.cancel();
   projectionView = null;
+  packageManifest = null;
+  packageSelectedPath = "";
+  packageError = null;
 }
 
 function renderFacts(record) {
@@ -792,7 +1151,10 @@ function renderFacts(record) {
   if (record.authority === "managed") {
     appendDefinition(facts, "artifact", formatArtifactReference(record.candidate.result_artifact), true);
     appendDefinition(facts, "revision", record.candidate.result_artifact.revision);
-    appendDefinition(facts, "candidate", record.candidate.candidate_id, true);
+    appendDefinition(facts, "governanceGeneration", record.governance.governance_generation);
+    if (record.governance.replacement_artifact_id) {
+      appendDefinition(facts, "replacement", record.governance.replacement_artifact_id, true);
+    }
     return;
   }
   const registration = record.resolution.registration;
@@ -802,6 +1164,67 @@ function renderFacts(record) {
   appendDefinition(facts, "fingerprint", registration.fingerprint, true);
   appendDefinition(facts, "locator", registration.locator, true);
   appendDefinition(facts, "entrypoint", record.resolution.entrypoint || translate("unavailable"), true);
+}
+
+function renderPackageBrowser() {
+  const record = selectedRecord();
+  const visible = Boolean(
+    record && record.authority === "managed" && record.candidate.proposal.package
+  );
+  packageSection.hidden = !visible;
+  if (!visible) {
+    packageStatus.textContent = "";
+    packageFiles.replaceChildren();
+    packagePath.textContent = "";
+    packagePreview.textContent = "";
+    return;
+  }
+  packageStatus.textContent = packageBusy
+    ? translate("packageLoading")
+    : (packageError ? translate(packageError.key, packageError.values) : "");
+  packageFiles.replaceChildren();
+  if (!packageManifest) {
+    packagePath.textContent = "";
+    packagePreview.textContent = packageBusy ? translate("packageLoading") : "";
+    return;
+  }
+  renderPackageFileSelection();
+}
+
+function renderPackageFileSelection() {
+  packageFiles.replaceChildren();
+  if (!packageManifest) {
+    return;
+  }
+  for (const file of packageManifest.files) {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${file.path}${file.executable ? "  ·  +x" : ""}`;
+    button.setAttribute("aria-current", String(file.path === packageSelectedPath));
+    button.addEventListener("click", () => void loadPackagePreview(file.path));
+    item.append(button);
+    packageFiles.append(item);
+  }
+}
+
+function renderGovernanceControls() {
+  const record = selectedRecord();
+  const visible = Boolean(record && record.authority === "managed");
+  governanceSection.hidden = !visible;
+  if (!visible) {
+    return;
+  }
+  if (lifecycleState.dataset.recordKey !== record.key) {
+    lifecycleState.dataset.recordKey = record.key;
+    lifecycleState.value = record.governance.lifecycle_state;
+    replacementId.value = record.governance.replacement_artifact_id || "";
+    governanceStatus.textContent = "";
+  }
+  const retired = record.governance.lifecycle_state === "retired";
+  lifecycleState.disabled = retired || lifecycleBusy || actionBusy;
+  replacementId.disabled = retired || lifecycleBusy || lifecycleState.value !== "deprecated";
+  applyLifecycleButton.disabled = retired || lifecycleBusy || actionBusy;
 }
 
 function renderValidation(items) {
@@ -852,13 +1275,19 @@ function renderDelivery() {
     return;
   }
   delivery.hidden = false;
-  createRevisionButton.disabled = libraryBusy || projectionBusy || actionBusy;
+  const retired = record.governance.lifecycle_state === "retired";
+  createRevisionButton.disabled = retired || libraryBusy || projectionBusy || actionBusy || revisionBusy;
   publishButton.hidden = true;
+  unpublishButton.hidden = true;
   deliveryStatus.textContent = projectionBusy ? translate("publicationLoading") : "";
   projectionState.hidden = projectionBusy || !projectionView;
   deliveryEmpty.hidden = true;
   deliveryContent.hidden = true;
   if (projectionBusy || !projectionView) {
+    return;
+  }
+  if (projectionView.blocker === "standard_package_required") {
+    deliveryStatus.textContent = translate("standardPackageRequired");
     return;
   }
   if (projectionView.targets.length === 0) {
@@ -889,11 +1318,21 @@ function renderDelivery() {
     ? translate("unavailable")
     : String(target.published_revision);
   discovery.textContent = translate(discoveryStateKey(target.discovery));
+  compatibility.textContent = translate(target.compatibility);
+  compatibilityReasons.replaceChildren();
+  for (const reason of target.compatibility_reasons) {
+    const item = document.createElement("li");
+    item.textContent = reason;
+    compatibilityReasons.append(item);
+  }
   destination.textContent = target.destination;
   publishButton.textContent = translate(publicationActionKey(target));
   const canPublish = canPublishProjection(target);
-  publishButton.hidden = !canPublish;
+  publishButton.hidden = retired || !canPublish;
   publishButton.disabled = libraryBusy || projectionBusy || actionBusy || !canPublish;
+  const canUnpublish = canUnpublishProjection(target);
+  unpublishButton.hidden = !canUnpublish;
+  unpublishButton.disabled = libraryBusy || projectionBusy || actionBusy || !canUnpublish;
 }
 
 function selectRecord(key) {
@@ -902,10 +1341,14 @@ function selectRecord(key) {
   }
   selectedKey = key;
   projectionView = null;
+  packageManifest = null;
+  packageSelectedPath = "";
+  packageError = null;
   currentAlert = null;
   renderLibrary();
   renderDetail();
   void loadProjectionStatus();
+  void loadPackageManifest();
 }
 
 function ensureSelection() {
@@ -913,10 +1356,14 @@ function ensureSelection() {
   if (!filtered.some((record) => record.key === selectedKey)) {
     selectedKey = filtered[0]?.key || "";
     projectionView = null;
+    packageManifest = null;
+    packageSelectedPath = "";
+    packageError = null;
   }
   renderLibrary();
   renderDetail();
   void loadProjectionStatus();
+  void loadPackageManifest();
 }
 
 function filteredRecords() {
@@ -945,7 +1392,7 @@ function agentLabel(agentKind) {
 }
 
 function recordStatus(record) {
-  return record.authority === "managed" ? "approved" : record.resolution.status;
+  return record.authority === "managed" ? record.governance.lifecycle_state : record.resolution.status;
 }
 
 function compareRecords(left, right) {
@@ -983,8 +1430,14 @@ function appendDefinition(list, key, value, code = false) {
 }
 
 function canPublishProjection(target) {
-  return ["unpublished", "update_available"].includes(target.state)
-    || (target.state === "current" && target.discovery !== "available");
+  return target.compatibility !== "incompatible" && (
+    ["unpublished", "update_available"].includes(target.state)
+    || (target.state === "current" && target.discovery !== "available")
+  );
+}
+
+function canUnpublishProjection(target) {
+  return ["current", "update_available"].includes(target.state);
 }
 
 function publicationActionKey(target) {
@@ -1077,6 +1530,8 @@ function showLogin(messageKey = "") {
   scopeRequests.cancel();
   libraryRequests.cancel();
   projectionRequests.cancel();
+  packageRequests.cancel();
+  packagePreviewRequests.cancel();
   currentScopeId = "";
   currentAuthError = messageKey ? {key: messageKey, values: {}} : null;
   renderAuthError();

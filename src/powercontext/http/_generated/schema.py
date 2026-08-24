@@ -760,6 +760,181 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/skill/library": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "List or search current managed Skills",
+                "description": "Return current managed Skill heads with "
+                "lifecycle governance; retired Skills "
+                "remain exact-read only.",
+                "operationId": "list_managed_skills",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ListManagedSkillsRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Current managed Skill Library rows.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ListManagedSkillsResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/lifecycle": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Update managed Skill lifecycle",
+                "description": "Apply an explicit lifecycle transition "
+                "using governance generation CAS "
+                "without changing package bytes.",
+                "operationId": "update_skill_lifecycle",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/UpdateSkillLifecycleRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Updated managed Skill governance.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillGovernance"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/package/manifest": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Get an exact managed Skill package manifest",
+                "description": "Return verified metadata and "
+                "file inventory without "
+                "executing or returning file "
+                "bodies.",
+                "operationId": "get_skill_package_manifest",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetSkillPackageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Verified exact package manifest.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SkillPackageManifest"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/package/download": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Download an exact managed Skill package",
+                "description": "Return canonical ZIP bytes as bounded base64 with their content-addressed reference.",
+                "operationId": "download_skill_package",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetSkillPackageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Canonical exact package archive.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SkillPackageDownload"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/package/propose": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Propose an uploaded standard Skill package",
+                "description": "Canonicalize exact ZIP bytes, "
+                "store them once, and create a "
+                "pending Candidate without LLM "
+                "rewriting.",
+                "operationId": "propose_skill_package",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ProposeSkillPackageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "Pending exact package Candidate.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/usage": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Record a bounded Skill usage observation",
+                "description": "Validate an exact managed Skill Revision "
+                "and capture immutable bounded usage Source "
+                "evidence.",
+                "operationId": "record_skill_usage",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RecordSkillUsageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "Accepted immutable usage Source evidence.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/CaptureContentSourceResponse"}
+                            }
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
         "/v1/external-skills/scan": {
             "post": {
                 "tags": ["skill"],
@@ -2481,21 +2656,205 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["artifact", "content", "source_refs", "artifact_refs"],
             },
+            "SkillLifecycleState": {"type": "string", "enum": ["active", "deprecated", "retired"]},
+            "SkillGovernance": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "lifecycle_state": {"$ref": "#/components/schemas/SkillLifecycleState"},
+                    "replacement_artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "governance_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "lifecycle_state", "replacement_artifact_id", "governance_generation"],
+            },
+            "ManagedSkillLibraryEntry": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "content": {"$ref": "#/components/schemas/SkillProposal"},
+                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
+                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "governance": {"$ref": "#/components/schemas/SkillGovernance"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "content", "source_refs", "artifact_refs", "governance"],
+            },
+            "ListManagedSkillsRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "query": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "include_deprecated": {"type": "boolean", "default": False},
+                    "limit": {"type": "integer", "maximum": 200.0, "minimum": 1.0, "default": 100},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "ListManagedSkillsResponse": {
+                "properties": {
+                    "skills": {
+                        "items": {"$ref": "#/components/schemas/ManagedSkillLibraryEntry"},
+                        "type": "array",
+                        "maxItems": 200,
+                    }
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["skills"],
+            },
+            "UpdateSkillLifecycleRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "expected_generation": {"type": "integer", "minimum": 0.0},
+                    "lifecycle_state": {"$ref": "#/components/schemas/SkillLifecycleState"},
+                    "replacement_artifact_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact_id", "expected_generation", "lifecycle_state"],
+            },
             "SkillProposal": {
                 "properties": {
                     "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
                     "description": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
-                    "instructions": {"type": "string", "maxLength": 32000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "instructions": {"type": "string", "maxLength": 131072},
                     "validation": {
                         "items": {"$ref": "#/components/schemas/SkillValidationItem"},
                         "type": "array",
                         "maxItems": 32,
+                    },
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference", "nullable": True},
+                    "license": {"type": "string", "maxLength": 512, "minLength": 1, "nullable": True},
+                    "compatibility": {"type": "string", "maxLength": 500, "minLength": 1, "nullable": True},
+                    "metadata": {"additionalProperties": {"type": "string"}, "type": "object", "maxProperties": 64},
+                    "allowed_tools": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "description", "instructions", "validation"],
+            },
+            "SkillPackageReference": {
+                "properties": {
+                    "tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "archive_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "file_count": {"type": "integer", "maximum": 256.0, "minimum": 1.0},
+                    "uncompressed_size": {"type": "integer", "maximum": 4194304.0, "minimum": 1.0},
+                    "archive_size": {"type": "integer", "maximum": 5242880.0, "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["tree_digest", "archive_digest", "file_count", "uncompressed_size", "archive_size"],
+            },
+            "SkillPackageFile": {
+                "properties": {
+                    "path": {"type": "string", "maxLength": 512, "minLength": 1},
+                    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "size": {"type": "integer", "maximum": 4194304.0, "minimum": 0.0},
+                    "media_type": {"type": "string", "maxLength": 255, "minLength": 1},
+                    "executable": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["path", "digest", "size", "media_type", "executable"],
+            },
+            "SkillPackageManifest": {
+                "properties": {
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference"},
+                    "name": {"type": "string", "maxLength": 64, "minLength": 1},
+                    "description": {"type": "string", "maxLength": 1024, "minLength": 1},
+                    "license": {"type": "string", "maxLength": 512, "minLength": 1, "nullable": True},
+                    "compatibility": {"type": "string", "maxLength": 500, "minLength": 1, "nullable": True},
+                    "metadata": {"additionalProperties": {"type": "string"}, "type": "object", "maxProperties": 64},
+                    "allowed_tools": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "files": {
+                        "items": {"$ref": "#/components/schemas/SkillPackageFile"},
+                        "type": "array",
+                        "maxItems": 256,
                         "minItems": 1,
                     },
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["name", "description", "instructions", "validation"],
+                "required": ["package", "name", "description", "metadata", "files"],
+            },
+            "GetSkillPackageRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact"],
+            },
+            "SkillPackageDownload": {
+                "properties": {
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference"},
+                    "archive_base64": {
+                        "type": "string",
+                        "maxLength": 6990508,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["package", "archive_base64"],
+            },
+            "ProposeSkillPackageRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "archive_base64": {
+                        "type": "string",
+                        "maxLength": 6990508,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                    },
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "target": {
+                        "$ref": "#/components/schemas/ArtifactReference",
+                        "description": "Exact managed Skill Revision replaced by this complete package Candidate.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "archive_base64"],
+            },
+            "RecordSkillUsageRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "observation_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "skill_ref": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "package_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "target_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "selected": {"type": "boolean"},
+                    "invoked": {"type": "string", "enum": ["true", "false", "unknown"]},
+                    "validation": {"type": "string", "enum": ["passed", "failed", "unknown"]},
+                    "outcome": {"type": "string", "enum": ["success", "failure", "unknown"]},
+                    "task_source": {"$ref": "#/components/schemas/SourceReference", "nullable": True},
+                    "environment_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "observation_id",
+                    "skill_ref",
+                    "package_digest",
+                    "target_id",
+                    "selected",
+                    "invoked",
+                    "validation",
+                    "outcome",
+                ],
             },
             "SkillValidationItem": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
             "ExternalSkillRegistration": {

@@ -19,6 +19,7 @@ from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConst
 from powercontext.builtin.persistence.tables import (
     ARTIFACTS_TABLE,
     SHARED_METADATA,
+    SKILL_PACKAGES_TABLE,
     SOURCE_CURSORS_TABLE,
     SOURCES_TABLE,
 )
@@ -56,14 +57,16 @@ def test_mysql_ddl_uses_utf8mb4_bin_for_identity_keys() -> None:
 def test_mysql_ddl_uses_mediumblob_for_every_canonical_payload() -> None:
     dialect = mysql.dialect()
     expected = {
-        SOURCES_TABLE: "payload",
-        ARTIFACTS_TABLE: "content",
-        SOURCE_CURSORS_TABLE: "`cursor`",
+        SOURCES_TABLE: ("payload",),
+        ARTIFACTS_TABLE: ("content",),
+        SOURCE_CURSORS_TABLE: ("`cursor`",),
+        SKILL_PACKAGES_TABLE: ("archive_bytes", "manifest"),
     }
 
-    for table, column_name in expected.items():
+    for table, column_names in expected.items():
         ddl = str(CreateTable(table).compile(dialect=dialect))
-        assert f"{column_name} MEDIUMBLOB NOT NULL" in ddl
+        for column_name in column_names:
+            assert f"{column_name} MEDIUMBLOB NOT NULL" in ddl
 
 
 def test_every_mysql_utf8mb4_key_stays_below_the_innodb_limit() -> None:
