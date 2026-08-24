@@ -1,7 +1,20 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Adapted for WorkBuddy from the PowerContext Claude Code plugin
 # (integrations/claude-code/plugins/powercontext/claude_code_settings.py).
-# Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0.
 
 """Validated process configuration for the PowerContext WorkBuddy hooks driver."""
 
@@ -43,8 +56,7 @@ class WorkBuddyPluginSettings:
         """Load WorkBuddy user options and integration-specific environment values."""
 
         return cls(
-            server_url=_first_environment("POWERCONTEXT_WORKBUDDY_SERVER_URL")
-            or "http://127.0.0.1:8000",
+            server_url=_first_environment("POWERCONTEXT_WORKBUDDY_SERVER_URL") or "http://127.0.0.1:8000",
             authorization=_first_environment("POWERCONTEXT_WORKBUDDY_AUTHORIZATION"),
             scope_id=_first_environment("POWERCONTEXT_WORKBUDDY_SCOPE_ID"),
             capture_prompts=_environment_bool(
