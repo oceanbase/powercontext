@@ -16,7 +16,7 @@ collaboration. It turns shared work into project context that can be understood,
 You need macOS or Linux, Python 3.11 or newer, [`uv`](https://docs.astral.sh/uv/), and at least one supported agent
 host.
 
-### 1. Install PowerContext and the plugins
+### 1. Install PowerContext and integrations
 
 ```bash
 uv tool install "powercontext[cli,server]==0.0.2"
@@ -29,23 +29,8 @@ powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
 ```
 
 The first command installs the CLI and local Server in an isolated environment. The subsequent setup commands
-install the corresponding plugins from the matching repository tag. Run setup again to refresh an existing
-installation. Hermes integration requires Hermes Agent v0.20.4 or newer; see the
-[Hermes integration guide](integrations/hermes/README.md) for configuration and project-local installation.
-
-### Pi Coding Agent
-
-With Pi installed, use a PowerContext ref that includes the native Pi package. The following commands use the current
-`master` branch:
-
-```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-powercontext setup pi --source oceanbase/powercontext --ref master
-powercontext doctor pi
-```
-
-For a tagged release that includes Pi, replace `master` with the same tag in the first two commands. See
-[Configure Pi](docs/en/docs/how-to/configure-pi.md) for requirements, configuration, and the project-context workflow.
+install the corresponding integrations from the matching repository tag. Run setup again to refresh an existing
+installation.
 
 ### 2. Start and verify the local Server
 
@@ -91,10 +76,10 @@ model.
 
 ---
 
-## Plugins
+## Integrations
 
 PowerContext provides official integrations and installation guides for Codex, Claude Code, DeepSeek Harness, Hermes
-Agent, and Pi Coding Agent. All five integrations use the same scoped data and history-preserving contracts through
+Agent, and Pi Coding Agent. These integrations use the same scoped data and history-preserving contracts through
 PowerContext Server; the host integrations do not start or embed the Server.
 
 ### Official integrations
@@ -108,9 +93,6 @@ PowerContext Server; the host integrations do not start or embed the Server.
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
 </tr>
 </table>
-
-Pi Coding Agent is provided as a native package rather than a host plugin. See
-[Configure Pi](docs/en/docs/how-to/configure-pi.md) for its project-context workflow.
 
 ## Development
 
