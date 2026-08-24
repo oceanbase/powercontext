@@ -6,6 +6,11 @@ docs/source
 # Local visual brainstorming sessions.
 .superpowers/
 
+# Local agent artifacts and generated outputs.
+.omx/
+docs/superpowers/
+output/
+
 # From https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
 
 # Byte-compiled / optimized / DLL files

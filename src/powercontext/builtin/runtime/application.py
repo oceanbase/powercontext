@@ -338,6 +338,7 @@ class ScopedContextApplication:
                 service = context.artifacts.memory
                 current = await _head_or_none(service, context.artifacts.memory_artifact_id)
                 memory_hits = ()
+                search_mode: str | None = None
                 if current is not None:
                     result = await service.search(
                         request.query,
@@ -346,13 +347,14 @@ class ScopedContextApplication:
                         mode="auto",
                     )
                     memory_hits = result.hits
+                    search_mode = result.mode
                 if span is not None:
                     attributes: dict[str, TraceAttribute] = {
                         _MEMORY_SEARCH_MEMORY_PRESENT: current is not None,
                         _MEMORY_SEARCH_RESULT_COUNT: len(memory_hits),
                     }
-                    if current is not None:
-                        attributes[_MEMORY_SEARCH_MODE] = result.mode
+                    if search_mode is not None:
+                        attributes[_MEMORY_SEARCH_MODE] = search_mode
                     span.set_attributes(attributes)
 
             experience_recall = self._runtime._experience_recall

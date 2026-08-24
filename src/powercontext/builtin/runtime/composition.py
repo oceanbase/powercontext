@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import JsonValue
+from typing_extensions import override
 
 from powercontext.builtin.artifacts.experience import ExperienceCandidatePipeline, ExperienceGenerator
 from powercontext.builtin.artifacts.handoff import (
@@ -94,6 +95,7 @@ class BuiltinConfigurationError(RuntimeError):
 
 
 class _ContentEvidenceProjector(DefaultMemoryEvidenceProjector):
+    @override
     def project_source(self, source: Source, /) -> JsonValue:
         if isinstance(source, ContentSource):
             return {
@@ -106,6 +108,7 @@ class _ContentEvidenceProjector(DefaultMemoryEvidenceProjector):
 
 
 class _ContentHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
+    @override
     def project_source(self, source: Source, /) -> JsonValue:
         if isinstance(source, ContentSource):
             return {

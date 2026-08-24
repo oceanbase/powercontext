@@ -42,6 +42,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
+from typing_extensions import override
 
 from powercontext.builtin.handoff_report.errors import (
     HandoffReportCatalogArgumentError,
@@ -151,9 +152,11 @@ class CatalogPage(Generic[CatalogItemT]):
         self.items = items
         self.next_cursor = next_cursor
 
+    @override
     def __repr__(self) -> str:
         return f"CatalogPage(items={self.items!r}, next_cursor={self.next_cursor!r})"
 
+    @override
     def __eq__(self, other: object) -> bool:
         return isinstance(other, CatalogPage) and self.items == other.items and self.next_cursor == other.next_cursor
 

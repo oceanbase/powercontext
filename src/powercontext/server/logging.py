@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from opentelemetry import trace
+from typing_extensions import override
 
 from powercontext.server.settings import ServerLoggingConfig
 
@@ -43,6 +44,7 @@ _OPERATIONAL_FIELDS = (
 
 
 class OperationalContextFilter(logging.Filter):
+    @override
     def filter(self, record: logging.LogRecord) -> bool:
         span_context = trace.get_current_span().get_span_context()
         if span_context.is_valid:
@@ -59,6 +61,7 @@ class OperationalContextFilter(logging.Filter):
 class JsonFormatter(logging.Formatter):
     """Render a stable operational record without serializing arbitrary extras."""
 
+    @override
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
@@ -75,6 +78,7 @@ class JsonFormatter(logging.Formatter):
 
 
 class _HumanContextFilter(OperationalContextFilter):
+    @override
     def filter(self, record: logging.LogRecord) -> bool:
         super().filter(record)
         request_id = getattr(record, "request_id", None)

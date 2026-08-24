@@ -14,7 +14,7 @@ PowerContext 是 [PowerMem](https://www.powermem.ai/) 的升级版本，也是�
 
 你需要 macOS 或 Linux、Python 3.11 或更高版本、[`uv`](https://docs.astral.sh/uv/)，以及至少一个支持的 Agent Host。
 
-### 1. 安装 PowerContext 和 Plugin
+### 1. 安装 PowerContext 和集成
 
 ```bash
 uv tool install "powercontext[cli,server]==0.0.2"
@@ -27,8 +27,7 @@ powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
 ```
 
 第一条命令会在隔离环境中安装 CLI 和本地 Server。后续 setup 命令会从匹配的仓库 tag 安装对应的
-Plugin。如需刷新现有安装，请再次运行 setup。Hermes 集成需要 Hermes Agent v0.20.4 或更高版本；配置和项目本地
-安装方式详见 [Hermes 集成指南](integrations/hermes/README.md)。
+集成。如需刷新现有安装，请再次运行 setup。
 
 ### 2. 启动并验证本地 Server
 
@@ -73,10 +72,10 @@ SQLite 数据库。显式 Memory 操作无需配置 inference provider 即可使
 
 ---
 
-## 插件
+## 集成
 
-PowerContext 为 Codex、Claude Code、DeepSeek Harness 和 Hermes Agent 提供官方插件与安装指南。四个集成都通过
-PowerContext Server 使用同一套作用域数据和保留历史的契约；插件不会自行启动或内嵌 Server。
+PowerContext 为 Codex、Claude Code、DeepSeek Harness、Hermes Agent 和 Pi Coding Agent 提供官方集成与安装指南。
+这些集成都通过 PowerContext Server 使用同一套作用域数据和保留历史的契约；宿主集成不会自行启动或内嵌 Server。
 
 ### 官方集成
 
@@ -86,6 +85,7 @@ PowerContext Server 使用同一套作用域数据和保留历史的契约；插
 <td align="center" width="120"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></td>
 <td align="center" width="120"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
 </tr>
 </table>
 

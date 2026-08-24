@@ -21,6 +21,7 @@ import logging
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -50,11 +51,11 @@ def hermes_modules(monkeypatch):
 
 class FakeClient:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, tuple, dict]] = []
+        self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
         self.base_url = "http://powercontext.test:8000"
         self._remember_count = 0
         self._revision = 0
-        self._memory_entries: dict[str, dict] = {}
+        self._memory_entries: dict[str, dict[str, Any]] = {}
         self.memory_extraction = True
 
     def prepare_context(self, scope_id, query, *, max_bytes):

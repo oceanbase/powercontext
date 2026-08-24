@@ -283,6 +283,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
     arguments = _arguments(argv)
     configured_settings: ServerSettings | None = None
     configured_scopes: ConfiguredScopes | None = None
+    external_skill: Path | None = None
     if arguments.configured:
         load_dotenv(arguments.env_file, override=False)
         configured_settings = ServerSettings()
@@ -379,7 +380,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
                 )
             )
         else:
-            if configured_scopes is None or configured_server_settings is None:
+            if configured_scopes is None or configured_server_settings is None or external_skill is None:
                 _fail("configured E2E state was not initialized")
             journey = asyncio.run(
                 _run_configured_journey(
@@ -472,7 +473,7 @@ async def _run_journey(
     codex_environment: Mapping[str, str],
     repositories: Mapping[str, Path],
     server_url: str,
-    timeout: int,
+    timeout: int,  # noqa: ASYNC109 - external Codex process budget, not an asyncio timeout scope
 ) -> None:
     scope_id = f"real-codex-experience-skill:{int(time.time())}"
     producer_schema = recorder.write_json("schemas/experience.json", PRODUCER_SCHEMA)
@@ -751,7 +752,7 @@ async def _run_configured_journey(
     external_skill: Path,
     scopes: ConfiguredScopes,
     server_url: str,
-    timeout: int,
+    timeout: int,  # noqa: ASYNC109 - external Codex process budget, not an asyncio timeout scope
     generation_timeout: float,
 ) -> ConfiguredJourneyState:
     memory_scope = scopes.memory

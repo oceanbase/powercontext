@@ -23,6 +23,7 @@ requires-python = ">=3.11,<4.0"
 dependencies = [
     "pydantic>=2.10,<3",
     "rfc8785>=0.1.4,<1",
+    "typing-extensions>=4.12,<5",
 ]
 classifiers = [
     "Intended Audience :: Developers",
@@ -120,6 +121,21 @@ extra-paths = [
 [tool.ty.src]
 exclude = ["e2e/bub", "integrations/bub", "evaluation"]
 
+[tool.ty.rules]
+division-by-zero = "error"
+missing-override-decorator = "error"
+missing-type-argument = "error"
+possibly-missing-attribute = "error"
+possibly-missing-import = "error"
+possibly-unresolved-reference = "error"
+unsupported-dynamic-base = "error"
+
+[[tool.ty.overrides]]
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+missing-override-decorator = "ignore"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
@@ -133,6 +149,8 @@ fix = true
 
 [tool.ruff.lint]
 select = [
+    # flake8-async
+    "ASYNC",
     # flake8-2020
     "YTT",
     # flake8-bandit
@@ -145,6 +163,10 @@ select = [
     "C4",
     # flake8-debugger
     "T10",
+    # flake8-datetimez
+    "DTZ",
+    # flake8-logging
+    "LOG",
     # flake8-simplify
     "SIM",
     # isort
@@ -155,6 +177,8 @@ select = [
     "E", "W",
     # pyflakes
     "F",
+    # pylint errors
+    "PLE",
     # pygrep-hooks
     "PGH",
     # pyupgrade
