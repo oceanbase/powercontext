@@ -181,6 +181,7 @@ def _create_engine(config: SeekDBConfig, connection_options: Mapping[str, object
         url,
         connect_args=options,
         echo=config.echo,
+        hide_parameters=True,
         pool_pre_ping=config.pool_pre_ping,
     )
 

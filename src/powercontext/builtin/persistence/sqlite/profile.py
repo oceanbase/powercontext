@@ -88,7 +88,7 @@ class SQLiteProfile:
         """Create, initialize and exclusively own one SQLite engine."""
 
         _create_database_directory(config.url)
-        engine_options: dict[str, object] = {"echo": config.echo}
+        engine_options: dict[str, object] = {"echo": config.echo, "hide_parameters": True}
         if config.is_in_memory:
             engine_options["poolclass"] = StaticPool
         engine = create_async_engine(config.url, **engine_options)

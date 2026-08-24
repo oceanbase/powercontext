@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 from pathlib import Path
 
 import httpx
@@ -284,6 +285,49 @@ def test_observability_signals_correlate_without_counting_the_mcp_bridge(caplog,
         default=str,
     )
     assert scope_id not in signal_payload
+
+
+def test_database_failure_log_does_not_include_memory_content(caplog, tmp_path) -> None:
+    database_path = tmp_path / "failure-log.db"
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+    memory_content = "PROBE-SENSITIVE-MEMORY-1318"
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with sqlite3.connect(database_path) as connection:
+            connection.executescript("""
+                CREATE TRIGGER reject_memory_insert
+                BEFORE INSERT ON pc_memory_entry_versions
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced persistence failure');
+                END;
+            """)
+        caplog.clear()
+        with caplog.at_level(logging.ERROR, logger="powercontext.server.app"):
+            response = client.post(
+                "/v1/memory/remember",
+                json={"scope_id": "project:failure-log", "kind": "fact", "text": memory_content},
+            )
+
+    records = [
+        record for record in caplog.records if getattr(record, "event", None) == "application.operation.completed"
+    ]
+    assert response.status_code == 500
+    assert len(records) == 1
+    record = records[0]
+    assert record.operation == "remember_memory"
+    assert record.outcome == "failure"
+    assert record.error_code == "internal_error"
+    assert record.exc_info is not None
+
+    formatter = logging.Formatter()
+    rendered_records = tuple(formatter.format(record) for record in caplog.records)
+    assert "forced persistence failure" in formatter.format(record)
+    assert all(memory_content not in rendered for rendered in rendered_records)
 
 
 def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeypatch, tmp_path) -> None:
