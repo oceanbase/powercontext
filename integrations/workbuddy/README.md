@@ -19,13 +19,32 @@ The integration has three capability layers:
   and restores project memory for continued work.
 
 The hooks driver is pure Python 3.11+ standard library and needs no extra
-dependencies. WorkBuddy support for a `powercontext setup workbuddy` CLI
-installer is planned; until then, install the plugin manually below.
+dependencies. WorkBuddy support ships with a `powercontext setup workbuddy`
+CLI installer; the manual steps below remain available as a fallback.
 
 ## Install with the PowerContext CLI
 
-Not yet available. `powercontext setup workbuddy` is planned for a future
-release. Use the manual installation instructions below.
+Install the hooks, MCP server, and Skill from a local checkout or a GitHub
+source in one step:
+
+```bash
+powercontext setup workbuddy --source oceanbase/powercontext --ref v0.0.2
+```
+
+For a local checkout, point `--source` at the repository root or the plugin
+directory:
+
+```bash
+powercontext setup workbuddy --source /path/to/powercontext
+```
+
+The installer copies the hook driver, its settings modules, and the scope
+resolver into `~/.workbuddy/hooks`, merges the `UserPromptSubmit` hook into
+`~/.workbuddy/settings.json`, registers the `powercontext` server in
+`~/.workbuddy/mcp.json`, and installs the `project-context` Skill under
+`~/.workbuddy/skills`. Existing settings and other MCP servers are preserved,
+and the Skill's `${WORKBUDDY_HOOKS_DIR}` placeholder is resolved automatically.
+Verify the result with `powercontext doctor workbuddy`.
 
 <details>
 <summary>Manual installation (alternative)</summary>

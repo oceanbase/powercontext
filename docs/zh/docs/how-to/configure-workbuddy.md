@@ -15,10 +15,40 @@ description: 安装 PowerContext WorkBuddy hooks 并控制其本地行为。
 
 该集成不会自行启动或内嵌 Server；它只通过 HTTP 与运行中的 PowerContext Server 通信。
 
-## 手动安装集成
+## 使用 PowerContext CLI 安装
 
-`powercontext setup workbuddy` 计划在后续版本提供。在此之前请手动安装插件。示例使用
-`~/.workbuddy/hooks` 作为 WorkBuddy hooks 目录；请替换为你的实际路径，并在下文所有出现
+CLI 可以从本地 checkout 或 GitHub 源一键安装 hooks、MCP Server 和 Skill：
+
+```bash
+powercontext setup workbuddy --source oceanbase/powercontext --ref v0.0.2
+```
+
+对于本地 checkout，把 `--source` 指向仓库根目录或插件目录：
+
+```bash
+powercontext setup workbuddy --source /path/to/powercontext
+```
+
+安装器会把 hook 驱动和 scope resolver 写入 `~/.workbuddy/hooks`，把 `UserPromptSubmit` hook 合并进
+`~/.workbuddy/settings.json`，在 `~/.workbuddy/mcp.json` 中注册 `powercontext` server，并把
+`project-context` Skill 安装到 `~/.workbuddy/skills`。既有设置和其他 MCP server 会被保留，Skill 中的
+hooks 目录占位符也会被自动解析。
+
+使用以下命令验证安装：
+
+```bash
+powercontext doctor workbuddy
+```
+
+然后保持 Server 运行并重启 WorkBuddy：
+
+```bash
+powercontext server run
+```
+
+## 手动安装（备选）
+
+你也可以手动安装插件。示例使用 `~/.workbuddy/hooks` 作为 WorkBuddy hooks 目录；请替换为你的实际路径，并在下文所有出现
 `<WORKBUDDY_HOOKS_DIR>` 的地方使用同一个值。
 
 ### 1. 复制插件文件

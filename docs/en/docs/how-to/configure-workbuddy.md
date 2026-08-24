@@ -18,12 +18,46 @@ description: Install the PowerContext WorkBuddy hooks and control its local beha
 The integration does not start or embed the Server; it only talks to a running
 PowerContext Server over HTTP.
 
-## Install the integration manually
+## Install with the PowerContext CLI
 
-`powercontext setup workbuddy` is planned for a future release. Until then,
-install the plugin manually. The examples use `~/.workbuddy/hooks` as the
-WorkBuddy hooks directory; replace it with your own location and use the same
-value wherever `<WORKBUDDY_HOOKS_DIR>` appears below.
+The CLI installs the hooks, MCP server, and Skill from a local checkout or a
+GitHub source in one step:
+
+```bash
+powercontext setup workbuddy --source oceanbase/powercontext --ref v0.0.2
+```
+
+For a local checkout, point `--source` at the repository root or the plugin
+directory:
+
+```bash
+powercontext setup workbuddy --source /path/to/powercontext
+```
+
+The installer writes the hook driver and scope resolver to `~/.workbuddy/hooks`,
+merges the `UserPromptSubmit` hook into `~/.workbuddy/settings.json`, registers
+the `powercontext` server in `~/.workbuddy/mcp.json`, and installs the
+`project-context` Skill under `~/.workbuddy/skills`. Existing settings and other
+MCP servers are preserved, and the Skill's hooks directory placeholder is
+resolved automatically.
+
+Verify the installation with:
+
+```bash
+powercontext doctor workbuddy
+```
+
+Then keep the Server running and restart WorkBuddy:
+
+```bash
+powercontext server run
+```
+
+## Manual installation (alternative)
+
+You can also install the plugin manually. The examples use `~/.workbuddy/hooks`
+as the WorkBuddy hooks directory; replace it with your own location and use the
+same value wherever `<WORKBUDDY_HOOKS_DIR>` appears below.
 
 ### 1. Copy the plugin files
 
