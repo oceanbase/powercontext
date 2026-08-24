@@ -16,41 +16,59 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
+import sys
 
 from fastapi.testclient import TestClient
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
-from powercontext.server.logging import JsonFormatter, OperationalContextFilter, _UvicornDisplayNameFilter
+from powercontext.server.logging import JsonFormatter, OperationalContextFilter
 from powercontext.server.settings import McpConfig, ServerLoggingConfig, ServerSettings
 
 
-def test_uvicorn_error_records_are_displayed_as_uvicorn() -> None:
-    record = logging.makeLogRecord({
-        "name": "uvicorn.error",
-        "levelno": logging.INFO,
-        "levelname": "INFO",
-        "msg": "Started server process",
-    })
+def _run_configured_logging_probe(log_format: str) -> list[str]:
+    script = f"""
+import logging
 
-    _UvicornDisplayNameFilter().filter(record)
+from powercontext.server.logging import configure_server_logging
+from powercontext.server.settings import ServerLoggingConfig
 
-    payload = json.loads(JsonFormatter().format(record))
-    assert payload["logger"] == "uvicorn"
-    assert payload["message"] == "Started server process"
+configure_server_logging(ServerLoggingConfig(format={log_format!r}))
+logging.getLogger("uvicorn.error").info("Started server process")
+logging.getLogger("uvicorn.error").error("Server startup failed")
+logging.getLogger("powercontext.server.factory").info("PowerContext Server is ready")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return result.stdout.splitlines()
 
 
-def test_uvicorn_display_name_filter_leaves_other_loggers_untouched() -> None:
-    record = logging.makeLogRecord({
-        "name": "powercontext.server.factory",
-        "levelno": logging.INFO,
-        "levelname": "INFO",
-        "msg": "PowerContext Server is ready",
-    })
+def test_configured_console_logging_uses_uvicorn_display_name() -> None:
+    lines = _run_configured_logging_probe("console")
 
-    _UvicornDisplayNameFilter().filter(record)
+    assert len(lines) == 3
+    messages = [line.split(" ", 1)[1] for line in lines]
+    assert messages == [
+        "INFO uvicorn Started server process",
+        "ERROR uvicorn Server startup failed",
+        "INFO powercontext.server.factory PowerContext Server is ready",
+    ]
 
-    assert record.name == "powercontext.server.factory"
+
+def test_configured_json_logging_uses_uvicorn_display_name() -> None:
+    payloads = [json.loads(line) for line in _run_configured_logging_probe("json")]
+
+    assert [(payload["level"], payload["logger"], payload["message"]) for payload in payloads] == [
+        ("INFO", "uvicorn", "Started server process"),
+        ("ERROR", "uvicorn", "Server startup failed"),
+        ("INFO", "powercontext.server.factory", "PowerContext Server is ready"),
+    ]
 
 
 def test_json_formatter_emits_stable_operational_fields() -> None:

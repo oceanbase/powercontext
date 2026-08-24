@@ -92,12 +92,13 @@ class _HumanContextFilter(OperationalContextFilter):
 
 
 class _UvicornDisplayNameFilter(logging.Filter):
-    """Rewrite uvicorn's lifecycle logger name for display.
+    """Rewrite uvicorn's logger name for downstream display.
 
-    uvicorn hardcodes "uvicorn.error" for its lifecycle logger, which mostly
-    carries INFO startup lines but reads like an error channel. Rewriting the
-    record name here is display-only: the logger tree, level routing, and any
-    filtering keyed on the original name are untouched.
+    Uvicorn emits lifecycle and error records through ``uvicorn.error``.
+    Logger selection, hierarchy, and effective-level checks use that logger.
+    This filter then rewrites only ``record.name``, so later filters on the
+    same logger and downstream handler filters and formatters observe
+    ``uvicorn``. Parent logger filters are not applied during propagation.
     """
 
     @override
