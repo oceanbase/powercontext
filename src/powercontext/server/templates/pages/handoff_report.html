@@ -25,7 +25,232 @@
 {% set status_title = "Handoff Report" %}
 {% include "components/status.html" %}
 
-<section class="server-content" id="handoff-report">
+<section
+  class="server-content report-preview"
+  id="handoff-report-preview"
+  aria-labelledby="preview-title"
+  aria-describedby="preview-notice"
+  hidden
+>
+  <div class="hero report-hero report-preview-hero">
+    <div>
+      <p class="page-kind" data-i18n="handoffReportTitle">Handoff Report</p>
+      <div class="report-preview-title">
+        <h1 id="preview-title" data-i18n="previewReportTitle">Handoff Report template</h1>
+        <span class="report-preview-badge" data-i18n="preview">Preview</span>
+      </div>
+    </div>
+    <button class="primary-button" id="preview-retry" type="button" data-i18n="retry">Retry</button>
+  </div>
+
+  <section class="report-preview-notice" role="status" aria-live="polite">
+    <div>
+      <h2 data-i18n="noProjects">No Handoff Report Project is configured.</h2>
+      <p id="preview-notice" data-i18n="previewNotice">
+        This data-free preview shows the report's main Handoff sections. Values shown as “—” do not represent real Project status.
+      </p>
+      <p class="report-preview-hint" data-i18n="previewRetryHint">Configure a Project, then retry to load its report.</p>
+    </div>
+  </section>
+
+  <section class="data-section" aria-labelledby="preview-summary-title">
+    <div class="section-heading">
+      <div>
+        <h2 id="preview-summary-title" data-i18n="previewProjectSummary">Project summary and scope</h2>
+        <p data-i18n="previewProjectSummarySubtitle">Project identity, selected scope, and reporting period</p>
+      </div>
+    </div>
+    <dl class="report-preview-details">
+      <div>
+        <dt data-i18n="previewProject">Project</dt>
+        <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
+      </div>
+      <div>
+        <dt data-i18n="previewScope">Scope</dt>
+        <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
+      </div>
+      <div>
+        <dt data-i18n="reportPeriod">Report period</dt>
+        <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="report-overview" aria-label="Handoff summary" data-i18n-aria-label="handoffSummary">
+    <div class="report-metric status-continuable">
+      <span data-i18n="continuable">Continuable</span>
+      <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
+    </div>
+    <div class="report-metric status-blocked">
+      <span data-i18n="blocked">Blocked</span>
+      <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
+    </div>
+    <div class="report-metric status-complete">
+      <span data-i18n="complete">Complete</span>
+      <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
+    </div>
+    <div class="report-metric status-no-handoff">
+      <span data-i18n="noHandoff">No Handoff</span>
+      <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
+    </div>
+  </section>
+
+  <section
+    class="data-section report-preview-workstream-browser workstream-browser"
+    aria-labelledby="preview-workstreams-title"
+  >
+    <div class="section-heading">
+      <div>
+        <h2 id="preview-workstreams-title" data-i18n="previewWorkstreamsTitle">Workstreams and Handoff</h2>
+        <p data-i18n="previewWorkstreamsSubtitle">Current Handoff state and continuation content for each scope</p>
+      </div>
+    </div>
+    <div class="workstream-browser-layout">
+      <nav
+        class="workstream-list-panel"
+        aria-label="Workstream navigation"
+        data-i18n-aria-label="workstreamNavigation"
+      >
+        <div class="workstream-list">
+          <div class="workstream-list-item report-preview-workstream-item" aria-current="true">
+            <span class="workstream-list-item-header">
+              <strong data-i18n="workstream">Workstream</strong>
+              <span
+                class="status-badge status-preview preview-placeholder"
+                data-preview-placeholder
+                data-i18n="previewPlaceholder"
+              >—</span>
+            </span>
+            <code class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</code>
+          </div>
+        </div>
+      </nav>
+      <article class="handoff-snapshot" aria-labelledby="preview-handoff-contents-title">
+        <div class="snapshot-heading">
+          <div>
+            <p class="snapshot-label" data-i18n="currentSnapshot">Current Handoff snapshot</p>
+            <h3 id="preview-handoff-contents-title" data-i18n="handoffContents">Handoff content</h3>
+            <p data-i18n="previewHandoffContentsSubtitle">
+              Objective, current state, disposition, next action, and known omissions
+            </p>
+          </div>
+        </div>
+        <div class="handoff-content-list">
+          <div class="handoff-content-card report-preview-card">
+            <header>
+              <div>
+                <h4 class="handoff-content-title" data-i18n="workstream">Workstream</h4>
+                <code class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</code>
+              </div>
+              <div class="handoff-snapshot-state">
+                <span
+                  class="status-badge status-preview preview-placeholder"
+                  data-preview-placeholder
+                  data-i18n="previewPlaceholder"
+                >—</span>
+                <code class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</code>
+              </div>
+            </header>
+            <section class="handoff-content-block">
+              <header><h4 data-i18n="objective">Objective</h4></header>
+              <p class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</p>
+            </section>
+            <section class="handoff-content-block">
+              <header><h4 data-i18n="currentState">Current state</h4></header>
+              <p class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</p>
+            </section>
+            <section class="handoff-content-block">
+              <header><h4 data-i18n="disposition">Disposition</h4></header>
+              <p class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</p>
+            </section>
+            <section class="handoff-content-block">
+              <header><h4 data-i18n="nextAction">Next action</h4></header>
+              <p class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</p>
+            </section>
+            <section class="handoff-content-block">
+              <header><h4 data-i18n="omissions">Known omissions</h4></header>
+              <p class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</p>
+            </section>
+          </div>
+        </div>
+        <details class="continuity-panel">
+          <summary class="continuity-panel-summary">
+            <div>
+              <h3 data-i18n="continuityTimeline">Continuity timeline</h3>
+              <p data-i18n="continuityOrderNote">Ordered by Source journal position, not wall-clock time.</p>
+            </div>
+            <div class="continuity-states">
+              <div class="result-coverage">
+                <span data-i18n="transferState">Transfer</span>
+                <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
+              </div>
+              <div class="result-coverage">
+                <span data-i18n="outcomeState">Outcome</span>
+                <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
+              </div>
+            </div>
+          </summary>
+        </details>
+      </article>
+    </div>
+  </section>
+
+  <section
+    class="data-section report-preview-activity activity-section"
+    aria-labelledby="preview-activity-title"
+  >
+    <div class="section-heading">
+      <div>
+        <h2 id="preview-activity-title" data-i18n="activity">Activity</h2>
+        <p data-i18n="previewActivitySubtitle">
+          Coverage and period comparison become available with a real Project report.
+        </p>
+      </div>
+    </div>
+    <section class="coverage-strip report-preview-coverage" aria-labelledby="preview-coverage-title">
+      <div>
+        <h3 id="preview-coverage-title" data-i18n="coverage">Report coverage</h3>
+        <p data-i18n="previewCoverageDescription">Coverage values appear here after a Project report is available.</p>
+      </div>
+      <dl>
+        <div>
+          <dt data-i18n="workstreams">Workstreams</dt>
+          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
+        </div>
+        <div>
+          <dt data-i18n="activities">Activities</dt>
+          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
+        </div>
+        <div>
+          <dt data-i18n="evidenceUnavailable">Evidence unavailable</dt>
+          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
+        </div>
+      </dl>
+    </section>
+    <section class="activity-breakdown" aria-labelledby="preview-activity-comparison-title">
+      <h3 id="preview-activity-comparison-title" data-i18n="previewActivityComparison">
+        Activity and period comparison
+      </h3>
+      <p data-i18n="previewActivityComparisonSubtitle">Observed Activity in the selected and previous periods</p>
+      <dl class="report-preview-comparison">
+        <div>
+          <dt data-i18n="previewCurrentPeriod">Current period</dt>
+          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
+        </div>
+        <div>
+          <dt data-i18n="previewPreviousPeriod">Previous period</dt>
+          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
+        </div>
+        <div>
+          <dt data-i18n="previewChange">Change</dt>
+          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
+        </div>
+      </dl>
+    </section>
+  </section>
+</section>
+
+<section class="server-content" id="handoff-report" hidden>
   <div class="hero report-hero">
     <div>
       <p class="page-kind" data-i18n="handoffReportTitle">Handoff Report</p>
@@ -287,5 +512,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=default-startup-unified-editor-v1"></script>
+<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=default-startup-unified-editor-preview-v1"></script>
 {% endblock %}

@@ -49,6 +49,39 @@ disable the Dashboard explicitly.
 
 `Ctrl-C` performs a clean shutdown. Restarting the command reopens the same database.
 
+## Use embedded seekDB
+
+Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` wheel is available. Windows does not
+support this embedded backend. Install or replace the tool with the optional seekDB extra:
+
+```bash
+uv tool install --force "powercontext[cli,server,seekdb] @ git+https://github.com/oceanbase/powercontext.git@master"
+```
+
+When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` and
+`POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION` from `.env`, or unset them in the shell. Those settings are not valid
+for seekDB. Then select the backend and start the Server:
+
+```bash
+unset POWERCONTEXT_SERVER_DATABASE_URL
+unset POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION
+export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
+powercontext server run
+```
+
+PowerContext always uses seekDB's built-in `test` database. Leave `POWERCONTEXT_SERVER_DATABASE_PATH` unset to store
+the instance in the `seekdb` subdirectory of the PowerContext user data directory. If `POWERCONTEXT_HOME` is set, the
+default is `$POWERCONTEXT_HOME/seekdb`; set `POWERCONTEXT_SERVER_DATABASE_PATH` only when a different location is
+required.
+
+In another terminal, verify that the Server and database are ready:
+
+```bash
+powercontext doctor
+powercontext ready
+powercontext capabilities
+```
+
 ## Verify the installation
 
 ```bash

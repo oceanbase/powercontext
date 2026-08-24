@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Literal
 from weakref import WeakKeyDictionary
 
+import sqlite_vec
 from aiosqlite import Connection
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import Table, event
@@ -50,7 +51,6 @@ class SQLiteConfig(BaseModel):
     journal_mode: Literal["WAL", "DELETE", "MEMORY"] = "WAL"
     foreign_keys: bool = True
     echo: bool = False
-    vec1_extension: Path | None = None
 
     @field_validator("url")
     @classmethod
@@ -83,6 +83,7 @@ class SQLiteProfile:
         config: SQLiteConfig,
         *,
         tables: tuple[Table, ...],
+        load_vector_extension: bool = False,
     ) -> AsyncIterator[SQLiteProfile]:
         """Create, initialize and exclusively own one SQLite engine."""
 
@@ -91,7 +92,7 @@ class SQLiteProfile:
         if config.is_in_memory:
             engine_options["poolclass"] = StaticPool
         engine = create_async_engine(config.url, **engine_options)
-        _configure_sqlite(engine, config)
+        _configure_sqlite(engine, config, load_vector_extension=load_vector_extension)
         database = AsyncDatabase.own(engine)
         profile = cls(database=database, tables=tables)
         try:
@@ -115,13 +116,16 @@ def _create_database_directory(value: str) -> None:
     Path(database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
 
 
-def _configure_sqlite(engine: AsyncEngine, config: SQLiteConfig) -> None:
+def _configure_sqlite(
+    engine: AsyncEngine,
+    config: SQLiteConfig,
+    *,
+    load_vector_extension: bool,
+) -> None:
     @event.listens_for(engine.sync_engine, "connect")
     def set_pragmas(dbapi_connection: DBAPIConnection, _connection_record: object) -> None:
-        extension = config.vec1_extension
-        if extension is not None:
-            run_async = dbapi_connection.run_async
-            run_async(lambda connection: _load_extension(connection, extension))
+        if load_vector_extension:
+            dbapi_connection.run_async(_load_sqlite_vec)
         cursor = dbapi_connection.cursor()
         try:
             cursor.execute(f"PRAGMA busy_timeout = {config.busy_timeout_ms}")
@@ -130,10 +134,10 @@ def _configure_sqlite(engine: AsyncEngine, config: SQLiteConfig) -> None:
             cursor.close()
 
 
-async def _load_extension(connection: Connection, extension: Path) -> None:
+async def _load_sqlite_vec(connection: Connection) -> None:
     await connection.enable_load_extension(True)
     try:
-        await connection.load_extension(str(extension))
+        await connection.load_extension(sqlite_vec.loadable_path())
     finally:
         await connection.enable_load_extension(False)
 

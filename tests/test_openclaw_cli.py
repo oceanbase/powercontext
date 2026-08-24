@@ -1,0 +1,189 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import Mock
+
+import pytest
+from typer.testing import CliRunner
+
+import powercontext.cli.openclaw as openclaw_cli
+import powercontext.cli.system as system_cli
+from powercontext.cli.app import create_cli
+from powercontext.cli.system import OpenClawSetupResult, setup_app
+
+
+def _write_openclaw_plugin(root: Path) -> Path:
+    plugin = root / "integrations" / "openclaw" / "plugins" / "memory-powercontext"
+    plugin.mkdir(parents=True)
+    (plugin / "package.json").write_text(
+        json.dumps({"name": openclaw_cli.OPENCLAW_PACKAGE_NAME}),
+        encoding="utf-8",
+    )
+    return plugin
+
+
+def test_resolve_openclaw_plugin_dir_accepts_checkout_root(tmp_path: Path) -> None:
+    checkout = tmp_path / "powercontext"
+    plugin = _write_openclaw_plugin(checkout)
+
+    assert openclaw_cli.resolve_openclaw_plugin_dir(source=str(checkout), ref="master") == plugin
+
+
+def test_checkout_target_rejects_path_traversal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+
+    with pytest.raises(system_cli.SetupError, match="invalid OpenClaw ref"):
+        openclaw_cli.checkout_target("../../outside")
+
+
+def test_configure_openclaw_preserves_existing_tools_and_adds_missing_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_process = Mock(
+        return_value=CompletedProcess(
+            ["openclaw", "config", "get"],
+            0,
+            '["custom_tool", "powercontext_memory_get"]',
+            "",
+        )
+    )
+    run_openclaw = Mock()
+    monkeypatch.setattr(openclaw_cli, "run_process", run_process)
+    monkeypatch.setattr(openclaw_cli, "run_openclaw", run_openclaw)
+
+    openclaw_cli.configure_openclaw(
+        executable="openclaw",
+        server_url="http://127.0.0.1:8765",
+        scope_mode="agent",
+    )
+
+    allowlist_call = run_openclaw.call_args_list[1]
+    assert allowlist_call.args[:3] == ("openclaw", "config", "set")
+    assert json.loads(allowlist_call.args[4]) == [
+        "custom_tool",
+        "powercontext_memory_get",
+        "powercontext_memory_search",
+        "powercontext_memory_store",
+        "powercontext_memory_revise",
+        "powercontext_memory_retire",
+    ]
+    assert run_openclaw.call_args_list[-1].args == ("openclaw", "gateway", "restart")
+
+
+def test_configure_openclaw_initializes_local_gateway_when_mode_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def read_config(command: list[str], *, timeout: int, check: bool = True) -> CompletedProcess[str]:
+        del timeout, check
+        if command[1:4] == ["config", "get", "gateway.mode"]:
+            return CompletedProcess(command, 1, "", "Config path not found")
+        if command[1:4] == ["config", "get", "tools.alsoAllow"]:
+            return CompletedProcess(command, 0, "[]", "")
+        raise AssertionError(command)
+
+    run_openclaw = Mock()
+    monkeypatch.setattr(openclaw_cli, "run_process", read_config)
+    monkeypatch.setattr(openclaw_cli, "run_openclaw", run_openclaw)
+
+    openclaw_cli.configure_openclaw(
+        executable="openclaw",
+        server_url="http://127.0.0.1:8765",
+        scope_mode="agent",
+    )
+
+    settings = json.loads(run_openclaw.call_args_list[0].args[4])
+    assert settings[0] == {"path": "gateway.mode", "value": "local"}
+
+
+def test_install_openclaw_plugin_builds_installs_and_configures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = _write_openclaw_plugin(tmp_path / "checkout")
+    run_openclaw = Mock()
+    build = Mock()
+    configure = Mock()
+    monkeypatch.setattr(openclaw_cli, "openclaw_executable", lambda: "/usr/bin/openclaw")
+    monkeypatch.setattr(openclaw_cli, "require_supported_openclaw", Mock())
+    monkeypatch.setattr(openclaw_cli, "resolve_openclaw_plugin_dir", lambda **_kwargs: plugin)
+    monkeypatch.setattr(openclaw_cli, "build_openclaw_plugin", build)
+    monkeypatch.setattr(openclaw_cli, "run_openclaw", run_openclaw)
+    monkeypatch.setattr(openclaw_cli, "configure_openclaw", configure)
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+
+    result = openclaw_cli.install_openclaw_plugin(
+        source="oceanbase/powercontext",
+        ref="tested-ref",
+        server_url="http://127.0.0.1:8765/",
+        scope_mode="project",
+    )
+
+    assert result == OpenClawSetupResult(
+        plugin="memory-powercontext",
+        plugin_path=str(plugin),
+        server_url="http://127.0.0.1:8765",
+        scope_mode="project",
+        data_dir=str(tmp_path / "data"),
+    )
+    build.assert_called_once_with(plugin)
+    run_openclaw.assert_called_once_with("/usr/bin/openclaw", "plugins", "install", "--link", "--force", str(plugin))
+    configure.assert_called_once_with(
+        executable="/usr/bin/openclaw",
+        server_url="http://127.0.0.1:8765",
+        scope_mode="project",
+    )
+
+
+def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    import powercontext.cli.openclaw as openclaw_module
+
+    install = Mock(
+        return_value=OpenClawSetupResult(
+            plugin="memory-powercontext",
+            plugin_path="plugin-path",
+            server_url="http://127.0.0.1:8765",
+            scope_mode="agent",
+            data_dir="data-dir",
+        )
+    )
+    monkeypatch.setattr(openclaw_module, "install_openclaw_plugin", install)
+
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        [
+            "setup",
+            "openclaw",
+            "--source",
+            "oceanbase/powercontext",
+            "--ref",
+            "tested-ref",
+            "--server-url",
+            "http://127.0.0.1:8765",
+            "--scope-mode",
+            "agent",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.output)["plugin"] == "memory-powercontext"
+    install.assert_called_once_with(
+        source="oceanbase/powercontext",
+        ref="tested-ref",
+        server_url="http://127.0.0.1:8765",
+        scope_mode="agent",
+    )

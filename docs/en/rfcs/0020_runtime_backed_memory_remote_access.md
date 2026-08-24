@@ -3,6 +3,9 @@
 - RFC PR: [oceanbase/powercontext#20](https://github.com/oceanbase/powercontext/pull/20)
 - Related RFCs: [RFC 0011](0011_remote_access_architecture.md), [RFC 0019](0019_local_source_memory_runtime.md)
 
+> **Note:** PowerContext now uses bundled sqlite-vec for SQLite vector search. Statements about Vec1 in this RFC no
+> longer apply and remain only as a record of the original design.
+
 # Summary
 
 This RFC defines the first concrete remote API built from the architecture in RFC 0011 and the local Runtime in

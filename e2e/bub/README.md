@@ -65,6 +65,8 @@ evaluation:
 The dataset can be a local Harbor dataset path or a registry dataset name and version. `execution` selects the
 adapter and its budget. `model` declares only whether the workload requires a model. The runtime selects the model,
 provider, endpoint, and credentials. `evaluation` declares only externally observable Memory behavior.
+Two or more compatible selected tasks with the same `batch:<name>` category share one run-local Harbor task and
+container. Their scopes, evidence, and evaluation remain independent; selecting one task uses the normal path.
 
 Runtime configuration keeps the native ownership of each component. The harness Client reads
 `POWERCONTEXT_CLIENT_*`, the Bub adapter forwards native `BUB_*` settings for model-backed workloads, and the
@@ -76,12 +78,10 @@ The built-in manifests are:
 
 | ID | Dataset | Categories | Purpose |
 | --- | --- | --- | --- |
-| `locomo-multihop-football` | local Harbor multi-step task | `acceptance`, `sample` | Pinned LoCoMo-derived sample (multi-hop) |
-| `locomo-open-pastries` | local Harbor multi-step task | `acceptance`, `sample` | Pinned LoCoMo-derived sample (open-domain listing) |
-| `locomo-support-group` | local Harbor multi-step task | `acceptance`, `sample` | Pinned LoCoMo-derived sample |
-| `locomo-temporal-banker` | local Harbor multi-step task | `acceptance`, `sample` | Pinned LoCoMo-derived sample (temporal) |
-| `project-database-decision` | local Harbor multi-step task | `acceptance`, `sample`, `smoke` | Durable project decision |
+| `locomo-*` (four manifests) | one local Harbor task each | `acceptance`, `sample`, `batch:locomo` | Pinned LoCoMo-derived cases |
+| `project-database-decision` | local Harbor multi-step task | `acceptance`, `sample`, `smoke`, `batch:acceptance` | Durable project decision |
 | `terminal-bench-db-wal-recovery` | `terminal-bench@2.0` | `long-horizon`, `terminal-bench` | Long-running capture and recall |
+| `failure-policy-*` | local Harbor tasks | `acceptance`, `fixture`, `batch:acceptance` | Collect-all and fail-fast behavior |
 
 ## Run acceptance workloads
 
@@ -92,6 +92,10 @@ export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:8000
 export POWERCONTEXT_BUB_BASE_URL=http://host-gateway:8000
 make harness-acceptance
 ```
+
+The default run executes all acceptance tasks with collect-all, then reruns `batch:acceptance` with fail-fast. LoCoMo
+stays in its own `batch:locomo`; the database decision and failure-policy tasks share `batch:acceptance`. Explicit
+selection runs only the selected workloads with the requested failure policy.
 
 Selection uses the `acceptance` command's repeatable `--id` and `--category` options:
 
@@ -121,12 +125,10 @@ Each selected workload writes the same layout:
   harbor-jobs/
 ```
 
-`replay.json` is a self-contained Pydantic observation. Its workload's `execution.type` identifies the `bub` adapter,
-and the remaining fields record the pre-execution Memory baseline and the instructions resolved by Harbor's ACP
-runner.
-`eval-report.json` uses
-`powercontext.e2e-evaluation/v1`. `report.md` is rendered from the report model with Marko. Native Harbor and ACP
-evidence remains under `harbor-jobs/`.
+Shared runs write the same v1 files per source task under `batch-<name>/tasks/<workload-id>/`, plus one aggregate
+evaluation and report at `batch-<name>/`. `collect-all` reports every failed task; `fail-fast` stops only that shared
+Harbor trial at its first failed step. Runtime batch steps are flat and task-prefixed. Each agent invocation starts an
+independent ACP session and Bub tape.
 
 ## Long-horizon task
 

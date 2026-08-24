@@ -5,6 +5,9 @@
 - 相关 RFC：[RFC 0002：Core SDK 产品模型](0002_core_sdk_product_model.md)
 - 相关约束：[RFC 0011：Server 与 Client SDK 架构](https://github.com/oceanbase/powercontext/pull/11)
 
+> **注意：** PowerContext 当前使用随 builtin 依赖捆绑的 sqlite-vec 提供 SQLite 向量检索。本 RFC 中关于 Vec1 的
+> 表述已不再适用，仅作为原始设计记录保留。
+
 # Summary
 
 Memory 是面向后续任务复用的 Artifact Family。一个 Memory Artifact 表示一组共同演进的记忆；Artifact Revision

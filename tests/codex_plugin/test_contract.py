@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import ModuleType
 
@@ -68,7 +69,8 @@ def test_scope_binding_is_persisted_in_git_private_state(
     assert scope_module.resolve_scope_id(str(tmp_path)) == "handoff-ui-review"
     assert scope_module.resolve_scope_id(str(tmp_path), configured_scope_id="scope:override") == "scope:override"
     state_path = git_directory / "powercontext" / "codex-workspace.json"
-    assert state_path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert state_path.stat().st_mode & 0o777 == 0o600
 
     assert scope_module.clear_workstream_scope(str(tmp_path)) is True
     assert scope_module.read_bound_scope_id(str(tmp_path)) is None
@@ -176,7 +178,7 @@ def test_codex_settings_normalize_the_mcp_path_to_http_base(
 
 
 def test_project_context_skill_uses_the_high_level_work_continuity_loop() -> None:
-    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text()
+    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
 
     assert 'description: Create and commit a current-work Handoff when the user says "交接"' in content
     assert '"$PLUGIN_ROOT/.venv/bin/python" "$PLUGIN_ROOT/scripts/project_scope.py"' in content

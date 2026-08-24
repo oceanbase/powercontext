@@ -16,7 +16,7 @@ PowerContext は [PowerMem](https://www.powermem.ai/) のアップグレード�
 
 macOS または Linux、Python 3.11 以降、[`uv`](https://docs.astral.sh/uv/)、および少なくとも 1 つの対応 Agent Host が必要です。
 
-### 1. PowerContext とプラグインをインストールする
+### 1. PowerContext とインテグレーションをインストールする
 
 ```bash
 uv tool install "powercontext[cli,server]==0.0.2"
@@ -29,9 +29,8 @@ powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
 ```
 
 最初のコマンドは、隔離された環境に CLI とローカル Server をインストールします。以降の setup コマンドは、
-対応するリポジトリの tag から各プラグインをインストールします。既存のインストールを更新するには、setup を
-再実行してください。Hermes インテグレーションには Hermes Agent v0.20.4 以降が必要です。設定とプロジェクトローカルの
-インストール方法については、[Hermes インテグレーションガイド](integrations/hermes/README.md)を参照してください。
+対応するリポジトリの tag から各インテグレーションをインストールします。既存のインストールを更新するには、setup を
+再実行してください。
 
 ### 2. ローカル Server を起動して検証する
 
@@ -77,20 +76,21 @@ powercontext doctor codex  # または: claude-code / dsh / hermes
 
 ---
 
-## プラグイン
+## インテグレーション
 
-PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent 向けの公式プラグインとインストールガイドを提供します。
-4 つのインテグレーションはすべて、PowerContext Server を通じて同じスコープ付きデータと履歴を保持する契約を
-使用します。プラグインが Server を自動的に起動したり、組み込んだりすることはありません。
+PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent 向けの公式インテグレーションと
+インストールガイドを提供します。これらのインテグレーションは、PowerContext Server を通じて同じスコープ付きデータと
+履歴を保持する契約を使用します。ホストインテグレーションが Server を自動的に起動したり、組み込んだりすることはありません。
 
 ### 公式インテグレーション
 
 <table>
 <tr>
-<td align="center" width="120"><img src="https://github.com/openai.png?size=120" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></td>
-<td align="center" width="120"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></td>
-<td align="center" width="120"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-codex.md"><img src="https://github.com/openai.png?size=120" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-claude-code.md"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-dsh.md"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
 </tr>
 </table>
 

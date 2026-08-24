@@ -33,15 +33,14 @@ Vector search needs the embedding model and its complete deployment profile:
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL="provider:embedding-model"
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID="project-embedding-v1"
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION="1536"
-export POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION="/opt/sqlite-extensions/vec1"
 ```
 
 Provider credentials remain in the environment variables understood by the selected Pydantic AI provider. They are
 not fields on PowerContext models.
 
 The Server rejects a partial embedding profile. `embedding_model`, `embedding_profile_id`, and `embedding_dimension`
-must be configured together. Vec1 also requires that embedding configuration because the index dimension and stored
-vectors must agree.
+must be configured together. SQLite vector search uses that embedding configuration because the index dimension and
+stored vectors must agree.
 
 ## Compose generation directly
 
@@ -99,9 +98,9 @@ embedding_model = PydanticAIEmbeddingModel(
 )
 ```
 
-Pass this adapter to `open_builtin_contexts()` or `open_builtin_runtime()` with a `SQLiteConfig` that selects the Vec1
-extension. The adapter verifies output count, order, dimension, and finite numeric values, then applies the declared
-unit normalization before vectors reach persistence.
+Pass this adapter to `open_builtin_contexts()` or `open_builtin_runtime()` with a `SQLiteConfig`. The bundled
+sqlite-vec index is enabled automatically. The adapter verifies output count, order, dimension, and finite numeric
+values, then applies the declared unit normalization before vectors reach persistence.
 
 An `EmbeddingProfile` is a deployment contract, not descriptive metadata. Stored projections and query embeddings
 must use the same profile. When the model, dimension, or normalization changes, rebuild Memory projections from the
