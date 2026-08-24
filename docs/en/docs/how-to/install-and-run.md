@@ -13,9 +13,12 @@ Install `uv`, then install PowerContext directly from a Git ref:
 uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
-This works on macOS and Linux and does not require a user-managed repository checkout. Git uses its normal credential
-configuration, including credential helpers and SSH settings. For an SSH-based install, replace the HTTPS URL with the
-Git URL approved for your environment.
+This works on macOS, Linux, and Windows and does not require a user-managed repository checkout. Git uses its normal
+credential configuration, including credential helpers and SSH settings. For an SSH-based install, replace the HTTPS
+URL with the Git URL approved for your environment. On Windows, run the commands from PowerShell.
+
+If a Windows installation reports a file access or link-mode error during dependency setup, retry with
+`uv sync --link-mode=copy` when working from a repository checkout.
 
 To install a tested branch or tag, replace `master` after the final `@`. Use the same ref when configuring integrations:
 

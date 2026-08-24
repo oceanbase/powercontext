@@ -68,6 +68,14 @@ Then install the development environment and Git hooks:
 make install
 ```
 
+On Windows, run the equivalent setup from PowerShell because the repository's `make` targets require a Unix-like
+shell:
+
+```powershell
+uv sync
+uv run prek install
+```
+
 Recommended Codex skills are optional and are not required to build or test the project. If you have `npx`
 available, install the skills pinned in `skills-lock.json` before starting a new Codex session:
 
@@ -92,6 +100,25 @@ make unit-test
 
 Use `make e2e-test` for cross-component behavior, `make contract-test` for OpenAPI changes, and
 `make docs-test` for documentation changes. `make test` runs the complete pytest suite.
+
+On Windows, use the direct `uv` commands below instead of the `make` targets:
+
+```powershell
+uv run prek run -a
+uv run ty check
+uv run python -m pytest --doctest-modules
+uv run python -m pytest tests/e2e
+uv run zensical build -s
+```
+
+If `uv sync` cannot create linked files on Windows, retry with `uv sync --link-mode=copy`.
+For OpenAPI changes, also run:
+
+```powershell
+uv run python scripts/generate_api.py --check
+uv run python scripts/generate_js_operations.py --check
+uv run python -m pytest tests/test_api_contract.py tests/test_js_operations.py
+```
 
 Before raising a pull request you should also run tox when a change may affect supported Python versions.
 This requires you to have the relevant Python versions installed. The same version matrix runs in CI.

@@ -46,6 +46,17 @@ command -v dsh
 command -v pi
 ```
 
+在 PowerShell 中可使用 `Get-Command` 替代 `command -v`：
+
+```powershell
+uv tool dir --bin
+Get-Command powercontext
+Get-Command codex
+Get-Command claude
+Get-Command dsh
+Get-Command pi
+```
+
 必要时把 uv tool bin 目录加入 `PATH`。宿主 CLI 不可用时，`powercontext setup codex`、
 `powercontext setup claude-code`、`powercontext setup dsh` 和 `powercontext setup pi` 都会报告错误，而不会尝试安装。
 
@@ -131,6 +142,13 @@ readiness。HTTP 503 的 `not_ready` 表示 Runtime 或数据库无法接受工�
 
 ```bash
 export POWERCONTEXT_HOME=/path/with/write/access
+powercontext server run
+```
+
+在 PowerShell 中使用下面的写法设置同一个变量：
+
+```powershell
+$env:POWERCONTEXT_HOME = "$env:LOCALAPPDATA/powercontext"
 powercontext server run
 ```
 

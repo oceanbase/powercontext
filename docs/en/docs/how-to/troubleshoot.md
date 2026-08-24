@@ -46,6 +46,17 @@ command -v dsh
 command -v pi
 ```
 
+In PowerShell, use `Get-Command` instead of `command -v`:
+
+```powershell
+uv tool dir --bin
+Get-Command powercontext
+Get-Command codex
+Get-Command claude
+Get-Command dsh
+Get-Command pi
+```
+
 Add the uv tool bin directory to `PATH` if needed. `powercontext setup codex`, `powercontext setup claude-code`,
 `powercontext setup dsh`, and `powercontext setup pi` report an error rather than attempting installation when the host
 CLI is unavailable.
@@ -135,6 +146,13 @@ To use a controlled location:
 
 ```bash
 export POWERCONTEXT_HOME=/path/with/write/access
+powercontext server run
+```
+
+In PowerShell, set the same variable with:
+
+```powershell
+$env:POWERCONTEXT_HOME = "$env:LOCALAPPDATA/powercontext"
 powercontext server run
 ```
 

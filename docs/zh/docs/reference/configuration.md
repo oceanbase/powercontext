@@ -18,7 +18,8 @@ export POWERCONTEXT_HOME=/srv/powercontext
 未覆盖时，默认目录为：
 
 - Linux：`$XDG_DATA_HOME/powercontext`，未设置时为 `~/.local/share/powercontext`；
-- macOS：`~/Library/Application Support/powercontext`。
+- macOS：`~/Library/Application Support/powercontext`；
+- Windows：`%LOCALAPPDATA%/powercontext`。
 
 默认 SQLite 数据库是该目录下的 `powercontext.db`。启用定时处理时，调度状态保存在同一目录的
 `scheduler.db`。

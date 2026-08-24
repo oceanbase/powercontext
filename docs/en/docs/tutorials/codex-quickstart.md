@@ -10,8 +10,9 @@ revise, and retire Memory saved from the first Codex session in a second session
 
 ## Before you start
 
-You need macOS or Linux, `uv`, Codex CLI, and read access to the PowerContext Git URL. Confirm that Git can reach the
-repository with the credentials already configured on your machine.
+You need macOS, Linux, or Windows, `uv`, Codex CLI, and read access to the PowerContext Git URL. Confirm that Git can
+reach the repository with the credentials already configured on your machine. On Windows, run the commands below from
+PowerShell; the commands are otherwise the same.
 
 ## 1. Install the tool and plugin
 

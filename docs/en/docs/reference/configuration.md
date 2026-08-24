@@ -18,7 +18,8 @@ export POWERCONTEXT_HOME=/srv/powercontext
 Without an override, the default is:
 
 - Linux: `$XDG_DATA_HOME/powercontext`, or `~/.local/share/powercontext`;
-- macOS: `~/Library/Application Support/powercontext`.
+- macOS: `~/Library/Application Support/powercontext`;
+- Windows: `%LOCALAPPDATA%/powercontext`.
 
 The default SQLite database is `powercontext.db` in this directory. Scheduled processing uses `scheduler.db` in the
 same directory.

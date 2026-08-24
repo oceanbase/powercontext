@@ -13,7 +13,7 @@ collaboration. It turns shared work into project context that can be understood,
 
 ## Quick start
 
-You need macOS or Linux, Python 3.11 or newer, [`uv`](https://docs.astral.sh/uv/), and at least one supported agent
+You need macOS, Linux, or Windows, Python 3.11 or newer, [`uv`](https://docs.astral.sh/uv/), and at least one supported agent
 host.
 
 ### 1. Install PowerContext and integrations
@@ -110,8 +110,40 @@ make test
 make docs-test
 ```
 
-After changing `openapi/powercontext.yaml`, run `make contract-test`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
-complete workflow and [`docs/en/development/`](docs/en/development/core-protocol.md) for implementation guides.
+On Windows, run the equivalent commands directly from PowerShell:
+
+```powershell
+uv sync
+uv run prek install
+uv run prek run -a
+uv run ty check
+uv run python -m pytest --doctest-modules
+uv run zensical build -s
+```
+
+Run the end-to-end tests separately with:
+
+```powershell
+uv run python -m pytest tests/e2e
+```
+
+If `uv sync` reports a Windows file access error while installing packages, retry with:
+
+```powershell
+uv sync --link-mode=copy
+```
+
+After changing `openapi/powercontext.yaml`, run `make contract-test` on Unix-like systems. On Windows, run the
+equivalent checks from PowerShell:
+
+```powershell
+uv run python scripts/generate_api.py --check
+uv run python scripts/generate_js_operations.py --check
+uv run python -m pytest tests/test_api_contract.py tests/test_js_operations.py
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete workflow and
+[`docs/en/development/`](docs/en/development/core-protocol.md) for implementation guides.
 
 ## Community
 

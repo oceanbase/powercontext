@@ -10,8 +10,8 @@ Memory。
 
 ## 开始之前
 
-你需要 macOS 或 Linux、`uv`、Codex CLI，以及 PowerContext Git 地址的读取权限。请先确认本机已有的 Git
-凭据能够访问该地址。
+你需要 macOS、Linux 或 Windows、`uv`、Codex CLI，以及 PowerContext Git 地址的读取权限。请先确认本机已有的
+Git 凭据能够访问该地址。Windows 用户请在 PowerShell 中执行下面的命令；命令本身相同。
 
 ## 1. 安装工具和插件
 

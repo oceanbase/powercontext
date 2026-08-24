@@ -13,8 +13,12 @@ description: 从 Git 安装 PowerContext，并运行本地 Server。
 uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
-该方式支持 macOS 和 Linux，不需要用户自行管理仓库工作副本。Git 会沿用本机的凭据配置，包括 credential
-helper 和 SSH 设置。如需使用 SSH，请把 HTTPS URL 换成当前环境允许的 Git URL。
+该方式支持 macOS、Linux 和 Windows，不需要用户自行管理仓库工作副本。Git 会沿用本机的凭据配置，包括
+credential helper 和 SSH 设置。如需使用 SSH，请把 HTTPS URL 换成当前环境允许的 Git URL。Windows 用户请在
+PowerShell 中执行这些命令。
+
+如果 Windows 用户在仓库工作副本中执行依赖安装时遇到文件访问或 link mode 错误，可改用
+`uv sync --link-mode=copy` 重试。
 
 安装指定分支或 tag 时，替换最后一个 `@` 后的 `master`。配置集成时应使用同一个 ref：
 
