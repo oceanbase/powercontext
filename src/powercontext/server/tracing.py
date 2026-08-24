@@ -35,6 +35,7 @@ from opentelemetry.sdk.trace.id_generator import RandomIdGenerator
 from opentelemetry.sdk.trace.sampling import ALWAYS_OFF, ParentBased
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer, set_span_in_context
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from typing_extensions import override
 
 from powercontext.server.context import bind_request_id, is_internal_bridge, reset_request_id
 from powercontext.server.settings import TracingConfig
@@ -60,9 +61,11 @@ class _SuppressibleTracer(Tracer):
         self._suppressed = suppressed
         self._noop = trace.NoOpTracer()
 
+    @override
     def start_span(self, name: str, *args: Any, **kwargs: Any) -> Span:
         return self._selected().start_span(name, *args, **kwargs)
 
+    @override
     def start_as_current_span(self, name: str, *args: Any, **kwargs: Any) -> Any:
         return self._selected().start_as_current_span(name, *args, **kwargs)
 
@@ -298,6 +301,7 @@ class McpTracingMiddleware(Middleware):
     def __init__(self, tracing: ServerTracing) -> None:
         self.tracing = tracing
 
+    @override
     async def on_request(
         self,
         context: MiddlewareContext[Any],

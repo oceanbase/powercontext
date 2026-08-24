@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import stat
 import sys
 import threading
@@ -222,7 +223,8 @@ def test_recall_records_exact_injected_context_only_when_eval_trace_is_enabled(
     }
     assert event["injected_text"] == prepared_context
     assert event["observed_at"].endswith("Z")
-    assert stat.S_IMODE(trace.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(trace.stat().st_mode) == 0o600
 
 
 def test_recall_does_not_write_an_evaluation_trace_by_default(

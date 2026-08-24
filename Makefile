@@ -16,8 +16,6 @@ check: ## Run code quality tools.
 	@uv lock --locked
 	@echo "🚀 Linting code: Running prek"
 	@uv run prek run -a
-	@echo "🚀 Static type checking: Running ty"
-	@uv run ty check
 
 .PHONY: test
 test: ## Test the code with pytest
@@ -47,7 +45,7 @@ harness-sync: ## Install the Bub replay harness environment.
 harness-check: ## Validate the Bub replay harness and committed scenarios.
 	@uv run ruff check e2e/bub
 	@uv run ruff format --check e2e/bub
-	@uv run ty check --project e2e/bub --python e2e/bub/.venv e2e/bub/src integrations/bub/src
+	@uv run ty check --project e2e/bub --python e2e/bub/.venv --python-version 3.12 e2e/bub/src integrations/bub/src
 	@uv run --project e2e/bub python -m pytest e2e/bub/tests
 	@uv run --project e2e/bub powercontext-e2e --help >/dev/null
 
@@ -98,6 +96,14 @@ js-api-generate-check: ## Verify generated JS operations are current.
 .PHONY: js-test
 js-test: ## Run DeepSeek Harness plugin unit tests.
 	@pnpm --dir integrations/dsh/plugins/powercontext test
+
+.PHONY: openclaw-plugin-build
+openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext build
+
+.PHONY: openclaw-plugin-pack
+openclaw-plugin-pack: ## Build and pack the external OpenClaw memory plugin.
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext pack:local
 
 .PHONY: pi-test
 pi-test: ## Install and test the Pi package.

@@ -19,7 +19,7 @@ from __future__ import annotations
 import shlex
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from harbor.agents.installed import acp as harbor_acp
 from harbor.environments.base import BaseEnvironment
@@ -55,6 +55,7 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
             **kwargs,
         )
 
+    @override
     async def install(self, environment: BaseEnvironment) -> None:
         await self.exec_as_root(
             environment,

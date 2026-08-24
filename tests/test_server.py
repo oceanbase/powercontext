@@ -14,8 +14,10 @@
 
 import asyncio
 import logging
+import os
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
@@ -129,6 +131,24 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.external_skills.host_id == "workstation-1"
     assert settings.external_skills.codex_roots[0].root_id == "repository"
     assert settings.external_skills.codex_roots[0].path.as_posix() == "/srv/project/.agents/skills"
+
+
+def test_env_example_loads_server_settings(monkeypatch) -> None:
+    for name in tuple(os.environ):
+        if name.startswith("POWERCONTEXT_SERVER_"):
+            monkeypatch.delenv(name)
+
+    for line in Path(".env.example").read_text(encoding="utf-8").splitlines():
+        assignment = line.strip()
+        if not assignment or assignment.startswith("#"):
+            continue
+        name, value = assignment.split("=", maxsplit=1)
+        monkeypatch.setenv(name, value)
+
+    settings = ServerSettings()
+
+    assert isinstance(settings.database, SQLiteConfig)
+    assert settings.inference.embedding_dimension == 2560
 
 
 def test_server_settings_select_oceanbase(monkeypatch) -> None:

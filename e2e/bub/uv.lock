@@ -1603,6 +1603,7 @@ source = { editable = "../../" }
 dependencies = [
     { name = "pydantic" },
     { name = "rfc8785" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -1646,6 +1647,7 @@ requires-dist = [
     { name = "sqlite-vec", marker = "extra == 'builtin'", specifier = ">=0.1.9,<0.2" },
     { name = "sqlite-vec", marker = "extra == 'server'", specifier = ">=0.1.9,<0.2" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.16,<1" },
+    { name = "typing-extensions", specifier = ">=4.12,<5" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34,<1" },
 ]
 provides-extras = ["builtin", "cli", "client", "server", "tracing-otlp"]

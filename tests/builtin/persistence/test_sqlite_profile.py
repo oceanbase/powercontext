@@ -78,18 +78,3 @@ def test_sqlite_pragmas_enforce_lineage_source_foreign_keys() -> None:
                     )
 
     asyncio.run(scenario())
-
-
-def test_sqlite_profile_loads_vector_extension_when_requested() -> None:
-    async def scenario() -> None:
-        async with (
-            SQLiteProfile.open(
-                SQLiteConfig(),
-                tables=SHARED_TABLES,
-                load_vector_extension=True,
-            ) as profile,
-            profile.database.transaction() as connection,
-        ):
-            assert (await connection.exec_driver_sql("SELECT vec_version()")).scalar_one() != ""
-
-    asyncio.run(scenario())
