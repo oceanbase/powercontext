@@ -19,11 +19,36 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from collections.abc import Awaitable
 from pathlib import Path
 
 from loguru import logger
 
 from .settings import HarnessSettings
+
+
+async def _run_default_acceptance(
+    workloads: Awaitable[bool],
+    *,
+    output_dir: Path,
+    settings: HarnessSettings,
+) -> bool:
+    from .failure_acceptance import run_failure_acceptance
+
+    workloads_passed = await _accepted(workloads, "Memory workload acceptance")
+    policy_passed = await _accepted(
+        run_failure_acceptance(output_dir / "failure-policy", settings),
+        "Harbor failure-policy acceptance",
+    )
+    return workloads_passed and policy_passed
+
+
+async def _accepted(result: Awaitable[bool], name: str) -> bool:
+    try:
+        return await result
+    except Exception:
+        logger.exception(f"{name} failed.")
+        return False
 
 
 def main() -> None:
@@ -72,12 +97,21 @@ def main() -> None:
 
         tasks = load_tasks(args.manifest)
         selected = select_tasks(tasks, ids=tuple(args.id), categories=tuple(args.category))
-        passed = asyncio.run(
-            run_tasks(
-                selected,
-                output_dir=args.output,
-                settings=settings,
-                failure_policy=args.failure_policy,
+        workloads = run_tasks(
+            selected,
+            output_dir=args.output,
+            settings=settings,
+            failure_policy=args.failure_policy,
+        )
+        passed = (
+            asyncio.run(workloads)
+            if args.id or args.category
+            else asyncio.run(
+                _run_default_acceptance(
+                    workloads,
+                    output_dir=args.output,
+                    settings=settings,
+                )
             )
         )
     raise SystemExit(0 if passed else 1)

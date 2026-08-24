@@ -92,6 +92,10 @@ export POWERCONTEXT_BUB_BASE_URL=http://host-gateway:8000
 make harness-acceptance
 ```
 
+The default run also exercises Harbor runtime batching under collect-all and fail-fast with native Oracle tasks. Its
+report and Harbor artifacts are written under `<output>/failure-policy/`. Explicit ID or category selection runs only
+the selected PowerContext workloads.
+
 Selection uses the `acceptance` command's repeatable `--id` and `--category` options:
 
 ```bash
@@ -122,8 +126,8 @@ Each selected workload writes the same layout:
 
 Shared runs write the same v1 files per source task under `batch-<name>/tasks/<workload-id>/`, plus one aggregate
 evaluation and report at `batch-<name>/`. `collect-all` reports every failed task; `fail-fast` stops only that shared
-Harbor trial at its first failed step. Each source task starts with `steps/reset`; runtime batch steps are flat and
-task-prefixed.
+Harbor trial at its first failed step. Runtime batch steps are flat and task-prefixed. Each agent invocation starts an
+independent ACP session and Bub tape.
 
 ## Long-horizon task
 
