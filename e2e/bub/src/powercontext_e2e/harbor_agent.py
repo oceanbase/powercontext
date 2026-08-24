@@ -19,10 +19,11 @@ from __future__ import annotations
 import shlex
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from harbor.agents.installed import acp as harbor_acp
 from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
 
 AGENT_ID = "powercontext-bub-acp"
 REMOTE_BIN_DIR = "/installed-agent/bin"
@@ -58,7 +59,8 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
             **kwargs,
         )
 
-    async def run(self, instruction: str, environment: BaseEnvironment, context: Any) -> None:
+    @override
+    async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
         try:
             await environment.exec(command=f"rm -f {STEP_FAILURE_MARKER}")
             if not self._invocation_scopes:
@@ -78,6 +80,7 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
         finally:
             self._step_index += 1
 
+    @override
     async def install(self, environment: BaseEnvironment) -> None:
         await self.exec_as_root(
             environment,

@@ -357,8 +357,8 @@ class PowerContextClient:
             mode="json",
             by_alias=True,
         )
+        span = ClientSpan.start(GET_HANDOFF_REPORT.operation_id)
         try:
-            span = ClientSpan.start(GET_HANDOFF_REPORT.operation_id)
             headers = {} if self._headers is None else dict(self._headers)
             span.inject(headers)
             response = await self._http_client.request(
@@ -582,8 +582,8 @@ class PowerContextClient:
             else:
                 json_payload = payload
 
+        span = ClientSpan.start(operation.operation_id)
         try:
-            span = ClientSpan.start(operation.operation_id)
             headers = {} if self._headers is None else dict(self._headers)
             span.inject(headers)
             response = await self._http_client.request(

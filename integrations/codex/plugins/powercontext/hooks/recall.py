@@ -30,6 +30,8 @@ from typing import Any, Protocol, cast
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from typing_extensions import override
+
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
@@ -64,6 +66,7 @@ class _Response(Protocol):
 class _RejectRedirects(HTTPRedirectHandler):
     """Leave every 3xx response to urllib's default HTTP error handler."""
 
+    @override
     def redirect_request(
         self,
         req: Request,

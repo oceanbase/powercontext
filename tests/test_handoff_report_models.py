@@ -140,7 +140,7 @@ def test_activity_event_validates_timestamp_basis_and_utc_observation() -> None:
     with pytest.raises(ValidationError, match="observed_at must be UTC"):
         _activity(observed_at=NOW.astimezone(timezone(timedelta(hours=8))))
     with pytest.raises(ValidationError, match="occurred_at must include a UTC offset"):
-        _activity(occurred_at=datetime(2026, 8, 5, 3, 0))
+        _activity(occurred_at=datetime(2026, 8, 5, 3, 0))  # noqa: DTZ001 - intentional invalid input
 
 
 def test_report_selection_entry_requires_exact_handoff_or_explicit_absence() -> None:

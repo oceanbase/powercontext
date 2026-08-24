@@ -16,7 +16,7 @@ collaboration. It turns shared work into project context that can be understood,
 You need macOS or Linux, Python 3.11 or newer, [`uv`](https://docs.astral.sh/uv/), and at least one supported agent
 host.
 
-### 1. Install PowerContext and the plugins
+### 1. Install PowerContext and integrations
 
 ```bash
 uv tool install "powercontext[cli,server]==0.0.2"
@@ -29,9 +29,8 @@ powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
 ```
 
 The first command installs the CLI and local Server in an isolated environment. The subsequent setup commands
-install the corresponding plugins from the matching repository tag. Run setup again to refresh an existing
-installation. Hermes integration requires Hermes Agent v0.20.4 or newer; see the
-[Hermes integration guide](integrations/hermes/README.md) for configuration and project-local installation.
+install the corresponding integrations from the matching repository tag. Run setup again to refresh an existing
+installation.
 
 ### 2. Start and verify the local Server
 
@@ -77,11 +76,11 @@ model.
 
 ---
 
-## Plugins
+## Integrations
 
-PowerContext provides official plugins and installation guides for Codex, Claude Code, DeepSeek Harness, Hermes
-Agent, and Pi. All five integrations use the same scoped data and history-preserving contracts through PowerContext
-Server; the host integrations do not start or embed the Server.
+PowerContext provides official integrations and installation guides for Codex, Claude Code, DeepSeek Harness, Hermes
+Agent, and Pi Coding Agent. These integrations use the same scoped data and history-preserving contracts through
+PowerContext Server; the host integrations do not start or embed the Server.
 
 ### Official integrations
 
@@ -91,11 +90,10 @@ Server; the host integrations do not start or embed the Server.
 <td align="center" width="120"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></td>
 <td align="center" width="120"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
 </tr>
 </table>
 
-Pi is provided as a native package; see [Configure Pi](docs/en/docs/how-to/configure-pi.md) for its project-context
-workflow.
 ## Development
 
 Install the locked development environment and hooks:
