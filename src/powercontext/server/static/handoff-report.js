@@ -36,6 +36,8 @@ const translations = {
   en: {
     pageTitle: "PowerContext Handoff Report",
     dashboardTitle: "Dashboard",
+    skillsTitle: "Skills",
+    reviewTitle: "Review",
     handoffReportTitle: "Handoff Report",
     brandHomeLabel: "PowerContext Dashboard",
     primaryNavigation: "Primary navigation",
@@ -48,12 +50,12 @@ const translations = {
     continue: "Continue",
     refresh: "Refresh",
     downloadMarkdown: "Download Markdown",
-    projects: "Projects",
-    searchProjectsPlaceholder: "Search by project name or ID",
-    projectSearchCount: "{count} Projects",
-    projectSearchMatches: "{count} matching Projects",
+    projects: "Scopes",
+    searchProjectsPlaceholder: "Search by scope ID",
+    projectSearchCount: "{count} scopes",
+    projectSearchMatches: "{count} matching scopes",
     projectSearchLimited: "Showing the first {shown} of {total} matches. Keep typing to narrow the list.",
-    noMatchingProjects: "No Projects match this search.",
+    noMatchingProjects: "No scopes match this search.",
     reportPeriod: "Report period",
     activity: "Activity",
     activitySubtitle: "Period controls affect Activity counts only. Handoff status stays on the current exact selection.",
@@ -189,15 +191,15 @@ const translations = {
     languageChinese: "中文",
     languageEnglish: "EN",
     updated: "Updated {value}",
-    projectOption: "{title} ({projectId})",
+    projectOption: "{projectId}",
     coverageCaptured: "Captured Activity is included through cursor {cursor}. Counts describe observed events, not completion percentage.",
     coverageNotConfigured: "Activity adapters are not configured. Missing Activity must not be read as no work occurring.",
     coverageUnavailable: "Activity coverage is unavailable for this report.",
-    noProjects: "No Handoff Report Project is configured.",
+    noProjects: "No scope contains a committed Handoff.",
     previewReportTitle: "Handoff Report template",
     preview: "Preview",
-    previewNotice: "This data-free preview shows the report's main Handoff sections. Values shown as \u201c\u2014\u201d do not represent real Project status.",
-    previewRetryHint: "Configure a Project, then retry to load its report.",
+    previewNotice: "This data-free preview shows the report's main Handoff sections. Values shown as \u201c\u2014\u201d do not represent real scope status.",
+    previewRetryHint: "Commit a Handoff for a scope, then retry to load its report.",
     previewPlaceholder: "\u2014",
     previewProjectSummary: "Project summary and scope",
     previewProjectSummarySubtitle: "Project identity, selected scope, and reporting period",
@@ -217,7 +219,7 @@ const translations = {
     requestFailed: "The Handoff Report request failed with HTTP {status}.",
     serverUnavailable: "The Server is unavailable.",
     retry: "Retry",
-    reportUnavailable: "The selected Project report is unavailable.",
+    reportUnavailable: "The selected scope report is unavailable.",
     downloadFailed: "The Markdown download failed with HTTP {status}.",
     reported: "Reported",
     reported_with_omissions: "Reported with omissions",
@@ -236,6 +238,8 @@ const translations = {
   zh: {
     pageTitle: "PowerContext 项目交接报告",
     dashboardTitle: "仪表盘",
+    skillsTitle: "技能",
+    reviewTitle: "审核",
     handoffReportTitle: "交接报告",
     brandHomeLabel: "PowerContext 仪表盘",
     primaryNavigation: "主导航",
@@ -248,12 +252,12 @@ const translations = {
     continue: "继续",
     refresh: "刷新",
     downloadMarkdown: "下载 Markdown",
-    projects: "项目",
-    searchProjectsPlaceholder: "按项目名称或标识搜索",
-    projectSearchCount: "共 {count} 个项目",
-    projectSearchMatches: "匹配 {count} 个项目",
+    projects: "范围",
+    searchProjectsPlaceholder: "按范围标识搜索",
+    projectSearchCount: "共 {count} 个范围",
+    projectSearchMatches: "匹配 {count} 个范围",
     projectSearchLimited: "显示前 {shown} 个，共匹配 {total} 个。继续输入可缩小范围。",
-    noMatchingProjects: "没有匹配的项目。",
+    noMatchingProjects: "没有匹配的范围。",
     reportPeriod: "报告周期",
     activity: "活动",
     activitySubtitle: "周期控件只影响活动数量，交接状态始终采用当前精确选择。",
@@ -389,15 +393,15 @@ const translations = {
     languageChinese: "中文",
     languageEnglish: "EN",
     updated: "更新于 {value}",
-    projectOption: "{title}（{projectId}）",
+    projectOption: "{projectId}",
     coverageCaptured: "已纳入游标 {cursor} 之前捕获的活动。数量表示已观察事件，不代表完成百分比。",
     coverageNotConfigured: "活动适配器尚未配置；缺少活动不能解释为没有发生工作。",
     coverageUnavailable: "当前报告无法取得活动覆盖信息。",
-    noProjects: "尚未配置交接报告项目。",
+    noProjects: "尚无包含已提交交接的范围。",
     previewReportTitle: "交接报告模板",
     preview: "预览",
-    previewNotice: "此无数据预览展示报告的主要交接部分。以“—”显示的值不代表真实项目状态。",
-    previewRetryHint: "配置项目后，点击重试以加载真实报告。",
+    previewNotice: "此无数据预览展示报告的主要交接部分。以“—”显示的值不代表真实范围状态。",
+    previewRetryHint: "为某个范围提交交接后，点击重试以加载真实报告。",
     previewPlaceholder: "—",
     previewProjectSummary: "项目摘要与范围",
     previewProjectSummarySubtitle: "项目身份、所选范围和报告周期",
@@ -417,7 +421,7 @@ const translations = {
     requestFailed: "交接报告请求失败（HTTP {status}）。",
     serverUnavailable: "服务器无法访问。",
     retry: "重试",
-    reportUnavailable: "当前项目的交接报告不可用。",
+    reportUnavailable: "当前范围的交接报告不可用。",
     downloadFailed: "Markdown 下载失败（HTTP {status}）。",
     reported: "已汇报",
     reported_with_omissions: "已汇报但有缺失",
@@ -737,12 +741,18 @@ async function listProjects(token) {
   const projects = [];
   let cursor = null;
   do {
-    const payload = {limit: 100, include_archived: false};
+    const payload = {limit: 100};
     if (cursor !== null) {
       payload.cursor = cursor;
     }
-    const page = await requestJson("/v1/handoff-reports/projects/list", token, payload);
-    projects.push(...page.items);
+    const page = await requestJson("/v1/handoff-reports/scopes/list-known", token, payload);
+    projects.push(...page.items.map(({scope_id: scopeId}) => ({
+      project_id: scopeId,
+      project_key: scopeId,
+      title: scopeId,
+      default_locale: null,
+      timezone: "UTC"
+    })));
     cursor = page.next_cursor;
   } while (cursor !== null);
   return projects.sort((left, right) => (
@@ -752,18 +762,8 @@ async function listProjects(token) {
 }
 
 async function listHandoffWorks(token, project) {
-  const works = [];
-  let cursor = null;
-  do {
-    const payload = {project_id: project.project_id, limit: 100, include_archived: false};
-    if (cursor !== null) {
-      payload.cursor = cursor;
-    }
-    const page = await requestJson("/v1/handoff-reports/workstreams/list", token, payload);
-    works.push(...page.items.map((workstream) => ({project, workstream})));
-    cursor = page.next_cursor;
-  } while (cursor !== null);
-  return works;
+  void token;
+  return [{project, workstream: {scope_id: project.project_id}}];
 }
 
 async function loadReport(token, projectId, {background = false, selectedScopeId = null} = {}) {
@@ -836,7 +836,7 @@ async function loadReportData(token, projectId, request, {selectedScopeId = null
   }
   const periodSelection = resolveSelectedPeriod(project);
   const response = await requestJson("/v1/handoff-reports/get", token, {
-    project_id: projectId,
+    scope_id: projectId,
     locale: ui.locale() === "zh" ? "zh-CN" : "en",
     include_evidence_checks: false,
     format: "json",
@@ -1160,7 +1160,7 @@ function renderReport(report) {
   reportShell.hidden = false;
   signOut.hidden = !authenticationRequired;
   clearReportError();
-  setText("project-name", report.project.title);
+  setText("project-name", currentWorkstreamScope || report.workstreams[0]?.workstream.scope_id || translate("handoffReportTitle"));
   setText("report-updated", translate("updated", {value: formatDateTime(report.generated_at)}));
   setText("continuable-count", formatNumber(report.summary.continuable_count));
   setText("blocked-count", formatNumber(report.summary.blocked_count));
@@ -2017,7 +2017,7 @@ async function downloadMarkdown() {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
-        project_id: currentProject.project_id,
+        scope_id: currentProject.project_id,
         locale: ui.locale() === "zh" ? "zh-CN" : "en",
         include_evidence_checks: true,
         format: "markdown",

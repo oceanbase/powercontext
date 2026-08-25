@@ -48,10 +48,12 @@ from powercontext.http._generated.models import (
     HandoffResolution,
     HealthResponse,
     ImportExternalSkillRequest,
+    KnownHandoffScopePage,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListHandoffReportActivitiesRequest,
+    ListHandoffReportKnownScopesRequest,
     ListHandoffReportProjectsRequest,
     ListHandoffReportWorkstreamsRequest,
     ListMemoryChangesRequest,
@@ -1028,6 +1030,27 @@ LIST_HANDOFF_REPORT_PROJECTS = Operation[ListHandoffReportProjectsRequest, Proje
     responses={
         200: {
             "description": "A cursor-paginated page of Report Projects.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+LIST_HANDOFF_REPORT_KNOWN_SCOPES = Operation[ListHandoffReportKnownScopesRequest, KnownHandoffScopePage](
+    method="POST",
+    path="/v1/handoff-reports/scopes/list-known",
+    operation_id="list_handoff_report_known_scopes",
+    request_type=ListHandoffReportKnownScopesRequest,
+    request_location="body",
+    response_type=KnownHandoffScopePage,
+    success_status=200,
+    summary="List scopes that contain a committed Handoff",
+    tags=("handoff-reports",),
+    responses={
+        200: {
+            "description": "A cursor-paginated page of scopes that can be rendered as Handoff Reports.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         401: {"$ref": "#/components/responses/Unauthorized"},

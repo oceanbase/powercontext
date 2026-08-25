@@ -17,7 +17,11 @@ nav = [
                 { "Codex quickstart" = "en/docs/tutorials/codex-quickstart.md" },
                 { "Install and run" = "en/docs/how-to/install-and-run.md" },
                 { "Memory and Handoff" = "en/docs/explanation/memory-and-handoff.md" },
+                { "Experience and Skill lifecycle" = "en/docs/explanation/experience-and-skill-lifecycle.md" },
                 { "Hand off work in Codex" = "en/docs/how-to/handoff-with-codex.md" },
+                { "Review Candidates" = "en/docs/how-to/review-candidates.md" },
+                { "Create and review an Experience" = "en/docs/how-to/create-and-review-experience.md" },
+                { "Create and export a managed Skill" = "en/docs/how-to/create-and-export-skill.md" },
                 { "Troubleshoot" = "en/docs/how-to/troubleshoot.md" },
             ] },
             { "Integrations" = [
@@ -27,6 +31,7 @@ nav = [
                 { "Configure DeepSeek Harness" = "en/docs/how-to/configure-dsh.md" },
                 { "Configure LangGraph" = "en/docs/how-to/configure-langgraph.md" },
                 { "Configure Pi" = "en/docs/how-to/configure-pi.md" },
+                { "Configure OpenCode" = "en/docs/how-to/configure-opencode.md" },
                 { "Trace with Phoenix" = "en/docs/how-to/trace-with-phoenix.md" },
             ] },
             { "Reference" = [
@@ -67,6 +72,7 @@ nav = [
                 { "0011 Remote Access Architecture" = "en/rfcs/0011_remote_access_architecture.md" },
                 { "0002 Core SDK Product Model" = "en/rfcs/0002_core_sdk_product_model.md" },
                 { "0001 Product Definition and Vision" = "en/rfcs/0001_product_definition_and_vision.md" },
+                { "1304 Experience and Skill Review Page" = "en/rfcs/1304_experience_skill_review_page.md" },
                 { "RFC Template" = "en/rfcs/0000_example.md" },
             ] },
             { "Meetings" = [
@@ -83,7 +89,11 @@ nav = [
                 { "Codex 快速入门" = "zh/docs/tutorials/codex-quickstart.md" },
                 { "安装和运行" = "zh/docs/how-to/install-and-run.md" },
                 { "理解 Memory 和 Handoff" = "zh/docs/explanation/memory-and-handoff.md" },
+                { "Experience 与 Skill 生命周期" = "zh/docs/explanation/experience-and-skill-lifecycle.md" },
                 { "在 Codex 中交接工作" = "zh/docs/how-to/handoff-with-codex.md" },
+                { "审核 Candidate" = "zh/docs/how-to/review-candidates.md" },
+                { "创建并审核 Experience" = "zh/docs/how-to/create-and-review-experience.md" },
+                { "创建并导出 managed Skill" = "zh/docs/how-to/create-and-export-skill.md" },
                 { "排查问题" = "zh/docs/how-to/troubleshoot.md" },
             ] },
             { "集成方式" = [
@@ -93,6 +103,7 @@ nav = [
                 { "配置 DeepSeek Harness" = "zh/docs/how-to/configure-dsh.md" },
                 { "配置 LangGraph" = "zh/docs/how-to/configure-langgraph.md" },
                 { "配置 Pi" = "zh/docs/how-to/configure-pi.md" },
+                { "配置 OpenCode" = "zh/docs/how-to/configure-opencode.md" },
                 { "用 Phoenix 查看 trace" = "zh/docs/how-to/trace-with-phoenix.md" },
             ] },
             { "参考" = [
@@ -133,6 +144,7 @@ nav = [
                 { "0011 远程访问架构" = "zh/rfcs/0011_remote_access_architecture.md" },
                 { "0002 Core SDK 产品模型" = "zh/rfcs/0002_core_sdk_product_model.md" },
                 { "0001 产品定义与构想" = "zh/rfcs/0001_product_definition_and_vision.md" },
+                { "1304 Experience 与 Skill Review 页面" = "zh/rfcs/1304_experience_skill_review_page.md" },
                 { "RFC 模板" = "zh/rfcs/0000_example.md" },
             ] },
             { "会议纪要" = [

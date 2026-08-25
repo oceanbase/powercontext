@@ -12,87 +12,82 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Project one exact managed Skill Revision into a Codex skill directory."""
+"""Client adapters for host-local Codex Skill projections."""
 
 from __future__ import annotations
 
-import hashlib
-import json
-import re
-import shutil
-import tempfile
 from pathlib import Path
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.skill.external import AgentSkillTarget
+from powercontext.builtin.artifacts.skill.models import SkillContent
+from powercontext.builtin.artifacts.skill.projection import (
+    PROJECTION_SCHEMA,
+    CodexSkillProjectionConflictError,
+    CodexSkillProjectionState,
+    CodexSkillProjectionStatus,
+)
+from powercontext.builtin.artifacts.skill.projection import inspect_skill_projection as _inspect_skill_projection
+from powercontext.builtin.artifacts.skill.projection import project_skill as _project_skill
+from powercontext.builtin.artifacts.skill.projection import publish_skill_projection as _publish_skill_projection
 from powercontext.http import SkillProposal
 
-PROJECTION_SCHEMA = "powercontext.codex-skill-projection.v1"
-MAX_CODEX_SKILL_NAME_LENGTH = 64
-MAX_CODEX_SKILL_DESCRIPTION_LENGTH = 1_024
-_CODEX_SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
-
-def project_skill(
-    artifact: ArtifactRef,
-    content: SkillProposal,
-    destination: Path,
-    /,
-) -> Path:
+def project_skill(artifact: ArtifactRef, content: SkillProposal, destination: Path, /) -> Path:
     """Create a new host-local Codex projection without replacing existing content."""
 
-    if artifact.family != "skill":
-        raise ValueError("artifact must identify a managed Skill")  # noqa: TRY003
-    target = destination.resolve(strict=False)
-    _validate_codex_projection(content, target)
-    if target.exists():
-        raise FileExistsError(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    skill_text = _skill_markdown(artifact, content)
-    manifest = {
-        "schema": PROJECTION_SCHEMA,
-        "artifact": artifact.model_dump(mode="json"),
-        "skill_sha256": hashlib.sha256(skill_text.encode("utf-8")).hexdigest(),
-    }
-    with tempfile.TemporaryDirectory(prefix=".powercontext-skill-", dir=target.parent) as temporary:
-        staging = Path(temporary) / "projection"
-        staging.mkdir()
-        (staging / "SKILL.md").write_text(skill_text, encoding="utf-8")
-        (staging / "powercontext.json").write_text(
-            f"{json.dumps(manifest, indent=2, sort_keys=True)}\n",
-            encoding="utf-8",
-        )
-        shutil.copytree(staging, target)
-    return target
+    return _project_skill(artifact, _runtime_content(content), _codex_target(destination.parent))
 
 
-def _validate_codex_projection(content: SkillProposal, destination: Path) -> None:
-    if len(content.name) > MAX_CODEX_SKILL_NAME_LENGTH or _CODEX_SKILL_NAME.fullmatch(content.name) is None:
-        raise ValueError(  # noqa: TRY003
-            "managed Skill name must be at most 64 lowercase letters, digits, and single hyphens for Codex"
-        )
-    if destination.name != content.name:
-        raise ValueError("Codex skill directory name must match the managed Skill name")  # noqa: TRY003
-    if len(content.description) > MAX_CODEX_SKILL_DESCRIPTION_LENGTH or any(
-        value in content.description for value in "<>"
-    ):
-        raise ValueError(  # noqa: TRY003
-            "managed Skill description must be at most 1024 characters and contain no angle brackets for Codex"
-        )
+def inspect_skill_projection(
+    artifact: ArtifactRef,
+    content: SkillProposal,
+    root: Path,
+    /,
+) -> CodexSkillProjectionStatus:
+    """Inspect an exact managed Skill projection without changing local files."""
+
+    return _inspect_skill_projection(artifact, _runtime_content(content), _codex_target(root))
 
 
-def _skill_markdown(artifact: ArtifactRef, content: SkillProposal) -> str:
-    validation = "\n".join(f"- {item.root}" for item in content.validation)
-    exact_ref = f"artifact:{artifact.family}/{artifact.artifact_id}@{artifact.revision}"
-    return (
-        "---\n"
-        f"name: {json.dumps(content.name, ensure_ascii=False)}\n"
-        f"description: {json.dumps(content.description, ensure_ascii=False)}\n"
-        "---\n\n"
-        f"<!-- Generated from {exact_ref}. The Artifact Revision remains authoritative. -->\n\n"
-        f"{content.instructions.rstrip()}\n\n"
-        "## Validation\n\n"
-        f"{validation}\n"
+def publish_skill_projection(
+    artifact: ArtifactRef,
+    content: SkillProposal,
+    root: Path,
+    /,
+    *,
+    expected: CodexSkillProjectionStatus | None = None,
+) -> CodexSkillProjectionStatus:
+    """Publish or safely update one exact managed Skill in a configured Codex root."""
+
+    return _publish_skill_projection(artifact, _runtime_content(content), _codex_target(root), expected=expected)
+
+
+def _codex_target(root: Path) -> AgentSkillTarget:
+    return AgentSkillTarget(
+        target_id="client",
+        agent_kind="codex",
+        installation_scope="project",
+        path=root,
+        allow_managed_publish=True,
     )
 
 
-__all__ = ["PROJECTION_SCHEMA", "project_skill"]
+def _runtime_content(content: SkillProposal) -> SkillContent:
+    return SkillContent(
+        name=content.name,
+        description=content.description,
+        instructions=content.instructions,
+        validation=tuple(item.root for item in content.validation),
+    )
+
+
+__all__ = [
+    "PROJECTION_SCHEMA",
+    "CodexSkillProjectionConflictError",
+    "CodexSkillProjectionState",
+    "CodexSkillProjectionStatus",
+    "inspect_skill_projection",
+    "project_skill",
+    "publish_skill_projection",
+]

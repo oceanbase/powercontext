@@ -7,9 +7,9 @@
 
 # Summary
 
-This RFC defines Handoff Report, which combines the committed Handoffs of multiple Workstreams in one Project into a traceable transfer report for both human readers and Agents that need to continue the work.
+This RFC defines Handoff Report as a traceable projection of the committed Handoff in one `scope_id`, for both human readers and Agents that need to continue the work. Both report identity and query dimension are `scope_id`; committing a Handoff makes that scope discoverable without creating a Project or registering a Workstream first.
 
-A Project represents a repository, service, product component, or long-running project. It is the largest formal hierarchy and the execution and reporting aggregation boundary in the initial version. A Workstream maps one-to-one to an existing `scope_id`, which is its only stable identity. Tasks, Agents, Sessions, Git branches, status, time, and external Issues are filtering, navigation, or attribution dimensions rather than replacements for the Project/Workstream chain. A Project is not a Handoff scope. It only aggregates Workstreams for reading and never writes a summary back into a constituent scope. The initial version defines no Portfolio, Program, or cross-Project Feature entity above Project.
+Existing Project fields in `ProjectDescriptor`, the Project catalog, WorkspaceBinding, and Activity Event are retained for data and HTTP compatibility, but do not participate in scope discovery, report selection, or report generation. The canonical response uses a fixed compatibility placeholder Project until that schema is revised; callers must not use it as project identity. Tasks, Agents, Sessions, Git branches, status, time, and external Issues remain filtering, navigation, or attribution dimensions rather than replacements for `scope_id`.
 
 Every report produces two projections from one versioned canonical report model:
 
@@ -18,9 +18,9 @@ Every report produces two projections from one versioned canonical report model:
 
 An Agent does not need to and should not reverse-parse Markdown. Markdown and JSON must come from the same exact selection vector and cannot be generated as independent summaries. The Dashboard dynamically reads the latest committed Handoffs by default. An export carries the exact selection and its digest, but the initial version does not persist a second Report Snapshot lifecycle inside PowerContext. A status report may show a current handoff or compare Handoff Revisions at weekly or monthly boundaries. The initial version supports `zh-CN` and `en` Markdown locales plus language-neutral canonical JSON, but not cross-Project aggregate reports, HTML, PDF, or public sharing links.
 
-The initial version generates reports through one `get_handoff_report` operation. `format=markdown` is the default human projection, `format=json` returns the canonical model used by the Dashboard and Agents, and `download` controls only response disposition rather than introducing a second export semantic. Every report carries a locale-independent `selection_digest` and an output-specific `report_digest`.
+The initial version generates reports through one `get_handoff_report` operation with required `scope_id`. `format=markdown` is the default human projection, `format=json` returns the canonical model used by the Dashboard and Agents, and `download` controls only response disposition. Optional `project_id` remains for old-request compatibility and is ignored. Every report carries a locale-independent `selection_digest` and an output-specific `report_digest`.
 
-Handoff Report is an optional, read-only, independently removable Builtin Runtime feature. It reads existing exact Handoffs only through `HandoffReadAdapter` and does not modify `PreparedHandoff`, `CommitHandoffRequest`, `HandoffBackend`, the Handoff commit transaction, or existing Artifact/Handoff tables. The Report module owns its Project catalog, WorkspaceBinding, Activity Events, APIs, Dashboard, and renderers. A Report failure, disable, or rollback must not affect Source, Memory, Context, Handoff, or Continue.
+Handoff Report is an optional, read-only, independently removable Builtin Runtime feature. It enumerates reportable `scope_id` values from Handoff artifact heads and reads exact Handoffs through `HandoffReadAdapter`. It does not modify the Handoff commit path or invoke a model to create a Report Project. A Report failure or disable must not affect Source, Memory, Context, Handoff, or Continue.
 
 ## Review focus
 
@@ -201,7 +201,7 @@ Attach also does not authorize execution of an old handoff. Continue checks exac
 
 ## Project-level Dashboard
 
-Handoff Report reuses the Server's FastAPI and Jinja Web UI host and exposes a separate `/handoff-reports` page. The scoped-statistics Dashboard, scope selection, and statistics behavior remain unchanged at `/`. Shared layout, bearer-token session storage, locale switching, and light/dark themes may be reused, but report data comes only from the public Report API. The page first paginates through the Project catalog and then uses immutable `project_id` values as tab identities. Each tab shows the Project title and full `project_id`; switching tabs replaces only the current Project's canonical report and never merges or mutates another Project's Handoff. Disabling the Handoff Report feature removes the page, Report routes, and its static execution path.
+Handoff Report reuses the Server's FastAPI and Jinja Web UI host and exposes a separate `/handoff-reports` page. It pages through exact `scope_id` values with committed Handoff heads via `list_handoff_report_known_scopes`, then loads the selected scope through `get_handoff_report`. The scoped-statistics Dashboard remains unchanged at `/`. Disabling the Handoff Report feature removes the page, Report routes, and its static execution path.
 
 Project Overview shows the latest committed Handoff for every included Workstream by default and includes:
 
@@ -224,7 +224,7 @@ The Dashboard has three core pages:
 
 Filters support Workstream `kind`, Handoff `disposition`, Activity source, Agent label, external reference including `kind=branch`, time basis, and whether archived Workstreams are included. A filtered report must show `selected_workstreams` and `total_included_workstreams`; it cannot present a partial result as the complete Project. At any report boundary, one Workstream appears with at most one exact Handoff Revision or `no_handoff`; a Report never duplicates one scope by branch.
 
-The Dashboard obtains “ungrouped scopes” from the Report-owned `KnownScopeProjection`, not UI inference. Read-only discovery adapters collect opaque `scope_id` values from scope-bearing application behavior demonstrably available in the current Runtime, and the Report Store deduplicates them with first/last-seen observations. The initial version covers at least readable Handoffs; Source, Memory, or Trigger discovery is enabled only where an existing stable read interface exists. The projection promises only adapter-known scopes, not every possible external scope, and creates neither Project membership nor Core state. `list_handoff_report_known_scopes` provides paginated signals and the current Report Project, if any, for user-confirmed Workstream registration.
+The Dashboard scope list comes from Handoff artifact heads rather than UI inference or the Project catalog. It includes opaque `scope_id` values with at least one committed Handoff in the current Runtime, creates no Project membership, and does not include scopes that only have Source or Memory data. `list_handoff_report_known_scopes` deduplicates, orders, and paginates these exact identities.
 
 ## Dynamic reports and exact selections
 
@@ -594,7 +594,7 @@ Branch concurrency does not alter this consistency model. One `scope_id` resolve
 | `get_handoff_report_project` | `POST /v1/handoff-reports/projects/get` | Read one Report Project |
 | `update_handoff_report_project` | `POST /v1/handoff-reports/projects/update` | CAS-update a Project descriptor or catalog state |
 | `list_handoff_report_projects` | `POST /v1/handoff-reports/projects/list` | List Projects with pagination, excluding archived by default |
-| `list_handoff_report_known_scopes` | `POST /v1/handoff-reports/scopes/list-known` | Page through Report KnownScopeProjection and grouping state |
+| `list_handoff_report_known_scopes` | `POST /v1/handoff-reports/scopes/list-known` | List exact `scope_id` values with a committed Handoff |
 | `detect_handoff_report_workspace` | `POST /v1/handoff-reports/workspace-bindings/detect` | Return candidates from sanitized repository signals without writing a binding |
 | `get_handoff_report_workspace` | `POST /v1/handoff-reports/workspace-bindings/get` | Read a confirmed Report binding |
 | `attach_handoff_report_workspace` | `POST /v1/handoff-reports/workspace-bindings/attach` | Bind a workspace to an exact Report Project |
@@ -607,7 +607,7 @@ Branch concurrency does not alter this consistency model. One `scope_id` resolve
 | `sync_handoff_report_activities` | `POST /v1/handoff-reports/activities/sync` | Explicitly scan authorized adapters and modify only Report Store |
 | `list_handoff_report_activities` | `POST /v1/handoff-reports/activities/list` | Page Activity Events by period, source, and time basis |
 | `purge_handoff_report_activities` | `POST /v1/handoff-reports/activities/purge` | Delete Report-owned events by Project/time without deleting Core data |
-| `get_handoff_report` | `POST /v1/handoff-reports/get` | Generate point-in-time or periodic report, defaulting to Markdown with canonical JSON available explicitly |
+| `get_handoff_report` | `POST /v1/handoff-reports/get` | Generate a report for exact `scope_id`; retained `project_id` is ignored |
 | `compare_handoff_reports` | `POST /v1/handoff-reports/compare` | Deterministically compare two exact selections |
 
 Example detect request:
@@ -634,43 +634,32 @@ Example report request:
 
 ```json
 {
-  "project_id": "prj_01K...",
-  "report_kind": "handoff",
-  "selection": {"mode": "latest"},
-  "filters": {
-    "kinds": ["feature", "bug"],
-    "dispositions": ["continuable", "blocked"],
-    "activity_sources": ["git_commit", "coding_session"],
-    "include_archived": false
-  },
+  "scope_id": "git:github.com/oceanbase/powercontext",
   "include_evidence_checks": true,
-  "include_generated_summary": false,
   "format": "markdown",
   "download": false,
   "locale": "zh-CN"
 }
 ```
 
-`selection.mode` is `latest` or `exact`. An `exact` selection provides a Project catalog revision, Activity cursor/selection, and for every selected Workstream an exact catalog revision plus an exact Handoff `ArtifactRef` or explicit `no_handoff`. It cannot omit an entry and implicitly fill it from latest/current. The response always includes the complete Handoff and Activity selections resolved by the Server. Omitted `include_generated_summary` is `false`; if enabled but its provider is unavailable, the deterministic report still succeeds with generated content marked unavailable. Omitted `format` means `markdown`; `download` controls only `Content-Disposition` and does not change report schema or digests.
+The Server selects the latest committed Handoff only for the requested `scope_id`. Compatibility fields such as `project_id` and `include_archived` do not change the selection. Omitted `format` means `markdown`; `download` controls only `Content-Disposition` and does not change report schema or digests.
 
 Example periodic request:
 
 ```json
 {
-  "project_id": "prj_01K...",
-  "report_kind": "periodic",
+  "scope_id": "git:github.com/oceanbase/powercontext",
   "period": {
-    "preset": "week",
-    "end": "2026-08-09T23:59:59+08:00",
-    "timezone": "Asia/Shanghai"
+    "start": "2026-08-03T00:00:00+08:00",
+    "end": "2026-08-10T00:00:00+08:00",
+    "timezone": "Asia/Shanghai",
+    "compare_to_previous_period": true
   },
-  "compare_to_previous_period": true,
-  "filters": {"include_archived": false},
   "locale": "zh-CN"
 }
 ```
 
-`preset` is `week`, `month`, or `custom`; `custom` requires explicit start and end values. Explicit request timezone takes precedence over Project timezone; if neither is usable, the request fails without falling back to Server local time. The response contains the period Activity selection and time-basis coverage plus exact/observed Handoff baseline/end when available. An unresolvable historical Handoff boundary remains unknown rather than falling back to current latest.
+`period.start` and `period.end` form a half-open interval and include UTC offsets. If request timezone is omitted, the compatibility projection uses `UTC`; the Server local timezone is not consulted. The period normalizes report metadata while the scope's Handoff selection remains the latest exact Revision.
 
 Compare accepts only two complete exact selection envelopes, not whole report JSON documents, and neither side may use `latest`, current descriptors, or a moving Activity cursor. A caller reusing saved JSON explicitly extracts its selection envelope. The Server validates schema, project_id, catalog revisions, scope membership, Activity Event identities, and every exact Handoff ref; any item not resolvable in the current Runtime produces `selection_not_resolvable` without fallback. `get_handoff_report` accepts dynamic `latest`, a period request, or a complete exact selection. After freezing selection, it returns selection/report digests in headers and body without persisting a report.
 

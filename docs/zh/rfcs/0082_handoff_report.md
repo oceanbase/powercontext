@@ -7,9 +7,9 @@
 
 # Summary
 
-本 RFC 定义 Handoff Report：把一个 Project 下多个 Workstream 的已提交 Handoff 汇总成同一份可追溯交接报告，同时服务人类阅读和 Agent 继续工作。
+本 RFC 定义 Handoff Report：把一个 `scope_id` 下的已提交 Handoff 投影为可追溯交接报告，同时服务人类阅读和 Agent 继续工作。报告维度和查询身份都是 `scope_id`；提交 Handoff 后，该 scope 自动进入只读报告发现列表，不要求预先创建 Project 或注册 Workstream。
 
-Project 表示仓库、服务、产品组件或长期项目，是首版最大的正式层级，也是执行和报告聚合边界。Workstream 与现有 `scope_id` 一一对应，`scope_id` 是其唯一稳定身份。Task、Agent、Session、Git branch、状态、时间和外部 Issue 是筛选、导航或归因维度，不代替稳定的 Project/Workstream 主链。Project 不是 Handoff scope；它只读聚合 Workstream，不把汇总结果写回任一 scope。首版不定义 Project 之上的 Portfolio、Program 或跨 Project Feature 实体。
+`ProjectDescriptor`、Project catalog、WorkspaceBinding、Activity Event 中已有的 Project 字段暂时保留，以维持数据和 HTTP 结构兼容，但不参与 Handoff Report 的 scope 发现、选择或生成。报告内部为旧 canonical schema 填充固定兼容占位 Project；调用方不得依赖该占位值识别项目。Task、Agent、Session、Git branch、状态、时间和外部 Issue 仍只是筛选、导航或归因维度，不能替代 `scope_id`。
 
 每份报告从同一个带版本的 canonical report model 产生两种投影：
 
@@ -18,9 +18,9 @@ Project 表示仓库、服务、产品组件或长期项目，是首版最大的
 
 Agent 不需要也不应该反向解析 Markdown。Markdown 和 JSON 必须来自同一个精确 selection vector，不能各自生成不同总结。Dashboard 默认动态读取最新已提交 Handoff；导出文件携带 exact selection 和 digest，但首版不在 PowerContext 中持久化第二套 Report Snapshot。状态报告可以展示当前交接，也可以按周或月比较两个时间边界上的 Handoff Revision。首版支持 `zh-CN`、`en` 两种 Markdown locale 和语言无关的 canonical JSON，不支持跨 Project 聚合报告、HTML、PDF 或公开分享链接。
 
-首版通过一个 `get_handoff_report` operation 生成报告：`format=markdown` 为默认的人类投影，`format=json` 返回 Dashboard 和 Agent 使用的 canonical model，`download` 只控制响应 disposition，不建立第二套 export 语义。报告同时携带与 locale 无关的 `selection_digest` 和面向具体输出的 `report_digest`。
+首版通过一个 `get_handoff_report` operation 按必填 `scope_id` 生成报告：`format=markdown` 为默认的人类投影，`format=json` 返回 Dashboard 和 Agent 使用的 canonical model，`download` 只控制响应 disposition，不建立第二套 export 语义。可选 `project_id` 仅为兼容旧请求而保留，服务端忽略该字段。报告同时携带与 locale 无关的 `selection_digest` 和面向具体输出的 `report_digest`。
 
-Handoff Report 是可选、只读、可独立卸载的 Builtin Runtime feature。它只通过 `HandoffReadAdapter` 读取现有 exact Handoff，不修改 `PreparedHandoff`、`CommitHandoffRequest`、`HandoffBackend`、Handoff commit transaction 或现有 Artifact/Handoff 表。Project catalog、WorkspaceBinding、Activity Event、API、Dashboard 和 renderer 都由 Report 模块拥有；Report 失败、关闭或回退不得影响 Source、Memory、Context、Handoff 或 Continue。
+Handoff Report 是可选、只读、可独立卸载的 Builtin Runtime feature。它通过 Handoff artifact head 枚举可报告的 `scope_id`，并通过 `HandoffReadAdapter` 读取现有 exact Handoff；不修改 `PreparedHandoff`、`CommitHandoffRequest`、`HandoffBackend`、Handoff commit transaction 或现有 Artifact/Handoff 表，也不在交接流程中调用模型来创建 Report Project。Report 失败、关闭或回退不得影响 Source、Memory、Context、Handoff 或 Continue。
 
 ## 评审重点
 
@@ -201,7 +201,7 @@ Attach 后也不能直接执行旧交接。Continue 必须把 exact Handoff evid
 
 ## 项目级 Dashboard
 
-Handoff Report 复用 Server 已有的 FastAPI + Jinja Web UI 宿主，在 `/handoff-reports` 提供独立页面；根路径 `/` 的 scoped statistics Dashboard、scope 选择和统计逻辑保持不变。公共 layout、bearer token session storage、中英文切换和 light/dark theme 可以复用，但报告数据只来自公开 Report API。页面先分页读取 Project catalog，再以不可变 `project_id` 作为标签页身份；标签同时显示 Project title 和完整 `project_id`，切换标签只替换当前 Project 的 canonical report，不改变或合并其他 Project 的 Handoff。Handoff Report feature 关闭时不注册该页面、Report route 或静态执行逻辑。
+Handoff Report 复用 Server 已有的 FastAPI + Jinja Web UI 宿主，在 `/handoff-reports` 提供独立页面；根路径 `/` 的 scoped statistics Dashboard、scope 选择和统计逻辑保持不变。页面通过 `list_handoff_report_known_scopes` 分页读取存在 committed Handoff head 的 `scope_id`，以 exact `scope_id` 作为选择器身份，并通过 `get_handoff_report` 加载该 scope 的 canonical report。Handoff Report feature 关闭时不注册该页面、Report route 或静态执行逻辑。
 
 Project Overview 默认展示所有 included Workstream 的最新已提交 Handoff，并包含：
 
@@ -224,7 +224,7 @@ Dashboard 提供三个核心页面：
 
 筛选支持 Workstream `kind`、Handoff `disposition`、Activity source、Agent label、external reference（包括 `kind=branch`）、time basis，以及是否包含 archived Workstream。筛选后的报告必须显示 `selected_workstreams` 与 `total_included_workstreams`，不能让局部结果看起来像完整项目。一个 Workstream 在任一 report boundary 只能出现一个 exact Handoff Revision 或 `no_handoff`；Report 不按 branch 复制同一个 scope。
 
-Dashboard 的“未分组 scope”来自 Report-owned `KnownScopeProjection`，不是 UI 猜测。只读 discovery Adapter 从当前 Runtime 能证明存在的 scope-bearing application behavior 收集 opaque `scope_id`，Report Store 对结果去重并记录 first/last seen；首版至少覆盖可读 Handoff，其他 Source/Memory/Trigger discovery 仅在已有稳定只读接口时启用。该 projection 只承诺列出“Adapter 已知的 scope”，不承诺枚举外部系统中的所有可能 scope，也不创建 Project membership 或写入 Core。`list_handoff_report_known_scopes` 分页返回可用信号和当前 Report Project（若有），供用户确认注册 Workstream。
+Dashboard 的 scope 列表来自 Handoff artifact head，不由 UI 猜测，也不依赖 Report Project catalog。该只读 projection 只列出当前 Runtime 中至少存在一个 committed Handoff 的 opaque `scope_id`；它不创建 Project membership、不写入 Core，也不枚举只有 Source/Memory 而没有 Handoff 的 scope。`list_handoff_report_known_scopes` 对这些 exact scope identity 去重、排序并分页返回。
 
 ## 动态报告和 exact selection
 
@@ -605,7 +605,7 @@ Report 读取不锁定 Workstream，也不阻止 Handoff commit。Project 的成
 | `get_handoff_report_project` | `POST /v1/handoff-reports/projects/get` | 读取一个 Report Project |
 | `update_handoff_report_project` | `POST /v1/handoff-reports/projects/update` | CAS 更新 Project descriptor/catalog state |
 | `list_handoff_report_projects` | `POST /v1/handoff-reports/projects/list` | 分页列出 Project，默认排除 archived |
-| `list_handoff_report_known_scopes` | `POST /v1/handoff-reports/scopes/list-known` | 分页读取 Report 的 KnownScopeProjection 和 grouping 状态 |
+| `list_handoff_report_known_scopes` | `POST /v1/handoff-reports/scopes/list-known` | 分页读取存在 committed Handoff 的 exact `scope_id` |
 | `detect_handoff_report_workspace` | `POST /v1/handoff-reports/workspace-bindings/detect` | 根据去敏仓库信号返回候选 Project，不写绑定 |
 | `get_handoff_report_workspace` | `POST /v1/handoff-reports/workspace-bindings/get` | 读取一个 workspace 的 confirmed Report binding |
 | `attach_handoff_report_workspace` | `POST /v1/handoff-reports/workspace-bindings/attach` | 显式把 workspace 绑定到 exact Report Project |
@@ -618,7 +618,7 @@ Report 读取不锁定 Workstream，也不阻止 Handoff commit。Project 的成
 | `sync_handoff_report_activities` | `POST /v1/handoff-reports/activities/sync` | 显式运行已授权 Adapter scan，只修改 Report Store |
 | `list_handoff_report_activities` | `POST /v1/handoff-reports/activities/list` | 按 period/source/time basis 分页读取 Activity Event |
 | `purge_handoff_report_activities` | `POST /v1/handoff-reports/activities/purge` | 按 Project 和时间边界删除 Report-owned events，不删除 Handoff/Core 数据 |
-| `get_handoff_report` | `POST /v1/handoff-reports/get` | 生成时点交接或 periodic 报告，默认 Markdown，可显式请求 canonical JSON |
+| `get_handoff_report` | `POST /v1/handoff-reports/get` | 按 exact `scope_id` 生成时点交接或 periodic 报告；`project_id` 保留但忽略 |
 | `compare_handoff_reports` | `POST /v1/handoff-reports/compare` | 确定性比较两个 exact selection |
 
 Detect 请求示例：
@@ -645,43 +645,32 @@ Detect 响应按 exact/strong/weak 排序返回至多 20 个 `{project_id, proje
 
 ```json
 {
-  "project_id": "prj_01K...",
-  "report_kind": "handoff",
-  "selection": {"mode": "latest"},
-  "filters": {
-    "kinds": ["feature", "bug"],
-    "dispositions": ["continuable", "blocked"],
-    "activity_sources": ["git_commit", "coding_session"],
-    "include_archived": false
-  },
+  "scope_id": "git:github.com/oceanbase/powercontext",
   "include_evidence_checks": true,
-  "include_generated_summary": false,
   "format": "markdown",
   "download": false,
   "locale": "zh-CN"
 }
 ```
 
-`selection.mode` 为 `latest` 或 `exact`。`exact` 必须提供 Project catalog revision、Activity cursor/selection，并为每个选中 Workstream 提供 exact catalog revision，以及 exact Handoff `ArtifactRef` 或显式 `no_handoff`；不得遗漏后再隐式补 latest/current。响应总是返回服务器解析后的完整 Handoff 和 Activity selection。`include_generated_summary` 省略时为 `false`；开启但 generation provider 不可用时 deterministic report 仍成功，generated field 返回 unavailable。`format` 省略时为 `markdown`；`download` 只控制 `Content-Disposition`，不改变报告 schema 或 digest。
+服务端只选择请求 `scope_id` 的 latest committed Handoff。`project_id`、`include_archived` 等 Project 兼容字段不改变 selection。`format` 省略时为 `markdown`；`download` 只控制 `Content-Disposition`，不改变报告 schema 或 digest。
 
 Periodic 请求示例：
 
 ```json
 {
-  "project_id": "prj_01K...",
-  "report_kind": "periodic",
+  "scope_id": "git:github.com/oceanbase/powercontext",
   "period": {
-    "preset": "week",
-    "end": "2026-08-09T23:59:59+08:00",
-    "timezone": "Asia/Shanghai"
+    "start": "2026-08-03T00:00:00+08:00",
+    "end": "2026-08-10T00:00:00+08:00",
+    "timezone": "Asia/Shanghai",
+    "compare_to_previous_period": true
   },
-  "compare_to_previous_period": true,
-  "filters": {"include_archived": false},
   "locale": "zh-CN"
 }
 ```
 
-`preset` 为 `week`、`month` 或 `custom`；`custom` 必须显式给出 start/end。请求显式 timezone 优先于 Project timezone；两者都不可用时失败，不使用 Server local timezone。响应返回 period Activity selection、time-basis coverage，以及可用时的 exact/observed Handoff baseline/end；不能解析历史 Handoff 边界时返回 unknown 而不是 current latest。
+`period.start` 和 `period.end` 是带 UTC offset 的半开区间。请求显式 timezone 省略时使用兼容投影的 `UTC`，不读取 Server local timezone。周期只规范化报告元数据；当前 scope 的 Handoff selection 仍是 latest exact Revision。
 
 Compare operation 只接受两个完整 exact selection envelope，不能接受整个 report JSON，也不能让任一侧在比较过程中使用 `latest`、current descriptor 或 moving Activity cursor。从已保存 JSON 复用时由调用方显式提取其中的 selection envelope。Server 收到输入后先验证 schema、project_id、catalog revisions、scope membership、Activity Event identities 和全部 exact Handoff refs；任一项无法在当前 Runtime 解析时返回 `selection_not_resolvable`，不能降级。`get_handoff_report` 可以使用动态 latest、period request 或完整 exact selection；服务端冻结 selection 后，在 response header 和 body 返回 selection/report digest，但不保存报告。
 

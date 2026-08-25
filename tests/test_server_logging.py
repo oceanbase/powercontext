@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
+import sys
 
 from fastapi.testclient import TestClient
 
@@ -23,6 +25,50 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import JsonFormatter, OperationalContextFilter
 from powercontext.server.settings import McpConfig, ServerLoggingConfig, ServerSettings
+
+
+def _run_configured_logging_probe(log_format: str) -> list[str]:
+    script = f"""
+import logging
+
+from powercontext.server.logging import configure_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+
+configure_server_logging(ServerLoggingConfig(format={log_format!r}))
+logging.getLogger("uvicorn.error").info("Started server process")
+logging.getLogger("uvicorn.error").error("Server startup failed")
+logging.getLogger("powercontext.server.factory").info("PowerContext Server is ready")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return result.stdout.splitlines()
+
+
+def test_configured_console_logging_uses_uvicorn_display_name() -> None:
+    lines = _run_configured_logging_probe("console")
+
+    assert len(lines) == 3
+    messages = [line.split(" ", 1)[1] for line in lines]
+    assert messages == [
+        "INFO uvicorn Started server process",
+        "ERROR uvicorn Server startup failed",
+        "INFO powercontext.server.factory PowerContext Server is ready",
+    ]
+
+
+def test_configured_json_logging_uses_uvicorn_display_name() -> None:
+    payloads = [json.loads(line) for line in _run_configured_logging_probe("json")]
+
+    assert [(payload["level"], payload["logger"], payload["message"]) for payload in payloads] == [
+        ("INFO", "uvicorn", "Started server process"),
+        ("ERROR", "uvicorn", "Server startup failed"),
+        ("INFO", "powercontext.server.factory", "PowerContext Server is ready"),
+    ]
 
 
 def test_json_formatter_emits_stable_operational_fields() -> None:

@@ -17,7 +17,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from bisect import bisect_right
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -30,7 +31,7 @@ from powercontext.builtin.handoff_report.catalog_store import (
     DEFAULT_CATALOG_PAGE_SIZE,
     CatalogPage,
 )
-from powercontext.builtin.handoff_report.errors import HandoffReportCatalogArgumentError, HandoffReportTooLargeError
+from powercontext.builtin.handoff_report.errors import HandoffReportCatalogArgumentError
 from powercontext.builtin.handoff_report.models import (
     CatalogState,
     ExternalReference,
@@ -43,19 +44,13 @@ from powercontext.builtin.handoff_report.models import (
     WorkstreamKind,
 )
 from powercontext.builtin.handoff_report.protocols import HandoffReadAdapter, WorkContinuityReadAdapter
-from powercontext.builtin.handoff_report.report import (
-    MAX_REPORT_ACTIVITIES,
-    MAX_REPORT_WORKSTREAMS,
-    HandoffReport,
-    ReportActivityCoverageStatus,
-    ReportFormat,
-    ReportPeriodComparison,
-)
+from powercontext.builtin.handoff_report.report import HandoffReport, ReportFormat
 from powercontext.builtin.handoff_report.repository import ActivityEventRepository, StoredActivityEvent
 from powercontext.builtin.handoff_report.service import HandoffReportService
 from powercontext.builtin.handoff_report.sqlite import SQLiteActivityEventRepository
 from powercontext.builtin.handoff_report.workspace import WorkspaceBindingService
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.sources import validate_scope_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +72,14 @@ class ReportPeriodInput:
     compare_to_previous_period: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class KnownScopePage:
+    """One cursor page of scopes that contain a committed Handoff."""
+
+    items: tuple[str, ...]
+    next_cursor: str | None
+
+
 class HandoffReportApplication:
     """Coordinate Report-owned persistence with the existing Handoff read port."""
 
@@ -89,12 +92,32 @@ class HandoffReportApplication:
         activities: ActivityEventRepository | None = None,
         workspace_bindings: WorkspaceBindingService | None = None,
         continuity: WorkContinuityReadAdapter | None = None,
+        scope_ids: Callable[[], Awaitable[tuple[str, ...]]] | None = None,
     ) -> None:
         self._database = database
         self._catalog = HandoffReportCatalog()
         self._activities = SQLiteActivityEventRepository() if activities is None else activities
         self._workspace_bindings = WorkspaceBindingService() if workspace_bindings is None else workspace_bindings
         self._reports = HandoffReportService(handoffs, continuity=continuity)
+        self._scope_ids = scope_ids
+
+    async def list_known_scopes(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int = DEFAULT_CATALOG_PAGE_SIZE,
+    ) -> KnownScopePage:
+        """List exact scope identities backed by a committed Handoff."""
+
+        if limit < 1 or limit > 100:
+            raise HandoffReportCatalogArgumentError("limit", "must be between 1 and 100")
+        if cursor is not None and (not cursor.strip() or cursor != cursor.strip()):
+            raise HandoffReportCatalogArgumentError("cursor", "must be non-empty trimmed text")
+        scopes = () if self._scope_ids is None else tuple(sorted(set(await self._scope_ids())))
+        start = 0 if cursor is None else bisect_right(scopes, cursor)
+        items = scopes[start : start + limit]
+        next_cursor = items[-1] if start + len(items) < len(scopes) else None
+        return KnownScopePage(items=items, next_cursor=next_cursor)
 
     async def create_project(
         self,
@@ -295,7 +318,7 @@ class HandoffReportApplication:
 
     async def get_report(
         self,
-        project_id: str,
+        scope_id: str,
         /,
         *,
         locale: ReportLocale | None = None,
@@ -305,126 +328,68 @@ class HandoffReportApplication:
         normalized_filters: dict[str, JsonValue] | None = None,
         period: ReportPeriodInput | None = None,
     ) -> HandoffReport:
-        project, workstreams, activities, activity_cursor, normalized_period, comparison = await self._report_inputs(
-            project_id,
-            include_archived=include_archived,
-            period=period,
-        )
+        del include_archived
+        project = _scope_report_project(scope_id)
+        workstreams = (_scope_report_workstream(scope_id),)
+        period_values = _normalize_period(project, period)
+        normalized_period = _normalized_period(period, period_values)
         return await self._reports.generate(
             project,
             workstreams,
             locale=locale,
             include_evidence_checks=include_evidence_checks,
-            activities=activities,
-            activity_cursor=activity_cursor,
-            activity_coverage=_activity_coverage(activities, activity_cursor),
+            activities=(),
+            activity_cursor=0,
+            activity_coverage="not_configured",
             report_format=report_format,
             report_kind="handoff" if period is None else "periodic",
             normalized_filters={} if normalized_filters is None else normalized_filters,
             normalized_period=normalized_period,
-            period_comparison=comparison,
+            period_comparison=None,
         )
 
-    async def _report_inputs(
-        self,
-        project_id: str,
-        *,
-        include_archived: bool,
-        period: ReportPeriodInput | None,
-    ) -> tuple[
-        ProjectDescriptor,
-        tuple[WorkstreamDescriptor, ...],
-        tuple[ReportActivityEvent, ...],
-        int,
-        dict[str, JsonValue] | None,
-        ReportPeriodComparison | None,
-    ]:
-        async with self._database.transaction() as connection:
-            project = await self._catalog.get_project(connection, project_id)
-            period_values = _normalize_period(project, period)
-            page = await self._catalog.list_workstreams(
-                connection,
-                project_id,
-                limit=MAX_REPORT_WORKSTREAMS,
-                include_archived=include_archived,
-            )
-            if page.next_cursor is not None:
-                raise HandoffReportTooLargeError(
-                    selected_workstreams=MAX_REPORT_WORKSTREAMS + 1,
-                    selected_activities=0,
-                )
-            activity_cursor = await self._activities.high_watermark(connection, project_id)
-            stored = await self._activities.list(
-                connection,
-                project_id,
-                period_start=None if period_values is None else period_values[0],
-                period_end=None if period_values is None else period_values[1],
-                after_cursor=0,
-                through_cursor=activity_cursor,
-                limit=MAX_REPORT_ACTIVITIES + 1,
-            )
-            previous_stored: tuple[StoredActivityEvent, ...] = ()
-            if period_values is not None and period is not None and period.compare_to_previous_period:
-                start, end, _ = period_values
-                duration = end - start
-                previous_stored = await self._activities.list(
-                    connection,
-                    project_id,
-                    period_start=start - duration,
-                    period_end=start,
-                    after_cursor=0,
-                    through_cursor=activity_cursor,
-                    limit=MAX_REPORT_ACTIVITIES + 1,
-                )
-        if len(stored) > MAX_REPORT_ACTIVITIES:
-            raise HandoffReportTooLargeError(
-                selected_workstreams=len(page.items),
-                selected_activities=len(stored),
-            )
-        if len(previous_stored) > MAX_REPORT_ACTIVITIES:
-            raise HandoffReportTooLargeError(
-                selected_workstreams=len(page.items),
-                selected_activities=len(previous_stored),
-            )
-        normalized_period = None
-        comparison = None
-        if period_values is not None:
-            requested_period = cast(ReportPeriodInput, period)
-            start, end, timezone = period_values
-            normalized_period = {
-                "start": _utc_text(start),
-                "end": _utc_text(end),
-                "timezone": timezone,
-                "compare_to_previous_period": requested_period.compare_to_previous_period,
-            }
-            if requested_period.compare_to_previous_period:
-                duration = end - start
-                comparison = ReportPeriodComparison(
-                    previous_start=start - duration,
-                    previous_end=start,
-                    current_activity_count=len(stored),
-                    previous_activity_count=len(previous_stored),
-                    activity_delta=len(stored) - len(previous_stored),
-                )
-        return (
-            project,
-            page.items,
-            tuple(_activity_event(item) for item in stored),
-            activity_cursor,
-            normalized_period,
-            comparison,
-        )
+
+def _scope_report_project(scope_id: str) -> ProjectDescriptor:
+    scope = validate_scope_id(scope_id)
+    return ProjectDescriptor(
+        project_id="unused",
+        project_key="unused",
+        title=scope,
+        default_locale="zh-CN",
+        timezone="UTC",
+        version=1,
+    )
+
+
+def _scope_report_workstream(scope_id: str) -> WorkstreamDescriptor:
+    scope = validate_scope_id(scope_id)
+    return WorkstreamDescriptor(
+        scope_id=scope,
+        project_id="unused",
+        title=scope,
+        kind="other",
+        version=1,
+    )
+
+
+def _normalized_period(
+    period: ReportPeriodInput | None,
+    values: tuple[datetime, datetime, str] | None,
+) -> dict[str, JsonValue] | None:
+    if values is None:
+        return None
+    requested = cast(ReportPeriodInput, period)
+    start, end, timezone = values
+    return {
+        "start": _utc_text(start),
+        "end": _utc_text(end),
+        "timezone": timezone,
+        "compare_to_previous_period": requested.compare_to_previous_period,
+    }
 
 
 def _activity_event(value: StoredActivityEvent) -> ReportActivityEvent:
     return ReportActivityEvent.model_validate_json(json.dumps(value.payload))
-
-
-def _activity_coverage(
-    activities: Sequence[ReportActivityEvent],
-    activity_cursor: int,
-) -> ReportActivityCoverageStatus:
-    return "captured" if activities or activity_cursor > 0 else "not_configured"
 
 
 def _normalize_period(
@@ -455,4 +420,4 @@ def _utc_text(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
-__all__ = ["HandoffReportApplication", "ReportActivityPage", "ReportPeriodInput"]
+__all__ = ["HandoffReportApplication", "KnownScopePage", "ReportActivityPage", "ReportPeriodInput"]

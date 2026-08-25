@@ -37,7 +37,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryRerankDecision,
     MemoryReranker,
 )
-from powercontext.builtin.artifacts.skill import CodexSkillProvider, ExternalSkillProvider, SkillGenerator
+from powercontext.builtin.artifacts.skill import AgentSkillProvider, ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter, RuntimeWorkContinuityReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.handoff_report.sqlite import HANDOFF_REPORT_TABLES
@@ -283,6 +283,7 @@ async def open_builtin_runtime(
                 contexts.database,
                 RuntimeHandoffReadAdapter(runtime.handoff),
                 continuity=RuntimeWorkContinuityReadAdapter(runtime.work),
+                scope_ids=contexts.handoff_scope_ids,
             )
         if config.runtime.schedule_seconds is not None and configured_pipeline is None:
             raise BuiltinConfigurationError("scheduled-pipeline")
@@ -581,11 +582,11 @@ def _required(value: ValueT | None) -> ValueT:
 
 
 def _external_skill_provider(settings: ExternalSkillsConfig) -> ExternalSkillProvider | None:
-    if not settings.codex_roots:
+    if not settings.agent_targets:
         return None
     if settings.host_id is None:
         raise BuiltinConfigurationError("external-skill-host")
-    return CodexSkillProvider(host_id=settings.host_id, roots=settings.codex_roots)
+    return AgentSkillProvider(host_id=settings.host_id, targets=settings.agent_targets)
 
 
 def _search_modes(capabilities: MemoryCapabilities) -> tuple[MemorySearchMode, ...]:

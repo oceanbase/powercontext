@@ -24,10 +24,15 @@ powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
 powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
 powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
 powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
+
+# OpenCode 当前需要从 master 安装匹配的 CLI 和集成。
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup opencode --source oceanbase/powercontext --ref master
 ```
 
-第一条命令会在隔离环境中安装 CLI 和本地 Server。后续 setup 命令会从匹配的仓库 tag 安装对应的
-集成。如需刷新现有安装，请再次运行 setup。
+第一条命令会在隔离环境中安装最新发布的 CLI 和本地 Server；发布版的 setup 命令会从匹配的仓库 tag
+安装对应集成。在 OpenCode 进入正式发布版之前，额外的 `uv tool install` 命令会让 CLI、Server 和集成
+使用同一个 `master` revision。如需刷新现有集成，请再次运行 setup。
 
 ### 2. 启动并验证本地 Server
 
@@ -74,7 +79,8 @@ SQLite 数据库。显式 Memory 操作无需配置 inference provider 即可使
 
 ## 集成
 
-PowerContext 为 Codex、Claude Code、DeepSeek Harness、Hermes Agent 和 Pi Coding Agent 提供官方集成与安装指南。
+PowerContext 为 Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent 和 OpenCode
+提供官方集成与安装指南。
 这些集成都通过 PowerContext Server 使用同一套作用域数据和保留历史的契约；宿主集成不会自行启动或内嵌 Server。
 
 ### 官方集成
@@ -86,6 +92,7 @@ PowerContext 为 Codex、Claude Code、DeepSeek Harness、Hermes Agent 和 Pi Co
 <td align="center" width="120"><a href="docs/zh/docs/how-to/configure-dsh.md"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/zh/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/how-to/configure-opencode.md"><img src="https://github.com/anomalyco.png?size=120" alt="OpenCode" width="48" height="48" /><br /><sub><b>OpenCode</b></sub></a></td>
 </tr>
 </table>
 
