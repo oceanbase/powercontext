@@ -35,6 +35,7 @@ from powercontext.builtin.artifacts.skill import (
     Skill,
     SkillCompatibilityState,
     SkillContent,
+    SkillOrigin,
     SkillPackageRef,
     SkillPackageSnapshot,
     assess_skill_compatibility,
@@ -158,6 +159,7 @@ class DashboardManagedSkill(BaseModel):
     sources: tuple[SourceRef, ...]
     artifacts: tuple[ArtifactRef, ...]
     governance: ArtifactGovernance
+    origin: SkillOrigin
 
 
 class DashboardSkillLifecycleRequest(BaseModel):
@@ -292,6 +294,8 @@ def mount_web_ui(  # noqa: C901
     handoff_report_enabled: bool = False,
     authentication_required: bool = False,
     agent_skill_targets: tuple[AgentSkillTarget, ...] = (),
+    public_server_url: str | None = None,
+    allow_insecure_http: bool = False,
 ) -> None:
     """Mount Server-owned pages, static assets, and UI support endpoints."""
 
@@ -338,6 +342,8 @@ def mount_web_ui(  # noqa: C901
                 "handoff_report_enabled": handoff_report_enabled,
                 "home_route": "dashboard_home",
                 "authentication_required": authentication_required,
+                "public_server_url": public_server_url,
+                "allow_insecure_http": allow_insecure_http,
             },
             headers=_PAGE_HEADERS,
         )
@@ -405,6 +411,8 @@ def mount_web_ui(  # noqa: C901
                     and query.casefold() in _skill_library_search_text(skill.content).casefold()
                 ):
                     values.append((skill, governance))
+        selected = values[: request.limit]
+        origins = await scoped.origins(tuple(skill for skill, _governance in selected))
         return [
             DashboardManagedSkill(
                 artifact=skill.as_ref(),
@@ -412,8 +420,9 @@ def mount_web_ui(  # noqa: C901
                 sources=skill.lineage.sources,
                 artifacts=skill.lineage.artifacts,
                 governance=governance,
+                origin=origin,
             )
-            for skill, governance in values[: request.limit]
+            for (skill, governance), origin in zip(selected, origins, strict=True)
         ]
 
     async def update_skill_lifecycle(

@@ -377,6 +377,15 @@ jobs:
           build/smoke-venv/bin/powercontext --help
           build/smoke-venv/bin/powercontext server --help
 
+          cli_wheel="$(find "$BUNDLE_ROOT/distributions" -maxdepth 1 -type f -name 'powercontext-*.whl' -print -quit)"
+          test -n "$cli_wheel"
+          python -m venv build/cli-smoke-venv
+          build/cli-smoke-venv/bin/python -m pip install \
+            --no-index \
+            --find-links "$BUNDLE_ROOT/wheelhouse" \
+            "$cli_wheel[cli]"
+          build/cli-smoke-venv/bin/powercontext skill remote-sync --help
+
           plugin_root="$BUNDLE_ROOT/integrations/plugins/powercontext"
           (
             cd "$plugin_root"

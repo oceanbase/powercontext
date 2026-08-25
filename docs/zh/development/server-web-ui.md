@@ -79,6 +79,7 @@ router.add_api_route(
 | Memory entries | 当前 Memory Artifact 中的 entry |
 | Artifacts | 按 family 分组的当前 Artifact head |
 | Pending review | 按 family 和 status 分组的当前 Candidate head |
+| Skill 出处 | Managed Skill 的不可变 lineage；外部 Skill 的 registration |
 | Model usage | 持久化的每日 generation 和 embedding usage |
 | Recall 命中、Token 减少量与节约趋势 | 当前 estimator 对应的持久化每日 recall measurement |
 
@@ -86,6 +87,11 @@ Runtime 在一个 database transaction 中读取这些数据，并在 Server 端
 bucket 和 token reduction。浏览器将 `ready_preparations` 展示为 Recall 命中，并将每日有符号的
 `token_reduction` 绘制为节约趋势。Heatmap 的每个日期格同时使用这两个字段，固定分档为：无命中、命中但没有正向
 减少、减少 1–255、256–1023，以及 1024 个以上预估 Token。固定阈值避免稀疏活动和异常大值改变其他日期的颜色含义。
+
+Skills 页面必须让每一项都能直接看出出处，并使用与生命周期状态一致的紧凑徽标。普通 managed Skill 显示“自生成”；
+exact import 显示“接管”，fork 显示“派生”；尚未进入 Review 的 Agent-native package 显示“本地”。对于
+import、fork 和 Agent-native package，详情同时显示 registration 中的来源机器、Agent、外部 Skill ID、安装范围和原始
+位置。managed Skill 的后续 Revision 沿上游 Skill lineage 追溯最初的 external snapshot，因此修订不会丢失接管机器。
 
 ## 只复用稳定的页面结构
 

@@ -18,6 +18,7 @@ import base64
 import io
 import zipfile
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -257,7 +258,12 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
     assert reverse_retirement.status_code == 422
 
 
-def _propose_package(client: TestClient, archive: bytes, *, target: dict[str, object] | None = None) -> dict:
+def _propose_package(
+    client: TestClient,
+    archive: bytes,
+    *,
+    target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     response = client.post(
         "/v1/skill/package/propose",
         json={
@@ -271,7 +277,7 @@ def _propose_package(client: TestClient, archive: bytes, *, target: dict[str, ob
     return response.json()
 
 
-def _approve(client: TestClient, candidate: dict) -> dict:
+def _approve(client: TestClient, candidate: dict[str, Any]) -> dict[str, Any]:
     response = client.post(
         "/v1/artifact-candidates/approve",
         json={

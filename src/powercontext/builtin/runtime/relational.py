@@ -57,15 +57,19 @@ from powercontext.builtin.artifacts.skill import (
     Skill,
     SkillContent,
     SkillGenerator,
+    SkillOrigin,
+    SkillOriginKind,
     SkillPackageRef,
     SkillPackageSnapshot,
     SkillSearchHit,
     capture_skill_archive,
 )
+from powercontext.builtin.artifacts.skill.distribution import RemoteSkillDistributionService
 from powercontext.builtin.artifacts.skill.publication import ManagedSkillPublicationService
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError, TokenEstimator
+from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTargetRepository
 from powercontext.builtin.persistence.artifact_governance import (
     ArtifactGovernance,
     ArtifactGovernanceRepository,
@@ -109,6 +113,7 @@ from powercontext.builtin.sources import (
     SKILL_USAGE_SOURCE_ADAPTER,
     ExternalSkillImportMode,
     ExternalSkillSnapshotCapture,
+    ExternalSkillSnapshotSource,
     SkillPackageUploadCapture,
     SkillUsageCapture,
     SourceCursor,
@@ -143,6 +148,10 @@ _SOURCE_ADAPTERS: tuple[SourceAdapter[Any, Any, Any], ...] = (
 )
 
 
+def _artifact_identity(ref: ArtifactRef) -> tuple[str, str, int]:
+    return ref.family, ref.artifact_id, ref.revision
+
+
 @dataclass(frozen=True, slots=True)
 class _Repositories:
     """Repositories shared by every scoped context."""
@@ -154,6 +163,7 @@ class _Repositories:
     cursors: SourceCursorRepository
     external_skills: ExternalSkillRepository
     skill_packages: SkillPackageRepository
+    agent_skill_targets: RemoteAgentSkillTargetRepository
     skill_publications: SkillPublicationRepository
     statistics: StatisticsRepository
 
@@ -341,6 +351,7 @@ class RelationalContexts:
             cursors=SourceCursorRepository(),
             external_skills=ExternalSkillRepository(),
             skill_packages=SkillPackageRepository(),
+            agent_skill_targets=RemoteAgentSkillTargetRepository(),
             skill_publications=SkillPublicationRepository(),
             statistics=StatisticsRepository(),
         )
@@ -435,6 +446,55 @@ class RelationalContexts:
         scope = validate_scope_id(scope_id)
         async with self.database.transaction() as connection:
             return await self.repositories.governance.get(connection, scope, Skill.family, artifact_id)
+
+    async def get_skill_origins(self, scope_id: str, skills: tuple[Skill, ...], /) -> tuple[SkillOrigin, ...]:
+        """Project exact external takeover evidence through later Skill revisions."""
+
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            origins: list[SkillOrigin] = []
+            for skill in skills:
+                origins.append(
+                    await self._skill_origin(
+                        connection,
+                        scope,
+                        skill,
+                        visited={_artifact_identity(skill.as_ref())},
+                    )
+                )
+            return tuple(origins)
+
+    async def _skill_origin(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        skill: Skill,
+        *,
+        visited: set[tuple[str, str, int]],
+    ) -> SkillOrigin:
+        for source_ref in skill.lineage.sources:
+            if source_ref.source_type != EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER.name:
+                continue
+            stored = await self.repositories.sources.get(connection, scope_id, source_ref)
+            if isinstance(stored.value, ExternalSkillSnapshotSource):
+                kind = (
+                    SkillOriginKind.EXTERNAL_IMPORT
+                    if stored.value.mode is ExternalSkillImportMode.IMPORT
+                    else SkillOriginKind.EXTERNAL_FORK
+                )
+                return SkillOrigin(kind=kind, registration=stored.value.snapshot.registration, source=source_ref)
+
+        for artifact_ref in skill.lineage.artifacts:
+            identity = _artifact_identity(artifact_ref)
+            if artifact_ref.family != Skill.family or identity in visited:
+                continue
+            visited.add(identity)
+            upstream = await self.repositories.artifacts.get(connection, scope_id, artifact_ref)
+            if isinstance(upstream, Skill):
+                origin = await self._skill_origin(connection, scope_id, upstream, visited=visited)
+                if origin.kind is not SkillOriginKind.POWERCONTEXT:
+                    return origin
+        return SkillOrigin(kind=SkillOriginKind.POWERCONTEXT)
 
     async def list_skills(
         self,
@@ -623,6 +683,18 @@ class RelationalContexts:
             packages=self.repositories.skill_packages,
             publications=self.repositories.skill_publications,
             lock=self._skill_publication_locks.setdefault((scope, target_id, artifact_id), asyncio.Lock()),
+        )
+
+    def remote_skill_distribution(self) -> RemoteSkillDistributionService:
+        """Return credential-bound remote target desired-state operations."""
+
+        return RemoteSkillDistributionService(
+            database=self.database,
+            targets=self.repositories.agent_skill_targets,
+            artifacts=self.repositories.artifacts,
+            governance=self.repositories.governance,
+            packages=self.repositories.skill_packages,
+            publications=self.repositories.skill_publications,
         )
 
     async def import_external_skill(

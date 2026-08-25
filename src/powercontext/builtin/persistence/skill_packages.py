@@ -90,7 +90,9 @@ class SkillPackageRepository:
             raise RepositoryNotFoundError("skill-package", (scope_id, reference.tree_digest))
         snapshot = _decode_row(row)
         if snapshot.reference != reference:
-            raise InvalidStoredPayloadError("skill-package", reference.tree_digest, "indexed package reference mismatch")
+            raise InvalidStoredPayloadError(
+                "skill-package", reference.tree_digest, "indexed package reference mismatch"
+            )
         return snapshot
 
     async def _find_row(

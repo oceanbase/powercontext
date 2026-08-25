@@ -88,6 +88,7 @@ from powercontext.builtin.artifacts.skill.prompts import (
     SKILL_GENERATION_INSTRUCTIONS,
     SKILL_GENERATION_INSTRUCTIONS_VERSION,
 )
+from powercontext.builtin.artifacts.skill.provenance import SkillOrigin, SkillOriginKind
 from powercontext.builtin.artifacts.skill.search import SkillSearchHit, skill_search_text, skill_searchable_text
 
 __all__ = [
@@ -138,6 +139,8 @@ __all__ = [
     "SkillDraft",
     "SkillGenerationOutput",
     "SkillGenerator",
+    "SkillOrigin",
+    "SkillOriginKind",
     "SkillPackageEntry",
     "SkillPackageError",
     "SkillPackageMetadata",

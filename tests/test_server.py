@@ -90,6 +90,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_SCOPES", raising=False)
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.2")
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", " https://powercontext.example.com/base/ ")
     monkeypatch.setenv(
         "POWERCONTEXT_SERVER_DATABASE_URL",
         "sqlite+aiosqlite:////var/lib/powercontext/test.db",
@@ -122,6 +123,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
 
     assert settings.http.host == "127.0.0.2"
     assert settings.http.port == 9000
+    assert settings.public_url == "https://powercontext.example.com/base"
     assert isinstance(settings.database, SQLiteConfig)
     assert settings.database.url == "sqlite+aiosqlite:////var/lib/powercontext/test.db"
     assert settings.runtime.source_window_limit == 25
@@ -145,6 +147,95 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.external_skills.targets[0].environment.environment_names == ("CI",)
     assert settings.external_skills.targets[1].agent_kind == "claude_code"
     assert settings.external_skills.targets[1].path.as_posix() == "/home/example/.claude/skills"
+
+
+def test_server_settings_configure_default_project_skill_targets(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_WORKSPACE", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_EXTERNAL_SKILLS", raising=False)
+
+    settings = ServerSettings()
+
+    assert settings.workspace == tmp_path
+    assert settings.external_skills.host_id == "local-workspace"
+    assert [target.target_id for target in settings.external_skills.targets] == ["codex-project", "claude-project"]
+    assert [target.path for target in settings.external_skills.targets] == [
+        tmp_path / ".agents" / "skills",
+        tmp_path / ".claude" / "skills",
+    ]
+    assert all(target.installation_scope == "project" for target in settings.external_skills.targets)
+    assert all(target.allow_managed_publish for target in settings.external_skills.targets)
+
+
+def test_server_settings_use_configured_workspace_for_default_skill_targets(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_WORKSPACE", str(tmp_path))
+    monkeypatch.delenv("POWERCONTEXT_SERVER_EXTERNAL_SKILLS", raising=False)
+
+    settings = ServerSettings()
+
+    assert settings.workspace == tmp_path
+    assert [target.path for target in settings.external_skills.targets] == [
+        tmp_path / ".agents" / "skills",
+        tmp_path / ".claude" / "skills",
+    ]
+
+
+def test_explicit_external_skill_configuration_overrides_default_targets(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_EXTERNAL_SKILLS", '{"host_id":null,"targets":[]}')
+
+    settings = ServerSettings()
+
+    assert settings.external_skills.agent_targets == ()
+
+
+def test_server_settings_reject_missing_workspace(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_WORKSPACE", str(tmp_path / "missing"))
+
+    with pytest.raises(ValidationError, match="workspace"):
+        ServerSettings()
+
+
+@pytest.mark.parametrize(
+    "public_url",
+    [
+        "http://powercontext.example.com",
+        "ftp://powercontext.example.com",
+        "https://user:secret@powercontext.example.com",
+        "https://powercontext.example.com?scope=one",
+        "https://powercontext.example.com#fragment",
+    ],
+)
+def test_server_settings_reject_unsafe_public_url(monkeypatch, public_url: str) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", public_url)
+
+    with pytest.raises(ValidationError, match="public URL"):
+        ServerSettings()
+
+
+@pytest.mark.parametrize("public_url", ["http://localhost:8000", "http://127.0.0.1:8000", "http://[::1]:8000"])
+def test_server_settings_allow_loopback_http_public_url(monkeypatch, public_url: str) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", public_url)
+
+    assert ServerSettings().public_url == public_url
+
+
+def test_server_settings_allow_explicit_remote_http_public_url(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", "http://11.162.218.22:8765")
+
+    settings = ServerSettings()
+
+    assert settings.allow_insecure_http is True
+    assert settings.public_url == "http://11.162.218.22:8765"
+
+
+def test_server_settings_insecure_http_switch_does_not_allow_malformed_public_url(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", "ftp://11.162.218.22:8765")
+
+    with pytest.raises(ValidationError, match="public URL"):
+        ServerSettings()
 
 
 def test_env_example_loads_server_settings(monkeypatch) -> None:
@@ -749,6 +840,7 @@ def test_application_failure_log_uses_operation_context(caplog) -> None:
     assert record.request_id == response.headers["X-PowerContext-Request-ID"]
     assert record.unit == "application"
     assert record.error_code == "internal_error"
+    assert record.exc_info is not None
 
 
 def test_logging_failure_does_not_change_the_response(monkeypatch) -> None:

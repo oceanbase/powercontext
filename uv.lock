@@ -1815,8 +1815,10 @@ builtin = [
 cli = [
     { name = "httpx", extra = ["socks"] },
     { name = "opentelemetry-api" },
+    { name = "packaging" },
     { name = "platformdirs" },
     { name = "pydantic-settings" },
+    { name = "pyyaml" },
     { name = "typer" },
 ]
 client = [
@@ -1894,6 +1896,7 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'tracing-otlp'", specifier = ">=1.30,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'server'", specifier = ">=1.30,<2" },
     { name = "packaging", marker = "extra == 'builtin'", specifier = ">=24,<27" },
+    { name = "packaging", marker = "extra == 'cli'", specifier = ">=24,<27" },
     { name = "packaging", marker = "extra == 'seekdb'", specifier = ">=24,<27" },
     { name = "packaging", marker = "extra == 'server'", specifier = ">=24,<27" },
     { name = "platformdirs", marker = "extra == 'cli'", specifier = ">=4,<5" },
@@ -1913,6 +1916,7 @@ requires-dist = [
     { name = "pyobvector", marker = "extra == 'seekdb'", specifier = ">=0.2.28,<0.3" },
     { name = "pyobvector", marker = "extra == 'server'", specifier = ">=0.2.28,<0.3" },
     { name = "pyyaml", marker = "extra == 'builtin'", specifier = ">=6,<7" },
+    { name = "pyyaml", marker = "extra == 'cli'", specifier = ">=6,<7" },
     { name = "pyyaml", marker = "extra == 'seekdb'", specifier = ">=6,<7" },
     { name = "pyyaml", marker = "extra == 'server'", specifier = ">=6,<7" },
     { name = "rfc8785", specifier = ">=0.1.4,<1" },

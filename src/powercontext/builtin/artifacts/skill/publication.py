@@ -51,7 +51,11 @@ from powercontext.builtin.persistence.artifact_governance import (
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
-from powercontext.builtin.persistence.skill_publications import SkillPublication, SkillPublicationRepository
+from powercontext.builtin.persistence.skill_publications import (
+    SkillPublication,
+    SkillPublicationDesiredState,
+    SkillPublicationRepository,
+)
 
 
 @dataclass(frozen=True)
@@ -117,9 +121,7 @@ class ManagedSkillPublicationService:
             if status.state is AgentSkillProjectionState.CURRENT:
                 if publication is None:
                     raise AgentSkillProjectionConflictError(_legacy_status(status))
-                publication = await self._persist_observation(
-                    publication, skill, package, target, status
-                )
+                publication = await self._persist_observation(publication, skill, package, target, status)
                 return _with_generation(status, publication.generation)
             if governance.lifecycle_state is ArtifactLifecycleState.RETIRED:
                 raise ValueError("retired managed Skills cannot be published or updated")  # noqa: TRY003
@@ -135,6 +137,7 @@ class ManagedSkillPublicationService:
             await asyncio.to_thread(_publish_local, skill, package, target, publication)
             observed = publication.model_copy(
                 update={
+                    "desired_state": SkillPublicationDesiredState.PUBLISHED,
                     "desired_revision": skill.revision,
                     "desired_tree_digest": package.reference.tree_digest,
                     "observed_revision": skill.revision,
@@ -143,11 +146,17 @@ class ManagedSkillPublicationService:
                     "state": AgentSkillProjectionState.CURRENT,
                     "selected_runtime_variant": compatibility.selected_runtime_variant,
                     "environment_fingerprint": target_environment_fingerprint(target),
+                    "observed_generation": publication.generation,
+                    "observed_at": datetime.now(UTC),
+                    "last_error_code": None,
                 }
             )
             async with self._database.transaction() as connection:
-                publication = await self._publications.replace(
-                    connection, observed, publication.generation
+                publication = await self._publications.observe(
+                    connection,
+                    observed,
+                    publication.generation,
+                    preserve_success=False,
                 )
             return _with_generation(
                 await asyncio.to_thread(_inspect_local, skill, package, target, publication),
@@ -175,6 +184,7 @@ class ManagedSkillPublicationService:
             backup_root, backup = await asyncio.to_thread(_stage_unpublish, status.published_destination, target)
             revised = publication.model_copy(
                 update={
+                    "desired_state": SkillPublicationDesiredState.UNPUBLISHED,
                     "desired_revision": skill.revision,
                     "desired_tree_digest": package.reference.tree_digest,
                     "observed_revision": None,
@@ -183,13 +193,14 @@ class ManagedSkillPublicationService:
                     "state": AgentSkillProjectionState.UNPUBLISHED,
                     "selected_runtime_variant": _selected_runtime_variant(skill, package, target),
                     "environment_fingerprint": target_environment_fingerprint(target),
+                    "observed_generation": publication.generation + 1,
+                    "observed_at": datetime.now(UTC),
+                    "last_error_code": None,
                 }
             )
             try:
                 async with self._database.transaction() as connection:
-                    publication = await self._publications.replace(
-                        connection, revised, publication.generation
-                    )
+                    publication = await self._publications.replace(connection, revised, publication.generation)
             except BaseException:
                 await asyncio.to_thread(_restore_unpublish, backup, status.published_destination, backup_root)
                 raise
@@ -213,9 +224,7 @@ class ManagedSkillPublicationService:
             publication = await self._publications.find(
                 connection, self._scope_id, target.target_id, artifact.artifact_id
             )
-            governance = await self._governance.get(
-                connection, self._scope_id, Skill.family, artifact.artifact_id
-            )
+            governance = await self._governance.get(connection, self._scope_id, Skill.family, artifact.artifact_id)
         return value, package, publication, governance
 
     async def _persist_observation(
@@ -228,8 +237,6 @@ class ManagedSkillPublicationService:
     ) -> SkillPublication:
         observed = publication.model_copy(
             update={
-                "desired_revision": skill.revision,
-                "desired_tree_digest": package.reference.tree_digest,
                 "observed_revision": (
                     None if status.published_artifact is None else status.published_artifact.revision
                 ),
@@ -237,6 +244,9 @@ class ManagedSkillPublicationService:
                 "state": status.state,
                 "selected_runtime_variant": _selected_runtime_variant(skill, package, target),
                 "environment_fingerprint": target_environment_fingerprint(target),
+                "observed_generation": publication.generation,
+                "observed_at": datetime.now(UTC),
+                "last_error_code": None,
             }
         )
         if observed.model_dump(exclude={"generation", "updated_at"}) == publication.model_dump(
@@ -244,7 +254,13 @@ class ManagedSkillPublicationService:
         ):
             return publication
         async with self._database.transaction() as connection:
-            return await self._publications.replace(connection, observed, publication.generation)
+            return await self._publications.observe(
+                connection,
+                observed,
+                publication.generation,
+                preserve_success=status.state
+                not in {AgentSkillProjectionState.CURRENT, AgentSkillProjectionState.UNPUBLISHED},
+            )
 
     async def _record_intent(
         self,
@@ -260,6 +276,7 @@ class ManagedSkillPublicationService:
                 scope_id=self._scope_id,
                 target_id=target.target_id,
                 artifact_id=skill.artifact_id,
+                desired_state=SkillPublicationDesiredState.PUBLISHED,
                 desired_revision=skill.revision,
                 desired_tree_digest=package.reference.tree_digest,
                 observed_revision=skill.revision,
@@ -275,6 +292,7 @@ class ManagedSkillPublicationService:
                 return await self._publications.create(connection, intent)
         intent = publication.model_copy(
             update={
+                "desired_state": SkillPublicationDesiredState.PUBLISHED,
                 "desired_revision": skill.revision,
                 "desired_tree_digest": package.reference.tree_digest,
                 "state": status.state,
@@ -282,6 +300,10 @@ class ManagedSkillPublicationService:
                 "environment_fingerprint": target_environment_fingerprint(target),
             }
         )
+        if intent.model_dump(exclude={"generation", "updated_at"}) == publication.model_dump(
+            exclude={"generation", "updated_at"}
+        ):
+            return publication
         async with self._database.transaction() as connection:
             return await self._publications.replace(connection, intent, publication.generation)
 
@@ -315,6 +337,13 @@ def _inspect_local(  # noqa: C901
             )
         return ManagedSkillPublicationStatus(state=AgentSkillProjectionState.UNPUBLISHED, destination=desired)
 
+    if publication.destination is None:
+        return ManagedSkillPublicationStatus(
+            state=AgentSkillProjectionState.CONFLICT,
+            destination=desired,
+            reason="the stored local publication destination is missing",
+            generation=publication.generation,
+        )
     published = Path(publication.destination).expanduser().resolve(strict=False)
     root = target.path.expanduser().resolve(strict=False)
     if published.parent != root:

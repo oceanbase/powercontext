@@ -31,10 +31,13 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | --- | --- | --- |
 | `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | Listener address |
 | `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | Listener port |
+| `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP path |
 | `POWERCONTEXT_SERVER_AUTH_ENABLED` | `false` | Require one static bearer token for HTTP and MCP |
 | `POWERCONTEXT_SERVER_AUTH_TOKEN` | unset | Static bearer token; required when authentication is enabled |
+| `POWERCONTEXT_SERVER_PUBLIC_URL` | unset | Remotely reachable base URL used by remote Skill enrollment guidance; HTTPS is required by default |
+| `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP` | `false` | Explicitly allow cleartext HTTP for remote Skill Receiver endpoints and guidance |
 | `POWERCONTEXT_SERVER_DASHBOARD_ENABLED` | `true` | Enable the Dashboard at the Server root path `/` |
 | `POWERCONTEXT_SERVER_DASHBOARD_SCOPES` | `[]` | JSON array of selectable Dashboard scopes |
 | `POWERCONTEXT_SERVER_LOGGING_LEVEL` | `INFO` | Operational log level |
@@ -52,15 +55,49 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation timeout |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | Maximum texts sent in one embedding request |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | unset | Experience incubation interval; unset disables that job |
-| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | unset | JSON object containing the host identity and explicit Agent Skill targets |
+| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | automatic local project targets | JSON override containing the host identity and explicit Agent Skill targets |
 
 Static bearer authentication is disabled by default. When enabled, API and MCP requests must include
 `Authorization: Bearer <token>`; the liveness and readiness endpoints remain public. Plain HTTP should remain on a
-loopback address. Use TLS before exposing an authenticated Server over a network.
+loopback address except for the explicit internal-PoC Receiver escape hatch below. Use TLS before exposing a persistent
+authenticated Server over a network.
 
 The Dashboard is enabled by default and shares the Server listener and port with the HTTP API and MCP. With no scopes
 configured, the page shows an empty state. Dashboard initialization failures are logged with their direct cause and do
 not prevent the Server HTTP API, MCP, or health checks from starting.
+
+By default, the Server treats its startup directory as the workspace and exposes two writable local project targets:
+`<workspace>/.agents/skills` for Codex and `<workspace>/.claude/skills` for Claude Code. Missing directories are harmless
+and are created only after the user confirms an installation in the Dashboard. Set `POWERCONTEXT_SERVER_WORKSPACE` once
+for systemd, containers, or other launchers whose working directory is not the project; the page does not ask users to
+enter Skill paths.
+
+Configure `POWERCONTEXT_SERVER_PUBLIC_URL` once when remote Skill Receivers should connect through a different externally
+reachable origin than the one used to open the Dashboard. The Skills Dashboard then generates the enrollment command
+without asking for an address on every target. When it is unset, the Dashboard automatically uses its current HTTPS
+origin, or its current HTTP origin when the explicit insecure switch is enabled. If neither is available, the enrollment
+command relies on the remote CLI's configured Server URL.
+
+For a first-phase PoC on a protected internal test network, direct HTTP requires explicit consent on both sides. Set
+`POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true`, advertise an `http://` `POWERCONTEXT_SERVER_PUBLIC_URL`, and bind the
+listener to an address reachable by the target. The Dashboard shows a cleartext warning and adds
+`remote-enroll --allow-insecure-http`; a manually entered enrollment command must include the same option. Without the
+Server setting, the remote endpoints reject non-loopback HTTP. Without the Receiver option, the CLI rejects the URL
+before transmitting the one-time enrollment code. The permission is stored in the owner-only Receiver configuration so
+`remote-watch` and its systemd user service keep the same policy without embedding credentials or extra flags in the
+unit. This switch adds no TLS, network isolation, or protection against interception: do not use it on the public
+Internet or an untrusted network, and prefer HTTPS for persistent deployments.
+
+```bash
+export POWERCONTEXT_SERVER_HTTP_HOST=0.0.0.0
+export POWERCONTEXT_SERVER_PUBLIC_URL=http://powercontext.internal.example:8765
+export POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true
+powercontext server run
+
+# On the target project:
+powercontext --server-url http://powercontext.internal.example:8765 \
+  skill remote-enroll --workspace "$PWD" --install-service --allow-insecure-http
+```
 
 Example with a controlled SQLite path and scheduled extraction:
 
@@ -123,7 +160,8 @@ identities and business cursors. Unsetting one interval removes only that job.
 
 ### Agent Skill targets
 
-Configure Codex and Claude Code host-local targets as one JSON value:
+The zero-configuration flow uses the Codex and Claude Code project folders under the workspace. Provide a JSON override
+only for custom paths, user-level targets, environment compatibility facts, or to explicitly disable local discovery:
 
 ```bash
 export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
@@ -156,10 +194,13 @@ export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
 }'
 ```
 
-Target IDs must be unique. `agent_kind` supports `codex` and `claude_code`; installation scopes are `user`, `project`,
-and `plugin`. PowerContext scans only the immediate Skill package directories under these explicit targets; it does not
-infer a home directory, install packages, or grant execution authority. `allow_managed_publish` defaults to `false`;
-when true, the authenticated Skills Library or Review page may explicitly create or safely update an approved managed
+Setting `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` replaces both automatically generated project targets in full; use
+`{"host_id": null, "targets": []}` to disable local discovery and publication. Target IDs must be unique. `agent_kind`
+supports `codex` and `claude_code`; installation scopes are `user`, `project`, and `plugin`. PowerContext scans only the
+immediate Skill package directories under default or explicit targets; it does not infer a user home directory, install
+packages, or grant execution authority. The two generated project targets let users explicitly install from the
+Dashboard. Custom targets default `allow_managed_publish` to `false`; when true, the authenticated Skills Library or
+Review page may explicitly create or safely update an approved managed
 Skill in that target. Publication materializes the exact reviewed package, including scripts and references, without
 executing it or injecting a sidecar into the package. The same pages can safely unpublish only an intact package whose
 binding and tree digest still match; local drift and foreign content remain untouched. The page still cannot submit an

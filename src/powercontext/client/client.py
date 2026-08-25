@@ -39,8 +39,11 @@ from powercontext.http import (
     CommittedHandoff,
     ContinueHandoffRequest,
     CreateHandoffReportProjectRequest,
+    CreateRemoteSkillTargetRequest,
     CreateWorkContractRequest,
     DetachHandoffReportWorkspaceRequest,
+    DownloadRemoteSkillPackageRequest,
+    EnrollRemoteSkillTargetRequest,
     ErrorResponse,
     ExperienceArtifact,
     ExternalSkillResolution,
@@ -81,6 +84,8 @@ from powercontext.http import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
+    ListRemoteSkillTargetsRequest,
+    ListRemoteSkillTargetsResponse,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -93,19 +98,30 @@ from powercontext.http import (
     ProposeExperienceRequest,
     ProposeSkillPackageRequest,
     ProposeSkillRequest,
+    PublishRemoteSkillRequest,
     PurgeHandoffReportActivitiesRequest,
     PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
+    ReconcileRemoteSkillsRequest,
+    ReconcileRemoteSkillsResponse,
     RecordHandoffReportActivityRequest,
+    RecordRemoteSkillReceiptRequest,
     RecordSkillUsageRequest,
     RecordTaskOutcomeRequest,
     RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
+    RemoteSkillPublication,
+    RemoteSkillReceiptResponse,
+    RemoteSkillTarget,
+    RemoteSkillTargetCredential,
+    RemoteSkillTargetEnrollment,
+    RenameRemoteSkillTargetRequest,
     ResolveExternalSkillRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
+    RevokeRemoteSkillTargetRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
     ScopedStats,
@@ -116,6 +132,7 @@ from powercontext.http import (
     SkillPackageDownload,
     SkillPackageManifest,
     StoredHandoffReportActivity,
+    UnpublishRemoteSkillRequest,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
     UpdateSkillLifecycleRequest,
@@ -132,9 +149,12 @@ from powercontext.http._generated.operations import (
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_HANDOFF_REPORT_PROJECT,
+    CREATE_REMOTE_SKILL_TARGET,
     CREATE_WORK_CONTRACT,
     DETACH_HANDOFF_REPORT_WORKSPACE,
+    DOWNLOAD_REMOTE_SKILL_PACKAGE,
     DOWNLOAD_SKILL_PACKAGE,
+    ENROLL_REMOTE_SKILL_TARGET,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
@@ -161,24 +181,31 @@ from powercontext.http._generated.operations import (
     LIST_MANAGED_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    LIST_REMOTE_SKILL_TARGETS,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
     PROPOSE_SKILL_PACKAGE,
+    PUBLISH_REMOTE_SKILL,
     PURGE_HANDOFF_REPORT_ACTIVITIES,
+    RECONCILE_REMOTE_SKILLS,
     RECORD_HANDOFF_REPORT_ACTIVITY,
+    RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
     REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
+    RENAME_REMOTE_SKILL_TARGET,
     RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
+    REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    UNPUBLISH_REMOTE_SKILL,
     UPDATE_HANDOFF_REPORT_PROJECT,
     UPDATE_HANDOFF_REPORT_WORKSTREAM,
     UPDATE_SKILL_LIFECYCLE,
@@ -560,6 +587,80 @@ class PowerContextClient:
         """Capture one bounded exact Skill usage observation as immutable Source evidence."""
 
         return await self._request(RECORD_SKILL_USAGE, request)
+
+    async def create_remote_skill_target(
+        self,
+        request: CreateRemoteSkillTargetRequest,
+    ) -> RemoteSkillTargetEnrollment:
+        """Create a pending remote target and one-time enrollment code."""
+
+        return await self._request(CREATE_REMOTE_SKILL_TARGET, request)
+
+    async def list_remote_skill_targets(
+        self,
+        request: ListRemoteSkillTargetsRequest,
+    ) -> ListRemoteSkillTargetsResponse:
+        """List credential-free target and publication status for one scope."""
+
+        return await self._request(LIST_REMOTE_SKILL_TARGETS, request)
+
+    async def enroll_remote_skill_target(
+        self,
+        request: EnrollRemoteSkillTargetRequest,
+    ) -> RemoteSkillTargetCredential:
+        """Consume one enrollment code and receive a per-target credential."""
+
+        return await self._request(ENROLL_REMOTE_SKILL_TARGET, request)
+
+    async def revoke_remote_skill_target(
+        self,
+        request: RevokeRemoteSkillTargetRequest,
+    ) -> RemoteSkillTarget:
+        """Revoke one remote target credential using generation CAS."""
+
+        return await self._request(REVOKE_REMOTE_SKILL_TARGET, request)
+
+    async def rename_remote_skill_target(
+        self,
+        request: RenameRemoteSkillTargetRequest,
+    ) -> RemoteSkillTarget:
+        """Rename one remote target using generation CAS."""
+
+        return await self._request(RENAME_REMOTE_SKILL_TARGET, request)
+
+    async def publish_remote_skill(self, request: PublishRemoteSkillRequest) -> RemoteSkillPublication:
+        """Set an exact approved package as remote desired state."""
+
+        return await self._request(PUBLISH_REMOTE_SKILL, request)
+
+    async def unpublish_remote_skill(self, request: UnpublishRemoteSkillRequest) -> RemoteSkillPublication:
+        """Set desired absence for one remote publication."""
+
+        return await self._request(UNPUBLISH_REMOTE_SKILL, request)
+
+    async def reconcile_remote_skills(
+        self,
+        request: ReconcileRemoteSkillsRequest,
+    ) -> ReconcileRemoteSkillsResponse:
+        """Read latest-generation actions using this client's target credential."""
+
+        return await self._request(RECONCILE_REMOTE_SKILLS, request)
+
+    async def download_remote_skill_package(
+        self,
+        request: DownloadRemoteSkillPackageRequest,
+    ) -> SkillPackageDownload:
+        """Download an exact package authorized for this target generation."""
+
+        return await self._request(DOWNLOAD_REMOTE_SKILL_PACKAGE, request)
+
+    async def record_remote_skill_receipt(
+        self,
+        request: RecordRemoteSkillReceiptRequest,
+    ) -> RemoteSkillReceiptResponse:
+        """Record target-local delivery evidence for one exact generation."""
+
+        return await self._request(RECORD_REMOTE_SKILL_RECEIPT, request)
 
     async def scan_external_skills(self, request: ScanExternalSkillsRequest) -> ScanExternalSkillsResponse:
         """Refresh the configured host-local external Skill Registry."""

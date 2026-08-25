@@ -17,6 +17,7 @@ from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
 from powercontext.builtin.persistence.tables import (
+    AGENT_SKILL_TARGETS_TABLE,
     ARTIFACTS_TABLE,
     SHARED_METADATA,
     SKILL_PACKAGES_TABLE,
@@ -67,6 +68,16 @@ def test_mysql_ddl_uses_mediumblob_for_every_canonical_payload() -> None:
         ddl = str(CreateTable(table).compile(dialect=dialect))
         for column_name in column_names:
             assert f"{column_name} MEDIUMBLOB NOT NULL" in ddl
+
+
+def test_mysql_remote_target_credentials_use_binary_identity_columns() -> None:
+    ddl = str(CreateTable(AGENT_SKILL_TARGETS_TABLE).compile(dialect=mysql.dialect()))
+
+    assert "credential_verifier VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin" in ddl
+    assert "UNIQUE (credential_verifier)" in ddl
+    assert "ck_pc_agent_skill_targets_state_payload" in ddl
+    assert "state = 'active'" in ddl
+    assert "credential_verifier IS NOT NULL" in ddl
 
 
 def test_every_mysql_utf8mb4_key_stays_below_the_innodb_limit() -> None:

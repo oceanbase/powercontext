@@ -43,8 +43,10 @@ class AgentSkillProjectionState(StrEnum):
     """Observable state of one managed Skill in a configured Agent target."""
 
     UNPUBLISHED = "unpublished"
+    PENDING = "pending"
     CURRENT = "current"
     UPDATE_AVAILABLE = "update_available"
+    DELIVERY_FAILED = "delivery_failed"
     CONFLICT = "conflict"
     DRIFTED = "drifted"
     INCOMPATIBLE = "incompatible"

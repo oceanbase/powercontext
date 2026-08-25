@@ -27,7 +27,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from powercontext.builtin.artifacts.skill.external import AgentSkillTarget
+from powercontext.builtin.artifacts.skill.external import AgentEnvironmentProfile, AgentSkillTarget
 from powercontext.builtin.artifacts.skill.models import SkillContent
 from powercontext.builtin.artifacts.skill.package import SkillPackageError, SkillPackageSnapshot, package_file
 from powercontext.builtin.artifacts.skill.projection import validate_skill_projection_target
@@ -181,7 +181,9 @@ def _assess_runtime_manifest(
     fingerprint: str,
 ) -> SkillCompatibilityAssessment:
     entries = {entry.path for entry in package.entries}
-    missing_entrypoints = tuple(variant.entrypoint for variant in manifest.variants if variant.entrypoint not in entries)
+    missing_entrypoints = tuple(
+        variant.entrypoint for variant in manifest.variants if variant.entrypoint not in entries
+    )
     if missing_entrypoints:
         return SkillCompatibilityAssessment(
             state=SkillCompatibilityState.INCOMPATIBLE,
@@ -195,7 +197,9 @@ def _assess_runtime_manifest(
             environment_fingerprint=fingerprint,
         )
 
-    operating_system = "darwin" if target.environment.operating_system == "macos" else target.environment.operating_system
+    operating_system = (
+        "darwin" if target.environment.operating_system == "macos" else target.environment.operating_system
+    )
     matching_os = tuple(
         variant for variant in manifest.variants if operating_system in variant.requirements.operating_systems
     )
@@ -209,7 +213,7 @@ def _assess_runtime_manifest(
     manual_reasons: list[str] = []
     incompatible_reasons: list[str] = []
     for variant in matching_os:
-        result = _assess_variant(variant, target)
+        result = _assess_variant(variant, target.environment)
         if result is None:
             return SkillCompatibilityAssessment(
                 state=SkillCompatibilityState.COMPATIBLE,
@@ -218,7 +222,9 @@ def _assess_runtime_manifest(
                 selected_runtime_variant=variant.id,
             )
         state, reason = result
-        (manual_reasons if state is SkillCompatibilityState.MANUAL_REVIEW_REQUIRED else incompatible_reasons).append(reason)
+        (manual_reasons if state is SkillCompatibilityState.MANUAL_REVIEW_REQUIRED else incompatible_reasons).append(
+            reason
+        )
     if manual_reasons:
         return SkillCompatibilityAssessment(
             state=SkillCompatibilityState.MANUAL_REVIEW_REQUIRED,
@@ -234,16 +240,47 @@ def _assess_runtime_manifest(
 
 def _assess_variant(
     variant: SkillRuntimeVariant,
-    target: AgentSkillTarget,
+    environment: AgentEnvironmentProfile,
 ) -> tuple[SkillCompatibilityState, str] | None:
-    environment = target.environment
-    assert environment is not None
-    commands = {**variant.requirements.commands, variant.interpreter: variant.requirements.commands.get(variant.interpreter, "")}
+    commands = {
+        **variant.requirements.commands,
+        variant.interpreter: variant.requirements.commands.get(variant.interpreter, ""),
+    }
+    command_assessment, uncertain_versions = _assess_command_requirements(variant, environment, commands)
+    if command_assessment is not None:
+        return command_assessment
+
+    network_assessment = _assess_network_requirement(variant, environment)
+    if network_assessment is not None:
+        return network_assessment
+
+    missing_roots = set(variant.requirements.writable_roots) - set(environment.writable_roots)
+    if missing_roots:
+        return (
+            SkillCompatibilityState.INCOMPATIBLE,
+            f"Runtime variant {variant.id} requires unavailable writable roots: {', '.join(sorted(missing_roots))}.",
+        )
+    if uncertain_versions:
+        return (
+            SkillCompatibilityState.MANUAL_REVIEW_REQUIRED,
+            f"Runtime variant {variant.id} has unparseable command versions: {', '.join(uncertain_versions)}.",
+        )
+    return None
+
+
+def _assess_command_requirements(
+    variant: SkillRuntimeVariant,
+    environment: AgentEnvironmentProfile,
+    commands: dict[str, str],
+) -> tuple[tuple[SkillCompatibilityState, str] | None, tuple[str, ...]]:
     missing = tuple(command for command in commands if command not in environment.commands)
     if missing:
         return (
-            SkillCompatibilityState.INCOMPATIBLE,
-            f"Runtime variant {variant.id} requires unavailable commands: {', '.join(sorted(missing))}.",
+            (
+                SkillCompatibilityState.INCOMPATIBLE,
+                f"Runtime variant {variant.id} requires unavailable commands: {', '.join(sorted(missing))}.",
+            ),
+            (),
         )
     uncertain_versions = []
     mismatched_versions = []
@@ -257,27 +294,30 @@ def _assess_variant(
             mismatched_versions.append(command)
     if mismatched_versions:
         return (
-            SkillCompatibilityState.INCOMPATIBLE,
-            f"Runtime variant {variant.id} has unsupported command versions: {', '.join(sorted(mismatched_versions))}.",
+            (
+                SkillCompatibilityState.INCOMPATIBLE,
+                f"Runtime variant {variant.id} has unsupported command versions: {', '.join(sorted(mismatched_versions))}.",
+            ),
+            (),
         )
-    if variant.requirements.network == "required":
-        if environment.network_policy == "disabled":
-            return (SkillCompatibilityState.INCOMPATIBLE, f"Runtime variant {variant.id} requires disabled network access.")
-        if environment.network_policy in {"restricted", "unknown"}:
-            return (
-                SkillCompatibilityState.MANUAL_REVIEW_REQUIRED,
-                f"Runtime variant {variant.id} requires network access under {environment.network_policy} policy.",
-            )
-    missing_roots = set(variant.requirements.writable_roots) - set(environment.writable_roots)
-    if missing_roots:
+    return None, tuple(sorted(uncertain_versions))
+
+
+def _assess_network_requirement(
+    variant: SkillRuntimeVariant,
+    environment: AgentEnvironmentProfile,
+) -> tuple[SkillCompatibilityState, str] | None:
+    if variant.requirements.network != "required":
+        return None
+    if environment.network_policy == "disabled":
         return (
             SkillCompatibilityState.INCOMPATIBLE,
-            f"Runtime variant {variant.id} requires unavailable writable roots: {', '.join(sorted(missing_roots))}.",
+            f"Runtime variant {variant.id} requires disabled network access.",
         )
-    if uncertain_versions:
+    if environment.network_policy in {"restricted", "unknown"}:
         return (
             SkillCompatibilityState.MANUAL_REVIEW_REQUIRED,
-            f"Runtime variant {variant.id} has unparseable command versions: {', '.join(sorted(uncertain_versions))}.",
+            f"Runtime variant {variant.id} requires network access under {environment.network_policy} policy.",
         )
     return None
 

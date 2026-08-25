@@ -73,8 +73,10 @@ tracing-otlp = [
     "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
 ]
 cli = [
+    "packaging>=24,<27",
     "platformdirs>=4,<5",
     "powercontext[client]",
+    "pyyaml>=6,<7",
     "typer>=0.16,<1",
 ]
 

@@ -119,13 +119,20 @@ class _PackageFile:
     mode: int
 
 
-def capture_skill_directory(package: Path, /) -> SkillPackageSnapshot:
-    """Capture a stable local package directory into one canonical snapshot."""
+def capture_skill_directory(
+    package: Path,
+    /,
+    *,
+    expected_name: str | None = None,
+) -> SkillPackageSnapshot:
+    """Capture a stable local package directory using its owned logical name by default."""
 
     root = package.expanduser().resolve(strict=True)
     if not root.is_dir() or package.is_symlink():
         raise SkillPackageError("Agent Skill package must be a regular directory")
-    return _canonical_snapshot(_directory_files(root), expected_name=root.name)
+    return _canonical_snapshot(
+        _directory_files(root), expected_name=root.name if expected_name is None else expected_name
+    )
 
 
 def capture_skill_archive(archive_bytes: bytes, /) -> SkillPackageSnapshot:
@@ -376,7 +383,9 @@ def _parse_skill_markdown(  # noqa: C901
 def _required_string(values: Mapping[str, object], field: str, *, maximum: int) -> str:
     value = values.get(field)
     if not isinstance(value, str) or not value.strip() or value != value.strip() or len(value) > maximum:
-        raise SkillPackageError(f"Agent Skill {field} must be a non-empty trimmed string of at most {maximum} characters")
+        raise SkillPackageError(
+            f"Agent Skill {field} must be a non-empty trimmed string of at most {maximum} characters"
+        )
     return value
 
 
@@ -385,7 +394,9 @@ def _optional_string(values: Mapping[str, object], field: str, *, maximum: int) 
     if value is None:
         return None
     if not isinstance(value, str) or not value.strip() or value != value.strip() or len(value) > maximum:
-        raise SkillPackageError(f"Agent Skill {field} must be a non-empty trimmed string of at most {maximum} characters")
+        raise SkillPackageError(
+            f"Agent Skill {field} must be a non-empty trimmed string of at most {maximum} characters"
+        )
     return value
 
 
@@ -428,7 +439,9 @@ def _tree_digest(entries: tuple[SkillPackageEntry, ...]) -> str:
 
 def _canonical_archive(files: tuple[_PackageFile, ...]) -> bytes:
     output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9, strict_timestamps=True) as archive:
+    with zipfile.ZipFile(
+        output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9, strict_timestamps=True
+    ) as archive:
         for value in files:
             info = zipfile.ZipInfo(value.path, date_time=_ZIP_TIMESTAMP)
             info.compress_type = zipfile.ZIP_DEFLATED

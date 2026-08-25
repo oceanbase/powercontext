@@ -410,6 +410,265 @@ class SkillPackageDownload(BaseModel):
     archive_base64: Annotated[StrictStr, Field(max_length=6990508, min_length=1, pattern="^[A-Za-z0-9+/]*={0,2}$")]
 
 
+class RemoteAgentKind(StrEnum):
+    CODEX = "codex"
+    CLAUDE_CODE = "claude_code"
+
+
+class RemoteSkillTargetState(StrEnum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    REVOKED = "revoked"
+
+
+class InstallationScope(StrEnum):
+    PROJECT = "project"
+
+
+class DeliveryMode(StrEnum):
+    AGENT_PULL = "agent_pull"
+
+
+class RemoteSkillTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    target_id: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$")]
+    display_name: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    agent_kind: RemoteAgentKind
+    installation_scope: InstallationScope
+    delivery_mode: DeliveryMode
+    installation_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1)]
+    state: RemoteSkillTargetState
+    receiver_version: Annotated[StrictStr | None, Field(max_length=64, min_length=1)]
+    environment_fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")]
+    machine_hostname: Annotated[StrictStr | None, Field(max_length=255, min_length=1, pattern=".*\\S.*")]
+    workspace_name: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    last_seen_at: Annotated[AwareDatetime | None, Field(...)]
+    generation: Annotated[StrictInt, Field(ge=0)]
+
+
+class ListRemoteSkillTargetsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    target_id: Annotated[StrictStr | None, Field(max_length=64, min_length=1, pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$")] = (
+        None
+    )
+    limit: Annotated[StrictInt, Field(ge=1, le=200)] = 100
+
+
+class CreateRemoteSkillTargetRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    agent_kind: RemoteAgentKind
+    display_name: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+
+
+class RemoteSkillTargetEnrollment(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    target: RemoteSkillTarget
+    enrollment_code: Annotated[StrictStr, Field(max_length=256, min_length=32)]
+    enrollment_expires_at: AwareDatetime
+
+
+class EnrollRemoteSkillTargetRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enrollment_code: Annotated[StrictStr, Field(max_length=256, min_length=32)]
+    installation_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    receiver_version: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    environment_fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
+    machine_hostname: Annotated[StrictStr | None, Field(max_length=255, min_length=1, pattern=".*\\S.*")] = None
+    workspace_name: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern=".*\\S.*")] = None
+
+
+class RemoteSkillTargetCredential(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    target_id: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+    agent_kind: RemoteAgentKind
+    credential: Annotated[StrictStr, Field(max_length=256, min_length=32)]
+
+
+class RevokeRemoteSkillTargetRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    target_id: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$")]
+    expected_generation: Annotated[StrictInt, Field(ge=0)]
+
+
+class RenameRemoteSkillTargetRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    target_id: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$")]
+    display_name: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    expected_generation: Annotated[StrictInt, Field(ge=0)]
+
+
+class PublishRemoteSkillRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    target_id: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$")]
+    artifact: ArtifactReference
+    expected_generation: Annotated[StrictInt | None, Field(ge=0)]
+    allow_deprecated: StrictBool = False
+
+
+class UnpublishRemoteSkillRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    target_id: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$")]
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    expected_generation: Annotated[StrictInt, Field(ge=0)]
+
+
+class RemoteSkillDesiredState(StrEnum):
+    PUBLISHED = "published"
+    UNPUBLISHED = "unpublished"
+
+
+class RemoteSkillPublicationState(StrEnum):
+    UNPUBLISHED = "unpublished"
+    PENDING = "pending"
+    CURRENT = "current"
+    UPDATE_AVAILABLE = "update_available"
+    DELIVERY_FAILED = "delivery_failed"
+    CONFLICT = "conflict"
+    DRIFTED = "drifted"
+    INCOMPATIBLE = "incompatible"
+
+
+class RemoteSkillPublication(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    target_id: StrictStr
+    artifact_id: StrictStr
+    desired_state: RemoteSkillDesiredState
+    desired_revision: Annotated[StrictInt, Field(ge=1)]
+    desired_tree_digest: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    observed_revision: Annotated[StrictInt | None, Field(ge=1)]
+    observed_tree_digest: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")]
+    observed_generation: Annotated[StrictInt | None, Field(ge=0)]
+    state: RemoteSkillPublicationState
+    last_error_code: Annotated[StrictStr | None, Field(max_length=128, min_length=1)]
+    observed_at: Annotated[AwareDatetime | None, Field(...)]
+    generation: Annotated[StrictInt, Field(ge=0)]
+
+
+class RemoteSkillObservation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact: ArtifactReference
+    tree_digest: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    actual_tree_digest: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")]
+    skill_name: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$")]
+    applied_generation: Annotated[StrictInt, Field(ge=0)]
+
+
+class ReconcileRemoteSkillsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    observations: Annotated[list[RemoteSkillObservation], Field(max_length=256)]
+    receiver_version: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    environment_fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
+
+
+class RemoteSkillOperation(StrEnum):
+    INSTALL = "install"
+    UNPUBLISH = "unpublish"
+
+
+class RemoteSkillAction(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation: RemoteSkillOperation
+    generation: Annotated[StrictInt, Field(ge=0)]
+    artifact: ArtifactReference
+    tree_digest: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    skill_name: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+    package: Annotated[SkillPackageReference | None, Field(...)]
+    expected_local: Annotated[RemoteSkillObservation | None, Field(...)]
+    blocked_error_code: Annotated[StrictStr | None, Field(max_length=128, min_length=1)]
+
+
+class ReconcileRemoteSkillsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    target_id: StrictStr
+    actions: Annotated[list[RemoteSkillAction], Field(max_length=256)]
+
+
+class DownloadRemoteSkillPackageRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    generation: Annotated[StrictInt, Field(ge=0)]
+    artifact: ArtifactReference
+    package: SkillPackageReference
+
+
+class RemoteSkillReceiptOutcome(StrEnum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class RemoteSkillFailureState(StrEnum):
+    DELIVERY_FAILED = "delivery_failed"
+    CONFLICT = "conflict"
+    DRIFTED = "drifted"
+    INCOMPATIBLE = "incompatible"
+
+
+class RecordRemoteSkillReceiptRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation: RemoteSkillOperation
+    generation: Annotated[StrictInt, Field(ge=0)]
+    artifact: ArtifactReference
+    expected_tree_digest: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    observed_tree_digest: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")]
+    outcome: RemoteSkillReceiptOutcome
+    failure_state: Annotated[RemoteSkillFailureState | None, Field(...)]
+    error_code: Annotated[StrictStr | None, Field(max_length=128, min_length=1)]
+    receiver_version: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    environment_fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")]
+
+
+class RemoteSkillReceiptResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accepted: StrictBool
+    stale: StrictBool
+    publication: RemoteSkillPublication
+
+
 class ProposeSkillPackageRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1185,6 +1444,21 @@ class SkillProposal(BaseModel):
     compatibility: Annotated[StrictStr | None, Field(max_length=500, min_length=1)] = None
     metadata: Annotated[dict[str, StrictStr] | None, Field(max_length=64)] = None
     allowed_tools: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+
+
+class RemoteSkillTargetStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    target: RemoteSkillTarget
+    publications: Annotated[list[RemoteSkillPublication], Field(max_length=256)]
+
+
+class ListRemoteSkillTargetsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    targets: Annotated[list[RemoteSkillTargetStatus], Field(max_length=200)]
 
 
 class RecordSkillUsageRequest(BaseModel):

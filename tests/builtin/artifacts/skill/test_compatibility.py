@@ -76,7 +76,10 @@ def test_script_compatibility_preserves_unknown_and_manual_review_states(tmp_pat
         }
     )
 
-    assert assess_skill_compatibility(package.as_skill_content(), package, unobserved).state is SkillCompatibilityState.UNKNOWN
+    assert (
+        assess_skill_compatibility(package.as_skill_content(), package, unobserved).state
+        is SkillCompatibilityState.UNKNOWN
+    )
     assert (
         assess_skill_compatibility(package.as_skill_content(), package, missing_bash).state
         is SkillCompatibilityState.MANUAL_REVIEW_REQUIRED
@@ -110,9 +113,7 @@ def test_declared_runtime_variant_matches_versions_and_host_requirements(tmp_pat
     old_python = assess_skill_compatibility(
         package.as_skill_content(),
         package,
-        target.model_copy(
-            update={"environment": environment.model_copy(update={"commands": {"python": "3.10.14"}})}
-        ),
+        target.model_copy(update={"environment": environment.model_copy(update={"commands": {"python": "3.10.14"}})}),
     )
 
     assert compatible.state is SkillCompatibilityState.COMPATIBLE

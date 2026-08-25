@@ -341,20 +341,76 @@ SKILL_PACKAGES_TABLE = Table(
     ),
 )
 
+AGENT_SKILL_TARGETS_TABLE = Table(
+    "pc_agent_skill_targets",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("target_id", identity_string(64), primary_key=True),
+    Column("display_name", identity_string(128), nullable=False),
+    Column("agent_kind", identity_string(32), nullable=False),
+    Column("installation_scope", identity_string(16), nullable=False),
+    Column("delivery_mode", identity_string(16), nullable=False),
+    Column("installation_id", identity_string(128)),
+    Column("state", identity_string(16), nullable=False),
+    Column("enrollment_token_digest", identity_string(64)),
+    Column("enrollment_expires_at", DateTime(timezone=True)),
+    Column("credential_subject", identity_string(128)),
+    Column("credential_verifier", identity_string(64)),
+    Column("receiver_version", identity_string(64)),
+    Column("environment_fingerprint", identity_string(64)),
+    Column("machine_hostname", identity_string(255)),
+    Column("workspace_name", identity_string(128)),
+    Column("last_seen_at", DateTime(timezone=True)),
+    Column("generation", BigInteger, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "scope_id",
+        "agent_kind",
+        "installation_scope",
+        "installation_id",
+        name="uq_pc_agent_skill_targets_installation",
+    ),
+    UniqueConstraint("enrollment_token_digest", name="uq_pc_agent_skill_targets_enrollment_token"),
+    UniqueConstraint("credential_subject", name="uq_pc_agent_skill_targets_credential_subject"),
+    UniqueConstraint("credential_verifier", name="uq_pc_agent_skill_targets_credential_verifier"),
+    CheckConstraint("agent_kind IN ('codex', 'claude_code')", name="ck_pc_agent_skill_targets_agent_kind"),
+    CheckConstraint(
+        "installation_scope IN ('project')",
+        name="ck_pc_agent_skill_targets_installation_scope",
+    ),
+    CheckConstraint("delivery_mode = 'agent_pull'", name="ck_pc_agent_skill_targets_delivery_mode"),
+    CheckConstraint("state IN ('pending', 'active', 'revoked')", name="ck_pc_agent_skill_targets_state"),
+    CheckConstraint(
+        "(state = 'pending' AND enrollment_token_digest IS NOT NULL AND enrollment_expires_at IS NOT NULL "
+        "AND installation_id IS NULL AND credential_subject IS NULL AND credential_verifier IS NULL) OR "
+        "(state = 'active' AND enrollment_token_digest IS NULL AND enrollment_expires_at IS NULL "
+        "AND installation_id IS NOT NULL AND credential_subject IS NOT NULL AND credential_verifier IS NOT NULL) OR "
+        "(state = 'revoked' AND enrollment_token_digest IS NULL AND enrollment_expires_at IS NULL "
+        "AND credential_verifier IS NULL)",
+        name="ck_pc_agent_skill_targets_state_payload",
+    ),
+    CheckConstraint("generation >= 0", name="ck_pc_agent_skill_targets_generation_nonnegative"),
+)
+
 SKILL_PUBLICATIONS_TABLE = Table(
     "pc_skill_publications",
     SHARED_METADATA,
     Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
     Column("target_id", identity_string(64), primary_key=True),
     Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("desired_state", identity_string(16), nullable=False, server_default="published"),
     Column("desired_revision", Integer, nullable=False),
     Column("desired_tree_digest", identity_string(64), nullable=False),
     Column("observed_revision", Integer),
     Column("observed_tree_digest", identity_string(64)),
-    Column("destination", _entry_text_type(), nullable=False),
+    Column("observed_generation", BigInteger),
+    Column("destination", _entry_text_type()),
     Column("state", identity_string(32), nullable=False),
     Column("selected_runtime_variant", identity_string(128)),
     Column("environment_fingerprint", identity_string(64)),
+    Column("last_error_code", identity_string(128)),
+    Column("observed_at", DateTime(timezone=True)),
     Column("generation", BigInteger, nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     CheckConstraint("desired_revision > 0", name="ck_pc_skill_publications_desired_revision_positive"),
@@ -363,8 +419,17 @@ SKILL_PUBLICATIONS_TABLE = Table(
         name="ck_pc_skill_publications_observed_revision_positive",
     ),
     CheckConstraint(
-        "state IN ('unpublished', 'current', 'update_available', 'conflict', 'drifted', 'incompatible')",
+        "desired_state IN ('published', 'unpublished')",
+        name="ck_pc_skill_publications_desired_state",
+    ),
+    CheckConstraint(
+        "state IN ('unpublished', 'pending', 'current', 'update_available', "
+        "'delivery_failed', 'conflict', 'drifted', 'incompatible')",
         name="ck_pc_skill_publications_state",
+    ),
+    CheckConstraint(
+        "observed_generation IS NULL OR observed_generation >= 0",
+        name="ck_pc_skill_publications_observed_generation_nonnegative",
     ),
     CheckConstraint("generation >= 0", name="ck_pc_skill_publications_generation_nonnegative"),
 )
@@ -426,6 +491,7 @@ SHARED_TABLES = (
     SOURCE_CURSORS_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
     SKILL_PACKAGES_TABLE,
+    AGENT_SKILL_TARGETS_TABLE,
     SKILL_PUBLICATIONS_TABLE,
 )
 

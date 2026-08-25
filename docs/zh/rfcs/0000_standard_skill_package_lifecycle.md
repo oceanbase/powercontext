@@ -16,6 +16,11 @@
 Skill 时保留精确包，并把同一份已批准内容发布到兼容的 Codex 和 Claude Code 目标。Agent Adapter 只负责选择
 位置和报告兼容性，不会静默改写已批准的包。
 
+实现同时支持 PowerContext Server 所在宿主机上的 configured target，以及独立验收的远端分发切片。远端模式下，
+Server 保存 target 的期望 Revision，Codex 或 Claude Code 集成内的轻量 Receiver 通过
+默认通过 HTTPS Pull、校验、原子安装并回传精确 Receipt。远端宿主不需要运行完整 PowerContext Server 或数据库，但必须有
+一个经过注册的 Receiver；Server 不通过 SSH 或远程文件系统主动写入 Agent 目录。
+
 包声明内容和需求，不声明权限。Review、批准、检索、发布以及可选的 `allowed-tools` 字段都不会授予执行、文件
 系统、网络、Secret 或安装依赖的权限。脚本执行仍由接收 Skill 的 Agent 和宿主策略负责。本 RFC 定义静态校验
 与环境兼容性评估，但不新增通用的 PowerContext 脚本 Runner。
@@ -30,7 +35,8 @@ Skill 时保留精确包，并把同一份已批准内容发布到兼容的 Code
   -> Review
   -> 批准为不可变 Skill 包 Revision
   -> 将当前 active Head 加入 Skills Library 索引
-  -> 显式把精确 Revision 发布到 Agent target
+  -> 显式把精确 Revision 发布到本地 target，或声明为远端 target 的期望状态
+  -> 远端 Receiver 在可用时收敛并回传 observed Revision 和 digest
   -> 在集成能够观测时记录有界的 selected/invoked/outcome 证据
   -> 提议后继 Revision、废弃、退役或安全取消发布
 ```
@@ -218,6 +224,38 @@ Codex 和 Claude Code 获得完全相同的 package bytes。它们的 Adapter �
 Publication 不会执行脚本。Unpublication 只有在精确 Artifact identity 和 tree digest 仍与已记录的 managed
 binding 匹配时才删除包。被修改或不属于 PowerContext 的目录会报告 `drifted` 或 `conflict`，并保持不变。
 
+## 通过 Agent-side Pull 向远端主机分发
+
+跨宿主分发不把 PowerContext Server 变成远程文件管理器。首次使用时，管理员在 Dashboard 或 CLI 为指定 scope、
+Agent kind 和项目填写容易识别的机器名称，并创建一次性 enrollment code；用户在远端安装或启用 PowerContext
+Plugin/Integration，选择本地项目并提交该 code。Dashboard 以机器名称作为主标识，把稳定 `target_id` 仅放在技术详情中；
+Receiver 注册成功后状态变为已连接，并自动补充主机名和工作区名。
+Enrollment 不上传远端绝对路径。
+
+之后用户在 Dashboard 选择这个远端 target 和精确 Skill Revision，点击 **Publish**。Server 只更新该 target 的期望
+状态：
+
+```text
+Dashboard / CLI
+  -> Server 保存 target 的 desired Revision、tree digest 和 generation
+  -> 远端 Receiver 通过常驻 watch、Agent 启动前置或显式 sync 请求 reconcile
+  -> Receiver 下载精确 canonical package，校验 digest，在本机 staging 后原子安装
+  -> Receiver 回传 observed Revision、tree digest、generation 和结果
+  -> Dashboard 只在 Receipt 匹配时显示 current
+```
+
+Receiver 由 Codex 或 Claude Code 的 PowerContext Plugin/Integration 携带，职责只是同步包和上报结果；它不是另一套
+PowerContext Server。Plugin 是 bootstrap，受管 Skill 是动态数据，因此每次发布 Skill 不需要重新安装 Plugin。
+如果远端没有安装或启用 Receiver，Server 只能保持 `pending` 或 `offline`，不能声称已经下发成功。
+
+Receiver 的 Agent Adapter 在远端本机解析安装根目录。项目级 Codex target 使用 `.agents/skills/<name>/`，项目级
+Claude Code target 使用 `.claude/skills/<name>/`。浏览器和 Server 都不提交或解释远端绝对路径。两个 Adapter 安装
+同一份已批准 package bytes，只校验各自的名称、格式、installation scope 和环境兼容性，不修改包内容。
+
+首个远端切片只支持项目级 Codex 和 Claude Code target、显式 Publish/Update/Unpublish、Linux systemd user service
+承载的常驻 watch，以及手动 preflight/sync。远端离线不是失败：下次 reconcile 仍以最新期望状态收敛。
+WebSocket/SSE 即时唤醒、Fleet Policy、灰度发布、自动发布和依赖安装不属于首个远端切片。
+
 ## 描述环境需求，但不授予权限
 
 可移植 Skill 应优先使用一个跨平台实现。需要多个变体的包可以将它们放在 `scripts/` 下。标准
@@ -289,6 +327,7 @@ successor Candidate，但永远不会修改内容、批准 Candidate、提升权
 - package-level Review，以及从 instruction-only managed Skill 迁移的方法；
 - current-head Library 检索、治理生命周期和有界使用证据；
 - Codex 与 Claude Code 的环境评估、发布、drift detection 和安全取消发布；
+- 后续远端 Agent-side Pull 扩展的 target 注册、期望状态收敛、Delivery Receipt 和安全边界；
 - 公共 package read 语义和实现验收标准。
 
 本 RFC 细化 RFC 0051 的 instruction-only managed Skill content 和 RFC 1304 的 two-file managed projection。它不
@@ -299,7 +338,8 @@ successor Candidate，但永远不会修改内容、批准 Candidate、提升权
 
 - 通用 Workflow、DAG、Routine 或 Procedure Runtime；
 - 自动执行、安装依赖、解析 Secret 或 Sandbox grant；
-- 远程跨宿主 push/pull Agent；
+- SSH、Server 主动写入远端文件系统或浏览器指定任意远端路径；
+- 常驻 Fleet Orchestrator、即时推送通道、自动发布或通用设备管理；
 - 组织级 RBAC、Reviewer identity、package signing 或 marketplace billing；
 - 自动语义合并、自动发布、自动退役或无界后台生成；
 - 通用二进制提取、OCR、恶意软件结论或完整代码搜索。
@@ -431,8 +471,10 @@ PRIMARY KEY (scope_id, tree_digest)
 reference。Package insertion 与第一个持有它的 Source 或 Candidate write 在一个数据库事务中完成。复用相同
 `(scope_id, tree_digest)` 时，先校验现有 archive 和 manifest digest，再返回现有记录。
 
-整个 RFC 只新增 `pc_skill_packages` 和 `pc_skill_publications` 两张业务表。Lifecycle 复用现有 Artifact Head，Search
-使用通用可重建 Projection，Usage Evidence 复用现有 Source Store。
+前五个本地切片新增 `pc_skill_packages` 和 `pc_skill_publications` 两张业务表。Lifecycle 复用现有 Artifact
+Head，Search 使用通用可重建 Projection，Usage Evidence 复用现有 Source Store。第六个远端分发切片新增
+`pc_agent_skill_targets`，并迁移 `pc_skill_publications` 以表达远端期望状态和最新 Receipt；首个远端切片不新增任务
+队列表或 Receipt 历史表。
 
 已批准 Artifact Revision 以及仍被保留的 Candidate 或 Source evidence 会保持 package reachable。初始实现不做
 自动 Package GC。后续 Collector 只能在文档化 retention period 结束后，删除不再被 Artifact、Candidate 或 Source
@@ -595,6 +637,13 @@ Scope 和 target policy 可以限制 Pending Candidate、package bytes、active 
 `AgentSkillTarget` 继续作为已配置 publication boundary，并增加 environment profile，或增加能够观测该 Profile 的
 Provider：
 
+Server 以 workspace 作为本机路径边界。未显式设置 `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` 时，workspace 默认为 Server
+启动目录，并自动生成 `codex-project -> <workspace>/.agents/skills` 与
+`claude-project -> <workspace>/.claude/skills` 两个允许受管发布的项目级 target。目录缺失只表示当前没有外部 package；
+首次由用户确认本机安装时才创建。服务管理器或容器必须通过 `POWERCONTEXT_SERVER_WORKSPACE` 固定 workspace。显式
+`POWERCONTEXT_SERVER_EXTERNAL_SKILLS` 完整覆盖自动 target，并继续承担自定义路径、用户级 target、环境 Profile 和关闭
+本机发现等高级配置。Dashboard 不接收用户输入的本机路径。
+
 ```yaml
 target_id: codex-project
 agent_kind: codex
@@ -643,7 +692,7 @@ archive_base64: <canonical ZIP encoded as base64>
 调用方解码后校验两个 digest。该 envelope 让生成式 JSON Client contract 保持一致，同时保留字节精确分发；Server
 不会返回可变的 filesystem path。
 
-Publication state 保存在本 RFC 新增的第二张、也是最后一张业务表中：
+初始五个本地切片的 Publication state 保存在本 RFC 新增的第二张业务表中：
 
 ```text
 pc_skill_publications
@@ -677,6 +726,236 @@ unpublished | current | update_available | conflict | drifted | incompatible
 Safe Update 或 Unpublication 需要 expected publication `generation`、精确 recorded Artifact identity、destination 和
 observed tree digest。如果本地内容已变化，PowerContext 报告 Drift 并保持原样。Unpublication 只移除完整的 managed
 package 及其 binding，不会删除已批准 Artifact 或 package history。
+
+## 远端 Agent-side Pull 与期望状态收敛
+
+本节规定已实现的第六个切片 Contract。远端分发沿用相同的
+`pc_skill_publications` 期望/观测模型，但由 target-local Receiver 而不是 Server 本地 Publisher 产生观测结果。
+
+### Target 注册与本地路径归属
+
+远端 Receiver 使用一次性 enrollment code 注册一个稳定的 `target_id`。注册至少绑定：
+
+- 不透明的 host/installation identity、`agent_kind` 和 project installation scope；
+- 允许访问的 `scope_id` 和 Server origin；
+- target-local Adapter version、environment fingerprint 和最近在线时间；
+- 独立的 target credential subject；Secret value 只保存在远端操作系统 Secret Store 或等价安全存储中。
+
+第六个切片新增第三张业务表，持久保存 enrollment、认证主体和 target liveness：
+
+```text
+pc_agent_skill_targets
+  scope_id
+  target_id
+  display_name
+  agent_kind
+  installation_scope
+  delivery_mode
+  installation_id nullable
+  state
+  enrollment_token_digest nullable
+  enrollment_expires_at nullable
+  credential_subject nullable
+  credential_verifier nullable
+  receiver_version nullable
+  environment_fingerprint nullable
+  machine_hostname nullable
+  workspace_name nullable
+  last_seen_at nullable
+  generation
+  created_at
+  updated_at
+
+PRIMARY KEY (scope_id, target_id)
+UNIQUE (scope_id, agent_kind, installation_scope, installation_id)
+UNIQUE (enrollment_token_digest)
+UNIQUE (credential_subject)
+UNIQUE (credential_verifier)
+```
+
+`display_name` 是管理员提供、可通过 target generation CAS 修改的人类可读名称；重命名不改变凭据或任何分发绑定。
+`target_id` 由 Server 生成并保持稳定，只用于 API、审计和故障排查。`installation_id` 是 Receiver 为本地
+Agent/project installation 生成的不透明身份，不是 filesystem path；它在 enrollment 前为空，在 enrollment transaction
+中写入。Receiver 同时上报不含绝对路径的 `machine_hostname` 和 workspace basename `workspace_name`，便于 Dashboard
+按名称、主机、工作区或技术 ID 搜索和消歧。首个远端切片只允许
+`delivery_mode=agent_pull`，并使用
+`pending | active | revoked` target state：
+
+- 创建 enrollment 时，Server 生成 `pending` row，只保存高熵一次性 code 的 digest 和 expiry；
+- enrollment transaction 同时校验 pending state、expiry、token digest 和 expected target `generation`，绑定唯一
+  `installation_id`、`credential_subject` 和 verifier，清除 token digest，再转为 `active`；
+- target display name 的修改使用同一 `generation` CAS，但不改变 credential、`target_id` 或 publication identity；
+- Secret credential value 只保存在远端操作系统 Secret Store；Server 只保存用于验证的 hash、key 或 provider
+  reference；
+- `last_seen_at` 用于派生 `offline` 展示，离线不是持久 target state；
+- enrollment 和 revoke 使用 target `generation` 做 CAS；credential rotation 若后续引入，也必须复用同一 CAS contract；
+- `revoked` target 的 enrollment、reconcile、download 和 Receipt 全部被拒绝；credential verifier 被清除或通过
+  provider 撤销，历史 target identity 仍保留用于审计。
+
+一条 target row 可以在尚未发布任何 Skill 时独立存在。首个远端切片不把现有 host-local path configuration 迁入
+该表，也不复用 `pc_external_skill_registrations`；后者只是外部包的观测，不是远端设备或认证 Authority。
+三个 Unique Contract 分别阻止同一 installation 重复注册、一次性 code 被两个 target 消费，以及一个 credential
+subject 同时代表多个 target；数据库对 nullable unique column 允许多个 `NULL`。
+
+Server 只保存逻辑 installation scope，不保存或接受浏览器传入的远端绝对路径。Receiver 根据本地已注册 workspace
+解析 package root，并拒绝逃逸该 root 的 Skill name 或 archive path。一个 credential 只能代表其绑定的 `target_id`，
+不能在 reconcile 请求中切换为另一个 target。
+
+每条 `agent_pull` publication 必须解析到同 scope 的 `active pc_agent_skill_targets` row；host-local publication 继续解析
+现有 Server configuration，不要求 target table row。Revoke 不级联删除 publication 或 package history，只阻止远端
+认证并让 Dashboard 显示 target 已不可收敛。
+
+### Publication schema 扩展
+
+第六个切片迁移现有 `pc_skill_publications`，增加或变更：
+
+```text
+desired_state          # published | unpublished
+observed_generation nullable
+destination nullable   # host-local 必填；agent_pull 必须为空
+last_error_code nullable
+observed_at nullable
+```
+
+原有 `generation` 继续表示 Server desired state 的 CAS generation。`observed_generation` 表示最新有效 Receipt 已处理的
+generation；旧 generation 的 Receipt 不能更新 observed fields。远端 Unpublish 把 `desired_state` 改为
+`unpublished`。最后一个 desired Revision/digest 继续保留为 intent history，但它本身不是删除 Authority；安全删除
+依据是 Receiver 在 reconcile 中报告并在本地再次校验的 credential-bound ownership checkpoint。成功 Receipt 将
+observed Revision/digest 变为空，并把 state 设为 `unpublished`。
+
+`destination` 对现有 host-local publication 仍然必填；对 `agent_pull` 必须为空，因为路径由 Receiver 本地解析。远端
+切片将 publication state 扩展为：
+
+```text
+unpublished | pending | current | update_available | delivery_failed | conflict | drifted | incompatible
+```
+
+`pending` 表示 desired generation 尚无匹配 Receipt；`delivery_failed` 携带有界 `last_error_code`。`offline` 根据 active
+target 的 `last_seen_at` 派生，不写入每条 publication state。
+
+Schema migration 必须在 SQLite 和 OceanBase 上执行相同的确定性 backfill：
+
+- 现有 `state=unpublished` row 写入 `desired_state=unpublished`，其余 row 写入 `desired_state=published`；
+- 现有 row 写入 `observed_generation=generation` 和 `observed_at=updated_at`；
+- 现有 host-local `destination` 原值保持不变，只有新的 `agent_pull` publication 使用 `NULL`；
+- 现有 row 写入 `last_error_code=NULL`；
+- backfill 完成后 `desired_state` 为 non-null，并限制为 `published | unpublished`。
+
+首个远端切片不新增 `pc_skill_delivery_receipts`。Receipt 在
+`(scope_id, target_id, artifact_id)` row 上校验 `publication.generation == receipt.generation` 后更新最新 observed fields：
+相同 generation 的成功结果可以覆盖失败结果，失败结果不能覆盖已经成功的结果，重复相同结果是 no-op，旧
+generation 一律不能更新当前 state。这足以实现幂等收敛。若以后需要完整 Receipt 审计历史，应复用现有
+Source/Event Store；审计记录不能成为当前 publication state 的 Authority。
+
+Receiver 在标准 package 之外维护一个 credential-bound、完整性受保护的本地 ownership checkpoint。每个 managed
+artifact 的 checkpoint 至少包含 `target_id`、ArtifactRef、tree digest、applied generation 和状态；package script
+不能读写该状态。Receiver 还维护一个有界 pending-action journal，使 package rename 和 checkpoint 更新之间发生崩溃
+时能够恢复：最终目录匹配已授权 action 时完成 checkpoint 并补发 Receipt；仍匹配旧 checkpoint 时放弃 staging；
+其他情况报告 `conflict`，不会猜测 ownership。
+
+### Reconcile，而不是一次性投递队列
+
+远端 Publication 是期望状态：
+
+```text
+Server authority                         Remote target observation
+desired_state                            observed state/result
+desired_revision                         observed_revision nullable
+desired_tree_digest                      observed_tree_digest nullable
+generation                               observed_generation nullable
+delivery_mode = agent_pull               bounded error code
+```
+
+Dashboard 的 Publish、Update 或 Unpublish 只以 CAS 更新 desired state 和 `generation`。Receiver 在 reconcile request
+中提交本地 ownership checkpoint 和实际目录 tree digest：
+
+```yaml
+target_id: codex-project-7f31
+last_processed_generation: 11
+observed:
+  - artifact_ref: artifact:skill/skill_release_check@1
+    tree_digest: sha256:abcd...
+    applied_generation: 9
+```
+
+Server 使用 target credential 校验请求，并确认 checkpoint 中的 ArtifactRef/tree digest 指向同 scope、同
+`artifact_id` 的精确 approved package。Reconcile observation 可以作为本次动作的本地 precondition，但只有成功
+Receipt 才更新 authoritative observed fields。Response 使用区分明确的 action shape：
+
+```yaml
+# install
+generation: 12
+action:
+  operation: install
+  desired:
+    artifact_ref: artifact:skill/skill_release_check@2
+    tree_digest: sha256:1234...
+
+---
+# unpublish
+generation: 13
+action:
+  operation: unpublish
+  artifact_id: skill_release_check
+  expected_local:
+    artifact_ref: artifact:skill/skill_release_check@2
+    tree_digest: sha256:1234...
+    applied_generation: 12
+```
+
+对于 Unpublish，`expected_local` 来自本次经过认证的 Receiver checkpoint，并且必须与同 Artifact binding 的 exact
+approved package 匹配；它不盲目使用 Server 上最后一次 observed 或 desired digest。这样即使 package 已安装而成功
+Receipt 丢失，下一次 reconcile 仍能安全确认并移除 Receiver 实际拥有的精确目录。
+
+Response 不包含任意 destination path、shell command、dependency install instruction 或未批准的 package body。
+Package body 继续通过现有精确 Download operation 获取，并且 credential 只能下载当前 target desired state 引用的
+Artifact Revision。相同 `(scope_id, target_id, generation, artifact_id)` 的 reconcile 和 Receipt 必须幂等；短暂断网、
+重复请求或 Server 重启不会导致重复目录或回退到旧 Revision。
+
+离线只表示 target 尚未收敛，不把 desired state 改回失败或丢弃动作。`current` 只在最新 generation 的精确 Receipt
+匹配 desired Revision 和 tree digest 时成立；在此之前 Dashboard 显示 `pending` 或 `offline`。较旧 generation 的
+Receipt 不能覆盖较新的 observed state；如果部署启用审计，可以把它写入现有 Source/Event Store。
+
+失败 Receipt 将 `observed_generation` 写为本次 generation，保留上一个成功 observed Revision/digest，并将 state
+设为 `delivery_failed`。只要 desired state 尚未满足，reconcile 就会在有界退避后重新返回同 generation 的幂等
+action；重试不会增加 publication generation。只有新的 Dashboard intent 才推进 desired `generation`，后续成功
+Receipt 会清除 `last_error_code` 并替换失败状态。
+
+### Receiver 安装与 Receipt
+
+对于 `install`，Receiver 必须按下列顺序执行：
+
+1. 使用绑定 target credential 读取精确 package envelope；
+2. 在有界 staging directory 中校验 archive digest、安全解压并重算完整 tree digest；
+3. 运行 Agent-format 和 target-local compatibility 校验，但不执行脚本或安装依赖；
+4. 如果最终目录和本地 checkpoint 已经精确匹配本次 desired Artifact/digest，不重写目录，直接进入 Receipt；
+5. 否则只在目标不存在，或现有目录和本地 checkpoint 同时匹配且 action 授权替换时，先持久化 pending-action
+   journal，再原子 rename 完整 package；
+6. 从最终目录再次观测 tree digest，原子更新本地 checkpoint，清理 journal，并回传 Receipt；任何 identity、digest
+   或 checkpoint 不匹配都报告 `drifted` 或 `conflict`，保持目录不变。
+
+Receipt 至少包含 `target_id`、`generation`、operation、ArtifactRef、expected/observed tree digest、结果、environment
+fingerprint、Receiver version 和有界 error code。Package body、Secret、任意命令输出和绝对路径不进入 Receipt。
+Server 必须以 credential 绑定的 target identity、generation 和 digest 校验 Receipt，不能把一次 HTTP 成功当作安装
+成功。通过验证的最新 Receipt 按上述 generation 和成功优先规则更新 `pc_skill_publications`，不写入独立 Receipt 表。
+
+对于 `unpublish`，Receiver 先校验 authenticated action、`expected_local`、本地 checkpoint 和实际 tree digest 四者
+一致并持久化 pending-action journal，再把完整 managed package 原子 rename 到 Receiver-private quarantine，写入
+“absent” checkpoint 并回传 Receipt，最后清理 quarantine。若用户或其他工具修改了目录，Receiver 回传 `drifted`
+或 `conflict` 并保持内容不变。Receiver 的 ownership、credential、pending-action journal 和 Receipt checkpoint 都
+保存在标准 package 之外。
+
+### Codex 与 Claude Code 触发方式
+
+| Agent | 首个远端切片的 Receiver 载体 | 项目级安装根 | 同步触发 |
+| --- | --- | --- | --- |
+| Codex | PowerContext 轻量 Receiver | `.agents/skills/` | systemd user service 运行 `remote-watch`，或 Agent 启动前置/`remote-sync` |
+| Claude Code | PowerContext 轻量 Receiver | `.claude/skills/` | systemd user service 运行 `remote-watch`，或 Agent 启动前置/`remote-sync` |
+
+集成必须验证 Agent 在哪个 discovery boundary 读取 Skill。如果 SessionStart 晚于该 Agent 的本次扫描，新安装包只
+能声明为下一 session 可发现，不能把 `installed` 等同于本次 session 已加载。需要“首次会话即可使用”的部署应在
+启动 Agent 前运行同一个 reconcile preflight。`remote-watch` 只定期触发同一个 reconcile；后续 SSE/WebSocket 也只能
+用于唤醒 Receiver，package 仍通过相同的 authenticated pull transport 获取。
 
 ## Usage observation 与 Evolution
 
@@ -719,9 +998,106 @@ Review、Lifecycle Change、Publication、Unpublication 和 Usage Recording 仍�
 | Publish | 把精确 Approved Revision 发布到一个 configured target |
 | Unpublish | 只移除完整的 managed target package |
 | Record usage | 捕获有界、精确的 usage Source evidence |
+| Create/enroll/revoke remote target | 创建一次性 code、绑定或撤销 credential-bound target registration |
+| Publish/unpublish remote desired state | 以 publication generation CAS 声明精确 Revision 或期望缺席 |
+| Reconcile remote target | 比较 target observation 与最新 desired generation，返回幂等动作 |
+| Download remote package | 只允许 target credential 下载其当前 generation 引用的精确包 |
+| Record delivery receipt | 记录精确 generation、ArtifactRef、digest 和安装结果 |
 
-浏览器提交 `target_id`、精确 ArtifactRef、expected Candidate version 或 governance/publication generation，以及显式
-operation intent。浏览器永远不提交任意 destination path、Agent kind、package digest replacement 或 execution grant。
+List Library 的每一项都返回可展示的出处。未引用 external snapshot 的 managed Skill 归为 `powercontext`；exact import
+归为 `external_import`；fork 归为 `external_fork`；尚未进入 Review 的 registration 在浏览器中归为 `external`。后面三类
+同时显示 registration 的 `host_id`、`agent_kind`、`external_skill_id`、`installation_scope` 和 `locator`。对于 managed
+Skill 的后续 Revision，Runtime 先检查直接 SourceRef，再沿上游 Skill ArtifactRef 追溯最初的 external snapshot，避免一次
+修订后把接管来源错误地显示成 PowerContext。该投影复用已持久化的 Source lineage 和 external snapshot，不新增表或历史
+数据迁移；旧数据没有 external snapshot 时只声明为 PowerContext 来源，不猜测是人工提交还是模型生成。
+
+浏览器提交 `target_id`、创建目标时选择的 Agent kind、精确 ArtifactRef、expected Candidate version 或
+governance/publication generation，以及显式 operation intent。浏览器永远不提交任意 destination path、package
+digest replacement 或 execution grant。
+远端 operation 已进入 OpenAPI。管理员通过 `remote-status`、`remote-target-create`、`remote-target-rename`、`remote-publish`、
+`remote-unpublish` 和 `remote-target-revoke` 完成完整生命周期；Receiver 端通过 `remote-enroll`、`remote-watch`、
+`remote-sync`、`remote-service-install` 和 `remote-service-uninstall` 收敛本地目录并管理 Linux user service。CLI 在
+未显式提供 expected generation 时先读取最新状态再提交 CAS；自动解析不会绕过 CAS，竞争更新仍返回 conflict。
+管理员可以显式提供 generation 以实现自动化中的 compare-and-swap。
+
+Skills Dashboard 在交付区提供“本机目录 / 远端机器”选择。远端模式要求创建时填写机器名称，支持按名称、Receiver
+上报的主机名、工作区名或技术 ID 搜索，并可在不改变分发身份的前提下重命名。它还支持 Codex 或 Claude Code 项目目标、
+一次性注册引导、目标与分发状态自动刷新、精确 Revision 分发、请求安全移除和凭据撤销。页面只在创建时展示一次注册口令，并
+直接给出可复制的 Receiver 安装和带 `--install-service` 的 `remote-enroll` 命令；关闭前未保存口令时，管理员撤销
+pending target 并重新添加。远端模式在 pending 时每两秒、稳定时每十秒静默刷新，页面不可见或切回本机模式时停止。
+Dashboard 把 Publish/Unpublish 表述为期望状态请求，只有匹配的 Receiver Receipt 才显示已安装或已移除。
+存在尚未确认移除的 publication 时，页面禁止撤销 target，避免先使 Receiver 凭据失效而永久失去安全清理能力。
+Server 可通过 `POWERCONTEXT_SERVER_PUBLIC_URL` 一次性配置远端可达地址；未配置时，Dashboard 自动采用当前 HTTPS
+来源，显式启用不安全开关后也可以采用当前 HTTP 来源；否则由远端 CLI 的既有 Server 配置提供连接地址。添加 target
+不要求重复填写服务地址。
+
+HTTPS 仍是默认传输边界。受保护的内部测试网络可以在一期 PoC 中显式启用直连明文 HTTP：Server 设置
+`POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true`，远端注册同时传入 `remote-enroll --allow-insecure-http`。任一端单独
+启用都不足以放行：Server 开关关闭时继续拒绝非 loopback HTTP 的 Receiver 请求；CLI 未提供参数时，会在发送一次性
+注册口令前拒绝该 URL。只有 Server 开关已启用时，Dashboard 才接受公布的 HTTP 地址，并持续展示明文传输警告、在
+可复制命令中加入 Receiver 参数。Receiver 把许可和凭据一起保存到 owner-only 配置文件，因此一次同步、watch 模式和
+systemd user service 共用同一传输策略。该配置字段为向后兼容的增量字段，不新增数据库表，也不需要历史数据迁移。
+明文链路不会加密注册口令、target credential、技能包或 Receipt，只能用于受保护的内部测试网络，不能视为生产环境中
+HTTPS 的替代方案。
+
+### 远端分发 CLI 流程
+
+默认情况下，Server 必须提供远端可达的 HTTPS URL；上文定义的内部 HTTP PoC 显式例外是唯一明文替代方案。远端机器
+只安装 `powercontext[cli]` Receiver，不安装 Server 或数据库，也不接受
+Server 入站连接。管理员先创建 project target：
+
+```bash
+powercontext --server-url https://powercontext.example.com \
+  skill remote-target-create --scope-id project:demo --agent-kind codex
+```
+
+远端 operator 在目标 project 中输入一次性 enrollment code；省略命令行参数会使用无回显 prompt，并把 target credential
+以 owner-only 权限写入 `.powercontext/remote-skill-target.json`：
+
+```bash
+cd /srv/project
+powercontext --server-url https://powercontext.example.com \
+  skill remote-enroll --workspace "$PWD" --install-service
+```
+
+内部 HTTP PoC 显式例外对应的命令为：
+
+```bash
+powercontext --server-url http://powercontext.internal.example:8765 \
+  skill remote-enroll --workspace "$PWD" --install-service --allow-insecure-http
+```
+
+`--install-service` 以目标 ID 创建独立的 `systemd --user` unit，并立即 `enable --now`。unit 只引用 owner-only 配置文件，
+不复制 credential。已有注册可运行 `powercontext skill remote-service-install`，需要停用时运行
+`powercontext skill remote-service-uninstall`；不支持 systemd 的环境可以前台运行 `powercontext skill remote-watch`。
+
+管理员发布精确 approved package Revision，不需要手工查询首次或当前 publication generation：
+
+```bash
+powercontext --server-url https://powercontext.example.com \
+  skill remote-publish --scope-id project:demo --target-id codex-abc123 \
+  --revision 2 release-check
+```
+
+常驻 Receiver 默认每五秒执行 reconcile。Codex 写入 `.agents/skills/`，Claude Code 写入 `.claude/skills/`。如果要求
+当前首次会话必定发现刚发布的 Skill，仍在启动 Agent 前显式执行一次 preflight：
+
+```bash
+powercontext skill remote-sync
+codex  # 或 claude
+```
+
+管理员可以随时检查 desired/observed 状态、请求安全移除或撤销 credential：
+
+```bash
+powercontext skill remote-status --scope-id project:demo --target-id codex-abc123
+powercontext skill remote-unpublish --scope-id project:demo --target-id codex-abc123 release-check
+powercontext skill remote-target-revoke --scope-id project:demo codex-abc123
+```
+
+`remote-publish` 和 `remote-unpublish` 只改变 Server desired state；只有后续成功 watch/sync Receipt 才把状态变为
+`current` 或 `unpublished`。Dashboard 自动刷新只读取该持久状态，不把 HTTP 请求成功当成安装成功，也不声称当前
+Agent session 已重新扫描。
 
 ## Security 与信任边界
 
@@ -736,6 +1112,9 @@ operation intent。浏览器永远不提交任意 destination path、Agent kind�
 - 不会因为调用方知道 digest 就暴露 package；
 - 通过 scope 和精确 Source、Candidate 或 Artifact reachability 授权读取；
 - 在每次 exact read、diff、download 和 publication 前校验 digest；
+- 默认对所有非 loopback 远端连接强制 HTTPS；内部 PoC 例外要求 Server 和 Receiver 双端显式同意，并持续展示明文风险；
+- 为每个远端 target 使用独立 credential，只允许读取自己的 desired state、下载其中的精确 Artifact 并回传 Receipt；
+- 在 Server 端绑定 Receipt 的 target identity、generation 和 digest，不接受浏览器或 Receiver 指定任意远端路径；
 - 延续 RFC 1304 的 Restrictive Browser CSP 与 Safe Rendering Rule。
 
 `scope_id` 继续是业务分区，不是 ACL。需要组织级授权的部署必须通过 Server Authentication 和 Policy 执行；本 RFC
@@ -743,7 +1122,7 @@ operation intent。浏览器永远不提交任意 destination path、Agent kind�
 
 ## Implementation slices
 
-实现按五个可独立 dogfood 的切片推进：
+实现按五个可独立 dogfood 的本地切片和一个独立验收的远端切片组织；远端实现不改变前五个切片的验收：
 
 1. **Package foundation**：canonical package validation、`pc_skill_packages`、v1/v2 content union、exact read 和
    SQLite/OceanBase round trip。
@@ -755,8 +1134,12 @@ operation intent。浏览器永远不提交任意 destination path、Agent kind�
    Code publication、package download、drift detection 和 safe unpublication。
 5. **Observed evolution**：有界 usage Source 和显式触发 successor Candidate。聚合 health view 可在以后作为可重建
    projection 增加，不需要改变 usage evidence。
+6. **Remote target reconcile**：`pc_agent_skill_targets`、`pc_skill_publications` 远端字段迁移、Codex/Claude Code
+   Plugin Receiver、一次性 enrollment、per-target credential、desired-state reconcile、精确 package Pull、原子
+   安装、Delivery Receipt、离线收敛和 safe remote unpublication。
 
 任何切片都不会引入 PowerContext Script Runner。所有切片都保留 Exact Read 和既有 Instruction-only Revision。
+远端能力的发布声明以本节独立验收为准；`installed`、Receipt `current` 与 Agent 当前 session 已发现仍是三个不同事实。
 
 ## Acceptance
 
@@ -783,17 +1166,43 @@ operation intent。浏览器永远不提交任意 destination path、Agent kind�
 | Publication | Codex 和 Claude Code target 获得同一 approved package tree，且不注入额外 package file |
 | Safe update | 只有 identity/digest 匹配且完整的 managed destination 能被替换 |
 | Safe unpublication | 只移除完整 managed destination；drift 或 foreign content 保持不变 |
-| Schema | 功能只新增 `pc_skill_packages` 和 `pc_skill_publications`；SQLite FTS 是可重建的替换投影 |
+| Initial schema | 前五个本地切片只新增 `pc_skill_packages` 和 `pc_skill_publications`；远端切片另新增 `pc_agent_skill_targets` 并迁移 publication 字段；SQLite FTS 是可重建的替换投影 |
 | Usage truth | Selected、invoked、validation 和 outcome 保持独立，并保留 unknown observation |
 | Evolution | Usage evidence 可以针对精确 Revision 创建 pending successor，但不能修改或批准它 |
 | Scope | Package、Library、Lifecycle、Publication、Usage 和 Download operation 不能跨 caller scope |
 | Browser trust | 在真实 Chromium 中 Candidate 和 package content 保持惰性，包括恶意 Markdown、SVG 和 filename |
 | Packaging | Package Review 和 Library 所需 Server template/static asset 被包含在 wheel 中 |
+| Local defaults | 未配置高级 target 时，本机 Codex 与 Claude Code 分别解析 workspace 下的 `.agents/skills/` 与 `.claude/skills/`；目录在用户确认安装前不创建 |
 
 实现必须运行 `make check`、`make test`、`make docs-test`，API 变化还要运行 `make contract-test`。还必须验证真实
 SQLite Server flow、OceanBase package round trip、真实 Codex 和 Claude Code package discovery，以及 Browser flow：
 Exact Import、File Inspection、Approval、Search、Publication、Drift、Unpublication、双语、Keyboard Operation 和
 窄屏布局。
+
+### 远端分发切片验收
+
+已实现的第六个切片必须满足下列条件，且不能以前五个切片的本地测试替代：
+
+| 场景 | 通过条件 |
+| --- | --- |
+| Enrollment | 一次性 code 只能激活指定 pending target；重放、重复 installation 或跨 scope 使用被拒绝 |
+| Remote schema | 新增 `pc_agent_skill_targets`，并迁移 `pc_skill_publications`；不新增任务队列表或 Receipt 历史表 |
+| Schema backfill | SQLite 与 OceanBase 对现有 desired state、observed generation/time、destination 和 error field 得到相同结果 |
+| Target uniqueness | 同一 installation、enrollment token 或 credential subject 不能绑定多个 active target，revoked credential 不能继续调用 |
+| No full remote Server | 远端仅安装 Plugin/Integration Receiver，不需要 PowerContext Server 或数据库 |
+| Agent roots | Codex 与 Claude Code Adapter 分别在远端本机解析 `.agents/skills/` 和 `.claude/skills/`，Server 不接收绝对路径 |
+| Exact delivery | Receiver 下载 desired ArtifactRef 的 canonical package，并在安装前后校验 archive/tree digest |
+| Atomic install | 中断、磁盘错误或校验失败只留下可清理 staging，不暴露半个 package，也不覆盖完整旧版本 |
+| Offline convergence | target 离线期间多次 Update 后，下一次 reconcile 直接收敛到最新 generation，不回放过期 Revision |
+| Receipt truth | 只有 credential、target、generation、ArtifactRef 和 digest 全部匹配的 Receipt 才能产生 `current` |
+| Idempotency | 重复 reconcile、download 和 Receipt 不产生重复目录、重复 binding 或状态回退 |
+| Lost receipt recovery | 安装成功但 Receipt 丢失后，Receiver 通过本地 checkpoint 对同一 desired package 幂等补报，不重写或冲突 |
+| Failed delivery retry | 失败 Receipt 保留最后成功观测，并以同 generation 有界重试；只有新 intent 推进 generation |
+| Safe remote update | 本地 target tree 漂移时不替换内容，并回传 `drifted` 或 `conflict` |
+| Safe remote unpublication | Receipt 丢失后仍只删除 authenticated checkpoint 与实际 tree 匹配的完整 managed package；foreign content 保持不变 |
+| Transport isolation | 非 loopback 明文 HTTP 默认被拒绝，仅在 Server 与 Receiver 双端显式同意后放行；一个 target credential 不能读取或确认另一个 target 的状态 |
+| Discovery boundary | 测试明确区分 installed、当前 session 已发现和下一 session 可发现，不作虚假成功声明 |
+| No execution | Reconcile、安装和 Receipt 全流程不执行脚本、不安装依赖、不扩大 Agent permission |
 
 # Drawbacks
 
@@ -805,6 +1214,7 @@ Exact Import、File Inspection、Approval、Search、Publication、Drift、Unpub
 - 通用 Standard Baseline 可能拒绝某个 Agent 的宽松 Parser 能接受的 Package。
 - Static Validation 无法证明 Script 安全或有用，而更强的 Sandbox Execution 被有意排除在范围外。
 - Lifecycle、Publication、Compatibility 和 Usage 是独立维度，会增加 UI 和 API 复杂度。
+- 远端期望/观测状态、credential lifecycle 和 eventual convergence 会增加本地发布没有的运维与故障状态。
 - Exact Import 可能保留冗余或低质量文件；正确处理方式是可见 Review 或 Fork，而不是静默规范化。
 - 在 Agent Integration 能区分真实 Invocation 与 Retrieval/Mention 之前，Usage Evidence 会不完整。
 
@@ -823,6 +1233,10 @@ Exact Import、File Inspection、Approval、Search、Publication、Drift、Unpub
 | 把 PowerContext metadata 放进每个 published package | 拒绝；Publication 必须保留 approved standard package tree |
 | 为 Codex 和 Claude Code 生成不同 approved package | 拒绝；Target Adapter 应报告 Compatibility 和 Location，而不是制造未 Review 的 Content Variant |
 | Publication 时自动安装 Dependency | 拒绝；Publication 不是 Execution 或 Environment Mutation Authority |
+| 由 Server 通过 SSH、SCP 或远程文件系统 Push | 拒绝；扩大 Server 权限和网络可达面，且无法安全处理离线、NAT 与本地 drift |
+| 使用一次性任务队列投递远端包 | 拒绝；离线 target 容易丢动作或回放旧动作；desired-state reconcile 天然幂等并收敛到最新状态 |
+| 每发布一个 Skill 就发布新版 Plugin | 拒绝；Plugin 只作为稳定 bootstrap，受管 Skill 必须作为精确 package data 独立更新 |
+| 在每次 User Prompt 前同步 | 拒绝；增加请求延迟和噪音；常驻 watch 在 prompt 路径之外同步，启动前置只保障首次会话发现 |
 | 发布所有 Active Library Skill | 拒绝；Library Inventory 与 Agent Working Set 具有不同规模和意图 |
 | 自动退役未使用或低成功率 Skill | 拒绝；Observation Coverage 和 Attribution 不完整，Count 不能替代 Review |
 | 在本 RFC 中实现 Script Runner | 拒绝；Package Governance 与 Host Policy 已能闭合可用本地流程，无需再发明执行平台 |
@@ -853,7 +1267,7 @@ Script、Asset、Compatibility 和 Usage Governance 也无法得到忠实表达�
 
 下列决策被有意排除在本 RFC 之外：
 
-- Remote Agent Distributor Authentication 和 Delivery Receipt；
+- 具体 credential provider、短期 token exchange、设备证明、轮换和吊销的组织级实现；
 - Object-store Selection 和 Package GC Retention；
 - 组织级 Owner、Reviewer Identity、RBAC，以及 Privileged Package 的双人批准；
 - Package Signature、Transparency Log、Vulnerability Database 和 Marketplace Trust Level；
@@ -865,7 +1279,9 @@ Script、Asset、Compatibility 和 Usage Governance 也无法得到忠实表达�
 
 自然扩展包括：
 
-- 使用短期 scoped package token 和精确 publication receipt 的 Agent-side Pull Distributor；
+- 在常驻 Pull reconcile 已被真实验证后，用 SSE 或 WebSocket 只做低延迟唤醒，并增加 Fleet Policy、灰度发布和
+  批量 target 视图；
+- 在 per-target credential contract 之上增加短期 token exchange、自动轮换、设备证明或 mTLS；
 - 在保留数据库 metadata 和 tree digest 的前提下增加 Object-backed `SkillPackageStore`；
 - Signed Package Manifest 和 Organization Trust Policy；
 - 具有精确 package/chunk provenance 的 Path-level Code Search 和 Semantic Search；

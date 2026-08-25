@@ -100,12 +100,10 @@ def test_different_zip_order_converges_on_the_same_canonical_package(tmp_path: P
     ],
 )
 def test_archive_rejects_unsafe_paths(name: str, content: bytes) -> None:
-    archive = _zip_entries(
-        (
-            ("SKILL.md", b"---\nname: safe-skill\ndescription: Safe.\n---\n"),
-            (name, content),
-        )
-    )
+    archive = _zip_entries((
+        ("SKILL.md", b"---\nname: safe-skill\ndescription: Safe.\n---\n"),
+        (name, content),
+    ))
 
     with pytest.raises(SkillPackageError):
         capture_skill_archive(archive)
@@ -131,13 +129,11 @@ def test_archive_rejects_duplicate_and_symlink_entries() -> None:
 
 
 def test_archive_rejects_case_collisions_special_files_and_invalid_frontmatter() -> None:
-    collision = _zip_entries(
-        (
-            ("SKILL.md", b"---\nname: safe-skill\ndescription: Safe.\n---\n"),
-            ("References/Policy.md", b"first"),
-            ("references/policy.md", b"second"),
-        )
-    )
+    collision = _zip_entries((
+        ("SKILL.md", b"---\nname: safe-skill\ndescription: Safe.\n---\n"),
+        ("References/Policy.md", b"first"),
+        ("references/policy.md", b"second"),
+    ))
     with pytest.raises(SkillPackageError, match="colliding"):
         capture_skill_archive(collision)
 
@@ -157,12 +153,10 @@ def test_archive_rejects_case_collisions_special_files_and_invalid_frontmatter()
 
 
 def test_archive_rejects_decompression_and_file_count_bounds() -> None:
-    oversized = _zip_entries(
-        (
-            ("SKILL.md", b"---\nname: safe-skill\ndescription: Safe.\n---\n"),
-            ("assets/large.bin", b"x" * (MAX_SKILL_PACKAGE_BYTES + 1)),
-        )
-    )
+    oversized = _zip_entries((
+        ("SKILL.md", b"---\nname: safe-skill\ndescription: Safe.\n---\n"),
+        ("assets/large.bin", b"x" * (MAX_SKILL_PACKAGE_BYTES + 1)),
+    ))
     with pytest.raises(SkillPackageError, match="entry exceeds"):
         capture_skill_archive(oversized)
 

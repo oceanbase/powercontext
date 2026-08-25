@@ -54,6 +54,7 @@ from powercontext.builtin.persistence.oceanbase.memory_index import (
 )
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.skill_distribution_schema import ensure_skill_distribution_schema
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
 from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVectorIndex
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
@@ -271,6 +272,7 @@ async def open_builtin_runtime(
                 experience_recall=contexts.search_experience,
                 skill_recall=contexts.search_skills,
                 skill_lister=contexts.list_skills,
+                skill_origin_reader=contexts.get_skill_origins,
                 skill_governance_reader=contexts.get_skill_governance,
                 skill_governance_updater=contexts.update_skill_lifecycle,
                 skill_package_resolver=contexts.skill_package,
@@ -281,6 +283,7 @@ async def open_builtin_runtime(
                 external_skill_registry=contexts.external_skills if contexts.external_skill_registry else None,
                 external_skill_importer=contexts.import_external_skill if contexts.external_skill_registry else None,
                 skill_publication_service=contexts.skill_publications,
+                remote_skill_distribution=contexts.remote_skill_distribution(),
                 statistics_service=contexts.statistics,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 readiness=RuntimeReadinessChecks(readiness_probes),
@@ -339,6 +342,7 @@ async def open_builtin_contexts(
             load_vector_extension=embedding_model is not None,
         ) as profile:
             async with profile.database.transaction() as connection:
+                await ensure_skill_distribution_schema(connection)
                 await index.initialize(connection)
                 await experience_index.initialize(connection)
             yield RelationalContexts(
@@ -371,6 +375,7 @@ async def open_builtin_contexts(
         raise BuiltinConfigurationError("database")
     async with profile_context as profile:
         async with profile.database.transaction() as connection:
+            await ensure_skill_distribution_schema(connection)
             await index.initialize(connection)
             await experience_index.initialize(connection)
         yield RelationalContexts(

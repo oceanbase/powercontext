@@ -31,10 +31,13 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | --- | --- | --- |
 | `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | 监听地址 |
 | `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | 监听端口 |
+| `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | 启用 Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP 路径 |
 | `POWERCONTEXT_SERVER_AUTH_ENABLED` | `false` | HTTP 和 MCP 是否要求一个静态 Bearer token |
 | `POWERCONTEXT_SERVER_AUTH_TOKEN` | 未设置 | 静态 Bearer token；启用鉴权时必须设置 |
+| `POWERCONTEXT_SERVER_PUBLIC_URL` | 未设置 | 远端技能注册引导使用的可达基础地址；默认要求 HTTPS |
+| `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP` | `false` | 显式允许远端技能接收端接口和注册引导使用明文 HTTP |
 | `POWERCONTEXT_SERVER_DASHBOARD_ENABLED` | `true` | 在 Server 根路径 `/` 启用 Dashboard |
 | `POWERCONTEXT_SERVER_DASHBOARD_SCOPES` | `[]` | Dashboard 可选择的 scope JSON 数组 |
 | `POWERCONTEXT_SERVER_LOGGING_LEVEL` | `INFO` | operational log 级别 |
@@ -52,13 +55,43 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation 超时 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | 单次 embedding 请求最多发送的文本数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 孵化间隔；未设置即不启用该 job |
-| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 未设置 | 包含 host identity 和显式 Agent Skill targets 的 JSON object |
+| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 自动生成本机项目 target | 覆盖默认值的 host identity 和显式 Agent Skill targets JSON object |
 
 静态 Bearer 鉴权默认关闭。启用后，API 和 MCP 请求必须携带 `Authorization: Bearer <token>`；liveness 和
-readiness endpoint 仍然公开。明文 HTTP 应只用于 loopback 地址；通过网络暴露启用鉴权的 Server 前必须配置 TLS。
+readiness endpoint 仍然公开。除下文内部 PoC 的 Receiver 显式例外外，明文 HTTP 应只用于 loopback 地址；长期通过
+网络暴露启用鉴权的 Server 前必须配置 TLS。
 
 Dashboard 默认启用，并与 HTTP API、MCP 共用监听地址和端口。默认未配置 scope，页面会显示空状态；Dashboard
 初始化失败只记录包含直接原因的 warning，不影响 Server 的 HTTP API、MCP 和健康检查启动。
+
+Server 默认把启动目录作为 workspace，并自动提供两个可写的本机项目级目标：Codex 使用
+`<workspace>/.agents/skills`，Claude Code 使用 `<workspace>/.claude/skills`。目录不存在时不会报错；用户首次在
+Dashboard 中确认安装后才会创建目录。以 systemd、容器或其他不保证工作目录的方式启动时，应设置一次
+`POWERCONTEXT_SERVER_WORKSPACE`，之后页面不再要求用户填写 Skill 路径。
+
+远端技能接收端需要通过不同于当前 Dashboard 访问地址的外部入口连接时，只需在 Server 上配置一次
+`POWERCONTEXT_SERVER_PUBLIC_URL`。Skills Dashboard 会自动用它生成注册命令，不再要求每次添加目标时填写地址。
+未配置时，Dashboard 自动使用当前 HTTPS 来源；显式启用不安全开关后，也可以使用当前 HTTP 来源。两者都不可用时，
+注册命令使用远端命令行已经配置的服务地址。
+
+一期 PoC 如果运行在受保护的内部测试网络，可以让 Server 和 Receiver 双端显式同意直连 HTTP：Server 设置
+`POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true`，并用 `POWERCONTEXT_SERVER_PUBLIC_URL` 公布 `http://` 地址；
+Receiver 注册时同时传入 `--allow-insecure-http`。Dashboard 会显示明文传输警告，并自动把该参数加入注册命令。
+Server 未打开开关时，远端接口仍拒绝非 loopback HTTP；Receiver 未传参数时，CLI 会在发送一次性注册口令之前拒绝
+该 URL。许可会写入权限为 owner-only 的 Receiver 配置，因此 `remote-watch` 和 systemd user service 会沿用同一策略，
+unit 文件不需要保存凭据或额外参数。该开关不提供 TLS、网络隔离或防窃听能力，不能用于公网或不可信网络；长期部署
+应使用 HTTPS。
+
+```bash
+export POWERCONTEXT_SERVER_HTTP_HOST=0.0.0.0
+export POWERCONTEXT_SERVER_PUBLIC_URL=http://powercontext.internal.example:8765
+export POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true
+powercontext server run
+
+# 在远端项目中：
+powercontext --server-url http://powercontext.internal.example:8765 \
+  skill remote-enroll --workspace "$PWD" --install-service --allow-insecure-http
+```
 
 指定 SQLite 路径并启用定时提取的示例：
 
@@ -118,7 +151,8 @@ PreparedContext、创建 managed Skill、将它导出到 Agent target 或执行�
 
 ### Agent Skill 目标
 
-通过一个 JSON 值配置 Codex 和 Claude Code 的 host-local target：
+零配置流程使用上述 workspace 中的 Codex 和 Claude Code 项目级目录。只有需要自定义路径、用户级 target、环境兼容性
+事实或显式关闭本机发现时，才需要通过一个 JSON 值覆盖默认的 host-local target：
 
 ```bash
 export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
@@ -151,9 +185,11 @@ export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
 }'
 ```
 
-每个 target ID 必须唯一；`agent_kind` 支持 `codex` 和 `claude_code`，installation scope 支持 `user`、`project`
-和 `plugin`。PowerContext 只扫描这些显式 target 的直接 Skill package 子目录，不会推断 home 目录、安装 package
-或授予执行权限。`allow_managed_publish` 默认是 `false`；设为 `true` 后，authenticated Skills Library 或 Review
+显式设置 `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` 会完整替换自动生成的两个项目级 target；设置为
+`{"host_id": null, "targets": []}` 可以关闭本机发现和发布。每个 target ID 必须唯一；`agent_kind` 支持 `codex` 和
+`claude_code`，installation scope 支持 `user`、`project` 和 `plugin`。PowerContext 只扫描默认或显式 target 的直接
+Skill package 子目录，不会推断用户 home 目录、安装 package 或授予执行权限。自动生成的两个项目级 target 允许用户
+在 Dashboard 中显式安装；自定义 target 的 `allow_managed_publish` 默认是 `false`，设为 `true` 后，authenticated Skills Library 或 Review
 页面可以把 approved managed Skill 显式创建或安全更新到该 target。页面仍不能提交任意路径，也不会覆盖外部或
 已被修改的 package。发布会物化 Review 通过的完整精确 package（包括 scripts 和 references），不会执行其中内容，
 也不会向 package 注入 sidecar。相同页面只能在 binding 与 tree digest 仍匹配时安全取消发布；本地漂移和外部内容
