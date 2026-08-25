@@ -53,4 +53,36 @@ describe('Scope binding', () => {
       },
     ])
   })
+
+  it('omits empty binding keys instead of sending blank identifiers', async () => {
+    const request = vi.fn().mockResolvedValue({ value: { scope_id: 'scope-a' } })
+
+    await expect(resolveScopeId({ request } as never, {
+      cwd: '',
+      sessionID: '',
+      configuredScopeId: 'explicit-scope',
+      persistSession: true,
+    })).resolves.toBe('scope-a')
+
+    expect(request.mock.calls).toEqual([
+      ['resolve_scope_binding', { explicit_scope_id: 'explicit-scope', binding_keys: [] }],
+    ])
+  })
+
+  it('sends only the workspace key on a route without a session', async () => {
+    const request = vi.fn().mockResolvedValue({ value: { scope_id: 'scope-a' } })
+
+    await resolveScopeId({ request } as never, {
+      cwd: '/workspace/powercontext',
+      configuredScopeId: 'explicit-scope',
+    })
+
+    const firstCall = request.mock.calls[0]
+    expect(firstCall).toBeDefined()
+    if (!firstCall) throw new Error('resolve_scope_binding was not called')
+    const input = firstCall[1]
+    expect(input.binding_keys).toHaveLength(1)
+    expect(input.binding_keys[0]).toMatchObject({ integration: 'opencode', kind: 'workspace' })
+    expect(input.binding_keys[0].external_id).toHaveLength(64)
+  })
 })

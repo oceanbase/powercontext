@@ -38,7 +38,7 @@ def test_scope_resolver_uses_server_binding_and_fixes_new_session(
         return {"scope_id": "scp_00000000000000000000000000"}
 
     monkeypatch.setattr(scope_module, "_post_json", post)
-    monkeypatch.setattr(scope_module, "_git_value", lambda *_args: None)
+    monkeypatch.setattr(scope_module, "_git_value", lambda *_args, **_kwargs: None)
 
     resolved = scope_module.resolve_scope_id(
         str(tmp_path),
@@ -256,3 +256,18 @@ def test_powercontext_plugin_advertises_the_one_turn_handoff() -> None:
     assert len(prompts) <= 3
     assert all(len(prompt) <= 128 for prompt in prompts)
     assert "Hand off and commit the current work in one turn." in prompts
+
+
+def test_plugin_reports_token_savings_from_a_bounded_stop_hook() -> None:
+    configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text())
+
+    assert set(configuration["hooks"]) == {"UserPromptSubmit", "SessionStart", "PreToolUse", "Stop"}
+    hook = configuration["hooks"]["Stop"][0]["hooks"][0]
+    assert hook == {
+        "type": "command",
+        "command": (
+            'uv run --frozen --quiet --project "${PLUGIN_ROOT}" python "${PLUGIN_ROOT}/hooks/token_savings.py"'
+        ),
+        "timeout": 3,
+        "statusMessage": "Loading PowerContext token savings",
+    }

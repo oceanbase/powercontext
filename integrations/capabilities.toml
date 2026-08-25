@@ -151,6 +151,9 @@ capabilities = ["persistent_scope_binding"]
 id = "codex:UserPromptSubmit"
 capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
 [[toolsets.tools]]
+id = "codex:Stop"
+non_profile_reason = "Reports scoped recall-token estimates after completed turns."
+[[toolsets.tools]]
 id = "claude-code:UserPromptSubmit"
 capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
 [[toolsets.tools]]

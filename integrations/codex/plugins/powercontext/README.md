@@ -10,6 +10,20 @@ The integration uses each public surface for the job it fits:
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives Codex the curated
   Memory and work-continuity tools.
 
+Codex does not expose a plugin-defined status-line item. Its `tui.status_line`
+setting accepts only Codex's built-in identifiers, so this plugin does not write
+an invalid PowerContext identifier. Instead, a three-second-bounded `Stop` Hook shows
+the current scope's estimated token reduction after each completed turn, for
+example `PowerContext · saved 1.2k today · saved 12.5k in 30d`. It emits nothing
+when the Server is unavailable and never asks Codex to continue the turn.
+The message is an interactive TUI warning rather than a persistent footer item;
+non-interactive `codex exec` confirms Hook completion but does not render the
+Hook message in its text output.
+
+The numbers come from the recall-token estimator and are a per-call compression
+proxy, not provider-verified or billable savings. Positive reductions use
+`saved`; negative reductions use `cost`.
+
 The `project-context` skill uses four high-level work operations instead of
 assembling the low-level Handoff lifecycle manually: `create_work_contract`,
 `handoff_current_work`, `acknowledge_handoff`, and `record_task_outcome`.

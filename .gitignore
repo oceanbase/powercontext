@@ -242,6 +242,10 @@ integrations/dsh/*.tgz
 !integrations/dsh/plugins/powercontext/lib/
 !integrations/dsh/plugins/powercontext/lib/**
 
+# PowerContext OpenCode plugin (Node)
+!integrations/opencode/plugins/powercontext/lib/
+!integrations/opencode/plugins/powercontext/lib/**
+
 # PowerContext OpenClaw plugin (Node)
 integrations/openclaw/plugins/memory-powercontext/artifacts/
 integrations/openclaw/plugins/memory-powercontext/*.tgz

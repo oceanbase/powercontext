@@ -38,7 +38,6 @@ sys.path.insert(0, str(_PLUGIN_ROOT))
 from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_RESPONSE_BYTES = 1_048_576
-_READ_CHUNK_BYTES = 65_536
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
@@ -48,6 +47,23 @@ _REQUEST_HEADERS = {
 
 class ScopeBindingError(RuntimeError):
     """Raised when the integration cannot establish one current Scope."""
+
+
+class ScopeBindingUnavailableError(ScopeBindingError):
+    """Transport failure, timeout, or exhausted budget."""
+
+
+class ScopeBindingRejectedError(ScopeBindingError):
+    """The Server rejected the credential."""
+
+
+class ScopeBindingStatusError(ScopeBindingError):
+    """A non-successful HTTP status outside the fixed classifications."""
+
+    def __init__(self, status: int, path: str) -> None:
+        self.status = status
+        self.path = path
+        super().__init__(f"PowerContext returned HTTP {status}")
 
 
 class _Response(Protocol):
@@ -88,7 +104,7 @@ def resolve_scope_id(
 ) -> str:
     """Resolve explicit, session, workspace, then default binding in that order."""
 
-    keys = binding_keys(cwd, session_id=session_id)
+    keys = binding_keys(cwd, session_id=session_id, deadline=deadline)
     response = _post_json(
         "/v1/scope-bindings/resolve",
         {
@@ -115,11 +131,11 @@ def resolve_scope_id(
     return scope_id
 
 
-def binding_keys(cwd: str, *, session_id: str | None) -> list[dict[str, str]]:
+def binding_keys(cwd: str, *, session_id: str | None, deadline: float | None = None) -> list[dict[str, str]]:
     keys: list[dict[str, str]] = []
     if session_id is not None:
         keys.append(session_binding_key(session_id))
-    keys.append(workspace_binding_key(cwd))
+    keys.append(workspace_binding_key(cwd, deadline=deadline))
     return keys
 
 
@@ -130,8 +146,8 @@ def session_binding_key(session_id: str) -> dict[str, str]:
     return {"integration": "codex", "kind": "session", "external_id": value}
 
 
-def workspace_binding_key(cwd: str) -> dict[str, str]:
-    root_value = _git_value(cwd, "rev-parse", "--show-toplevel")
+def workspace_binding_key(cwd: str, *, deadline: float | None = None) -> dict[str, str]:
+    root_value = _git_value(cwd, "rev-parse", "--show-toplevel", timeout=_git_timeout(deadline))
     root = Path(root_value or cwd).resolve(strict=False)
     external_id = sha256(os.fsencode(root)).hexdigest()
     return {"integration": "codex", "kind": "workspace", "external_id": external_id}
@@ -145,9 +161,7 @@ def _post_json(
     deadline: float,
     method: str = "POST",
 ) -> Mapping[str, object]:
-    remaining = deadline - monotonic()
-    if remaining <= 0:
-        raise ScopeBindingError
+    remaining = _remaining_time(deadline)
     headers = dict(_REQUEST_HEADERS)
     if settings.authorization is not None:
         headers["Authorization"] = settings.authorization.get_secret_value()
@@ -163,10 +177,16 @@ def _post_json(
             timeout=min(settings.request_timeout_seconds, remaining),
         ) as response:
             if response.status < 200 or response.status >= 300:
-                raise ScopeBindingError
-            raw = _read_bounded(response)
-    except (HTTPError, OSError, TimeoutError) as error:
-        raise ScopeBindingError from error
+                raise ScopeBindingStatusError(response.status, path)
+            raw = _read_bounded(response, deadline=deadline)
+    except HTTPError as error:
+        if error.code == 401:
+            raise ScopeBindingRejectedError from error
+        if error.code == 503:
+            raise ScopeBindingUnavailableError from error
+        raise ScopeBindingStatusError(error.code, path) from error
+    except (OSError, TimeoutError) as error:
+        raise ScopeBindingUnavailableError from error
     try:
         value: Any = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -176,18 +196,42 @@ def _post_json(
     return value
 
 
-def _read_bounded(response: _Response) -> bytes:
+def _remaining_time(deadline: float) -> float:
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        raise ScopeBindingUnavailableError
+    return remaining
+
+
+def _set_response_timeout(response: object, timeout: float) -> None:
+    """Tighten urllib's socket timeout before each bounded read."""
+
+    raw = getattr(getattr(response, "fp", None), "raw", None)
+    sock = getattr(raw, "_sock", None)
+    settimeout = getattr(sock, "settimeout", None)
+    if settimeout is not None:
+        settimeout(timeout)
+
+
+def _read_bounded(response: _Response, *, deadline: float) -> bytes:
     chunks: list[bytes] = []
     size = 0
-    while chunk := response.read(_READ_CHUNK_BYTES):
+    while True:
+        _set_response_timeout(response, _remaining_time(deadline))
+        chunk = response.read(1)
+        if not chunk:
+            return b"".join(chunks)
         size += len(chunk)
         if size > _MAX_RESPONSE_BYTES:
             raise ScopeBindingError
         chunks.append(chunk)
-    return b"".join(chunks)
 
 
-def _git_value(cwd: str, *arguments: str) -> str | None:
+def _git_timeout(deadline: float | None) -> float:
+    return 2.0 if deadline is None else min(2.0, _remaining_time(deadline))
+
+
+def _git_value(cwd: str, *arguments: str, timeout: float = 2.0) -> str | None:
     executable = which("git")
     if executable is None:
         return None
@@ -198,7 +242,7 @@ def _git_value(cwd: str, *arguments: str) -> str | None:
             check=True,
             capture_output=True,
             text=True,
-            timeout=2,
+            timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError):
         return None

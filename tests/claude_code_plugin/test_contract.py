@@ -52,6 +52,7 @@ def test_plugin_uses_standard_component_discovery() -> None:
     assert "mcpServers" not in manifest
     assert (PLUGIN_ROOT / "hooks" / "hooks.json").is_file()
     assert (PLUGIN_ROOT / ".mcp.json").is_file()
+    assert (PLUGIN_ROOT / "scripts" / "statusline.py").is_file()
 
 
 def test_hook_uses_exec_form_and_does_not_capture_stop() -> None:
@@ -169,6 +170,77 @@ def test_claude_settings_ignore_malformed_persisted_authorization_records(
     credential.chmod(0o600)
 
     assert settings_module._stored_authorization(server_url="http://127.0.0.1:8000", root=tmp_path) is None
+
+
+def _write_credentials(root: Path, *, server_url: str, authorization: str) -> None:
+    credential = root / "powercontext" / "credentials.json"
+    credential.parent.mkdir()
+    credential.write_text(
+        json.dumps({"version": 1, "server_url": server_url, "authorization": authorization}),
+        encoding="utf-8",
+    )
+    credential.chmod(0o600)
+
+
+def _isolate_claude_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    for name in (
+        "POWERCONTEXT_CLAUDE_SERVER_URL",
+        "POWERCONTEXT_CLAUDE_AUTHORIZATION",
+        "CLAUDE_PLUGIN_OPTION_SERVER_URL",
+        "POWERCONTEXT_CLIENT_SERVER_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+
+
+def test_effective_client_server_url_loads_its_own_persisted_authorization(
+    settings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _isolate_claude_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "https://memory.example:8443")
+    _write_credentials(tmp_path, server_url="https://memory.example:8443", authorization="Bearer memory-token")
+
+    settings = settings_module.ClaudeCodePluginSettings.from_environment()
+
+    assert settings.server_url == "https://memory.example:8443"
+    assert settings.authorization == "Bearer memory-token"
+
+
+def test_effective_address_does_not_reuse_another_servers_persisted_authorization(
+    settings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _isolate_claude_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "https://memory.example:8443")
+    _write_credentials(tmp_path, server_url="http://127.0.0.1:8000", authorization="Bearer loopback-token")
+
+    settings = settings_module.ClaudeCodePluginSettings.from_environment()
+
+    assert settings.server_url == "https://memory.example:8443"
+    assert settings.authorization is None
+
+
+def test_explicit_entry_point_server_url_loads_its_own_persisted_authorization(
+    settings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _isolate_claude_environment(monkeypatch, tmp_path)
+    _write_credentials(tmp_path, server_url="https://memory.example:8443", authorization="Bearer memory-token")
+
+    settings = settings_module.ClaudeCodePluginSettings.from_environment(server_url="https://memory.example:8443")
+
+    assert settings.server_url == "https://memory.example:8443"
+    assert settings.authorization == "Bearer memory-token"
+
+    explicit = settings_module.ClaudeCodePluginSettings.from_environment(server_url="https://other.example:9443")
+
+    assert explicit.server_url == "https://other.example:9443"
+    assert explicit.authorization is None
 
 
 def test_claude_integration_does_not_embed_machine_specific_windows_paths() -> None:

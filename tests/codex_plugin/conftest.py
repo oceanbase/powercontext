@@ -49,6 +49,11 @@ def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
 
 
 @pytest.fixture
+def token_savings_module() -> ModuleType:
+    return _load_module("powercontext_codex_token_savings", PLUGIN_ROOT / "hooks" / "token_savings.py")
+
+
+@pytest.fixture
 def settings_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.syspath_prepend(str(PLUGIN_ROOT))
     return _load_module("powercontext_codex_settings", PLUGIN_ROOT / "settings.py")
