@@ -54,7 +54,7 @@ export POWERCONTEXT_SERVER_DATABASE_KIND="oceanbase"
 export POWERCONTEXT_SERVER_DATABASE_URL="mysql+aoceanbase://user:password@host:2881/powercontext?charset=utf8mb4"
 ```
 
-两种 database 都通过同一组 Server API 提供全文检索。配置 embedding model 后，SQLite 使用 Vec1，OceanBase
+两种 database 都通过同一组 Server API 提供全文检索。配置 embedding model 后，SQLite 使用 sqlite-vec，OceanBase
 使用 HNSW 提供 `vector` 和 `hybrid` 检索。
 
 inference 配置见[配置 Pydantic AI 推理](pydantic-ai-inference.md)。

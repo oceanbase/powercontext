@@ -5,6 +5,9 @@
 - Related RFC: [RFC 0002: Core SDK Product Model](0002_core_sdk_product_model.md)
 - Related Constraint: [RFC 0011: Server and Client SDK Architecture](https://github.com/oceanbase/powercontext/pull/11)
 
+> **Note:** PowerContext now uses bundled sqlite-vec for SQLite vector search. Statements about Vec1 in this RFC no
+> longer apply and remain only as a record of the original design.
+
 # Summary
 
 Memory is an Artifact Family for reuse in later tasks. A Memory Artifact represents a set of memories that evolve

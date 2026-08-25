@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SQLite Memory search indexes using FTS5 and Vec1."""
+"""SQLite Memory search indexes using FTS5 and sqlite-vec."""
 
 from __future__ import annotations
 
 import json
-import re
 import struct
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import (
@@ -36,6 +34,7 @@ from sqlalchemy import (
     select,
     text,
 )
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
@@ -105,11 +104,10 @@ SQLITE_MEMORY_VECTOR_ENTRIES_TABLE = Table(
 )
 
 
-SQLITE_MEMORY_VEC1_TABLES = (SQLITE_MEMORY_VECTOR_ENTRIES_TABLE,)
+SQLITE_MEMORY_VECTOR_TABLES = (SQLITE_MEMORY_VECTOR_ENTRIES_TABLE,)
 
 
 _FTS_TABLE_NAME = "pc_memory_entry_fts"
-_MINIMUM_VEC1_VERSION = (0, 7)
 _CREATE_FTS_SQL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS pc_memory_entry_fts USING fts5(
     scope_id UNINDEXED,
@@ -152,27 +150,28 @@ _INSERT_FTS_SQL = text(
     )
     """
 )
-_CREATE_VECTOR_SQL = "CREATE VIRTUAL TABLE IF NOT EXISTS pc_memory_entry_vec USING vec1(embedding)"
 _DELETE_VECTOR_SQL = text("DELETE FROM pc_memory_entry_vec WHERE rowid = :vector_id")
 _INSERT_VECTOR_SQL = text("INSERT INTO pc_memory_entry_vec (rowid, embedding) VALUES (:vector_id, :embedding)")
 _SELECT_VECTOR_SQL = text("SELECT embedding FROM pc_memory_entry_vec WHERE rowid = :vector_id")
 _VECTOR_SEARCH_SQL = text(
     """
-    WITH candidates AS (
-        SELECT rowid, embedding
-        FROM pc_memory_entry_vec(:query_vector, :parameters)
+    WITH nearest AS (
+        SELECT rowid, distance
+        FROM pc_memory_entry_vec
+        WHERE embedding MATCH :query_vector
+          AND k = :neighbor_limit
     )
     SELECT m.memory_artifact_id, m.head_revision, m.entry_id, m.entry_version_id, v.text,
-           vec1_l2_distance(:query_vector, c.embedding) AS distance
-    FROM candidates AS c
-    JOIN pc_memory_vector_entries AS m ON m.vector_id = c.rowid
+           nearest.distance
+    FROM nearest
+    JOIN pc_memory_vector_entries AS m ON m.vector_id = nearest.rowid
     JOIN pc_memory_entry_versions AS v
       ON v.scope_id = m.scope_id
      AND v.memory_artifact_id = m.memory_artifact_id
      AND v.entry_version_id = m.entry_version_id
     WHERE m.scope_id = :scope_id
       AND m.memory_artifact_id IN (SELECT value FROM json_each(:memory_artifact_ids))
-    ORDER BY vec1_l2_distance(:query_vector, c.embedding),
+    ORDER BY nearest.distance,
              m.memory_artifact_id, m.entry_id, m.entry_version_id
     LIMIT :candidate_limit
     """
@@ -304,31 +303,29 @@ class SQLiteMemoryFTSIndex:
         await connection.execute(_INSERT_FTS_SQL, values)
 
 
-class SQLiteMemoryVec1Index:
-    """SQLite Vec1 strategy over rebuildable active-head embeddings."""
+class SQLiteMemoryVectorIndex:
+    """sqlite-vec strategy over rebuildable active-head embeddings."""
 
-    tables: tuple[Table, ...] = SQLITE_MEMORY_VEC1_TABLES
+    tables: tuple[Table, ...] = SQLITE_MEMORY_VECTOR_TABLES
 
-    def __init__(self, extension: str | Path, profile: EmbeddingProfile) -> None:
+    def __init__(self, profile: EmbeddingProfile) -> None:
         if profile.dimension < 1 or profile.distance != "l2" or profile.normalization != "unit":
             raise CapabilityNotSupportedError(
                 "vector",
-                "Vec1 requires a positive unit-normalized L2 embedding profile",
+                "sqlite-vec requires a positive unit-normalized L2 embedding profile",
             )
-        self.extension = str(extension)
         self.profile = profile
         self.capabilities = MemoryCapabilities(vector=True, embedding_profile=profile, fts=False)
 
     async def initialize(self, connection: AsyncConnection, /) -> None:
         if connection.dialect.name != "sqlite":
-            raise CapabilityNotSupportedError("sqlite-vec1")
+            raise CapabilityNotSupportedError("sqlite-vec")
         try:
-            info = (await connection.exec_driver_sql("SELECT vec1_info()")).scalar_one_or_none()
-        except Exception as error:
-            raise CapabilityNotSupportedError("vector", "SQLite Vec1 probe failed") from error
-        _validate_vec1_info(info)
-        try:
-            await connection.exec_driver_sql(_CREATE_VECTOR_SQL)
+            await connection.exec_driver_sql("SELECT vec_version()")
+            await connection.exec_driver_sql(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS pc_memory_entry_vec "
+                f"USING vec0(embedding float[{self.profile.dimension}])"
+            )
             probe = _pack_vector((0.0,) * self.profile.dimension)
             await connection.execute(
                 _INSERT_VECTOR_SQL,
@@ -336,15 +333,15 @@ class SQLiteMemoryVec1Index:
             )
             row = (
                 await connection.exec_driver_sql(
-                    "SELECT rowid FROM pc_memory_entry_vec(?, ?)",
-                    (probe, json.dumps({"k": 1}, separators=(",", ":"))),
+                    "SELECT rowid FROM pc_memory_entry_vec WHERE embedding MATCH ? AND k = 1",
+                    (probe,),
                 )
             ).one_or_none()
             await connection.execute(_DELETE_VECTOR_SQL, {"vector_id": -1})
-        except Exception as error:
-            raise CapabilityNotSupportedError("vector", "SQLite Vec1 probe failed") from error
+        except SQLAlchemyError as error:
+            raise CapabilityNotSupportedError("vector", "sqlite-vec probe failed") from error
         if row is None or int(row[0]) != -1:
-            raise CapabilityNotSupportedError("vector", "SQLite Vec1 probe returned an invalid row")
+            raise CapabilityNotSupportedError("vector", "sqlite-vec probe returned an invalid row")
 
     async def replace(
         self,
@@ -417,7 +414,7 @@ class SQLiteMemoryVec1Index:
                 _VECTOR_SEARCH_SQL,
                 {
                     "query_vector": query_vector,
-                    "parameters": json.dumps({"k": total}, separators=(",", ":")),
+                    "neighbor_limit": total,
                     "scope_id": scope_id,
                     "memory_artifact_ids": json.dumps(
                         tuple(ref.artifact_id for ref in request.memories),
@@ -534,10 +531,10 @@ def _pack_vector(vector: tuple[float, ...]) -> bytes:
 
 def _unpack_vector(value: object, dimension: int) -> tuple[float, ...]:
     if not isinstance(value, bytes | bytearray | memoryview):
-        raise CapabilityNotSupportedError("vector", "SQLite Vec1 returned an invalid vector")
+        raise CapabilityNotSupportedError("vector", "sqlite-vec returned an invalid vector")
     packed = bytes(value)
     if len(packed) != struct.calcsize(f"={dimension}f"):
-        raise CapabilityNotSupportedError("vector", "SQLite Vec1 returned the wrong vector dimension")
+        raise CapabilityNotSupportedError("vector", "sqlite-vec returned the wrong vector dimension")
     return tuple(struct.unpack(f"={dimension}f", packed))
 
 
@@ -550,9 +547,3 @@ def _embedding_hash(profile: EmbeddingProfile, entry_hash: str) -> str:
         normalization=profile.normalization,
         entry_content_hash=entry_hash,
     )
-
-
-def _validate_vec1_info(info: object) -> None:
-    match = re.search(r"\bversion\s+(\d+)\.(\d+)\b", "" if info is None else str(info))
-    if match is None or tuple(int(part) for part in match.groups()) < _MINIMUM_VEC1_VERSION:
-        raise CapabilityNotSupportedError("vector", "SQLite Vec1 0.7 or newer is required")

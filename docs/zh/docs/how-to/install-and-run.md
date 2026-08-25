@@ -46,6 +46,38 @@ powercontext server run
 
 按 `Ctrl-C` 可正常关闭。再次运行该命令会打开同一个数据库。
 
+## 使用嵌入式 seekDB
+
+在有兼容 `pylibseekdb` wheel 的 Linux 和 macOS 系统上可以使用嵌入式 seekDB；Windows 不支持该嵌入式
+后端。安装或替换工具时加入可选的 seekDB extra：
+
+```bash
+uv tool install --force "powercontext[cli,server,seekdb] @ git+https://github.com/oceanbase/powercontext.git@master"
+```
+
+从 SQLite 切换时，需要从 `.env` 中删除 `POWERCONTEXT_SERVER_DATABASE_URL` 和
+`POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION`，或在 shell 中取消这两个变量；seekDB 不接受这些配置。
+然后选择 seekDB 后端并启动 Server：
+
+```bash
+unset POWERCONTEXT_SERVER_DATABASE_URL
+unset POWERCONTEXT_SERVER_DATABASE_VEC1_EXTENSION
+export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
+powercontext server run
+```
+
+PowerContext 固定使用 seekDB 内置的 `test` 数据库。未设置 `POWERCONTEXT_SERVER_DATABASE_PATH` 时，实例保存在
+PowerContext 用户数据目录的 `seekdb` 子目录中；如果设置了 `POWERCONTEXT_HOME`，默认路径为
+`$POWERCONTEXT_HOME/seekdb`。只有需要其他位置时才设置 `POWERCONTEXT_SERVER_DATABASE_PATH`。
+
+在另一个终端确认 Server 和数据库已经就绪：
+
+```bash
+powercontext doctor
+powercontext ready
+powercontext capabilities
+```
+
 ## 验证安装
 
 ```bash

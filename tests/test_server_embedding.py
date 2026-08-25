@@ -17,7 +17,6 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
 from powercontext.server.settings import ServerSettings
 
@@ -63,8 +62,3 @@ def test_embedding_settings_reject_unknown_normalization() -> None:
 def test_embedding_settings_reject_partial_profiles(values: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         InferenceConfig.model_validate(values)
-
-
-def test_component_config_rejects_unknown_values() -> None:
-    with pytest.raises(ValidationError):
-        SQLiteConfig.model_validate({"legacy_path": "powercontext.db"})

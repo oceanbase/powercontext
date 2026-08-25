@@ -1,0 +1,33 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+schema: powercontext.e2e-task/v1
+id: failure-policy-timeout
+categories:
+  - acceptance
+  - fixture
+  - batch:acceptance
+dataset:
+  path: e2e/bub/harbor-tasks
+  task_id: failure-policy-timeout
+  checksum: d0f01c9a9f1b331ff3904ddc864c4aa5ec673fa2179d9947b853827fb54714d4
+execution:
+  type: bub
+  model: false
+  max_steps: 10
+  max_tokens: 4096
+evaluation:
+  expected_execution:
+    collect-all: failed
+    fail-fast: failed

@@ -19,10 +19,11 @@ from __future__ import annotations
 import shlex
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from harbor.agents.installed import acp as harbor_acp
 from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
 
 AGENT_ID = "powercontext-bub-acp"
 REMOTE_BIN_DIR = "/installed-agent/bin"
@@ -35,12 +36,15 @@ REMOTE_TOOL_DIR = "/installed-agent/tools"
 BUB_VERSION = version("bub")
 POWERCONTEXT_VERSION = version("powercontext")
 BUB_ACP_SERVER_VERSION = "0.0.2"
+STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
 
 
 class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
     """Install Bub through its supported uv tool and plugin commands."""
 
     def __init__(self, **kwargs: Any) -> None:
+        self._invocation_scopes = tuple(kwargs.pop("invocation_scopes", ()))
+        self._step_index = 0
         super().__init__(
             registry_entry={
                 "id": AGENT_ID,
@@ -55,6 +59,26 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
             **kwargs,
         )
 
+    @override
+    async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
+        try:
+            await environment.exec(command=f"touch {STEP_FAILURE_MARKER}")
+            if not self._invocation_scopes:
+                await super().run(instruction, environment, context)
+            else:
+                if self._step_index >= len(self._invocation_scopes):
+                    invocation = self._step_index + 1
+                    raise RuntimeError(  # noqa: TRY003
+                        f"No E2E scope configured for agent invocation {invocation}"
+                    )
+                scope_id = self._invocation_scopes[self._step_index]
+                with environment.scoped_exec_env({"POWERCONTEXT_BUB_SCOPE_ID": scope_id}):
+                    await super().run(instruction, environment, context)
+            await environment.exec(command=f"rm -f {STEP_FAILURE_MARKER}")
+        finally:
+            self._step_index += 1
+
+    @override
     async def install(self, environment: BaseEnvironment) -> None:
         await self.exec_as_root(
             environment,

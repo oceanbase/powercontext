@@ -2,6 +2,9 @@
 - Start Date: 2026-07-24
 - RFC PR: [oceanbase/powercontext#19](https://github.com/oceanbase/powercontext/pull/19)
 
+> **Note:** PowerContext now uses bundled sqlite-vec for SQLite vector search. Statements about Vec1 in this RFC no
+> longer apply and remain only as a record of the original design.
+
 # Summary
 
 This RFC proposes backend-neutral Runtime storage contracts and a built-in SQLite profile. The Runtime uses the

@@ -16,7 +16,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from powercontext_e2e.catalog import load_tasks, select_tasks
+from powercontext_e2e.runner import group_tasks
 
 
 def test_workloads_can_be_selected_by_multiple_ids_or_category() -> None:
@@ -24,11 +27,13 @@ def test_workloads_can_be_selected_by_multiple_ids_or_category() -> None:
     tasks = load_tasks(repository / "e2e" / "bub" / "tasks")
 
     assert [task.id for task in tasks] == [
+        "project-database-decision",
+        "failure-policy-timeout",
+        "failure-policy-followup",
         "locomo-multihop-football",
         "locomo-open-pastries",
         "locomo-support-group",
         "locomo-temporal-banker",
-        "project-database-decision",
         "terminal-bench-db-wal-recovery",
     ]
     assert {task.execution.type for task in tasks} == {"bub"}
@@ -45,9 +50,24 @@ def test_workloads_can_be_selected_by_multiple_ids_or_category() -> None:
         "terminal-bench-db-wal-recovery",
     ]
     assert [task.id for task in acceptance] == [
+        "project-database-decision",
+        "failure-policy-timeout",
+        "failure-policy-followup",
         "locomo-multihop-football",
         "locomo-open-pastries",
         "locomo-support-group",
         "locomo-temporal-banker",
-        "project-database-decision",
     ]
+    assert [group.tasks for group in group_tasks(acceptance)] == [
+        tuple(task for task in acceptance if "batch:acceptance" in task.categories),
+        tuple(task for task in acceptance if "batch:locomo" in task.categories),
+    ]
+
+
+def test_batch_category_cannot_escape_the_runtime_dataset() -> None:
+    repository = Path(__file__).resolve().parents[3]
+    task = load_tasks(repository / "e2e" / "bub" / "tasks" / "locomo-support-group.yaml")[0]
+    task = task.model_copy(update={"categories": (*task.categories[:-1], "batch:x/../../evil")})
+
+    with pytest.raises(ValueError, match="valid batch category"):
+        group_tasks((task,))

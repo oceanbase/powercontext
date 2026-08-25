@@ -17,6 +17,7 @@ id: locomo-temporal-banker
 categories:
   - acceptance
   - sample
+  - batch:locomo
 provenance:
   source: benchmark/locomo/dataset/locomo10.json
   revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
@@ -28,7 +29,7 @@ provenance:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: locomo-temporal-banker
-  checksum: 6b7577995e466e35964a904b8c6dee83fc54e9b2818a8ee236b079126b6e0afe
+  checksum: f9982061c303d10de5b44f02152e6a3c9abab5e5d76f60fed76f561a603cc363
 execution:
   type: bub
   model: false

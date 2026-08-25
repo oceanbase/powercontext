@@ -17,6 +17,7 @@ id: locomo-support-group
 categories:
   - acceptance
   - sample
+  - batch:locomo
 provenance:
   source: benchmark/locomo/dataset/locomo10.json
   revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
@@ -28,7 +29,7 @@ provenance:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: locomo-support-group
-  checksum: 01fec08696a68bf4b6c70529a8d8cf864fe8e7e2a3915a263a653bfe380a5b69
+  checksum: f1bdfa62f960e3a749b84c19e3cb7661bb3ab0d4ba049547efdbcfb870db18fa
 execution:
   type: bub
   model: false

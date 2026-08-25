@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.artifacts.skill import CodexSkillRoot
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 
 
@@ -109,7 +110,7 @@ class ExternalSkillsConfig(BaseModel):
         return self
 
 
-DatabaseConfig = SQLiteConfig | OceanBaseConfig
+DatabaseConfig = SQLiteConfig | OceanBaseConfig | SeekDBConfig
 
 
 def normalize_database_discriminator(value: Any) -> Any:

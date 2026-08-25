@@ -193,7 +193,26 @@ const translations = {
     coverageCaptured: "Captured Activity is included through cursor {cursor}. Counts describe observed events, not completion percentage.",
     coverageNotConfigured: "Activity adapters are not configured. Missing Activity must not be read as no work occurring.",
     coverageUnavailable: "Activity coverage is unavailable for this report.",
-    noProjects: "No Handoff Report Projects are configured.",
+    noProjects: "No Handoff Report Project is configured.",
+    previewReportTitle: "Handoff Report template",
+    preview: "Preview",
+    previewNotice: "This data-free preview shows the report's main Handoff sections. Values shown as \u201c\u2014\u201d do not represent real Project status.",
+    previewRetryHint: "Configure a Project, then retry to load its report.",
+    previewPlaceholder: "\u2014",
+    previewProjectSummary: "Project summary and scope",
+    previewProjectSummarySubtitle: "Project identity, selected scope, and reporting period",
+    previewProject: "Project",
+    previewScope: "Scope",
+    previewWorkstreamsTitle: "Workstreams and Handoff",
+    previewWorkstreamsSubtitle: "Current Handoff state and continuation content for each scope",
+    previewHandoffContentsSubtitle: "Objective, current state, disposition, next action, and known omissions",
+    previewActivitySubtitle: "Coverage and period comparison become available with a real Project report.",
+    previewCoverageDescription: "Coverage values appear here after a Project report is available.",
+    previewActivityComparison: "Activity and period comparison",
+    previewActivityComparisonSubtitle: "Observed Activity in the selected and previous periods",
+    previewCurrentPeriod: "Current period",
+    previewPreviousPeriod: "Previous period",
+    previewChange: "Change",
     authRejected: "The Server rejected this token.",
     requestFailed: "The Handoff Report request failed with HTTP {status}.",
     serverUnavailable: "The Server is unavailable.",
@@ -375,6 +394,25 @@ const translations = {
     coverageNotConfigured: "活动适配器尚未配置；缺少活动不能解释为没有发生工作。",
     coverageUnavailable: "当前报告无法取得活动覆盖信息。",
     noProjects: "尚未配置交接报告项目。",
+    previewReportTitle: "交接报告模板",
+    preview: "预览",
+    previewNotice: "此无数据预览展示报告的主要交接部分。以“—”显示的值不代表真实项目状态。",
+    previewRetryHint: "配置项目后，点击重试以加载真实报告。",
+    previewPlaceholder: "—",
+    previewProjectSummary: "项目摘要与范围",
+    previewProjectSummarySubtitle: "项目身份、所选范围和报告周期",
+    previewProject: "项目",
+    previewScope: "范围",
+    previewWorkstreamsTitle: "工作项与交接",
+    previewWorkstreamsSubtitle: "每个范围的当前交接状态与继续工作所需内容",
+    previewHandoffContentsSubtitle: "目标、当前状态、处置状态、下一步和已知缺失",
+    previewActivitySubtitle: "配置真实项目后，将显示覆盖范围和周期对比。",
+    previewCoverageDescription: "项目报告可用后，此处将显示覆盖数据。",
+    previewActivityComparison: "活动与周期对比",
+    previewActivityComparisonSubtitle: "所选周期与上一周期内观察到的活动",
+    previewCurrentPeriod: "本期",
+    previewPreviousPeriod: "上期",
+    previewChange: "变化",
     authRejected: "服务器拒绝了该访问令牌。",
     requestFailed: "交接报告请求失败（HTTP {status}）。",
     serverUnavailable: "服务器无法访问。",
@@ -404,6 +442,8 @@ const tokenInput = document.getElementById("token");
 const pageStatus = document.getElementById("page-status");
 const pageStatusMessage = document.getElementById("page-status-message");
 const pageStatusRetry = document.getElementById("page-status-retry");
+const previewShell = document.getElementById("handoff-report-preview");
+const previewRetryButton = document.getElementById("preview-retry");
 const reportShell = document.getElementById("handoff-report");
 const reportError = document.getElementById("report-error");
 const projectCombobox = document.getElementById("project-combobox");
@@ -499,6 +539,10 @@ pageStatusRetry.addEventListener("click", async () => {
   } else {
     await loadReport(token, currentProject.project_id);
   }
+});
+
+previewRetryButton.addEventListener("click", async () => {
+  await authenticate(readServerToken());
 });
 
 refreshButton.addEventListener("click", async () => {
@@ -645,15 +689,18 @@ async function authenticate(token) {
   currentAuthError = null;
   const request = beginReportRequest();
   try {
-    currentProjects = await listProjects(token);
+    const projects = await listProjects(token);
     if (!request.isCurrent()) {
       return;
     }
+    currentProjects = projects;
     if (currentProjects.length === 0) {
       stopAutoRefresh();
+      currentHandoffWorks = [];
       currentProject = null;
       currentReport = null;
-      showPageStatus("noProjects", {}, true);
+      currentWorkstreamScope = null;
+      showReportPreview();
       return;
     }
     const rememberedProjectId = readSelectedProject();
@@ -880,6 +927,7 @@ function showReportFailure(key, values = {}) {
   }
   currentPageStatus = null;
   pageStatus.hidden = true;
+  previewShell.hidden = true;
   reportShell.hidden = false;
   signOut.hidden = !authenticationRequired;
   showReportError(key, values);
@@ -911,6 +959,7 @@ function showLogin(messageKey = "", values = {}) {
   clearReport();
   authShell.hidden = false;
   pageStatus.hidden = true;
+  previewShell.hidden = true;
   reportShell.hidden = true;
   signOut.hidden = true;
   tokenInput.focus();
@@ -921,6 +970,17 @@ function showPageStatus(messageKey, values = {}, retryable = false) {
   renderPageStatus();
   authShell.hidden = true;
   pageStatus.hidden = false;
+  previewShell.hidden = true;
+  reportShell.hidden = true;
+  signOut.hidden = !authenticationRequired;
+}
+
+function showReportPreview() {
+  currentPageStatus = null;
+  clearReport();
+  authShell.hidden = true;
+  pageStatus.hidden = true;
+  previewShell.hidden = false;
   reportShell.hidden = true;
   signOut.hidden = !authenticationRequired;
 }
@@ -1096,6 +1156,7 @@ function renderReport(report) {
   currentPageStatus = null;
   authShell.hidden = true;
   pageStatus.hidden = true;
+  previewShell.hidden = true;
   reportShell.hidden = false;
   signOut.hidden = !authenticationRequired;
   clearReportError();
@@ -1989,6 +2050,7 @@ async function downloadMarkdown() {
 }
 
 function setBusy(busy) {
+  previewRetryButton.disabled = busy;
   refreshButton.disabled = busy;
   downloadButton.disabled = busy;
   applyCustomPeriodButton.disabled = busy;

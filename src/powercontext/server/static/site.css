@@ -848,6 +848,105 @@ button:disabled {
   border: 0;
 }
 
+.report-hero.report-preview-hero {
+  align-items: center;
+}
+
+.report-preview-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.report-preview-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--pc-accent-border);
+  border-radius: 999px;
+  background: var(--pc-accent-soft);
+  color: var(--pc-accent);
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.report-preview-notice {
+  border: 1px solid var(--pc-accent-border);
+  border-left: 4px solid var(--pc-accent);
+  border-radius: var(--pc-radius);
+  background: var(--pc-accent-soft);
+  padding: 20px 22px;
+}
+
+.report-preview-notice h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.report-preview-notice p {
+  margin: 6px 0 0;
+  color: var(--pc-muted);
+}
+
+.report-preview-notice .report-preview-hint {
+  color: var(--pc-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.report-preview-details,
+.report-preview-comparison {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.report-preview-details > div,
+.report-preview-comparison > div {
+  border: 1px solid var(--pc-rule);
+  border-radius: var(--pc-radius);
+  background: var(--pc-surface);
+  padding: 16px 18px;
+}
+
+.report-preview-details dt,
+.report-preview-comparison dt {
+  color: var(--pc-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.report-preview-details dd,
+.report-preview-comparison dd {
+  margin: 5px 0 0;
+}
+
+.preview-placeholder,
+.report-metric .preview-placeholder,
+.coverage-strip .preview-placeholder,
+.status-badge.status-preview {
+  color: var(--pc-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.report-preview .report-metric .preview-placeholder {
+  color: var(--pc-muted);
+}
+
+.status-badge.status-preview {
+  background: var(--pc-surface-secondary);
+}
+
+.report-preview-workstream-item {
+  cursor: default;
+}
+
 .report-hero {
   align-items: flex-start;
   margin-bottom: 24px;
@@ -2539,7 +2638,9 @@ button:disabled {
   }
 
   .blocker-list,
-  .report-metadata dl {
+  .report-metadata dl,
+  .report-preview-details,
+  .report-preview-comparison {
     grid-template-columns: 1fr;
   }
 

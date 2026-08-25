@@ -29,6 +29,7 @@ from fastmcp.server.providers.openapi import (
 from fastmcp.utilities.lifespan import combine_lifespans
 from fastmcp.utilities.openapi import HTTPRoute
 from mcp.types import ToolAnnotations
+from typing_extensions import override
 
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
@@ -179,6 +180,7 @@ def create_mcp_server(
 
 
 class _InternalBridgeTransport(httpx.ASGITransport):
+    @override
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         request_id = current_request_id()
         if request_id is not None:

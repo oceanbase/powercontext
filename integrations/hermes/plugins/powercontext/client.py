@@ -19,9 +19,18 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from http.client import HTTPResponse
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+if TYPE_CHECKING:
+    from typing_extensions import override
+else:
+    _MethodT = TypeVar("_MethodT")
+
+    def override(method: _MethodT, /) -> _MethodT:
+        return method
+
 
 MAX_RESPONSE_BYTES = 1_048_576
 
@@ -43,6 +52,7 @@ class PowerContextTransportError(PowerContextError):
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
+    @override
     def redirect_request(self, req: Request, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Request | None:
         return None
 

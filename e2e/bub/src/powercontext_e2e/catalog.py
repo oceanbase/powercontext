@@ -94,6 +94,15 @@ class MemoryEvaluationSpec(CatalogModel):
         return self
 
 
+class ExpectedExecutionSpec(CatalogModel):
+    collect_all: Literal["completed", "failed", "skipped"] = Field(alias="collect-all")
+    fail_fast: Literal["completed", "failed", "skipped"] = Field(alias="fail-fast")
+
+
+class OutcomeEvaluationSpec(CatalogModel):
+    expected_execution: ExpectedExecutionSpec
+
+
 class E2ETask(CatalogModel):
     schema_: Literal["powercontext.e2e-task/v1"] = Field(alias="schema")
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
@@ -101,7 +110,7 @@ class E2ETask(CatalogModel):
     provenance: Provenance | None = None
     dataset: HarborDatasetSpec
     execution: BubExecutionSpec
-    evaluation: MemoryEvaluationSpec
+    evaluation: MemoryEvaluationSpec | OutcomeEvaluationSpec
 
 
 class TaskSelectionError(ValueError):

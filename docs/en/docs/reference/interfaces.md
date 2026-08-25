@@ -12,6 +12,7 @@ All remote interfaces operate on the same Server and persistent Artifact storage
 | Codex plugin | Cross-session recall and explicit Memory maintenance in Codex | `powercontext setup codex` |
 | Pydantic AI adapter | Memory tools, automatic context preparation, and optional trajectory capture | `powercontext-pydantic-ai` |
 | DeepSeek Harness plugin | Cross-session recall and explicit Memory maintenance in DeepSeek Harness | `powercontext setup dsh` |
+| LangGraph adapter | Memory tools and bounded recall inside a LangGraph graph | `powercontext-langgraph` |
 | Pi package | Cross-session recall, native Memory/Handoff tools, and skills in Pi | `powercontext setup pi` |
 | CLI | Setup, diagnostics, Server control, capability checks, and human Candidate review | `powercontext[cli,server]` |
 | Python Client SDK | Typed async calls to a running Server | `powercontext[client]` |
@@ -78,6 +79,23 @@ Client and can automatically prepend bounded `PreparedContext`. Optional capture
 model and completed tool events, performs checkpoint Flush, and flushes remaining Sources after the run. MCP needs no
 adapter package but does not provide automatic context preparation, capture, or Flush. See
 [Configure Pydantic AI](../how-to/configure-pydantic-ai.md).
+## LangGraph adapter
+
+`powercontext-langgraph` connects a LangGraph graph to a running Server through the public Python Client. It supplies
+three components: `powercontext_tools()` returns `BaseTool` instances for model-initiated Memory read and write;
+`PowerContextRecall` is a node or `pre_model_hook` that prepends one bounded `PreparedContext` as a system message
+labelled untrusted historical evidence; and `PowerContextScope` is a dataclass for the graph `context_schema` that
+carries the scope and per-run connection overrides. The recall node and tools read the active scope from the LangGraph
+runtime and otherwise fall back to `POWERCONTEXT_LANGGRAPH_*` environment settings.
+
+Scope resolution prefers an explicit `scope_id`, then a Git-remote-derived scope, and otherwise raises — the inverse of
+the Codex resolver, because a deployed graph's working directory rarely identifies the project. `TOKEN` is a bare token
+that the Client composes into `Authorization: Bearer`, unlike the `POWERCONTEXT_*_AUTHORIZATION` header used by the
+Codex, Claude Code, and DeepSeek Harness plugins. Recall and the tools fail open: on Server unavailability the graph
+still reaches its end and the tools return a short unavailable string. This release covers Memory read and write and
+bounded recall only; automatic capture, checkpointing, and Handoff are out of scope. The adapter deliberately does not
+implement `BaseStore`, whose get, upsert-by-key, and delete operations the Memory model does not provide. It never
+starts or embeds the Server.
 
 ## Pi package
 

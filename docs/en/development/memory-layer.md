@@ -90,20 +90,14 @@ the same citation fields through list and exact-read operations.
 unavailable. Explicit `vector` and `hybrid` requests fail when the configured profile does not provide that
 capability.
 
-## Enable SQLite Vec1
+## Enable SQLite vector search
 
-SQLite vector search is enabled only when both a Vec1 0.7 or newer loadable extension and an embedding model are
-supplied. PowerContext does not install or build the native extension; provide a compatible library for the target
-operating system and architecture:
+SQLite vector search is enabled when an embedding model is supplied. The `powercontext[builtin]` extra bundles
+`sqlite-vec`, so no extension path or separate native-library installation is required:
 
 ```python
-from pathlib import Path
-
 config = BuiltinConfig(
-    database=SQLiteConfig(
-        url="sqlite+aiosqlite:///powercontext.db",
-        vec1_extension=Path("/opt/sqlite-extensions/vec1"),
-    )
+    database=SQLiteConfig(url="sqlite+aiosqlite:///powercontext.db")
 )
 async with open_builtin_runtime(
     config,
@@ -112,7 +106,7 @@ async with open_builtin_runtime(
     ...
 ```
 
-The SQLite profile composes FTS5 and Vec1 strategies. It reports `fts`, `vector`, and `hybrid` through Memory
+The SQLite profile composes FTS5 and sqlite-vec strategies. It reports `fts`, `vector`, and `hybrid` through Memory
 capabilities.
 Stored projections and query vectors must use the same `EmbeddingProfile`, including model name, dimension, distance,
 and normalization. Changing that profile requires rebuilding projections before vector search resumes.
@@ -145,7 +139,7 @@ async with open_builtin_runtime(
 
 The OceanBase profile uses the same index composition as SQLite. Its full-text strategy is always available. Supplying
 an embedding model adds a `VECTOR` projection and HNSW strategy, enabling `vector` and `hybrid` modes. SQLite FTS5 and
-OceanBase FULLTEXT therefore serve the same Runtime and Server search calls; Vec1 and HNSW do the same for vector
+OceanBase FULLTEXT therefore serve the same Runtime and Server search calls; sqlite-vec and HNSW do the same for vector
 search.
 
 ## Operational checks
@@ -155,7 +149,7 @@ Before serving requests, verify:
 - the selected profile opens and initializes successfully;
 - each tenant or project maps to the intended scope ID;
 - scheduled extraction has a candidate pipeline;
-- Vec1 configuration includes a matching embedding model;
+- SQLite vector search has a matching embedding model;
 - OceanBase vector search has a matching embedding model;
 - capability responses match the indexes actually initialized;
 - database and scheduler resources close with the process lifecycle.
