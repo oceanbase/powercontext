@@ -2533,8 +2533,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "minLength": 1,
                         "pattern": "^[\\x21-\\x7E]+$",
                     },
-                    "provider": {"type": "string", "enum": ["codex"]},
-                    "agent_kind": {"type": "string", "enum": ["codex"]},
+                    "provider": {"type": "string", "enum": ["codex", "claude_code"]},
+                    "agent_kind": {"type": "string", "enum": ["codex", "claude_code"]},
                     "host_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
                     "installation_scope": {"$ref": "#/components/schemas/ExternalSkillInstallationScope"},
                     "locator": {

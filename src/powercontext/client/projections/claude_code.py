@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Client adapters for host-local Codex Skill projections."""
+"""Client adapters for host-local Claude Code Skill projections."""
 
 from __future__ import annotations
 
@@ -23,9 +23,9 @@ from powercontext.builtin.artifacts.skill.external import AgentSkillTarget
 from powercontext.builtin.artifacts.skill.models import SkillContent
 from powercontext.builtin.artifacts.skill.projection import (
     PROJECTION_SCHEMA,
-    CodexSkillProjectionConflictError,
-    CodexSkillProjectionState,
-    CodexSkillProjectionStatus,
+    AgentSkillProjectionConflictError,
+    AgentSkillProjectionState,
+    AgentSkillProjectionStatus,
 )
 from powercontext.builtin.artifacts.skill.projection import inspect_skill_projection as _inspect_skill_projection
 from powercontext.builtin.artifacts.skill.projection import project_skill as _project_skill
@@ -34,9 +34,9 @@ from powercontext.http import SkillProposal
 
 
 def project_skill(artifact: ArtifactRef, content: SkillProposal, destination: Path, /) -> Path:
-    """Create a new host-local Codex projection without replacing existing content."""
+    """Create a new host-local Claude Code projection without replacing existing content."""
 
-    return _project_skill(artifact, _runtime_content(content), _codex_target(destination.parent))
+    return _project_skill(artifact, _runtime_content(content), _claude_code_target(destination.parent))
 
 
 def inspect_skill_projection(
@@ -44,10 +44,10 @@ def inspect_skill_projection(
     content: SkillProposal,
     root: Path,
     /,
-) -> CodexSkillProjectionStatus:
+) -> AgentSkillProjectionStatus:
     """Inspect an exact managed Skill projection without changing local files."""
 
-    return _inspect_skill_projection(artifact, _runtime_content(content), _codex_target(root))
+    return _inspect_skill_projection(artifact, _runtime_content(content), _claude_code_target(root))
 
 
 def publish_skill_projection(
@@ -56,17 +56,22 @@ def publish_skill_projection(
     root: Path,
     /,
     *,
-    expected: CodexSkillProjectionStatus | None = None,
-) -> CodexSkillProjectionStatus:
-    """Publish or safely update one exact managed Skill in a configured Codex root."""
+    expected: AgentSkillProjectionStatus | None = None,
+) -> AgentSkillProjectionStatus:
+    """Publish or safely update one exact managed Skill in a configured Claude Code target."""
 
-    return _publish_skill_projection(artifact, _runtime_content(content), _codex_target(root), expected=expected)
+    return _publish_skill_projection(
+        artifact,
+        _runtime_content(content),
+        _claude_code_target(root),
+        expected=expected,
+    )
 
 
-def _codex_target(root: Path) -> AgentSkillTarget:
+def _claude_code_target(root: Path) -> AgentSkillTarget:
     return AgentSkillTarget(
         target_id="client",
-        agent_kind="codex",
+        agent_kind="claude_code",
         installation_scope="project",
         path=root,
         allow_managed_publish=True,
@@ -84,9 +89,9 @@ def _runtime_content(content: SkillProposal) -> SkillContent:
 
 __all__ = [
     "PROJECTION_SCHEMA",
-    "CodexSkillProjectionConflictError",
-    "CodexSkillProjectionState",
-    "CodexSkillProjectionStatus",
+    "AgentSkillProjectionConflictError",
+    "AgentSkillProjectionState",
+    "AgentSkillProjectionStatus",
     "inspect_skill_projection",
     "project_skill",
     "publish_skill_projection",

@@ -23,7 +23,7 @@ import pytest
 _ROOT = Path(__file__).resolve().parents[1]
 _STATIC = _ROOT / "src" / "powercontext" / "server" / "static"
 _TEMPLATES = _ROOT / "src" / "powercontext" / "server" / "templates"
-_ALLOWED_LATIN = {"EN", "HTTP", "Markdown", "OceanBase", "PowerContext"}
+_ALLOWED_LATIN = {"Claude", "Code", "Codex", "EN", "HTTP", "Markdown", "OceanBase", "PowerContext"}
 _CJK = re.compile(r"[\u4e00-\u9fff]")
 _LATIN_WORD = re.compile(r"[A-Za-z]{2,}")
 _PLACEHOLDER = re.compile(r"\{[A-Za-z]+\}")
@@ -45,6 +45,26 @@ _CATALOGS = (
         _STATIC / "handoff-report.js",
         (
             _TEMPLATES / "pages" / "handoff_report.html",
+            _TEMPLATES / "components" / "header.html",
+            _TEMPLATES / "components" / "footer.html",
+            _TEMPLATES / "components" / "login.html",
+            _TEMPLATES / "components" / "status.html",
+        ),
+    ),
+    (
+        _STATIC / "review.js",
+        (
+            _TEMPLATES / "pages" / "review.html",
+            _TEMPLATES / "components" / "header.html",
+            _TEMPLATES / "components" / "footer.html",
+            _TEMPLATES / "components" / "login.html",
+            _TEMPLATES / "components" / "status.html",
+        ),
+    ),
+    (
+        _STATIC / "skills.js",
+        (
+            _TEMPLATES / "pages" / "skills.html",
             _TEMPLATES / "components" / "header.html",
             _TEMPLATES / "components" / "footer.html",
             _TEMPLATES / "components" / "login.html",

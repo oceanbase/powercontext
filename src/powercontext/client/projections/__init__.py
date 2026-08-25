@@ -21,6 +21,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.client.projections.claude_code import project_skill as export_claude_code_skill
 from powercontext.client.projections.codex import project_skill as export_codex_skill
 from powercontext.http import SkillProposal
 
@@ -29,11 +30,13 @@ class SkillExportTarget(StrEnum):
     """Agent integrations supported by managed Skill export."""
 
     CODEX = "codex"
+    CLAUDE_CODE = "claude_code"
 
 
 _SkillExporter = Callable[[ArtifactRef, SkillProposal, Path], Path]
 _SKILL_EXPORTERS: dict[SkillExportTarget, _SkillExporter] = {
     SkillExportTarget.CODEX: export_codex_skill,
+    SkillExportTarget.CLAUDE_CODE: export_claude_code_skill,
 }
 
 

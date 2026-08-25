@@ -3105,10 +3105,10 @@ components:
           pattern: '^[\x21-\x7E]+$'
         provider:
           type: string
-          enum: [codex]
+          enum: [codex, claude_code]
         agent_kind:
           type: string
-          enum: [codex]
+          enum: [codex, claude_code]
         host_id:
           type: string
           minLength: 1
