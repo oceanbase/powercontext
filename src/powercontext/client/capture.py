@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 SENSITIVE_KEY_PARTS = ("api_key", "authorization", "cookie", "password", "secret", "token")
+SENSITIVE_KEY_COMPACT_PARTS = tuple(part.replace("_", "") for part in SENSITIVE_KEY_PARTS)
 REDACTED = "[REDACTED]"
 
 
@@ -86,6 +87,18 @@ def sanitize_capture_value(value: Any) -> Any:
         }
     if isinstance(value, list | tuple):
         return [sanitize_capture_value(item) for item in value]
+    if isinstance(value, str) and value.lstrip().startswith(("{", "[")):
+        try:
+            structured = json.loads(value)
+        except json.JSONDecodeError:
+            return value
+        if isinstance(structured, dict | list):
+            return json.dumps(
+                sanitize_capture_value(structured),
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
     return value
 
 
@@ -102,8 +115,8 @@ def redact_known_secrets(value: str) -> str:
 def is_sensitive_key(key: str) -> bool:
     """Return whether a key name conventionally contains secret material."""
 
-    folded = key.casefold().replace("-", "_")
-    return any(part in folded for part in SENSITIVE_KEY_PARTS)
+    folded = "".join(character for character in key.casefold() if character.isalnum())
+    return any(part in folded for part in SENSITIVE_KEY_COMPACT_PARTS)
 
 
 def _codex_auth_secrets() -> frozenset[str]:

@@ -126,6 +126,55 @@ def test_capture_is_bounded_redacted_checkpointed_and_serialized_under_parallel_
     assert "[REDACTED]" in serialized
 
 
+def test_checkpoint_flush_catches_up_to_the_current_capture_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    RecordingClient.reset()
+    RecordingClient.prepare_result = prepared_response(None)
+    RecordingClient.capture_position_offset = 3
+    RecordingClient.flush_cursors = (1, 2, 5)
+    monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
+
+    async def respond(_messages: list[Any], _info: Any) -> ModelResponse:
+        return ModelResponse(parts=[TextPart("captured")])
+
+    async def scenario() -> str:
+        settings = PowerContextSettings(capture_events=True, capture_checkpoint_every=2)
+        agent = Agent(
+            FunctionModel(respond),
+            capabilities=[PowerContext(settings=settings, scope_id="project:flush-catch-up")],
+        )
+        return (await agent.run("capture through backlog")).output
+
+    assert asyncio.run(scenario()) == "captured"
+
+    client = RecordingClient.instances[0]
+    assert len(client.capture_requests) == 2
+    assert len(client.flush_requests) == 3
+
+
+def test_shared_capture_redacts_compact_keys_and_structured_json_strings() -> None:
+    camel_secret = "camel-case-credential"  # noqa: S105 - synthetic redaction sentinel.
+    json_secret = "json-string-credential"  # noqa: S105 - synthetic redaction sentinel.
+
+    content = render_capture_event(
+        "model_response",
+        1,
+        {
+            "mapping_arguments": {"apiKey": camel_secret},
+            "json_arguments": json.dumps({"api_key": json_secret}),
+        },
+        8192,
+        schema=CAPTURE_SCHEMA,
+    )
+
+    event = json.loads(content)
+    assert camel_secret not in content
+    assert json_secret not in content
+    assert event["payload"]["mapping_arguments"]["apiKey"] == "[REDACTED]"
+    assert json.loads(event["payload"]["json_arguments"])["api_key"] == "[REDACTED]"
+
+
 def test_shared_capture_redacts_codex_auth_values_outside_sensitive_keys(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

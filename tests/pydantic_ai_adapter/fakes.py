@@ -98,6 +98,8 @@ class RecordingClient:
     prepare_result: ClassVar[Any] = prepared_response()
     capture_error: ClassVar[Exception | None] = None
     flush_error: ClassVar[Exception | None] = None
+    capture_position_offset: ClassVar[int] = 0
+    flush_cursors: ClassVar[tuple[int, ...] | None] = None
 
     def __init__(
         self,
@@ -115,6 +117,7 @@ class RecordingClient:
         self.prepare_requests: list[Any] = []
         self.capture_requests: list[Any] = []
         self.flush_requests: list[Any] = []
+        self._last_flush_cursor = 0
         type(self).instances.append(self)
 
     @classmethod
@@ -125,6 +128,8 @@ class RecordingClient:
         cls.prepare_result = prepared_response()
         cls.capture_error = None
         cls.flush_error = None
+        cls.capture_position_offset = 0
+        cls.flush_cursors = None
 
     async def __aenter__(self) -> RecordingClient:
         return self
@@ -153,7 +158,7 @@ class RecordingClient:
         return CaptureContentSourceResponse(
             status=CaptureStatus.ACCEPTED,
             source=SourceReference(name="content", source_id=request.source_id),
-            position=len(self.capture_requests),
+            position=type(self).capture_position_offset + len(self.capture_requests),
         )
 
     async def flush_memory(self, request: Any) -> FlushMemoryResponse:
@@ -161,14 +166,19 @@ class RecordingClient:
         flush_error = type(self).flush_error
         if flush_error is not None:
             raise flush_error
-        current_cursor = len(self.capture_requests)
-        previous_cursor = 0 if len(self.flush_requests) == 1 else current_cursor
+        flush_cursors = type(self).flush_cursors
+        if flush_cursors is None:
+            current_cursor = type(self).capture_position_offset + len(self.capture_requests)
+        else:
+            current_cursor = flush_cursors[min(len(self.flush_requests) - 1, len(flush_cursors) - 1)]
+        previous_cursor = self._last_flush_cursor
+        self._last_flush_cursor = current_cursor
         return FlushMemoryResponse(
             status=FlushStatus.PROCESSED,
             previous_cursor=previous_cursor,
             current_cursor=current_cursor,
-            high_watermark=current_cursor,
-            processed_source_count=current_cursor - previous_cursor,
+            high_watermark=max(type(self).capture_position_offset + len(self.capture_requests), current_cursor),
+            processed_source_count=max(0, current_cursor - previous_cursor),
             memory=None,
         )
 

@@ -31,7 +31,7 @@ from powercontext.client import ServerResponseError, TransportError
 from tests.pydantic_ai_adapter.fakes import RecordingClient, prepared_response
 
 
-def test_context_is_injected_once_per_run_and_prepared_again_with_old_history(
+def test_context_is_replaced_once_per_run_when_reusing_old_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     RecordingClient.reset()
@@ -55,17 +55,18 @@ def test_context_is_injected_once_per_run_and_prepared_again_with_old_history(
         first = await agent.run("first prompt")
         RecordingClient.prepare_result = prepared_response("context-two")
         second = await agent.run("second prompt", message_history=first.all_messages())
-        assert second.output == "complete"
+        RecordingClient.prepare_result = prepared_response("context-three")
+        third = await agent.run("third prompt", message_history=second.all_messages())
+        assert third.output == "complete"
 
     asyncio.run(scenario())
 
-    assert len(RecordingClient.instances) == 2
-    assert [len(client.prepare_requests) for client in RecordingClient.instances] == [1, 1]
-    assert len(model_contexts) == 4
-    assert [len(contexts) for contexts in model_contexts[:2]] == [1, 1]
-    assert all("context-one" in contexts[-1] for contexts in model_contexts[:2])
-    assert all(any("context-two" in context for context in contexts) for contexts in model_contexts[2:])
-    assert len(model_contexts[2]) == len(model_contexts[3])
+    assert len(RecordingClient.instances) == 3
+    assert [len(client.prepare_requests) for client in RecordingClient.instances] == [1, 1, 1]
+    assert len(model_contexts) == 6
+    expected_contexts = ["context-one", "context-one", "context-two", "context-two", "context-three", "context-three"]
+    assert all(len(contexts) == 1 for contexts in model_contexts)
+    assert all(expected in contexts[0] for contexts, expected in zip(model_contexts, expected_contexts, strict=True))
 
 
 def test_empty_context_is_not_injected(monkeypatch: pytest.MonkeyPatch) -> None:
