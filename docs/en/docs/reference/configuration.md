@@ -105,19 +105,13 @@ The same configured generation model gates explicit Experience generation, manag
 and external Skill import or fork. Without it, these operations return a capability error before persisting a
 Candidate. Candidate Review, exact reads, and external Skill scan/list/resolve continue to work.
 
-Experience incubation is a separate APScheduler job with its own persisted Source cursor. Enable it with:
-
-```bash
-export POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS=30
-export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
-powercontext server run
-```
-
-Each activation inspects a fixed window of at most 32 Sources and exposes only Content Sources whose metadata contains
-`"kind": "task-outcome"` to the model. It creates pending Experience Candidates in the Review Inbox; it does not
-approve them, place them in PreparedContext, create a managed Skill, export it for Codex, or execute anything.
-The Memory and Experience jobs share the APScheduler sidecar under `POWERCONTEXT_HOME`, but keep independent job
-identities and business cursors. Unsetting one interval removes only that job.
+Experience incubation is a separate APScheduler job with its own persisted Source cursor. It requires both
+`POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` and
+`POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL`. Each activation inspects at most 32 Sources and exposes only Content
+Sources whose metadata contains `"kind": "task-outcome"`. The Memory and Experience jobs share the scheduler sidecar
+under `POWERCONTEXT_HOME`, but keep independent job identities and business cursors. Unsetting one interval removes
+only that job. See [Create and review an Experience](../how-to/create-and-review-experience.md) for setup and
+verification steps.
 
 ### External Codex Skills
 

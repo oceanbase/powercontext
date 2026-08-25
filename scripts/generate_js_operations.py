@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "openapi" / "powercontext.yaml"
 GENERATED_PATHS = (
     ROOT / "integrations" / "dsh" / "plugins" / "powercontext" / "src" / "operations.generated.ts",
+    ROOT / "integrations" / "opencode" / "plugins" / "powercontext" / "src" / "operations.generated.ts",
     ROOT / "integrations" / "pi" / "plugins" / "powercontext" / "src" / "operations.generated.ts",
 )
 DRIFT_MESSAGE = "Generated JS operations drifted; run 'make js-api-generate' and review the result."

@@ -29,10 +29,18 @@ powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
 powercontext setup openclaw --source oceanbase/powercontext
 ```
 
-The first command installs the CLI and local Server in an isolated environment. The subsequent setup commands
-install the corresponding integrations from the selected repository source. OpenClaw is currently installed from the
-repository's default branch because it was added after `v0.0.2`; use a later release tag when one includes the
+OpenClaw is currently installed from the repository's default branch because it was added after `v0.0.2`; use a later release tag when one includes the
 integration. Run setup again to refresh an existing installation.
+
+# OpenCode currently requires the matching CLI and integration from master.
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup opencode --source oceanbase/powercontext --ref master
+```
+
+The first command installs the latest released CLI and local Server in an isolated environment. The release setup
+commands install their integrations from the matching repository tag. Until OpenCode is included in a release, its
+extra `uv tool install` command keeps the CLI, Server, and integration on the same `master` revision. Run setup again
+to refresh an existing integration.
 
 ### 2. Start and verify the local Server
 
@@ -81,7 +89,7 @@ model.
 ## Integrations
 
 PowerContext provides official integrations and installation guides for Codex, Claude Code, DeepSeek Harness, Hermes
-Agent, Pi Coding Agent, and OpenClaw. These integrations use the same scoped data and history-preserving contracts through
+Agent, Pi Coding Agent, OpenClaw and OpenCode. These integrations use the same scoped data and history-preserving contracts through
 PowerContext Server; the host integrations do not start or embed the Server.
 
 ### Official integrations
@@ -94,6 +102,7 @@ PowerContext Server; the host integrations do not start or embed the Server.
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-openclaw.md"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-opencode.md"><img src="https://github.com/anomalyco.png?size=120" alt="OpenCode" width="48" height="48" /><br /><sub><b>OpenCode</b></sub></a></td>
 </tr>
 </table>
 
