@@ -7,9 +7,10 @@ description: 为 OpenClaw 安装 PowerContext memory 插件，并控制召回、
 
 ## 安装或刷新插件
 
-先安装 OpenClaw，再从与 PowerContext CLI 相同的 ref 安装插件：
+在 PowerContext 正式版本包含 OpenClaw 之前，从同一个 `master` revision 安装 CLI 和插件：
 
 ```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext setup openclaw --source oceanbase/powercontext --ref master
 ```
 
@@ -28,7 +29,7 @@ powercontext server run
 openclaw
 ```
 
-插件要求 OpenClaw 2026.8.1.2-beta.2 或更新版本。
+插件要求 OpenClaw 2026.8.1-beta.2 或更新版本。
 
 ## 了解插件的行为
 
@@ -64,12 +65,18 @@ export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```
 
-插件从 `tokenEnv` 配置项指定的环境变量读取 Bearer token，默认是 `POWERCONTEXT_CLIENT_API_TOKEN`。在启动 OpenClaw
-gateway 进程前导出匹配的 token：
+插件从 `tokenEnv` 配置项指定的环境变量读取 Bearer token，默认是 `POWERCONTEXT_CLIENT_API_TOKEN`。Gateway
+服务必须在自己的运行环境中获得该变量。请把同一个 token 的值加入 Gateway 服务环境或 `~/.openclaw/.env`：
+
+```dotenv
+POWERCONTEXT_CLIENT_API_TOKEN=<同一个 token 的值>
+```
+
+限制文件权限并重启 Gateway，使插件读取更新后的环境：
 
 ```bash
-export POWERCONTEXT_CLIENT_API_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
-openclaw
+chmod 600 ~/.openclaw/.env
+openclaw gateway restart
 ```
 
 不要把凭据放进 endpoint。插件只允许 loopback Server 使用明文 HTTP；远程 Server 必须使用 HTTPS。
@@ -81,5 +88,5 @@ powercontext doctor
 powercontext doctor openclaw
 ```
 
-`doctor openclaw` 会检查 OpenClaw CLI 是否存在，以及 `openclaw plugins list` 是否列出了
-`memory-powercontext` 插件。修改 PowerContext 配置后需要重启 OpenClaw gateway。
+`doctor openclaw` 会检查 OpenClaw CLI 是否存在，以及 `openclaw plugins list --enabled --json` 是否将
+`memory-powercontext` 报告为已加载并选中 memory slot。修改 PowerContext 配置后需要重启 OpenClaw gateway。

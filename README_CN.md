@@ -24,16 +24,16 @@ powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
 powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
 powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
 powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
-powercontext setup openclaw --source oceanbase/powercontext --ref v0.0.2
 
-# OpenCode 当前需要从 master 安装匹配的 CLI 和集成。
+# OpenClaw 和 OpenCode 当前需要从 master 安装匹配的 CLI 和集成。
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup openclaw --source oceanbase/powercontext --ref master
 powercontext setup opencode --source oceanbase/powercontext --ref master
 ```
 
 第一条命令会在隔离环境中安装最新发布的 CLI 和本地 Server；发布版的 setup 命令会从匹配的仓库 tag
-安装对应集成。在 OpenCode 进入正式发布版之前，额外的 `uv tool install` 命令会让 CLI、Server 和集成
-使用同一个 `master` revision。如需刷新现有集成，请再次运行 setup。
+安装对应集成。在 OpenClaw 和 OpenCode 进入正式发布版之前，额外的 `uv tool install` 命令会让 CLI、Server
+和集成使用同一个 `master` revision。如需刷新现有集成，请再次运行 setup。
 
 ### 2. 启动并验证本地 Server
 

@@ -26,12 +26,16 @@ powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
 powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
 powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
 powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
-powercontext setup openclaw --source oceanbase/powercontext --ref v0.0.2
+
+# OpenClaw は現在、master から対応する CLI とインテグレーションをインストールする必要があります。
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup openclaw --source oceanbase/powercontext --ref master
 ```
 
-最初のコマンドは、隔離された環境に CLI とローカル Server をインストールします。以降の setup コマンドは、
-対応するリポジトリの tag から各インテグレーションをインストールします。既存のインストールを更新するには、setup を
-再実行してください。
+最初のコマンドは、隔離された環境に最新リリースの CLI とローカル Server をインストールします。リリース版の setup
+コマンドは、対応するリポジトリの tag から各インテグレーションをインストールします。OpenClaw がリリースに含まれる
+までは、追加の `uv tool install` コマンドによって CLI、Server、インテグレーションを同じ `master` revision に
+そろえます。既存のインストールを更新するには、setup をもう一度実行してください。
 
 ### 2. ローカル Server を起動して検証する
 

@@ -7,9 +7,10 @@ description: Install the PowerContext memory plugin for OpenClaw and control rec
 
 ## Install or refresh the plugin
 
-Install OpenClaw, then install the plugin from the same PowerContext ref as the CLI:
+Until a PowerContext release includes OpenClaw, install the CLI and plugin from the same `master` revision:
 
 ```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext setup openclaw --source oceanbase/powercontext --ref master
 ```
 
@@ -28,7 +29,7 @@ powercontext server run
 openclaw
 ```
 
-The plugin requires OpenClaw 2026.8.1.2-beta.2 or newer.
+The plugin requires OpenClaw 2026.8.1-beta.2 or newer.
 
 ## Understand what the plugin does
 
@@ -67,11 +68,18 @@ powercontext server run
 ```
 
 The plugin reads the Bearer token from the environment variable named by the `tokenEnv` config entry, which defaults
-to `POWERCONTEXT_CLIENT_API_TOKEN`. Export the matching token for the OpenClaw gateway process before starting it:
+to `POWERCONTEXT_CLIENT_API_TOKEN`. The Gateway service must receive that variable in its own environment. Add the
+matching secret value to the Gateway service environment or to `~/.openclaw/.env`:
+
+```dotenv
+POWERCONTEXT_CLIENT_API_TOKEN=<same token value>
+```
+
+Protect the file and restart the Gateway so the plugin receives the updated environment:
 
 ```bash
-export POWERCONTEXT_CLIENT_API_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
-openclaw
+chmod 600 ~/.openclaw/.env
+openclaw gateway restart
 ```
 
 Do not put credentials in the endpoint. The plugin accepts plain HTTP only for loopback Servers; use HTTPS for any
@@ -84,5 +92,6 @@ powercontext doctor
 powercontext doctor openclaw
 ```
 
-`doctor openclaw` checks that the OpenClaw CLI is available and that `openclaw plugins list` reports the
-`memory-powercontext` plugin. Restart the OpenClaw gateway after changing PowerContext configuration.
+`doctor openclaw` checks that the OpenClaw CLI is available and that `openclaw plugins list --enabled --json` reports
+`memory-powercontext` as loaded and selected for the memory slot. Restart the OpenClaw gateway after changing
+PowerContext configuration.

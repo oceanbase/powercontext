@@ -337,7 +337,8 @@ def run_openclaw_diagnostics() -> dict[str, Diagnostic]:
             ),
         }
     try:
-        output = run_openclaw(executable, "plugins", "list").stdout or ""
+        output = run_openclaw(executable, "plugins", "list", "--enabled", "--json").stdout or ""
+        installed = openclaw_plugin_installed(output)
     except SetupError as error:
         return {
             "openclaw": Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error)),
@@ -346,22 +347,41 @@ def run_openclaw_diagnostics() -> dict[str, Diagnostic]:
                 detail="plugin list is unavailable",
             ),
         }
-    installed = openclaw_plugin_installed(output)
     return {
         "openclaw": Diagnostic(status=DiagnosticStatus.OK, detail=executable),
         "plugin": Diagnostic(
             status=DiagnosticStatus.OK if installed else DiagnosticStatus.FAILED,
             detail=(
-                f"{OPENCLAW_PLUGIN_NAME} is installed" if installed else "PowerContext OpenClaw plugin is not installed"
+                f"{OPENCLAW_PLUGIN_NAME} is installed and active"
+                if installed
+                else "PowerContext OpenClaw plugin is not enabled, loaded, and selected as the memory plugin"
             ),
         ),
     }
 
 
 def openclaw_plugin_installed(output: str) -> bool:
-    """Return whether ``openclaw plugins list`` reports the PowerContext plugin."""
+    """Return whether OpenClaw reports the PowerContext plugin as the active memory plugin."""
 
-    return OPENCLAW_PLUGIN_NAME in output
+    command = ["openclaw", "plugins", "list", "--enabled", "--json"]
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise SetupError.invalid_command_output(command, "invalid JSON") from error
+    if not isinstance(payload, dict) or not isinstance(payload.get("plugins"), list):
+        raise SetupError.invalid_command_output(command, "an invalid plugin list")
+
+    for plugin in payload["plugins"]:
+        if not isinstance(plugin, dict):
+            raise SetupError.invalid_command_output(command, "an invalid plugin entry")
+        if plugin.get("id") != OPENCLAW_PLUGIN_NAME:
+            continue
+        return (
+            plugin.get("enabled") is True
+            and plugin.get("status") == "loaded"
+            and plugin.get("memorySlotSelected") is True
+        )
+    return False
 
 
 __all__ = [

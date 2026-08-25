@@ -189,8 +189,35 @@ def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pyte
     )
 
 
+_OPENCLAW_PLUGIN_LIST_COMMAND = ["openclaw", "plugins", "list", "--enabled", "--json"]
+
+
+def _openclaw_plugin_list_output(
+    *,
+    plugin_id: str | None = "memory-powercontext",
+    enabled: bool = True,
+    status: str = "loaded",
+    memory_slot_selected: bool = True,
+) -> str:
+    plugins = (
+        []
+        if plugin_id is None
+        else [
+            {
+                "id": plugin_id,
+                "enabled": enabled,
+                "status": status,
+                "memorySlotSelected": memory_slot_selected,
+            }
+        ]
+    )
+    return json.dumps({"plugins": plugins})
+
+
 def test_run_openclaw_diagnostics_reports_installed_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
-    run_process = Mock(return_value=CompletedProcess(["openclaw", "plugins", "list"], 0, "  memory-powercontext\n", ""))
+    run_process = Mock(
+        return_value=CompletedProcess(_OPENCLAW_PLUGIN_LIST_COMMAND, 0, _openclaw_plugin_list_output(), "")
+    )
     monkeypatch.setattr(openclaw_cli, "openclaw_executable", lambda: "/usr/bin/openclaw")
     monkeypatch.setattr(openclaw_cli, "run_process", run_process)
 
@@ -198,11 +225,15 @@ def test_run_openclaw_diagnostics_reports_installed_plugin(monkeypatch: pytest.M
 
     assert diagnostics["openclaw"].status is DiagnosticStatus.OK
     assert diagnostics["plugin"].status is DiagnosticStatus.OK
-    assert diagnostics["plugin"].detail == "memory-powercontext is installed"
+    assert diagnostics["plugin"].detail == "memory-powercontext is installed and active"
 
 
 def test_run_openclaw_diagnostics_reports_missing_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
-    run_process = Mock(return_value=CompletedProcess(["openclaw", "plugins", "list"], 0, "no plugins\n", ""))
+    run_process = Mock(
+        return_value=CompletedProcess(
+            _OPENCLAW_PLUGIN_LIST_COMMAND, 0, _openclaw_plugin_list_output(plugin_id=None), ""
+        )
+    )
     monkeypatch.setattr(openclaw_cli, "openclaw_executable", lambda: "/usr/bin/openclaw")
     monkeypatch.setattr(openclaw_cli, "run_process", run_process)
 
@@ -210,7 +241,40 @@ def test_run_openclaw_diagnostics_reports_missing_plugin(monkeypatch: pytest.Mon
 
     assert diagnostics["openclaw"].status is DiagnosticStatus.OK
     assert diagnostics["plugin"].status is DiagnosticStatus.FAILED
-    assert diagnostics["plugin"].detail == "PowerContext OpenClaw plugin is not installed"
+    assert (
+        diagnostics["plugin"].detail
+        == "PowerContext OpenClaw plugin is not enabled, loaded, and selected as the memory plugin"
+    )
+
+
+@pytest.mark.parametrize(
+    ("enabled", "status", "memory_slot_selected"),
+    [
+        (False, "disabled", False),
+        (True, "error", False),
+        (True, "loaded", False),
+    ],
+    ids=["disabled", "load-error", "wrong-memory-slot"],
+)
+def test_run_openclaw_diagnostics_rejects_inactive_plugin(
+    enabled: bool,
+    status: str,
+    memory_slot_selected: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = _openclaw_plugin_list_output(
+        enabled=enabled,
+        status=status,
+        memory_slot_selected=memory_slot_selected,
+    )
+    run_process = Mock(return_value=CompletedProcess(_OPENCLAW_PLUGIN_LIST_COMMAND, 0, output, ""))
+    monkeypatch.setattr(openclaw_cli, "openclaw_executable", lambda: "/usr/bin/openclaw")
+    monkeypatch.setattr(openclaw_cli, "run_process", run_process)
+
+    diagnostics = openclaw_cli.run_openclaw_diagnostics()
+
+    assert diagnostics["openclaw"].status is DiagnosticStatus.OK
+    assert diagnostics["plugin"].status is DiagnosticStatus.FAILED
 
 
 def test_run_openclaw_diagnostics_reports_missing_cli(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,7 +293,9 @@ def test_doctor_openclaw_reports_an_installed_plugin_as_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run_process = Mock(return_value=CompletedProcess(["openclaw", "plugins", "list"], 0, "  memory-powercontext\n", ""))
+    run_process = Mock(
+        return_value=CompletedProcess(_OPENCLAW_PLUGIN_LIST_COMMAND, 0, _openclaw_plugin_list_output(), "")
+    )
     monkeypatch.setattr(openclaw_cli, "openclaw_executable", lambda: "/usr/bin/openclaw")
     monkeypatch.setattr(openclaw_cli, "run_process", run_process)
 
@@ -242,7 +308,11 @@ def test_doctor_openclaw_reports_an_installed_plugin_as_json(
 
 
 def test_doctor_openclaw_exits_nonzero_when_plugin_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    run_process = Mock(return_value=CompletedProcess(["openclaw", "plugins", "list"], 0, "no plugins\n", ""))
+    run_process = Mock(
+        return_value=CompletedProcess(
+            _OPENCLAW_PLUGIN_LIST_COMMAND, 0, _openclaw_plugin_list_output(plugin_id=None), ""
+        )
+    )
     monkeypatch.setattr(openclaw_cli, "openclaw_executable", lambda: "/usr/bin/openclaw")
     monkeypatch.setattr(openclaw_cli, "run_process", run_process)
 
