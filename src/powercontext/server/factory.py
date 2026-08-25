@@ -186,6 +186,7 @@ def _mount_optional_web_ui(app: FastAPI, settings: ServerSettings) -> None:
             dashboard_enabled=settings.dashboard.enabled,
             handoff_report_enabled=settings.handoff_report.enabled,
             authentication_required=settings.auth.enabled,
+            agent_skill_targets=settings.external_skills.agent_targets,
         )
         if settings.dashboard.enabled:
             app.state.dashboard_started = True

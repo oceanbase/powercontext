@@ -36,6 +36,8 @@ const translations = {
   en: {
     pageTitle: "PowerContext Handoff Report",
     dashboardTitle: "Dashboard",
+    skillsTitle: "Skills",
+    reviewTitle: "Review",
     handoffReportTitle: "Handoff Report",
     brandHomeLabel: "PowerContext Dashboard",
     primaryNavigation: "Primary navigation",
@@ -236,6 +238,8 @@ const translations = {
   zh: {
     pageTitle: "PowerContext 项目交接报告",
     dashboardTitle: "仪表盘",
+    skillsTitle: "技能",
+    reviewTitle: "审核",
     handoffReportTitle: "交接报告",
     brandHomeLabel: "PowerContext 仪表盘",
     primaryNavigation: "主导航",

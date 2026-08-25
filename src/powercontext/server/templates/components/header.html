@@ -31,6 +31,12 @@
       {% if dashboard_enabled %}
       <a href="{{ url_for('dashboard_home') }}"{% if active_page == "dashboard" %} aria-current="page"{% endif %} data-i18n="dashboardTitle">Dashboard</a>
       {% endif %}
+      {% if skills_enabled %}
+      <a href="{{ url_for('skills_library') }}"{% if active_page == "skills" %} aria-current="page"{% endif %} data-i18n="skillsTitle">Skills</a>
+      {% endif %}
+      {% if review_enabled %}
+      <a href="{{ url_for('review_inbox') }}"{% if active_page == "review" %} aria-current="page"{% endif %} data-i18n="reviewTitle">Review</a>
+      {% endif %}
       {% if handoff_report_enabled %}
       <a href="{{ url_for('handoff_report_dashboard') }}"{% if active_page == "handoff_report" %} aria-current="page"{% endif %} data-i18n="handoffReportTitle">Handoff Report</a>
       {% endif %}

@@ -1,6 +1,6 @@
 ---
 title: Interfaces
-description: Choose between the Codex plugin, DeepSeek Harness plugin, Pi package, CLI, Python SDKs, HTTP, and MCP.
+description: Choose between the Codex and Claude Code plugins, DeepSeek Harness plugin, Pi package, CLI, Python SDKs, HTTP, and MCP.
 ---
 
 # Interfaces
@@ -202,21 +202,42 @@ For the relationship between evidence, Candidate versions, approved Revisions, r
 
 ## Scheduled Experience incubation
 
-The scheduler accepts only Content Sources with metadata `"kind": "task-outcome"`, uses an independent persisted
-cursor, and creates pending Experience Candidates. Candidate writes and cursor advancement commit together. The job
-does not approve content or include pending content in `PreparedContext`. Setup and verification steps are in
+An integration can capture a completed task as a Content Source with metadata `"kind": "task-outcome"`. When the
+Experience schedule is configured, APScheduler scans bounded Source windows and asks the configured schema-bound
+pipeline for reusable situation, action, outcome, and lesson proposals. Each proposal cites exact Sources and enters
+the Review Inbox as a pending Experience Candidate.
+
+Experience incubation has its own persisted Source cursor, independent from Memory extraction. Candidate writes and
+cursor advancement commit together; a generation or write failure leaves the window available for retry. Ordinary
+prompt Sources are not Task Outcomes and are ignored by this job.
+
+Scheduling stops at the review boundary. It never approves an Experience, includes pending content in
+PreparedContext, derives a managed Skill, exports a Skill for an Agent target, or executes instructions. Skill authoring and
+export remain explicit steps after the supporting Experience is approved.
+Setup and verification steps are in
 [Create and review an Experience](../how-to/create-and-review-experience.md).
 
-## Managed Skill export to Codex
+## Managed Skill export to Agent targets
 
-Approval creates an immutable Skill Revision but does not install it or grant execution authority. The Codex exporter
-writes `SKILL.md` and `powercontext.json` into a new destination and refuses to replace an existing directory. The
-manifest binds the projection to one exact Artifact Revision and rendered-content hash. See
-[Create and export a managed Skill](../how-to/create-and-export-skill.md) for the procedure.
+A configured generator can produce complete managed Skill content through `generate_skill`; a human or integration
+can submit already-complete typed content through `propose_skill`. The proposal contains a name, discovery
+description, instructions, validation checks, and exact Source or Artifact lineage. It remains a Candidate until a
+reviewer approves the exact Candidate version.
+
+Approval creates an immutable Skill Revision. It does not install the Skill or grant execution authority. To make one
+approved Revision available to Codex or Claude Code, export it explicitly into a configured repository, user, or plugin
+Skill target. The projection writes `SKILL.md` and `powercontext.json`; the manifest records the Agent kind, exact
+Artifact reference and rendered-content hash. It refuses to replace an existing destination, so updates require an
+intentional new export rather than a silent overwrite.
+
+Codex can discover a repository-local export under `.agents/skills/<name>/SKILL.md`. The Artifact Revision remains
+the content authority; Claude Code uses `.claude/skills/<name>/SKILL.md` for the equivalent project target. Both
+directories are host-local projections that can be rebuilt from the same exact Revision.
+See [Create and export a managed Skill](../how-to/create-and-export-skill.md) for the procedure.
 
 ## External Agent-native Skills
 
-External Skills remain authoritative in their original local packages. With explicitly configured Codex roots, the
+External Skills remain authoritative in their original local packages. With explicitly configured Agent targets, the
 Server can scan a scope-local, rebuildable Registry and report name, description, provider, Agent kind, host,
 installation scope, locator, and whole-package fingerprint. Exact resolve succeeds only when the same package remains
 readable on the configured host and its fingerprint still matches. It never installs a package or falls back to a
@@ -234,8 +255,8 @@ managed Artifact.
 | --- | --- | --- | --- | --- |
 | External Agent-native Skill | Original package | No for scan/list/resolve; yes for import/fork | No for discovery; yes after import/fork | Host-local Registry and exact resolve |
 | Experience | Exact approved Artifact Revision | Yes for generate/evolve; no for typed `propose` | Yes | Exact read and approved-head FTS recall in PreparedContext |
-| Managed Skill | Exact approved Artifact Revision | Yes for generate/evolve/import/fork; no for typed `propose` | Yes | Exact read and explicit Codex projection |
-| Codex projection | Its source managed Skill Revision | No | No additional review | Rebuildable host-local copy |
+| Managed Skill | Exact approved Artifact Revision | Yes for generate/evolve/import/fork; no for typed `propose` | Yes | Exact read and explicit Agent projection |
+| Agent projection | Its source managed Skill Revision | No | No additional review | Rebuildable Codex or Claude Code host-local copy |
 
 ## Core SDK
 

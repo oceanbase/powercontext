@@ -1,6 +1,6 @@
 ---
 title: 配置
-description: PowerContext 路径、Server、Client、推理和 Codex 环境变量。
+description: PowerContext 路径、Server、Client、推理和 Agent 集成环境变量。
 ---
 
 # 配置
@@ -52,7 +52,7 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation 超时 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | 单次 embedding 请求最多发送的文本数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 孵化间隔；未设置即不启用该 job |
-| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 未设置 | 包含 host identity 和显式 Codex Skill roots 的 JSON object |
+| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 未设置 | 包含 host identity 和显式 Agent Skill targets 的 JSON object |
 
 静态 Bearer 鉴权默认关闭。启用后，API 和 MCP 请求必须携带 `Authorization: Bearer <token>`；liveness 和
 readiness endpoint 仍然公开。明文 HTTP 应只用于 loopback 地址；通过网络暴露启用鉴权的 Server 前必须配置 TLS。
@@ -101,33 +101,53 @@ search request 最终 `limit` 的结果。它不会修改已存储 Memory 或索
 external Skill import/fork。未配置模型时，这些 operation 会在持久化 Candidate 前返回 capability error；
 Candidate Review、exact read 和 external Skill scan/list/resolve 仍可使用。
 
-Experience 孵化使用独立的 APScheduler job 和持久化 Source cursor，需要同时设置
-`POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` 与 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL`。
-每次 activation 最多检查 32 条 Source，并且只把 metadata 包含 `"kind": "task-outcome"` 的 Content Source
-暴露给模型。Memory 和 Experience job 共用 `POWERCONTEXT_HOME` 下的 scheduler sidecar，但拥有独立的 job identity
-和业务 cursor；取消其中一个 interval 只会移除对应 job。
+Experience 孵化使用独立的 APScheduler job 和持久化 Source cursor，可通过以下配置启用：
+
+```bash
+export POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS=30
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
+powercontext server run
+```
+
+每次 activation 固定检查最多 32 条 Source，并且只把 metadata 包含 `"kind": "task-outcome"` 的 Content Source
+暴露给模型。该 job 会在 Review Inbox 中创建 pending Experience Candidate；它不会自动批准、进入
+PreparedContext、创建 managed Skill、将它导出到 Agent target 或执行任何内容。Memory 和 Experience job 共用
+`POWERCONTEXT_HOME` 下的 APScheduler sidecar，但拥有独立的 job identity 和业务 cursor；取消其中一个 interval
+只会移除对应 job。
 设置与验证步骤见[创建并审核 Experience](../how-to/create-and-review-experience.md)。
 
-### 外部 Codex Skill
+### Agent Skill 目标
 
-通过一个 JSON 值配置 host-local roots：
+通过一个 JSON 值配置 Codex 和 Claude Code 的 host-local target：
 
 ```bash
 export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
   "host_id": "workstation-1",
-  "codex_roots": [
+  "targets": [
     {
-      "root_id": "repository",
+      "target_id": "codex-project",
+      "agent_kind": "codex",
       "installation_scope": "project",
-      "path": "/srv/project/.agents/skills"
+      "path": "/srv/project/.agents/skills",
+      "allow_managed_publish": true
+    },
+    {
+      "target_id": "claude-project",
+      "agent_kind": "claude_code",
+      "installation_scope": "project",
+      "path": "/srv/project/.claude/skills",
+      "allow_managed_publish": true
     }
   ]
 }'
 ```
 
-每个 root ID 必须唯一；支持的 installation scope 是 `user`、`project` 和 `plugin`。PowerContext 只扫描这些
-显式 root 的直接 Skill package 子目录，不会推断 home 目录、安装 package 或授予执行权限。`host_id`、locator
-和 registration 都是本地环境状态，不是跨 host 或跨 Agent contract。
+每个 target ID 必须唯一；`agent_kind` 支持 `codex` 和 `claude_code`，installation scope 支持 `user`、`project`
+和 `plugin`。PowerContext 只扫描这些显式 target 的直接 Skill package 子目录，不会推断 home 目录、安装 package
+或授予执行权限。`allow_managed_publish` 默认是 `false`；设为 `true` 后，authenticated Skills Library 或 Review
+页面可以把 approved managed Skill 显式创建或安全更新到该 target。页面仍不能提交任意路径，也不会覆盖外部或
+已被修改的 package。`host_id`、locator 和 registration 都是本地环境状态，不是跨 host contract。已有的
+`codex_roots` 配置继续作为 Codex-only 兼容格式被接受；新配置应使用 `targets`。
 
 Server 始终创建 non-recording OpenTelemetry request context，从 inbound span 派生 `X-PowerContext-Request-ID`。如需为
 CLI 管理的 Server 启用 recording 和 export，请安装 `powercontext[cli,server,tracing-otlp]`、启用 tracing，
