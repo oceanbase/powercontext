@@ -385,7 +385,7 @@ def _bundle_for_task(task: TaskRecord, runs_root: Path) -> ReportBundle:
         raise InvalidReportArtifact
     bundle = _load_batch_bundle(task_run_dir(task, runs_root), runs_root)
     if (
-        bundle.treatment_mode is not task.request.treatment_mode
+        bundle.treatment_mode != task.request.treatment_mode
         or bundle.configuration.get("instance") != task.request.instance_id
     ):
         raise InvalidReportArtifact

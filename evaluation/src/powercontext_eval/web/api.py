@@ -421,7 +421,7 @@ def create_app(
                 or candidate.task_set != request.task_set
                 or candidate.model != request.model
                 or candidate.reasoning_effort != DEFAULT_REASONING_EFFORT
-                or candidate.treatment_mode is not request.treatment_mode
+                or candidate.treatment_mode != request.treatment_mode
             ):
                 continue
             try:

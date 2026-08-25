@@ -164,7 +164,7 @@ class RunConfig:
     model: str = DEFAULT_CODEX_MODEL
     reasoning_effort: str = DEFAULT_REASONING_EFFORT
     finalization_registrar: TokensFlowFinalizationRegistrar | None = None
-    container_env: Mapping[str, str] = MappingProxyType({})
+    container_env: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     cancel_event: threading.Event | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:

@@ -176,6 +176,7 @@ newest saved baselines first. The same bounded batch can be created from the CLI
 uv run --project evaluation powercontext-eval swebench-pro create-batch \
   --console-url http://127.0.0.1:8787 \
   --task-set swebench-pro-stability-v1 \
+  --treatment-mode on_only \
   --powercontext-ref latest \
   --idempotency-key "stability-$(date -u +%Y%m%dT%H%M%SZ)"
 ```
