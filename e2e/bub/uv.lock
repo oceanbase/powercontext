@@ -1610,7 +1610,9 @@ dependencies = [
 client = [
     { name = "httpx", extra = ["socks"] },
     { name = "opentelemetry-api" },
+    { name = "packaging" },
     { name = "pydantic-settings" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -1633,6 +1635,7 @@ requires-dist = [
     { name = "opentelemetry-sdk", marker = "extra == 'server'", specifier = ">=1.30,<2" },
     { name = "packaging", marker = "extra == 'builtin'", specifier = ">=24,<27" },
     { name = "packaging", marker = "extra == 'cli'", specifier = ">=24,<27" },
+    { name = "packaging", marker = "extra == 'client'", specifier = ">=24,<27" },
     { name = "packaging", marker = "extra == 'seekdb'", specifier = ">=24,<27" },
     { name = "packaging", marker = "extra == 'server'", specifier = ">=24,<27" },
     { name = "platformdirs", marker = "extra == 'cli'", specifier = ">=4,<5" },
@@ -1653,6 +1656,7 @@ requires-dist = [
     { name = "pyobvector", marker = "extra == 'server'", specifier = ">=0.2.28,<0.3" },
     { name = "pyyaml", marker = "extra == 'builtin'", specifier = ">=6,<7" },
     { name = "pyyaml", marker = "extra == 'cli'", specifier = ">=6,<7" },
+    { name = "pyyaml", marker = "extra == 'client'", specifier = ">=6,<7" },
     { name = "pyyaml", marker = "extra == 'seekdb'", specifier = ">=6,<7" },
     { name = "pyyaml", marker = "extra == 'server'", specifier = ">=6,<7" },
     { name = "rfc8785", specifier = ">=0.1.4,<1" },
