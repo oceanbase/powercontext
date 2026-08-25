@@ -22,10 +22,17 @@
       aria-label="PowerContext Dashboard"
       data-i18n-aria-label="brandHomeLabel"
     >
-      <img class="brand-mark" src="{{ url_for('web_static', path='/oceanbase-logo.svg') }}" alt="">
-      <span class="brand-owner">OceanBase</span>
-      <span class="brand-divider" aria-hidden="true">|</span>
-      <span class="brand-product">PowerContext</span>
+      <img
+        class="brand-wordmark brand-wordmark-color"
+        src="{{ url_for('web_static', path='/powercontext-color.png') }}"
+        alt="PowerContext"
+      >
+      <img
+        class="brand-wordmark brand-wordmark-reverse"
+        src="{{ url_for('web_static', path='/powercontext-reverse.png') }}"
+        alt=""
+        aria-hidden="true"
+      >
     </a>
     <nav class="primary-nav" aria-label="Primary navigation" data-i18n-aria-label="primaryNavigation">
       {% if dashboard_enabled %}
