@@ -14,6 +14,8 @@ uv tool install --force "powercontext[cli,server] @ git+https://github.com/ocean
 powercontext setup openclaw --source oceanbase/powercontext --ref master
 ```
 
+未指定 `--server-url` 时，setup 会把插件 endpoint 配置为 Server 默认地址 `http://127.0.0.1:8000`。
+
 也可以使用本地 checkout：
 
 ```bash
@@ -36,13 +38,17 @@ openclaw
 OpenClaw 构建 prompt 前，插件会以默认 8000-byte 预算调用一次 `POST /v1/context/prepare`。召回内容会被标记为
 不可信历史证据。当前 system instruction、仓库规范和用户请求始终优先。
 
-符合条件的用户提示词会被独立采集为 Content Source，并使用确定性 source id，重复采集是幂等的。私密会话永远不会
-被采集。插件不会同步完整 OpenClaw transcript。Server 不可用、超时、重定向或响应不符合契约时，召回、采集和边界
-flush 都会正常降级：prompt 不变，普通工作不会被阻塞。
+来自 direct/private 会话的符合条件用户提示词会被独立采集为 Content Source，并使用确定性 source id，重复采集是
+幂等的。group、channel 和 incognito 会话会被排除。插件不会同步完整 OpenClaw transcript。Server 不可用、超时、
+重定向或响应不符合契约时，召回、采集和边界 flush 都会正常降级：prompt 不变，普通工作不会被阻塞。
 
 插件暴露五个工具：`powercontext_memory_search`、`powercontext_memory_get`、`powercontext_memory_store`、
 `powercontext_memory_revise` 和 `powercontext_memory_retire`。写工具需要模型显式调用，由 OpenClaw 控制
 side-effecting 工具的执行。
+
+显式 search 和 get 会直接调用 `/v1/memory/search` 与 `/v1/memory/entries/get`，不会调用
+`/v1/context/prepare`。search 将查询限制为 8192 个字符，并把请求的结果上限约束在 1–50（默认 10）；
+每次 get 最多返回 120 行、12,000 个字符。
 
 ## 选择 memory scope
 
@@ -79,7 +85,8 @@ chmod 600 ~/.openclaw/.env
 openclaw gateway restart
 ```
 
-不要把凭据放进 endpoint。插件只允许 loopback Server 使用明文 HTTP；远程 Server 必须使用 HTTPS。
+不要把凭据放进 endpoint。当前配置同时接受 HTTP 和 HTTPS URL；仅对可信的 loopback Server 使用明文 HTTP，所有远程
+Server 都应使用 HTTPS。这是运维安全要求，目前 CLI 和插件不会强制拒绝非 loopback HTTP URL。
 
 ## 验证安装
 

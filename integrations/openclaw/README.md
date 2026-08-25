@@ -11,7 +11,7 @@ normal OpenClaw work.
 ## Requirements
 
 - OpenClaw 2026.8.1-beta.2 or newer, available on `PATH`
-- Node.js 20 or newer and `pnpm` to build the plugin from source
+- Node.js 24.15 or newer in the 24.x line (recommended by the supported OpenClaw release) and `pnpm`
 - A running PowerContext Server (see `powercontext server run`)
 
 ## Install or refresh the plugin
@@ -22,6 +22,8 @@ Until a PowerContext release includes OpenClaw, install the CLI and plugin from 
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext setup openclaw --source oceanbase/powercontext --ref master
 ```
+
+Without `--server-url`, setup configures the plugin for the Server default at `http://127.0.0.1:8000`.
 
 A local checkout works as well:
 
@@ -52,12 +54,16 @@ Run `setup openclaw` again to refresh an existing installation.
 
 Before OpenClaw builds a prompt, the plugin calls `POST /v1/context/prepare` once with an 8000-byte default budget.
 Recalled content is labelled as untrusted historical evidence; current system instructions, repository guidance, and
-the user's request always take precedence. The same preparation happens before explicit memory reads.
+the user's request always take precedence.
 
-Eligible user prompts are captured separately as Content Sources with a deterministic source id, so repeated captures
-are idempotent. Private sessions are never captured. The plugin never synchronizes the complete OpenClaw transcript.
-Recall, capture, and boundary flushing fail open: an unavailable Server, timeout, redirect, or invalid response leaves
-the prompt unchanged and never blocks ordinary work.
+Explicit memory reads bypass preparation. Search calls `/v1/memory/search`, limits the query to 8192 characters, and
+clamps the requested result limit to 1–50 (default 10). Get calls `/v1/memory/entries/get` and returns at most 120
+lines and 12,000 characters per read.
+
+Eligible user prompts from direct/private sessions are captured separately as Content Sources with a deterministic
+source id, so repeated captures are idempotent. Group, channel, and incognito sessions are excluded. The plugin never
+synchronizes the complete OpenClaw transcript. Recall, capture, and boundary flushing fail open: an unavailable
+Server, timeout, redirect, or invalid response leaves the prompt unchanged and never blocks ordinary work.
 
 The plugin exposes five tools: `powercontext_memory_search`, `powercontext_memory_get`,
 `powercontext_memory_store`, `powercontext_memory_revise`, and `powercontext_memory_retire`. Mutating tools
@@ -94,8 +100,9 @@ chmod 600 ~/.openclaw/.env
 openclaw gateway restart
 ```
 
-Do not put credentials in the endpoint. The plugin accepts plain HTTP only for loopback Servers; use HTTPS for any
-remote Server.
+Do not put credentials in the endpoint. The current configuration accepts both HTTP and HTTPS URLs; use plain HTTP
+only for a trusted loopback Server and use HTTPS for every remote Server. This is an operator security requirement,
+not a restriction currently enforced by the CLI or plugin.
 
 ## Verify the installation
 

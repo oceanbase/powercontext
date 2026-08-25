@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "endpoint",
         nargs="?",
-        default="http://127.0.0.1:8765",
+        default="http://127.0.0.1:8000",
         help="PowerContext Server URL for enable",
     )
     parser.add_argument(

@@ -466,7 +466,7 @@ def setup_openclaw(
     server_url: Annotated[
         str,
         typer.Option(help="PowerContext Server base URL configured for the plugin."),
-    ] = "http://127.0.0.1:8765",
+    ] = "http://127.0.0.1:8000",
     scope_mode: Annotated[
         str,
         typer.Option("--scope-mode", help="Memory scope mode: agent or project."),

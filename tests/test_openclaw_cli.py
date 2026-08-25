@@ -189,6 +189,26 @@ def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pyte
     )
 
 
+def test_setup_openclaw_defaults_to_the_server_default_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    import powercontext.cli.openclaw as openclaw_module
+
+    def install(**kwargs: str) -> OpenClawSetupResult:
+        return OpenClawSetupResult(
+            plugin="memory-powercontext",
+            plugin_path="plugin-path",
+            server_url=kwargs["server_url"],
+            scope_mode=kwargs["scope_mode"],
+            data_dir="data-dir",
+        )
+
+    monkeypatch.setattr(openclaw_module, "install_openclaw_plugin", install)
+
+    result = CliRunner().invoke(create_cli([setup_app]), ["setup", "openclaw", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output)["server_url"] == "http://127.0.0.1:8000"
+
+
 _OPENCLAW_PLUGIN_LIST_COMMAND = ["openclaw", "plugins", "list", "--enabled", "--json"]
 
 
