@@ -76,7 +76,7 @@ from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.statistics import StatisticsRepository
-from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
     GenerationCapabilityUnavailableError,
@@ -431,6 +431,20 @@ class RelationalContexts:
             values = (
                 await connection.execute(
                     select(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id).order_by(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id)
+                )
+            ).scalars()
+            return tuple(str(value) for value in values)
+
+    async def handoff_scope_ids(self) -> tuple[str, ...]:
+        """Return scopes with a committed Handoff head, in deterministic order."""
+
+        async with self.database.transaction() as connection:
+            values = (
+                await connection.execute(
+                    select(ARTIFACT_HEADS_TABLE.c.scope_id)
+                    .where(ARTIFACT_HEADS_TABLE.c.family == Handoff.family)
+                    .distinct()
+                    .order_by(ARTIFACT_HEADS_TABLE.c.scope_id)
                 )
             ).scalars()
             return tuple(str(value) for value in values)

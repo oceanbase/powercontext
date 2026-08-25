@@ -408,6 +408,29 @@ class ListHandoffReportWorkstreamsRequest(BaseModel):
     include_archived: StrictBool = False
 
 
+class ListHandoffReportKnownScopesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cursor: StrictStr | None = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+
+
+class KnownHandoffScope(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class KnownHandoffScopePage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[KnownHandoffScope]
+    next_cursor: StrictStr | None = None
+
+
 class HandoffReportPeriodRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1157,7 +1180,16 @@ class GetHandoffReportRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    project_id: Annotated[
+        StrictStr | None,
+        Field(
+            deprecated=True,
+            description="Retained for wire compatibility and ignored when generating a scope report.",
+            max_length=256,
+            min_length=1,
+        ),
+    ] = None
     locale: ReportLocale | None = None
     include_evidence_checks: StrictBool = True
     format: ReportFormat = ReportFormat.MARKDOWN

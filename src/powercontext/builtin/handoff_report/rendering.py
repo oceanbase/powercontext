@@ -144,6 +144,11 @@ def render_markdown(report: HandoffReport, /) -> str:
     projection = finalize_digests(report.model_copy(update={"format": "markdown", "renderer_version": "markdown-v1"}))
     labels = _LABELS[projection.locale]
     lines = _front_matter_lines(projection)
+    overview_identity = (
+        f"Scope: {_code_span(projection.workstreams[0].workstream.scope_id)}"
+        if _is_scope_report(projection)
+        else f"Project: {_text(projection.project.title)}"
+    )
     lines.extend([
         "---",
         "",
@@ -151,7 +156,7 @@ def render_markdown(report: HandoffReport, /) -> str:
         "",
         f"## {labels['overview']}",
         "",
-        f"- Project: {_text(projection.project.title)}",
+        f"- {overview_identity}",
         f"- Workstreams: {projection.coverage.selected_workstreams}",
         f"- Missing Handoff: {projection.coverage.missing_handoff_workstreams}",
         f"- Continuable: {projection.summary.continuable_count}",
@@ -337,9 +342,16 @@ def _front_matter_lines(report: HandoffReport) -> list[str]:
         "schema: powercontext.handoff-report.v1",
         f"locale: {report.locale}",
         "format: markdown",
-        f"project_id: {_yaml_string(report.project.project_id)}",
-        f"project_key: {_yaml_string(report.project.project_key)}",
-        f"project_version: {report.project.version}",
+    ]
+    if _is_scope_report(report):
+        lines.append(f"scope_id: {_yaml_string(report.workstreams[0].workstream.scope_id)}")
+    else:
+        lines.extend((
+            f"project_id: {_yaml_string(report.project.project_id)}",
+            f"project_key: {_yaml_string(report.project.project_key)}",
+            f"project_version: {report.project.version}",
+        ))
+    lines.extend((
         f"report_kind: {report.report_kind}",
         f"selection_digest: {_yaml_string(report.selection_digest or '')}",
         f"report_digest: {_yaml_string(report.report_digest or '')}",
@@ -347,7 +359,7 @@ def _front_matter_lines(report: HandoffReport) -> list[str]:
         f"trust: {report.trust}",
         f"selection_consistency: {report.selection_consistency}",
         f"activity_cursor: {report.activity_cursor}",
-    ]
+    ))
     if report.end_selection:
         lines.append("end_selection:")
         for entry in report.end_selection:
@@ -373,6 +385,10 @@ def _front_matter_lines(report: HandoffReport) -> list[str]:
     else:
         lines.append("activity_selection: []")
     return lines
+
+
+def _is_scope_report(report: HandoffReport) -> bool:
+    return report.project.project_id == "unused" and len(report.workstreams) == 1
 
 
 def _agent(event: ReportActivityEvent, labels: dict[str, str]) -> str:

@@ -128,11 +128,34 @@ def test_handoff_report_catalog_and_json_projection_are_available_over_http(tmp_
             json={"workspace_instance_id": "workspace-1"},
         )
 
+        prepared_for_report = client.post(
+            "/v1/work/handoffs/prepare-current",
+            json={
+                "scope_id": "scope-report",
+                "source_id": "handoff-report-boundary",
+                "handoff": {
+                    "schema": "powercontext.current-work-handoff.v1",
+                    "trust": "untrusted_input",
+                    "objective": "Continue the Handoff Report work.",
+                    "state": [{"text": "Scope reports are available.", "basis": "declared", "evidence": []}],
+                    "disposition": "continuable",
+                    "next_action": None,
+                    "omissions": [],
+                },
+            },
+        )
+        assert prepared_for_report.status_code == 200
+        committed = client.post(
+            "/v1/handoff/commit",
+            json={"scope_id": "scope-report", "handoff": prepared_for_report.json()["handoff"]},
+        )
+
         listed = client.post("/v1/handoff-reports/projects/list", json={})
+        listed_scopes = client.post("/v1/handoff-reports/scopes/list-known", json={})
         report_response = client.post(
             "/v1/handoff-reports/get",
             json={
-                "project_id": project["project_id"],
+                "scope_id": "scope-report",
                 "include_evidence_checks": False,
                 "format": "json",
             },
@@ -140,7 +163,7 @@ def test_handoff_report_catalog_and_json_projection_are_available_over_http(tmp_
         periodic_response = client.post(
             "/v1/handoff-reports/get",
             json={
-                "project_id": project["project_id"],
+                "scope_id": "scope-report",
                 "include_evidence_checks": False,
                 "format": "json",
                 "period": {
@@ -154,7 +177,7 @@ def test_handoff_report_catalog_and_json_projection_are_available_over_http(tmp_
         markdown_response = client.post(
             "/v1/handoff-reports/get",
             json={
-                "project_id": project["project_id"],
+                "scope_id": "scope-report",
                 "include_evidence_checks": False,
                 "format": "markdown",
                 "locale": "en",
@@ -162,12 +185,12 @@ def test_handoff_report_catalog_and_json_projection_are_available_over_http(tmp_
         )
         default_response = client.post(
             "/v1/handoff-reports/get",
-            json={"project_id": project["project_id"], "include_evidence_checks": False},
+            json={"scope_id": "scope-report", "include_evidence_checks": False},
         )
         downloaded = client.post(
             "/v1/handoff-reports/get",
             json={
-                "project_id": project["project_id"],
+                "scope_id": "scope-report",
                 "include_evidence_checks": False,
                 "format": "markdown",
                 "download": True,
@@ -179,6 +202,9 @@ def test_handoff_report_catalog_and_json_projection_are_available_over_http(tmp_
         )
 
     assert listed.status_code == 200
+    assert committed.status_code == 200
+    assert listed_scopes.status_code == 200
+    assert listed_scopes.json() == {"items": [{"scope_id": "scope-report"}], "next_cursor": None}
     assert fetched_project.json() == project
     assert updated_project.status_code == 200
     assert updated_project.json()["version"] == 2
@@ -188,14 +214,17 @@ def test_handoff_report_catalog_and_json_projection_are_available_over_http(tmp_
     assert report_response.status_code == 200
     body = report_response.json()
     assert body["format"] == "json"
-    assert body["report"]["project"]["project_id"] == project["project_id"]
-    assert body["report"]["summary"]["no_handoff_count"] == 1
-    assert body["report"]["coverage"]["activity_without_handoff_workstreams"] == 1
+    assert body["report"]["project"]["project_id"] == "unused"
+    assert body["report"]["workstreams"][0]["workstream"]["scope_id"] == "scope-report"
+    assert body["report"]["summary"]["continuable_count"] == 1
+    assert body["report"]["coverage"]["activity_coverage"] == "not_configured"
     assert body["selection_digest"].startswith("sha256:")
     assert body["report_digest"].startswith("sha256:")
     assert markdown_response.status_code == 200
     assert markdown_response.headers["content-type"].startswith("text/markdown")
     assert "# PowerContext Project Handoff Report" in markdown_response.text
+    assert 'scope_id: "scope-report"' in markdown_response.text
+    assert "project_id:" not in markdown_response.text
     assert default_response.status_code == 200
     assert default_response.headers["content-type"].startswith("text/markdown")
     assert "# PowerContext 项目交接报告" in default_response.text
@@ -216,10 +245,7 @@ def test_handoff_report_catalog_and_json_projection_are_available_over_http(tmp_
     periodic = periodic_response.json()["report"]
     assert periodic["report_kind"] == "periodic"
     assert periodic["normalized_period"]["timezone"] == "Asia/Shanghai"
-    assert periodic["period_comparison"]["current_activity_count"] == 1
-    assert periodic["period_comparison"]["previous_activity_count"] == 1
-    assert periodic["period_comparison"]["activity_delta"] == 0
-    assert periodic["period_comparison"]["handoff_boundary_coverage"] == "unavailable"
+    assert periodic["period_comparison"] is None
     assert attached.status_code == 200
     assert binding.status_code == 200
     assert binding.json() == attached.json()

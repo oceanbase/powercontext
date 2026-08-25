@@ -1117,6 +1117,33 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/handoff-reports/scopes/list-known": {
+            "post": {
+                "tags": ["handoff-reports"],
+                "summary": "List scopes that contain a committed Handoff",
+                "operationId": "list_handoff_report_known_scopes",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/ListHandoffReportKnownScopesRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "A cursor-paginated page of scopes that can be rendered as Handoff Reports.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/KnownHandoffScopePage"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
         "/v1/handoff-reports/projects/get": {
             "post": {
                 "tags": ["handoff-reports"],
@@ -2733,7 +2760,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "GetHandoffReportRequest": {
                 "properties": {
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "project_id": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "description": "Retained for wire compatibility and ignored when generating a scope report.",
+                        "deprecated": True,
+                        "nullable": True,
+                    },
                     "locale": {"$ref": "#/components/schemas/ReportLocale", "nullable": True},
                     "include_evidence_checks": {"type": "boolean", "default": True},
                     "format": {"$ref": "#/components/schemas/ReportFormat", "default": "markdown"},
@@ -2743,7 +2778,30 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["project_id"],
+                "required": ["scope_id"],
+            },
+            "ListHandoffReportKnownScopesRequest": {
+                "properties": {
+                    "cursor": {"type": "string", "nullable": True},
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "KnownHandoffScope": {
+                "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "KnownHandoffScopePage": {
+                "properties": {
+                    "items": {"items": {"$ref": "#/components/schemas/KnownHandoffScope"}, "type": "array"},
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items"],
             },
             "HandoffReportPeriodRequest": {
                 "properties": {
