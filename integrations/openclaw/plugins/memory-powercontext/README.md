@@ -8,7 +8,7 @@ explicit memory tools while OpenClaw remains responsible for agent identity, ses
 From a PowerContext checkout, install and configure the plugin with the PowerContext CLI:
 
 ```bash
-powercontext setup openclaw --source . --server-url http://127.0.0.1:8000
+powercontext setup openclaw --source .
 ```
 
 The command builds the plugin, installs it into OpenClaw, selects it as the active memory slot, and restarts the Gateway.

@@ -89,6 +89,12 @@ def test_enable_initializes_local_gateway_when_mode_is_missing(monkeypatch: pyte
     assert commands[0][1:4] == ["config", "get", "gateway.mode"]
 
 
+def test_parser_uses_powercontext_server_default_port() -> None:
+    args = configure_openclaw.build_parser().parse_args(["enable"])
+
+    assert args.endpoint == "http://127.0.0.1:8000"
+
+
 @pytest.mark.parametrize(
     "value",
     [

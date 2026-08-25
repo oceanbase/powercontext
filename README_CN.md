@@ -24,10 +24,12 @@ powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
 powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
 powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
 powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
+powercontext setup openclaw --source oceanbase/powercontext
 ```
 
-第一条命令会在隔离环境中安装 CLI 和本地 Server。后续 setup 命令会从匹配的仓库 tag 安装对应的
-集成。如需刷新现有安装，请再次运行 setup。
+第一条命令会在隔离环境中安装 CLI 和本地 Server。后续 setup 命令会从指定的仓库 source 安装对应的集成。
+OpenClaw 在 `v0.0.2` 之后才加入，因此当前从仓库默认分支安装；包含该集成的新 release tag 发布后，请改用新 tag。
+如需刷新现有安装，请再次运行 setup。
 
 ### 2. 启动并验证本地 Server
 
@@ -74,7 +76,7 @@ SQLite 数据库。显式 Memory 操作无需配置 inference provider 即可使
 
 ## 集成
 
-PowerContext 为 Codex、Claude Code、DeepSeek Harness、Hermes Agent 和 Pi Coding Agent 提供官方集成与安装指南。
+PowerContext 为 Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent 和 OpenClaw 提供官方集成与安装指南。
 这些集成都通过 PowerContext Server 使用同一套作用域数据和保留历史的契约；宿主集成不会自行启动或内嵌 Server。
 
 ### 官方集成
@@ -86,6 +88,7 @@ PowerContext 为 Codex、Claude Code、DeepSeek Harness、Hermes Agent 和 Pi Co
 <td align="center" width="120"><a href="docs/zh/docs/how-to/configure-dsh.md"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/zh/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/how-to/configure-openclaw.md"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
 </tr>
 </table>
 

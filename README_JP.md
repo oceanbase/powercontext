@@ -26,11 +26,13 @@ powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
 powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
 powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
 powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
+powercontext setup openclaw --source oceanbase/powercontext
 ```
 
 最初のコマンドは、隔離された環境に CLI とローカル Server をインストールします。以降の setup コマンドは、
-対応するリポジトリの tag から各インテグレーションをインストールします。既存のインストールを更新するには、setup を
-再実行してください。
+指定したリポジトリ source から各インテグレーションをインストールします。OpenClaw は `v0.0.2` の後に追加されたため、
+現在はリポジトリのデフォルトブランチからインストールします。このインテグレーションを含む新しい release tag が公開されたら、
+その tag を使用してください。既存のインストールを更新するには、setup を再実行してください。
 
 ### 2. ローカル Server を起動して検証する
 
@@ -78,7 +80,7 @@ powercontext doctor codex  # または: claude-code / dsh / hermes
 
 ## インテグレーション
 
-PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent 向けの公式インテグレーションと
+PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent、OpenClaw 向けの公式インテグレーションと
 インストールガイドを提供します。これらのインテグレーションは、PowerContext Server を通じて同じスコープ付きデータと
 履歴を保持する契約を使用します。ホストインテグレーションが Server を自動的に起動したり、組み込んだりすることはありません。
 
@@ -91,6 +93,7 @@ PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Codi
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-dsh.md"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-openclaw.md"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
 </tr>
 </table>
 

@@ -17,25 +17,25 @@ integration:
 ```bash
 powercontext setup openclaw \
   --source oceanbase/powercontext \
-  --ref master \
-  --server-url http://127.0.0.1:8000
+  --ref master
 ```
 
 A local checkout works as well:
 
 ```bash
-powercontext setup openclaw --source . --server-url http://127.0.0.1:8000
+powercontext setup openclaw --source .
 ```
 
 Setup builds and links the plugin, selects it as OpenClaw's memory slot, enables automatic recall and capture, adds its
 tools to `tools.alsoAllow`, and restarts the Gateway. It does not start PowerContext Server.
+The setup default points to PowerContext Server at `http://127.0.0.1:8000`, matching `powercontext server run`.
 
 When using the remote `master` ref, setup uses a cached checkout. Re-running the command does not fetch a newer commit
 from that mutable ref. To refresh it reliably, update a local PowerContext checkout and install from that checkout:
 
 ```bash
 git pull --ff-only
-powercontext setup openclaw --source . --server-url http://127.0.0.1:8000
+powercontext setup openclaw --source .
 ```
 
 Once a release tag containing OpenClaw is published, prefer that immutable tag instead of `master`.
@@ -62,7 +62,6 @@ project-specific partition and OpenClaw provides exactly one trusted project ide
 powercontext setup openclaw \
   --source oceanbase/powercontext \
   --ref master \
-  --server-url http://127.0.0.1:8000 \
   --scope-mode project
 ```
 

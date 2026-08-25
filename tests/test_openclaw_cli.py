@@ -171,8 +171,6 @@ def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pyte
             "oceanbase/powercontext",
             "--ref",
             "tested-ref",
-            "--server-url",
-            "http://127.0.0.1:8765",
             "--scope-mode",
             "agent",
             "--json",
@@ -184,6 +182,6 @@ def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pyte
     install.assert_called_once_with(
         source="oceanbase/powercontext",
         ref="tested-ref",
-        server_url="http://127.0.0.1:8765",
+        server_url="http://127.0.0.1:8000",
         scope_mode="agent",
     )

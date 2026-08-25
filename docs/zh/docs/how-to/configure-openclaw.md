@@ -15,25 +15,25 @@ Hook；插件通过 PowerContext Server 完成限定 scope 的召回和持久化
 ```bash
 powercontext setup openclaw \
   --source oceanbase/powercontext \
-  --ref master \
-  --server-url http://127.0.0.1:8000
+  --ref master
 ```
 
 也可以使用本地 checkout：
 
 ```bash
-powercontext setup openclaw --source . --server-url http://127.0.0.1:8000
+powercontext setup openclaw --source .
 ```
 
 setup 会构建并链接插件，将它设为 OpenClaw Memory slot，开启自动召回和采集，把插件工具加入
 `tools.alsoAllow`，然后重启 Gateway。setup 不会启动 PowerContext Server。
+setup 默认连接 `http://127.0.0.1:8000` 的 PowerContext Server，与 `powercontext server run` 的默认地址一致。
 
 使用远程 `master` ref 时，setup 使用缓存的 checkout。再次执行命令不会从这个可变 ref 获取新 commit。可靠更新方式是
 先更新本地 PowerContext checkout，再从该 checkout 安装：
 
 ```bash
 git pull --ff-only
-powercontext setup openclaw --source . --server-url http://127.0.0.1:8000
+powercontext setup openclaw --source .
 ```
 
 包含 OpenClaw 的 release tag 发布后，应优先使用不可变 tag，而不是 `master`。
@@ -60,7 +60,6 @@ openclaw tui
 powercontext setup openclaw \
   --source oceanbase/powercontext \
   --ref master \
-  --server-url http://127.0.0.1:8000 \
   --scope-mode project
 ```
 

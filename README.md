@@ -26,11 +26,13 @@ powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
 powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
 powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
 powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
+powercontext setup openclaw --source oceanbase/powercontext
 ```
 
 The first command installs the CLI and local Server in an isolated environment. The subsequent setup commands
-install the corresponding integrations from the matching repository tag. Run setup again to refresh an existing
-installation.
+install the corresponding integrations from the selected repository source. OpenClaw is currently installed from the
+repository's default branch because it was added after `v0.0.2`; use a later release tag when one includes the
+integration. Run setup again to refresh an existing installation.
 
 ### 2. Start and verify the local Server
 
@@ -79,7 +81,7 @@ model.
 ## Integrations
 
 PowerContext provides official integrations and installation guides for Codex, Claude Code, DeepSeek Harness, Hermes
-Agent, and Pi Coding Agent. These integrations use the same scoped data and history-preserving contracts through
+Agent, Pi Coding Agent, and OpenClaw. These integrations use the same scoped data and history-preserving contracts through
 PowerContext Server; the host integrations do not start or embed the Server.
 
 ### Official integrations
@@ -91,6 +93,7 @@ PowerContext Server; the host integrations do not start or embed the Server.
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-dsh.md"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-openclaw.md"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
 </tr>
 </table>
 
