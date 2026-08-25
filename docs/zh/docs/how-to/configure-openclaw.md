@@ -26,7 +26,17 @@ powercontext setup openclaw --source . --server-url http://127.0.0.1:8000
 ```
 
 setup 会构建并链接插件，将它设为 OpenClaw Memory slot，开启自动召回和采集，把插件工具加入
-`tools.alsoAllow`，然后重启 Gateway。再次执行 setup 可刷新现有安装。setup 不会启动 PowerContext Server。
+`tools.alsoAllow`，然后重启 Gateway。setup 不会启动 PowerContext Server。
+
+使用远程 `master` ref 时，setup 使用缓存的 checkout。再次执行命令不会从这个可变 ref 获取新 commit。可靠更新方式是
+先更新本地 PowerContext checkout，再从该 checkout 安装：
+
+```bash
+git pull --ff-only
+powercontext setup openclaw --source . --server-url http://127.0.0.1:8000
+```
+
+包含 OpenClaw 的 release tag 发布后，应优先使用不可变 tag，而不是 `master`。
 
 在一个终端中启动 Server：
 
@@ -42,8 +52,9 @@ openclaw tui
 
 ## 选择 Memory scope
 
-默认的 `agent` scope 会按 OpenClaw Agent 隔离 Memory。除非多个 Agent 需要明确共享项目 Memory，否则应保留此设置。
-当 OpenClaw 能为一次 turn 提供唯一且可信的项目身份时，可改用 project scope：
+默认的 `agent` scope 会按 OpenClaw Agent 隔离 Memory。`project` scope 仍然包含 Agent identity，因此它是每个 Agent
+独立的项目分区，不会在多个 Agent 之间共享 Memory。当每个 Agent 都需要稳定的项目分区，且 OpenClaw 能为一次 turn
+提供唯一且可信的项目身份时，可改用 project scope：
 
 ```bash
 powercontext setup openclaw \
@@ -62,6 +73,16 @@ powercontext setup openclaw \
 `powercontext_memory_store`、`powercontext_memory_revise` 和 `powercontext_memory_retire`。setup 默认开启自动召回和
 Source 采集。
 
+自动将 Source 提取为 Memory 需要配置 generation model。没有 generation model 时，采集的对话会保留为待处理 Source，
+不会成为可搜索的 Memory。请配置 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` 和 provider credential，重启
+Server，并在依赖自动提取前检查 capability：
+
+```bash
+powercontext capabilities
+```
+
+输出必须显示 memory extraction 已启用。显式 store 操作不需要 generation model。
+
 ## 连接启用鉴权的 Server
 
 Server 开启鉴权时，请在 OpenClaw Gateway 的运行环境中设置 `POWERCONTEXT_CLIENT_API_TOKEN`，其值必须与 Server
@@ -76,6 +97,7 @@ token 一致。插件会在请求时读取该变量并作为 Bearer credential �
 openclaw plugins list
 openclaw config get plugins.slots.memory
 openclaw config get plugins.entries.memory-powercontext.config.endpoint
+powercontext capabilities
 ```
 
 恢复 OpenClaw 内置的文件 Memory：

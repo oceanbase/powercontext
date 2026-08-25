@@ -28,8 +28,17 @@ powercontext setup openclaw --source . --server-url http://127.0.0.1:8000
 ```
 
 Setup builds and links the plugin, selects it as OpenClaw's memory slot, enables automatic recall and capture, adds its
-tools to `tools.alsoAllow`, and restarts the Gateway. Run setup again to refresh an existing installation. It does not
-start PowerContext Server.
+tools to `tools.alsoAllow`, and restarts the Gateway. It does not start PowerContext Server.
+
+When using the remote `master` ref, setup uses a cached checkout. Re-running the command does not fetch a newer commit
+from that mutable ref. To refresh it reliably, update a local PowerContext checkout and install from that checkout:
+
+```bash
+git pull --ff-only
+powercontext setup openclaw --source . --server-url http://127.0.0.1:8000
+```
+
+Once a release tag containing OpenClaw is published, prefer that immutable tag instead of `master`.
 
 Start the Server in one terminal:
 
@@ -45,8 +54,9 @@ openclaw tui
 
 ## Choose the memory scope
 
-The default `agent` scope isolates Memory by OpenClaw agent. Keep it unless agents must deliberately share project
-Memory. To use a trusted project identity when OpenClaw provides exactly one for the turn, reinstall with:
+The default `agent` scope isolates Memory by OpenClaw agent. `project` scope still includes that agent identity, so it
+creates a project partition per agent; it does not share Memory between agents. Use it when each agent needs a stable
+project-specific partition and OpenClaw provides exactly one trusted project identity for the turn:
 
 ```bash
 powercontext setup openclaw \
@@ -65,6 +75,16 @@ The plugin registers `powercontext_memory_search` and `powercontext_memory_get` 
 `powercontext_memory_store`, `powercontext_memory_revise`, and `powercontext_memory_retire`. Automatic recall and source
 capture are enabled by setup.
 
+Automatic Source-to-Memory extraction requires a configured generation model. Without one, captured conversations remain
+pending Sources and are not searchable Memory. Configure `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` and the
+provider credentials, restart the Server, and verify the capability before relying on automatic extraction:
+
+```bash
+powercontext capabilities
+```
+
+The output must report memory extraction as enabled. Explicit store operations do not require a generation model.
+
 ## Connect to an authenticated Server
 
 When Server authentication is enabled, set `POWERCONTEXT_CLIENT_API_TOKEN` in the environment of the OpenClaw Gateway.
@@ -79,6 +99,7 @@ Confirm that OpenClaw loaded the plugin and selected its memory slot:
 openclaw plugins list
 openclaw config get plugins.slots.memory
 openclaw config get plugins.entries.memory-powercontext.config.endpoint
+powercontext capabilities
 ```
 
 To restore OpenClaw's built-in file memory:
