@@ -148,6 +148,7 @@ powercontext server run
 PreparedContext、创建 managed Skill、将它导出到 Agent target 或执行任何内容。Memory 和 Experience job 共用
 `POWERCONTEXT_HOME` 下的 APScheduler sidecar，但拥有独立的 job identity 和业务 cursor；取消其中一个 interval
 只会移除对应 job。
+设置与验证步骤见[创建并审核 Experience](../how-to/create-and-review-experience.md)。
 
 ### Agent Skill 目标
 

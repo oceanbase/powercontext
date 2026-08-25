@@ -29,8 +29,8 @@ from powercontext.builtin.artifacts.skill.distribution import (
 )
 from powercontext.builtin.artifacts.skill.projection import AgentSkillProjectionState
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTargetState
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.skill_publications import SkillPublicationDesiredState
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 
 

@@ -751,6 +751,20 @@ class RelationalContexts:
             ).scalars()
             return tuple(str(value) for value in values)
 
+    async def handoff_scope_ids(self) -> tuple[str, ...]:
+        """Return scopes with a committed Handoff head, in deterministic order."""
+
+        async with self.database.transaction() as connection:
+            values = (
+                await connection.execute(
+                    select(ARTIFACT_HEADS_TABLE.c.scope_id)
+                    .where(ARTIFACT_HEADS_TABLE.c.family == Handoff.family)
+                    .distinct()
+                    .order_by(ARTIFACT_HEADS_TABLE.c.scope_id)
+                )
+            ).scalars()
+            return tuple(str(value) for value in values)
+
     async def incubate_experience(self, scope_id: str, limit: int, /) -> ExperienceIncubationResult:
         """Process one independent Task Outcome Source window for Review."""
 

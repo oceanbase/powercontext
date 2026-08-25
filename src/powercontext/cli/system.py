@@ -123,6 +123,10 @@ class SetupError(RuntimeError):
         return cls("Pi CLI is not installed or is not on PATH.")
 
     @classmethod
+    def opencode_unavailable(cls) -> SetupError:
+        return cls("OpenCode CLI is not installed or is not on PATH.")
+
+    @classmethod
     def hermes_unavailable(cls) -> SetupError:
         return cls("Hermes CLI is not installed or is not on PATH.")
 
@@ -141,6 +145,32 @@ class SetupError(RuntimeError):
     @classmethod
     def incomplete_pi_package(cls, path: Path) -> SetupError:
         return cls(f"PowerContext Pi package at {path} is missing its extension or project-context skill.")
+
+    @classmethod
+    def missing_opencode_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext OpenCode plugin was not found under {path}.")
+
+    @classmethod
+    def incomplete_opencode_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext OpenCode plugin at {path} is missing lib/index.js or project-context Skill.")
+
+    @classmethod
+    def invalid_opencode_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid OpenCode ref: {ref}")
+
+    @classmethod
+    def invalid_opencode_source(cls) -> SetupError:
+        return cls("invalid OpenCode source; use a local path or an HTTPS/SSH GitHub repository")
+
+    @classmethod
+    def unsupported_opencode_version(cls, actual: str) -> SetupError:
+        return cls(
+            f"OpenCode v{actual} is unsupported; PowerContext requires OpenCode v1.18.21 or newer in the 1.x line."
+        )
+
+    @classmethod
+    def opencode_skill_conflict(cls, path: Path) -> SetupError:
+        return cls(f"OpenCode Skill path {path} already exists and is not owned by PowerContext.")
 
     @classmethod
     def invalid_dsh_ref(cls, ref: str) -> SetupError:
@@ -512,6 +542,46 @@ def setup_pi(
     typer.echo("Next: run `powercontext server run`, then start a new Pi session.")
 
 
+@setup_app.command("opencode")
+def setup_opencode(
+    source: Annotated[
+        str,
+        typer.Option(help="PowerContext Git source or local checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install the PowerContext OpenCode plugin and Skill."""
+
+    from powercontext.cli.opencode import install_opencode_plugin, run_opencode_diagnostics
+
+    try:
+        result = install_opencode_plugin(source=source, ref=ref)
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    diagnostics = run_opencode_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext OpenCode setup complete.")
+    typer.echo(f"Plugin: {result.plugin} ({result.plugin_path})")
+    typer.echo(f"Skill: {result.skill_path}")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: run `powercontext server run`, then start a new OpenCode session.")
+
+
 @setup_app.command("hermes")
 def setup_hermes(
     source: Annotated[
@@ -634,6 +704,23 @@ def doctor_pi(
 
     diagnostics = run_pi_diagnostics()
 
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("opencode")
+def doctor_opencode(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional OpenCode CLI, plugin, and Skill."""
+
+    from powercontext.cli.opencode import run_opencode_diagnostics
+
+    diagnostics = run_opencode_diagnostics()
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)

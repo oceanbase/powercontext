@@ -157,6 +157,7 @@ Each activation inspects a fixed window of at most 32 Sources and exposes only C
 approve them, place them in PreparedContext, create a managed Skill, export it to an Agent target, or execute anything.
 The Memory and Experience jobs share the APScheduler sidecar under `POWERCONTEXT_HOME`, but keep independent job
 identities and business cursors. Unsetting one interval removes only that job.
+See [Create and review an Experience](../how-to/create-and-review-experience.md) for setup and verification steps.
 
 ### Agent Skill targets
 

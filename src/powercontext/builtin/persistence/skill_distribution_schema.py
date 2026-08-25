@@ -151,8 +151,7 @@ async def _ensure_mysql_schema(connection: AsyncConnection) -> None:
             "UPDATE pc_agent_skill_targets SET display_name = target_id WHERE display_name IS NULL"
         )
         await connection.exec_driver_sql(
-            "ALTER TABLE pc_agent_skill_targets MODIFY COLUMN display_name "
-            f"VARCHAR(128) {_MYSQL_IDENTITY} NOT NULL"
+            f"ALTER TABLE pc_agent_skill_targets MODIFY COLUMN display_name VARCHAR(128) {_MYSQL_IDENTITY} NOT NULL"
         )
     if "machine_hostname" not in target_by_name:
         await connection.exec_driver_sql(

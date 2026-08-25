@@ -129,6 +129,7 @@ def test_engine_uses_the_local_socket(tmp_path, monkeypatch: pytest.MonkeyPatch)
         "init_command": "SET autocommit = 0",
         "unix_socket": "seekdb.sock",
     }
+    assert captured["hide_parameters"] is True
 
 
 def test_profile_closes_engine_before_instance(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

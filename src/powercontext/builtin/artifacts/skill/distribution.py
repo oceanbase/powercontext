@@ -675,11 +675,7 @@ class RemoteSkillDistributionService:
         environment_fingerprint: str | None,
         observed_at: datetime,
     ) -> SkillPublication:
-        state = (
-            AgentSkillProjectionState.DRIFTED
-            if error_code == "drifted"
-            else AgentSkillProjectionState.CONFLICT
-        )
+        state = AgentSkillProjectionState.DRIFTED if error_code == "drifted" else AgentSkillProjectionState.CONFLICT
         observed = publication.model_copy(
             update={
                 "observed_generation": publication.generation,
@@ -828,7 +824,7 @@ def _same_publication_payload(left: SkillPublication, right: SkillPublication) -
 def _normalized_target_display_name(value: str) -> str:
     normalized = value.strip()
     if not normalized or len(normalized) > 128:
-        raise ValueError("remote target display name must contain 1 to 128 characters")  # noqa: TRY003
+        raise ValueError("remote target display name must contain 1 to 128 characters")
     return normalized
 
 
@@ -837,7 +833,7 @@ def _normalized_optional_label(value: str | None, *, max_length: int) -> str | N
         return None
     normalized = value.strip()
     if not normalized or len(normalized) > max_length:
-        raise ValueError(f"remote target environment label must contain 1 to {max_length} characters")  # noqa: TRY003
+        raise ValueError(f"remote target environment label must contain 1 to {max_length} characters")
     return normalized
 
 

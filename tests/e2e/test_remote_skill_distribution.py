@@ -35,8 +35,8 @@ from powercontext.http import (
     ProposeSkillPackageRequest,
     PublishRemoteSkillRequest,
     ReconcileRemoteSkillsRequest,
-    RenameRemoteSkillTargetRequest,
     RemoteAgentKind,
+    RenameRemoteSkillTargetRequest,
     RevokeRemoteSkillTargetRequest,
     UnpublishRemoteSkillRequest,
 )

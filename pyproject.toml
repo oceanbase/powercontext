@@ -97,6 +97,9 @@ Documentation = "https://github.com/oceanbase/powercontext/tree/master/docs/en/d
 dev = [
     "datamodel-code-generator==0.64.0",
     "powercontext[cli,server]",
+    "powercontext-langgraph",
+    "langgraph>=1.2,<2",
+    "langchain-core>=1,<2",
     "pytest>=9.0.2",
     "pytest-cov>=7,<8",
     "pyyaml>=6,<7",
@@ -108,6 +111,9 @@ dev = [
     "mkdocstrings-python>=1.0.3",
     "sqlalchemy>=2,<3",
 ]
+
+[tool.uv.sources]
+powercontext-langgraph = { path = "integrations/langgraph", editable = true }
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -128,7 +134,14 @@ extra-paths = [
 ]
 
 [tool.ty.src]
-exclude = ["e2e/bub", "integrations/bub", "evaluation"]
+exclude = [
+    "e2e/bub",
+    "integrations/bub",
+    "integrations/langgraph",
+    "tests/langgraph_adapter",
+    "tests/e2e/test_langgraph_chain.py",
+    "evaluation",
+]
 
 [tool.ty.rules]
 division-by-zero = "error"
