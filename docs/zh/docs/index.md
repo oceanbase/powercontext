@@ -18,6 +18,9 @@ overview:
         - title: 在 Pi 中继续
           description: 通过原生 package 在 Pi 中打开项目上下文。
           href: zh/docs/how-to/configure-pi/
+        - title: 在 OpenClaw 中继续
+          description: 通过 memory 插件在 OpenClaw 中打开项目上下文。
+          href: zh/docs/how-to/configure-openclaw/
         - title: 交接当前工作
           description: 为另一个任务、会话或模型准备一份经过检查的 Handoff。
           href: zh/docs/how-to/handoff-with-codex/

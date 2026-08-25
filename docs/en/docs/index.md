@@ -18,6 +18,9 @@ overview:
         - title: Continue in Pi
           description: Open project context in Pi with the native package.
           href: en/docs/how-to/configure-pi/
+        - title: Continue in OpenClaw
+          description: Open project context in OpenClaw with the memory plugin.
+          href: en/docs/how-to/configure-openclaw/
         - title: Hand off current work
           description: Prepare a checked Handoff for another task, session, or model.
           href: en/docs/how-to/handoff-with-codex/

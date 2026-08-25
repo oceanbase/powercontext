@@ -1,0 +1,85 @@
+---
+title: 配置 OpenClaw
+description: 为 OpenClaw 安装 PowerContext memory 插件，并控制召回、采集、scope 和持久化写入。
+---
+
+# 配置 OpenClaw
+
+## 安装或刷新插件
+
+先安装 OpenClaw，再从与 PowerContext CLI 相同的 ref 安装插件：
+
+```bash
+powercontext setup openclaw --source oceanbase/powercontext --ref master
+```
+
+也可以使用本地 checkout：
+
+```bash
+powercontext setup openclaw --source .
+```
+
+`setup openclaw` 会用 pnpm 构建插件，通过 `openclaw plugins install --link --force` 安装，把它启用为 `memory`
+插件槽，把 PowerContext 工具加入 `tools.alsoAllow`，并重启 OpenClaw gateway。它不会启动 Server。启动 Server 后，
+开启新的 OpenClaw 会话：
+
+```bash
+powercontext server run
+openclaw
+```
+
+插件要求 OpenClaw 2026.8.1.2-beta.2 或更新版本。
+
+## 了解插件的行为
+
+OpenClaw 构建 prompt 前，插件会以默认 8000-byte 预算调用一次 `POST /v1/context/prepare`。召回内容会被标记为
+不可信历史证据。当前 system instruction、仓库规范和用户请求始终优先。
+
+符合条件的用户提示词会被独立采集为 Content Source，并使用确定性 source id，重复采集是幂等的。私密会话永远不会
+被采集。插件不会同步完整 OpenClaw transcript。Server 不可用、超时、重定向或响应不符合契约时，召回、采集和边界
+flush 都会正常降级：prompt 不变，普通工作不会被阻塞。
+
+插件暴露五个工具：`powercontext_memory_search`、`powercontext_memory_get`、`powercontext_memory_store`、
+`powercontext_memory_revise` 和 `powercontext_memory_retire`。写工具需要模型显式调用，由 OpenClaw 控制
+side-effecting 工具的执行。
+
+## 选择 memory scope
+
+scope 默认是 `agent`，根据 OpenClaw agent 身份推导 memory scope。需要多个 agent 共享同一项目的 memory 时使用
+project scope：
+
+```bash
+powercontext setup openclaw --scope-mode project
+```
+
+project scope 仅在 OpenClaw 为一次 turn 提供唯一可信项目身份时启用。
+
+## 连接启用鉴权的 Server
+
+在受保护环境中启动启用鉴权的 Server：
+
+```bash
+export POWERCONTEXT_SERVER_AUTH_ENABLED=true
+export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
+powercontext server run
+```
+
+插件从 `tokenEnv` 配置项指定的环境变量读取 Bearer token，默认是 `POWERCONTEXT_CLIENT_API_TOKEN`。在启动 OpenClaw
+gateway 进程前导出匹配的 token：
+
+```bash
+export POWERCONTEXT_CLIENT_API_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
+openclaw
+```
+
+不要把凭据放进 endpoint。插件只允许 loopback Server 使用明文 HTTP；远程 Server 必须使用 HTTPS。
+
+## 验证安装
+
+```bash
+powercontext doctor
+powercontext doctor openclaw
+```
+
+`doctor openclaw` 会检查 OpenClaw CLI 是否存在，以及 `openclaw plugins list` 是否列出了
+`memory-powercontext` 插件。修改 PowerContext 配置后需要重启 OpenClaw gateway。

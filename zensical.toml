@@ -26,6 +26,7 @@ nav = [
                 { "Configure DeepSeek Harness" = "en/docs/how-to/configure-dsh.md" },
                 { "Configure LangGraph" = "en/docs/how-to/configure-langgraph.md" },
                 { "Configure Pi" = "en/docs/how-to/configure-pi.md" },
+                { "Configure OpenClaw" = "en/docs/how-to/configure-openclaw.md" },
                 { "Trace with Phoenix" = "en/docs/how-to/trace-with-phoenix.md" },
             ] },
             { "Reference" = [
@@ -91,6 +92,7 @@ nav = [
                 { "配置 DeepSeek Harness" = "zh/docs/how-to/configure-dsh.md" },
                 { "配置 LangGraph" = "zh/docs/how-to/configure-langgraph.md" },
                 { "配置 Pi" = "zh/docs/how-to/configure-pi.md" },
+                { "配置 OpenClaw" = "zh/docs/how-to/configure-openclaw.md" },
                 { "用 Phoenix 查看 trace" = "zh/docs/how-to/trace-with-phoenix.md" },
             ] },
             { "参考" = [

@@ -24,7 +24,7 @@ from pathlib import Path
 from shutil import rmtree, which
 from urllib.parse import urlsplit, urlunsplit
 
-from powercontext.cli.system import OpenClawSetupResult, SetupError
+from powercontext.cli.system import Diagnostic, DiagnosticStatus, OpenClawSetupResult, SetupError
 from powercontext.paths import powercontext_data_dir
 
 OPENCLAW_PLUGIN_RELATIVE = Path("integrations") / "openclaw" / "plugins" / "memory-powercontext"
@@ -320,6 +320,52 @@ def run_process(command: list[str], *, timeout: int, check: bool = True) -> subp
     return completed
 
 
+def run_openclaw_diagnostics() -> dict[str, Diagnostic]:
+    """Collect diagnostics for the optional OpenClaw integration."""
+
+    try:
+        executable = openclaw_executable()
+    except SetupError:
+        return {
+            "openclaw": Diagnostic(
+                status=DiagnosticStatus.FAILED,
+                detail="OpenClaw CLI is not installed or is not on PATH",
+            ),
+            "plugin": Diagnostic(
+                status=DiagnosticStatus.SKIPPED,
+                detail="not checked because OpenClaw CLI is unavailable",
+            ),
+        }
+    try:
+        output = run_openclaw(executable, "plugins", "list").stdout or ""
+    except SetupError as error:
+        return {
+            "openclaw": Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error)),
+            "plugin": Diagnostic(
+                status=DiagnosticStatus.SKIPPED,
+                detail="plugin list is unavailable",
+            ),
+        }
+    installed = openclaw_plugin_installed(output)
+    return {
+        "openclaw": Diagnostic(status=DiagnosticStatus.OK, detail=executable),
+        "plugin": Diagnostic(
+            status=DiagnosticStatus.OK if installed else DiagnosticStatus.FAILED,
+            detail=(
+                f"{OPENCLAW_PLUGIN_NAME} is installed"
+                if installed
+                else "PowerContext OpenClaw plugin is not installed"
+            ),
+        ),
+    }
+
+
+def openclaw_plugin_installed(output: str) -> bool:
+    """Return whether ``openclaw plugins list`` reports the PowerContext plugin."""
+
+    return OPENCLAW_PLUGIN_NAME in output
+
+
 __all__ = [
     "OPENCLAW_PACKAGE_NAME",
     "OPENCLAW_PLUGIN_NAME",
@@ -333,8 +379,10 @@ __all__ = [
     "materialize_remote_checkout",
     "normalize_server_url",
     "openclaw_executable",
+    "openclaw_plugin_installed",
     "plugin_dir_from_checkout",
     "read_tools_allowlist",
     "resolve_openclaw_plugin_dir",
     "run_openclaw",
+    "run_openclaw_diagnostics",
 ]

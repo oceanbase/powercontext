@@ -656,6 +656,23 @@ def doctor_hermes(
         raise typer.Exit(code=1)
 
 
+@doctor_app.command("openclaw")
+def doctor_openclaw(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional OpenClaw CLI and PowerContext memory plugin."""
+
+    from powercontext.cli.openclaw import run_openclaw_diagnostics
+
+    diagnostics = run_openclaw_diagnostics()
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
 def install_codex_plugin(*, source: str, ref: str) -> CodexSetupResult:
     """Install the plugin from one local or Git marketplace source."""
 
