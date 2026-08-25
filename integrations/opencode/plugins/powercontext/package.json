@@ -1,0 +1,39 @@
+{
+  "name": "powercontext-opencode",
+  "version": "0.0.1",
+  "description": "OpenCode plugin that connects to a PowerContext Server for project-scoped memory and handoff.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/index.d.ts",
+    "skills/project-context/SKILL.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.18.21 <2"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.21",
+    "@types/node": "^24.3.0",
+    "tsdown": "^0.16.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20",
+    "opencode": ">=1.18.21 <2"
+  }
+}

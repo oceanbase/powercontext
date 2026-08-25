@@ -352,9 +352,7 @@ def run_openclaw_diagnostics() -> dict[str, Diagnostic]:
         "plugin": Diagnostic(
             status=DiagnosticStatus.OK if installed else DiagnosticStatus.FAILED,
             detail=(
-                f"{OPENCLAW_PLUGIN_NAME} is installed"
-                if installed
-                else "PowerContext OpenClaw plugin is not installed"
+                f"{OPENCLAW_PLUGIN_NAME} is installed" if installed else "PowerContext OpenClaw plugin is not installed"
             ),
         ),
     }

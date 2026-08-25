@@ -109,15 +109,6 @@ powercontext doctor pi
 powercontext server run
 powercontext ready
 powercontext capabilities
-powercontext candidate list --scope-id project:example
-powercontext candidate list --scope-id project:example --family skill
-powercontext candidate show --scope-id project:example CANDIDATE_ID
-powercontext candidate approve --scope-id project:example --expected-version 1 CANDIDATE_ID
-powercontext candidate reject --scope-id project:example --expected-version 1 --reason unsupported CANDIDATE_ID
-powercontext candidate revise experience --scope-id project:example --expected-version 1 \
-  --situation SITUATION --action ACTION --outcome OUTCOME --lesson LESSON CANDIDATE_ID
-powercontext candidate revise skill --scope-id project:example --expected-version 1 \
-  --name NAME --description DESCRIPTION --instructions-file instructions.md --validation CHECK CANDIDATE_ID
 powercontext experience generate --scope-id project:example --source-ref content/SOURCE_ID
 powercontext skill generate --scope-id project:example --origin experience \
   --artifact-ref experience/EXPERIENCE_ID@REVISION
@@ -138,6 +129,9 @@ not create a second content profile inside the CLI.
 checks the Codex CLI and PowerContext plugin explicitly. `powercontext doctor dsh` checks the DeepSeek Harness CLI
 and that dump-config lists the plugin id `powercontext-dsh`. `powercontext doctor pi` checks the Pi executable and
 that Pi lists the PowerContext package.
+
+The `candidate` command group exposes the human Review Inbox. See [Review Candidates](../how-to/review-candidates.md)
+for the ordered workflow to list, inspect, revise, approve, or reject Candidates.
 
 Generation and revision commands accept repeatable `--source-ref TYPE/ID` and
 `--artifact-ref FAMILY/ID@REVISION` options instead of serialized request files. `--target FAMILY/ID@REVISION`
@@ -203,36 +197,22 @@ existing generic Artifact head and enters the backend's rebuildable FTS index, m
 `PreparedContext` recall in the same scope. Pending and rejected Candidates, all managed Skills, and historical
 Experience revisions remain excluded.
 
+For the relationship between evidence, Candidate versions, approved Revisions, recall, and export, see
+[Experience and Skill lifecycle](../explanation/experience-and-skill-lifecycle.md).
+
 ## Scheduled Experience incubation
 
-An integration can capture a completed task as a Content Source with metadata `"kind": "task-outcome"`. When the
-Experience schedule is configured, APScheduler scans bounded Source windows and asks the configured schema-bound
-pipeline for reusable situation, action, outcome, and lesson proposals. Each proposal cites exact Sources and enters
-the Review Inbox as a pending Experience Candidate.
-
-Experience incubation has its own persisted Source cursor, independent from Memory extraction. Candidate writes and
-cursor advancement commit together; a generation or write failure leaves the window available for retry. Ordinary
-prompt Sources are not Task Outcomes and are ignored by this job.
-
-Scheduling stops at the review boundary. It never approves an Experience, includes pending content in
-PreparedContext, derives a managed Skill, exports a Skill for Codex, or executes instructions. Skill authoring and
-export remain explicit steps after the supporting Experience is approved.
+The scheduler accepts only Content Sources with metadata `"kind": "task-outcome"`, uses an independent persisted
+cursor, and creates pending Experience Candidates. Candidate writes and cursor advancement commit together. The job
+does not approve content or include pending content in `PreparedContext`. Setup and verification steps are in
+[Create and review an Experience](../how-to/create-and-review-experience.md).
 
 ## Managed Skill export to Codex
 
-A configured generator can produce complete managed Skill content through `generate_skill`; a human or integration
-can submit already-complete typed content through `propose_skill`. The proposal contains a name, discovery
-description, instructions, validation checks, and exact Source or Artifact lineage. It remains a Candidate until a
-reviewer approves the exact Candidate version.
-
-Approval creates an immutable Skill Revision. It does not install the Skill or grant execution authority. To make one
-approved Revision available to Codex, export it explicitly into a new repository or user Skill directory with
-`skill export --target codex`. The command writes `SKILL.md` and `powercontext.json`; the manifest records the exact
-Artifact reference and rendered-content hash. It refuses to replace an existing destination, so updates require an
-intentional new export rather than a silent overwrite.
-
-Codex can discover a repository-local export under `.agents/skills/<name>/SKILL.md`. The Artifact Revision remains
-the content authority; the directory is a host-local projection that can be rebuilt from the same exact Revision.
+Approval creates an immutable Skill Revision but does not install it or grant execution authority. The Codex exporter
+writes `SKILL.md` and `powercontext.json` into a new destination and refuses to replace an existing directory. The
+manifest binds the projection to one exact Artifact Revision and rendered-content hash. See
+[Create and export a managed Skill](../how-to/create-and-export-skill.md) for the procedure.
 
 ## External Agent-native Skills
 

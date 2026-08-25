@@ -190,9 +190,7 @@ def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pyte
 
 
 def test_run_openclaw_diagnostics_reports_installed_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
-    run_process = Mock(
-        return_value=CompletedProcess(["openclaw", "plugins", "list"], 0, "  memory-powercontext\n", "")
-    )
+    run_process = Mock(return_value=CompletedProcess(["openclaw", "plugins", "list"], 0, "  memory-powercontext\n", ""))
     monkeypatch.setattr(openclaw_cli, "openclaw_executable", lambda: "/usr/bin/openclaw")
     monkeypatch.setattr(openclaw_cli, "run_process", run_process)
 
@@ -231,9 +229,7 @@ def test_doctor_openclaw_reports_an_installed_plugin_as_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run_process = Mock(
-        return_value=CompletedProcess(["openclaw", "plugins", "list"], 0, "  memory-powercontext\n", "")
-    )
+    run_process = Mock(return_value=CompletedProcess(["openclaw", "plugins", "list"], 0, "  memory-powercontext\n", ""))
     monkeypatch.setattr(openclaw_cli, "openclaw_executable", lambda: "/usr/bin/openclaw")
     monkeypatch.setattr(openclaw_cli, "run_process", run_process)
 
