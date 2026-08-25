@@ -158,9 +158,9 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
         enabled_page = client.get("/handoff-reports")
         disabled_dashboard = client.get("/")
         disabled_dashboard_scopes = client.get("/dashboard/scopes", headers=_AUTH_HEADERS)
-        protected_projects = client.post(
-            "/v1/handoff-reports/projects/list",
-            json={"limit": 100, "include_archived": False},
+        protected_scopes = client.post(
+            "/v1/handoff-reports/scopes/list-known",
+            json={"limit": 100},
         )
 
     assert disabled_page.status_code == 404
@@ -235,8 +235,8 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
     assert enabled_page.text.index('class="data-section activity-section"') < enabled_page.text.index(
         '<details class="report-metadata">'
     )
-    assert "handoff-report.js?v=default-startup-unified-editor-preview-v1" in enabled_page.text
-    assert protected_projects.status_code == 401
+    assert "handoff-report.js?v=scope-report-v1" in enabled_page.text
+    assert protected_scopes.status_code == 401
 
 
 def test_handoff_report_page_contains_a_data_free_preview_template(tmp_path) -> None:

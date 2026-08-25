@@ -154,6 +154,7 @@ def test_mcp_exposes_read_only_handoff_report_tools_only_when_feature_routes_are
 
     assert "get_handoff_report" in tools
     assert "get_handoff_report_workspace" in tools
+    assert "list_handoff_report_known_scopes" in tools
     assert "record_handoff_report_activity" not in tools
     assert "attach_handoff_report_workspace" not in tools
     picker = tools["select_handoff_workstream"]

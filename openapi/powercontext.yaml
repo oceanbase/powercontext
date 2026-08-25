@@ -1275,6 +1275,33 @@ paths:
           $ref: "#/components/responses/InvalidRequest"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/scopes/list-known:
+    post:
+      tags: [handoff-reports]
+      summary: List scopes that contain a committed Handoff
+      operationId: list_handoff_report_known_scopes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListHandoffReportKnownScopesRequest"
+      responses:
+        "200":
+          description: A cursor-paginated page of scopes that can be rendered as Handoff Reports.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnownHandoffScopePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/handoff-reports/projects/get:
     post:
       tags: [handoff-reports]
@@ -3378,12 +3405,19 @@ components:
     GetHandoffReportRequest:
       type: object
       additionalProperties: false
-      required: [project_id]
+      required: [scope_id]
       properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
         project_id:
           type: string
           minLength: 1
           maxLength: 256
+          nullable: true
+          deprecated: true
+          description: Retained for wire compatibility and ignored when generating a scope report.
         locale:
           $ref: "#/components/schemas/ReportLocale"
           nullable: true
@@ -3401,6 +3435,39 @@ components:
           default: false
         period:
           $ref: "#/components/schemas/HandoffReportPeriodRequest"
+          nullable: true
+    ListHandoffReportKnownScopesRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        cursor:
+          type: string
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+    KnownHandoffScope:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+    KnownHandoffScopePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnownHandoffScope"
+        next_cursor:
+          type: string
           nullable: true
     HandoffReportPeriodRequest:
       type: object

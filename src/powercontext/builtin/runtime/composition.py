@@ -283,6 +283,7 @@ async def open_builtin_runtime(
                 contexts.database,
                 RuntimeHandoffReadAdapter(runtime.handoff),
                 continuity=RuntimeWorkContinuityReadAdapter(runtime.work),
+                scope_ids=contexts.handoff_scope_ids,
             )
         if config.runtime.schedule_seconds is not None and configured_pipeline is None:
             raise BuiltinConfigurationError("scheduled-pipeline")

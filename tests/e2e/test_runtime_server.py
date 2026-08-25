@@ -60,7 +60,6 @@ from powercontext.http import (
     CaptureContentSourceRequest,
     CommitHandoffRequest,
     ContinueHandoffRequest,
-    CreateHandoffReportProjectRequest,
     CreateWorkContractRequest,
     FinalizeHandoffRequest,
     FlushMemoryRequest,
@@ -74,13 +73,11 @@ from powercontext.http import (
     PrepareContextRequest,
     ReadinessStatus,
     RecordTaskOutcomeRequest,
-    RegisterHandoffReportWorkstreamRequest,
     RememberMemoryRequest,
     ReportFormat,
     RetireMemoryEntryRequest,
     ReviseMemoryEntryRequest,
     SearchMemoryRequest,
-    WorkstreamKind,
 )
 from powercontext.http import MemorySearchMode as HttpMemorySearchMode
 from powercontext.server.factory import create_server_app
@@ -425,17 +422,6 @@ def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> N
             ) as transport,
         ):
             client = PowerContextClient("http://testserver", http_client=transport)
-            project = await client.create_handoff_report_project(
-                CreateHandoffReportProjectRequest(project_key="work-continuity", title="Work continuity")
-            )
-            await client.register_handoff_report_workstream(
-                RegisterHandoffReportWorkstreamRequest(
-                    project_id=project.project_id,
-                    scope_id=scope_id,
-                    title="Work continuity implementation",
-                    kind=WorkstreamKind.FEATURE,
-                )
-            )
             contract = await client.create_work_contract(
                 CreateWorkContractRequest.model_validate({
                     "scope_id": scope_id,
@@ -548,7 +534,7 @@ def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> N
             )
             report = await client.get_handoff_report(
                 GetHandoffReportRequest(
-                    project_id=project.project_id,
+                    scope_id=scope_id,
                     include_evidence_checks=False,
                     format=ReportFormat.JSON,
                 )
