@@ -34,6 +34,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.tools import ToolDefinition
+from typing_extensions import override
 
 from powercontext.client import ClientError
 from powercontext.client.capture import render_capture_event
@@ -87,9 +88,11 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
         self._state = _state
 
     @classmethod
+    @override
     def get_serialization_name(cls) -> None:
         return None
 
+    @override
     async def for_run(self, ctx: RunContext[AgentDepsT]) -> PowerContext[AgentDepsT]:
         if self._state is not None:
             return self
@@ -103,9 +106,11 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             _auth_reporter=self._auth_reporter,
         )
 
+    @override
     def get_toolset(self) -> PowerContextToolset[AgentDepsT]:
         return self._toolset
 
+    @override
     async def before_model_request(
         self,
         ctx: RunContext[AgentDepsT],
@@ -137,6 +142,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
         )
         return replace(request_context, messages=[context_request, *request_context.messages])
 
+    @override
     async def after_model_request(
         self,
         ctx: RunContext[AgentDepsT],
@@ -165,6 +171,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             )
         return response
 
+    @override
     async def after_tool_execute(
         self,
         ctx: RunContext[AgentDepsT],
@@ -188,6 +195,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             )
         return result
 
+    @override
     async def after_run(
         self,
         ctx: RunContext[AgentDepsT],

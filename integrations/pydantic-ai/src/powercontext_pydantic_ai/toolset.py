@@ -27,6 +27,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry, RunContext
 from pydantic_ai.toolsets import FunctionToolset
+from typing_extensions import override
 
 from powercontext.client import ClientError, PowerContextClient, ServerResponseError
 from powercontext.http import MemorySearchMode, PrepareContextRequest, RememberMemoryRequest, SearchMemoryRequest
@@ -118,6 +119,7 @@ class PowerContextToolset(FunctionToolset[AgentDepsT], Generic[AgentDepsT]):
             description="Prepare a bounded packet of relevant PowerContext history for a question.",
         )
 
+    @override
     async def for_run(self, ctx: RunContext[AgentDepsT]) -> PowerContextToolset[AgentDepsT]:
         if self._state is not None:
             return self
@@ -135,6 +137,7 @@ class PowerContextToolset(FunctionToolset[AgentDepsT], Generic[AgentDepsT]):
             _auth_reporter=self._auth_reporter,
         )
 
+    @override
     async def __aenter__(self) -> PowerContextToolset[AgentDepsT]:
         state = self._require_state()
         token = self.settings.token.get_secret_value() if self.settings.token is not None else None
@@ -146,6 +149,7 @@ class PowerContextToolset(FunctionToolset[AgentDepsT], Generic[AgentDepsT]):
         state.client = await client.__aenter__()
         return self
 
+    @override
     async def __aexit__(self, *args: Any) -> bool | None:
         state = self._require_state()
         client = state.client
