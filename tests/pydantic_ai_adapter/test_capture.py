@@ -126,13 +126,13 @@ def test_capture_is_bounded_redacted_checkpointed_and_serialized_under_parallel_
     assert "[REDACTED]" in serialized
 
 
-def test_checkpoint_flush_catches_up_to_the_current_capture_position(
+def test_checkpoint_flush_catches_up_across_more_than_ten_source_windows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     RecordingClient.reset()
     RecordingClient.prepare_result = prepared_response(None)
-    RecordingClient.capture_position_offset = 3
-    RecordingClient.flush_cursors = (1, 2, 5)
+    RecordingClient.capture_position_offset = 20
+    RecordingClient.flush_cursors = tuple(range(1, 23))
     monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
 
     async def respond(_messages: list[Any], _info: Any) -> ModelResponse:
@@ -150,7 +150,7 @@ def test_checkpoint_flush_catches_up_to_the_current_capture_position(
 
     client = RecordingClient.instances[0]
     assert len(client.capture_requests) == 2
-    assert len(client.flush_requests) == 3
+    assert len(client.flush_requests) == 22
 
 
 def test_shared_capture_redacts_compact_keys_and_structured_json_strings() -> None:
