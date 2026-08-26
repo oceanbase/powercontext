@@ -7,9 +7,11 @@ description: Install the PowerContext WorkBuddy hooks and control its local beha
 
 ## Prerequisites
 
-- A running PowerContext installation. Install the CLI and local Server with
-  `uv tool install "powercontext[cli,server]==0.0.2"` and start the Server with
-  `powercontext server run`.
+- A running PowerContext installation. Until WorkBuddy support is included in a
+  tagged release, install the CLI and local Server from the same `master`
+  revision used below:
+  `uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"`.
+  Start the Server with `powercontext server run`.
 - WorkBuddy with user-level hooks, MCP, and Skills support (the desktop app).
 - Python 3.11 or newer on `PATH` for the hook process.
 - The plugin directory from this repository:
@@ -24,7 +26,7 @@ The CLI installs the hooks, MCP server, and Skill from a local checkout or a
 GitHub source in one step:
 
 ```bash
-powercontext setup workbuddy --source oceanbase/powercontext --ref v0.0.2
+powercontext setup workbuddy --source oceanbase/powercontext --ref master
 ```
 
 For a local checkout, point `--source` at the repository root or the plugin
@@ -38,8 +40,8 @@ The installer writes the hook driver and scope resolver to `~/.workbuddy/hooks`,
 merges the `UserPromptSubmit` hook into `~/.workbuddy/settings.json`, registers
 the `powercontext` server in `~/.workbuddy/mcp.json`, and installs the
 `project-context` Skill under `~/.workbuddy/skills`. Existing settings and other
-MCP servers are preserved, and the Skill's hooks directory placeholder is
-resolved automatically.
+MCP servers are preserved, and the Skill's command placeholders are resolved
+automatically.
 
 Verify the installation with:
 
@@ -70,7 +72,8 @@ cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/workbuddy_settings.py \
    "$PLUGIN"/hooks/prepared_context.py \
    "$WORKBUDDY_HOOKS_DIR"/
-cp -R "$PLUGIN/scripts" "$WORKBUDDY_HOOKS_DIR"/
+cp "$PLUGIN/scripts/project_scope.py" \
+   "$WORKBUDDY_HOOKS_DIR/powercontext_project_scope.py"
 ```
 
 ### 2. Register the hook
@@ -124,12 +127,16 @@ Merge the following `mcpServers` entry into `~/.workbuddy/mcp.json`:
 mkdir -p ~/.workbuddy/skills
 cp -R integrations/workbuddy/plugins/powercontext/skills/project-context \
   ~/.workbuddy/skills/
+cat > ~/.workbuddy/skills/project-context/.powercontext.json <<'EOF'
+{"schema": 1, "owner": "powercontext", "integration": "workbuddy"}
+EOF
 ```
 
-Then replace every `${WORKBUDDY_HOOKS_DIR}` placeholder in
-`~/.workbuddy/skills/project-context/SKILL.md` with the absolute path of your
-hooks directory, or export `WORKBUDDY_HOOKS_DIR` in the shell environment that
-starts WorkBuddy.
+Then replace `${POWERCONTEXT_PYTHON}` in
+`~/.workbuddy/skills/project-context/SKILL.md` with a shell-safe Python
+executable argument. Replace `${POWERCONTEXT_PROJECT_SCOPE_SCRIPT}` with a
+shell-safe complete path to
+`<WORKBUDDY_HOOKS_DIR>/powercontext_project_scope.py`.
 
 ### 5. Start the Server, restart WorkBuddy, and verify
 
@@ -256,8 +263,10 @@ export POWERCONTEXT_WORKBUDDY_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
 ```
 
 Restart WorkBuddy after changing the variable. The prompt Hook reads this value
-from the environment; `.mcp.json` keeps an empty `headers` object. Do not put
-the token in `.mcp.json`, the Server URL, or a static MCP header.
+from the environment. `.mcp.json` stores only the
+`${POWERCONTEXT_WORKBUDDY_AUTHORIZATION:-}` template, which WorkBuddy expands
+from the same environment; the token itself remains outside the file. Do not put
+the token in `.mcp.json` or the Server URL.
 
 When the variable is absent or empty and Server authentication is disabled, the
 plugin behaves exactly as it does by default. When Server authentication is

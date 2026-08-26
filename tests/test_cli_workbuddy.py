@@ -45,14 +45,21 @@ def _write_plugin(root: Path) -> Path:
     scripts = plugin / "scripts"
     scripts.mkdir()
     (scripts / "__init__.py").write_text('"""PowerContext helper scripts."""\n', encoding="utf-8")
-    (scripts / "project_scope.py").write_text("def resolve_scope_id() -> str:\n    return 'scope'\n", encoding="utf-8")
+    (scripts / "project_scope.py").write_text(
+        "import json\n\n"
+        "def resolve_scope_id(*_args, **_kwargs) -> str:\n"
+        "    return 'scope'\n\n"
+        "if __name__ == '__main__':\n"
+        "    print(json.dumps({'scope_id': 'scope'}))\n",
+        encoding="utf-8",
+    )
     cache = scripts / "__pycache__"
     cache.mkdir()
     (cache / "project_scope.cpython-312.pyc").write_bytes(b"\x00")
     skill = plugin / "skills" / "project-context"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text(
-        "${POWERCONTEXT_PYTHON} ${WORKBUDDY_HOOKS_DIR}/scripts/project_scope.py\n",
+        '${POWERCONTEXT_PYTHON} ${POWERCONTEXT_PROJECT_SCOPE_SCRIPT} --cwd "$PWD"\n',
         encoding="utf-8",
     )
     return plugin
@@ -68,11 +75,14 @@ def _powercontext_hook(settings: dict[str, Any]) -> dict[str, Any]:
 
 
 def _expected_hook_command(hooks_dir: Path) -> str:
-    executable = Path(sys.executable).as_posix()
-    script = (hooks_dir / "workbuddy_powercontext_hook.py").as_posix()
+    return f"{_shell_argument(Path(sys.executable).as_posix())} {_shell_argument(hooks_dir / 'workbuddy_powercontext_hook.py')}"
+
+
+def _shell_argument(value: str | Path) -> str:
+    text = Path(value).as_posix() if isinstance(value, Path) else value
     if os.name == "nt":
-        return subprocess.list2cmdline([executable, script])
-    return f"{shlex.quote(executable)} {shlex.quote(script)}"
+        return subprocess.list2cmdline([text])
+    return shlex.quote(text)
 
 
 def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypatch) -> None:
@@ -99,16 +109,34 @@ def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypa
     hooks_dir = home / "hooks"
     for name in _HOOK_MODULES:
         assert (hooks_dir / name).is_file()
-    assert (hooks_dir / "scripts" / "__init__.py").is_file()
-    assert (hooks_dir / "scripts" / "project_scope.py").is_file()
-    assert not (hooks_dir / "scripts" / "__pycache__").exists()
+    assert (hooks_dir / "powercontext_project_scope.py").is_file()
 
     skill_markdown = home / "skills" / "project-context" / "SKILL.md"
     assert skill_markdown.is_file()
-    assert "${WORKBUDDY_HOOKS_DIR}" not in skill_markdown.read_text(encoding="utf-8")
-    assert "${POWERCONTEXT_PYTHON}" not in skill_markdown.read_text(encoding="utf-8")
-    assert hooks_dir.as_posix() in skill_markdown.read_text(encoding="utf-8")
-    assert Path(sys.executable).as_posix() in skill_markdown.read_text(encoding="utf-8")
+    skill_content = skill_markdown.read_text(encoding="utf-8")
+    assert "${POWERCONTEXT_PROJECT_SCOPE_SCRIPT}" not in skill_content
+    assert "${POWERCONTEXT_PYTHON}" not in skill_content
+    assert (hooks_dir / "powercontext_project_scope.py").as_posix() in skill_content
+    assert Path(sys.executable).as_posix() in skill_content
+    assert json.loads((skill_markdown.parent / ".powercontext.json").read_text(encoding="utf-8")) == {
+        "schema": 1,
+        "owner": "powercontext",
+        "integration": "workbuddy",
+    }
+
+    project = tmp_path / "project root"
+    project.mkdir()
+    scope_command = next(line for line in skill_content.splitlines() if "--cwd" in line)
+    scope_command = scope_command.replace('"$PWD"', _shell_argument(project))
+    completed = subprocess.run(  # noqa: S602 - the installed shell command is the behavior under test.
+        scope_command,
+        shell=True,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {"scope_id": "scope"}
 
     settings = json.loads((home / "settings.json").read_text(encoding="utf-8"))
     hook = _powercontext_hook(settings)
@@ -201,6 +229,125 @@ def test_setup_workbuddy_preserves_remote_authenticated_mcp_configuration(tmp_pa
     assert mcp["mcpServers"]["powercontext"]["url"] == "https://memory.example.test/mcp"
     assert mcp["mcpServers"]["powercontext"]["headers"] == {"Authorization": "Bearer existing-token"}
     assert mcp["mcpServers"]["powercontext"]["disabled"] is False
+
+
+def test_setup_workbuddy_migrates_the_legacy_generated_mcp_entry(tmp_path: Path, monkeypatch) -> None:
+    checkout = tmp_path / "powercontext"
+    _write_plugin(checkout)
+    home = tmp_path / "workbuddy"
+    home.mkdir()
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+
+    (home / "mcp.json").write_text(
+        json.dumps({
+            "mcpServers": {
+                "powercontext": {
+                    "type": "http",
+                    "url": "http://127.0.0.1:8000/mcp",
+                    "headers": {},
+                    "description": "PowerContext agent memory & handoff MCP server (local service on port 8000)",
+                    "disabled": False,
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        ["setup", "workbuddy", "--source", str(checkout)],
+    )
+
+    assert result.exit_code == 0
+    mcp = json.loads((home / "mcp.json").read_text(encoding="utf-8"))
+    assert mcp["mcpServers"]["powercontext"]["url"] == (
+        "${POWERCONTEXT_WORKBUDDY_SERVER_URL:-http://127.0.0.1:8000}/mcp"
+    )
+    assert mcp["mcpServers"]["powercontext"]["headers"] == {
+        "Authorization": "${POWERCONTEXT_WORKBUDDY_AUTHORIZATION:-}"
+    }
+
+
+def test_setup_workbuddy_preserves_other_hooks_shared_scripts(tmp_path: Path, monkeypatch) -> None:
+    checkout = tmp_path / "powercontext"
+    _write_plugin(checkout)
+    home = tmp_path / "workbuddy"
+    shared_script = home / "hooks" / "scripts" / "other_hook.py"
+    shared_script.parent.mkdir(parents=True)
+    shared_script.write_text("# owned by another hook\n", encoding="utf-8")
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        ["setup", "workbuddy", "--source", str(checkout)],
+    )
+
+    assert result.exit_code == 0
+    assert shared_script.read_text(encoding="utf-8") == "# owned by another hook\n"
+
+
+def test_setup_workbuddy_refuses_an_unowned_skill(tmp_path: Path, monkeypatch) -> None:
+    checkout = tmp_path / "powercontext"
+    _write_plugin(checkout)
+    home = tmp_path / "workbuddy"
+    skill = home / "skills" / "project-context"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("user-owned\n", encoding="utf-8")
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        ["setup", "workbuddy", "--source", str(checkout)],
+    )
+
+    assert result.exit_code == 1
+    assert "is not owned by PowerContext" in result.output
+    assert (skill / "SKILL.md").read_text(encoding="utf-8") == "user-owned\n"
+    assert not (home / "hooks").exists()
+    assert not (home / "settings.json").exists()
+    assert not (home / "mcp.json").exists()
+
+
+def test_setup_workbuddy_refreshes_an_owned_skill(tmp_path: Path, monkeypatch) -> None:
+    checkout = tmp_path / "powercontext"
+    plugin = _write_plugin(checkout)
+    home = tmp_path / "workbuddy"
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+
+    first = CliRunner().invoke(create_cli([setup_app]), ["setup", "workbuddy", "--source", str(checkout)])
+    assert first.exit_code == 0
+
+    (plugin / "skills" / "project-context" / "SKILL.md").write_text(
+        'updated\n${POWERCONTEXT_PYTHON} ${POWERCONTEXT_PROJECT_SCOPE_SCRIPT} --cwd "$PWD"\n',
+        encoding="utf-8",
+    )
+    refreshed = CliRunner().invoke(create_cli([setup_app]), ["setup", "workbuddy", "--source", str(checkout)])
+
+    assert refreshed.exit_code == 0
+    assert (home / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8").startswith("updated\n")
+
+
+def test_setup_workbuddy_stops_before_writes_when_settings_snapshot_is_unreadable(tmp_path: Path, monkeypatch) -> None:
+    checkout = tmp_path / "powercontext"
+    _write_plugin(checkout)
+    home = tmp_path / "workbuddy"
+    (home / "settings.json").mkdir(parents=True)
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        ["setup", "workbuddy", "--source", str(checkout)],
+    )
+
+    assert result.exit_code == 1
+    assert "Cannot update WorkBuddy settings" in result.output
+    assert not (home / "hooks").exists()
+    assert not (home / "mcp.json").exists()
 
 
 def test_setup_workbuddy_updates_an_existing_powercontext_hook(tmp_path: Path, monkeypatch) -> None:
@@ -329,22 +476,26 @@ def test_setup_workbuddy_rejects_a_missing_plugin(tmp_path: Path, monkeypatch) -
     assert "WorkBuddy plugin was not found" in result.output
 
 
-def test_setup_workbuddy_remote_checkout_uses_the_requested_ref(tmp_path: Path, monkeypatch) -> None:
+def test_setup_workbuddy_remote_checkout_refreshes_the_requested_ref(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
-    captured: list[tuple[str, str, Path]] = []
+    generation = 0
 
     def fake_clone(source: str, ref: str, target: Path) -> None:
-        captured.append((source, ref, target))
-        _write_plugin(target)
+        nonlocal generation
+        generation += 1
+        plugin = _write_plugin(target)
+        (plugin / "revision.txt").write_text(f"{source}@{ref}:{generation}\n", encoding="utf-8")
 
     monkeypatch.setattr(workbuddy_cli, "clone_github_source", fake_clone)
 
-    plugin = workbuddy_cli.resolve_workbuddy_plugin_dir(source="oceanbase/powercontext", ref="v0.0.2")
+    first = workbuddy_cli.resolve_workbuddy_plugin_dir(source="oceanbase/powercontext", ref="master")
+    refreshed = workbuddy_cli.resolve_workbuddy_plugin_dir(source="oceanbase/powercontext", ref="master")
 
-    checkout_root = workbuddy_cli.checkout_target("oceanbase/powercontext", "v0.0.2")
-    assert plugin == checkout_root / "integrations" / "workbuddy" / "plugins" / "powercontext"
-    assert captured[0][0] == "oceanbase/powercontext"
-    assert captured[0][1] == "v0.0.2"
+    checkout_root = workbuddy_cli.checkout_target("oceanbase/powercontext", "master")
+    expected = checkout_root / "integrations" / "workbuddy" / "plugins" / "powercontext"
+    assert first == expected
+    assert refreshed == expected
+    assert (refreshed / "revision.txt").read_text(encoding="utf-8") == "oceanbase/powercontext@master:2\n"
 
 
 def test_workbuddy_home_honors_the_environment_override(tmp_path: Path, monkeypatch) -> None:

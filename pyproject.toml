@@ -129,12 +129,14 @@ extra-paths = [
     "./integrations/codex/plugins/powercontext",
     "./integrations/workbuddy/plugins/powercontext",
     "./integrations/workbuddy/plugins/powercontext/hooks",
+    "./integrations/pydantic-ai/src",
 ]
 
 [tool.ty.src]
 exclude = [
     "e2e/bub",
     "integrations/bub",
+    "integrations/pydantic-ai",
     "integrations/langgraph",
     "tests/langgraph_adapter",
     "tests/e2e/test_langgraph_chain.py",
@@ -158,6 +160,7 @@ missing-override-decorator = "ignore"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["integrations/pydantic-ai/src"]
 markers = [
     "real_e2e: uses real Codex, external model providers, and the configured database",
 ]

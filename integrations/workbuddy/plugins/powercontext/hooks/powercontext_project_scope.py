@@ -12,23 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-[project]
-name = "powercontext-bub"
-version = "0.0.1"
-description = "Bub integration for PowerContext durable memory."
-requires-python = ">=3.12,<4.0"
-dependencies = [
-    "bub>=0.4.0,<0.5.0",
-    "powercontext[client]>=0.0.3",
-    "pydantic-settings>=2.7,<3",
-]
+"""Expose the repository scope resolver under its installed WorkBuddy module name."""
 
-[project.entry-points."bub"]
-powercontext = "powercontext_bub.plugin:PowerContextPlugin"
+from scripts.project_scope import resolve_scope_id
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/powercontext_bub"]
+__all__ = ["resolve_scope_id"]

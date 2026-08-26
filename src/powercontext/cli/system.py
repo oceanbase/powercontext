@@ -173,6 +173,10 @@ class SetupError(RuntimeError):
         return cls(f"OpenCode Skill path {path} already exists and is not owned by PowerContext.")
 
     @classmethod
+    def opencode_plugin_conflict(cls, path: Path) -> SetupError:
+        return cls(f"OpenCode plugin path {path} already exists and is not owned by PowerContext.")
+
+    @classmethod
     def invalid_dsh_ref(cls, ref: str) -> SetupError:
         return cls(f"invalid DeepSeek Harness ref: {ref}")
 
@@ -235,6 +239,10 @@ class SetupError(RuntimeError):
     @classmethod
     def workbuddy_skill_write(cls, path: Path, error: OSError) -> SetupError:
         return cls(f"Cannot install PowerContext WorkBuddy skill at {path}: {error}")
+
+    @classmethod
+    def workbuddy_skill_conflict(cls, path: Path) -> SetupError:
+        return cls(f"WorkBuddy Skill path {path} already exists and is not owned by PowerContext.")
 
     @classmethod
     def workbuddy_settings_write(cls, path: Path, error: OSError) -> SetupError:

@@ -58,5 +58,7 @@ header:
     - '.gitattributes'
     - '**/*.service.in'
     - '**/*.jsonl'
+    # license-eye cannot determine the comment style of uv requirements files.
+    - 'e2e/bub/source-overrides.txt'
 
   comment: on-failure

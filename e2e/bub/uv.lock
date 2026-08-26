@@ -1692,7 +1692,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "bub", specifier = ">=0.4.0,<0.5.0" },
-    { name = "powercontext", extras = ["client"], specifier = ">=0.0.1" },
+    { name = "powercontext", extras = ["client"], specifier = ">=0.0.3" },
     { name = "pydantic-settings", specifier = ">=2.7,<3" },
 ]
 

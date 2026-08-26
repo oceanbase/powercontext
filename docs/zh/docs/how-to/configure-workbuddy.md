@@ -7,8 +7,10 @@ description: 安装 PowerContext WorkBuddy hooks 并控制其本地行为。
 
 ## 前置条件
 
-- 已安装并可运行的 PowerContext。使用 `uv tool install "powercontext[cli,server]==0.0.2"` 安装 CLI 和本地
-  Server，然后执行 `powercontext server run` 启动 Server。
+- 已安装并可运行的 PowerContext。在带有 WorkBuddy 支持的新版本发布前，从与下方插件相同的 `master`
+  revision 安装 CLI 和本地 Server：
+  `uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"`。
+  然后执行 `powercontext server run` 启动 Server。
 - 支持用户级 hooks、MCP 和 Skills 的 WorkBuddy 桌面应用。
 - 用于执行 hook 进程的 Python 3.11 或更新版本，且已加入 `PATH`。
 - 本仓库中的插件目录：`integrations/workbuddy/plugins/powercontext`。
@@ -20,7 +22,7 @@ description: 安装 PowerContext WorkBuddy hooks 并控制其本地行为。
 CLI 可以从本地 checkout 或 GitHub 源一键安装 hooks、MCP Server 和 Skill：
 
 ```bash
-powercontext setup workbuddy --source oceanbase/powercontext --ref v0.0.2
+powercontext setup workbuddy --source oceanbase/powercontext --ref master
 ```
 
 对于本地 checkout，把 `--source` 指向仓库根目录或插件目录：
@@ -32,7 +34,7 @@ powercontext setup workbuddy --source /path/to/powercontext
 安装器会把 hook 驱动和 scope resolver 写入 `~/.workbuddy/hooks`，把 `UserPromptSubmit` hook 合并进
 `~/.workbuddy/settings.json`，在 `~/.workbuddy/mcp.json` 中注册 `powercontext` server，并把
 `project-context` Skill 安装到 `~/.workbuddy/skills`。既有设置和其他 MCP server 会被保留，Skill 中的
-hooks 目录占位符也会被自动解析。
+命令占位符也会被自动解析。
 
 使用以下命令验证安装：
 
@@ -62,7 +64,8 @@ cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/workbuddy_settings.py \
    "$PLUGIN"/hooks/prepared_context.py \
    "$WORKBUDDY_HOOKS_DIR"/
-cp -R "$PLUGIN/scripts" "$WORKBUDDY_HOOKS_DIR"/
+cp "$PLUGIN/scripts/project_scope.py" \
+   "$WORKBUDDY_HOOKS_DIR/powercontext_project_scope.py"
 ```
 
 ### 2. 注册 Hook
@@ -114,10 +117,14 @@ PowerContext 的 Python executable，把 `<WORKBUDDY_HOOKS_DIR>` 替换为 hooks
 mkdir -p ~/.workbuddy/skills
 cp -R integrations/workbuddy/plugins/powercontext/skills/project-context \
   ~/.workbuddy/skills/
+cat > ~/.workbuddy/skills/project-context/.powercontext.json <<'EOF'
+{"schema": 1, "owner": "powercontext", "integration": "workbuddy"}
+EOF
 ```
 
-然后把 `~/.workbuddy/skills/project-context/SKILL.md` 中所有 `${WORKBUDDY_HOOKS_DIR}` 占位符替换为
-hooks 目录的绝对路径，或在启动 WorkBuddy 的 shell 环境中导出 `WORKBUDDY_HOOKS_DIR`。
+然后把 `~/.workbuddy/skills/project-context/SKILL.md` 中的 `${POWERCONTEXT_PYTHON}` 替换为 shell-safe
+的 Python executable 参数，把 `${POWERCONTEXT_PROJECT_SCOPE_SCRIPT}` 替换为 shell-safe 的完整
+`<WORKBUDDY_HOOKS_DIR>/powercontext_project_scope.py` 路径。
 
 ### 5. 启动 Server、重启 WorkBuddy 并验证
 
@@ -220,8 +227,9 @@ powercontext server run
 export POWERCONTEXT_WORKBUDDY_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
 ```
 
-修改该变量后需要重启 WorkBuddy。Prompt Hook 从环境读取这个值；`.mcp.json` 保持空的 `headers` 对象。
-不要把 token 写入 `.mcp.json`、Server URL 或静态 MCP header。
+修改该变量后需要重启 WorkBuddy。Prompt Hook 从环境读取这个值；`.mcp.json` 只保存
+`${POWERCONTEXT_WORKBUDDY_AUTHORIZATION:-}` 模板，由 WorkBuddy 从同一环境展开，token 本身不会写入文件。
+不要把 token 写入 `.mcp.json` 或 Server URL。
 
 没有设置该变量或值为空，并且 Server 未启用鉴权时，插件行为与默认状态完全一致。如果 Server 已启用
 鉴权，但 header 缺失或错误，Hook 会正常降级并写出 `authentication_failed` 诊断；MCP 工具不可用，但

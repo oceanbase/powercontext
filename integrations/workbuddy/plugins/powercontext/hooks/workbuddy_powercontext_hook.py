@@ -42,14 +42,16 @@ else:
 
 _HOOKS_ROOT = Path(__file__).resolve().parent
 _PLUGIN_ROOT = _HOOKS_ROOT.parent
-# Support both the repository layout (scripts/ beside hooks/) and the installed
-# WorkBuddy layout (scripts/ inside the WorkBuddy hooks directory).
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_HOOKS_ROOT))
 
 import prepared_context as _prepared_context  # noqa: E402
-from scripts.project_scope import resolve_scope_id  # noqa: E402
 from workbuddy_settings import WorkBuddyPluginSettings  # noqa: E402
+
+if (_HOOKS_ROOT / "powercontext_project_scope.py").is_file():
+    from powercontext_project_scope import resolve_scope_id
+else:
+    from scripts.project_scope import resolve_scope_id
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse

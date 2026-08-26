@@ -1,6 +1,6 @@
 ---
 title: 接口
-description: 在 Codex 和 Claude Code 插件、DeepSeek Harness 插件、Pi package、CLI、Python SDK、HTTP 和 MCP 之间选择。
+description: 在 Agent 集成、CLI、Python SDK、HTTP 和 MCP 之间选择。
 ---
 
 # 接口
@@ -10,6 +10,7 @@ description: 在 Codex 和 Claude Code 插件、DeepSeek Harness 插件、Pi pac
 | 接口 | 适用场景 | 安装 |
 | --- | --- | --- |
 | Codex 插件 | 在 Codex 中跨会话恢复和显式维护 Memory | `powercontext setup codex` |
+| Pydantic AI 适配器 | Memory 工具、自动 Context 准备和可选轨迹采集 | `powercontext-pydantic-ai` |
 | DeepSeek Harness 插件 | 在 DeepSeek Harness 中跨会话恢复和显式维护 Memory | `powercontext setup dsh` |
 | LangGraph 适配器 | 在 LangGraph 图中提供 Memory 工具和有界召回 | `powercontext-langgraph` |
 | Pi package | 在 Pi 中跨会话恢复、使用原生 Memory/Handoff 工具和 skill | `powercontext setup pi` |
@@ -63,6 +64,12 @@ Handoff Report 的 JSON Workstream projection 同时返回 `handoff_revision_cou
 project-context skill 指导 DeepSeek Harness 何时检索、记忆、修订或停用 Memory。每轮模型开口前，插件会恢复相关
 条目，并把用户输入采集为 Source 证据；具名 `pc_*` 工具执行显式 HTTP 操作。插件不会启动或内嵌 Server。
 
+## Pydantic AI 适配器
+
+独立发行的 `powercontext-pydantic-ai` 通过公共 Python Client 提供三个 Memory 工具，并可自动前置有界
+`PreparedContext`。可选 Capture 会保存经过清洗和限长的可见模型事件与已完成工具事件，执行 checkpoint Flush，并在
+run 结束后 Flush 剩余 Source。MCP 不需要适配器包，但不提供自动 Context 准备、Capture 或 Flush。参见
+[配置 Pydantic AI](../how-to/configure-pydantic-ai.md)。
 ## LangGraph 适配器
 
 `powercontext-langgraph` 通过公开的 Python Client 把 LangGraph 图连接到运行中的 Server，提供三个组件：

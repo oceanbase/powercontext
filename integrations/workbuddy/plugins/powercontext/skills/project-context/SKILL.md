@@ -5,10 +5,9 @@ description: Create and commit a current-work Handoff when the user says "交接
 
 <!--
   Installation note: this Skill is distributed with ${POWERCONTEXT_PYTHON} and
-  ${WORKBUDDY_HOOKS_DIR} placeholders in the shell commands below. After copying
-  the plugin, either replace them with the Python executable and absolute
-  WorkBuddy hooks directory, or export both variables in the shell environment
-  that starts WorkBuddy.
+  ${POWERCONTEXT_PROJECT_SCOPE_SCRIPT} placeholders in the shell commands below.
+  After copying the plugin, replace them with shell-safe arguments for the Python
+  executable and installed project-scope resolver.
 -->
 
 # Project Context
@@ -26,7 +25,7 @@ to duplicate the current prompt. Ordinary prompt Sources are not task outcomes.
 Before the first memory tool call, run:
 
 ```bash
-${POWERCONTEXT_PYTHON} ${WORKBUDDY_HOOKS_DIR}/scripts/project_scope.py --cwd "$PWD"
+${POWERCONTEXT_PYTHON} ${POWERCONTEXT_PROJECT_SCOPE_SCRIPT} --cwd "$PWD"
 ```
 
 Reuse that exact `scope_id` for the task.
@@ -37,7 +36,7 @@ path. When the user explicitly asks to bind the current checkout to a known
 Handoff Report Workstream, run:
 
 ```bash
-${POWERCONTEXT_PYTHON} ${WORKBUDDY_HOOKS_DIR}/scripts/project_scope.py \
+${POWERCONTEXT_PYTHON} ${POWERCONTEXT_PROJECT_SCOPE_SCRIPT} \
   --cwd "$PWD" --bind-workstream "WORKSTREAM_SCOPE_ID"
 ```
 

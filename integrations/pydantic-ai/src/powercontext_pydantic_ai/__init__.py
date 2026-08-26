@@ -12,23 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-[project]
-name = "powercontext-bub"
-version = "0.0.1"
-description = "Bub integration for PowerContext durable memory."
-requires-python = ">=3.12,<4.0"
-dependencies = [
-    "bub>=0.4.0,<0.5.0",
-    "powercontext[client]>=0.0.3",
-    "pydantic-settings>=2.7,<3",
-]
+"""PowerContext integration for Pydantic AI."""
 
-[project.entry-points."bub"]
-powercontext = "powercontext_bub.plugin:PowerContextPlugin"
+from powercontext_pydantic_ai.capability import PowerContext
+from powercontext_pydantic_ai.settings import PowerContextSettings
+from powercontext_pydantic_ai.toolset import PowerContextToolset
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/powercontext_bub"]
+__all__ = ["PowerContext", "PowerContextSettings", "PowerContextToolset"]
