@@ -32,6 +32,7 @@ REMOTE_BUB_PROJECT = "/installed-agent/bub-project"
 REMOTE_CODEX_AUTH = "/run/powercontext/codex-auth.json"
 REMOTE_CODEX_HOME = "/installed-agent/codex"
 REMOTE_SOURCE = "/opt/powercontext/source"
+REMOTE_SOURCE_OVERRIDE = f"{REMOTE_SOURCE}/e2e/bub/source-overrides.txt"
 REMOTE_TOOL_DIR = "/installed-agent/tools"
 BUB_VERSION = version("bub")
 POWERCONTEXT_VERSION = version("powercontext")
@@ -129,7 +130,7 @@ def _install_bub_command() -> str:
         "fi; "
         f"SETUPTOOLS_SCM_PRETEND_VERSION={shlex.quote(POWERCONTEXT_VERSION)} {_tool_environment()} "
         f"{uv} tool install --force "
-        f"--with {REMOTE_SOURCE} --with {REMOTE_SOURCE}/integrations/bub "
+        f"--overrides {REMOTE_SOURCE_OVERRIDE} --with {REMOTE_SOURCE}/integrations/bub "
         f"{shlex.quote(f'bub=={BUB_VERSION}')}"
     )
 

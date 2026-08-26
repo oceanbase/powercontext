@@ -1,0 +1,4 @@
+# The acceptance harness mounts the current unreleased checkout into the trial
+# container. Force that source distribution without weakening the integration's
+# published minimum PowerContext version.
+powercontext[client] @ file:///opt/powercontext/source
