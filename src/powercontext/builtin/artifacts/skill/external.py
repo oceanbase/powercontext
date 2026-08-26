@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Host-local discovery and exact resolution for external Codex Skills."""
+"""Host-local discovery and exact resolution for Agent-native Skills."""
 
 from __future__ import annotations
 
@@ -38,6 +38,7 @@ MAX_EXTERNAL_SKILL_FILES = 256
 MAX_EXTERNAL_SKILL_PACKAGE_BYTES = 4 * 1024 * 1024
 MAX_EXTERNAL_SKILL_MANIFEST_BYTES = 128 * 1024
 
+AgentKind = Literal["codex", "claude_code"]
 ExternalSkillInstallationScope = Literal["user", "project", "plugin"]
 ExternalSkillId = Annotated[str, Field(min_length=1, max_length=MAX_ARTIFACT_ID_LENGTH)]
 ExternalSkillName = Annotated[str, Field(min_length=1, max_length=MAX_EXTERNAL_SKILL_NAME_LENGTH)]
@@ -84,8 +85,8 @@ class ExternalSkillRegistration(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     external_skill_id: ExternalSkillId
-    provider: Literal["codex"] = "codex"
-    agent_kind: Literal["codex"] = "codex"
+    provider: AgentKind = "codex"
+    agent_kind: AgentKind = "codex"
     host_id: ExternalSkillHostId
     installation_scope: ExternalSkillInstallationScope
     locator: ExternalSkillLocator
@@ -129,68 +130,94 @@ class ExternalSkillProvider(Protocol):
     name: str
     agent_kind: str
     host_id: str
+    provider_names: tuple[str, ...]
 
     def scan(self) -> ExternalSkillProviderScan: ...
 
     def resolve(self, registration: ExternalSkillRegistration, /) -> ExternalSkillResolution: ...
 
 
+class AgentSkillTarget(BaseModel):
+    """One explicitly configured host-local Agent Skill target."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
+
+    target_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    agent_kind: AgentKind
+    installation_scope: ExternalSkillInstallationScope
+    path: Path
+    allow_managed_publish: bool = False
+
+
 class CodexSkillRoot(BaseModel):
-    """One explicitly configured Codex installation root."""
+    """Legacy Codex-only configuration accepted for backwards compatibility."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
 
     root_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     installation_scope: ExternalSkillInstallationScope
     path: Path
+    allow_managed_publish: bool = False
+
+    def as_agent_target(self) -> AgentSkillTarget:
+        """Return the equivalent unified Codex target."""
+
+        return AgentSkillTarget(
+            target_id=self.root_id,
+            agent_kind="codex",
+            installation_scope=self.installation_scope,
+            path=self.path,
+            allow_managed_publish=self.allow_managed_publish,
+        )
 
 
-class CodexSkillProvider:
-    """Read Codex-native packages without copying or rewriting their content."""
+class AgentSkillProvider:
+    """Read Agent-native packages without copying or rewriting their content."""
 
-    name = "codex"
-    agent_kind = "codex"
+    name = "agent-targets"
+    agent_kind = "multi"
+    provider_names: tuple[str, ...] = ("codex", "claude_code")
 
-    def __init__(self, *, host_id: str, roots: tuple[CodexSkillRoot, ...]) -> None:
+    def __init__(self, *, host_id: str, targets: tuple[AgentSkillTarget, ...]) -> None:
         self.host_id = _HOST_ID_ADAPTER.validate_python(host_id)
-        root_ids = [root.root_id for root in roots]
-        if len(root_ids) != len(set(root_ids)):
-            raise ValueError("Codex Skill root IDs must be unique")  # noqa: TRY003
-        self._roots = tuple(
-            root.model_copy(update={"path": root.path.expanduser().resolve(strict=False)}) for root in roots
+        target_ids = [target.target_id for target in targets]
+        if len(target_ids) != len(set(target_ids)):
+            raise ValueError("Agent Skill target IDs must be unique")  # noqa: TRY003
+        self._targets = tuple(
+            target.model_copy(update={"path": target.path.expanduser().resolve(strict=False)}) for target in targets
         )
 
     def scan(self) -> ExternalSkillProviderScan:
         registrations: list[ExternalSkillRegistration] = []
         skipped = 0
-        for root in self._roots:
-            if not root.path.is_dir():
+        for target in self._targets:
+            if not target.path.is_dir():
                 continue
-            for package in sorted(root.path.iterdir(), key=lambda value: value.name):
+            for package in sorted(target.path.iterdir(), key=lambda value: value.name):
                 if not package.is_dir() or package.is_symlink():
                     continue
                 try:
-                    registrations.append(self._registration(root, package))
+                    registrations.append(self._registration(target, package))
                 except (OSError, UnicodeError, ValueError):
                     skipped += 1
         return ExternalSkillProviderScan(registrations=tuple(registrations), skipped=skipped)
 
     def resolve(self, registration: ExternalSkillRegistration, /) -> ExternalSkillResolution:
         if (
-            registration.provider != self.name
-            or registration.agent_kind != self.agent_kind
+            registration.provider not in self.provider_names
+            or registration.agent_kind != registration.provider
             or registration.host_id != self.host_id
         ):
             return _unavailable(registration)
-        root = self._root_for(registration)
-        if root is None:
+        target = self._target_for(registration)
+        if target is None:
             return _unavailable(registration)
         package = Path(registration.locator)
         try:
             resolved = package.resolve(strict=True)
-            if resolved.parent != root.path or not resolved.is_dir() or resolved.is_symlink():
+            if resolved.parent != target.path or not resolved.is_dir() or resolved.is_symlink():
                 return _unavailable(registration)
-            current = self._registration(root, resolved)
+            current = self._registration(target, resolved)
         except (OSError, UnicodeError, ValueError):
             return _unavailable(registration)
         if (
@@ -204,35 +231,50 @@ class CodexSkillProvider:
             entrypoint=str(resolved / "SKILL.md"),
         )
 
-    def _root_for(self, registration: ExternalSkillRegistration) -> CodexSkillRoot | None:
-        prefix = f"codex:{registration.installation_scope}:"
+    def _target_for(self, registration: ExternalSkillRegistration) -> AgentSkillTarget | None:
+        prefix = f"{registration.agent_kind}:{registration.installation_scope}:"
         if not registration.external_skill_id.startswith(prefix):
             return None
-        root_id = registration.external_skill_id.removeprefix(prefix).split("/", 1)[0]
+        target_id = registration.external_skill_id.removeprefix(prefix).split("/", 1)[0]
         return next(
             (
-                root
-                for root in self._roots
-                if root.root_id == root_id and root.installation_scope == registration.installation_scope
+                target
+                for target in self._targets
+                if target.target_id == target_id
+                and target.agent_kind == registration.agent_kind
+                and target.installation_scope == registration.installation_scope
             ),
             None,
         )
 
-    def _registration(self, root: CodexSkillRoot, package: Path) -> ExternalSkillRegistration:
-        if package.parent != root.path:
-            raise ValueError("Codex Skill package must be an immediate child of its configured root")  # noqa: TRY003
+    def _registration(self, target: AgentSkillTarget, package: Path) -> ExternalSkillRegistration:
+        if package.parent != target.path:
+            raise ValueError("Agent Skill package must be an immediate child of its configured target")  # noqa: TRY003
         manifest = package / "SKILL.md"
-        name, description = _skill_metadata(manifest)
-        external_skill_id = f"codex:{root.installation_scope}:{root.root_id}/{package.name}"
+        name, description = _skill_metadata(manifest, package.name, target.agent_kind)
+        external_skill_id = f"{target.agent_kind}:{target.installation_scope}:{target.target_id}/{package.name}"
         return ExternalSkillRegistration(
             external_skill_id=external_skill_id,
+            provider=target.agent_kind,
+            agent_kind=target.agent_kind,
             host_id=self.host_id,
-            installation_scope=root.installation_scope,
+            installation_scope=target.installation_scope,
             locator=str(package),
             fingerprint=_package_fingerprint(package),
             name=name,
             description=description,
         )
+
+
+class CodexSkillProvider(AgentSkillProvider):
+    """Compatibility wrapper for an exclusively Codex target set."""
+
+    name = "codex"
+    agent_kind = "codex"
+
+    def __init__(self, *, host_id: str, roots: tuple[CodexSkillRoot, ...]) -> None:
+        super().__init__(host_id=host_id, targets=tuple(root.as_agent_target() for root in roots))
+        self.provider_names = ("codex",)
 
 
 def _unavailable(registration: ExternalSkillRegistration) -> ExternalSkillResolution:
@@ -242,15 +284,15 @@ def _unavailable(registration: ExternalSkillRegistration) -> ExternalSkillResolu
     )
 
 
-def _skill_metadata(manifest: Path) -> tuple[str, str]:
+def _skill_metadata(manifest: Path, package_name: str, agent_kind: AgentKind) -> tuple[str, str]:
     if manifest.is_symlink():
-        raise ValueError("Codex Skill manifest must not be a symlink")  # noqa: TRY003
+        raise ValueError("Agent Skill manifest must not be a symlink")  # noqa: TRY003
     content = manifest.read_bytes()
     if len(content) > MAX_EXTERNAL_SKILL_MANIFEST_BYTES:
-        raise ValueError("Codex Skill manifest exceeds the supported size")  # noqa: TRY003
+        raise ValueError("Agent Skill manifest exceeds the supported size")  # noqa: TRY003
     lines = content.decode("utf-8").splitlines()
     if not lines or lines[0].strip() != "---":
-        raise ValueError("Codex Skill manifest is missing frontmatter")  # noqa: TRY003
+        raise ValueError("Agent Skill manifest is missing frontmatter")  # noqa: TRY003
     metadata: dict[str, str] = {}
     for line in lines[1:]:
         if line.strip() == "---":
@@ -259,23 +301,25 @@ def _skill_metadata(manifest: Path) -> tuple[str, str]:
         if separator and field in {"name", "description"}:
             metadata[field] = _frontmatter_scalar(raw_value.strip())
     else:
-        raise ValueError("Codex Skill frontmatter is not terminated")  # noqa: TRY003
+        raise ValueError("Agent Skill frontmatter is not terminated")  # noqa: TRY003
     try:
-        return metadata["name"], metadata["description"]
+        name = metadata["name"] if agent_kind == "codex" else metadata.get("name", package_name)
+        return name, metadata["description"]
     except KeyError as error:
-        raise ValueError("Codex Skill frontmatter requires name and description") from error  # noqa: TRY003
+        required = "name and description" if agent_kind == "codex" else "description"
+        raise ValueError(f"{agent_kind} Skill frontmatter requires {required}") from error  # noqa: TRY003
 
 
 def _frontmatter_scalar(value: str) -> str:
     if not value:
-        raise ValueError("Codex Skill frontmatter values must not be empty")  # noqa: TRY003
+        raise ValueError("Agent Skill frontmatter values must not be empty")  # noqa: TRY003
     if value.startswith(('"', "'")):
         try:
             parsed = json.loads(value) if value.startswith('"') else value[1:-1]
         except (json.JSONDecodeError, IndexError) as error:
-            raise ValueError("Codex Skill frontmatter contains an invalid scalar") from error  # noqa: TRY003
+            raise ValueError("Agent Skill frontmatter contains an invalid scalar") from error  # noqa: TRY003
         if not isinstance(parsed, str):
-            raise ValueError("Codex Skill frontmatter values must be strings")  # noqa: TRY003
+            raise ValueError("Agent Skill frontmatter values must be strings")  # noqa: TRY003
         return parsed
     return value
 
@@ -283,7 +327,7 @@ def _frontmatter_scalar(value: str) -> str:
 def _package_fingerprint(package: Path) -> str:
     files = tuple(_package_files(package))
     if not files or len(files) > MAX_EXTERNAL_SKILL_FILES:
-        raise ValueError("Codex Skill package has an unsupported file count")  # noqa: TRY003
+        raise ValueError("Agent Skill package has an unsupported file count")  # noqa: TRY003
     digest = hashlib.sha256()
     total_bytes = 0
     for path in files:
@@ -291,7 +335,7 @@ def _package_fingerprint(package: Path) -> str:
         content = path.read_bytes()
         total_bytes += len(content)
         if total_bytes > MAX_EXTERNAL_SKILL_PACKAGE_BYTES:
-            raise ValueError("Codex Skill package exceeds the supported size")  # noqa: TRY003
+            raise ValueError("Agent Skill package exceeds the supported size")  # noqa: TRY003
         digest.update(len(relative).to_bytes(4, "big"))
         digest.update(relative)
         digest.update(len(content).to_bytes(8, "big"))
@@ -302,7 +346,7 @@ def _package_fingerprint(package: Path) -> str:
 def _package_files(package: Path) -> Iterable[Path]:
     for path in sorted(package.rglob("*"), key=lambda value: value.relative_to(package).as_posix()):
         if path.is_symlink():
-            raise ValueError("Codex Skill packages containing symlinks are not supported")  # noqa: TRY003
+            raise ValueError("Agent Skill packages containing symlinks are not supported")  # noqa: TRY003
         if path.is_file():
             yield path
 
@@ -315,6 +359,9 @@ __all__ = [
     "MAX_EXTERNAL_SKILL_MANIFEST_BYTES",
     "MAX_EXTERNAL_SKILL_NAME_LENGTH",
     "MAX_EXTERNAL_SKILL_PACKAGE_BYTES",
+    "AgentKind",
+    "AgentSkillProvider",
+    "AgentSkillTarget",
     "CodexSkillProvider",
     "CodexSkillRoot",
     "ExternalSkillInstallationScope",

@@ -45,7 +45,7 @@
 
   <section class="report-preview-notice" role="status" aria-live="polite">
     <div>
-      <h2 data-i18n="noProjects">No Handoff Report Project is configured.</h2>
+      <h2 data-i18n="noProjects">No scope contains a committed Handoff.</h2>
       <p id="preview-notice" data-i18n="previewNotice">
         This data-free preview shows the report's main Handoff sections. Values shown as “—” do not represent real Project status.
       </p>
@@ -258,7 +258,7 @@
     </div>
     <div class="report-hero-controls">
       <div class="scope-picker report-project-picker">
-        <label for="project-search" data-i18n="projects">Projects</label>
+        <label for="project-search" data-i18n="projects">Scopes</label>
         <div class="project-combobox" id="project-combobox">
           <input
             id="project-search"
@@ -270,7 +270,7 @@
             autocomplete="off"
             spellcheck="false"
             data-i18n-placeholder="searchProjectsPlaceholder"
-            placeholder="Search by project name or ID"
+            placeholder="Search by scope ID"
           >
           <div class="project-options" id="project-options" role="listbox" hidden></div>
         </div>
@@ -512,5 +512,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=default-startup-unified-editor-preview-v1"></script>
+<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=scope-report-v1"></script>
 {% endblock %}

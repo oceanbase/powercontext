@@ -141,6 +141,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "get_memory_entry",
         "handoff_current_work",
         "list_artifact_candidates",
+        "list_handoff_report_known_scopes",
         "list_memory_entries",
         "record_task_outcome",
         "reject_artifact_candidate",

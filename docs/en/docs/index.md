@@ -18,6 +18,12 @@ overview:
         - title: Continue in Pi
           description: Open project context in Pi with the native package.
           href: en/docs/how-to/configure-pi/
+        - title: Continue in OpenClaw
+          description: Open project context in OpenClaw with the memory plugin.
+          href: en/docs/how-to/configure-openclaw/
+        - title: Continue in OpenCode
+          description: Recall and maintain project context with the native OpenCode plugin.
+          href: en/docs/how-to/configure-opencode/
         - title: Hand off current work
           description: Prepare a checked Handoff for another task, session, or model.
           href: en/docs/how-to/handoff-with-codex/
@@ -27,9 +33,21 @@ overview:
         - title: Memory and Handoff
           description: Learn what belongs in durable Memory and what should remain a temporary Handoff.
           href: en/docs/explanation/memory-and-handoff/
+        - title: Experience and Skill lifecycle
+          description: Understand how evidence becomes a reviewed Artifact Revision and when it becomes available.
+          href: en/docs/explanation/experience-and-skill-lifecycle/
         - title: Configuration
           description: Set storage, providers, interfaces, and runtime behavior.
           href: en/docs/reference/configuration/
+        - title: Review Candidates
+          description: Inspect, revise, approve, or reject pending Experience and Skill proposals.
+          href: en/docs/how-to/review-candidates/
+        - title: Create an Experience
+          description: Generate an Experience from exact evidence, review it, and verify the approved Revision.
+          href: en/docs/how-to/create-and-review-experience/
+        - title: Create a managed Skill
+          description: Generate and review a managed Skill, then export one exact Revision to Codex.
+          href: en/docs/how-to/create-and-export-skill/
         - title: Troubleshoot
           description: Diagnose connection, configuration, and integration problems.
           href: en/docs/how-to/troubleshoot/

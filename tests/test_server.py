@@ -94,6 +94,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
         "POWERCONTEXT_SERVER_DATABASE_URL",
         "sqlite+aiosqlite:////var/lib/powercontext/test.db",
     )
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE", "64")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT", "25")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE", "conversation")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED", "true")
@@ -107,8 +108,11 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     monkeypatch.setenv(
         "POWERCONTEXT_SERVER_EXTERNAL_SKILLS",
         (
-            '{"host_id":"workstation-1","codex_roots":['
-            '{"root_id":"repository","installation_scope":"project","path":"/srv/project/.agents/skills"}]}'
+            '{"host_id":"workstation-1","targets":['
+            '{"target_id":"codex-project","agent_kind":"codex","installation_scope":"project",'
+            '"path":"/srv/project/.agents/skills","allow_managed_publish":true},'
+            '{"target_id":"claude-user","agent_kind":"claude_code","installation_scope":"user",'
+            '"path":"/home/example/.claude/skills"}]}'
         ),
     )
 
@@ -118,6 +122,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.http.port == 9000
     assert isinstance(settings.database, SQLiteConfig)
     assert settings.database.url == "sqlite+aiosqlite:////var/lib/powercontext/test.db"
+    assert settings.runtime.scope_cache_size == 64
     assert settings.runtime.source_window_limit == 25
     assert settings.runtime.memory_extraction_profile is MemoryExtractionProfile.CONVERSATION
     assert settings.runtime.memory_rerank_enabled is True
@@ -131,8 +136,11 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.dashboard.enabled is True
     assert settings.dashboard.scopes == []
     assert settings.external_skills.host_id == "workstation-1"
-    assert settings.external_skills.codex_roots[0].root_id == "repository"
-    assert settings.external_skills.codex_roots[0].path.as_posix() == "/srv/project/.agents/skills"
+    assert settings.external_skills.targets[0].target_id == "codex-project"
+    assert settings.external_skills.targets[0].path.as_posix() == "/srv/project/.agents/skills"
+    assert settings.external_skills.targets[0].allow_managed_publish is True
+    assert settings.external_skills.targets[1].agent_kind == "claude_code"
+    assert settings.external_skills.targets[1].path.as_posix() == "/home/example/.claude/skills"
 
 
 def test_env_example_loads_server_settings(monkeypatch) -> None:

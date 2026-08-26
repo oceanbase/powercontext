@@ -37,7 +37,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryRerankDecision,
     MemoryReranker,
 )
-from powercontext.builtin.artifacts.skill import CodexSkillProvider, ExternalSkillProvider, SkillGenerator
+from powercontext.builtin.artifacts.skill import AgentSkillProvider, ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter, RuntimeWorkContinuityReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.handoff_report.sqlite import HANDOFF_REPORT_TABLES
@@ -58,6 +58,7 @@ from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExper
 from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVectorIndex
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.runtime._scope_cache import ScopeCacheObserver
 from powercontext.builtin.runtime.application import BuiltinRuntime
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
@@ -167,6 +168,7 @@ async def open_builtin_runtime(
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
     instrumentation: InstrumentationSettings | None = None,
+    scope_cache_observer: ScopeCacheObserver | None = None,
     tracing: RuntimeTracing | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
@@ -265,6 +267,9 @@ async def open_builtin_runtime(
                     handoff_generation=contexts.handoff_generation,
                 ),
                 source_window_limit=config.runtime.source_window_limit,
+                scope_cache_size=config.runtime.scope_cache_size,
+                scope_evictor=contexts.evict,
+                scope_cache_observer=scope_cache_observer,
                 scope_ids=contexts.scope_ids,
                 review_service=contexts.review,
                 generation_service=contexts.generation,
@@ -283,6 +288,7 @@ async def open_builtin_runtime(
                 contexts.database,
                 RuntimeHandoffReadAdapter(runtime.handoff),
                 continuity=RuntimeWorkContinuityReadAdapter(runtime.work),
+                scope_ids=contexts.handoff_scope_ids,
             )
         if config.runtime.schedule_seconds is not None and configured_pipeline is None:
             raise BuiltinConfigurationError("scheduled-pipeline")
@@ -581,11 +587,11 @@ def _required(value: ValueT | None) -> ValueT:
 
 
 def _external_skill_provider(settings: ExternalSkillsConfig) -> ExternalSkillProvider | None:
-    if not settings.codex_roots:
+    if not settings.agent_targets:
         return None
     if settings.host_id is None:
         raise BuiltinConfigurationError("external-skill-host")
-    return CodexSkillProvider(host_id=settings.host_id, roots=settings.codex_roots)
+    return AgentSkillProvider(host_id=settings.host_id, targets=settings.agent_targets)
 
 
 def _search_modes(capabilities: MemoryCapabilities) -> tuple[MemorySearchMode, ...]:

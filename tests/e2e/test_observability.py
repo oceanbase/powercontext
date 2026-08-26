@@ -576,16 +576,19 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
                 RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text=memory_content),))
             )
 
-            # Holding the scope lock outside the Runtime makes the next write observe real contention.
-            lock = runtime._locks[scope_id]
-            await lock.acquire()
-            contending = asyncio.create_task(
-                memory.remember(RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Second fact."),)))
-            )
-            await asyncio.sleep(0.05)
-            assert not contending.done()
-            lock.release()
-            await contending
+            # Holding the scope lock inside an operation makes the next write observe real contention.
+            async with runtime._scope_operation(scope_id):
+                lock = runtime._lock(scope_id)
+                await lock.acquire()
+                contending = asyncio.create_task(
+                    memory.remember(
+                        RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Second fact."),))
+                    )
+                )
+                await asyncio.sleep(0.05)
+                assert not contending.done()
+                lock.release()
+                await contending
 
             # A failure inside the critical section must still release the lock for later writes.
             with pytest.raises(RevisionConflictError):
@@ -618,15 +621,19 @@ def test_scope_lock_is_released_when_stage_teardown_fails(tmp_path) -> None:
     scope_id = "project:private-broken-tracing"
 
     async def scenario() -> bool:
-        async with open_builtin_runtime(
-            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'broken-tracing.db'}")),
-            tracing=_ScopeLockTeardownFailingTracing(),
-        ) as runtime:
+        async with (
+            open_builtin_runtime(
+                BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'broken-tracing.db'}")),
+                tracing=_ScopeLockTeardownFailingTracing(),
+            ) as runtime,
+            runtime._scope_operation(scope_id),
+        ):
+            lock = runtime._lock(scope_id)
             with pytest.raises(_StageTeardownError):
                 await runtime.memory.for_scope(scope_id).remember(
                     RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Guarded fact."),))
                 )
-            return runtime._locks[scope_id].locked()
+            return lock.locked()
 
     assert asyncio.run(scenario()) is False
 

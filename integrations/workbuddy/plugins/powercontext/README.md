@@ -30,6 +30,6 @@ The Hook fails open on transport, authentication, contract, and capture errors.
 MCP remains available for explicit Memory maintenance and the inspected Handoff
 lifecycle when the Server is reachable.
 
-See [`integrations/workbuddy/README.md`](../README.md) for installation steps
-and [`docs/en/docs/how-to/configure-workbuddy.md`](../../../docs/en/docs/how-to/configure-workbuddy.md)
+See [`integrations/workbuddy/README.md`](../../README.md) for installation steps
+and [`docs/en/docs/how-to/configure-workbuddy.md`](../../../../docs/en/docs/how-to/configure-workbuddy.md)
 for the full configuration guide.

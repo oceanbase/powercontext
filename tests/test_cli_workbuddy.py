@@ -15,6 +15,10 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +52,7 @@ def _write_plugin(root: Path) -> Path:
     skill = plugin / "skills" / "project-context"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text(
-        "python3 ${WORKBUDDY_HOOKS_DIR}/scripts/project_scope.py\n",
+        "${POWERCONTEXT_PYTHON} ${WORKBUDDY_HOOKS_DIR}/scripts/project_scope.py\n",
         encoding="utf-8",
     )
     return plugin
@@ -63,10 +67,18 @@ def _powercontext_hook(settings: dict[str, Any]) -> dict[str, Any]:
     raise AssertionError
 
 
+def _expected_hook_command(hooks_dir: Path) -> str:
+    executable = Path(sys.executable).as_posix()
+    script = (hooks_dir / "workbuddy_powercontext_hook.py").as_posix()
+    if os.name == "nt":
+        return subprocess.list2cmdline([executable, script])
+    return f"{shlex.quote(executable)} {shlex.quote(script)}"
+
+
 def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypatch) -> None:
     checkout = tmp_path / "powercontext"
     _write_plugin(checkout)
-    home = tmp_path / "workbuddy"
+    home = tmp_path / "workbuddy home"
     monkeypatch.setenv("WORKBUDDY_HOME", str(home))
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
 
@@ -94,18 +106,24 @@ def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypa
     skill_markdown = home / "skills" / "project-context" / "SKILL.md"
     assert skill_markdown.is_file()
     assert "${WORKBUDDY_HOOKS_DIR}" not in skill_markdown.read_text(encoding="utf-8")
-    assert str(hooks_dir) in skill_markdown.read_text(encoding="utf-8")
+    assert "${POWERCONTEXT_PYTHON}" not in skill_markdown.read_text(encoding="utf-8")
+    assert hooks_dir.as_posix() in skill_markdown.read_text(encoding="utf-8")
+    assert Path(sys.executable).as_posix() in skill_markdown.read_text(encoding="utf-8")
 
     settings = json.loads((home / "settings.json").read_text(encoding="utf-8"))
     hook = _powercontext_hook(settings)
-    assert hook["command"] == f"python3 {hooks_dir}/workbuddy_powercontext_hook.py"
+    assert hook["command"] == _expected_hook_command(hooks_dir)
     assert hook["timeout"] == 10
     assert hook["statusMessage"] == "Syncing PowerContext"
 
     mcp = json.loads((home / "mcp.json").read_text(encoding="utf-8"))
     assert mcp["mcpServers"]["powercontext"]["type"] == "http"
-    assert mcp["mcpServers"]["powercontext"]["url"] == "http://127.0.0.1:8000/mcp"
-    assert mcp["mcpServers"]["powercontext"]["headers"] == {}
+    assert mcp["mcpServers"]["powercontext"]["url"] == (
+        "${POWERCONTEXT_WORKBUDDY_SERVER_URL:-http://127.0.0.1:8000}/mcp"
+    )
+    assert mcp["mcpServers"]["powercontext"]["headers"] == {
+        "Authorization": "${POWERCONTEXT_WORKBUDDY_AUTHORIZATION:-}"
+    }
     assert mcp["mcpServers"]["powercontext"]["disabled"] is False
 
 
@@ -142,11 +160,47 @@ def test_setup_workbuddy_preserves_existing_settings_and_mcp(tmp_path: Path, mon
     assert settings["sandbox"] == {"enabled": True}
     matchers = settings["hooks"]["UserPromptSubmit"]
     assert {"type": "command", "command": "echo hello", "timeout": 5} in matchers[0]["hooks"]
-    assert _powercontext_hook(settings)["command"].startswith("python3 ")
+    assert _powercontext_hook(settings)["command"] == _expected_hook_command(home / "hooks")
 
     mcp = json.loads((home / "mcp.json").read_text(encoding="utf-8"))
     assert mcp["mcpServers"]["other-server"] == {"type": "stdio", "command": "other", "args": []}
-    assert mcp["mcpServers"]["powercontext"]["url"] == "http://127.0.0.1:8000/mcp"
+    assert mcp["mcpServers"]["powercontext"]["url"] == (
+        "${POWERCONTEXT_WORKBUDDY_SERVER_URL:-http://127.0.0.1:8000}/mcp"
+    )
+
+
+def test_setup_workbuddy_preserves_remote_authenticated_mcp_configuration(tmp_path: Path, monkeypatch) -> None:
+    checkout = tmp_path / "powercontext"
+    _write_plugin(checkout)
+    home = tmp_path / "workbuddy"
+    home.mkdir()
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+
+    (home / "mcp.json").write_text(
+        json.dumps({
+            "mcpServers": {
+                "powercontext": {
+                    "type": "http",
+                    "url": "https://memory.example.test/mcp",
+                    "headers": {"Authorization": "Bearer existing-token"},
+                    "disabled": True,
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        ["setup", "workbuddy", "--source", str(checkout)],
+    )
+
+    assert result.exit_code == 0
+    mcp = json.loads((home / "mcp.json").read_text(encoding="utf-8"))
+    assert mcp["mcpServers"]["powercontext"]["url"] == "https://memory.example.test/mcp"
+    assert mcp["mcpServers"]["powercontext"]["headers"] == {"Authorization": "Bearer existing-token"}
+    assert mcp["mcpServers"]["powercontext"]["disabled"] is False
 
 
 def test_setup_workbuddy_updates_an_existing_powercontext_hook(tmp_path: Path, monkeypatch) -> None:
@@ -187,7 +241,7 @@ def test_setup_workbuddy_updates_an_existing_powercontext_hook(tmp_path: Path, m
     matchers = settings["hooks"]["UserPromptSubmit"]
     assert len(matchers) == 1
     hook = matchers[0]["hooks"][0]
-    assert hook["command"] == f"python3 {home / 'hooks'}/workbuddy_powercontext_hook.py"
+    assert hook["command"] == _expected_hook_command(home / "hooks")
     assert hook["timeout"] == 10
     assert hook["statusMessage"] == "Syncing PowerContext"
     assert hook["custom"] == "preserved"

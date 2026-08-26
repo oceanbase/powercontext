@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-labelledby="title description">
+  <title id="title">WorkBuddy</title>
+  <desc id="description">Blue square PowerContext WorkBuddy integration badge with WB initials.</desc>
+  <rect width="120" height="120" rx="24" fill="#1f6feb"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-weight="700" text-anchor="middle">
+    <text x="60" y="73" fill="#ffffff" font-size="40">WB</text>
+  </g>
+</svg>

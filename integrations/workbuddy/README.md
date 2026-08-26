@@ -60,6 +60,8 @@ WorkBuddy loads hook commands from its user-level hooks directory. Copy the
 hook driver, its settings modules, and the scope resolver there. This guide
 uses `~/.workbuddy/hooks` as the hooks directory; replace it with your own
 location and use the same value wherever `<WORKBUDDY_HOOKS_DIR>` appears below.
+Use the Python executable that can import PowerContext wherever
+`<POWERCONTEXT_PYTHON>` appears below.
 
 ```bash
 PLUGIN=integrations/workbuddy/plugins/powercontext
@@ -87,9 +89,10 @@ The resulting layout is:
 #### 2. Register the hook
 
 Merge the following `hooks` block into `~/.workbuddy/settings.json`. Replace
-`<WORKBUDDY_HOOKS_DIR>` with the absolute path of your hooks directory (for
+`<POWERCONTEXT_PYTHON>` with the Python executable that can import PowerContext,
+and `<WORKBUDDY_HOOKS_DIR>` with the absolute path of your hooks directory (for
 example `/Users/<you>/.workbuddy/hooks`). The command string cannot expand
-environment variables, so the literal path is required here.
+environment variables, so literal paths are required here.
 
 ```json
 {
@@ -99,7 +102,7 @@ environment variables, so the literal path is required here.
         "hooks": [
           {
             "type": "command",
-            "command": "python3 <WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py",
+            "command": "\"<POWERCONTEXT_PYTHON>\" \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
             "timeout": 10,
             "statusMessage": "Syncing PowerContext"
           }
@@ -122,8 +125,10 @@ Merge the following `mcpServers` entry into `~/.workbuddy/mcp.json`:
   "mcpServers": {
     "powercontext": {
       "type": "http",
-      "url": "http://127.0.0.1:8000/mcp",
-      "headers": {},
+      "url": "${POWERCONTEXT_WORKBUDDY_SERVER_URL:-http://127.0.0.1:8000}/mcp",
+      "headers": {
+        "Authorization": "${POWERCONTEXT_WORKBUDDY_AUTHORIZATION:-}"
+      },
       "description": "PowerContext agent memory & handoff MCP server (local service on port 8000)"
     }
   }

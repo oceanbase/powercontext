@@ -1,6 +1,6 @@
 ---
 title: 接口
-description: 在 Codex 插件、DeepSeek Harness 插件、Pi package、CLI、Python SDK、HTTP 和 MCP 之间选择。
+description: 在 Codex 和 Claude Code 插件、DeepSeek Harness 插件、Pi package、CLI、Python SDK、HTTP 和 MCP 之间选择。
 ---
 
 # 接口
@@ -97,15 +97,6 @@ powercontext doctor pi
 powercontext server run
 powercontext ready
 powercontext capabilities
-powercontext candidate list --scope-id project:example
-powercontext candidate list --scope-id project:example --family skill
-powercontext candidate show --scope-id project:example CANDIDATE_ID
-powercontext candidate approve --scope-id project:example --expected-version 1 CANDIDATE_ID
-powercontext candidate reject --scope-id project:example --expected-version 1 --reason unsupported CANDIDATE_ID
-powercontext candidate revise experience --scope-id project:example --expected-version 1 \
-  --situation SITUATION --action ACTION --outcome OUTCOME --lesson LESSON CANDIDATE_ID
-powercontext candidate revise skill --scope-id project:example --expected-version 1 \
-  --name NAME --description DESCRIPTION --instructions-file instructions.md --validation CHECK CANDIDATE_ID
 powercontext experience generate --scope-id project:example --source-ref content/SOURCE_ID
 powercontext skill generate --scope-id project:example --origin experience \
   --artifact-ref experience/EXPERIENCE_ID@REVISION
@@ -125,6 +116,9 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 `powercontext doctor` 检查安装包和 Server，不要求任何集成；`powercontext doctor codex` 显式检查 Codex CLI
 和 PowerContext 插件；`powercontext doctor dsh` 检查 DeepSeek Harness CLI，以及 dump-config 是否列出插件 id
 `powercontext-dsh`；`powercontext doctor pi` 检查 Pi 可执行文件，以及 Pi 是否列出了 PowerContext package。
+
+`candidate` 命令组提供面向人工的 Review Inbox。列出、检查、修订、批准和拒绝的操作步骤见
+[审核 Candidate](../how-to/review-candidates.md)。
 
 Generation 和 revision 命令通过可重复的 `--source-ref TYPE/ID` 与
 `--artifact-ref FAMILY/ID@REVISION` 接收精确引用，不再读取序列化请求文件。
@@ -189,6 +183,9 @@ Experience 经 Review 批准后，确定性的 `searchable_text` 会写入现有
 索引，从而可在同一 scope 内被 `PreparedContext` 召回。pending/rejected Candidate、所有 managed Skill 和历史
 Experience Revision 仍不会进入 PreparedContext。
 
+证据、Candidate version、approved Revision、召回和导出的关系见
+[Experience 与 Skill 生命周期](../explanation/experience-and-skill-lifecycle.md)。
+
 ## 后台 Experience 孵化
 
 Integration 可以把已完成任务采集为 metadata 含 `"kind": "task-outcome"` 的 Content Source。启用
@@ -201,26 +198,29 @@ Experience 孵化使用独立于 Memory extraction 的持久化 Source cursor。
 不会进入这个 job。
 
 后台流程止于审核边界：它不会批准 Experience、把 pending 内容放入 PreparedContext、派生 managed Skill、
-把 Skill 导出给 Codex，或执行 instructions。只有支撑它的 Experience 获批后，Skill authoring 和导出才作为
+把 Skill 导出到 Agent target，或执行 instructions。只有支撑它的 Experience 获批后，Skill authoring 和导出才作为
 显式步骤继续。
+设置与验证步骤见[创建并审核 Experience](../how-to/create-and-review-experience.md)。
 
-## 把 managed Skill 导出给 Codex
+## 把 managed Skill 导出到 Agent target
 
 配置好的生成器可通过 `generate_skill` 生成完整 managed Skill；已经拥有完整类型化内容的人或 integration
 可通过 `propose_skill` 提交。proposal 包括名称、用于发现的描述、instructions、validation，以及精确的
 Source 或 Artifact lineage。在 reviewer 批准精确 Candidate version 之前，它始终只是 Candidate。
 
-批准会创建不可变的 Skill Revision，但不会安装 Skill，也不会授予执行权限。要让 Codex 使用某个已批准
-Revision，必须通过 `skill export --target codex` 将它显式导出到新的代码库级或用户级 Skill 目录。该命令生成
-`SKILL.md` 和 `powercontext.json`；manifest 会记录精确 Artifact 引用和渲染内容哈希。目标目录已存在时命令会
+批准会创建不可变的 Skill Revision，但不会安装 Skill，也不会授予执行权限。要让 Codex 或 Claude Code 使用某个
+已批准 Revision，必须把它显式发布到配置好的代码库级、用户级或插件级 Skill target。projection 会生成
+`SKILL.md` 和 `powercontext.json`；manifest 会记录 Agent kind、精确 Artifact 引用和渲染内容哈希。目标目录已存在时会
 拒绝覆盖，更新必须是一次明确的新导出，不能静默替换。
 
 Codex 可以发现 `.agents/skills/<name>/SKILL.md` 下的代码库级导出。Artifact Revision 始终是内容权威，目录
-只是 host-local projection，可以从同一个精确 Revision 重建。
+只是 host-local projection；Claude Code 对应的项目级 target 是 `.claude/skills/<name>/SKILL.md`。两者都可以从
+同一个精确 Revision 重建。
+操作步骤见[创建并导出 managed Skill](../how-to/create-and-export-skill.md)。
 
 ## 外部 Agent-native Skill
 
-外部 Skill 的原始本地 package 始终是内容权威。显式配置 Codex roots 后，Server 可以扫描 scope-local、
+外部 Skill 的原始本地 package 始终是内容权威。显式配置 Agent target 后，Server 可以扫描 scope-local、
 可重建的 Registry，并记录名称、描述、provider、Agent kind、host、installation scope、locator 和整个 package
 的 fingerprint。只有同一 package 在已配置 host 上仍可读且 fingerprint 一致时，exact resolve 才成功；它不会
 安装 package，也不会回退到其他版本。
@@ -236,8 +236,8 @@ Discovery 不进入 Review。显式调用 `import_external_skill` 并提供精�
 | --- | --- | --- | --- | --- |
 | 外部 Agent-native Skill | 原始 package | scan/list/resolve 不需要；import/fork 需要 | discovery 不需要；import/fork 后需要 | host-local Registry 和 exact resolve |
 | Experience | 精确 approved Artifact Revision | generate/evolve 需要；类型化 `propose` 不需要 | 需要 | exact read 与 PreparedContext approved-head FTS recall |
-| managed Skill | 精确 approved Artifact Revision | generate/evolve/import/fork 需要；类型化 `propose` 不需要 | 需要 | exact read 与显式 Codex projection |
-| Codex projection | 对应的 managed Skill Revision | 不需要 | 不增加额外 Review | 可重建的 host-local copy |
+| managed Skill | 精确 approved Artifact Revision | generate/evolve/import/fork 需要；类型化 `propose` 不需要 | 需要 | exact read 与显式 Agent projection |
+| Agent projection | 对应的 managed Skill Revision | 不需要 | 不增加额外 Review | 可重建的 Codex 或 Claude Code host-local copy |
 
 ## Core SDK
 

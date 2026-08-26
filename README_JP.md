@@ -26,11 +26,16 @@ powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
 powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
 powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
 powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
+
+# OpenClaw は現在、master から対応する CLI とインテグレーションをインストールする必要があります。
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup openclaw --source oceanbase/powercontext --ref master
 ```
 
-最初のコマンドは、隔離された環境に CLI とローカル Server をインストールします。以降の setup コマンドは、
-対応するリポジトリの tag から各インテグレーションをインストールします。既存のインストールを更新するには、setup を
-再実行してください。
+最初のコマンドは、隔離された環境に最新リリースの CLI とローカル Server をインストールします。リリース版の setup
+コマンドは、対応するリポジトリの tag から各インテグレーションをインストールします。OpenClaw がリリースに含まれる
+までは、追加の `uv tool install` コマンドによって CLI、Server、インテグレーションを同じ `master` revision に
+そろえます。既存のインストールを更新するには、setup をもう一度実行してください。
 
 ### 2. ローカル Server を起動して検証する
 
@@ -44,7 +49,7 @@ powercontext server run
 
 ```bash
 powercontext doctor
-powercontext doctor codex  # または: claude-code / dsh / hermes
+powercontext doctor codex  # または: claude-code / dsh / hermes / openclaw
 ```
 
 デフォルトでは、Server は `127.0.0.1:8000` で待ち受け、`/mcp` で Streamable HTTP MCP を公開し、
@@ -78,7 +83,7 @@ powercontext doctor codex  # または: claude-code / dsh / hermes
 
 ## インテグレーション
 
-PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent、WorkBuddy 向けの公式インテグレーションと
+PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent、OpenClaw、WorkBuddy 向けの公式インテグレーションと
 インストールガイドを提供します。これらのインテグレーションは、PowerContext Server を通じて同じスコープ付きデータと
 履歴を保持する契約を使用します。ホストインテグレーションが Server を自動的に起動したり、組み込んだりすることはありません。
 
@@ -91,7 +96,8 @@ PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Codi
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-dsh.md"><img src="https://github.com/deepseek-ai.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='10' fill='%231f6feb'/%3E%3Ctext x='24' y='31' font-family='Arial,Helvetica,sans-serif' font-size='18' font-weight='bold' fill='%23ffffff' text-anchor='middle'%3EWB%3C/text%3E%3C/svg%3E" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-openclaw.md"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
+<td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="docs/assets/workbuddy.svg" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
 </tr>
 </table>
 

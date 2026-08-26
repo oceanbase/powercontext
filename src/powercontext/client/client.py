@@ -68,10 +68,12 @@ from powercontext.http import (
     HandoffResolution,
     HealthResponse,
     ImportExternalSkillRequest,
+    KnownHandoffScopePage,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListHandoffReportActivitiesRequest,
+    ListHandoffReportKnownScopesRequest,
     ListHandoffReportProjectsRequest,
     ListHandoffReportWorkstreamsRequest,
     ListMemoryChangesRequest,
@@ -145,6 +147,7 @@ from powercontext.http._generated.operations import (
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
     LIST_HANDOFF_REPORT_ACTIVITIES,
+    LIST_HANDOFF_REPORT_KNOWN_SCOPES,
     LIST_HANDOFF_REPORT_PROJECTS,
     LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
@@ -263,6 +266,14 @@ class PowerContextClient:
         """List Report Projects with cursor pagination."""
 
         return await self._request(LIST_HANDOFF_REPORT_PROJECTS, request)
+
+    async def list_handoff_report_known_scopes(
+        self,
+        request: ListHandoffReportKnownScopesRequest,
+    ) -> KnownHandoffScopePage:
+        """List scopes that contain a committed Handoff."""
+
+        return await self._request(LIST_HANDOFF_REPORT_KNOWN_SCOPES, request)
 
     async def register_handoff_report_workstream(
         self,

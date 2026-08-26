@@ -19,7 +19,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import shutil
+import subprocess
+import sys
 import tempfile
 import uuid
 from collections.abc import Callable
@@ -48,6 +51,7 @@ WORKBUDDY_HOOKS_DIRNAME = "hooks"
 WORKBUDDY_SKILLS_DIRNAME = "skills"
 WORKBUDDY_SKILL_NAME = "project-context"
 WORKBUDDY_HOOKS_DIR_PLACEHOLDER = "${WORKBUDDY_HOOKS_DIR}"
+WORKBUDDY_PYTHON_PLACEHOLDER = "${POWERCONTEXT_PYTHON}"
 WORKBUDDY_HOOK_DRIVER = "workbuddy_powercontext_hook.py"
 WORKBUDDY_HOOK_MODULES = (
     "workbuddy_powercontext_hook.py",
@@ -55,7 +59,10 @@ WORKBUDDY_HOOK_MODULES = (
     "prepared_context.py",
 )
 WORKBUDDY_SCRIPT_MODULES = ("__init__.py", "project_scope.py")
-WORKBUDDY_MCP_URL = "http://127.0.0.1:8000/mcp"
+WORKBUDDY_SERVER_URL_ENV = "POWERCONTEXT_WORKBUDDY_SERVER_URL"
+WORKBUDDY_AUTHORIZATION_ENV = "POWERCONTEXT_WORKBUDDY_AUTHORIZATION"
+WORKBUDDY_MCP_URL = f"${{{WORKBUDDY_SERVER_URL_ENV}:-http://127.0.0.1:8000}}/mcp"
+WORKBUDDY_MCP_AUTHORIZATION = f"${{{WORKBUDDY_AUTHORIZATION_ENV}:-}}"
 WORKBUDDY_MCP_DESCRIPTION = "PowerContext agent memory & handoff MCP server (local service on port 8000)"
 WORKBUDDY_HOOK_STATUS_MESSAGE = "Syncing PowerContext"
 WORKBUDDY_HOOK_TIMEOUT = 10
@@ -252,14 +259,8 @@ def _merge_workbuddy_mcp(mcp_file: Path) -> None:
         raise SetupError.invalid_workbuddy_mcp(mcp_file)
     servers_dict = cast(dict[str, Any], servers)
 
-    entry: dict[str, Any] = {
-        "type": "http",
-        "url": WORKBUDDY_MCP_URL,
-        "headers": {},
-        "description": WORKBUDDY_MCP_DESCRIPTION,
-        "disabled": False,
-    }
     existing = servers_dict.get(WORKBUDDY_PLUGIN_NAME)
+    entry = _workbuddy_mcp_entry(existing)
     if isinstance(existing, dict):
         servers_dict[WORKBUDDY_PLUGIN_NAME] = {**cast(dict[str, Any], existing), **entry}
     else:
@@ -269,6 +270,24 @@ def _merge_workbuddy_mcp(mcp_file: Path) -> None:
         _write_json_atomically(mcp_file, config)
     except OSError as error:
         raise SetupError.workbuddy_mcp_write(mcp_file, error) from error
+
+
+def _workbuddy_mcp_entry(existing: Any) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "type": "http",
+        "url": WORKBUDDY_MCP_URL,
+        "headers": {"Authorization": WORKBUDDY_MCP_AUTHORIZATION},
+        "description": WORKBUDDY_MCP_DESCRIPTION,
+        "disabled": False,
+    }
+    if isinstance(existing, dict):
+        existing_url = existing.get("url")
+        if isinstance(existing_url, str) and existing_url.strip():
+            entry["url"] = existing_url
+        existing_headers = existing.get("headers")
+        if isinstance(existing_headers, dict) and existing_headers:
+            entry["headers"] = cast(dict[str, Any], existing_headers)
+    return entry
 
 
 def _install_workbuddy_skill(plugin_dir: Path, skills_dir: Path, hooks_dir: Path) -> None:
@@ -283,7 +302,9 @@ def _install_workbuddy_skill(plugin_dir: Path, skills_dir: Path, hooks_dir: Path
         shutil.copytree(source, target)
         skill_markdown = target / "SKILL.md"
         content = skill_markdown.read_text(encoding="utf-8")
-        skill_markdown.write_text(content.replace(WORKBUDDY_HOOKS_DIR_PLACEHOLDER, str(hooks_dir)), encoding="utf-8")
+        content = content.replace(WORKBUDDY_HOOKS_DIR_PLACEHOLDER, hooks_dir.as_posix())
+        content = content.replace(WORKBUDDY_PYTHON_PLACEHOLDER, _shell_argument(_python_executable()))
+        skill_markdown.write_text(content, encoding="utf-8")
     except OSError as error:
         raise SetupError.workbuddy_skill_write(target, error) from error
 
@@ -293,7 +314,7 @@ def _upsert_powercontext_hook(matchers: list[Any], hooks_dir: Path, settings_fil
 
     entry: dict[str, Any] = {
         "type": "command",
-        "command": f"python3 {hooks_dir}/{WORKBUDDY_HOOK_DRIVER}",
+        "command": _workbuddy_hook_command(hooks_dir),
         "timeout": WORKBUDDY_HOOK_TIMEOUT,
         "statusMessage": WORKBUDDY_HOOK_STATUS_MESSAGE,
     }
@@ -312,6 +333,22 @@ def _upsert_powercontext_hook(matchers: list[Any], hooks_dir: Path, settings_fil
                 group_list[index] = {**cast(dict[str, Any], existing), **entry}
                 return
     matchers.append({"hooks": [entry]})
+
+
+def _workbuddy_hook_command(hooks_dir: Path) -> str:
+    script = hooks_dir / WORKBUDDY_HOOK_DRIVER
+    return f"{_shell_argument(_python_executable())} {_shell_argument(script.as_posix())}"
+
+
+def _python_executable() -> str:
+    return Path(sys.executable).as_posix()
+
+
+def _shell_argument(value: str | Path) -> str:
+    text = str(value)
+    if os.name == "nt":
+        return subprocess.list2cmdline([text])
+    return shlex.quote(text)
 
 
 def _is_powercontext_hook(entry: dict[str, Any]) -> bool:

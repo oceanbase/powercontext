@@ -256,10 +256,13 @@ from powercontext.http import (
     HandoffSelection,
     HealthResponse,
     ImportExternalSkillRequest,
+    KnownHandoffScope,
+    KnownHandoffScopePage,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListHandoffReportActivitiesRequest,
+    ListHandoffReportKnownScopesRequest,
     ListHandoffReportProjectsRequest,
     ListHandoffReportWorkstreamsRequest,
     ListMemoryChangesRequest,
@@ -348,6 +351,7 @@ from powercontext.http._generated.operations import (
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
     LIST_HANDOFF_REPORT_ACTIVITIES,
+    LIST_HANDOFF_REPORT_KNOWN_SCOPES,
     LIST_HANDOFF_REPORT_PROJECTS,
     LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
@@ -637,6 +641,7 @@ def create_app(
         _add_route(app, GET_HANDOFF_REPORT_PROJECT, get_handoff_report_project)
         _add_route(app, UPDATE_HANDOFF_REPORT_PROJECT, update_handoff_report_project)
         _add_route(app, LIST_HANDOFF_REPORT_PROJECTS, list_handoff_report_projects)
+        _add_route(app, LIST_HANDOFF_REPORT_KNOWN_SCOPES, list_handoff_report_known_scopes)
         _add_route(app, REGISTER_HANDOFF_REPORT_WORKSTREAM, register_handoff_report_workstream)
         _add_route(app, LIST_HANDOFF_REPORT_WORKSTREAMS, list_handoff_report_workstreams)
         _add_route(app, UPDATE_HANDOFF_REPORT_WORKSTREAM, update_handoff_report_workstream)
@@ -774,6 +779,17 @@ async def list_handoff_report_projects(
     )
 
 
+async def list_handoff_report_known_scopes(
+    request: ListHandoffReportKnownScopesRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> KnownHandoffScopePage:
+    result = await report.list_known_scopes(cursor=request.cursor, limit=request.limit)
+    return KnownHandoffScopePage(
+        items=[KnownHandoffScope(scope_id=scope_id) for scope_id in result.items],
+        next_cursor=result.next_cursor,
+    )
+
+
 async def register_handoff_report_workstream(
     request: RegisterHandoffReportWorkstreamRequest,
     report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
@@ -901,7 +917,7 @@ async def get_handoff_report(
     report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
 ) -> HandoffReportResponse | Response:
     result = await report.get_report(
-        request.project_id,
+        request.scope_id,
         locale=None if request.locale is None else request.locale.value,
         include_evidence_checks=request.include_evidence_checks,
         report_format=request.format.value,

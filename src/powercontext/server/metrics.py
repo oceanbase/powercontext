@@ -69,6 +69,13 @@ class ServerMetrics:
             "Whether the built-in Runtime can accept operations.",
             registry=self.registry,
         )
+        self.runtime_scopes = Gauge(
+            "powercontext_server_runtime_scopes",
+            "Scope compositions currently active or retained by the built-in Runtime.",
+            ("state",),
+            registry=self.registry,
+        )
+        self.set_runtime_scopes(0, 0)
 
     def start_transport(self, transport: str, operation: str) -> float:
         with suppress(Exception):
@@ -102,6 +109,11 @@ class ServerMetrics:
     def set_ready(self, ready: bool) -> None:
         with suppress(Exception):
             self.runtime_ready.set(1 if ready else 0)
+
+    def set_runtime_scopes(self, cached: int, active: int) -> None:
+        for state, value in (("active", active), ("cached", cached)):
+            with suppress(Exception):
+                self.runtime_scopes.labels(state=state).set(value)
 
     def render(self) -> bytes:
         return generate_latest(self.registry)

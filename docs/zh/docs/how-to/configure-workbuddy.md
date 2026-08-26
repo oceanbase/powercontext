@@ -67,8 +67,8 @@ cp -R "$PLUGIN/scripts" "$WORKBUDDY_HOOKS_DIR"/
 
 ### 2. 注册 Hook
 
-将下面的 `hooks` 配置合并进 `~/.workbuddy/settings.json`。把 `<WORKBUDDY_HOOKS_DIR>` 替换为 hooks
-目录的绝对路径；命令字符串不支持环境变量展开。
+将下面的 `hooks` 配置合并进 `~/.workbuddy/settings.json`。把 `<POWERCONTEXT_PYTHON>` 替换为能 import
+PowerContext 的 Python executable，把 `<WORKBUDDY_HOOKS_DIR>` 替换为 hooks 目录的绝对路径；命令字符串不支持环境变量展开。
 
 ```json
 {
@@ -78,7 +78,7 @@ cp -R "$PLUGIN/scripts" "$WORKBUDDY_HOOKS_DIR"/
         "hooks": [
           {
             "type": "command",
-            "command": "python3 <WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py",
+            "command": "\"<POWERCONTEXT_PYTHON>\" \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
             "timeout": 10,
             "statusMessage": "Syncing PowerContext"
           }
@@ -98,8 +98,10 @@ cp -R "$PLUGIN/scripts" "$WORKBUDDY_HOOKS_DIR"/
   "mcpServers": {
     "powercontext": {
       "type": "http",
-      "url": "http://127.0.0.1:8000/mcp",
-      "headers": {},
+      "url": "${POWERCONTEXT_WORKBUDDY_SERVER_URL:-http://127.0.0.1:8000}/mcp",
+      "headers": {
+        "Authorization": "${POWERCONTEXT_WORKBUDDY_AUTHORIZATION:-}"
+      },
       "description": "PowerContext agent memory & handoff MCP server (local service on port 8000)"
     }
   }

@@ -20,7 +20,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}PowerContext{% endblock %}</title>
-  <link rel="icon" href="{{ url_for('web_static', path='/oceanbase-logo.svg') }}" type="image/svg+xml">
+  <link rel="icon" href="{{ url_for('web_static', path='/powercontext-color.png') }}" type="image/png">
   <script>
     try {
       const authenticationRequired = document.documentElement.dataset.serverAuthRequired === "true";
@@ -44,7 +44,7 @@
       // Theme persistence is optional when browser storage is unavailable.
     }
   </script>
-  <link rel="stylesheet" href="{{ url_for('web_static', path='/site.css') }}?v=unified-editor-preview-v1">
+  <link rel="stylesheet" href="{{ url_for('web_static', path='/site.css') }}?v=powercontext-brand-review-v1">
   {% block head %}{% endblock %}
 </head>
 <body>

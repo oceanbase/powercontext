@@ -51,14 +51,19 @@ class ExternalSkillRegistryService:
 
     async def scan(self) -> ExternalSkillProviderScan:
         snapshot = await asyncio.to_thread(self._provider.scan)
+        provider_names = getattr(self._provider, "provider_names", (self._provider.name,))
         async with self._database.transaction() as connection:
-            await self._repository.replace(
-                connection,
-                self._scope_id,
-                self._provider.name,
-                self._provider.host_id,
-                snapshot.registrations,
-            )
+            for provider_name in provider_names:
+                registrations = tuple(
+                    registration for registration in snapshot.registrations if registration.provider == provider_name
+                )
+                await self._repository.replace(
+                    connection,
+                    self._scope_id,
+                    provider_name,
+                    self._provider.host_id,
+                    registrations,
+                )
         return snapshot
 
     async def list(self, /, *, include_unavailable: bool = False) -> tuple[ExternalSkillResolution, ...]:

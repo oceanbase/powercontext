@@ -2264,6 +2264,12 @@ body {
   font-weight: 620;
 }
 
+.md-typeset a.text-link,
+.md-typeset a.text-link:hover,
+.md-typeset a.text-link:focus-visible {
+  color: var(--pc-blue-700);
+}
+
 .release-meta strong {
   color: var(--pc-blue-700);
   font-family: var(--pc-font-code);
@@ -2381,26 +2387,10 @@ body {
   font-weight: 620;
 }
 
-.record-index-title span {
-  color: var(--pc-tertiary);
-  font-size: 11px;
-}
-
-.record-columns--compact,
 .record-row--compact {
   display: grid;
   gap: 24px;
   grid-template-columns: 54px minmax(0, 1fr);
-}
-
-.record-columns {
-  border-bottom: 1px solid var(--pc-rule-strong);
-  padding: 0 4px 8px 0;
-  color: var(--pc-tertiary);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .record-row {
@@ -2432,18 +2422,6 @@ body {
 
 .record-row:hover h2 {
   color: var(--pc-blue-700);
-}
-
-.record-proposal code {
-  display: block;
-  overflow: hidden;
-  margin-top: 6px;
-  background: transparent;
-  color: var(--pc-tertiary);
-  font-size: 11px;
-  padding: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .md-main__inner:has(.record-content) {
@@ -2768,10 +2746,6 @@ body {
     flex-direction: column;
   }
 
-  .record-columns {
-    display: none;
-  }
-
   .record-row--compact {
     gap: 12px;
     grid-template-columns: 40px minmax(0, 1fr);
@@ -2944,7 +2918,56 @@ body {
   margin-top: 60px;
 }
 
-.article-content .md-typeset__table {
+.reference-content .doc-heading > code {
+  border: 0;
+  background: transparent;
+  color: var(--pc-ink);
+  padding: 0;
+}
+
+.reference-content .doc-heading > code.highlight,
+.reference-content .doc-heading > code.highlight span {
+  color: var(--pc-ink);
+}
+
+.reference-content .doc-label > code {
+  border-color: var(--pc-rule);
+  background: var(--pc-surface-secondary);
+  color: var(--pc-tertiary);
+  font-size: 0.72em;
+  font-weight: 550;
+}
+
+.reference-content .doc-contents:not(.first) {
+  margin-left: 0;
+  border-left: 0;
+  padding-left: 0;
+}
+
+.reference-content .doc-object.doc-class {
+  margin-top: 44px;
+}
+
+.reference-content .doc-object.doc-function,
+.reference-content .doc-object.doc-attribute {
+  margin-top: 30px;
+  padding-left: 24px;
+}
+
+.reference-content .doc-contents > p {
+  color: var(--pc-text);
+  font-size: 15px;
+  line-height: 1.72;
+}
+
+.md-main__inner:has(.reference-content .doc-object)
+  .pc-page-sidebar--toc
+  .md-nav__item:has(> .md-nav__link[href^="#powercontext."]) {
+  display: none;
+}
+
+.article-content .md-typeset__table,
+.record-content .md-typeset__table {
   box-sizing: border-box;
   overflow-x: auto;
   width: 100%;
@@ -2954,9 +2977,31 @@ body {
   border-radius: 8px;
 }
 
-.article-content .md-typeset__table table {
+.article-content .md-typeset__table table,
+.record-content .md-typeset__table table {
   margin: 0;
   border: 0;
+  border-radius: 0;
+}
+
+.article-content .md-typeset__table:has(tr > :nth-child(3)) table,
+.record-content .md-typeset__table:has(tr > :nth-child(3)) table {
+  min-width: 640px;
+}
+
+.article-content .md-typeset__table:has(tr > :nth-child(4)) table,
+.record-content .md-typeset__table:has(tr > :nth-child(4)) table {
+  min-width: 700px;
+}
+
+.article-content .md-typeset__table:has(tr > :nth-child(5)) table,
+.record-content .md-typeset__table:has(tr > :nth-child(5)) table {
+  min-width: 760px;
+}
+
+.article-content .md-typeset__table:has(tr > :nth-child(3)) td code,
+.record-content .md-typeset__table:has(tr > :nth-child(3)) td code {
+  white-space: nowrap;
 }
 
 .article-content .md-typeset > table:not([class]) {
@@ -3021,6 +3066,11 @@ body {
 
   .reference-content .md-typeset > h1 {
     margin-top: 46px;
+  }
+
+  .reference-content .doc-object.doc-function,
+  .reference-content .doc-object.doc-attribute {
+    padding-left: 0;
   }
 }
 
@@ -3305,7 +3355,6 @@ body {
   margin-right: 0;
 }
 
-.pc-records-index .record-columns--compact,
 .pc-records-index .record-row--compact {
   gap: 40px;
   grid-template-columns: 140px minmax(0, 1fr);
@@ -3317,7 +3366,6 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .pc-records-index .record-columns--compact,
   .pc-records-index .record-row--compact {
     gap: 12px;
     grid-template-columns: 40px minmax(0, 1fr);
