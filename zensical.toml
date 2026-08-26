@@ -158,6 +158,11 @@ nav = [
 [project.plugins.mkdocstrings.handlers.python]
 paths = ["src/powercontext"]
 
+[project.plugins.mkdocstrings.handlers.python.options]
+heading_level = 3
+show_root_toc_entry = false
+show_source = false
+
 [project.plugins.search]
 lang = ["en", "zh"]
 

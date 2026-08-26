@@ -2944,6 +2944,54 @@ body {
   margin-top: 60px;
 }
 
+.reference-content .doc-heading > code {
+  border: 0;
+  background: transparent;
+  color: var(--pc-ink);
+  padding: 0;
+}
+
+.reference-content .doc-heading > code.highlight,
+.reference-content .doc-heading > code.highlight span {
+  color: var(--pc-ink);
+}
+
+.reference-content .doc-label > code {
+  border-color: var(--pc-rule);
+  background: var(--pc-surface-secondary);
+  color: var(--pc-tertiary);
+  font-size: 0.72em;
+  font-weight: 550;
+}
+
+.reference-content .doc-contents:not(.first) {
+  margin-left: 0;
+  border-left: 0;
+  padding-left: 0;
+}
+
+.reference-content .doc-object.doc-class {
+  margin-top: 44px;
+}
+
+.reference-content .doc-object.doc-function,
+.reference-content .doc-object.doc-attribute {
+  margin-top: 30px;
+  padding-left: 24px;
+}
+
+.reference-content .doc-contents > p {
+  color: var(--pc-text);
+  font-size: 15px;
+  line-height: 1.72;
+}
+
+.md-main__inner:has(.reference-content .doc-object)
+  .pc-page-sidebar--toc
+  .md-nav__item:has(> .md-nav__link[href^="#powercontext."]) {
+  display: none;
+}
+
 .article-content .md-typeset__table {
   box-sizing: border-box;
   overflow-x: auto;
@@ -3021,6 +3069,11 @@ body {
 
   .reference-content .md-typeset > h1 {
     margin-top: 46px;
+  }
+
+  .reference-content .doc-object.doc-function,
+  .reference-content .doc-object.doc-attribute {
+    padding-left: 0;
   }
 }
 
