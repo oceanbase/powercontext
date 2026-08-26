@@ -18,6 +18,9 @@ overview:
         - title: Continue in Pi
           description: Open project context in Pi with the native package.
           href: en/docs/how-to/configure-pi/
+        - title: Continue in OpenClaw
+          description: Open project context in OpenClaw with the memory plugin.
+          href: en/docs/how-to/configure-openclaw/
         - title: Continue in OpenCode
           description: Recall and maintain project context with the native OpenCode plugin.
           href: en/docs/how-to/configure-opencode/

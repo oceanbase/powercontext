@@ -24,7 +24,7 @@ from pathlib import Path
 from shutil import rmtree, which
 from urllib.parse import urlsplit, urlunsplit
 
-from powercontext.cli.system import OpenClawSetupResult, SetupError
+from powercontext.cli.system import Diagnostic, DiagnosticStatus, OpenClawSetupResult, SetupError
 from powercontext.paths import powercontext_data_dir
 
 OPENCLAW_PLUGIN_RELATIVE = Path("integrations") / "openclaw" / "plugins" / "memory-powercontext"
@@ -320,6 +320,70 @@ def run_process(command: list[str], *, timeout: int, check: bool = True) -> subp
     return completed
 
 
+def run_openclaw_diagnostics() -> dict[str, Diagnostic]:
+    """Collect diagnostics for the optional OpenClaw integration."""
+
+    try:
+        executable = openclaw_executable()
+    except SetupError:
+        return {
+            "openclaw": Diagnostic(
+                status=DiagnosticStatus.FAILED,
+                detail="OpenClaw CLI is not installed or is not on PATH",
+            ),
+            "plugin": Diagnostic(
+                status=DiagnosticStatus.SKIPPED,
+                detail="not checked because OpenClaw CLI is unavailable",
+            ),
+        }
+    try:
+        output = run_openclaw(executable, "plugins", "list", "--enabled", "--json").stdout or ""
+        installed = openclaw_plugin_installed(output)
+    except SetupError as error:
+        return {
+            "openclaw": Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error)),
+            "plugin": Diagnostic(
+                status=DiagnosticStatus.SKIPPED,
+                detail="plugin list is unavailable",
+            ),
+        }
+    return {
+        "openclaw": Diagnostic(status=DiagnosticStatus.OK, detail=executable),
+        "plugin": Diagnostic(
+            status=DiagnosticStatus.OK if installed else DiagnosticStatus.FAILED,
+            detail=(
+                f"{OPENCLAW_PLUGIN_NAME} is installed and active"
+                if installed
+                else "PowerContext OpenClaw plugin is not enabled, loaded, and selected as the memory plugin"
+            ),
+        ),
+    }
+
+
+def openclaw_plugin_installed(output: str) -> bool:
+    """Return whether OpenClaw reports the PowerContext plugin as the active memory plugin."""
+
+    command = ["openclaw", "plugins", "list", "--enabled", "--json"]
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise SetupError.invalid_command_output(command, "invalid JSON") from error
+    if not isinstance(payload, dict) or not isinstance(payload.get("plugins"), list):
+        raise SetupError.invalid_command_output(command, "an invalid plugin list")
+
+    for plugin in payload["plugins"]:
+        if not isinstance(plugin, dict):
+            raise SetupError.invalid_command_output(command, "an invalid plugin entry")
+        if plugin.get("id") != OPENCLAW_PLUGIN_NAME:
+            continue
+        return (
+            plugin.get("enabled") is True
+            and plugin.get("status") == "loaded"
+            and plugin.get("memorySlotSelected") is True
+        )
+    return False
+
+
 __all__ = [
     "OPENCLAW_PACKAGE_NAME",
     "OPENCLAW_PLUGIN_NAME",
@@ -333,8 +397,10 @@ __all__ = [
     "materialize_remote_checkout",
     "normalize_server_url",
     "openclaw_executable",
+    "openclaw_plugin_installed",
     "plugin_dir_from_checkout",
     "read_tools_allowlist",
     "resolve_openclaw_plugin_dir",
     "run_openclaw",
+    "run_openclaw_diagnostics",
 ]

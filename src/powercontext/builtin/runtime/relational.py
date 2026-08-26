@@ -383,6 +383,15 @@ class RelationalContexts:
         self._experience_locks: dict[str, asyncio.Lock] = {}
         self._skill_publication_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
 
+    def evict(self, scope_id: str, /) -> None:
+        """Discard inactive scope-local compositions and serialization locks."""
+
+        scope = validate_scope_id(scope_id)
+        self._contexts.pop(scope, None)
+        self._source_locks.pop(scope, None)
+        self._activation_locks.pop(scope, None)
+        self._experience_locks.pop(scope, None)
+
     def review(self, scope_id: str, /) -> ReviewService:
         """Return Candidate and reviewed Artifact operations bound to one scope."""
 

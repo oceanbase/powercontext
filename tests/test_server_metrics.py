@@ -23,6 +23,7 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
@@ -33,12 +34,19 @@ from powercontext.server.settings import (
 )
 
 
-def _settings(database, *, mcp: bool = False, metrics: bool = True) -> ServerSettings:
+def _settings(
+    database,
+    *,
+    mcp: bool = False,
+    metrics: bool = True,
+    scope_cache_size: int | None = None,
+) -> ServerSettings:
     return ServerSettings(
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
         mcp=McpConfig(enabled=mcp),
         logging=ServerLoggingConfig(access=False),
         metrics=MetricsConfig(enabled=metrics),
+        runtime=RuntimeConfig() if scope_cache_size is None else RuntimeConfig(scope_cache_size=scope_cache_size),
     )
 
 
@@ -81,6 +89,23 @@ def test_metrics_endpoint_is_absent_when_disabled(tmp_path) -> None:
         response = client.get("/metrics")
 
     assert response.status_code == 404
+
+
+def test_one_off_scope_ids_keep_runtime_scope_cache_bounded(tmp_path) -> None:
+    app = create_server_app(settings=_settings(tmp_path / "runtime.db", scope_cache_size=3))
+
+    with TestClient(app) as client:
+        for index in range(12):
+            response = client.post(
+                "/v1/context/prepare",
+                json={"scope_id": f"one-off-{index}", "query": "short query"},
+            )
+            assert response.status_code == 200
+        metrics = client.get("/metrics").text
+
+    assert 'powercontext_server_runtime_scopes{state="active"} 0.0' in metrics
+    assert 'powercontext_server_runtime_scopes{state="cached"} 3.0' in metrics
+    assert "one-off-" not in metrics
 
 
 def test_mcp_metrics_count_one_logical_request_and_one_application_operation(tmp_path) -> None:

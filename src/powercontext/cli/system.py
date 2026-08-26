@@ -173,6 +173,10 @@ class SetupError(RuntimeError):
         return cls(f"OpenCode Skill path {path} already exists and is not owned by PowerContext.")
 
     @classmethod
+    def opencode_plugin_conflict(cls, path: Path) -> SetupError:
+        return cls(f"OpenCode plugin path {path} already exists and is not owned by PowerContext.")
+
+    @classmethod
     def invalid_dsh_ref(cls, ref: str) -> SetupError:
         return cls(f"invalid DeepSeek Harness ref: {ref}")
 
@@ -211,6 +215,50 @@ class SetupError(RuntimeError):
     @classmethod
     def unsupported_hermes_version(cls, actual: str, minimum: str) -> SetupError:
         return cls(f"Hermes Agent v{actual} is unsupported; PowerContext requires Hermes Agent v{minimum} or newer.")
+
+    @classmethod
+    def missing_workbuddy_plugin(cls, path: Path) -> SetupError:
+        return cls(f"PowerContext WorkBuddy plugin was not found under {path}.")
+
+    @classmethod
+    def invalid_workbuddy_ref(cls, ref: str) -> SetupError:
+        return cls(f"invalid WorkBuddy ref: {ref}")
+
+    @classmethod
+    def invalid_workbuddy_source(cls, source: str) -> SetupError:
+        return cls(f"invalid WorkBuddy source: {source}")
+
+    @classmethod
+    def workbuddy_home_unavailable(cls, path: Path, error: OSError) -> SetupError:
+        return cls(f"Cannot create WorkBuddy home directory {path}: {error}")
+
+    @classmethod
+    def workbuddy_hooks_write(cls, path: Path, error: OSError) -> SetupError:
+        return cls(f"Cannot install PowerContext WorkBuddy hooks at {path}: {error}")
+
+    @classmethod
+    def workbuddy_skill_write(cls, path: Path, error: OSError) -> SetupError:
+        return cls(f"Cannot install PowerContext WorkBuddy skill at {path}: {error}")
+
+    @classmethod
+    def workbuddy_skill_conflict(cls, path: Path) -> SetupError:
+        return cls(f"WorkBuddy Skill path {path} already exists and is not owned by PowerContext.")
+
+    @classmethod
+    def workbuddy_settings_write(cls, path: Path, error: OSError) -> SetupError:
+        return cls(f"Cannot update WorkBuddy settings at {path}: {error}")
+
+    @classmethod
+    def workbuddy_mcp_write(cls, path: Path, error: OSError) -> SetupError:
+        return cls(f"Cannot update WorkBuddy MCP configuration at {path}: {error}")
+
+    @classmethod
+    def invalid_workbuddy_settings(cls, path: Path) -> SetupError:
+        return cls(f"WorkBuddy settings at {path} must contain a JSON object with a hooks mapping.")
+
+    @classmethod
+    def invalid_workbuddy_mcp(cls, path: Path) -> SetupError:
+        return cls(f"WorkBuddy MCP configuration at {path} must contain a JSON object with an mcpServers mapping.")
 
     @classmethod
     def data_directory(cls, path: Path, error: OSError) -> SetupError:
@@ -466,7 +514,7 @@ def setup_openclaw(
     server_url: Annotated[
         str,
         typer.Option(help="PowerContext Server base URL configured for the plugin."),
-    ] = "http://127.0.0.1:8765",
+    ] = "http://127.0.0.1:8000",
     scope_mode: Annotated[
         str,
         typer.Option("--scope-mode", help="Memory scope mode: agent or project."),
@@ -622,6 +670,47 @@ def setup_hermes(
     typer.echo("Next: run `hermes memory setup`, select PowerContext, then start Hermes.")
 
 
+@setup_app.command("workbuddy")
+def setup_workbuddy(
+    source: Annotated[
+        str,
+        typer.Option(help="PowerContext Git source or local checkout path."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install the PowerContext WorkBuddy hooks, MCP server, and Skill."""
+
+    from powercontext.cli.workbuddy import install_workbuddy_plugin, run_workbuddy_diagnostics
+
+    try:
+        result = install_workbuddy_plugin(source=source, ref=ref)
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    diagnostics = run_workbuddy_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo("PowerContext WorkBuddy setup complete.")
+    typer.echo(f"Plugin: {result.plugin} ({result.plugin_path})")
+    typer.echo(f"WorkBuddy home: {result.workbuddy_home}")
+    typer.echo(f"Hooks directory: {result.hooks_dir}")
+    typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo("Next: run `powercontext server run`, restart WorkBuddy, then send a prompt.")
+
+
 @doctor_app.callback()
 def doctor(
     context: typer.Context,
@@ -738,6 +827,40 @@ def doctor_hermes(
     from powercontext.cli.hermes import run_hermes_diagnostics
 
     diagnostics = run_hermes_diagnostics()
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("workbuddy")
+def doctor_workbuddy(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional WorkBuddy hooks, MCP server, and Skill."""
+
+    from powercontext.cli.workbuddy import run_workbuddy_diagnostics
+
+    diagnostics = run_workbuddy_diagnostics()
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("openclaw")
+def doctor_openclaw(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Check the optional OpenClaw CLI and PowerContext memory plugin."""
+
+    from powercontext.cli.openclaw import run_openclaw_diagnostics
+
+    diagnostics = run_openclaw_diagnostics()
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)

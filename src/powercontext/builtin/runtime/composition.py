@@ -59,6 +59,7 @@ from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExper
 from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVectorIndex
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.runtime._scope_cache import ScopeCacheObserver
 from powercontext.builtin.runtime.application import BuiltinRuntime
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
@@ -168,6 +169,7 @@ async def open_builtin_runtime(
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
     instrumentation: InstrumentationSettings | None = None,
+    scope_cache_observer: ScopeCacheObserver | None = None,
     tracing: RuntimeTracing | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
@@ -266,6 +268,9 @@ async def open_builtin_runtime(
                     handoff_generation=contexts.handoff_generation,
                 ),
                 source_window_limit=config.runtime.source_window_limit,
+                scope_cache_size=config.runtime.scope_cache_size,
+                scope_evictor=contexts.evict,
+                scope_cache_observer=scope_cache_observer,
                 scope_ids=contexts.scope_ids,
                 review_service=contexts.review,
                 generation_service=contexts.generation,
