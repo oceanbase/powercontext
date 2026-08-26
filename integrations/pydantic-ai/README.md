@@ -7,8 +7,11 @@ bounded agent events and flush them into Memory.
 ## Install and use
 
 ```bash
-uv add powercontext-pydantic-ai
+uv add powercontext-pydantic-ai "pydantic-ai-slim[openai]"
 ```
+
+The example below uses OpenAI. For another provider, install the matching `pydantic-ai-slim` provider extra and
+change the model string.
 
 ```python
 from pydantic_ai import Agent

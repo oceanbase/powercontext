@@ -13,8 +13,11 @@ Memory through a running PowerContext Server.
 Start the Server, then install the adapter in the agent application:
 
 ```bash
-uv add powercontext-pydantic-ai
+uv add powercontext-pydantic-ai "pydantic-ai-slim[openai]"
 ```
+
+The example below uses OpenAI. For another provider, install the matching `pydantic-ai-slim` provider extra and
+change the model string.
 
 Attach the capability to an Agent:
 

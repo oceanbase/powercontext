@@ -19,7 +19,7 @@ description = "Pydantic AI integration for PowerContext durable memory."
 readme = "README.md"
 requires-python = ">=3.11,<4"
 dependencies = [
-    "powercontext[client]>=0.0.2",
+    "powercontext[client]>=0.0.3",
     "pydantic-ai-slim>=2.29,<3",
     "pydantic-settings>=2.7,<3",
 ]

@@ -17,6 +17,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,7 @@ import powercontext_pydantic_ai.toolset as toolset_module
 import pytest
 from powercontext_pydantic_ai import PowerContext, PowerContextSettings
 from powercontext_pydantic_ai.capability import CAPTURE_SCHEMA
+from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
@@ -31,6 +34,23 @@ from pydantic_ai.models.function import FunctionModel
 from powercontext.client import TransportError
 from powercontext.client.capture import render_capture_event
 from tests.pydantic_ai_adapter.fakes import RecordingClient, prepared_response
+
+
+class CredentialResult(BaseModel):
+    api_key: str = Field(serialization_alias="apiKey")
+
+
+@dataclass
+class DataclassCredentialResult:
+    api_key: str
+
+
+class UnsupportedCredentialResult:
+    def __init__(self, secret: str) -> None:
+        self.secret = secret
+
+    def __str__(self) -> str:
+        return f"UnsupportedCredentialResult(secret={self.secret!r})"
 
 
 def test_capture_disabled_makes_no_source_or_flush_requests(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -173,6 +193,78 @@ def test_shared_capture_redacts_compact_keys_and_structured_json_strings() -> No
     assert json_secret not in content
     assert event["payload"]["mapping_arguments"]["apiKey"] == "[REDACTED]"
     assert json.loads(event["payload"]["json_arguments"])["api_key"] == "[REDACTED]"
+
+
+def test_shared_capture_structures_supported_objects_without_stringifying_unknown_objects() -> None:
+    pydantic_secret = "pydantic-object-secret"  # noqa: S105 - synthetic redaction sentinel.
+    dataclass_secret = "dataclass-object-secret"  # noqa: S105 - synthetic redaction sentinel.
+    unsupported_secret = "unsupported-object-secret"  # noqa: S105 - synthetic redaction sentinel.
+
+    content = render_capture_event(
+        "tool_result",
+        1,
+        {
+            "pydantic_result": CredentialResult(api_key=pydantic_secret),
+            "dataclass_result": DataclassCredentialResult(api_key=dataclass_secret),
+            "value_result": datetime(2026, 8, 26, 12, 30, tzinfo=UTC),
+            "unsupported_result": UnsupportedCredentialResult(unsupported_secret),
+        },
+        8192,
+        schema=CAPTURE_SCHEMA,
+    )
+
+    event = json.loads(content)
+    assert pydantic_secret not in content
+    assert dataclass_secret not in content
+    assert unsupported_secret not in content
+    assert event["payload"]["pydantic_result"]["apiKey"] == "[REDACTED]"
+    assert event["payload"]["dataclass_result"]["api_key"] == "[REDACTED]"
+    assert event["payload"]["value_result"] == "2026-08-26T12:30:00Z"
+    assert event["payload"]["unsupported_result"] == "[UNSERIALIZABLE]"
+
+
+def test_capture_redacts_pydantic_model_tool_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    RecordingClient.reset()
+    RecordingClient.prepare_result = prepared_response(None)
+    monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
+    secret = "agent-object-field-secret"  # noqa: S105 - synthetic redaction sentinel.
+
+    async def return_credential(ctx: RunContext[object]) -> CredentialResult:
+        del ctx
+        return CredentialResult(api_key=secret)
+
+    async def respond(messages, _info):
+        tool_returns = [
+            part
+            for message in messages
+            for part in message.parts
+            if isinstance(part, ToolReturnPart) and part.tool_name == "return_credential"
+        ]
+        if tool_returns:
+            return ModelResponse(parts=[TextPart("credential handled")])
+        return ModelResponse(parts=[ToolCallPart("return_credential", {}, "credential-1")])
+
+    async def scenario() -> str:
+        settings = PowerContextSettings(capture_events=True)
+        agent: Agent[object, str] = Agent(
+            FunctionModel(respond),
+            output_type=str,
+            deps_type=object,
+            tools=[return_credential],
+            capabilities=[PowerContext[object](settings=settings, scope_id="project:object-result")],
+        )
+        return (await agent.run("return an object result")).output
+
+    assert asyncio.run(scenario()) == "credential handled"
+
+    tool_result = next(
+        request
+        for request in RecordingClient.instances[0].capture_requests
+        if request.metadata["event"] == "tool_result"
+    )
+    assert secret not in tool_result.content
+    event = json.loads(tool_result.content)
+    assert event["payload"]["result"]["apiKey"] == "[REDACTED]"
 
 
 def test_shared_capture_redacts_codex_auth_values_outside_sensitive_keys(

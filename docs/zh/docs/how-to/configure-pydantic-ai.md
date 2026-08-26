@@ -13,8 +13,10 @@ description: 为 Pydantic AI 增加持久化 Memory 工具、自动 Context 准�
 先启动 Server，再在 Agent 应用中安装：
 
 ```bash
-uv add powercontext-pydantic-ai
+uv add powercontext-pydantic-ai "pydantic-ai-slim[openai]"
 ```
+
+下面的示例使用 OpenAI。使用其他 Provider 时，请安装匹配的 `pydantic-ai-slim` Provider extra，并修改模型字符串。
 
 把 Capability 加到 Agent：
 

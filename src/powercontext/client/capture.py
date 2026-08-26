@@ -23,9 +23,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from pydantic import TypeAdapter
+
 SENSITIVE_KEY_PARTS = ("api_key", "authorization", "cookie", "password", "secret", "token")
 SENSITIVE_KEY_COMPACT_PARTS = tuple(part.replace("_", "") for part in SENSITIVE_KEY_PARTS)
 REDACTED = "[REDACTED]"
+UNSERIALIZABLE = "[UNSERIALIZABLE]"
+_CAPTURE_VALUE_ADAPTER = TypeAdapter(Any)
 
 
 def render_capture_event(
@@ -50,7 +54,6 @@ def render_capture_event(
             event_envelope,
             ensure_ascii=True,
             sort_keys=True,
-            default=str,
         )
     )
     if len(content.encode("utf-8")) <= max_bytes:
@@ -81,25 +84,57 @@ def sanitize_capture_value(value: Any) -> Any:
     """Recursively replace values belonging to credential-like keys."""
 
     if isinstance(value, Mapping):
-        return {
-            str(key): REDACTED if is_sensitive_key(str(key)) else sanitize_capture_value(item)
-            for key, item in value.items()
-        }
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            safe_key = _capture_key(key)
+            sanitized[safe_key] = REDACTED if is_sensitive_key(safe_key) else sanitize_capture_value(item)
+        return sanitized
     if isinstance(value, list | tuple):
         return [sanitize_capture_value(item) for item in value]
-    if isinstance(value, str) and value.lstrip().startswith(("{", "[")):
-        try:
-            structured = json.loads(value)
-        except json.JSONDecodeError:
-            return value
-        if isinstance(structured, dict | list):
-            return json.dumps(
-                sanitize_capture_value(structured),
-                ensure_ascii=True,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-    return value
+    if isinstance(value, str):
+        return _sanitize_capture_string(value)
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    try:
+        structured = _CAPTURE_VALUE_ADAPTER.dump_python(value, mode="json", by_alias=True, warnings="error")
+    except (TypeError, ValueError):
+        return UNSERIALIZABLE
+    if structured is value:
+        return UNSERIALIZABLE
+    return sanitize_capture_value(structured)
+
+
+def _sanitize_capture_string(value: str) -> str:
+    if not value.lstrip().startswith(("{", "[")):
+        return value
+    try:
+        structured = json.loads(value)
+    except json.JSONDecodeError:
+        return value
+    if not isinstance(structured, dict | list):
+        return value
+    return json.dumps(
+        sanitize_capture_value(structured),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _capture_key(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if value is None or isinstance(value, bool | int | float):
+        return str(value)
+    try:
+        structured = _CAPTURE_VALUE_ADAPTER.dump_python(value, mode="json", warnings="error")
+    except (TypeError, ValueError):
+        return UNSERIALIZABLE
+    if isinstance(structured, str):
+        return structured
+    if structured is None or isinstance(structured, bool | int | float):
+        return str(structured)
+    return UNSERIALIZABLE
 
 
 def redact_known_secrets(value: str) -> str:
