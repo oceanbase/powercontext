@@ -9,7 +9,7 @@
 Reciprocal Rank Fusion（RRF）仍生成粗排顺序。启用 rerank 后，系统通过一次结构化生成请求，从有界候选池中选择稀疏且有序的
 子集，再由 `MemoryService.search()` 返回最终 hits。
 
-首个策略是 `powercontext.memory.rerank.listwise.v1`：默认粗召回最多 30 条，由配置的 generation model 选择不超过调用方
+首个策略是 `powercontext.memory.rerank.listwise.v1`：默认粗召回最多 30 条，由配置的 LLM reranker 选择不超过调用方
 `limit` 的结果。Rerank 默认关闭，不修改已存储的 Memory 或索引，并保留每个选中 hit 的准确 Artifact、entry 和 Revision
 身份。
 
@@ -42,6 +42,10 @@ export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT=30
 powercontext server run
 ```
 
+如果需要让 rerank 与其他 generation workload 隔离，可以改为配置
+`POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` 及其 provider settings。两种形式下，内置策略都仍是 LLM structured
+generation operation。
+
 原有搜索请求不变：
 
 ```python
@@ -61,7 +65,7 @@ page = await runtime.memory.for_scope("project").search(
 每次有非空结果的 reranked search 都会增加一次结构化 generation operation。它沿用配置的 generation timeout 和
 request bound，并把 temperature 固定为 0。这能提高可重复性，但无法保证所有 provider 都完全确定。
 
-因此，rerank 适用于回答质量比新增模型延迟与 token 成本更重要的场景。低延迟词法查询或没有 generation model 的部署应保持
+因此，rerank 适用于回答质量比新增模型延迟与 token 成本更重要的场景。低延迟词法查询或没有 LLM reranker 的部署应保持
 关闭。
 
 ## 观测一次搜索
@@ -88,8 +92,10 @@ HTTP v1 response 继续只暴露最终 hits，不返回该诊断 trace，以保�
 | `memory_rerank_enabled` | `false` | 组装并应用 listwise Memory reranker。 |
 | `memory_rerank_candidate_limit` | `30` | 粗排融合池，范围为 1 到 100。 |
 
-首版复用 `InferenceConfig.generation_model`、`generation_timeout_seconds` 和 `generation_max_requests`。启用
-rerank 却没有 generation model 或显式注入的 `MemoryReranker` 时，启动会返回配置错误。
+实现默认复用 `InferenceConfig.generation_model` 及其 provider settings。部署也可以通过 `rerank_model`、
+`rerank_base_url`、`rerank_headers`、`rerank_model_settings`、`rerank_timeout_seconds` 和
+`rerank_max_requests` 配置独立的 LLM reranker。启用 rerank 却没有 generation model、rerank model 或显式注入的
+`MemoryReranker` 时，启动会返回配置错误。
 
 注入 reranker 是 application composition 选择，即使环境开关为 false 也会应用。这使测试和 provider-specific adapter
 部署成为可能，同时保持环境驱动的 composition 清晰。

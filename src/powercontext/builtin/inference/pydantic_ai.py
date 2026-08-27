@@ -77,7 +77,7 @@ try:
     )
     from pydantic_ai.messages import ModelRequest, UserPromptPart
     from pydantic_ai.models import Model, ModelRequestParameters
-    from pydantic_ai.settings import ModelSettings
+    from pydantic_ai.settings import ModelSettings, merge_model_settings
     from pydantic_ai.usage import RunUsage, UsageLimits
     from pydantic_core import PydanticSerializationError
 except ModuleNotFoundError as error:  # pragma: no cover - exercised in a dependency-free environment
@@ -268,6 +268,7 @@ async def probe_pydantic_ai_model(
     /,
     *,
     timeout_seconds: float,
+    model_settings: ModelSettings | None = None,
 ) -> None:
     """Send one minimal text request through an assembled generation model."""
 
@@ -277,7 +278,7 @@ async def probe_pydantic_ai_model(
         await asyncio.wait_for(
             model.request(
                 [ModelRequest(parts=[UserPromptPart("Reply with one token.")])],
-                ModelSettings(max_tokens=1),
+                merge_model_settings(model_settings, ModelSettings(max_tokens=1)),
                 ModelRequestParameters(),
             ),
             timeout=timeout_seconds,

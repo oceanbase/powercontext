@@ -51,8 +51,26 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | 未设置 | Scheduler 间隔；未设置即不启用 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 用于 Memory extraction 的 Pydantic AI 模型标识 |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider 默认值 | 自定义 generation provider base URL |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | generation request header JSON object；value 按 secret 处理 |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS` | `{}` | Pydantic AI generation model settings JSON object |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation 超时 |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS` | `2` | 单次 generation operation 的最大 model request 数量 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | 未设置 | Pydantic AI embedding model 标识 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL` | provider 默认值 | 自定义 OpenAI-compatible embeddings base URL |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | embedding request header JSON object；value 按 secret 处理 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL_SETTINGS` | `{}` | Pydantic AI embedding model settings JSON object |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID` | 未设置 | 稳定的 embedding deployment identity |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION` | 未设置 | embedding vector dimension |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` | `unit` | `unit` 或 `none` vector normalization |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS` | `30` | Embedding 超时 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | 单次 embedding 请求最多发送的文本数量 |
+| `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` | generation model | LLM rerank 可选的独立 Pydantic AI model |
+| `POWERCONTEXT_SERVER_INFERENCE_RERANK_BASE_URL` | 继承值或 provider 默认值 | 自定义 LLM reranker provider base URL |
+| `POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS` | `{}` | LLM reranker request header JSON object；value 按 secret 处理 |
+| `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL_SETTINGS` | `{}` | Pydantic AI reranker model settings JSON object |
+| `POWERCONTEXT_SERVER_INFERENCE_RERANK_TIMEOUT_SECONDS` | generation 超时 | LLM reranker 超时 |
+| `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | 单次 rerank operation 的最大 model request 数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 孵化间隔；未设置即不启用该 job |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 未设置 | 包含 host identity 和显式 Agent Skill targets 的 JSON object |
 
@@ -106,6 +124,10 @@ Rerank 默认关闭。启用后，Runtime 会召回并融合配置的候选池�
 search request 最终 `limit` 的结果。它不会修改已存储 Memory 或索引。Provider 与结构化输出失败仍作为 inference error
 显式返回；如果搜索必须独立于模型可用性，请关闭 rerank。算法、并发与 API 边界见
 [RFC 0080](/zh/rfcs/0080_memory_search_reranking/)。
+
+内置 reranker 是 LLM listwise reranker，不是独立的 cross-encoder protocol。默认复用 generation model 及其 provider
+settings。设置 `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` 后，该 LLM operation 可以使用独立的 model、base URL、
+headers、settings、timeout 和 request limit。
 
 同一个 generation model 也控制显式 Experience generation、managed Skill generation/evolution，以及
 external Skill import/fork。未配置模型时，这些 operation 会在持久化 Candidate 前返回 capability error；
