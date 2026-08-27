@@ -55,10 +55,19 @@ Experience。Integration 只应在真实完成或中断边界调用它，不能�
 Claim 和 check 要么是没有 evidence 的 `declared`，要么是拥有同 scope 精确 citation 的 `verified`。Citation 可读只证明
 身份和可用性，不证明事实仍然新鲜。当前指令、实时 workspace、能力和授权始终优先于 Work 与 Handoff 记录。
 
-Handoff Report 的 JSON Workstream projection 同时返回 `handoff_revision_count`、`handoff_history_truncated` 和
-`handoff_history`。History 最多包含 frozen selection 之前最近 20 个 Revision 摘要，按 Revision 升序返回；页面按最新
-优先展示，并每 5 秒自动刷新。未发送编辑或正在执行的交接动作会暂停自动刷新。Codex scope resolver 支持把当前 Git
-工作区一次绑定到固定 Workstream scope，绑定优先于 Git remote 和路径推导，但低于显式 scope 配置。
+完整 Codex 转交和接收确认流程见[在 Codex 中交接工作](../how-to/handoff-with-codex.md)。
+
+Handoff Report 会列出包含 committed Handoff 的 scope，`get_handoff_report` 要求提供 `scope_id`。`project_id` 仅作为
+deprecated wire-compatibility input 保留，生成报告时会被忽略。每个返回的 Workstream projection 包含
+`handoff_revision_count`、`handoff_history_truncated` 和 `handoff_history`，最多返回 frozen selection 之前最近 20 个
+Revision 摘要。Web 操作见[使用 Handoff Report](../how-to/use-handoff-report.md)。
+
+当前 scope report 不返回 Activity event，`activity_coverage=not_configured`，并且没有 period comparison。Period
+输入只会被规范化，不会筛选 Activity。Server 未启用鉴权时，HTTP 和 Python Client 的 Markdown operation 仍可不带
+token 使用；当前浏览器下载和后台刷新控件要求已保存的 Bearer token。
+
+Codex scope resolver 支持把当前 Git 工作区一次绑定到固定 Workstream scope，绑定优先于 Git remote 和路径推导，但低于
+显式 scope 配置。
 
 ## DeepSeek Harness 插件
 

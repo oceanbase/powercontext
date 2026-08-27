@@ -30,6 +30,9 @@ overview:
     - title: Understand and operate
       description: Decide what persists, configure the Server, or resolve a broken setup.
       cards:
+        - title: Core concepts
+          description: Understand scopes, evidence, revisioned Artifacts, prepared context, and work continuity.
+          href: en/docs/explanation/core-concepts/
         - title: Memory and Handoff
           description: Learn what belongs in durable Memory and what should remain a temporary Handoff.
           href: en/docs/explanation/memory-and-handoff/
@@ -48,6 +51,9 @@ overview:
         - title: Create a managed Skill
           description: Generate and review a managed Skill, then export one exact Revision to Codex.
           href: en/docs/how-to/create-and-export-skill/
+        - title: Handoff Report
+          description: Inspect scopes, save Handoff Revisions, and understand current report availability.
+          href: en/docs/how-to/use-handoff-report/
         - title: Troubleshoot
           description: Diagnose connection, configuration, and integration problems.
           href: en/docs/how-to/troubleshoot/
