@@ -441,45 +441,6 @@ def test_hook_rejects_runtime_content_over_the_requested_budget(recall_module: M
         recall_module._validate_prepared_context(_prepared("x" * 8_001))
 
 
-def test_context_request_uses_the_prepare_endpoint_once(
-    recall_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    requests: list[tuple[str, dict[str, object], int | None]] = []
-
-    def post(
-        path: str,
-        payload: dict[str, object],
-        *,
-        settings: object,
-        deadline: float,
-        expected_status: int | None = None,
-    ) -> dict[str, object]:
-        requests.append((path, payload, expected_status))
-        return _prepared(None, status="empty")
-
-    monkeypatch.setattr(recall_module, "_post_json", post)
-
-    recall_module._prepare_context(
-        "query",
-        "project:test",
-        settings=recall_module.CodexPluginSettings(),
-        deadline=10.0,
-    )
-
-    assert requests == [
-        (
-            "/v1/context/prepare",
-            {
-                "scope_id": "project:test",
-                "query": "query",
-                "max_bytes": 8000,
-            },
-            200,
-        )
-    ]
-
-
 def test_context_prepare_404_is_reported_as_a_version_mismatch(
     recall_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,

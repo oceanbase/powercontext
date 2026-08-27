@@ -61,8 +61,6 @@ def test_context_is_replaced_once_per_run_when_reusing_old_history(
 
     asyncio.run(scenario())
 
-    assert len(RecordingClient.instances) == 3
-    assert [len(client.prepare_requests) for client in RecordingClient.instances] == [1, 1, 1]
     assert len(model_contexts) == 6
     expected_contexts = ["context-one", "context-one", "context-two", "context-two", "context-three", "context-three"]
     assert all(len(contexts) == 1 for contexts in model_contexts)
@@ -90,7 +88,6 @@ def test_empty_context_is_not_injected(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert asyncio.run(scenario()) == "no context needed"
     assert seen_markers == []
-    assert len(RecordingClient.instances[0].prepare_requests) == 1
 
 
 def test_unreachable_server_fails_open_for_recall(

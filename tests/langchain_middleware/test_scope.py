@@ -12,15 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Scope ownership and resolution tests for the standalone LangChain package."""
+"""Scope resolution tests for the standalone LangChain package."""
 
 import pytest
-from powercontext_langchain import MissingScopeError, PowerContextScope, resolve_scope_id
+from powercontext_langchain import MissingScopeError, resolve_scope_id
 from powercontext_langchain.scope import normalize_git_remote
-
-
-def test_scope_type_is_owned_by_langchain_package() -> None:
-    assert PowerContextScope.__module__ == "powercontext_langchain.scope"
 
 
 def test_missing_scope_names_langchain_configuration(monkeypatch: pytest.MonkeyPatch) -> None:

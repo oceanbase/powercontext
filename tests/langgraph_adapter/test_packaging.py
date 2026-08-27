@@ -29,7 +29,6 @@ from shutil import which
 import pytest
 
 _PROJECT = Path(__file__).resolve().parents[2] / "integrations" / "langgraph"
-_LICENSE = _PROJECT / "LICENSE"
 
 
 def _build_wheel(out_dir: Path) -> Path:
@@ -52,11 +51,6 @@ def _build_wheel(out_dir: Path) -> Path:
     wheels = list(out_dir.glob("*.whl"))
     assert wheels, "no wheel was produced"
     return wheels[0]
-
-
-def test_license_file_is_present_in_project() -> None:
-    assert _LICENSE.is_file()
-    assert "Apache License" in _LICENSE.read_text(encoding="utf-8")
 
 
 def test_wheel_bundles_license_and_metadata(tmp_path: Path) -> None:
