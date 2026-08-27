@@ -1,0 +1,444 @@
+- Proposal Name: `source_definition_and_observation_model`
+- Start Date: 2026-08-27
+- Related Discussion: [oceanbase/powercontext#1240](https://github.com/oceanbase/powercontext/issues/1240),
+  [oceanbase/powercontext#1363](https://github.com/oceanbase/powercontext/issues/1363)
+- Related Design: [oceanbase/powercontext#1345](https://github.com/oceanbase/powercontext/pull/1345)
+- Related RFCs: [RFC 0002](0002_core_sdk_product_model.md)、[RFC 0014](0014_memory_layer_design.md)、
+  [RFC 0019](0019_local_source_memory_runtime.md)、[RFC 0048](0048_handoff_artifact.md)
+
+# Summary
+
+本 RFC 定义标准 Source 模型，以及新增 Source 类型时必须遵守的契约。
+
+每个 Source 只属于一个 Scope。在该 Scope 内，`SourceKey` 标识一个逻辑 Source，`SourceRef` 标识这个
+Source 的一次不可变观察。推进当前观察、观察到删除、修改外部 locator 或断开 Connector，都不会改变
+已经接受的观察，也不会将其移动到另一个 Scope。
+
+Source Definition 为一个稳定的 Source 类型定义 value schema、provenance schema、身份规则、观察规则、
+materialization 契约、canonicalization 与兼容策略。Definition 显式注册，并在组合完成的 Runtime 生命周期内
+保持不变。持久化、传输与 Artifact consumer 按稳定的 Definition 名称和版本路由，而不是按具体 Python 类路由。
+
+Materialization 表达解析某个精确观察时所依赖的权威来源。Captured observation 从 PowerContext 保留的
+canonical value 解析；referenced observation 从外部不可变 revision 解析。仅有外部 locator、修改时间、
+ETag 或 provider 当前值读取，并不能满足 referenced 契约。
+
+`ContentSource` 继续作为简单的 captured-text Source。调用方提供稳定身份，加上 immutable-payload 冲突规则，
+适合一次性内容捕获，但它不是通用的外部集成模型。Document Source 是标准 Definition 契约的首个 conformance 验证对象，
+而不是标准契约本身。
+
+本 RFC 只定义语义与 conformance，不定义 Connector runtime、插件发现机制、存储 schema、公开 transport
+operation、同步算法、scheduler 或文档实现。
+
+# Motivation
+
+`ContentSource` 与 `POST /v1/sources/content` 提供 captured-text ingestion。调用方选择一个
+`source_id`；使用完全相同的 payload 重放具有幂等性，而用不同 payload 复用该身份会产生冲突。只有调用方把
+这个身份当作不可变身份时，它才能表达精确证据。
+
+外部系统通常具有不同的生命周期。Wiki 页面、issue、object、message 或 file 拥有一个逻辑身份，但会随时间
+产生多个值。外部对象可能被重命名、修订、删除、恢复或暂时无法读取。使用过旧值的 Artifact 必须继续引用当时的
+精确证据。二元 `(source_type, source_id)` Source reference 无法同时表达稳定的逻辑对象和不可变观察，只能迫使每个集成自行发明复合
+`source_id`。
+
+扩展边界也不完整。Source adapter 将 native input class 绑定到具体 Source class 和读取结果，而内置
+Runtime 与关系型持久化会组装固定 adapter 集合。它没有说明独立定义的 Source 类型在身份、持久化、传输与
+Artifact evidence 上必须长期满足哪些规则。
+
+标准模型必须回答五个问题，且不能把它们压进同一个 identifier：
+
+1. 哪个 Scope 拥有这份证据？
+2. 它描述哪个逻辑上的外部或内部 Source？
+3. Artifact 使用的是哪个精确观察值？
+4. PowerContext 从哪里读取该精确值？
+5. 哪个 Definition 赋予 value 与 provenance 语义？
+
+Connector concerns 与此相邻但不同。Discovery、credentials、filtering、checkpoints、retries、provider
+change handling 与 deletion detection 决定提交哪些观察；它们不定义 Source identity，不能削弱精确证据，
+也不能改变 Scope ownership。
+
+# Guide-level explanation
+
+## Domain model
+
+理解该模型时，依次确定 ownership、logical identity、exact observation、materialization authority 与 type
+semantics：
+
+| Concept | Representation | Question answered |
+| --- | --- | --- |
+| Ownership | Scope | Source 属于哪里？ |
+| Logical identity | `SourceKey` | 这是哪个持续存在的 Source？ |
+| Exact evidence | `SourceRef` | 引用的是哪个不可变观察？ |
+| Read authority | materialization | 从哪里解析该精确值？ |
+| Type semantics | Source Definition | 如何解释 value、provenance 与 identity？ |
+| Acquisition | Connector or direct caller | 如何发现并提交新观察？ |
+
+这些职责形成单向依赖：
+
+```text
+Connector or direct caller
+          |
+          v
+Source Definition
+          |
+          v
+Scope-owned Source history
+          |
+          +---- mutable head selection
+          |
+          `---- exact SourceRef ----> Artifact evidence
+```
+
+一个 Connector 可以使用一个 Source Definition，多个 Connector 可以共用同一个 Definition，直接调用方也可以
+在没有 Connector 的情况下提交 Source。因此 Connector identity 不会成为 Source type identity。
+
+## Scope ownership
+
+每个 SourceKey 与 observation 都只属于一个 Scope。Scope ownership 不从外部 workspace、path、repository、
+provider account、Connector instance 或 Source locator 推导。这些值可以参与 binding 或 provenance，但不能
+分配或替代 `scope_id`。
+
+完整限定的逻辑身份为：
+
+```text
+SourceKey = (scope_id, source_type, source_id)
+```
+
+完整限定的精确身份为：
+
+```text
+SourceRef = (scope_id, source_type, source_id, observation_id)
+```
+
+Scope-bound operation 可以从固定 request binding 获得 `scope_id`，而不把它作为任意参数接收。持久化的解析结果
+仍然保留 owner Scope，使证据在 publication、reporting 或 export 后仍无歧义。
+
+修改 Scope Parent、Context References、Agent binding 或 observation selection，都不会改变 SourceKey 或
+SourceRef。跨 Scope 发布 Artifact 时，provenance 保留原始 Scope 与精确 SourceRef；不会移动或隐式复制
+Source history。
+
+## Logical Source and immutable observation
+
+`source_id` 在一个 `(scope_id, source_type)` namespace 内命名逻辑 Source，其含义由 Source Definition
+规定。它可以对应 provider object ID、稳定 import identity 或其他 normalized key。观察到新值时，它不能静默改变。
+
+`observation_id` 在一个 SourceKey 下命名一次不可变观察。对通用 PowerContext component 而言它是不透明的；
+可以派生自 provider revision、canonical value digest 或 Definition 特有组合。它不隐含整数序列、时间顺序或祖先关系。
+
+适用以下不变量：
+
+- 一个 `(SourceKey, observation_id)` 永远标识同一个 canonical observation；
+- 再次观察相同 canonical observation 具有幂等性；
+- 不同 canonical observation 不能复用 observation ID；
+- 如果 identity-bearing provenance 不同，同一个 SourceKey 下可以有 value digest 相同的多个 observation；
+- value digest 相同的 observation 不会自动成为同一个逻辑 Source；
+- Artifact 只引用精确 SourceRef，绝不引用移动的 SourceKey 或 `latest` observation。
+
+例如，一次文档更新保留同一 SourceKey 并产生新的 SourceRef：
+
+```text
+SourceKey(scope-a, document, provider-page-42)
+|-- SourceRef(..., observation-1)  "Initial decision"
+`-- SourceRef(..., observation-2)  "Revised decision"
+```
+
+即使 `observation-2` 已成为 current，派生自 `observation-1` 的 Artifact 仍然引用后者。
+
+## Source Definition
+
+Source Definition 是一个 `source_type` 的持久语义契约。它声明：
+
+- 稳定的 Definition name 与 version；
+- Source value 与 typed provenance 的结构；
+- Source ID normalization 与 equality；
+- observation ID normalization 与 equality；
+- identity-bearing fields 与 non-identifying annotations；
+- canonical bytes 与 value digest algorithm；
+- 支持的 materialization modes 与 exact-read requirements；
+- limits 与 validation failures；
+- older Definition versions 的 compatibility rules。
+
+Definition 将 definition-native input 解析为 canonical observation，并从精确的 persisted observation 读取
+Definition 拥有的 value。解析不会选择 Scope、修改 catalog、推进 head 或发现外部 object；读取不会解析
+`latest`，也不会替换为另一个 observation。
+
+Definition 必须显式且类型化。新的集成不能通过在 `ContentSource.metadata` 中放置未声明 schema 来模拟新
+Source 类型。Provider-specific provenance 可以扩展 Definition 声明的 schema，但影响 identity、exactness
+或 compatibility 的字段必须由 Definition 命名。
+
+## Materialization authority
+
+Materialization 回答精确 SourceRef 的返回值来自哪里：
+
+| Materialization | Authority | Required guarantee |
+| --- | --- | --- |
+| `captured` | PowerContext 保留的 canonical value | 保留值与 observation digest 一致 |
+| `referenced` | Immutable external revision | 重读 reference 得到相同 canonical value 与 digest |
+
+Captured Source 可以把 external locator、provider revision 与 digest 保留为 provenance。因为读取权威仍是
+保留值，所以它依然是 captured。这覆盖了 hybrid design 中有价值的部分，而不引入 fallback 语义含糊的第三种模式。
+
+只有当外部系统及其 reader 能够寻址不可变历史值时，Definition 才能使用 referenced materialization。读取
+path、page ID、issue ID 或 URL 的当前值并不足够。Modification time 与 ETag 可以参与 provenance 或 conflict
+detection，但 Definition 必须说明 provider 是否保证它们指向不可变值。
+
+Referenced value 不可用或 digest 不同时，精确解析失败。PowerContext 不返回 provider 当前值、stale cache
+entry 或其他 observation。不能满足该规则的 provider 必须使用 captured materialization，或者拒绝该 observation。
+
+## Current head and deletion
+
+Source history 不可变；current head 是可变的 catalog selection。Head 可以选择一个精确 SourceRef，或记录已
+明确观察到逻辑 Source 被删除。Head 可用于 current-state query 与后续 acquisition，但它不是 evidence，不能
+出现在 Artifact citation 中。
+
+推进或删除 head 不改变任何 observation。Timeout、permission failure、incomplete listing、Connector
+unavailable 或 disconnect 都不是明确的 deletion evidence，不能改变 head。只有当 deletion 本身是有意义的
+Source evidence 时，Source Definition 才可以定义 tombstone value；通用 head deletion 不会伪造这种值。
+
+## ContentSource
+
+`ContentSource` 继续作为 RFC 0019 定义的 neutral captured-text path。调用方选择一个只能与一个 canonical
+payload 一起提交的身份。Persistence conflict rule 使接受后的 ContentSource 可作为精确证据，但它不提供独立的
+logical Source lifecycle。
+
+标准模型把它视为有效的 single-observation Source：
+
+- 现有 identity 保持不可变；
+- 相同内容重放继续保持幂等；
+- 同一 identity 下的不同内容继续发生冲突；
+- 解析 ContentSource 的 reference 保持精确且不变；
+- 不从 metadata 推导 mutable head 或 multi-observation behavior。
+
+ContentSource 适合 prompt、显式文本捕获、import record，以及调用方已经拥有不可变身份的其他场景。持续观察同一
+逻辑对象的集成应定义或复用 multi-observation Source type。
+
+## Document Source as the first validation
+
+首个验证 Source 表示具有不可变 observation 的逻辑 document，并刻意与 ContentSource 分离。它的 conformance
+scenario 要求：
+
+- 一个逻辑 document 在更新过程中保持 SourceKey；
+- canonical document observation 每次变化都得到精确 SourceRef；
+- 未变化的 observation 可幂等重放；
+- 更新或删除之后，旧 observation 仍可读取；
+- provider locator 变化不重写已接受的 observation；
+- incomplete discovery 或 permission loss 不会变成 deletion；
+- provider 不能读取不可变历史 revision 时使用 captured materialization。
+
+该验证不会让 document 成为通用 Source value。Issue、message、trace、code state、review 以及其他 Source 类型
+可以定义不同 value 与 provenance，同时遵循相同 identity 与 observation 契约。
+
+# Reference-level explanation
+
+## Source identity contract
+
+`scope_id` 是 Scope organization design 定义的 ownership boundary。`source_type` 是稳定的 Source Definition
+name。`source_id` 是非空的 normalized identifier，其 equality 与 bounds 由 Definition 声明。
+
+Source identity 以 Scope 为本地边界。两个 Scope 可以包含等价的外部材料，但不共享 ownership 或 identity。
+需要避免碰撞时，Definition 可以在 `source_id` 规则中包含稳定的 external instance 或 connection discriminator，
+但 discriminator 不替代 `scope_id`。
+
+Rename 行为由 Definition 决定。Provider object ID 可以在 locator 变化时保留 SourceKey；path-derived identity
+通常把 rename 视为一次逻辑 deletion 与一次 creation。当 provider 与 acquisition path 无法证明 rename-stable
+identity 时，Definition 不能宣称支持它。
+
+## Observation contract
+
+Observation 包含以下标准字段：
+
+```text
+SourceObservation
+|-- source_key
+|-- observation_id
+|-- definition_version
+|-- materialization
+|-- value_digest
+|-- provenance
+`-- definition-owned value or exact external reference
+```
+
+`value_digest` 对 Definition 声明的 canonical bytes 使用 SHA-256，并编码为 `sha256:<lowercase-hex>`。对结构化
+value，Definition 指定 deterministic canonicalization。Digest 用于验证 value equality，不替代 SourceKey
+或 observation identity。
+
+Canonical observation 包含所有被 Definition 认定会影响 identity 或 exact meaning 的字段。Retry count、
+last scan time 或 processing status 等 operational facts 不是 Source value，不改变 observation identity。
+如果 timestamp 或 provider attribute 会影响 provenance meaning，Definition 必须显式分类并 canonicalize。
+
+## Source reference contract
+
+SourceRef 标识精确 observation，并包含 owner Scope。它不接受缺失 observation ID、`latest`、head version 或
+current provider locator。
+
+在 scope-bound operation 内，只有当 current Scope 固定且解析出的 durable value 会恢复 `scope_id` 时，紧凑的
+local representation 才可以省略重复的 `scope_id`。跨越 Scope boundary、离开 Runtime 或进入 durable
+cross-Scope provenance 的 reference 必须显式携带 owner Scope。
+
+Reference resolution 会验证全部四个 identity components，以及 stored observation 的 Definition version 与
+digest。无法解析精确 observation，不等同于 logical Source 已删除、head 已推进或 Connector 不可用。
+
+## Definition registration contract
+
+组合后的 Runtime 拥有一个显式 Definition registry。注册时验证稳定的 Definition name 与 version、声明的 value
+与 provenance schemas、identity rules、materialization support 和 read behavior。两个不兼容 Definition 不能
+声明同一个 `(source_type, definition_version)`。
+
+Registry 在 Runtime 生命周期内固定。Catalog decoding、Source reads 与 Artifact validation 使用同一个 registry
+view。Definition 不可用时，已经持久化的 observation 仍保留，但不能被解释或宣称为 readable；不能把它解码成
+丢失字段的 base Source。
+
+Definition discovery 与 registration 相互独立。Package entry point 或其他 discovery mechanism 可以报告
+可用 Definition，但安装不意味着激活。本 RFC 不选择 entry points、central settings format、pluggy 或
+Connector marketplace。
+
+## Definition compatibility contract
+
+Definition name 在兼容 schema 演进中保持稳定。每个 persisted observation 记录验证和 canonicalize 它时使用的
+Definition version。新的 Definition version 必须声明如何在不改变 canonical meaning 的前提下读取旧 observation，
+或与旧版本 reader 共存。
+
+如果 Definition change 会改变已接受 observation 的 SourceKey equality、observation equality、canonical value
+bytes、provenance meaning 或 materialization guarantee，它就是不兼容变更。此类变更需要新的 Definition version，
+且不能重写已有 SourceRef。
+
+重命名 Definition 会产生新的 `source_type`。把已有 observation 重新分类到另一个 Definition 是带 provenance
+的显式 derivation，不是 identity 的原地 migration。
+
+## Connector boundary
+
+Connector 负责 provider interaction：discovery、credentials、filtering、checkpoints、retries、rate limits、
+provider change handling 与 positive deletion detection。它依据 Scope binding 提交 definition-native input，
+并接收接受后的精确 SourceRef。
+
+Source Definition 负责 semantic normalization：logical identity、observation identity、canonical value、
+provenance、materialization validity 与 exact read。Connector 不能覆盖这些规则。如果 provider capabilities、
+Connector behavior 与 Definition requirements 的交集无法满足选定 materialization，则拒绝 observation，或在
+合法模式下 captured。
+
+```text
+provider capabilities
+  intersect Connector behavior
+  intersect Source Definition requirements
+  = valid Source observation
+```
+
+本 RFC 不定义 Connector lifecycle interface，也不要求 Connector 运行在 PowerContext Server 内。Direct
+import、local tool、hosted Connector 与 external synchronization service 都可以提交相同的 definition-native
+observation。
+
+## Artifact evidence and cross-Scope delivery
+
+Artifact revision 记录其计算直接使用的精确 SourceRef。推进 Source head 不改变现有 Artifact lineage。针对较新
+observation 的重新计算会产生新的 Artifact revision，而不是重写旧 evidence。
+
+Source 保留在 producing Scope。Context Reference 可以按照 Scope organization contract 扩展 read selection，
+但不会改变 Source ownership。跨 Scope 的精确 Artifact publication 在 lineage 中保留 origin Scope 与精确
+SourceRef。发布 Artifact 不会发布其 origin Scope 中的所有 Source。
+
+如果 application 刻意把同一个外部值 captured 到另一个 Scope，target 会得到由该 Scope 拥有的新 Source
+observation。其 provenance 可以引用 origin scoped SourceRef，但原始 Source 不会移动，两个 SourceKey 也不会
+因此变成同一 identity。
+
+## Conformance
+
+Source Definition 只有在以下 mandatory contract 的 conformance scenario 通过后才能被支持：
+
+- identity normalization 与 collision rejection；
+- identical observation replay；
+- 同一 observation ID 的 conflicting payload rejection；
+- 一个 SourceKey 下的多个 immutable observation；
+- head advancement 与 deletion 后仍能精确读取旧 observation；
+- captured 与 referenced value 的 digest verification；
+- referenced-value unavailability 与 mutation；
+- Scope isolation 与显式 owner preservation；
+- Definition version compatibility 与 unavailable-definition behavior；
+- explicit registration conflict handling。
+
+首个 document validation 还覆盖 provider update、locator change、positive deletion、incomplete discovery、
+permission loss，以及没有 immutable revision read 的 provider。通过文档验证只证明标准契约可以支持一个
+Document Source，不会把文档字段加入标准 Source 模型。
+
+# Drawbacks
+
+- 分离 SourceKey、SourceRef、Source head 与 Definition version，比一个不可变的 `(source_type, source_id)` pair
+  引入更多概念。
+- 精确 SourceRef 保留 owner Scope 与 observation identity，会增加 lineage payload 大小。
+- Definition author 必须声明 canonicalization、provenance 与 compatibility，而不能依赖任意 metadata。
+- 只暴露当前值的 provider 无法使用 Referenced Source，因此部分集成必须保留 captured data。
+- Persisted custom Source 可读之前，显式 registration 需要部署协调。
+
+# Rationale and alternatives
+
+## Extend ContentSource into the general integration model
+
+向 ContentSource 添加 provider fields 可以保留 `POST /v1/sources/content` capture API，但仍会把 logical identity、observation identity
+与 provenance 留在调用方约定中。不同集成会在 metadata 中编码不兼容 schema，non-text Source value 仍需要另一
+套模型。因此 ContentSource 继续作为有用的 single-observation implementation。
+
+## Use one opaque Source envelope
+
+通用 JSON payload 可以统一 persistence 与 transport，但会把 schema validation 和 compatibility 推给 runtime
+convention。Definition-owned typed value 与 provenance 让扩展边界可审查，并允许 consumer 在解释前拒绝不支持的
+Source type。
+
+## Put an observation digest inside source_id
+
+集成可以把 logical identity 与 digest 组合进 `source_id`，从而维持二元 SourceRef 形态。这可以表达 immutable
+capture，却会在 catalog 中隐藏持续存在的 logical Source。Update、current-head selection、deletion 与 provider
+identity 都会变成 integration-private convention。标准模型直接表达两类 identity。
+
+## Make SourceRef logical and add a separate ObservationRef
+
+两个 public reference type 可以让 SourceRef 表示逻辑身份，但 Artifact evidence 必须拒绝 SourceRef，只接受
+ObservationRef。让 SourceRef 本身保持精确，符合现有 ArtifactRef 原则：durable lineage 引用 immutable state。
+
+## Add hybrid materialization
+
+增加一种有时从外部读取、有时回退到 captured data 的第三种模式，会掩盖哪个 value 才是 authoritative，以及哪些
+failure 应对外可见。Captured observation 可以把完整 external reference 保留为 provenance；referenced
+observation 要么被精确解析，要么失败。
+
+## Let Parent or Connector identity own Sources
+
+Scope Parent 用于 organization，Connector identity 是 acquisition provenance，二者都不是持久 ownership
+boundary。使用其中任意一个都会与 Scope organization contract 冲突，并让 reorganization 或 Connector
+replacement 改变 Source identity。
+
+# Prior art
+
+- [Scope organization and Agent integration design](https://github.com/oceanbase/powercontext/pull/1345) 分离
+  Scope ownership、read sharing、organization、delivery 与 observation。本 RFC 对 Source ownership、identity、
+  exact evidence 与 acquisition 应用同样的分离原则。
+- [Apache OpenDAL OFS RFC-0016](https://github.com/apache/opendal-ofs/blob/main/rfcs/0016_filesystem_architecture.md)
+  分离 namespace authority 与 access frontend，并禁止 frontend 宣称底层无法兑现的保证。Source materialization
+  遵循同样的 authority rule。
+- [opendalfs](https://github.com/fsspec/opendalfs) 通过 fsspec interface 暴露 OpenDAL services，可以作为首个
+  filesystem-backed document Connector 的候选 acquisition layer。它的 path 与 file metadata 不定义 Source
+  identity 或 immutable revision semantics。只有完整调用链能够寻址并验证不可变 revision 时，backend read 才能
+  满足 referenced materialization；否则 document 必须被 captured。
+- DataHub stateful ingestion 把 connector checkpoint 与 stale-entity detection 同 emitted metadata identity
+  分离。Airbyte 把 connector state 当作 opaque recovery boundary，而不是 record identity。
+- OpenMetadata 把负责生成 record 的 Source 与 connection check、workflow status、sink 分离。
+- Nowledge Mem 的 TiddlyWiki importer 使用 stable logical ID、canonical payload digest、source revalidation 与
+  per-item outcome。这些行为为 document validation 提供依据，但不定义标准 Source value。
+
+# Unresolved questions
+
+- 每个 durable SourceRef 是否必须直接携带 `scope_id`，还是可以由 canonical scoped envelope 包含 local exact
+  SourceRef，同时保留相同的 fully qualified identity？
+- Runtime 必须同时保留哪些 Source Definition version，才能宣称某个 Definition 受支持？
+- Source head deletion 应是通用 catalog state，还是首个标准契约只暴露 active exact head，并把 deletion 完全留给
+  Connector state？
+- Artifact family 可以共享哪些 normalized value category，而不要求理解完整的 definition-owned value schema？
+
+# Future possibilities
+
+Connector lifecycle、checkpoint、run status 与显式 plugin discovery 需要独立契约。Document ingestion 为该
+契约提供 conformance case，但不能改变 Source identity 或 materialization semantics。
+
+Definition 可以为无法消费完整 native value 的 Artifact family 声明 text、structured record 或 binary
+attachment 等 optional projection。Projection identity 与 digest rules 需要自己的契约，且不能削弱原始 Source
+observation。
+
+Retention policy 只有在定义精确 Artifact evidence 如何报告 unavailable content，以及 legal/user-requested
+deletion 如何与 immutable lineage 交互之后，才能回收 captured value。Source head deletion 本身不授权删除证据。
