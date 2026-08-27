@@ -16,6 +16,7 @@ import asyncio
 import logging
 import os
 import re
+import shlex
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -152,13 +153,18 @@ def test_env_example_loads_server_settings(monkeypatch) -> None:
         assignment = line.strip()
         if not assignment or assignment.startswith("#"):
             continue
-        name, value = assignment.split("=", maxsplit=1)
+        parsed = shlex.split(assignment, comments=True, posix=True)
+        assert len(parsed) == 1
+        name, value = parsed[0].split("=", maxsplit=1)
         monkeypatch.setenv(name, value)
 
     settings = ServerSettings()
 
     assert isinstance(settings.database, SQLiteConfig)
-    assert settings.inference.embedding_dimension == 2560
+    assert settings.dashboard.scopes[0].scope_id == "project:quickstart"
+    assert settings.runtime.schedule_seconds == 60
+    assert settings.inference.generation_model == "openai:gpt-4.1-mini"
+    assert settings.inference.embedding_dimension == 1536
 
 
 def test_server_settings_select_oceanbase(monkeypatch) -> None:

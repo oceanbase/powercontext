@@ -55,10 +55,19 @@ Experience。Integration 只应在真实完成或中断边界调用它，不能�
 Claim 和 check 要么是没有 evidence 的 `declared`，要么是拥有同 scope 精确 citation 的 `verified`。Citation 可读只证明
 身份和可用性，不证明事实仍然新鲜。当前指令、实时 workspace、能力和授权始终优先于 Work 与 Handoff 记录。
 
-Handoff Report 的 JSON Workstream projection 同时返回 `handoff_revision_count`、`handoff_history_truncated` 和
-`handoff_history`。History 最多包含 frozen selection 之前最近 20 个 Revision 摘要，按 Revision 升序返回；页面按最新
-优先展示，并每 5 秒自动刷新。未发送编辑或正在执行的交接动作会暂停自动刷新。Codex scope resolver 支持把当前 Git
-工作区一次绑定到固定 Workstream scope，绑定优先于 Git remote 和路径推导，但低于显式 scope 配置。
+完整 Codex 转交和接收确认流程见[在 Codex 中交接工作](../how-to/handoff-with-codex.md)。
+
+Handoff Report 会列出包含 committed Handoff 的 scope，`get_handoff_report` 要求提供 `scope_id`。`project_id` 仅作为
+deprecated wire-compatibility input 保留，生成报告时会被忽略。每个返回的 Workstream projection 包含
+`handoff_revision_count`、`handoff_history_truncated` 和 `handoff_history`，最多返回 frozen selection 之前最近 20 个
+Revision 摘要。Web 操作见[使用 Handoff Report](../how-to/use-handoff-report.md)。
+
+当前 scope report 不返回 Activity event，`activity_coverage=not_configured`，并且没有 period comparison。Period
+输入只会被规范化，不会筛选 Activity。Server 未启用鉴权时，HTTP 和 Python Client 的 Markdown operation 仍可不带
+token 使用；当前浏览器下载和后台刷新控件要求已保存的 Bearer token。
+
+Codex scope resolver 支持把当前 Git 工作区一次绑定到固定 Workstream scope，绑定优先于 Git remote 和路径推导，但低于
+显式 scope 配置。
 
 ## DeepSeek Harness 插件
 
@@ -105,12 +114,22 @@ Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久
 
 ```text
 powercontext setup codex
+powercontext setup claude-code
 powercontext setup dsh
+powercontext setup openclaw
+powercontext setup opencode
 powercontext setup pi
+powercontext setup hermes
+powercontext setup select
 powercontext doctor
+powercontext doctor integrations
 powercontext doctor codex
+powercontext doctor claude-code
 powercontext doctor dsh
+powercontext doctor openclaw
+powercontext doctor opencode
 powercontext doctor pi
+powercontext doctor hermes
 powercontext server run
 powercontext ready
 powercontext capabilities
@@ -130,9 +149,10 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 所有内容命令都调用已配置的 Server。可选的 `server` role 会增加 `powercontext server run`，但不会在 CLI
 中创建第二套内容 profile。
 
-`powercontext doctor` 检查安装包和 Server，不要求任何集成；`powercontext doctor codex` 显式检查 Codex CLI
-和 PowerContext 插件；`powercontext doctor dsh` 检查 DeepSeek Harness CLI，以及 dump-config 是否列出插件 id
-`powercontext-dsh`；`powercontext doctor pi` 检查 Pi 可执行文件，以及 Pi 是否列出了 PowerContext package。
+`powercontext doctor` 检查安装包和 Server，不要求任何集成。`powercontext doctor integrations` 打印全部一级宿主的只读矩阵；
+CLI 不在 PATH 上时该行是 `missing`，不会让整条命令失败。各个 `powercontext doctor <host>` 命令在对应 CLI
+缺失时仍会失败。矩阵保留每个宿主专有的全部集成检查，包括 OpenCode 独立的 `plugin` 与 `skill` 结果。
+DSH 检查 `dump-config` 是否列出 `powercontext-dsh`；Pi 检查 CLI 是否列出 PowerContext package。
 
 `candidate` 命令组提供面向人工的 Review Inbox。列出、检查、修订、批准和拒绝的操作步骤见
 [审核 Candidate](../how-to/review-candidates.md)。

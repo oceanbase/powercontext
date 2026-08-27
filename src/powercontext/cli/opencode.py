@@ -236,8 +236,10 @@ def _install_plugin(source: Path, target: Path) -> None:
             json.dumps({"schema": 1, "owner": "powercontext", "integration": "opencode-plugin"}, indent=2) + "\n",
             encoding="utf-8",
         )
-        os.replace(staging, target)
+        # Install the ownership manifest first: an interruption then leaves a manifest without a
+        # plugin, which the next setup run replaces instead of an unowned plugin conflict.
         os.replace(manifest_staging, manifest)
+        os.replace(staging, target)
     except OSError as error:
         with suppress(OSError):
             staging.unlink()

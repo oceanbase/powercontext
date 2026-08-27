@@ -321,6 +321,12 @@ const OPERATIONS = {
 		location: "body",
 		scope: false
 	},
+	list_handoff_report_known_scopes: {
+		method: "POST",
+		path: "/v1/handoff-reports/scopes/list-known",
+		location: "body",
+		scope: false
+	},
 	get_handoff_report_project: {
 		method: "POST",
 		path: "/v1/handoff-reports/projects/get",
@@ -355,7 +361,7 @@ const OPERATIONS = {
 		method: "POST",
 		path: "/v1/handoff-reports/get",
 		location: "body",
-		scope: false
+		scope: true
 	},
 	record_handoff_report_activity: {
 		method: "POST",
@@ -566,6 +572,14 @@ var PowerContextClient = class {
 		});
 	}
 };
+
+//#endregion
+//#region src/dsh-service.ts
+function requireService(ctx, name$1) {
+	const service = ctx.get(name$1);
+	if (service == null) throw new Error(`${PLUGIN_NAME} requires the "${name$1}" service`);
+	return service;
+}
 
 //#endregion
 //#region src/secrets.ts
@@ -920,9 +934,7 @@ async function handlePcCommand(rawInput, runtime, scopeId, signal) {
 	};
 }
 function registerCommands(ctx, runtime) {
-	const commands = ctx.get("commands");
-	if (!commands) return;
-	commands.register({
+	requireService(ctx, "commands").register({
 		name: "pc",
 		description: "PowerContext status, search, review, and diagnostics",
 		handler: async (invocation) => {
@@ -1303,18 +1315,14 @@ If PowerContext is unavailable, say so once and continue the task.
 Revising or retiring memory requires the exact citation returned by the Server.
 Do not approve artifact candidates unless the user explicitly asked; use /pc review approve instead.`;
 function registerGuidance(ctx) {
-	const systemPrompt = ctx.get("systemPrompt");
-	if (!systemPrompt) return;
-	systemPrompt.section({
+	requireService(ctx, "systemPrompt").section({
 		name: "tool:powercontext",
 		order: 120,
 		text: GUIDANCE
 	});
 }
 function registerSkill(ctx) {
-	const skills = ctx.get("skills");
-	if (!skills) return;
-	skills.register({
+	requireService(ctx, "skills").register({
 		name: "project-context",
 		description: "Restore project memory or transfer current work through PowerContext.",
 		source: "runtime",
@@ -1805,7 +1813,13 @@ function registerTools(ctx, runtime, defineTool) {
 //#endregion
 //#region src/index.ts
 const name = PLUGIN_NAME;
-const inject = ["tools", "agents"];
+const inject = [
+	"tools",
+	"agents",
+	"commands",
+	"skills",
+	"systemPrompt"
+];
 const Config = { "~standard": {
 	version: 1,
 	vendor: "powercontext-dsh",

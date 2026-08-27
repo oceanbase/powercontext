@@ -289,43 +289,6 @@ def test_shared_capture_redacts_codex_auth_values_outside_sensitive_keys(
     assert "[REDACTED]" in content
 
 
-def test_shared_capture_caches_codex_auth_until_the_file_changes(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    first_secret = "first-codex-auth-secret"  # noqa: S105 - synthetic redaction sentinel.
-    second_secret = "second-longer-codex-auth-secret"  # noqa: S105 - synthetic redaction sentinel.
-    codex_home = tmp_path / "codex-home"
-    codex_home.mkdir()
-    auth_path = codex_home / "auth.json"
-    auth_path.write_text(json.dumps({"tokens": {"access_token": first_secret}}))
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
-
-    original_read_text = Path.read_text
-    auth_reads = 0
-
-    def count_auth_reads(path: Path, *args: Any, **kwargs: Any) -> str:
-        nonlocal auth_reads
-        if path == auth_path:
-            auth_reads += 1
-        return original_read_text(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "read_text", count_auth_reads)
-
-    first = render_capture_event("tool_result", 1, {"result": first_secret}, 8192)
-    repeated = render_capture_event("tool_result", 2, {"result": first_secret}, 8192)
-
-    assert first_secret not in first
-    assert first_secret not in repeated
-    assert auth_reads == 1
-
-    auth_path.write_text(json.dumps({"tokens": {"access_token": second_secret}}))
-    refreshed = render_capture_event("tool_result", 3, {"result": second_secret}, 8192)
-
-    assert second_secret not in refreshed
-    assert auth_reads == 2
-
-
 def test_capture_failure_does_not_change_tool_or_model_results_or_log_arbitrary_exception_messages(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

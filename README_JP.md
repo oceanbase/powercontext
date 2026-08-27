@@ -25,7 +25,7 @@ uv tool install "powercontext[cli,server]==0.0.2"
 powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
 powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
 powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
-powercontext setup hermes --source oceanbase/powercontext --ref v0.0.2
+powercontext setup hermes --source oceanbase/powercontext --ref master
 
 # OpenClaw は現在、master から対応する CLI とインテグレーションをインストールする必要があります。
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"

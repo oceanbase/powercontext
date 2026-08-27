@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { requireService } from './dsh-service.ts'
 import { PROJECT_CONTEXT_SKILL } from './skill-body.ts'
 
 export const GUIDANCE = `PowerContext provides durable project memory shared across agent sessions.
@@ -24,10 +25,9 @@ Revising or retiring memory requires the exact citation returned by the Server.
 Do not approve artifact candidates unless the user explicitly asked; use /pc review approve instead.`
 
 export function registerGuidance(ctx: { get: (name: string) => unknown }): void {
-  const systemPrompt = ctx.get('systemPrompt') as {
+  const systemPrompt = requireService<{
     section: (section: { name: string; order: number; text: string }) => unknown
-  } | undefined
-  if (!systemPrompt) return
+  }>(ctx, 'systemPrompt')
   systemPrompt.section({
     name: 'tool:powercontext',
     order: 120,
@@ -36,7 +36,7 @@ export function registerGuidance(ctx: { get: (name: string) => unknown }): void 
 }
 
 export function registerSkill(ctx: { get: (name: string) => unknown }): void {
-  const skills = ctx.get('skills') as {
+  const skills = requireService<{
     register: (skill: {
       name: string
       description: string
@@ -44,8 +44,7 @@ export function registerSkill(ctx: { get: (name: string) => unknown }): void {
       content: string
       whenToUse?: string
     }) => unknown
-  } | undefined
-  if (!skills) return
+  }>(ctx, 'skills')
   skills.register({
     name: 'project-context',
     description: 'Restore project memory or transfer current work through PowerContext.',

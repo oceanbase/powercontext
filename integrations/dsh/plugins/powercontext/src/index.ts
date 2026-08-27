@@ -28,7 +28,7 @@ import { registerTools } from './tools.ts'
 
 export const name = PLUGIN_NAME
 
-export const inject = ['tools', 'agents']
+export const inject = ['tools', 'agents', 'commands', 'skills', 'systemPrompt']
 
 export interface Config extends PluginConfig {}
 

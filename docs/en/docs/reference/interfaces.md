@@ -60,12 +60,22 @@ Claims and checks are either `declared` with no evidence or `verified` with exac
 citation proves identity and availability, not freshness. Current instructions, live workspace state, capabilities,
 and authorization still take precedence over all Work and Handoff records.
 
-Each Handoff Report JSON Workstream projection also returns `handoff_revision_count`,
-`handoff_history_truncated`, and `handoff_history`. History contains at most the latest 20 Revision summaries through
-the frozen selection in ascending Revision order; the page presents them latest-first and refreshes every five
-seconds. Unsent edits or an active Handoff action pause automatic refresh. The Codex scope resolver can bind the
-current Git workspace once to a fixed Workstream scope. That binding takes precedence over Git remote and path
-derivation, but remains below explicit scope configuration.
+For the complete Codex transfer and acknowledgement workflow, see
+[Hand off work in Codex](../how-to/handoff-with-codex.md).
+
+Handoff Report lists scopes that contain a committed Handoff, and `get_handoff_report` requires `scope_id`.
+`project_id` remains deprecated wire-compatibility input and is ignored during report generation. Each returned
+Workstream projection includes `handoff_revision_count`, `handoff_history_truncated`, and `handoff_history`, with at
+most the latest 20 Revision summaries through the frozen selection. For the web workflow, see
+[Use Handoff Report](../how-to/use-handoff-report.md).
+
+The current scope report returns no Activity events, reports `activity_coverage=not_configured`, and has no period
+comparison. Period input is normalized but does not filter Activity. The HTTP and Python Client Markdown operations
+remain available without a token when Server authentication is disabled; the current browser download and background
+refresh controls require a stored bearer token.
+
+The Codex scope resolver can bind the current Git workspace once to a fixed Workstream scope. That binding takes
+precedence over Git remote and path derivation, but remains below explicit scope configuration.
 
 ## DeepSeek Harness plugin
 
@@ -119,12 +129,22 @@ boundary flushing fail open; explicit durable writes require interactive confirm
 
 ```text
 powercontext setup codex
+powercontext setup claude-code
 powercontext setup dsh
+powercontext setup openclaw
+powercontext setup opencode
 powercontext setup pi
+powercontext setup hermes
+powercontext setup select
 powercontext doctor
+powercontext doctor integrations
 powercontext doctor codex
+powercontext doctor claude-code
 powercontext doctor dsh
+powercontext doctor openclaw
+powercontext doctor opencode
 powercontext doctor pi
+powercontext doctor hermes
 powercontext server run
 powercontext ready
 powercontext capabilities
@@ -144,10 +164,11 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 All content commands call the configured Server. The optional `server` role adds `powercontext server run`; it does
 not create a second content profile inside the CLI.
 
-`powercontext doctor` checks the package and Server without requiring an integration. `powercontext doctor codex`
-checks the Codex CLI and PowerContext plugin explicitly. `powercontext doctor dsh` checks the DeepSeek Harness CLI
-and that dump-config lists the plugin id `powercontext-dsh`. `powercontext doctor pi` checks the Pi executable and
-that Pi lists the PowerContext package.
+`powercontext doctor` checks the package and Server without requiring an integration. `powercontext doctor integrations`
+prints a read-only matrix for every first-class host; a missing CLI is `missing` and does not fail the command.
+Each `powercontext doctor <host>` command still fails when that host CLI is missing. The matrix preserves every
+host-specific integration check, including OpenCode's separate `plugin` and `skill` results. DSH checks that
+`dump-config` lists `powercontext-dsh`; Pi checks that the CLI lists the PowerContext package.
 
 The `candidate` command group exposes the human Review Inbox. See [Review Candidates](../how-to/review-candidates.md)
 for the ordered workflow to list, inspect, revise, approve, or reject Candidates.

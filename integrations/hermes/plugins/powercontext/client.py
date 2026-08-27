@@ -21,6 +21,7 @@ from collections.abc import Callable
 from http.client import HTTPResponse
 from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 if TYPE_CHECKING:
@@ -33,6 +34,49 @@ else:
 
 
 MAX_RESPONSE_BYTES = 1_048_576
+
+
+# Keep this table aligned with the public PowerContext operation identifiers.
+# The Hermes provider uses ``request_operation`` for less frequently used
+# operations so adding an API operation does not require another bespoke
+# transport wrapper in the plugin.
+_OPERATION_SPECS: dict[str, tuple[str, str]] = {
+    "prepare_context": ("POST", "/v1/context/prepare"),
+    "capture_content_source": ("POST", "/v1/sources/content"),
+    "create_work_contract": ("POST", "/v1/work/contracts/create"),
+    "handoff_current_work": ("POST", "/v1/work/handoffs/prepare-current"),
+    "acknowledge_handoff": ("POST", "/v1/work/handoffs/acknowledge"),
+    "record_task_outcome": ("POST", "/v1/work/outcomes/record"),
+    "activate_handoff": ("POST", "/v1/handoff/activate"),
+    "prepare_handoff": ("POST", "/v1/handoff/prepare"),
+    "finalize_handoff": ("POST", "/v1/handoff/finalize"),
+    "commit_handoff": ("POST", "/v1/handoff/commit"),
+    "continue_handoff": ("POST", "/v1/handoff/continue"),
+    "flush_memory": ("POST", "/v1/memory/flush"),
+    "remember_memory": ("POST", "/v1/memory/remember"),
+    "search_memory": ("POST", "/v1/memory/search"),
+    "list_memory_entries": ("POST", "/v1/memory/entries/list"),
+    "get_memory_entry": ("POST", "/v1/memory/entries/get"),
+    "revise_memory_entry": ("POST", "/v1/memory/entries/revise"),
+    "retire_memory_entry": ("POST", "/v1/memory/entries/retire"),
+    "list_memory_changes": ("POST", "/v1/memory/changes"),
+    "propose_experience": ("POST", "/v1/experience/propose"),
+    "generate_experience": ("POST", "/v1/experience/generate"),
+    "get_experience": ("POST", "/v1/experience/get"),
+    "propose_skill": ("POST", "/v1/skill/propose"),
+    "generate_skill": ("POST", "/v1/skill/generate"),
+    "get_skill": ("POST", "/v1/skill/get"),
+    "scan_external_skills": ("POST", "/v1/external-skills/scan"),
+    "list_external_skills": ("POST", "/v1/external-skills/list"),
+    "resolve_external_skill": ("POST", "/v1/external-skills/resolve"),
+    "import_external_skill": ("POST", "/v1/external-skills/import"),
+    "list_artifact_candidates": ("POST", "/v1/artifact-candidates/list"),
+    "get_artifact_candidate": ("POST", "/v1/artifact-candidates/get"),
+    "approve_artifact_candidate": ("POST", "/v1/artifact-candidates/approve"),
+    "reject_artifact_candidate": ("POST", "/v1/artifact-candidates/reject"),
+    "revise_artifact_candidate": ("POST", "/v1/artifact-candidates/revise"),
+    "get_stats": ("GET", "/v1/stats"),
+}
 
 
 class PowerContextError(RuntimeError):
@@ -95,7 +139,12 @@ class PowerContextClient:
             headers["Content-Type"] = "application/json"
         if self.authorization:
             headers["Authorization"] = self.authorization
-        request = Request(f"{self.base_url}{path}", data=body, headers=headers, method=method)  # noqa: S310
+        url = f"{self.base_url}{path}"
+        if method == "GET" and payload:
+            query = urlencode({key: value for key, value in payload.items() if value is not None})
+            if query:
+                url = f"{url}?{query}"
+        request = Request(url, data=body, headers=headers, method=method)  # noqa: S310
 
         try:
             if self._transport is not None:
@@ -122,6 +171,15 @@ class PowerContextClient:
         if not isinstance(decoded, dict):
             raise PowerContextTransportError("PowerContext returned a non-object response")  # noqa: TRY003
         return decoded
+
+    def request_operation(self, operation: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Call a public PowerContext operation by its stable identifier."""
+
+        try:
+            method, path = _OPERATION_SPECS[operation]
+        except KeyError as error:
+            raise ValueError(f"unsupported PowerContext operation: {operation}") from error  # noqa: TRY003
+        return self._request(path, payload, method=method)
 
     def get_liveness(self) -> dict[str, Any]:
         return self._request("/health/live", method="GET")

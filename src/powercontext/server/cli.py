@@ -16,11 +16,16 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
+from contextlib import nullcontext
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 from pydantic import ValidationError
 
+from powercontext.cli.env_file import EnvironmentFileError, environment_context, read_environment_file
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import configure_server_logging
 from powercontext.server.settings import (
@@ -66,46 +71,56 @@ def main() -> None:
 def run(
     host: Annotated[str | None, typer.Option(help="Address to bind.")] = None,
     port: Annotated[int | None, typer.Option(min=1, max=65535, help="Port to bind.")] = None,
+    env_file: Annotated[
+        Path | None,
+        typer.Option(help="Load Server and provider settings from this environment file."),
+    ] = None,
 ) -> None:
     """Run the ASGI service in the foreground."""
 
-    # Layer the CLI overrides in *before* validation. ``ServerSettings`` enforces its bind policy on
-    # construction, so the command-line ``--host`` / ``--port`` must be merged with the environment
-    # first -- otherwise a safe ``--host 127.0.0.1`` could not repair an unsafe
-    # ``POWERCONTEXT_SERVER_HTTP_HOST=0.0.0.0`` (and vice versa), because the cross-field check would
-    # run against the environment value alone rather than the address we actually bind.
-    http_overrides: dict[str, Any] = {}
-    if host is not None:
-        http_overrides["host"] = host
-    if port is not None:
-        http_overrides["port"] = port
-    # Pass ``http`` as a partial mapping so ``nested_model_default_partial_update`` merges it with the
-    # environment; unpack from a kwargs dict so the partial dict is not type-checked against the full
-    # ``HttpConfig`` the field annotation advertises.
-    settings_kwargs: dict[str, Any] = {"http": http_overrides} if http_overrides else {}
-    try:
-        settings = ServerSettings(**settings_kwargs)
-    except ValidationError as error:
-        raise _friendly_bad_parameter(error) from error
-    configure_server_logging(settings.logging)
-    tracing = configure_server_tracing(settings.tracing)
-    try:
-        application = create_server_app(settings=settings, tracing=tracing)
-        if settings.dashboard.enabled:
-            if application.state.dashboard_started:
-                typer.echo(f"PowerContext Dashboard: http://{settings.http.host}:{settings.http.port}/")
-            else:
-                typer.echo(
-                    f"PowerContext Dashboard failed to start: {application.state.dashboard_startup_error}",
-                    err=True,
-                )
-        _run_server(
-            application,
-            host=settings.http.host,
-            port=settings.http.port,
-        )
-    finally:
-        tracing.shutdown()
+    loaded: Mapping[str, str] = {}
+    if env_file is not None:
+        try:
+            loaded = read_environment_file(env_file)
+        except (EnvironmentFileError, OSError) as error:
+            typer.echo(f"Invalid value for --env-file: {error}", err=True)
+            raise typer.Exit(code=2) from error
+    server_environment = {name for name in os.environ if name.startswith("POWERCONTEXT_SERVER_")}
+    loaded_context = (
+        environment_context(loaded, override=True, clear=server_environment) if env_file is not None else nullcontext()
+    )
+    with loaded_context:
+        # Layer CLI overrides in before validation so the bind policy checks the address
+        # the process will actually use, including values loaded from --env-file.
+        http_overrides: dict[str, Any] = {}
+        if host is not None:
+            http_overrides["host"] = host
+        if port is not None:
+            http_overrides["port"] = port
+        settings_kwargs: dict[str, Any] = {"http": http_overrides} if http_overrides else {}
+        try:
+            settings = ServerSettings(**settings_kwargs)
+        except ValidationError as error:
+            raise _friendly_bad_parameter(error) from error
+        configure_server_logging(settings.logging)
+        tracing = configure_server_tracing(settings.tracing)
+        try:
+            application = create_server_app(settings=settings, tracing=tracing)
+            if settings.dashboard.enabled:
+                if application.state.dashboard_started:
+                    typer.echo(f"PowerContext Dashboard: http://{settings.http.host}:{settings.http.port}/")
+                else:
+                    typer.echo(
+                        f"PowerContext Dashboard failed to start: {application.state.dashboard_startup_error}",
+                        err=True,
+                    )
+            _run_server(
+                application,
+                host=settings.http.host,
+                port=settings.http.port,
+            )
+        finally:
+            tracing.shutdown()
 
 
 def _friendly_bad_parameter(error: ValidationError) -> typer.BadParameter:

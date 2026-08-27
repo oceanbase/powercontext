@@ -25,11 +25,12 @@ function existingFile(path) {
   return path && existsSync(path) ? resolve(path) : undefined
 }
 
-function walkForOpenApi(startDir) {
+function walkForOpenApi(startDir, ignoredPath) {
   let dir = resolve(startDir)
+  const ignored = ignoredPath ? resolve(ignoredPath) : undefined
   for (let i = 0; i < 8; i += 1) {
     const candidate = join(dir, 'openapi', 'powercontext.yaml')
-    if (existsSync(candidate)) return resolve(candidate)
+    if (existsSync(candidate) && resolve(candidate) !== ignored) return resolve(candidate)
     const parent = resolve(dir, '..')
     if (parent === dir) break
     dir = parent
@@ -37,25 +38,25 @@ function walkForOpenApi(startDir) {
   return undefined
 }
 
-export function resolvePowerContextRoot() {
+export function resolvePowerContextRoot(packageRoot = root) {
   const fromEnv = process.env.POWERCONTEXT_ROOT?.trim()
   if (fromEnv && existsSync(fromEnv)) return resolve(fromEnv)
-  const yamlPath = walkForOpenApi(root)
+  const fallback = join(packageRoot, 'openapi', 'powercontext.yaml')
+  const yamlPath = walkForOpenApi(packageRoot, fallback)
   if (!yamlPath) return undefined
   return resolve(dirname(yamlPath), '..')
 }
 
-export function resolveOpenApiPath() {
+export function resolveOpenApiPath(packageRoot = root) {
   const fromEnv = existingFile(process.env.POWERCONTEXT_OPENAPI?.trim())
   if (fromEnv) return fromEnv
-  const checkout = resolvePowerContextRoot()
+  const checkout = resolvePowerContextRoot(packageRoot)
   const fromRoot = checkout
     ? existingFile(join(checkout, 'openapi', 'powercontext.yaml'))
     : undefined
   if (fromRoot) return fromRoot
-  const walked = walkForOpenApi(root)
-  if (walked) return walked
-  if (existsSync(dest)) return dest
+  const fallback = existingFile(join(packageRoot, 'openapi', 'powercontext.yaml'))
+  if (fallback) return fallback
   throw new Error(
     'openapi/powercontext.yaml is missing. Point POWERCONTEXT_ROOT or POWERCONTEXT_OPENAPI at a PowerContext checkout.',
   )

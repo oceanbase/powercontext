@@ -221,6 +221,42 @@ def test_opencode_skill_refresh_replaces_only_an_owned_installation(tmp_path: Pa
     assert not list(target.parent.glob(".project-context.*"))
 
 
+def test_interrupted_plugin_install_recovers_on_retry(tmp_path: Path, monkeypatch) -> None:
+    import powercontext.cli.opencode as opencode_cli
+
+    source = tmp_path / "index.js"
+    source.write_text("export default {}\n", encoding="utf-8")
+    target = tmp_path / "config" / "plugins" / "powercontext-opencode.js"
+    manifest = target.parent / ".powercontext-opencode.json"
+    real_replace = os.replace
+    replacements = 0
+
+    def interrupted_replace(first: Path, second: Path) -> None:
+        nonlocal replacements
+        replacements += 1
+        if replacements == 2:
+            raise OSError
+        real_replace(first, second)
+
+    monkeypatch.setattr(opencode_cli.os, "replace", interrupted_replace)
+    with pytest.raises(SetupError):
+        opencode_cli._install_plugin(source, target)
+
+    assert manifest.is_file()
+    assert not target.exists()
+    assert not list(target.parent.glob("*.tmp"))
+
+    monkeypatch.setattr(opencode_cli.os, "replace", real_replace)
+    opencode_cli._install_plugin(source, target)
+
+    assert target.read_text(encoding="utf-8") == "export default {}\n"
+    assert json.loads(manifest.read_text(encoding="utf-8")) == {
+        "schema": 1,
+        "owner": "powercontext",
+        "integration": "opencode-plugin",
+    }
+
+
 def test_setup_opencode_refuses_unowned_skill(tmp_path: Path, monkeypatch) -> None:
     import powercontext.cli.opencode as opencode_cli
 

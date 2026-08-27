@@ -51,7 +51,7 @@ describe('operations coverage', () => {
       location: 'body',
       scope: true,
     })
-    expect(OPERATIONS.get_handoff_report.scope).toBe(false)
+    expect(OPERATIONS.get_handoff_report.scope).toBe(true)
     expect(OPERATIONS.get_capabilities.location).toBeNull()
   })
 

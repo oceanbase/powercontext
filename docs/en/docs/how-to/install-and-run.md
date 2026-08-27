@@ -25,6 +25,19 @@ powercontext setup dsh --source oceanbase/powercontext --ref <ref>
 powercontext setup pi --source oceanbase/powercontext --ref <ref>
 ```
 
+Per-host commands remain the explicit path. The first-class catalog contains `codex`, `claude-code`, `dsh`,
+`openclaw`, `opencode`, `pi`, and `hermes`. To install more than one in one run, pass `--host` repeatedly, or omit
+`--host` on a TTY to choose from the catalog. `powercontext setup` with no subcommand still prints help:
+
+```bash
+powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref <ref>
+```
+
+Without `--server-url`, Claude Code and OpenClaw keep their `http://127.0.0.1:8000` defaults. An explicit
+`--server-url` overrides both selected hosts. OpenClaw's `--scope-mode` defaults to `agent`. Selected Codex, DSH,
+OpenCode, Pi, and Hermes integrations pass their existing post-install diagnostics before they are reported as
+installed. After installing Hermes, run `hermes memory setup` and select PowerContext before starting Hermes.
+
 For host-specific options, see [Configure Codex](configure-codex.md) and
 [Configure DeepSeek Harness](configure-dsh.md).
 
@@ -86,9 +99,14 @@ powercontext capabilities
 
 ```bash
 powercontext doctor
+powercontext doctor integrations
 powercontext doctor codex
+powercontext doctor claude-code
 powercontext doctor dsh
+powercontext doctor openclaw
+powercontext doctor opencode
 powercontext doctor pi
+powercontext doctor hermes
 powercontext ready
 powercontext capabilities
 ```
@@ -96,9 +114,11 @@ powercontext capabilities
 `doctor` checks the installed package, Server liveness, and Server readiness without requiring an integration. Server
 readiness covers the database and each configured inference provider. Runtime or database failures return
 `not_ready`; an inference failure returns `degraded` without removing database-backed operations from traffic.
-`doctor codex`, `doctor dsh`, and `doctor pi` separately check their optional host CLI and PowerContext integration. The content commands exercise the
-public HTTP SDK path. `ready` and `capabilities` show the readiness and enabled capabilities of the running service. For complete status definitions and
-recovery steps, see [Troubleshoot](troubleshoot.md).
+`doctor integrations` is an optional read-only overview of every first-class host; a missing CLI does not fail that
+command. The individual `doctor <host>` commands check one optional host CLI and all of its PowerContext integration
+items. The content commands exercise the public HTTP SDK path. `ready` and `capabilities` show the readiness and
+enabled capabilities of the running service. For complete status definitions and recovery steps, see
+[Troubleshoot](troubleshoot.md).
 
 ## Update or replace an installation
 

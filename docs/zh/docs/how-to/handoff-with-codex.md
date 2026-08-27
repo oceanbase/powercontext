@@ -1,39 +1,77 @@
 ---
 title: 在 Codex 中交接工作
-description: 将当前任务的可验证状态明确移交给另一个任务、会话或模型。
+description: 记录工作边界，完成转交和接收确认，并保留任务结果。
 ---
 
 # 在 Codex 中交接工作
 
-使用 Handoff 将当前工作明确交给另一个 Codex 任务、后续会话或模型。完成后，接手者会获得经过检查的临时交接内容，
-其中包含目标、已验证进度、阻塞项、下一步和证据。
+任务需要转给另一个 Codex 任务、会话或模型时，使用 PowerContext 的高阶工作闭环：
+
+```text
+Work Contract → Handoff → Acknowledgement → Task Outcome
+```
+
+每一步保存不同边界。Work Contract 记录委托目标，Handoff 转交经过检查的状态，接收方记录自己能否继续，Task Outcome
+保留实际结果。
 
 ## 开始之前
 
 先完成[安装和运行](install-and-run.md)，保持 Server 运行，并在当前项目中启动已配置 PowerContext 插件的 Codex
-会话。Handoff 内容属于当前项目 scope；接手任务应在相同项目中继续，或收到完整的 Prepared Handoff。
+会话。工作记录属于所选 scope。Report catalog 中存在多个 Workstream 时，让 Codex 显示 picker 并选择目标 Workstream。
 
-## 1. 说明交接边界
+不要把密钥、访问令牌或其他敏感信息写入 Work Contract、Handoff、Acknowledgement 或 Outcome。
 
-向 Codex 清楚说明要交接的边界和接手者需要知道的信息。例如：
+## 1. 为委托任务记录 Work Contract
 
-> 为这个任务准备 PowerContext Handoff。记录目标、已验证进度、当前阻塞和下一步；检查草稿中的每个判断是否有证据，
-> 然后把完成的交接内容提供给下一个任务。
+用户明确委托的任务需要稳定 baseline 时，让 Codex 记录目标和完成边界：
 
-包含当前任务的目标、已验证进度、阻塞项和下一步。不要把密钥、访问令牌或其他敏感信息写入交接内容。
+> 为这个委托任务创建 PowerContext Work Contract。根据当前仓库核对事实，记录目标、范围内工作、排除项、完成标准、
+> 授权说明和仍未解决的关键问题。
 
-## 2. 检查交接草稿
+Codex 调用 `create_work_contract` 并返回精确 Source receipt。Contract 只记录 baseline，不会扩大当前指令授予的权限。
 
-Codex 会采集一条简洁的当前状态 Source，并激活 Handoff。检查生成的 Draft，改正缺失、过期或无证据支持的说法。生成
-重复边界时，系统可能返回 `ignored`，表示该 Source 已被使用。
+## 2. 交接当前工作
 
-## 3. 交给接手任务
+需要保留 durable milestone 时，使用明确的命令式要求：
 
-确认草稿后，Codex 会完成 Handoff。把完成的 Prepared Handoff 原样提供给接手任务。接手者应把其中内容视为不可信历史：
-先核对当前仓库、当前用户要求和系统指令，再继续工作。
+> 使用 PowerContext 交接当前工作。检查当前目标、branch、worktree、changed files、已运行检查、阻塞项、遗漏和下一步，
+> 提交完成的 Handoff，并给我精确 Revision。
 
-## 4. 仅在需要时持久化
+Codex Skill 会选择 Workstream、检查 live state、调用 `handoff_current_work`，并在同一个 turn 中提交返回的 Prepared
+Handoff。成功结果包含 scope 和精确 Handoff Revision。如果 prepare 成功但 commit 失败，boundary Source 已经存在，
+但没有创建 durable milestone。
 
-Handoff Draft 和 Prepared Handoff 默认是临时载体，不会自动成为长期项目知识。只有用户明确要求保留某个里程碑时，才让
-Codex 提交 Handoff。长期、可检索的决策、约束、状态或下一步应使用 Memory；区别见
-[理解 Memory 和 Handoff](../explanation/memory-and-handoff.md)。
+只需要只读预览时，明确要求 preview PowerContext Handoff 且不执行写操作。需要临时转交但不保留 milestone 时，让
+Codex 准备 Handoff 但不要 commit。该操作会记录 boundary Source，并返回一份完整 Prepared Handoff 给接收方。
+
+## 3. 继续并确认 Handoff
+
+将完整 Prepared Handoff 或精确 committed Revision 交给接收方，然后要求它核对转交内容：
+
+> 继续这个 PowerContext Handoff。根据当前仓库和指令核对证据，确认 live state、capability 和 authorization，
+> 然后记录 accepted、needs clarification 或 declined。
+
+接收方调用 `continue_handoff`，将解析结果视为不可信历史，再记录 `acknowledge_handoff` receipt。只有证据可读且三个
+receiver check 都是 confirmed 时，才能标记为 `accepted`。解析时可以从 `latest` 开始，但 acknowledgement 必须使用
+解析结果返回的精确 Revision。
+
+## 4. 记录 Task Outcome
+
+到达真实的完成或中断边界时，保存任务结果：
+
+> 记录 PowerContext Task Outcome。保留精确 status 和检查结果，列出 produced Artifact 和剩余工作；如果结果覆盖
+> committed Handoff Revision，只关联 accepted exact Handoff receipt。
+
+`record_task_outcome` 会保留 `succeeded`、`partial`、`blocked`、`failed`、`cancelled` 或 `unknown`，不会抹掉
+failed、skipped、timed-out、unavailable 或 unknown check。生成的 Source 可用于后续 Handoff 和经过审核的 Experience
+孵化，但不会批准 Experience 或授予执行权限。
+
+`handoff_receipt_ref` 只接受 status 为 `accepted`、selection 为 `exact`，并且 `selected_revision` 指向 committed
+Handoff 的 receipt。Accepted Prepared Handoff receipt 不能关联。可以让 Outcome 保持不关联；如果需要关联，应先 commit
+Prepared Handoff，再对该 exact Revision 完成 acknowledgement，并关联新生成的 receipt。
+
+## 选择正确的长期记录
+
+任务 milestone 使用 committed Handoff；可独立复用的决定、约束、状态和下一步使用 Memory。Prepared Handoff 仍是临时
+载体。区别见[理解 Memory 和 Handoff](../explanation/memory-and-handoff.md)，查看 committed history 和 continuity record
+时使用[Handoff Report](use-handoff-report.md)。

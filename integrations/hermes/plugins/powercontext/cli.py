@@ -72,6 +72,7 @@ def _provider(args: argparse.Namespace) -> Any:
     provider.initialize(
         "cli",
         hermes_home=str(home),
+        cwd=os.getcwd(),
         agent_identity=args.profile or os.environ.get("HERMES_PROFILE", "default"),
         user_id=args.user_id,
     )
@@ -188,6 +189,22 @@ def cmd_flush(args: argparse.Namespace) -> None:
         provider.shutdown()
 
 
+def cmd_call(args: argparse.Namespace) -> None:
+    provider = _provider(args)
+    try:
+        try:
+            payload = json.loads(args.payload)
+        except json.JSONDecodeError as error:
+            raise ValueError("--payload must be a JSON object") from error  # noqa: TRY003
+        if not isinstance(payload, dict):
+            raise TypeError("--payload must be a JSON object")  # noqa: TRY003, TRY301
+        _print_result(provider._request_operation(args.operation, payload))
+    except (PowerContextError, TypeError, ValueError) as error:
+        print(f"PowerContext operation failed: {error}")
+    finally:
+        provider.shutdown()
+
+
 def register_cli(subparser: argparse.ArgumentParser) -> None:
     """Register the ``hermes powercontext`` command tree."""
     commands = subparser.add_subparsers(dest="powercontext_command")
@@ -224,9 +241,15 @@ def register_cli(subparser: argparse.ArgumentParser) -> None:
     flush = commands.add_parser("flush", help="Run bounded Source-to-Memory processing.")
     _add_common_options(flush)
     flush.set_defaults(func=cmd_flush)
+
+    call = commands.add_parser("call", help="Call any supported PowerContext operation with JSON.")
+    call.add_argument("operation")
+    call.add_argument("payload", nargs="?", default="{}")
+    _add_common_options(call)
+    call.set_defaults(func=cmd_call)
     subparser.set_defaults(func=powercontext_command)
 
 
 def powercontext_command(args: argparse.Namespace) -> None:
     """Show a short usage hint when no PowerContext subcommand is supplied."""
-    print("Usage: hermes powercontext {status,search,remember,get,retire,flush}")
+    print("Usage: hermes powercontext {status,search,remember,get,retire,flush,call}")

@@ -98,8 +98,16 @@ js-api-generate-check: ## Verify generated JS operations are current.
 	@uv run python scripts/generate_js_operations.py --check
 
 .PHONY: js-test
-js-test: ## Run DeepSeek Harness plugin unit tests.
+js-test: ## Install, build, and test the DeepSeek Harness plugin.
+	@pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
 	@pnpm --dir integrations/dsh/plugins/powercontext test
+	@pnpm --dir integrations/dsh/plugins/powercontext build
+	@git diff --exit-code -- \
+		integrations/dsh/plugins/powercontext/openapi/powercontext.yaml \
+		integrations/dsh/plugins/powercontext/src/operations.generated.ts \
+		integrations/dsh/plugins/powercontext/lib
+	@pnpm --dir integrations/dsh/plugins/powercontext test
+	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e
 
 .PHONY: openclaw-plugin-build
 openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
