@@ -55,6 +55,9 @@ client = [
     "opentelemetry-api>=1.30,<2",
     "pydantic-settings>=2.7,<3",
 ]
+opendal = [
+    "opendalfs>=0.1,<0.2; python_version >= '3.12'",
+]
 server = [
     "fastapi>=0.115,<1",
     "fastmcp>=3.4,<4",

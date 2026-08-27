@@ -179,6 +179,40 @@ def test_connector_exposes_failed_items_and_does_not_advance_checkpoint() -> Non
     asyncio.run(scenario())
 
 
+def test_connector_does_not_advance_an_incomplete_run_checkpoint() -> None:
+    class IncompleteConnector(ContentConnector):
+        async def run(self, session: ConnectorRunSession, /) -> ConnectorRunCompletion:
+            await session.submit(self.capture.source_id, CONTENT_SOURCE_NAME, self.capture)
+            return ConnectorRunCompletion(
+                status=ConnectorRunStatus.INCOMPLETE,
+                checkpoint={"cursor": 1},
+            )
+
+    async def scenario() -> None:
+        events: list[str] = []
+        store = IdempotentSourceStore(events)
+        lifecycle = ConnectorLifecycle(
+            sink=CatalogConnectorSourceSink(
+                scope_id="scope-a",
+                catalog=SourceCatalog(backend=store, registry=BUILTIN_SOURCE_REGISTRY),
+                store=store,
+            ),
+            checkpoints=MemoryCheckpointStore(events),
+        )
+
+        result = await lifecycle.run(
+            IncompleteConnector(ContentCapture(source_id="note-1", content="Remember this.")),
+            _binding(),
+        )
+
+        assert result.status is ConnectorRunStatus.INCOMPLETE
+        assert result.proposed_checkpoint == {"cursor": 1}
+        assert result.committed_checkpoint is None
+        assert events == ["source:note-1"]
+
+    asyncio.run(scenario())
+
+
 def test_connector_rejects_duplicate_items_and_binding_mismatches() -> None:
     class DuplicateConnector(ContentConnector):
         async def run(self, session: ConnectorRunSession, /) -> ConnectorRunCompletion:

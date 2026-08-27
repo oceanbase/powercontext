@@ -274,6 +274,16 @@ SOURCE_CURSORS_TABLE = Table(
     CheckConstraint("generation >= 0", name="ck_pc_source_cursors_generation_nonnegative"),
 )
 
+CONNECTOR_CHECKPOINTS_TABLE = Table(
+    "pc_connector_checkpoints",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("binding_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
+    Column("connector_name", identity_string(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    Column("connector_version", identity_string(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    Column("checkpoint", _canonical_payload_type(), nullable=False),
+)
+
 EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
     "pc_external_skill_registrations",
     SHARED_METADATA,
@@ -357,6 +367,7 @@ SHARED_TABLES = (
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     SOURCE_CURSORS_TABLE,
+    CONNECTOR_CHECKPOINTS_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
 )
 

@@ -63,6 +63,10 @@ from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError, TokenEstimator
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
+from powercontext.builtin.persistence.connectors import (
+    ConnectorCheckpointRepository,
+    RelationalConnectorCheckpointStore,
+)
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
@@ -111,6 +115,11 @@ from powercontext.builtin.triggers import (
 from powercontext.context import PowerContext
 from powercontext.errors import ArtifactNotFoundError, SourceConflictError, SourceNotFoundError
 from powercontext.sources import (
+    CatalogConnectorSourceSink,
+    Connector,
+    ConnectorBinding,
+    ConnectorLifecycle,
+    ConnectorRunResult,
     Source,
     SourceCatalog,
     SourceDefinitionRegistry,
@@ -127,6 +136,7 @@ class _Repositories:
     sources: SourceRepository
     artifacts: ArtifactRepository
     candidates: CandidateRepository
+    connector_checkpoints: ConnectorCheckpointRepository
     cursors: SourceCursorRepository
     external_skills: ExternalSkillRepository
     statistics: StatisticsRepository
@@ -313,6 +323,7 @@ class RelationalContexts:
                 Experience.family: ExperienceContent,
                 Skill.family: SkillContent,
             }),
+            connector_checkpoints=ConnectorCheckpointRepository(),
             cursors=SourceCursorRepository(),
             external_skills=ExternalSkillRepository(),
             statistics=StatisticsRepository(),
@@ -367,6 +378,29 @@ class RelationalContexts:
         """Return product statistics bound to one scope."""
 
         return self._services_for(scope_id).statistics()
+
+    async def run_connector(
+        self,
+        connector: Connector,
+        binding: ConnectorBinding,
+        /,
+    ) -> ConnectorRunResult:
+        """Run one Connector binding with durable Sources and checkpoint ordering."""
+
+        services = self._services_for(binding.scope_id)
+        source_store, source_catalog = services.sources()
+        lifecycle = ConnectorLifecycle(
+            sink=CatalogConnectorSourceSink(
+                scope_id=services.scope_id,
+                catalog=source_catalog,
+                store=source_store,
+            ),
+            checkpoints=RelationalConnectorCheckpointStore(
+                self.database,
+                self.repositories.connector_checkpoints,
+            ),
+        )
+        return await lifecycle.run(connector, binding)
 
     async def estimate_recall_tokens(
         self,

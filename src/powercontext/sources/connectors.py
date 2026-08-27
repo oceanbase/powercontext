@@ -194,15 +194,7 @@ class ConnectorRunSession:
     ) -> ConnectorSubmissionResult:
         """Submit one item and record success, rejection, or sink failure exactly once."""
 
-        _require_trimmed("item_id", item_id)
-        if item_id in self._item_ids:
-            raise InvalidConnectorRunError("duplicate-item", f"item {item_id!r} was submitted more than once")
-        if definition_name not in self._source_definitions:
-            raise InvalidConnectorRunError(
-                "undeclared-definition",
-                f"Connector did not declare Source Definition {definition_name!r}",
-            )
-        self._item_ids.add(item_id)
+        self._claim_item(item_id, definition_name)
         try:
             result = await self._sink.submit(self.binding, item_id, definition_name, value)
         except Exception as error:
@@ -225,6 +217,59 @@ class ConnectorRunSession:
             )
         )
         return result
+
+    def reject(self, item_id: str, definition_name: str, detail: str, /) -> ConnectorSubmissionResult:
+        """Record one provider item that cannot satisfy its Source Definition."""
+
+        return self._record_provider_outcome(
+            item_id,
+            definition_name,
+            ConnectorSubmissionStatus.REJECTED,
+            detail,
+        )
+
+    def fail(self, item_id: str, definition_name: str, detail: str, /) -> ConnectorSubmissionResult:
+        """Record one provider item that could not be acquired safely."""
+
+        return self._record_provider_outcome(
+            item_id,
+            definition_name,
+            ConnectorSubmissionStatus.FAILED,
+            detail,
+        )
+
+    def _record_provider_outcome(
+        self,
+        item_id: str,
+        definition_name: str,
+        status: ConnectorSubmissionStatus,
+        detail: str,
+    ) -> ConnectorSubmissionResult:
+        _require_trimmed("detail", detail)
+        if status not in {ConnectorSubmissionStatus.REJECTED, ConnectorSubmissionStatus.FAILED}:
+            raise InvalidConnectorRunError("provider-outcome", "must be rejected or failed")
+        self._claim_item(item_id, definition_name)
+        result = ConnectorSubmissionResult(status=status, detail=detail)
+        self._outcomes.append(
+            ConnectorItemOutcome(
+                item_id=item_id,
+                definition_name=definition_name,
+                status=status,
+                detail=detail,
+            )
+        )
+        return result
+
+    def _claim_item(self, item_id: str, definition_name: str) -> None:
+        _require_trimmed("item_id", item_id)
+        if item_id in self._item_ids:
+            raise InvalidConnectorRunError("duplicate-item", f"item {item_id!r} was submitted more than once")
+        if definition_name not in self._source_definitions:
+            raise InvalidConnectorRunError(
+                "undeclared-definition",
+                f"Connector did not declare Source Definition {definition_name!r}",
+            )
+        self._item_ids.add(item_id)
 
 
 class ConnectorLifecycle:
@@ -258,7 +303,7 @@ class ConnectorLifecycle:
             if outcome.status in {ConnectorSubmissionStatus.REJECTED, ConnectorSubmissionStatus.FAILED}
         )
         committed = previous
-        if completion.checkpoint != previous and not unsafe:
+        if completion.status is ConnectorRunStatus.COMPLETE and completion.checkpoint != previous and not unsafe:
             await self._checkpoints.save(binding, completion.checkpoint, expected=previous)
             committed = completion.checkpoint
         return ConnectorRunResult(

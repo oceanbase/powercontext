@@ -20,11 +20,11 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, JsonValue, field_validator
 
-from powercontext.sources import AdapterSourceDefinition, SourceProjectionKey
+from powercontext.builtin.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY, TextEvidence
+from powercontext.sources import AdapterSourceDefinition
 from powercontext.sources.models import Source, SourceMaterialization
 
 CONTENT_SOURCE_NAME = "content"
-TEXT_EVIDENCE_PROJECTION_KEY = SourceProjectionKey(name="powercontext.builtin.text-evidence", version="1")
 NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
@@ -46,15 +46,6 @@ class ContentCapture(BaseModel):
 class ContentSource(Source):
     """Captured text that can be used as Artifact evidence."""
 
-    content: str
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
-
-
-class ContentTextEvidence(BaseModel):
-    """Schema for the built-in text evidence projection."""
-
-    source_type: str
-    source_id: str
     content: str
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
@@ -88,10 +79,10 @@ class ContentTextEvidenceProjection:
     name = TEXT_EVIDENCE_PROJECTION_KEY.name
     version = TEXT_EVIDENCE_PROJECTION_KEY.version
     source_class = ContentSource
-    output_class: type[BaseModel] = ContentTextEvidence
+    output_class: type[BaseModel] = TextEvidence
 
-    def project(self, source: ContentSource, /) -> ContentTextEvidence:
-        return ContentTextEvidence(
+    def project(self, source: ContentSource, /) -> TextEvidence:
+        return TextEvidence(
             source_type=CONTENT_SOURCE_NAME,
             source_id=source.name,
             content=source.content,
