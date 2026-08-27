@@ -30,6 +30,9 @@ overview:
     - title: 理解与运行
       description: 判断什么需要保留，配置 Server，或排查无法工作的环境。
       cards:
+        - title: 核心概念
+          description: 理解 scope、证据、带 Revision 的 Artifact、prepared context 和工作连续性。
+          href: zh/docs/explanation/core-concepts/
         - title: Memory 与 Handoff
           description: 了解哪些信息应该长期保留，哪些内容只需要临时交接。
           href: zh/docs/explanation/memory-and-handoff/
@@ -48,6 +51,9 @@ overview:
         - title: 创建 managed Skill
           description: 生成并审核 managed Skill，再将一个精确 Revision 导出给 Codex。
           href: zh/docs/how-to/create-and-export-skill/
+        - title: Handoff Report
+          description: 检查 scope、保存 Handoff Revision，并了解当前报告能力。
+          href: zh/docs/how-to/use-handoff-report/
         - title: 排查问题
           description: 诊断连接、配置和集成问题。
           href: zh/docs/how-to/troubleshoot/

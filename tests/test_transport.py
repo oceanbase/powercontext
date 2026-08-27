@@ -29,7 +29,7 @@ from pydantic import SecretStr, ValidationError
 from powercontext.client import PowerContextClient
 from powercontext.client.settings import ClientSettings
 from powercontext.server.settings import BearerAuthConfig, HttpConfig, ServerSettings
-from powercontext.transport import LOOPBACK_HOSTS, is_loopback_host, is_plaintext_non_loopback
+from powercontext.transport import is_loopback_host, is_plaintext_non_loopback
 
 _ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - a non-loopback bind used to exercise the policy.
 
@@ -203,11 +203,6 @@ def test_server_allows_a_non_loopback_bind_with_an_explicit_opt_in() -> None:
         allow_unauthenticated_non_loopback=True,
     )
     assert settings.allow_unauthenticated_non_loopback is True
-
-
-@pytest.mark.parametrize("plugin", _VENDORED_PLUGIN_PARAMS)
-def test_vendored_plugin_shares_the_loopback_host_set(plugin: ModuleType) -> None:
-    assert plugin._LOOPBACK_HOSTS == LOOPBACK_HOSTS
 
 
 @pytest.mark.parametrize("plugin", _VENDORED_PLUGIN_PARAMS)

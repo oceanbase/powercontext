@@ -71,6 +71,7 @@ tracing-otlp = [
     "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
 ]
 cli = [
+    "inquirerpy>=0.3,<1",
     "platformdirs>=4,<5",
     "powercontext[client]",
     "typer>=0.16,<1",
@@ -80,6 +81,7 @@ cli = [
 powercontext = "powercontext.cli.app:main"
 
 [project.entry-points."powercontext.cli"]
+config = "powercontext.cli.config:app"
 doctor = "powercontext.cli.system:doctor_app"
 server = "powercontext.server.cli:app"
 setup = "powercontext.cli.system:setup_app"

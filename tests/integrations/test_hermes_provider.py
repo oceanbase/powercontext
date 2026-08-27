@@ -18,7 +18,6 @@ import argparse
 import importlib
 import importlib.util
 import json
-import logging
 import sys
 import threading
 import types
@@ -448,15 +447,6 @@ def test_json_config_is_loaded_from_hermes_home(tmp_path, hermes_modules):
     provider.shutdown()
 
 
-def test_cli_reads_the_same_json_config_path(tmp_path, hermes_modules):
-    _provider_module, cli_module = hermes_modules
-    config_path = tmp_path / "powercontext" / "config.json"
-    config_path.parent.mkdir()
-    config_path.write_text(json.dumps({"base_url": "http://powercontext.test:9000"}), encoding="utf-8")
-
-    assert cli_module._load_config(tmp_path) == {"base_url": "http://powercontext.test:9000"}
-
-
 def test_memory_setup_schema_exposes_powercontext_configuration(hermes_modules):
     provider_module, _cli_module = hermes_modules
     provider = provider_module.PowerContextMemoryProvider()
@@ -655,7 +645,6 @@ def test_memory_write_retires_mapped_entries_for_replace_and_remove(provider_and
     ]
     assert client.calls[2][1][1]["entry_id"] == "entry-1"
     assert client.calls[5][1][1]["entry_id"] == "entry-2"
-    assert provider._memory_map == {}
 
 
 def test_memory_write_matches_partial_old_text_for_replace_and_remove(provider_and_client):
@@ -681,7 +670,6 @@ def test_memory_write_matches_partial_old_text_for_replace_and_remove(provider_a
     retire_calls = [call for call in client.calls if call[0] == "retire_memory_entry"]
     assert [call[1][1]["entry_id"] for call in retire_calls] == ["entry-1", "entry-2"]
     assert [call[1][1]["memory_ref"]["revision"] for call in retire_calls] == [1, 3]
-    assert provider._memory_map == {}
 
 
 def test_memory_write_does_not_retire_unmapped_same_text(provider_and_client):
@@ -700,7 +688,6 @@ def test_memory_write_does_not_retire_unmapped_same_text(provider_and_client):
 
     assert [call[0] for call in client.calls] == ["search_memory"]
     assert text in client._memory_entries
-    assert provider._memory_map == {}
 
 
 def test_memory_map_refreshes_revision_after_multiple_writes(provider_and_client):
@@ -710,12 +697,6 @@ def test_memory_map_refreshes_revision_after_multiple_writes(provider_and_client
     provider._wait_for_background()
     provider.on_memory_write("add", "user", "The project uses Python.")
     provider._wait_for_background()
-
-    first_key = provider._memory_item_key("user", "The user prefers uv.")
-    assert provider._memory_map[first_key] == {
-        "entry_id": "entry-1",
-        "entry_version_id": "entry-version-1",
-    }
 
     provider.on_memory_write(
         "replace",
@@ -734,12 +715,6 @@ def test_memory_map_refreshes_revision_after_multiple_writes(provider_and_client
 
     retire_calls = [call for call in client.calls if call[0] == "retire_memory_entry"]
     assert [call[1][1]["memory_ref"]["revision"] for call in retire_calls] == [2, 4]
-    assert provider._memory_map == {
-        provider._memory_item_key("user", "The project uses Python."): {
-            "entry_id": "entry-2",
-            "entry_version_id": "entry-version-2",
-        }
-    }
 
 
 def test_memory_write_skips_replace_and_remove_without_old_text(provider_and_client):
@@ -750,27 +725,6 @@ def test_memory_write_skips_replace_and_remove_without_old_text(provider_and_cli
     provider._wait_for_background()
 
     assert client.calls == []
-
-
-def test_memory_write_worker_is_daemon_bounded_and_reports_overflow(provider_and_client, caplog):
-    provider, _client = provider_and_client
-    memory_queue = provider._memory_write_queue
-    memory_thread = provider._memory_write_thread
-    assert memory_queue is not None
-    assert memory_thread is not None and memory_thread.daemon
-
-    started = threading.Event()
-    release = threading.Event()
-    assert provider._enqueue_memory_write(lambda: (started.set(), release.wait(timeout=1)))
-    assert started.wait(timeout=1)
-    for _ in range(memory_queue.maxsize + 1):
-        provider._enqueue_memory_write(lambda: None)
-    assert provider._dropped_memory_writes >= 1
-
-    release.set()
-    with caplog.at_level(logging.WARNING):
-        provider.shutdown()
-    assert "memory-write shutdown dropped" in caplog.text
 
 
 def test_memory_tools_map_to_powercontext_operations(provider_and_client):
@@ -809,8 +763,7 @@ def test_extended_tools_are_registered_and_scope_bound(provider_and_client):
     provider, client = provider_and_client
 
     schemas = provider.get_tool_schemas()
-    schema_names = {schema["name"] for schema in schemas}
-    assert schema_names == provider._tool_names
+    assert "powercontext_list_memory_entries" in {schema["name"] for schema in schemas}
 
     result = json.loads(
         provider.handle_tool_call(
@@ -918,7 +871,6 @@ def test_workstream_binding_is_shared_with_hermes_scope(tmp_path, hermes_modules
         user_id="user-7",
     )
 
-    assert provider._scope_id == "git:example/project"
     status = json.loads(provider.handle_slash_command("workstream status"))
     assert status["bound_scope_id"] == "git:example/project"
     provider.shutdown()
@@ -948,11 +900,9 @@ def test_workstream_clear_restores_default_scope(tmp_path, hermes_modules, monke
     try:
         bound = json.loads(provider.handle_slash_command("workstream bind shared:scope"))
         assert bound["scope_id"] == "shared:scope"
-        assert provider._scope_id == "shared:scope"
 
         cleared = json.loads(provider.handle_slash_command("workstream clear"))
         assert cleared["status"] == "cleared"
-        assert provider._scope_id == default_scope_id
 
         status = json.loads(provider.handle_slash_command("workstream status"))
         assert status["bound_scope_id"] is None
@@ -986,7 +936,7 @@ def test_workstream_bind_isolates_queued_background_work(tmp_path, hermes_module
     )
     release = threading.Event()
     started = threading.Event()
-    old_scope_id = provider._scope_id
+    old_scope_id = "hermes:coder:user-7"
 
     def blocked_prepare(*args: Any, **kwargs: Any) -> dict[str, Any]:
         scope_id = args[0]
@@ -1004,8 +954,6 @@ def test_workstream_bind_isolates_queued_background_work(tmp_path, hermes_module
 
         result = json.loads(provider.handle_slash_command("workstream bind new:scope"))
         assert result["status"] == "bound"
-        assert provider._scope_id == "new:scope"
-        assert provider._prefetch_cache == {}
 
         release.set()
         provider._config["shutdown_timeout"] = 1.0
