@@ -20,17 +20,25 @@ rules, materialization contract, canonicalization, and compatibility policy. Def
 and remain fixed for the lifetime of a composed Runtime. Persistence, transport, and Artifact consumers route by the
 stable definition name and version rather than by a concrete Python class.
 
+A Definition may advertise named projection capabilities for consumers that do not understand its native value.
+Each projection has an independently versioned schema and deterministic meaning over one exact observation. A
+consumer selects a projection by capability name and version, never by inspecting a concrete Source class.
+
+A Connector lifecycle binds provider acquisition to a Scope, submits definition-native observations, records
+per-item outcomes, and advances an opaque checkpoint only after accepted observations are durable. Connector runs
+distinguish complete discovery from incomplete discovery so that absence is not silently converted into deletion.
+
 Materialization identifies the authority used to resolve an exact observation. A captured observation is resolved
 from the canonical value retained by PowerContext. A referenced observation is resolved from an immutable external
 revision. An external locator, modification time, ETag, or current-provider read does not by itself satisfy the
 referenced contract.
 
 `ContentSource` remains a simple captured-text Source. Its caller-stable identity and immutable-payload conflict rule
-make it useful for one-shot content capture, but it is not the general external integration model. A document Source
-serves as the first conformance validation of the standard definition contract, not the definition of that contract.
+make it useful for one-shot content capture, but it is not the general external integration model.
 
-This RFC defines semantics and conformance. It does not define a Connector runtime, plugin discovery mechanism,
-storage schema, public transport operation, synchronization algorithm, scheduler, or document implementation.
+This RFC defines Source, projection, and Connector lifecycle semantics and conformance. It does not define a hosting
+runtime, plugin discovery mechanism, storage schema, public transport operation, synchronization algorithm,
+scheduler, credential transport, concrete Source family, or Connector implementation.
 
 # Motivation
 
@@ -49,13 +57,14 @@ Source class and a read result, while the built-in Runtime and relational persis
 This does not state the durable rules an independently defined Source type must follow across identity, persistence,
 transport, and Artifact evidence.
 
-The standard model must answer five questions without assigning them to one identifier:
+The standard model must answer six questions without assigning them to one identifier:
 
 1. Which Scope owns this evidence?
 2. Which logical external or internal source does it describe?
 3. Which exact observed value did an Artifact use?
 4. Where does PowerContext read that exact value from?
 5. Which definition gives the value and provenance their meaning?
+6. Which declared view may a consumer use without understanding the native value?
 
 Connector concerns are adjacent but distinct. Discovery, credentials, filtering, checkpoints, retries, provider
 change handling, and deletion detection decide which observations are submitted. They do not define Source identity,
@@ -75,6 +84,7 @@ and type semantics:
 | Exact evidence | `SourceRef` | Which immutable observation is cited? |
 | Read authority | materialization | Where is that exact value resolved? |
 | Type semantics | Source Definition | How are value, provenance, and identity interpreted? |
+| Consumer view | named projection | Which declared representation may a consumer use? |
 | Acquisition | Connector or direct caller | How are new observations found and submitted? |
 
 These responsibilities form one direction of dependency:
@@ -142,12 +152,12 @@ The following invariants apply:
 - observations with the same value digest are not automatically the same logical Source; and
 - an Artifact cites an exact SourceRef, never a moving SourceKey or `latest` observation.
 
-For example, a document update retains one SourceKey and produces another SourceRef:
+For example, updating one logical Source retains its SourceKey and produces another SourceRef:
 
 ```text
-SourceKey(scope-a, document, provider-page-42)
-|-- SourceRef(..., observation-1)  "Initial decision"
-`-- SourceRef(..., observation-2)  "Revised decision"
+SourceKey(scope-a, record, provider-object-42)
+|-- SourceRef(..., observation-1)  "Initial value"
+`-- SourceRef(..., observation-2)  "Revised value"
 ```
 
 An Artifact derived from `observation-1` continues to cite it after `observation-2` becomes current.
@@ -173,6 +183,25 @@ external objects. Reading does not resolve `latest` or substitute another observ
 Definitions are explicit and typed. A new integration must not simulate a new Source type by placing an undocumented
 schema inside `ContentSource.metadata`. Provider-specific provenance may extend a Definition's declared schema, but
 fields that affect identity, exactness, or compatibility must be named by the Definition.
+
+## Named projection capabilities
+
+A named projection is an optional, Definition-owned view of one exact observation. It allows an Artifact family or
+another consumer to use a declared representation without knowing the native Source value or concrete Python class.
+
+A projection is selected by a stable name and version. Its Definition declares the output schema, canonicalization,
+digest rules, and failures. The projection is evaluated against an exact SourceRef and cannot resolve a head,
+`latest`, or a current provider value. For the same Definition version, projection version, and exact observation, it
+returns the same canonical result.
+
+Projection capability is explicit. A consumer that requires a projection rejects a Source that does not advertise a
+compatible capability; it does not infer content from metadata or fall back to a similarly shaped Source class. A
+projection can be cached or persisted as a derivative, but its authority remains the exact Source observation and
+its lineage retains that SourceRef.
+
+This contract does not prescribe a catalog of standard projection names or payload schemas. A projection becomes a
+shared standard only after interoperating definitions and consumers demonstrate that its semantics are stable. Until
+then, a Definition may expose namespaced projections without making them mandatory for other Source types.
 
 ## Materialization authority
 
@@ -224,23 +253,6 @@ The standard model treats this as a valid single-observation Source implementati
 ContentSource is suitable for prompts, explicit text capture, import records, and other cases where the caller
 already owns an immutable identity. Integrations that observe one logical object over time should define or reuse a
 multi-observation Source type instead.
-
-## Document Source as the first validation
-
-The first validation Source represents a logical document with immutable observations. It is deliberately separate
-from ContentSource. Its conformance scenarios require:
-
-- one logical document retaining its SourceKey across updates;
-- each changed canonical document observation receiving an exact SourceRef;
-- an unchanged observation replaying idempotently;
-- an earlier observation remaining readable after update or deletion;
-- provider locator changes not rewriting an accepted observation;
-- incomplete discovery or permission loss not becoming deletion; and
-- captured materialization when the provider cannot resolve immutable historical revisions.
-
-The validation does not make documents the universal Source value. Issues, messages, traces, code states, reviews,
-and other Source types can define different values and provenance while following the same identity and observation
-contract.
 
 # Reference-level explanation
 
@@ -301,6 +313,10 @@ A composed Runtime has one explicit Definition registry. Registration validates 
 declared value and provenance schemas, identity rules, materialization support, and read behavior. Two incompatible
 Definitions cannot claim the same `(source_type, definition_version)`.
 
+Registration also validates each advertised projection name and version, its declared output schema, and its
+canonicalization contract. Two incompatible projections cannot claim the same capability key within one Definition
+version.
+
 Registration is fixed for the Runtime lifetime. Catalog decoding, Source reads, and Artifact validation use the same
 registry view. A persisted observation whose Definition is unavailable remains stored but cannot be interpreted or
 advertised as readable. It is not decoded into a base Source with discarded fields.
@@ -319,10 +335,14 @@ A Definition change is incompatible when it changes SourceKey equality, observat
 provenance meaning, or materialization guarantees for an accepted observation. Such a change requires a new
 Definition version and cannot rewrite existing SourceRefs.
 
+A projection change is incompatible when it changes the output schema, canonical bytes, or meaning for an accepted
+observation. Such a change requires a new projection version. It does not require a new Source Definition version
+when the Source value and observation semantics remain unchanged.
+
 Renaming a Definition creates a new `source_type`. Reclassifying an existing observation under another Definition is
 an explicit derivation with provenance, not an in-place migration of identity.
 
-## Connector boundary
+## Connector lifecycle contract
 
 A Connector owns provider interaction: discovery, credentials, filtering, checkpoints, retries, rate limits,
 provider change handling, and positive deletion detection. It submits definition-native inputs against a Scope
@@ -340,8 +360,32 @@ provider capabilities
   = valid Source observation
 ```
 
-This RFC does not define Connector lifecycle interfaces or require that a Connector run inside the PowerContext
-Server. Direct imports, local tools, hosted Connectors, and external synchronization services can submit the same
+A Connector type declares a stable name and version, its configuration schema, the Source Definitions it can submit,
+and the acquisition capabilities it provides. Capabilities are optional and explicit. Typical capabilities include a
+complete snapshot, a change feed, checkpoint resume, and authoritative deletion events. A Connector cannot advertise
+a capability that its provider and acquisition path cannot enforce.
+
+A Connector binding activates one Connector configuration for exactly one Scope. The binding has a stable identity
+for checkpoint and provider-namespace continuity, but it does not own Sources and does not replace `scope_id` or
+`source_type`. Credentials are resolved by the hosting environment and do not become Source value or provenance.
+
+A Connector run begins from an opaque binding checkpoint, submits zero or more definition-native observations, and
+records an outcome for every submitted item. An accepted or idempotently replayed observation returns its exact
+SourceRef. A rejected or failed item remains visible in the run outcome and cannot be hidden by advancing the
+checkpoint past work that is not safely replayable.
+
+A run finishes as complete or incomplete. A complete snapshot may produce positive deletion evidence for previously
+known provider objects that are absent. An incomplete listing, timeout, permission failure, cancellation, or lost
+connection produces no absence-based deletion evidence. An authoritative provider deletion event may produce
+positive deletion evidence independently of snapshot completeness when its binding and object identity are verified.
+
+The completed checkpoint advances only after its accepted observations and deletion evidence are durable. Retrying
+from an earlier checkpoint is valid because Source observation submission is idempotent. Connector checkpoint,
+health, retry, and run-status records are operational state rather than Source observations or Artifact evidence.
+
+Installation, discovery, activation, and execution are separate concerns. Installing a Connector package does not
+activate a binding. This contract does not require that a Connector run inside the PowerContext Server; direct tools,
+hosted workers, and external synchronization services can follow the same lifecycle and submit the same
 definition-native observations.
 
 ## Artifact evidence and cross-Scope delivery
@@ -373,9 +417,13 @@ A Source Definition can be supported only after its mandatory contract passes co
 - Definition version compatibility and unavailable-definition behavior; and
 - explicit registration conflict handling.
 
-The first document validation additionally covers provider update, locator change, positive deletion, incomplete
-discovery, permission loss, and providers without immutable revision reads. Passing document validation proves the
-standard contract can support one document Source; it does not add document fields to the standard Source model.
+A named projection can be advertised only after conformance verifies deterministic output for exact observations,
+schema and version conflict handling, exact SourceRef lineage, and explicit failure when the capability is absent.
+
+A Connector capability can be advertised only after conformance verifies checkpoint replay, per-item outcome
+visibility, durable checkpoint ordering, complete-versus-incomplete run behavior, and the claimed deletion evidence.
+Provider-specific behavior is established by its implementation evidence rather than generalized into the standard
+contract.
 
 # Drawbacks
 
@@ -384,6 +432,7 @@ standard contract can support one document Source; it does not add document fiel
 - Exact SourceRefs retain owner Scope and observation identity, increasing lineage payload size.
 - Definition authors must specify canonicalization, provenance, and compatibility instead of relying on arbitrary
   metadata.
+- Named projections and Connector lifecycle state add contracts that must evolve independently from Source values.
 - Referenced Sources are unavailable for providers that expose only current values, so some integrations must retain
   captured data.
 - Explicit registration requires deployment coordination before a persisted custom Source can be read.
@@ -436,15 +485,15 @@ Connector replacement change Source identity.
 - [Apache OpenDAL OFS RFC-0016](https://github.com/apache/opendal-ofs/blob/main/rfcs/0016_filesystem_architecture.md)
   separates namespace authority from access frontends and forbids a frontend from advertising guarantees that the
   underlying layers cannot enforce. Source materialization follows the same authority rule.
-- [opendalfs](https://github.com/fsspec/opendalfs) exposes OpenDAL services through the fsspec interface and is a
-  candidate acquisition layer for the first filesystem-backed document Connector. Its paths and file metadata do
-  not define Source identity or immutable revision semantics. A backend read can satisfy referenced materialization
-  only when the complete stack addresses and verifies an immutable revision; otherwise the document is captured.
+- [opendalfs](https://github.com/fsspec/opendalfs) exposes OpenDAL services through the fsspec interface and
+  demonstrates backend-neutral filesystem acquisition. Its paths and file metadata do not define Source identity or
+  immutable revision semantics. A backend read can satisfy referenced materialization only when the complete stack
+  addresses and verifies an immutable revision.
 - DataHub stateful ingestion separates connector checkpoints and stale-entity detection from emitted metadata
   identity. Airbyte treats connector state as an opaque recovery boundary rather than record identity.
 - OpenMetadata separates the Source that emits records from connection checks, workflow status, and the sink.
 - Nowledge Mem's TiddlyWiki importer uses stable logical IDs, canonical payload digests, source revalidation, and
-  per-item outcomes. Those behaviors motivate the document validation without defining the standard Source value.
+  per-item outcomes. Those behaviors inform the separation between Source observations and Connector run state.
 
 # Unresolved questions
 
@@ -452,19 +501,17 @@ Connector replacement change Source identity.
   SourceRef while preserving the same fully qualified identity?
 - Which Source Definition versions must a Runtime retain simultaneously before a Definition can be considered
   supported?
-- Should Source head deletion be one common catalog state, or should the first standard contract expose only an
+- Should Source head deletion be one common catalog state, or should the standard contract expose only an
   active exact head and leave deletion entirely to Connector state?
-- Which normalized value categories, if any, should Artifact families share without requiring them to understand a
-  complete definition-owned value schema?
+- Which projection names and schemas have enough implementation evidence to become shared standards rather than
+  namespaced capabilities?
+- Which Connector hosting and scheduling contracts, if any, must be standardized beyond the lifecycle semantics in
+  this RFC?
 
 # Future possibilities
 
-Connector lifecycle, checkpoints, run status, and explicit plugin discovery require a separate contract. Document
-ingestion supplies a conformance case for that contract without changing Source identity or materialization semantics.
-
-Definitions may advertise optional projections, such as text, structured records, or binary attachments, for
-Artifact families that cannot consume the complete native value. Projection identity and digest rules require their
-own contract and do not weaken the original Source observation.
+Explicit plugin discovery and deployment policy may build on Definition and Connector registration without making
+package installation equivalent to activation.
 
 Retention policies may reclaim captured values only after defining how exact Artifact evidence reports unavailable
 content and how legal or user-requested deletion interacts with immutable lineage. A Source head deletion alone does

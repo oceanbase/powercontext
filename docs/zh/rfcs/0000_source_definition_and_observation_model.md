@@ -18,16 +18,24 @@ Source Definition 为一个稳定的 Source 类型定义 value schema、provenan
 materialization 契约、canonicalization 与兼容策略。Definition 显式注册，并在组合完成的 Runtime 生命周期内
 保持不变。持久化、传输与 Artifact consumer 按稳定的 Definition 名称和版本路由，而不是按具体 Python 类路由。
 
+Definition 可以为无法理解 native value 的 consumer 声明 named projection capability。每个 projection 拥有独立
+版本的 schema，并对一个精确 observation 具有确定语义。Consumer 按 capability name 与 version 选择 projection，
+而不是检查具体 Source class。
+
+Connector lifecycle 将 provider acquisition 绑定到 Scope，提交 definition-native observation，记录 per-item
+outcome，并且只在接受的 observation 已持久化后推进 opaque checkpoint。Connector run 区分 complete discovery
+与 incomplete discovery，避免把缺失对象静默转换为删除。
+
 Materialization 表达解析某个精确观察时所依赖的权威来源。Captured observation 从 PowerContext 保留的
 canonical value 解析；referenced observation 从外部不可变 revision 解析。仅有外部 locator、修改时间、
 ETag 或 provider 当前值读取，并不能满足 referenced 契约。
 
 `ContentSource` 继续作为简单的 captured-text Source。调用方提供稳定身份，加上 immutable-payload 冲突规则，
-适合一次性内容捕获，但它不是通用的外部集成模型。Document Source 是标准 Definition 契约的首个 conformance 验证对象，
-而不是标准契约本身。
+适合一次性内容捕获，但它不是通用的外部集成模型。
 
-本 RFC 只定义语义与 conformance，不定义 Connector runtime、插件发现机制、存储 schema、公开 transport
-operation、同步算法、scheduler 或文档实现。
+本 RFC 定义 Source、projection 与 Connector lifecycle 的语义和 conformance，不定义 hosting runtime、插件发现
+机制、存储 schema、公开 transport operation、同步算法、scheduler、credential transport、具体 Source family
+或 Connector 实现。
 
 # Motivation
 
@@ -44,13 +52,14 @@ operation、同步算法、scheduler 或文档实现。
 Runtime 与关系型持久化会组装固定 adapter 集合。它没有说明独立定义的 Source 类型在身份、持久化、传输与
 Artifact evidence 上必须长期满足哪些规则。
 
-标准模型必须回答五个问题，且不能把它们压进同一个 identifier：
+标准模型必须回答六个问题，且不能把它们压进同一个 identifier：
 
 1. 哪个 Scope 拥有这份证据？
 2. 它描述哪个逻辑上的外部或内部 Source？
 3. Artifact 使用的是哪个精确观察值？
 4. PowerContext 从哪里读取该精确值？
 5. 哪个 Definition 赋予 value 与 provenance 语义？
+6. Consumer 可以使用哪个 declared view，而不必理解 native value？
 
 Connector concerns 与此相邻但不同。Discovery、credentials、filtering、checkpoints、retries、provider
 change handling 与 deletion detection 决定提交哪些观察；它们不定义 Source identity，不能削弱精确证据，
@@ -70,6 +79,7 @@ semantics：
 | Exact evidence | `SourceRef` | 引用的是哪个不可变观察？ |
 | Read authority | materialization | 从哪里解析该精确值？ |
 | Type semantics | Source Definition | 如何解释 value、provenance 与 identity？ |
+| Consumer view | named projection | Consumer 可以使用哪个 declared representation？ |
 | Acquisition | Connector or direct caller | 如何发现并提交新观察？ |
 
 这些职责形成单向依赖：
@@ -133,12 +143,12 @@ Source history。
 - value digest 相同的 observation 不会自动成为同一个逻辑 Source；
 - Artifact 只引用精确 SourceRef，绝不引用移动的 SourceKey 或 `latest` observation。
 
-例如，一次文档更新保留同一 SourceKey 并产生新的 SourceRef：
+例如，更新一个逻辑 Source 会保留其 SourceKey，并产生新的 SourceRef：
 
 ```text
-SourceKey(scope-a, document, provider-page-42)
-|-- SourceRef(..., observation-1)  "Initial decision"
-`-- SourceRef(..., observation-2)  "Revised decision"
+SourceKey(scope-a, record, provider-object-42)
+|-- SourceRef(..., observation-1)  "Initial value"
+`-- SourceRef(..., observation-2)  "Revised value"
 ```
 
 即使 `observation-2` 已成为 current，派生自 `observation-1` 的 Artifact 仍然引用后者。
@@ -164,6 +174,23 @@ Definition 拥有的 value。解析不会选择 Scope、修改 catalog、推进 
 Definition 必须显式且类型化。新的集成不能通过在 `ContentSource.metadata` 中放置未声明 schema 来模拟新
 Source 类型。Provider-specific provenance 可以扩展 Definition 声明的 schema，但影响 identity、exactness
 或 compatibility 的字段必须由 Definition 命名。
+
+## Named projection capabilities
+
+Named projection 是一个 exact observation 的可选 Definition-owned view。它让 Artifact family 或其他 consumer
+无需理解 native Source value 或具体 Python class，就能使用声明过的 representation。
+
+Projection 通过稳定的 name 与 version 选择。其 Definition 声明 output schema、canonicalization、digest rules
+与 failures。Projection 针对精确 SourceRef 求值，不能解析 head、`latest` 或 provider current value。对于相同的
+Definition version、projection version 与 exact observation，它必须返回相同的 canonical result。
+
+Projection capability 必须显式声明。需要某个 projection 的 consumer 会拒绝未声明兼容 capability 的 Source，
+而不会从 metadata 推断 content，也不会回退到形态相似的 Source class。Projection 可以作为 derivative 被缓存或
+持久化，但其 authority 仍是 exact Source observation，lineage 保留对应 SourceRef。
+
+本契约不规定标准 projection name 或 payload schema 的目录。只有当多个 Definition 与 consumer 的互操作证明其
+语义稳定后，projection 才成为 shared standard。在此之前，Definition 可以暴露 namespaced projection，但不会让
+它成为其他 Source type 的 mandatory capability。
 
 ## Materialization authority
 
@@ -210,22 +237,6 @@ logical Source lifecycle。
 
 ContentSource 适合 prompt、显式文本捕获、import record，以及调用方已经拥有不可变身份的其他场景。持续观察同一
 逻辑对象的集成应定义或复用 multi-observation Source type。
-
-## Document Source as the first validation
-
-首个验证 Source 表示具有不可变 observation 的逻辑 document，并刻意与 ContentSource 分离。它的 conformance
-scenario 要求：
-
-- 一个逻辑 document 在更新过程中保持 SourceKey；
-- canonical document observation 每次变化都得到精确 SourceRef；
-- 未变化的 observation 可幂等重放；
-- 更新或删除之后，旧 observation 仍可读取；
-- provider locator 变化不重写已接受的 observation；
-- incomplete discovery 或 permission loss 不会变成 deletion；
-- provider 不能读取不可变历史 revision 时使用 captured materialization。
-
-该验证不会让 document 成为通用 Source value。Issue、message、trace、code state、review 以及其他 Source 类型
-可以定义不同 value 与 provenance，同时遵循相同 identity 与 observation 契约。
 
 # Reference-level explanation
 
@@ -283,6 +294,9 @@ digest。无法解析精确 observation，不等同于 logical Source 已删除�
 与 provenance schemas、identity rules、materialization support 和 read behavior。两个不兼容 Definition 不能
 声明同一个 `(source_type, definition_version)`。
 
+注册还会验证每个声明的 projection name 与 version、output schema 和 canonicalization contract。两个不兼容的
+projection 不能在同一个 Definition version 内声明相同 capability key。
+
 Registry 在 Runtime 生命周期内固定。Catalog decoding、Source reads 与 Artifact validation 使用同一个 registry
 view。Definition 不可用时，已经持久化的 observation 仍保留，但不能被解释或宣称为 readable；不能把它解码成
 丢失字段的 base Source。
@@ -301,10 +315,14 @@ Definition version。新的 Definition version 必须声明如何在不改变 ca
 bytes、provenance meaning 或 materialization guarantee，它就是不兼容变更。此类变更需要新的 Definition version，
 且不能重写已有 SourceRef。
 
+如果 projection change 会改变已接受 observation 的 output schema、canonical bytes 或 meaning，它就是不兼容
+变更，需要新的 projection version。如果 Source value 与 observation semantics 保持不变，则不要求新的 Source
+Definition version。
+
 重命名 Definition 会产生新的 `source_type`。把已有 observation 重新分类到另一个 Definition 是带 provenance
 的显式 derivation，不是 identity 的原地 migration。
 
-## Connector boundary
+## Connector lifecycle contract
 
 Connector 负责 provider interaction：discovery、credentials、filtering、checkpoints、retries、rate limits、
 provider change handling 与 positive deletion detection。它依据 Scope binding 提交 definition-native input，
@@ -322,9 +340,30 @@ provider capabilities
   = valid Source observation
 ```
 
-本 RFC 不定义 Connector lifecycle interface，也不要求 Connector 运行在 PowerContext Server 内。Direct
-import、local tool、hosted Connector 与 external synchronization service 都可以提交相同的 definition-native
-observation。
+Connector type 声明稳定的 name 与 version、configuration schema、可提交的 Source Definition，以及它提供的
+acquisition capability。Capability 是可选且显式的，通常包括 complete snapshot、change feed、checkpoint resume
+和 authoritative deletion event。Connector 不能声明 provider 与 acquisition path 无法兑现的 capability。
+
+Connector binding 为一个 Scope 激活一份 Connector configuration。Binding 拥有用于 checkpoint 与 provider
+namespace continuity 的稳定 identity，但不拥有 Source，也不替代 `scope_id` 或 `source_type`。Credential 由
+hosting environment 解析，不会成为 Source value 或 provenance。
+
+Connector run 从 opaque binding checkpoint 开始，提交零个或多个 definition-native observation，并记录每个
+submitted item 的 outcome。Accepted 或 idempotently replayed observation 返回精确 SourceRef。Rejected 或 failed
+item 会保留在 run outcome 中；如果尚不能安全重放，checkpoint 不能越过这些工作。
+
+Run 以 complete 或 incomplete 结束。Complete snapshot 可以为之前已知但本次缺失的 provider object 产生 positive
+deletion evidence。Incomplete listing、timeout、permission failure、cancellation 或 lost connection 不会产生
+absence-based deletion evidence。当 binding 与 object identity 均已验证时，authoritative provider deletion event
+可以独立于 snapshot completeness 产生 positive deletion evidence。
+
+Completed checkpoint 只有在 accepted observation 与 deletion evidence 均已持久化后才能推进。由于 Source
+observation submission 具有幂等性，从更早 checkpoint 重试是合法行为。Connector checkpoint、health、retry 与
+run-status record 是 operational state，而不是 Source observation 或 Artifact evidence。
+
+Installation、discovery、activation 与 execution 相互独立。安装 Connector package 不会激活 binding。本契约不
+要求 Connector 运行在 PowerContext Server 内；direct tool、hosted worker 与 external synchronization service
+都可以遵循相同 lifecycle，提交相同 definition-native observation。
 
 ## Artifact evidence and cross-Scope delivery
 
@@ -354,9 +393,12 @@ Source Definition 只有在以下 mandatory contract 的 conformance scenario �
 - Definition version compatibility 与 unavailable-definition behavior；
 - explicit registration conflict handling。
 
-首个 document validation 还覆盖 provider update、locator change、positive deletion、incomplete discovery、
-permission loss，以及没有 immutable revision read 的 provider。通过文档验证只证明标准契约可以支持一个
-Document Source，不会把文档字段加入标准 Source 模型。
+Named projection 只有在 conformance 验证 exact observation 的 deterministic output、schema 与 version conflict
+handling、exact SourceRef lineage，以及 capability 缺失时显式失败之后才能被声明。
+
+Connector capability 只有在 conformance 验证 checkpoint replay、per-item outcome visibility、durable checkpoint
+ordering、complete-versus-incomplete run behavior，以及其声明的 deletion evidence 后才能被声明。Provider-specific
+behavior 由对应实现证据确定，不会被直接推广为标准契约。
 
 # Drawbacks
 
@@ -364,6 +406,7 @@ Document Source，不会把文档字段加入标准 Source 模型。
   引入更多概念。
 - 精确 SourceRef 保留 owner Scope 与 observation identity，会增加 lineage payload 大小。
 - Definition author 必须声明 canonicalization、provenance 与 compatibility，而不能依赖任意 metadata。
+- Named projection 与 Connector lifecycle state 增加了需要独立于 Source value 演进的契约。
 - 只暴露当前值的 provider 无法使用 Referenced Source，因此部分集成必须保留 captured data。
 - Persisted custom Source 可读之前，显式 registration 需要部署协调。
 
@@ -412,33 +455,30 @@ replacement 改变 Source identity。
 - [Apache OpenDAL OFS RFC-0016](https://github.com/apache/opendal-ofs/blob/main/rfcs/0016_filesystem_architecture.md)
   分离 namespace authority 与 access frontend，并禁止 frontend 宣称底层无法兑现的保证。Source materialization
   遵循同样的 authority rule。
-- [opendalfs](https://github.com/fsspec/opendalfs) 通过 fsspec interface 暴露 OpenDAL services，可以作为首个
-  filesystem-backed document Connector 的候选 acquisition layer。它的 path 与 file metadata 不定义 Source
-  identity 或 immutable revision semantics。只有完整调用链能够寻址并验证不可变 revision 时，backend read 才能
-  满足 referenced materialization；否则 document 必须被 captured。
+- [opendalfs](https://github.com/fsspec/opendalfs) 通过 fsspec interface 暴露 OpenDAL services，展示了
+  backend-neutral filesystem acquisition。它的 path 与 file metadata 不定义 Source identity 或 immutable
+  revision semantics。只有完整调用链能够寻址并验证不可变 revision 时，backend read 才能满足 referenced
+  materialization。
 - DataHub stateful ingestion 把 connector checkpoint 与 stale-entity detection 同 emitted metadata identity
   分离。Airbyte 把 connector state 当作 opaque recovery boundary，而不是 record identity。
 - OpenMetadata 把负责生成 record 的 Source 与 connection check、workflow status、sink 分离。
 - Nowledge Mem 的 TiddlyWiki importer 使用 stable logical ID、canonical payload digest、source revalidation 与
-  per-item outcome。这些行为为 document validation 提供依据，但不定义标准 Source value。
+  per-item outcome。这些行为为 Source observation 与 Connector run state 的分离提供依据。
 
 # Unresolved questions
 
 - 每个 durable SourceRef 是否必须直接携带 `scope_id`，还是可以由 canonical scoped envelope 包含 local exact
   SourceRef，同时保留相同的 fully qualified identity？
 - Runtime 必须同时保留哪些 Source Definition version，才能宣称某个 Definition 受支持？
-- Source head deletion 应是通用 catalog state，还是首个标准契约只暴露 active exact head，并把 deletion 完全留给
+- Source head deletion 应是通用 catalog state，还是标准契约只暴露 active exact head，并把 deletion 完全留给
   Connector state？
-- Artifact family 可以共享哪些 normalized value category，而不要求理解完整的 definition-owned value schema？
+- 哪些 projection name 与 schema 已有足够实现证据，可以成为 shared standard 而不是 namespaced capability？
+- 除本 RFC 的 lifecycle semantics 外，是否还需要标准化 Connector hosting 与 scheduling contract？
 
 # Future possibilities
 
-Connector lifecycle、checkpoint、run status 与显式 plugin discovery 需要独立契约。Document ingestion 为该
-契约提供 conformance case，但不能改变 Source identity 或 materialization semantics。
-
-Definition 可以为无法消费完整 native value 的 Artifact family 声明 text、structured record 或 binary
-attachment 等 optional projection。Projection identity 与 digest rules 需要自己的契约，且不能削弱原始 Source
-observation。
+显式 plugin discovery 与 deployment policy 可以建立在 Definition 和 Connector registration 之上，但不会让
+package installation 等同于 activation。
 
 Retention policy 只有在定义精确 Artifact evidence 如何报告 unavailable content，以及 legal/user-requested
 deletion 如何与 immutable lineage 交互之后，才能回收 captured value。Source head deletion 本身不授权删除证据。
