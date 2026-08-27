@@ -14,15 +14,56 @@
 
 from powercontext.sources.adapters import SourceAdapter
 from powercontext.sources.catalog import SourceCatalog
-from powercontext.sources.models import Source, SourceMaterialization, SourceRef
+from powercontext.sources.connectors import (
+    CatalogConnectorSourceSink,
+    Connector,
+    ConnectorBinding,
+    ConnectorCapability,
+    ConnectorCheckpointStore,
+    ConnectorItemOutcome,
+    ConnectorLifecycle,
+    ConnectorRunCompletion,
+    ConnectorRunResult,
+    ConnectorRunSession,
+    ConnectorRunStatus,
+    ConnectorSourceSink,
+    ConnectorSubmissionResult,
+    ConnectorSubmissionStatus,
+)
+from powercontext.sources.definitions import (
+    AdapterSourceDefinition,
+    SourceDefinition,
+    SourceDefinitionRegistry,
+    SourceProjection,
+)
+from powercontext.sources.models import Source, SourceMaterialization, SourceProjectionKey, SourceRef
 from powercontext.sources.protocols import SourceCatalogBackend, SourceStore
 
 __all__ = [
+    "AdapterSourceDefinition",
+    "CatalogConnectorSourceSink",
+    "Connector",
+    "ConnectorBinding",
+    "ConnectorCapability",
+    "ConnectorCheckpointStore",
+    "ConnectorItemOutcome",
+    "ConnectorLifecycle",
+    "ConnectorRunCompletion",
+    "ConnectorRunResult",
+    "ConnectorRunSession",
+    "ConnectorRunStatus",
+    "ConnectorSourceSink",
+    "ConnectorSubmissionResult",
+    "ConnectorSubmissionStatus",
     "Source",
     "SourceAdapter",
     "SourceCatalog",
     "SourceCatalogBackend",
+    "SourceDefinition",
+    "SourceDefinitionRegistry",
     "SourceMaterialization",
+    "SourceProjection",
+    "SourceProjectionKey",
     "SourceRef",
     "SourceStore",
 ]

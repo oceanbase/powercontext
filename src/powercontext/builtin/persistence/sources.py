@@ -34,9 +34,9 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, SOURCES_TABLE
-from powercontext.errors import SourceAdapterNotFoundError, SourceConflictError
+from powercontext.errors import SourceDefinitionNotFoundError
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
-from powercontext.sources import Source, SourceAdapter, SourceRef
+from powercontext.sources import Source, SourceAdapter, SourceDefinitionRegistry, SourceRef
 
 _AnySourceAdapter = SourceAdapter[Any, Any, Any]
 
@@ -50,18 +50,18 @@ class StoredSource(BaseModel):
 
 
 class SourceRepository:
-    """Persist Sources using their concrete adapter routes."""
+    """Persist Sources using the Runtime's fixed Source Definition registry."""
 
-    def __init__(self, adapters: Iterable[_AnySourceAdapter], /) -> None:
-        self._by_name: dict[str, _AnySourceAdapter] = {}
-        self._by_source: dict[type[Source], _AnySourceAdapter] = {}
-        for adapter in adapters:
-            if adapter.name in self._by_name:
-                raise SourceConflictError("name", adapter.name)
-            if adapter.source_class in self._by_source:
-                raise SourceConflictError("source_class", adapter.source_class)
-            self._by_name[adapter.name] = adapter
-            self._by_source[adapter.source_class] = adapter
+    def __init__(
+        self,
+        definitions: SourceDefinitionRegistry | Iterable[_AnySourceAdapter],
+        /,
+    ) -> None:
+        self._registry = (
+            definitions
+            if isinstance(definitions, SourceDefinitionRegistry)
+            else SourceDefinitionRegistry.from_adapters(definitions)
+        )
 
     async def add(
         self,
@@ -73,9 +73,9 @@ class SourceRepository:
         """Add one stable Source or return an identical existing capture."""
 
         _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
-        adapter = self._adapter_for_value(source)
-        ref = SourceRef(source_type=adapter.name, source_id=source.name)
-        payload = dump_model(source, kind="source", name=adapter.name)
+        definition = self._registry.definition_for_source(source)
+        ref = SourceRef(source_type=definition.name, source_id=source.name)
+        payload = dump_model(source, kind="source", name=definition.name)
         await _lock_journal_head(connection, scope_id)
         existing = await self._find_row(connection, scope_id, ref)
         if existing is not None:
@@ -163,17 +163,11 @@ class SourceRepository:
             raise InvalidStoredColumnError("journal_position", "an integer")
         return int(value)
 
-    def _adapter_for_value(self, source: Source) -> _AnySourceAdapter:
+    def _definition_by_name(self, name: str) -> _AnySourceAdapter:
         try:
-            return self._by_source[type(source)]
-        except KeyError:
-            raise SourceAdapterNotFoundError("source", type(source)) from None
-
-    def _adapter_by_name(self, name: str) -> _AnySourceAdapter:
-        try:
-            return self._by_name[name]
-        except KeyError:
-            raise RepositoryNotFoundError("source-adapter", name) from None
+            return self._registry.definition_for_name(name)
+        except SourceDefinitionNotFoundError:
+            raise RepositoryNotFoundError("source-definition", name) from None
 
     async def _find_row(
         self,
@@ -198,15 +192,16 @@ class SourceRepository:
     def _decode_row(self, row: Mapping[Any, Any]) -> StoredSource:
         source_type = str(row["source_type"])
         source_id = str(row["source_id"])
-        adapter = self._adapter_by_name(source_type)
+        definition = self._definition_by_name(source_type)
         source = load_model(
-            adapter.source_class,
+            definition.source_class,
             stored_bytes(row["payload"], column="payload"),
             kind="source",
             name=source_type,
         )
         indexed = SourceRef(source_type=source_type, source_id=source_id)
-        decoded = SourceRef(source_type=adapter.name, source_id=source.name)
+        self._registry.definition_for_source(source)
+        decoded = SourceRef(source_type=definition.name, source_id=source.name)
         if indexed != decoded:
             raise IdentityMismatchError("source", indexed, decoded)
         return StoredSource(

@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -90,7 +90,7 @@ from powercontext.builtin.runtime.protocols import BuiltinTriggers
 from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.sources import (
-    CONTENT_SOURCE_ADAPTER,
+    BUILTIN_SOURCE_REGISTRY,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
     ExternalSkillImportMode,
     ExternalSkillSnapshotCapture,
@@ -112,16 +112,12 @@ from powercontext.context import PowerContext
 from powercontext.errors import ArtifactNotFoundError, SourceConflictError, SourceNotFoundError
 from powercontext.sources import (
     Source,
-    SourceAdapter,
     SourceCatalog,
+    SourceDefinitionRegistry,
     SourceRef,
 )
 
 IdFactory = Callable[[str], str]
-_SOURCE_ADAPTERS: tuple[SourceAdapter[Any, Any, Any], ...] = (
-    CONTENT_SOURCE_ADAPTER,
-    EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +154,7 @@ class _ScopedServices:
     memory_artifact_id: str
     source_lock: asyncio.Lock
     token_estimator: TokenEstimator | None
+    source_registry: SourceDefinitionRegistry
 
     def sources(
         self,
@@ -166,12 +163,12 @@ class _ScopedServices:
         backend = _RelationalSources(
             database=self.database,
             scope_id=self.scope_id,
-            adapters=_SOURCE_ADAPTERS,
+            registry=self.source_registry,
             repository=self.repositories.sources,
             write_lock=self.source_lock,
             connection=connection,
         )
-        return backend, SourceCatalog(backend=backend, adapters=_SOURCE_ADAPTERS)
+        return backend, SourceCatalog(backend=backend, registry=self.source_registry)
 
     def memory(
         self,
@@ -303,12 +300,14 @@ class RelationalContexts:
         id_factory: IdFactory | None = None,
         handoff_artifact_id: str = "handoff",
         memory_artifact_id: str = "memory",
+        source_registry: SourceDefinitionRegistry | None = None,
     ) -> None:
         self.database = database
+        self.source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         self.index = NoMemoryIndex() if index is None else index
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         self.repositories = _Repositories(
-            sources=SourceRepository(_SOURCE_ADAPTERS),
+            sources=SourceRepository(self.source_registry),
             artifacts=ArtifactRepository((Handoff, Memory, Experience, Skill)),
             candidates=CandidateRepository({
                 Experience.family: ExperienceContent,
@@ -522,6 +521,7 @@ class RelationalContexts:
             memory_artifact_id=self._memory_artifact_id,
             source_lock=self._source_locks.setdefault(scope, asyncio.Lock()),
             token_estimator=self._token_estimator,
+            source_registry=self.source_registry,
         )
 
 
@@ -531,14 +531,14 @@ class _RelationalSources:
         *,
         database: AsyncDatabase,
         scope_id: str,
-        adapters: tuple[SourceAdapter[Any, Any, Any], ...],
+        registry: SourceDefinitionRegistry,
         repository: SourceRepository,
         write_lock: asyncio.Lock,
         connection: AsyncConnection | None = None,
     ) -> None:
         self._database = database
         self._scope_id = scope_id
-        self._source_names = {adapter.source_class: adapter.name for adapter in adapters}
+        self._registry = registry
         self._repository = repository
         self._write_lock = write_lock
         self._bound_connection = connection
@@ -585,7 +585,8 @@ class _RelationalSources:
         )
 
     def _as_ref(self, source: Source) -> SourceRef:
-        return SourceRef(source_type=self._source_names[type(source)], source_id=source.name)
+        definition = self._registry.definition_for_source(source)
+        return SourceRef(source_type=definition.name, source_id=source.name)
 
 
 class _RelationalArtifactResolver:

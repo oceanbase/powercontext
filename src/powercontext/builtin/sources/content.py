@@ -20,9 +20,11 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, JsonValue, field_validator
 
+from powercontext.sources import AdapterSourceDefinition, SourceProjectionKey
 from powercontext.sources.models import Source, SourceMaterialization
 
 CONTENT_SOURCE_NAME = "content"
+TEXT_EVIDENCE_PROJECTION_KEY = SourceProjectionKey(name="powercontext.builtin.text-evidence", version="1")
 NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
@@ -44,6 +46,15 @@ class ContentCapture(BaseModel):
 class ContentSource(Source):
     """Captured text that can be used as Artifact evidence."""
 
+    content: str
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class ContentTextEvidence(BaseModel):
+    """Schema for the built-in text evidence projection."""
+
+    source_type: str
+    source_id: str
     content: str
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
@@ -71,4 +82,25 @@ class ContentSourceAdapter:
         )
 
 
+class ContentTextEvidenceProjection:
+    """Expose captured text without coupling consumers to ``ContentSource``."""
+
+    name = TEXT_EVIDENCE_PROJECTION_KEY.name
+    version = TEXT_EVIDENCE_PROJECTION_KEY.version
+    source_class = ContentSource
+    output_class: type[BaseModel] = ContentTextEvidence
+
+    def project(self, source: ContentSource, /) -> ContentTextEvidence:
+        return ContentTextEvidence(
+            source_type=CONTENT_SOURCE_NAME,
+            source_id=source.name,
+            content=source.content,
+            metadata=source.metadata,
+        )
+
+
 CONTENT_SOURCE_ADAPTER = ContentSourceAdapter()
+CONTENT_SOURCE_DEFINITION = AdapterSourceDefinition(
+    CONTENT_SOURCE_ADAPTER,
+    projections=(ContentTextEvidenceProjection(),),
+)

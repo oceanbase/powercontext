@@ -16,13 +16,18 @@
 
 from powercontext.builtin.sources.content import (
     CONTENT_SOURCE_ADAPTER,
+    CONTENT_SOURCE_DEFINITION,
     CONTENT_SOURCE_NAME,
+    TEXT_EVIDENCE_PROJECTION_KEY,
     ContentCapture,
     ContentSource,
     ContentSourceAdapter,
+    ContentTextEvidence,
+    ContentTextEvidenceProjection,
 )
 from powercontext.builtin.sources.external_skill import (
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
+    EXTERNAL_SKILL_SNAPSHOT_SOURCE_DEFINITION,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_NAME,
     ExternalSkillImportMode,
     ExternalSkillSnapshotCapture,
@@ -35,15 +40,27 @@ from powercontext.builtin.sources.journal import (
     SourceJournalEntry,
     validate_scope_id,
 )
+from powercontext.sources import SourceDefinitionRegistry
+
+BUILTIN_SOURCE_REGISTRY = SourceDefinitionRegistry((
+    CONTENT_SOURCE_DEFINITION,
+    EXTERNAL_SKILL_SNAPSHOT_SOURCE_DEFINITION,
+))
 
 __all__ = [
+    "BUILTIN_SOURCE_REGISTRY",
     "CONTENT_SOURCE_ADAPTER",
+    "CONTENT_SOURCE_DEFINITION",
     "CONTENT_SOURCE_NAME",
     "EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER",
+    "EXTERNAL_SKILL_SNAPSHOT_SOURCE_DEFINITION",
     "EXTERNAL_SKILL_SNAPSHOT_SOURCE_NAME",
+    "TEXT_EVIDENCE_PROJECTION_KEY",
     "ContentCapture",
     "ContentSource",
     "ContentSourceAdapter",
+    "ContentTextEvidence",
+    "ContentTextEvidenceProjection",
     "ExternalSkillImportMode",
     "ExternalSkillSnapshotCapture",
     "ExternalSkillSnapshotSource",
