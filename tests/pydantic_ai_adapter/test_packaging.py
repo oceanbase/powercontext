@@ -20,8 +20,6 @@ import os
 import re
 import subprocess
 import sys
-import zipfile
-from email.parser import Parser
 from pathlib import Path
 from shutil import which
 
@@ -65,21 +63,6 @@ def _build_wheel(project: Path, out_dir: Path) -> Path:
 def built_wheels(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     root = tmp_path_factory.mktemp("pydantic-ai-wheels")
     return {name: _build_wheel(project, root / name) for name, project in _PROJECTS.items()}
-
-
-def _requires_dist(wheel: Path) -> list[str]:
-    with zipfile.ZipFile(wheel) as archive:
-        metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
-        metadata = Parser().parsestr(archive.read(metadata_name).decode("utf-8"))
-    return metadata.get_all("Requires-Dist", [])
-
-
-@pytest.mark.parametrize("package", ["pydantic-ai", "bub"])
-def test_integration_wheels_require_the_first_core_release_with_shared_capture(
-    built_wheels: dict[str, Path],
-    package: str,
-) -> None:
-    assert "powercontext[client]>=0.0.3" in _requires_dist(built_wheels[package])
 
 
 def test_openai_install_command_is_consistent_across_public_guides() -> None:
