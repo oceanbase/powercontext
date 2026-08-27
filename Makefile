@@ -142,8 +142,8 @@ build-and-publish: build publish ## Build and publish.
 
 .PHONY: docs-build
 docs-build: ## Build the documentation and publish the canonical OpenAPI contract.
-	@uv run zensical build --clean -s
-	@install -D -m 0644 openapi/powercontext.yaml site/api/openapi.yaml
+	@install -D -m 0644 openapi/powercontext.yaml docs/api/openapi.yaml
+	@trap 'rm -f docs/api/openapi.yaml' EXIT; uv run zensical build --clean -s
 
 .PHONY: docs-test
 docs-test: docs-build ## Test if documentation can be built without warnings or errors
@@ -151,8 +151,9 @@ docs-test: docs-build ## Test if documentation can be built without warnings or 
 	@cmp --silent openapi/powercontext.yaml site/api/openapi.yaml
 
 .PHONY: docs
-docs: docs-build ## Build and serve the documentation
-	@uv run zensical serve
+docs: ## Build and serve the documentation
+	@install -D -m 0644 openapi/powercontext.yaml docs/api/openapi.yaml
+	@trap 'rm -f docs/api/openapi.yaml' EXIT; uv run zensical serve $(ARGS)
 
 .PHONY: help
 help:
