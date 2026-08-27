@@ -1,7 +1,7 @@
 ---
 Proposal Name: powercontext_permission_control
 Start Date: 2026-08-27
-RFC PR: #0000
+RFC PR: #1381
 Related RFCs: 0011, 0048, 0072
 ---
 
