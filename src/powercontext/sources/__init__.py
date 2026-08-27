@@ -29,6 +29,7 @@ from powercontext.sources.connectors import (
     ConnectorSourceSink,
     ConnectorSubmissionResult,
     ConnectorSubmissionStatus,
+    validate_connector,
 )
 from powercontext.sources.definitions import (
     AdapterSourceDefinition,
@@ -37,9 +38,19 @@ from powercontext.sources.definitions import (
     SourceProjection,
 )
 from powercontext.sources.models import Source, SourceMaterialization, SourceProjectionKey, SourceRef
+from powercontext.sources.observations import (
+    ProjectedSource,
+    SourceDefinitionManifest,
+    SourceProjectionManifest,
+    SourceProjectionValue,
+    manifest_for_definition,
+    project_source_for_transport,
+)
+from powercontext.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY, TextEvidence
 from powercontext.sources.protocols import SourceCatalogBackend, SourceStore
 
 __all__ = [
+    "TEXT_EVIDENCE_PROJECTION_KEY",
     "AdapterSourceDefinition",
     "CatalogConnectorSourceSink",
     "Connector",
@@ -55,15 +66,23 @@ __all__ = [
     "ConnectorSourceSink",
     "ConnectorSubmissionResult",
     "ConnectorSubmissionStatus",
+    "ProjectedSource",
     "Source",
     "SourceAdapter",
     "SourceCatalog",
     "SourceCatalogBackend",
     "SourceDefinition",
+    "SourceDefinitionManifest",
     "SourceDefinitionRegistry",
     "SourceMaterialization",
     "SourceProjection",
     "SourceProjectionKey",
+    "SourceProjectionManifest",
+    "SourceProjectionValue",
     "SourceRef",
     "SourceStore",
+    "TextEvidence",
+    "manifest_for_definition",
+    "project_source_for_transport",
+    "validate_connector",
 ]

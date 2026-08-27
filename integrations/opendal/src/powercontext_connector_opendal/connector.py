@@ -27,16 +27,16 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
 
-from powercontext.builtin.sources import (
-    TEXT_FILE_SNAPSHOT_SOURCE_NAME,
-    TextFileSnapshotCapture,
-)
 from powercontext.errors import InvalidConnectorRunError
 from powercontext.sources import (
     ConnectorCapability,
     ConnectorRunCompletion,
     ConnectorRunSession,
     ConnectorRunStatus,
+)
+from powercontext_connector_opendal.source import (
+    TEXT_FILE_SNAPSHOT_SOURCE_NAME,
+    TextFileSnapshotCapture,
 )
 
 OPENDAL_TEXT_FILE_CONNECTOR_NAME = "opendal-text-files"
@@ -127,7 +127,7 @@ class OpenDALTextFileConnector:
             from opendalfs import OpendalFileSystem
         except ImportError as error:
             raise ImportError(  # noqa: TRY003
-                "OpenDALTextFileConnector.from_service requires powercontext[opendal] on Python 3.12+"
+                "OpenDALTextFileConnector.from_service requires powercontext-connector-opendal on Python 3.12+"
             ) from error
         backend_options: dict[str, Any] = dict(storage_options or {})
         filesystem = OpendalFileSystem(

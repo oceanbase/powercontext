@@ -284,6 +284,16 @@ CONNECTOR_CHECKPOINTS_TABLE = Table(
     Column("checkpoint", _canonical_payload_type(), nullable=False),
 )
 
+SOURCE_DEFINITION_MANIFESTS_TABLE = Table(
+    "pc_source_definition_manifests",
+    SHARED_METADATA,
+    Column("definition_name", identity_string(MAX_SOURCE_TYPE_LENGTH), primary_key=True),
+    Column("definition_version", identity_string(MAX_SOURCE_TYPE_LENGTH), primary_key=True),
+    Column("fingerprint", identity_string(71), nullable=False),
+    Column("manifest", _canonical_payload_type(), nullable=False),
+    UniqueConstraint("definition_name", "fingerprint", name="uq_pc_source_definition_manifest_fingerprint"),
+)
+
 EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
     "pc_external_skill_registrations",
     SHARED_METADATA,
@@ -368,6 +378,7 @@ SHARED_TABLES = (
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     SOURCE_CURSORS_TABLE,
     CONNECTOR_CHECKPOINTS_TABLE,
+    SOURCE_DEFINITION_MANIFESTS_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
 )
 

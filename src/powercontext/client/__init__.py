@@ -16,11 +16,19 @@
 
 from powercontext.client.client import PowerContextClient
 from powercontext.client.errors import ClientError, InvalidResponseError, ServerResponseError, TransportError
+from powercontext.client.ingestion import (
+    RemoteConnectorCheckpointStore,
+    RemoteConnectorSourceSink,
+    RemoteConnectorWorker,
+)
 
 __all__ = [
     "ClientError",
     "InvalidResponseError",
     "PowerContextClient",
+    "RemoteConnectorCheckpointStore",
+    "RemoteConnectorSourceSink",
+    "RemoteConnectorWorker",
     "ServerResponseError",
     "TransportError",
 ]

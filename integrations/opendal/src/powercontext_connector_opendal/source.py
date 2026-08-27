@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Typed captured text-file snapshots for filesystem Connectors."""
+"""Typed captured text-file snapshots for the OpenDAL Connector."""
 
 from __future__ import annotations
 
@@ -23,8 +23,13 @@ from typing import Literal
 
 from pydantic import BaseModel, JsonValue, field_validator
 
-from powercontext.builtin.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY, TextEvidence
-from powercontext.sources import AdapterSourceDefinition, Source, SourceMaterialization
+from powercontext.sources import (
+    TEXT_EVIDENCE_PROJECTION_KEY,
+    AdapterSourceDefinition,
+    Source,
+    SourceMaterialization,
+    TextEvidence,
+)
 
 TEXT_FILE_SNAPSHOT_SOURCE_NAME = "text-file-snapshot"
 

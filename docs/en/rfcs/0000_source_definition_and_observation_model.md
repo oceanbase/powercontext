@@ -24,9 +24,10 @@ A Definition may advertise named projection capabilities for consumers that do n
 Each projection has an independently versioned schema and deterministic meaning over one exact observation. A
 consumer selects a projection by capability name and version, never by inspecting a concrete Source class.
 
-A Connector lifecycle binds provider acquisition to a Scope, submits definition-native observations, records
-per-item outcomes, and advances an opaque checkpoint only after accepted observations are durable. Connector runs
-distinguish complete discovery from incomplete discovery so that absence is not silently converted into deletion.
+A Connector lifecycle binds provider acquisition to a Scope, resolves definition-native inputs in its worker,
+submits materialized observations, records per-item outcomes, and advances an opaque checkpoint only after accepted
+observations are durable. Connector runs distinguish complete discovery from incomplete discovery so that absence
+is not silently converted into deletion.
 
 Materialization identifies the authority used to resolve an exact observation. A captured observation is resolved
 from the canonical value retained by PowerContext. A referenced observation is resolved from an immutable external
@@ -36,9 +37,9 @@ referenced contract.
 `ContentSource` remains a simple captured-text Source. Its caller-stable identity and immutable-payload conflict rule
 make it useful for one-shot content capture, but it is not the general external integration model.
 
-This RFC defines Source, projection, and Connector lifecycle semantics and conformance. It does not define a hosting
-runtime, plugin discovery mechanism, storage schema, public transport operation, synchronization algorithm,
-scheduler, credential transport, concrete Source family, or Connector implementation.
+This RFC defines Source, projection, Connector lifecycle, and the remote ingestion boundary between a worker and the
+PowerContext Server. It does not define plugin discovery, a scheduler, credential transport, a concrete Source
+family, or a Connector implementation.
 
 # Motivation
 
@@ -309,21 +310,45 @@ advanced, or the Connector being unavailable.
 
 ## Definition registration contract
 
-A composed Runtime has one explicit Definition registry. Registration validates stable Definition name and version,
-declared value and provenance schemas, identity rules, materialization support, and read behavior. Two incompatible
-Definitions cannot claim the same `(source_type, definition_version)`.
+Executable Definitions belong to the worker that resolves definition-native inputs, canonicalizes Source values,
+and computes named projections. The Server does not import Connector or Definition packages and does not execute
+their Python classes.
 
-Registration also validates each advertised projection name and version, its declared output schema, and its
-canonicalization contract. Two incompatible projections cannot claim the same capability key within one Definition
-version.
+Before submitting an observation, the worker registers an immutable declarative manifest containing the stable
+Definition name and version, the canonical Source JSON Schema, every projection key and output JSON Schema, and a
+fingerprint over the complete declaration. The fingerprint is SHA-256 over RFC 8785 canonical JSON. Registration is
+idempotent for an identical manifest and rejects a different declaration for an existing `(source_type,
+definition_version)`.
 
-Registration is fixed for the Runtime lifetime. Catalog decoding, Source reads, and Artifact validation use the same
-registry view. A persisted observation whose Definition is unavailable remains stored but cannot be interpreted or
-advertised as readable. It is not decoded into a base Source with discarded fields.
+The Server validates the manifest's schemas and any named projection it recognizes as a shared standard. A manifest
+does not transfer executable identity rules, canonicalization code, read behavior, credentials, or provider
+configuration. Those remain worker-owned. The registered manifest is sufficient for the Server to validate and
+retain an opaque canonical observation without loading plugin code.
 
 Definition discovery and registration are separate. A package entry point or another discovery mechanism may report
-available Definitions, but installation does not imply activation. This RFC does not select entry
-points, a central settings format, pluggy, or a Connector marketplace.
+available Definitions, but installation does not imply activation. This RFC does not select entry points, a central
+settings format, pluggy, or a Connector marketplace.
+
+## Remote worker ingestion contract
+
+A Connector runs in an independent worker process. The worker owns provider access and all executable Definition
+behavior. The Server owns durable Source history, Artifact consumption, and checkpoint comparison. Their data-plane
+interaction consists of four generic operations:
+
+1. register an immutable Source Definition manifest;
+2. read the opaque checkpoint for one Connector binding;
+3. submit a worker-materialized Source observation with all declared projections; and
+4. compare-and-swap the binding checkpoint from the value read at run start.
+
+The observation envelope carries the Definition name, version and fingerprint, canonical Source payload, and one
+value for every projection declared by the manifest. The Server validates envelope identity, payload schema,
+projection-key equality, projection schemas, and standard projection invariants before durable acceptance. Provider
+names, storage services, paths, credentials, or other Connector-specific configuration do not appear in this API
+unless a Definition deliberately includes them in its canonical Source schema.
+
+The Server returns a durable Source receipt before the worker may commit a checkpoint. The checkpoint operation uses
+optimistic comparison so concurrent runs of the same binding cannot silently overwrite each other. Submission is
+idempotent for an identical Source identity and payload; conflicting content for an accepted identity is rejected.
 
 ## Definition compatibility contract
 
@@ -369,10 +394,10 @@ A Connector binding activates one Connector configuration for exactly one Scope.
 for checkpoint and provider-namespace continuity, but it does not own Sources and does not replace `scope_id` or
 `source_type`. Credentials are resolved by the hosting environment and do not become Source value or provenance.
 
-A Connector run begins from an opaque binding checkpoint, submits zero or more definition-native observations, and
-records an outcome for every submitted item. An accepted or idempotently replayed observation returns its exact
-SourceRef. A rejected or failed item remains visible in the run outcome and cannot be hidden by advancing the
-checkpoint past work that is not safely replayable.
+A Connector run begins from an opaque binding checkpoint, resolves zero or more definition-native inputs inside the
+worker, and submits their materialized observations. It records an outcome for every item. An accepted or
+idempotently replayed observation returns its exact SourceRef. A rejected or failed item remains visible in the run
+outcome and cannot be hidden by advancing the checkpoint past work that is not safely replayable.
 
 A run finishes as complete or incomplete. A complete snapshot may produce positive deletion evidence for previously
 known provider objects that are absent. An incomplete listing, timeout, permission failure, cancellation, or lost
@@ -384,9 +409,8 @@ from an earlier checkpoint is valid because Source observation submission is ide
 health, retry, and run-status records are operational state rather than Source observations or Artifact evidence.
 
 Installation, discovery, activation, and execution are separate concerns. Installing a Connector package does not
-activate a binding. This contract does not require that a Connector run inside the PowerContext Server; direct tools,
-hosted workers, and external synchronization services can follow the same lifecycle and submit the same
-definition-native observations.
+activate a binding. A Connector package executes outside the PowerContext Server and uses the remote worker
+ingestion contract; scheduling and process supervision belong to the deployment environment.
 
 ## Artifact evidence and cross-Scope delivery
 
@@ -425,6 +449,10 @@ visibility, durable checkpoint ordering, complete-versus-incomplete run behavior
 Provider-specific behavior is established by its implementation evidence rather than generalized into the standard
 contract.
 
+A remote worker path additionally verifies manifest fingerprint and conflict handling, rejection of unregistered or
+schema-invalid observations, exact projection-set validation, durable receipt ordering, and stale checkpoint CAS
+rejection across a Server restart.
+
 # Drawbacks
 
 - Separating SourceKey, SourceRef, Source head, and Definition version introduces more concepts than one immutable
@@ -435,7 +463,7 @@ contract.
 - Named projections and Connector lifecycle state add contracts that must evolve independently from Source values.
 - Referenced Sources are unavailable for providers that expose only current values, so some integrations must retain
   captured data.
-- Explicit registration requires deployment coordination before a persisted custom Source can be read.
+- Explicit registration requires deployment coordination before a custom Source observation can be accepted.
 
 # Rationale and alternatives
 
@@ -505,8 +533,6 @@ Connector replacement change Source identity.
   active exact head and leave deletion entirely to Connector state?
 - Which projection names and schemas have enough implementation evidence to become shared standards rather than
   namespaced capabilities?
-- Which Connector hosting and scheduling contracts, if any, must be standardized beyond the lifecycle semantics in
-  this RFC?
 
 # Future possibilities
 

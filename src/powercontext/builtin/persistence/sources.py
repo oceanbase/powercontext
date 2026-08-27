@@ -36,7 +36,7 @@ from powercontext.builtin.persistence.errors import (
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, SOURCES_TABLE
 from powercontext.errors import SourceDefinitionNotFoundError
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
-from powercontext.sources import Source, SourceAdapter, SourceDefinitionRegistry, SourceRef
+from powercontext.sources import ProjectedSource, Source, SourceAdapter, SourceDefinitionRegistry, SourceRef
 
 _AnySourceAdapter = SourceAdapter[Any, Any, Any]
 
@@ -73,9 +73,12 @@ class SourceRepository:
         """Add one stable Source or return an identical existing capture."""
 
         _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
-        definition = self._registry.definition_for_source(source)
-        ref = SourceRef(source_type=definition.name, source_id=source.name)
-        payload = dump_model(source, kind="source", name=definition.name)
+        if isinstance(source, ProjectedSource):
+            ref = SourceRef(source_type=source.source_type, source_id=source.name)
+        else:
+            definition = self._registry.definition_for_source(source)
+            ref = SourceRef(source_type=definition.name, source_id=source.name)
+        payload = dump_model(source, kind="source", name=ref.source_type)
         await _lock_journal_head(connection, scope_id)
         existing = await self._find_row(connection, scope_id, ref)
         if existing is not None:
@@ -192,16 +195,26 @@ class SourceRepository:
     def _decode_row(self, row: Mapping[Any, Any]) -> StoredSource:
         source_type = str(row["source_type"])
         source_id = str(row["source_id"])
-        definition = self._definition_by_name(source_type)
-        source = load_model(
-            definition.source_class,
-            stored_bytes(row["payload"], column="payload"),
-            kind="source",
-            name=source_type,
-        )
+        try:
+            definition = self._definition_by_name(source_type)
+        except RepositoryNotFoundError:
+            source = load_model(
+                ProjectedSource,
+                stored_bytes(row["payload"], column="payload"),
+                kind="projected-source",
+                name=source_type,
+            )
+            decoded = SourceRef(source_type=source.source_type, source_id=source.name)
+        else:
+            source = load_model(
+                definition.source_class,
+                stored_bytes(row["payload"], column="payload"),
+                kind="source",
+                name=source_type,
+            )
+            self._registry.definition_for_source(source)
+            decoded = SourceRef(source_type=definition.name, source_id=source.name)
         indexed = SourceRef(source_type=source_type, source_id=source_id)
-        self._registry.definition_for_source(source)
-        decoded = SourceRef(source_type=definition.name, source_id=source.name)
         if indexed != decoded:
             raise IdentityMismatchError("source", indexed, decoded)
         return StoredSource(

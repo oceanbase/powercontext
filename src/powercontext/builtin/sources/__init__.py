@@ -38,22 +38,11 @@ from powercontext.builtin.sources.journal import (
     SourceJournalEntry,
     validate_scope_id,
 )
-from powercontext.builtin.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY, TextEvidence
-from powercontext.builtin.sources.text_file import (
-    TEXT_FILE_SNAPSHOT_SOURCE_ADAPTER,
-    TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION,
-    TEXT_FILE_SNAPSHOT_SOURCE_NAME,
-    TextFileEvidenceProjection,
-    TextFileSnapshotCapture,
-    TextFileSnapshotSource,
-    TextFileSnapshotSourceAdapter,
-)
-from powercontext.sources import SourceDefinitionRegistry
+from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, SourceDefinitionRegistry, TextEvidence
 
 BUILTIN_SOURCE_REGISTRY = SourceDefinitionRegistry((
     CONTENT_SOURCE_DEFINITION,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_DEFINITION,
-    TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION,
 ))
 
 __all__ = [
@@ -65,9 +54,6 @@ __all__ = [
     "EXTERNAL_SKILL_SNAPSHOT_SOURCE_DEFINITION",
     "EXTERNAL_SKILL_SNAPSHOT_SOURCE_NAME",
     "TEXT_EVIDENCE_PROJECTION_KEY",
-    "TEXT_FILE_SNAPSHOT_SOURCE_ADAPTER",
-    "TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION",
-    "TEXT_FILE_SNAPSHOT_SOURCE_NAME",
     "ContentCapture",
     "ContentSource",
     "ContentSourceAdapter",
@@ -80,9 +66,5 @@ __all__ = [
     "SourceJournal",
     "SourceJournalEntry",
     "TextEvidence",
-    "TextFileEvidenceProjection",
-    "TextFileSnapshotCapture",
-    "TextFileSnapshotSource",
-    "TextFileSnapshotSourceAdapter",
     "validate_scope_id",
 ]

@@ -34,6 +34,10 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
+from powercontext.builtin.persistence.source_definitions import (
+    SourceDefinitionManifestRepository,
+    StoredSourceDefinitionManifest,
+)
 from powercontext.builtin.persistence.statistics import (
     StatisticsRepository,
     StoredInventoryCounts,
@@ -56,10 +60,12 @@ __all__ = (
     "RelationalConnectorCheckpointStore",
     "RepositoryError",
     "RepositoryNotFoundError",
+    "SourceDefinitionManifestRepository",
     "StatisticsRepository",
     "StoredConnectorCheckpoint",
     "StoredInventoryCounts",
     "StoredModelUsage",
     "StoredPayloadConflictError",
     "StoredRecallTokenUsage",
+    "StoredSourceDefinitionManifest",
 )

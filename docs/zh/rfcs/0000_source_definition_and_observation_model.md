@@ -22,9 +22,9 @@ Definition 可以为无法理解 native value 的 consumer 声明 named projecti
 版本的 schema，并对一个精确 observation 具有确定语义。Consumer 按 capability name 与 version 选择 projection，
 而不是检查具体 Source class。
 
-Connector lifecycle 将 provider acquisition 绑定到 Scope，提交 definition-native observation，记录 per-item
-outcome，并且只在接受的 observation 已持久化后推进 opaque checkpoint。Connector run 区分 complete discovery
-与 incomplete discovery，避免把缺失对象静默转换为删除。
+Connector lifecycle 将 provider acquisition 绑定到 Scope，在 worker 内解析 definition-native input，提交
+materialized observation，记录 per-item outcome，并且只在接受的 observation 已持久化后推进 opaque checkpoint。
+Connector run 区分 complete discovery 与 incomplete discovery，避免把缺失对象静默转换为删除。
 
 Materialization 表达解析某个精确观察时所依赖的权威来源。Captured observation 从 PowerContext 保留的
 canonical value 解析；referenced observation 从外部不可变 revision 解析。仅有外部 locator、修改时间、
@@ -33,9 +33,8 @@ ETag 或 provider 当前值读取，并不能满足 referenced 契约。
 `ContentSource` 继续作为简单的 captured-text Source。调用方提供稳定身份，加上 immutable-payload 冲突规则，
 适合一次性内容捕获，但它不是通用的外部集成模型。
 
-本 RFC 定义 Source、projection 与 Connector lifecycle 的语义和 conformance，不定义 hosting runtime、插件发现
-机制、存储 schema、公开 transport operation、同步算法、scheduler、credential transport、具体 Source family
-或 Connector 实现。
+本 RFC 定义 Source、projection、Connector lifecycle，以及 worker 与 PowerContext Server 之间的远程摄取边界。
+它不定义插件发现、scheduler、credential transport、具体 Source family 或 Connector 实现。
 
 # Motivation
 
@@ -290,20 +289,41 @@ digest。无法解析精确 observation，不等同于 logical Source 已删除�
 
 ## Definition registration contract
 
-组合后的 Runtime 拥有一个显式 Definition registry。注册时验证稳定的 Definition name 与 version、声明的 value
-与 provenance schemas、identity rules、materialization support 和 read behavior。两个不兼容 Definition 不能
-声明同一个 `(source_type, definition_version)`。
+Executable Definition 属于 worker。Worker 用它解析 definition-native input、canonicalize Source value，并计算
+named projection。Server 不导入 Connector 或 Definition package，也不执行其中的 Python class。
 
-注册还会验证每个声明的 projection name 与 version、output schema 和 canonicalization contract。两个不兼容的
-projection 不能在同一个 Definition version 内声明相同 capability key。
+提交 observation 前，worker 注册不可变的声明式 manifest。Manifest 包含稳定的 Definition name 与 version、
+canonical Source JSON Schema、每个 projection key 与 output JSON Schema，以及覆盖完整声明的 fingerprint。
+Fingerprint 是 RFC 8785 canonical JSON 的 SHA-256。相同 manifest 的注册是幂等的；同一个
+`(source_type, definition_version)` 对应不同声明时必须拒绝。
 
-Registry 在 Runtime 生命周期内固定。Catalog decoding、Source reads 与 Artifact validation 使用同一个 registry
-view。Definition 不可用时，已经持久化的 observation 仍保留，但不能被解释或宣称为 readable；不能把它解码成
-丢失字段的 base Source。
+Server 验证 manifest schema，以及其识别为 shared standard 的 named projection。Manifest 不传输可执行的 identity
+rule、canonicalization code、read behavior、credential 或 provider configuration；这些仍由 worker 持有。
+注册后的 manifest 足以让 Server 在不加载 plugin code 的情况下验证并保存 opaque canonical observation。
 
 Definition discovery 与 registration 相互独立。Package entry point 或其他 discovery mechanism 可以报告
 可用 Definition，但安装不意味着激活。本 RFC 不选择 entry points、central settings format、pluggy 或
 Connector marketplace。
+
+## Remote worker ingestion contract
+
+Connector 在独立 worker 进程中运行。Worker 拥有 provider access 与所有 executable Definition behavior；Server
+拥有 durable Source history、Artifact consumption 与 checkpoint comparison。双方的数据面交互只有四个通用操作：
+
+1. 注册不可变的 Source Definition manifest；
+2. 读取一个 Connector binding 的 opaque checkpoint；
+3. 提交 worker 已物化的 Source observation 及其全部声明 projection；
+4. 从 run 开始时读到的值 compare-and-swap binding checkpoint。
+
+Observation envelope 携带 Definition name、version 与 fingerprint、canonical Source payload，以及 manifest 声明的
+每个 projection value。Server 在 durable acceptance 前验证 envelope identity、payload schema、projection key
+集合相等、projection schema 与标准 projection invariant。Provider name、storage service、path、credential 或其他
+Connector-specific configuration 不出现在该 API 中；只有 Definition 刻意将其声明为 canonical Source schema 的
+一部分时才例外。
+
+Server 必须先返回 durable Source receipt，worker 才能提交 checkpoint。Checkpoint operation 使用 optimistic
+comparison，防止同一 binding 的并发 run 静默覆盖。相同 Source identity 与 payload 的提交是幂等的；已接受 identity
+对应不同内容时必须拒绝。
 
 ## Definition compatibility contract
 
@@ -348,9 +368,9 @@ Connector binding 为一个 Scope 激活一份 Connector configuration。Binding
 namespace continuity 的稳定 identity，但不拥有 Source，也不替代 `scope_id` 或 `source_type`。Credential 由
 hosting environment 解析，不会成为 Source value 或 provenance。
 
-Connector run 从 opaque binding checkpoint 开始，提交零个或多个 definition-native observation，并记录每个
-submitted item 的 outcome。Accepted 或 idempotently replayed observation 返回精确 SourceRef。Rejected 或 failed
-item 会保留在 run outcome 中；如果尚不能安全重放，checkpoint 不能越过这些工作。
+Connector run 从 opaque binding checkpoint 开始，在 worker 内解析零个或多个 definition-native input，再提交其
+materialized observation，并记录每个 item 的 outcome。Accepted 或 idempotently replayed observation 返回精确
+SourceRef。Rejected 或 failed item 会保留在 run outcome 中；如果尚不能安全重放，checkpoint 不能越过这些工作。
 
 Run 以 complete 或 incomplete 结束。Complete snapshot 可以为之前已知但本次缺失的 provider object 产生 positive
 deletion evidence。Incomplete listing、timeout、permission failure、cancellation 或 lost connection 不会产生
@@ -361,9 +381,8 @@ Completed checkpoint 只有在 accepted observation 与 deletion evidence 均已
 observation submission 具有幂等性，从更早 checkpoint 重试是合法行为。Connector checkpoint、health、retry 与
 run-status record 是 operational state，而不是 Source observation 或 Artifact evidence。
 
-Installation、discovery、activation 与 execution 相互独立。安装 Connector package 不会激活 binding。本契约不
-要求 Connector 运行在 PowerContext Server 内；direct tool、hosted worker 与 external synchronization service
-都可以遵循相同 lifecycle，提交相同 definition-native observation。
+Installation、discovery、activation 与 execution 相互独立。安装 Connector package 不会激活 binding。Connector
+package 在 PowerContext Server 之外执行，并使用 remote worker ingestion contract；调度与进程监管属于部署环境。
 
 ## Artifact evidence and cross-Scope delivery
 
@@ -400,6 +419,9 @@ Connector capability 只有在 conformance 验证 checkpoint replay、per-item o
 ordering、complete-versus-incomplete run behavior，以及其声明的 deletion evidence 后才能被声明。Provider-specific
 behavior 由对应实现证据确定，不会被直接推广为标准契约。
 
+Remote worker path 还必须验证 manifest fingerprint 与 conflict handling、拒绝未注册或 schema-invalid observation、
+projection set 精确校验、durable receipt ordering，以及跨 Server restart 的 stale checkpoint CAS rejection。
+
 # Drawbacks
 
 - 分离 SourceKey、SourceRef、Source head 与 Definition version，比一个不可变的 `(source_type, source_id)` pair
@@ -408,7 +430,7 @@ behavior 由对应实现证据确定，不会被直接推广为标准契约。
 - Definition author 必须声明 canonicalization、provenance 与 compatibility，而不能依赖任意 metadata。
 - Named projection 与 Connector lifecycle state 增加了需要独立于 Source value 演进的契约。
 - 只暴露当前值的 provider 无法使用 Referenced Source，因此部分集成必须保留 captured data。
-- Persisted custom Source 可读之前，显式 registration 需要部署协调。
+- Custom Source observation 被接受之前，显式 registration 需要部署协调。
 
 # Rationale and alternatives
 
@@ -473,7 +495,6 @@ replacement 改变 Source identity。
 - Source head deletion 应是通用 catalog state，还是标准契约只暴露 active exact head，并把 deletion 完全留给
   Connector state？
 - 哪些 projection name 与 schema 已有足够实现证据，可以成为 shared standard 而不是 namespaced capability？
-- 除本 RFC 的 lifecycle semantics 外，是否还需要标准化 Connector hosting 与 scheduling contract？
 
 # Future possibilities
 

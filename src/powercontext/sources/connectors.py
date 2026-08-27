@@ -280,7 +280,7 @@ class ConnectorLifecycle:
         self._checkpoints = checkpoints
 
     async def run(self, connector: Connector, binding: ConnectorBinding, /) -> ConnectorRunResult:
-        source_definitions, capabilities = _validate_connector(connector, binding)
+        source_definitions, capabilities = validate_connector(connector, binding)
         previous = await self._checkpoints.load(binding)
         if previous is not None and ConnectorCapability.CHECKPOINT_RESUME not in capabilities:
             raise InvalidConnectorRunError(
@@ -353,10 +353,12 @@ class CatalogConnectorSourceSink:
         return ConnectorSubmissionResult(status=ConnectorSubmissionStatus.ACCEPTED, source_ref=stored_ref)
 
 
-def _validate_connector(
+def validate_connector(
     connector: Connector,
     binding: ConnectorBinding,
 ) -> tuple[frozenset[str], frozenset[ConnectorCapability]]:
+    """Validate one Connector declaration against the binding it will execute."""
+
     name = getattr(connector, "name", None)
     version = getattr(connector, "version", None)
     if name != binding.connector_name:

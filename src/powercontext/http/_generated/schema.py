@@ -90,6 +90,110 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/source-definitions/register": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Register a worker-owned Source Definition manifest",
+                "description": "Registers an immutable declarative manifest without loading worker plugin code.",
+                "operationId": "register_source_definition",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RegisterSourceDefinitionRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The exact manifest is registered or was already registered identically.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceDefinitionManifest"}}
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/connector-checkpoints/get": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Read a Connector binding checkpoint",
+                "operationId": "get_connector_checkpoint",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetConnectorCheckpointRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The current opaque checkpoint, including a normal null initial value.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ConnectorCheckpointState"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/source-observations": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Submit a worker-materialized Source observation",
+                "description": "Validates the observation against "
+                "its registered manifest and "
+                "durably appends it before receipt.",
+                "operationId": "submit_source_observation",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SubmitSourceObservationRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "202": {
+                        "description": "The observation is durably accepted and can be referenced exactly.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceObservationReceipt"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/connector-checkpoints/commit": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Commit a Connector binding checkpoint",
+                "description": "Replaces the checkpoint only when its expected starting value still matches.",
+                "operationId": "commit_connector_checkpoint",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/CommitConnectorCheckpointRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The new opaque checkpoint is durable.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ConnectorCheckpointState"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
         "/v1/context/prepare": {
             "post": {
                 "tags": ["context"],
@@ -2209,6 +2313,133 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["status", "source", "position"],
+            },
+            "SourceProjectionKey": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "version": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "version"],
+            },
+            "SourceProjectionManifest": {
+                "properties": {
+                    "key": {"$ref": "#/components/schemas/SourceProjectionKey"},
+                    "schema": {"additionalProperties": True, "type": "object"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["key", "schema"],
+            },
+            "SourceDefinitionManifest": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "version": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "source_schema": {"additionalProperties": True, "type": "object"},
+                    "projections": {
+                        "items": {"$ref": "#/components/schemas/SourceProjectionManifest"},
+                        "type": "array",
+                        "maxItems": 16,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "version", "fingerprint", "source_schema", "projections"],
+            },
+            "RegisterSourceDefinitionRequest": {
+                "properties": {"manifest": {"$ref": "#/components/schemas/SourceDefinitionManifest"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["manifest"],
+            },
+            "ConnectorBinding": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "binding_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "connector_name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "connector_version": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "binding_id", "connector_name", "connector_version"],
+            },
+            "GetConnectorCheckpointRequest": {
+                "properties": {"binding": {"$ref": "#/components/schemas/ConnectorBinding"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding"],
+            },
+            "ConnectorCheckpointState": {
+                "properties": {
+                    "binding": {"$ref": "#/components/schemas/ConnectorBinding"},
+                    "checkpoint": {"nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding", "checkpoint"],
+            },
+            "SourceProjectionValue": {
+                "properties": {"key": {"$ref": "#/components/schemas/SourceProjectionKey"}, "value": {}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["key", "value"],
+            },
+            "ProjectedSource": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "definition_version": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "materialization": {"type": "string", "enum": ["captured", "referenced"]},
+                    "description": {"type": "string", "nullable": True},
+                    "source_type": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "definition_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "payload": {"additionalProperties": True, "type": "object"},
+                    "projections": {
+                        "items": {"$ref": "#/components/schemas/SourceProjectionValue"},
+                        "type": "array",
+                        "maxItems": 16,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "name",
+                    "definition_version",
+                    "materialization",
+                    "source_type",
+                    "definition_fingerprint",
+                    "payload",
+                    "projections",
+                ],
+            },
+            "SubmitSourceObservationRequest": {
+                "properties": {
+                    "binding": {"$ref": "#/components/schemas/ConnectorBinding"},
+                    "source": {"$ref": "#/components/schemas/ProjectedSource"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding", "source"],
+            },
+            "SourceObservationReceipt": {
+                "properties": {
+                    "source": {"$ref": "#/components/schemas/SourceReference"},
+                    "position": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source", "position"],
+            },
+            "CommitConnectorCheckpointRequest": {
+                "properties": {
+                    "binding": {"$ref": "#/components/schemas/ConnectorBinding"},
+                    "expected": {"nullable": True},
+                    "checkpoint": {"nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding", "expected", "checkpoint"],
             },
             "CommitHandoffRequest": {
                 "properties": {

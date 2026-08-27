@@ -12,16 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Supported built-in Connector implementations."""
+"""OpenDAL Connector worker for PowerContext."""
 
-from powercontext.builtin.connectors.opendal import (
+from powercontext_connector_opendal.connector import (
     OPENDAL_TEXT_FILE_CONNECTOR_NAME,
     OpenDALTextFileCheckpoint,
     OpenDALTextFileConnector,
 )
+from powercontext_connector_opendal.source import (
+    TEXT_FILE_SNAPSHOT_SOURCE_ADAPTER,
+    TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION,
+    TEXT_FILE_SNAPSHOT_SOURCE_NAME,
+    TextFileEvidenceProjection,
+    TextFileSnapshotCapture,
+    TextFileSnapshotSource,
+    TextFileSnapshotSourceAdapter,
+)
 
 __all__ = [
     "OPENDAL_TEXT_FILE_CONNECTOR_NAME",
+    "TEXT_FILE_SNAPSHOT_SOURCE_ADAPTER",
+    "TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION",
+    "TEXT_FILE_SNAPSHOT_SOURCE_NAME",
     "OpenDALTextFileCheckpoint",
     "OpenDALTextFileConnector",
+    "TextFileEvidenceProjection",
+    "TextFileSnapshotCapture",
+    "TextFileSnapshotSource",
+    "TextFileSnapshotSourceAdapter",
 ]

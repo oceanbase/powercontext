@@ -34,6 +34,7 @@ from powercontext.errors import (
     InvalidSourceAdapterError,
     InvalidSourceDefinitionError,
     InvalidSourceEntryError,
+    InvalidSourceObservationError,
     InvalidSourceProjectionError,
     InvalidSourceReferenceError,
     InvalidSourceResultError,
@@ -73,6 +74,7 @@ from powercontext.sources import (
     SourceProjectionKey,
     SourceRef,
     SourceStore,
+    validate_connector,
 )
 from powercontext.triggers import PolicyTransition, Trigger
 
@@ -109,6 +111,7 @@ __all__ = [
     "InvalidSourceAdapterError",
     "InvalidSourceDefinitionError",
     "InvalidSourceEntryError",
+    "InvalidSourceObservationError",
     "InvalidSourceProjectionError",
     "InvalidSourceReferenceError",
     "InvalidSourceResultError",
@@ -135,4 +138,5 @@ __all__ = [
     "SourceStore",
     "Sources",
     "Trigger",
+    "validate_connector",
 ]

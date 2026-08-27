@@ -20,8 +20,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, JsonValue, field_validator
 
-from powercontext.builtin.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY, TextEvidence
-from powercontext.sources import AdapterSourceDefinition
+from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, AdapterSourceDefinition, TextEvidence
 from powercontext.sources.models import Source, SourceMaterialization
 
 CONTENT_SOURCE_NAME = "content"

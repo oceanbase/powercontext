@@ -291,6 +291,7 @@ async def open_builtin_runtime(
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 readiness=RuntimeReadinessChecks(readiness_probes),
                 tracing=tracing,
+                remote_ingestion=contexts,
             )
         )
         if config.handoff_report.enabled:

@@ -1,0 +1,71 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from pydantic import ValidationError
+
+from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION, ContentCapture
+from powercontext.sources import (
+    TEXT_EVIDENCE_PROJECTION_KEY,
+    ProjectedSource,
+    Source,
+    SourceCatalog,
+    SourceDefinitionManifest,
+    SourceDefinitionRegistry,
+    TextEvidence,
+    manifest_for_definition,
+    project_source_for_transport,
+)
+
+
+class EmptySourceBackend:
+    async def list(self) -> tuple[Source, ...]:
+        return ()
+
+    async def get(self, source: Source, /) -> Source:
+        raise AssertionError(source)
+
+
+def test_definition_manifest_has_a_stable_content_addressed_identity() -> None:
+    first = manifest_for_definition(CONTENT_SOURCE_DEFINITION)
+    second = manifest_for_definition(CONTENT_SOURCE_DEFINITION)
+
+    assert first == second
+    assert first.fingerprint.startswith("sha256:")
+    with pytest.raises(ValidationError, match="fingerprint does not match"):
+        SourceDefinitionManifest.model_validate(first.model_dump(mode="json", by_alias=True) | {"version": "2"})
+
+
+def test_projected_source_remains_usable_without_worker_definition_code() -> None:
+    async def scenario() -> None:
+        registry = SourceDefinitionRegistry((CONTENT_SOURCE_DEFINITION,))
+        source = await registry.resolve(
+            ContentCapture(source_id="turn-1", content="Keep the remote contract declarative.")
+        )
+        projected = project_source_for_transport(registry, source)
+        catalog = SourceCatalog(backend=EmptySourceBackend())
+        payload = await catalog.read(projected)
+        projection = catalog.project(projected, TEXT_EVIDENCE_PROJECTION_KEY)
+
+        assert isinstance(projected, ProjectedSource)
+        assert catalog.as_ref(projected).model_dump() == {"source_type": "content", "source_id": "turn-1"}
+        assert payload == projected.payload
+        assert catalog.projection_keys(projected) == (TEXT_EVIDENCE_PROJECTION_KEY,)
+        assert TextEvidence.model_validate(projection).content == "Keep the remote contract declarative."
+
+    asyncio.run(scenario())

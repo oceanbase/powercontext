@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Built-in named projection schemas shared by Source Definitions."""
+"""Standard named projection schemas understood without Source plugin code."""
 
 from pydantic import BaseModel, Field, JsonValue
 
-from powercontext.sources import SourceProjectionKey
+from powercontext.sources.models import SourceProjectionKey
 
-TEXT_EVIDENCE_PROJECTION_KEY = SourceProjectionKey(name="powercontext.builtin.text-evidence", version="1")
+TEXT_EVIDENCE_PROJECTION_KEY = SourceProjectionKey(name="powercontext.text-evidence", version="1")
 
 
 class TextEvidence(BaseModel):

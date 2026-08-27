@@ -1,90 +1,95 @@
 ---
 title: Ingest text files with OpenDAL
-description: Capture UTF-8 files as typed Sources through an OpenDAL storage backend.
+description: Capture UTF-8 files as typed Sources with an independent OpenDAL Connector worker.
 ---
 
 # Ingest text files with OpenDAL
 
-Use `OpenDALTextFileConnector` to capture bounded UTF-8 files from a storage backend supported by OpenDAL. Each accepted
-file becomes an immutable `text-file-snapshot` Source with its path, namespace, content digest, and available provider
-annotations.
+`powercontext-connector-opendal` is deployed independently from PowerContext Server. It owns OpenDAL credentials,
+provider configuration, the executable Source Definition, and file reads. The Server stores only a declarative
+Definition manifest, materialized Source observations, named projections, and opaque checkpoints.
 
 ## Before you begin
 
-The OpenDAL integration requires Python 3.12 or later. Install the optional dependency:
+The integration requires Python 3.12 or later. Start PowerContext Server, then install the worker from a checkout:
 
 ```bash
-uv add "powercontext[opendal]"
+uv tool install ./integrations/opendal
 ```
 
-Choose a stable `source_namespace` for the storage location. It distinguishes identical paths and bytes captured from
-different authorities. Do not put credentials in the namespace.
+Choose a stable `source_namespace` that distinguishes storage authorities. Do not put credentials in the namespace,
+Source payload, or checkpoint. If Server authentication is enabled, provide its bearer token through the
+`POWERCONTEXT_TOKEN` environment variable.
 
-## Run a local filesystem binding
+## Run a binding
 
-The following binding scans the `docs` directory below `/absolute/path/to/project` and persists its checkpoint in the
-same PowerContext database as the captured Sources:
+This independent process scans `/absolute/path/to/project/docs`. The `binding_id` identifies checkpoint continuity;
+the `scope_id` determines which Scope owns accepted Sources:
+
+```bash
+powercontext-connector-opendal \
+  --base-url http://127.0.0.1:8765 \
+  --scope-id project:example \
+  --binding-id project-docs \
+  --service fs \
+  --storage-option root=/absolute/path/to/project \
+  --root docs \
+  --source-namespace project-docs
+```
+
+For remote storage, replace the OpenDAL service and pass its `--storage-option KEY=VALUE` arguments. These options
+remain inside the worker process and are never sent through the ingestion API.
+
+On every run, the worker idempotently registers the `text-file-snapshot` Definition manifest, reads the binding
+checkpoint, submits changed Source observations, and compare-and-swaps the checkpoint after every durable receipt.
+Use cron, a Kubernetes Job, or another external scheduler to run the command periodically.
+
+## Embed the lifecycle in a worker
+
+Use the generic remote lifecycle when a deployment needs custom supervision or schedules multiple bindings:
 
 ```python
-import asyncio
+from powercontext.client import PowerContextClient, RemoteConnectorWorker
+from powercontext.sources import ConnectorBinding, SourceDefinitionRegistry
+from powercontext_connector_opendal import (
+    TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION,
+    OpenDALTextFileConnector,
+)
 
-from powercontext.builtin.connectors import OpenDALTextFileConnector
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
-from powercontext.sources import ConnectorBinding
+connector = OpenDALTextFileConnector.from_service(
+    "fs",
+    source_namespace="project-docs",
+    root="docs",
+    storage_options={"root": "/absolute/path/to/project"},
+)
+binding = ConnectorBinding(
+    scope_id="project:example",
+    binding_id="project-docs",
+    connector_name=connector.name,
+    connector_version=connector.version,
+)
+registry = SourceDefinitionRegistry((TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION,))
 
-
-async def main() -> None:
-    connector = OpenDALTextFileConnector.from_service(
-        "fs",
-        source_namespace="project-docs",
-        root="docs",
-        storage_options={"root": "/absolute/path/to/project"},
-    )
-    binding = ConnectorBinding(
-        scope_id="project:example",
-        binding_id="project-docs",
-        connector_name=connector.name,
-        connector_version=connector.version,
-    )
-    config = BuiltinConfig(
-        database=SQLiteConfig(url="sqlite+aiosqlite:///powercontext.db"),
-    )
-
-    async with open_builtin_contexts(config) as contexts:
-        result = await contexts.run_connector(connector, binding)
-        print(result.model_dump_json(indent=2))
-
-
-asyncio.run(main())
+async with PowerContextClient("http://127.0.0.1:8765") as client:
+    result = await RemoteConnectorWorker(client=client, registry=registry).run(connector, binding)
 ```
 
-Use a different OpenDAL service and its backend options for remote storage. `storage_options` are runtime-only and are
-not copied into Source payloads or checkpoints.
+## Runtime semantics
 
-## Interpret the result
+Each item outcome is `accepted`, `replayed`, `rejected`, or `failed`. The checkpoint advances only when the run
+completes without rejected or failed items. Otherwise the prior checkpoint remains, and the next run safely retries
+from it. Files whose digest matches the committed checkpoint are skipped.
 
-An item outcome reports one of four states:
+Accepted Sources enter the target Scope's Source journal. The worker also computes the standard
+`powercontext.text-evidence` projection, so Memory consumers need not understand the native `text-file-snapshot`
+schema. A Connector run does not create Memory directly; the normal source-window flush or schedule still does that.
 
-- `accepted`: the Source was durably stored;
-- `replayed`: the sink recognized an already accepted Source;
-- `rejected`: the provider item could not satisfy the Source Definition, such as invalid UTF-8;
-- `failed`: the item could not be read or stored safely.
-
-The checkpoint advances only after every selected item is accepted and the run completes. A rejected or failed item
-leaves the previous checkpoint in place, so the next run safely retries the scan. Files whose digest matches the
-committed checkpoint are skipped.
-
-Accepted Sources enter the same scoped Source journal used by Memory extraction. When the runtime has a Memory
-candidate pipeline, its normal source-window flush or schedule can consume these Sources through the shared
-`powercontext.builtin.text-evidence` projection. Connector completion does not itself create Memory.
-
-## Current limits
+## Limits
 
 - The default patterns select Markdown, text, reStructuredText, and AsciiDoc files.
-- A run selects at most 10,000 files and reads at most 2 MiB per file unless configured otherwise.
+- A run selects at most 10,000 files and reads at most 2 MiB per file by default.
 - Only UTF-8 content is accepted.
-- Changed bytes produce a new exact snapshot Source; earlier snapshots remain readable for lineage.
+- Changed content creates a new exact snapshot Source; earlier snapshots remain available.
 - A full scan removes missing paths from the next checkpoint but does not delete Sources or claim authoritative
   deletion.
-- The Connector does not provide a change feed. Schedule repeated runs to observe later changes.
+- The Connector does not provide a change feed; an external scheduler must run the worker again to observe changes.

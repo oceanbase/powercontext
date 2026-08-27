@@ -142,6 +142,15 @@ class InvalidSourceProjectionError(SourceError, TypeError):
         super().__init__(f"invalid Source projection {projection_name!r} {field}: {detail}")
 
 
+class InvalidSourceObservationError(SourceError, ValueError):
+    """Raised when a worker-projected observation violates its registered manifest."""
+
+    def __init__(self, issue: str, detail: str) -> None:
+        self.issue = issue
+        self.detail = detail
+        super().__init__(f"invalid Source observation {issue}: {detail}")
+
+
 class ConnectorError(PowerContextError):
     """Base exception for Connector contracts and run lifecycle failures."""
 

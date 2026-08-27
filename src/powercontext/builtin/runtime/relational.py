@@ -17,11 +17,15 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 from uuid import uuid4
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
+from jsonschema.protocols import Validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -78,6 +82,7 @@ from powercontext.builtin.persistence.handoff import (
 )
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
+from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
@@ -88,7 +93,14 @@ from powercontext.builtin.review.generation import (
     SkillGenerationOrigin,
 )
 from powercontext.builtin.review.service import ReviewService
-from powercontext.builtin.runtime.models import ExperienceIncubationResult, MemoryFlushResult
+from powercontext.builtin.runtime.models import (
+    CommitConnectorCheckpoint,
+    ConnectorCheckpointState,
+    ExperienceIncubationResult,
+    MemoryFlushResult,
+    SourceReceipt,
+    SubmitSourceObservation,
+)
 from powercontext.builtin.runtime.prepared_context import PreparedContextBuild
 from powercontext.builtin.runtime.protocols import BuiltinTriggers
 from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
@@ -113,17 +125,24 @@ from powercontext.builtin.triggers import (
     SourceWindowTrigger,
 )
 from powercontext.context import PowerContext
-from powercontext.errors import ArtifactNotFoundError, SourceConflictError, SourceNotFoundError
+from powercontext.errors import (
+    ArtifactNotFoundError,
+    InvalidSourceDefinitionError,
+    InvalidSourceObservationError,
+    SourceConflictError,
+    SourceDefinitionNotFoundError,
+    SourceNotFoundError,
+)
 from powercontext.sources import (
-    CatalogConnectorSourceSink,
-    Connector,
+    TEXT_EVIDENCE_PROJECTION_KEY,
     ConnectorBinding,
-    ConnectorLifecycle,
-    ConnectorRunResult,
+    ProjectedSource,
     Source,
     SourceCatalog,
+    SourceDefinitionManifest,
     SourceDefinitionRegistry,
     SourceRef,
+    TextEvidence,
 )
 
 IdFactory = Callable[[str], str]
@@ -137,6 +156,7 @@ class _Repositories:
     artifacts: ArtifactRepository
     candidates: CandidateRepository
     connector_checkpoints: ConnectorCheckpointRepository
+    source_definitions: SourceDefinitionManifestRepository
     cursors: SourceCursorRepository
     external_skills: ExternalSkillRepository
     statistics: StatisticsRepository
@@ -324,6 +344,7 @@ class RelationalContexts:
                 Skill.family: SkillContent,
             }),
             connector_checkpoints=ConnectorCheckpointRepository(),
+            source_definitions=SourceDefinitionManifestRepository(),
             cursors=SourceCursorRepository(),
             external_skills=ExternalSkillRepository(),
             statistics=StatisticsRepository(),
@@ -379,28 +400,69 @@ class RelationalContexts:
 
         return self._services_for(scope_id).statistics()
 
-    async def run_connector(
+    async def register_source_definition(
         self,
-        connector: Connector,
-        binding: ConnectorBinding,
+        manifest: SourceDefinitionManifest,
         /,
-    ) -> ConnectorRunResult:
-        """Run one Connector binding with durable Sources and checkpoint ordering."""
+    ) -> SourceDefinitionManifest:
+        """Register one immutable declarative Definition supplied by a worker."""
 
-        services = self._services_for(binding.scope_id)
+        _validate_source_definition_manifest(manifest)
+        try:
+            async with self.database.transaction() as connection:
+                stored = await self.repositories.source_definitions.register(connection, manifest)
+        except StoredPayloadConflictError as error:
+            raise SourceConflictError("definition-manifest", error.identity) from None
+        return stored.manifest
+
+    async def connector_checkpoint(self, binding: ConnectorBinding, /) -> ConnectorCheckpointState:
+        """Read the checkpoint owned by one remote Connector binding."""
+
+        checkpoint = await RelationalConnectorCheckpointStore(
+            self.database,
+            self.repositories.connector_checkpoints,
+        ).load(binding)
+        return ConnectorCheckpointState(binding=binding, checkpoint=checkpoint)
+
+    async def submit_source_observation(
+        self,
+        request: SubmitSourceObservation,
+        /,
+    ) -> SourceReceipt:
+        """Validate and durably append one worker-materialized Source observation."""
+
+        source = request.source
+        try:
+            async with self.database.transaction() as connection:
+                stored_manifest = await self.repositories.source_definitions.get(
+                    connection,
+                    source.source_type,
+                    source.definition_version,
+                )
+        except RepositoryNotFoundError:
+            raise SourceDefinitionNotFoundError(source.source_type, source.definition_version) from None
+        _validate_projected_source(source, stored_manifest.manifest)
+        services = self._services_for(request.binding.scope_id)
         source_store, source_catalog = services.sources()
-        lifecycle = ConnectorLifecycle(
-            sink=CatalogConnectorSourceSink(
-                scope_id=services.scope_id,
-                catalog=source_catalog,
-                store=source_store,
-            ),
-            checkpoints=RelationalConnectorCheckpointStore(
-                self.database,
-                self.repositories.connector_checkpoints,
-            ),
+        stored = await source_store.add(source)
+        return SourceReceipt(
+            source_ref=source_catalog.as_ref(stored),
+            sequence=await source_store.position(stored),
         )
-        return await lifecycle.run(connector, binding)
+
+    async def commit_connector_checkpoint(
+        self,
+        request: CommitConnectorCheckpoint,
+        /,
+    ) -> ConnectorCheckpointState:
+        """Commit one worker checkpoint only when its starting value still matches."""
+
+        store = RelationalConnectorCheckpointStore(
+            self.database,
+            self.repositories.connector_checkpoints,
+        )
+        await store.save(request.binding, request.checkpoint, expected=request.expected)
+        return ConnectorCheckpointState(binding=request.binding, checkpoint=request.checkpoint)
 
     async def estimate_recall_tokens(
         self,
@@ -619,6 +681,8 @@ class _RelationalSources:
         )
 
     def _as_ref(self, source: Source) -> SourceRef:
+        if isinstance(source, ProjectedSource):
+            return SourceRef(source_type=source.source_type, source_id=source.name)
         definition = self._registry.definition_for_source(source)
         return SourceRef(source_type=definition.name, source_id=source.name)
 
@@ -883,6 +947,67 @@ def _validate_experience_plans(
             "experience-incubate",
             "pipeline cited a Source outside the current incubation window",
         )
+
+
+def _validate_source_definition_manifest(manifest: SourceDefinitionManifest) -> None:
+    if len(manifest.model_dump_json(by_alias=True).encode()) > 64 * 1024:
+        raise InvalidSourceDefinitionError(type(manifest), "manifest", "must not exceed 64 KiB")
+    try:
+        BUILTIN_SOURCE_REGISTRY.definition_for_name(manifest.name)
+    except SourceDefinitionNotFoundError:
+        pass
+    else:
+        raise InvalidSourceDefinitionError(type(manifest), "name", "must not replace a built-in Source Definition")
+    _json_schema_validator(manifest.name, manifest.source_schema)
+    standard_text_schema = TextEvidence.model_json_schema()
+    for projection in manifest.projections:
+        _json_schema_validator(projection.key.name, projection.schema_)
+        if projection.key == TEXT_EVIDENCE_PROJECTION_KEY and projection.schema_ != standard_text_schema:
+            raise InvalidSourceDefinitionError(
+                type(manifest),
+                "projection",
+                f"{projection.key.name!r} must use the standard schema",
+            )
+
+
+def _validate_projected_source(source: ProjectedSource, manifest: SourceDefinitionManifest) -> None:
+    if source.source_type != manifest.name or source.definition_version != manifest.version:
+        raise InvalidSourceObservationError("definition", "does not match the registered manifest identity")
+    if source.definition_fingerprint != manifest.fingerprint:
+        raise InvalidSourceObservationError("fingerprint", "does not match the registered manifest")
+    if len(source.model_dump_json().encode()) > 4 * 1024 * 1024:
+        raise InvalidSourceObservationError("size", "must not exceed 4 MiB")
+    _validate_schema_value(manifest.name, manifest.source_schema, source.payload)
+
+    declarations = {projection.key: projection for projection in manifest.projections}
+    supplied = {projection.key: projection.value for projection in source.projections}
+    if declarations.keys() != supplied.keys():
+        raise InvalidSourceObservationError("projections", "must exactly match the registered manifest")
+    for key, declaration in declarations.items():
+        value = supplied[key]
+        _validate_schema_value(key.name, declaration.schema_, value)
+        if key == TEXT_EVIDENCE_PROJECTION_KEY:
+            evidence = TextEvidence.model_validate(value)
+            if evidence.source_type != source.source_type or evidence.source_id != source.name:
+                raise InvalidSourceObservationError(
+                    "text-evidence",
+                    "source identity does not match the observation envelope",
+                )
+
+
+def _json_schema_validator(name: str, schema: Mapping[str, Any]) -> Validator:
+    try:
+        Draft202012Validator.check_schema(schema)
+        return Draft202012Validator(schema)
+    except SchemaError as error:
+        raise InvalidSourceDefinitionError(type(schema), "schema", f"{name!r} is not valid JSON Schema") from error
+
+
+def _validate_schema_value(name: str, schema: Mapping[str, Any], value: object) -> None:
+    try:
+        _json_schema_validator(name, schema).validate(value)
+    except JsonSchemaValidationError as error:
+        raise InvalidSourceObservationError("schema", f"value does not match {name!r}") from error
 
 
 def _scoped_id_factory(memory_artifact_id: str, delegate: IdFactory | None) -> IdFactory:
