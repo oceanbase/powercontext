@@ -263,7 +263,7 @@ Discovery 不进入 Review。显式调用 `import_external_skill` 并提供精�
 
 ## HTTP 和 MCP
 
-Server 在 `/scalar` 提供 Scalar API reference，在 `/openapi.json` 提供 OpenAPI 文档，在 `/health/ready`
+Server 在 `/docs` 提供 Scalar API reference，在 `/openapi.json` 提供 OpenAPI 文档，在 `/health/ready`
 提供就绪检查，在 `/v1/capabilities` 提供能力信息，并默认在 `/mcp` 提供 Streamable HTTP MCP。启用 Bearer
 authentication 后，Scalar reference 仍可公开访问，但其中描述的 operation 继续遵守各自的认证要求。HTTP 是
 完整应用契约，MCP 是面向 Agent 的 Memory 与 Candidate Review operation 子集。五个 Candidate Review operation

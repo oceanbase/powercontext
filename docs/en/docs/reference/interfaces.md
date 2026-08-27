@@ -285,7 +285,7 @@ want the supplied SQLite or OceanBase-backed implementation in the same process.
 
 ## HTTP and MCP
 
-The Server publishes a Scalar API reference at `/scalar`, its OpenAPI document at `/openapi.json`, readiness at
+The Server publishes a Scalar API reference at `/docs`, its OpenAPI document at `/openapi.json`, readiness at
 `/health/ready`, capabilities at `/v1/capabilities`, and Streamable HTTP MCP at `/mcp` by default. The Scalar reference
 remains public when bearer authentication is enabled, but the operations it describes retain their normal authentication
 requirements. HTTP is the complete application contract. MCP is a curated agent-facing projection of Memory and

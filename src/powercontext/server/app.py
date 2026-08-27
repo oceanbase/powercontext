@@ -573,6 +573,8 @@ def create_app(
         title=API_TITLE,
         version=API_VERSION,
         description=API_DESCRIPTION,
+        docs_url=None,
+        redoc_url=None,
         lifespan=lifespan,
         middleware=list(middleware),
     )
@@ -689,7 +691,7 @@ def create_app(
     _add_route(app, REJECT_ARTIFACT_CANDIDATE, reject_artifact_candidate)
     _add_route(app, REVISE_ARTIFACT_CANDIDATE, revise_artifact_candidate)
     app.add_api_route(
-        "/scalar",
+        "/docs",
         scalar_api_reference,
         include_in_schema=False,
         methods=["GET"],

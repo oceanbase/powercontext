@@ -270,7 +270,8 @@ def test_liveness_adds_a_server_owned_request_id() -> None:
 
 
 def test_scalar_reference_embeds_the_canonical_openapi_contract() -> None:
-    response = TestClient(create_app()).get("/scalar")
+    client = TestClient(create_app())
+    response = client.get("/docs")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
@@ -279,6 +280,7 @@ def test_scalar_reference_embeds_the_canonical_openapi_contract() -> None:
     assert '"/v1/context/prepare"' in response.text
     assert "@scalar/api-reference@1.66.1" in response.text
     assert "proxyUrl" not in response.text
+    assert client.get("/scalar").status_code == 404
 
 
 def test_server_factory_optionally_requires_bearer_authentication() -> None:
@@ -296,7 +298,7 @@ def test_server_factory_optionally_requires_bearer_authentication() -> None:
     protected_metrics = client.get("/metrics")
     accepted_metrics = client.get("/metrics", headers={"Authorization": "Bearer server-secret"})
     liveness = client.get("/health/live")
-    scalar_reference = client.get("/scalar")
+    scalar_reference = client.get("/docs")
 
     assert missing.status_code == 401
     assert missing.headers["WWW-Authenticate"] == "Bearer"
