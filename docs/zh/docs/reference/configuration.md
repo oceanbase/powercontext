@@ -52,13 +52,13 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | 未设置 | Scheduler 间隔；未设置即不启用 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 用于 Memory extraction 的 Pydantic AI 模型标识 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider 默认值 | 自定义 generation provider base URL |
-| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | generation request header JSON object；value 按 secret 处理 |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | generation client 静态 header JSON object；value 按 secret 处理 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS` | `{}` | Pydantic AI generation model settings JSON object |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation 超时 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS` | `2` | 单次 generation operation 的最大 model request 数量 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | 未设置 | Pydantic AI embedding model 标识 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL` | provider 默认值 | 自定义 OpenAI-compatible embeddings base URL |
-| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | embedding request header JSON object；value 按 secret 处理 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | embedding client 静态 header JSON object；value 按 secret 处理 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL_SETTINGS` | `{}` | Pydantic AI embedding model settings JSON object |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID` | 未设置 | 稳定的 embedding deployment identity |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION` | 未设置 | embedding vector dimension |
@@ -67,7 +67,7 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | 单次 embedding 请求最多发送的文本数量 |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` | generation model | LLM rerank 可选的独立 Pydantic AI model |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_BASE_URL` | 继承值或 provider 默认值 | 自定义 LLM reranker provider base URL |
-| `POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS` | `{}` | LLM reranker request header JSON object；value 按 secret 处理 |
+| `POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS` | `{}` | LLM reranker client 静态 header JSON object；value 按 secret 处理 |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL_SETTINGS` | `{}` | Pydantic AI reranker model settings JSON object |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_TIMEOUT_SECONDS` | generation 超时 | LLM reranker 超时 |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | 单次 rerank operation 的最大 model request 数量 |

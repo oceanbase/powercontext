@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal, Self
 
-from pydantic import AnyHttpUrl, BaseModel, Field, JsonValue, SecretStr, field_validator, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, JsonValue, SecretStr, field_validator, model_validator
 
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.artifacts.skill import AgentSkillTarget, CodexSkillRoot
@@ -49,6 +49,8 @@ class HandoffReportConfig(BaseModel):
 
 class InferenceConfig(BaseModel):
     """Optional generation, embedding, and LLM reranking configuration."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     generation_model: str | None = None
     generation_base_url: AnyHttpUrl | None = None

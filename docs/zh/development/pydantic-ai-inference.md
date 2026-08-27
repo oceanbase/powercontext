@@ -57,14 +57,21 @@ export POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS='{"Authorization":"Bearer re
 export POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL_SETTINGS='{"max_tokens":256}'
 ```
 
-header 和 model settings 都使用 JSON object。settings model 会将 header value 作为 secret 处理。不要在 model
-settings 中配置 `extra_headers`；使用独立的 headers 变量才能保留 secret 脱敏语义。其余 model settings 由
-Pydantic AI 传递给所选 provider。reranker 始终将 `temperature` 固定为零。自定义 embedding base URL 目前要求
-服务实现 OpenAI-compatible embeddings 接口。
+header 和 model settings 都使用 JSON object。settings model 会将 header value 作为 secret 处理，并将它们作为
+workload provider client 的静态 header；这些值不会进入 Pydantic AI request settings。不要在 model settings 中配置
+`extra_headers`；使用独立的 headers 变量才能保留配置与日志脱敏语义。其余 model settings 由 Pydantic AI 传递给
+所选 provider。reranker 始终将 `temperature` 固定为零。自定义 embedding base URL 目前要求服务实现
+OpenAI-compatible embeddings 接口。
+
+base URL 可以包含 gateway path prefix，但具体 operation suffix 仍由所选 Pydantic AI provider 决定，例如
+`/chat/completions`、`/responses` 或 `/embeddings`；不支持任意改写 operation path。
+自定义 base URL 或静态 header 时必须使用显式的 OpenAI- 或 Anthropic-compatible model identifier，PowerContext
+才能创建对应的 provider client。
 
 未设置 `RERANK_MODEL` 时，LLM rerank 复用 generation model 和 base URL；仍可通过 reranker headers 和 model
-settings 扩展或覆盖 generation request settings。独立的 reranker base URL 必须同时配置显式 reranker model。
-reranker timeout 和 request limit 未显式设置时继承 generation 的对应配置。
+settings 扩展或覆盖 generation 配置。覆盖 header 时会为 rerank workload 创建独立 provider client，但保留
+generation model identifier 和 base URL。独立的 reranker base URL 必须同时配置显式 reranker model。reranker
+timeout 和 request limit 未显式设置时继承 generation 的对应配置。
 
 不需要自定义 base URL 或 header 时，provider credential 仍使用所选 Pydantic AI provider 支持的环境变量。
 

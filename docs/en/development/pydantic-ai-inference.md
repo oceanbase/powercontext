@@ -58,15 +58,23 @@ export POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS='{"Authorization":"Bearer re
 export POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL_SETTINGS='{"max_tokens":256}'
 ```
 
-The header and model-settings values are JSON objects. Header values are treated as secrets by settings models. Do not
-put `extra_headers` inside a model-settings object; use the dedicated headers variable so secret redaction remains
-effective. Pydantic AI passes the remaining model settings through to the selected provider. The reranker always fixes
-`temperature` to zero. A custom embedding base URL currently requires the OpenAI-compatible embeddings interface.
+The header and model-settings values are JSON objects. Header values are treated as secrets by settings models and are
+installed as static headers on the workload's provider client. They are not included in Pydantic AI request settings.
+Do not put `extra_headers` inside a model-settings object; use the dedicated headers variable so configuration and log
+redaction remain effective. Pydantic AI passes the remaining model settings through to the selected provider. The
+reranker always fixes `temperature` to zero. A custom embedding base URL currently requires the OpenAI-compatible
+embeddings interface.
+
+A base URL may contain a gateway path prefix. The selected Pydantic AI provider still owns the operation suffix, such
+as `/chat/completions`, `/responses`, or `/embeddings`; arbitrary operation-path rewriting is not supported.
+Custom base URLs and static headers require an explicit OpenAI- or Anthropic-compatible model identifier so
+PowerContext can construct the corresponding provider client.
 
 When `RERANK_MODEL` is unset, LLM reranking reuses the generation model and base URL. Reranker headers and model
-settings can still extend or override the generation request settings. A separate reranker base URL requires an
-explicit reranker model. The reranker timeout and request limit inherit their generation counterparts unless they are
-set explicitly.
+settings can still extend or override the generation configuration. A header override creates a separate provider
+client for the rerank workload while retaining the generation model identifier and base URL. A separate reranker base
+URL requires an explicit reranker model. The reranker timeout and request limit inherit their generation counterparts
+unless they are set explicitly.
 
 When no custom base URL or headers are needed, provider credentials remain in the environment variables understood by
 the selected Pydantic AI provider.

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -90,7 +91,7 @@ class BuiltinConfigurationError(RuntimeError):
         messages = {
             "external-skill-host": "external Skill roots require a host identity",
             "inference-endpoint-provider": (
-                "custom inference base URLs require an OpenAI- or Anthropic-compatible model identifier"
+                "custom inference endpoints require an OpenAI- or Anthropic-compatible model identifier"
             ),
             "inference-profile": "validated inference profile is incomplete",
             "memory-reranker": "Memory reranking requires a configured generation or rerank model, or injected reranker",
@@ -467,13 +468,11 @@ async def _generation_pipelines(
         generation_provider_model, generation_model = await _open_pydantic_ai_model(
             settings.generation_model,
             base_url=settings.generation_base_url,
+            headers=settings.generation_headers,
             resources=resources,
             instrumentation=instrumentation,
         )
-        generation_request_settings = cast(
-            ModelSettings,
-            _request_settings(settings.generation_model_settings, settings.generation_headers),
-        )
+        generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings))
         generation_limits = InferenceLimits(
             timeout_seconds=settings.generation_timeout_seconds,
             max_requests=settings.generation_max_requests,
@@ -548,29 +547,33 @@ async def _generation_pipelines(
     if runtime.memory_rerank_enabled:
         rerank_provider_model = generation_provider_model
         rerank_model = generation_model
-        inherited_generation_settings = settings.rerank_model is None
-        if settings.rerank_model is not None:
+        inherits_generation = settings.rerank_model is None
+        rerank_headers = (
+            _merge_headers(settings.generation_headers, settings.rerank_headers)
+            if inherits_generation
+            else settings.rerank_headers
+        )
+        separate_rerank_model = settings.rerank_model is not None or bool(settings.rerank_headers)
+        if separate_rerank_model:
+            rerank_model_name = settings.rerank_model or settings.generation_model
+            if rerank_model_name is None:
+                raise BuiltinConfigurationError("memory-reranker")
             rerank_provider_model, rerank_model = await _open_pydantic_ai_model(
-                settings.rerank_model,
-                base_url=settings.rerank_base_url,
+                rerank_model_name,
+                base_url=settings.rerank_base_url
+                if settings.rerank_model is not None
+                else settings.generation_base_url,
+                headers=rerank_headers,
                 resources=resources,
                 instrumentation=instrumentation,
             )
         if rerank_provider_model is not None and rerank_model is not None:
             rerank_values = (
                 settings.generation_model_settings | settings.rerank_model_settings
-                if inherited_generation_settings
+                if inherits_generation
                 else settings.rerank_model_settings
             )
-            rerank_headers = (
-                _merge_headers(settings.generation_headers, settings.rerank_headers)
-                if inherited_generation_settings
-                else settings.rerank_headers
-            )
-            rerank_request_settings = cast(
-                ModelSettings,
-                _request_settings(rerank_values, rerank_headers),
-            )
+            rerank_request_settings = cast(ModelSettings, dict(rerank_values))
             rerank_request_settings = merge_model_settings(
                 rerank_request_settings,
                 ModelSettings(temperature=0.0),
@@ -589,7 +592,7 @@ async def _generation_pipelines(
             )
             generated_reranker = LLMMemoryReranker(UsageReportingStructuredGenerator(rerank_generator))
 
-            if not inherited_generation_settings or settings.rerank_headers or settings.rerank_model_settings:
+            if separate_rerank_model or settings.rerank_model_settings:
 
                 async def probe_rerank() -> None:
                     await probe_pydantic_ai_model(
@@ -616,18 +619,27 @@ async def _open_pydantic_ai_model(
     model_name: str,
     *,
     base_url: AnyHttpUrl | None,
+    headers: Mapping[str, SecretStr],
     resources: AsyncExitStack,
     instrumentation: InstrumentationSettings | None,
 ) -> tuple[Model, Model]:
     from pydantic_ai.models import infer_model
     from pydantic_ai.models.instrumented import InstrumentedModel
 
-    if base_url is not None and ":" not in model_name:
+    if (base_url is not None or headers) and ":" not in model_name:
         raise BuiltinConfigurationError("inference-endpoint-provider")
     inferred_model = (
         infer_model(model_name)
-        if base_url is None
-        else infer_model(model_name, provider_factory=_provider_factory(base_url, workload="generation"))
+        if base_url is None and not headers
+        else infer_model(
+            model_name,
+            provider_factory=_provider_factory(
+                base_url,
+                headers,
+                workload="generation",
+                resources=resources,
+            ),
+        )
     )
     provider_model = await resources.enter_async_context(inferred_model)
     model = provider_model if instrumentation is None else InstrumentedModel(provider_model, instrumentation)
@@ -636,26 +648,61 @@ async def _open_pydantic_ai_model(
 
 def _provider_factory(
     base_url: AnyHttpUrl | None,
+    headers: Mapping[str, SecretStr],
     *,
     workload: Literal["generation", "embedding"],
+    resources: AsyncExitStack,
 ) -> Callable[[str], Provider[Any]]:
     from pydantic_ai.providers import infer_provider
 
-    if base_url is None:
+    if base_url is None and not headers:
         return infer_provider
 
     from pydantic_ai.providers.openai import OpenAIProvider
 
     def create_provider(provider_name: str) -> Provider[Any]:
         if provider_name in {"openai", "openai-chat", "openai-responses"}:
+            if headers:
+                from openai import AsyncOpenAI
+
+                client = AsyncOpenAI(
+                    base_url=None if base_url is None else str(base_url),
+                    api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
+                    default_headers=_resolve_headers(headers),
+                )
+                resources.push_async_callback(client.close)
+                return OpenAIProvider(openai_client=client)
             return OpenAIProvider(base_url=str(base_url))
         if provider_name == "anthropic" and workload == "generation":
+            from anthropic import AsyncAnthropic
             from pydantic_ai.providers.anthropic import AnthropicProvider
 
+            if headers:
+                default_headers = _resolve_headers(headers)
+                api_key = _pop_header(default_headers, "x-api-key")
+                client = AsyncAnthropic(
+                    base_url=None if base_url is None else str(base_url),
+                    api_key=api_key or os.getenv("ANTHROPIC_API_KEY") or "api-key-not-set",
+                    default_headers=default_headers,
+                )
+                resources.push_async_callback(client.close)
+                return AnthropicProvider(anthropic_client=client)
             return AnthropicProvider(base_url=str(base_url), api_key="api-key-not-set")
         raise BuiltinConfigurationError("inference-endpoint-provider")
 
     return create_provider
+
+
+def _resolve_headers(headers: Mapping[str, SecretStr]) -> dict[str, str]:
+    return {name: value.get_secret_value() for name, value in headers.items()}
+
+
+def _pop_header(headers: dict[str, str], name: str) -> str | None:
+    expected = name.casefold()
+    for existing_name in headers:
+        if existing_name.casefold() == expected:
+            return headers.pop(existing_name)
+    return None
 
 
 def _merge_headers(*values: Mapping[str, SecretStr]) -> dict[str, SecretStr]:
@@ -669,16 +716,6 @@ def _merge_headers(*values: Mapping[str, SecretStr]) -> dict[str, SecretStr]:
             merged[name] = value
             names[normalized_name] = name
     return merged
-
-
-def _request_settings(
-    values: Mapping[str, JsonValue],
-    headers: Mapping[str, SecretStr],
-) -> dict[str, object]:
-    resolved: dict[str, object] = dict(values)
-    if headers:
-        resolved["extra_headers"] = {name: value.get_secret_value() for name, value in headers.items()}
-    return resolved
 
 
 async def _embedding_models(
@@ -696,7 +733,12 @@ async def _embedding_models(
     from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIEmbeddingModel
 
     providers: list[Provider[Any]] = []
-    create_provider = _provider_factory(settings.embedding_base_url, workload="embedding")
+    create_provider = _provider_factory(
+        settings.embedding_base_url,
+        settings.embedding_headers,
+        workload="embedding",
+        resources=resources,
+    )
 
     def provider_factory(provider_name: str) -> Provider[Any]:
         provider = create_provider(provider_name)
@@ -714,10 +756,7 @@ async def _embedding_models(
         normalization=settings.embedding_normalization,
     )
     limits = InferenceLimits(timeout_seconds=settings.embedding_timeout_seconds)
-    embedding_settings = cast(
-        EmbeddingSettings,
-        _request_settings(settings.embedding_model_settings, settings.embedding_headers),
-    )
+    embedding_settings = cast(EmbeddingSettings, dict(settings.embedding_model_settings))
 
     def adapter(instrument: InstrumentationSettings | bool | None) -> EmbeddingModel:
         return PydanticAIEmbeddingModel(

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -166,7 +167,22 @@ def test_inference_settings_keep_headers_out_of_model_settings() -> None:
         )
 
 
-def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(tmp_path: Path) -> None:
+def test_inference_settings_hide_header_values_in_validation_errors() -> None:
+    with pytest.raises(ValidationError) as captured:
+        InferenceConfig(
+            generation_model="openai-chat:generator",
+            generation_headers={"Bad:Name": SecretStr("validation-secret")},
+        )
+
+    assert "validation-secret" not in str(captured.value)
+
+
+def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="openai._base_client")
+
     async def scenario() -> None:
         with (
             _model_server() as (generation_server, generation_url),
@@ -238,5 +254,10 @@ def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(t
                 assert rerank_request["body"]["top_p"] == 0.25
                 assert rerank_request["body"]["temperature"] == 0.0
                 assert rerank_request["body"]["route"] == "rerank"
+
+            log_output = "\n".join(record.getMessage() for record in caplog.records)
+            assert "generation-secret" not in log_output
+            assert "embedding-secret" not in log_output
+            assert "rerank-secret" not in log_output
 
     asyncio.run(scenario())
