@@ -263,11 +263,13 @@ Discovery 不进入 Review。显式调用 `import_external_skill` 并提供精�
 
 ## HTTP 和 MCP
 
-Server 在 `/openapi.json` 提供 OpenAPI 文档，在 `/health/ready` 提供就绪检查，在 `/v1/capabilities`
-提供能力信息，并默认在 `/mcp` 提供 Streamable HTTP MCP。HTTP 是完整应用契约，MCP 是面向 Agent 的
-Memory 与 Candidate Review operation 子集。五个 Candidate Review operation 通过 HTTP 和 MCP 使用相同的
-validation、`expected_version` 并发校验和 approval transaction。Experience/Skill generation、exact read、
-external Registry operation 和低阶 proposal operation 仍只通过 HTTP 提供。
+Server 在 `/scalar` 提供 Scalar API reference，在 `/openapi.json` 提供 OpenAPI 文档，在 `/health/ready`
+提供就绪检查，在 `/v1/capabilities` 提供能力信息，并默认在 `/mcp` 提供 Streamable HTTP MCP。启用 Bearer
+authentication 后，Scalar reference 仍可公开访问，但其中描述的 operation 继续遵守各自的认证要求。HTTP 是
+完整应用契约，MCP 是面向 Agent 的 Memory 与 Candidate Review operation 子集。五个 Candidate Review operation
+通过 HTTP 和 MCP 使用相同的 validation、`expected_version` 并发校验和 approval transaction。
+Experience/Skill generation、exact read、external Registry operation 和低阶 proposal operation 仍只通过 HTTP
+提供。
 所有检查通过时 readiness 为 HTTP 200 的 `ready`；只有已配置的推理检查失败时为 HTTP 200 的 `degraded`；
 Runtime 或数据库失败时为 HTTP 503 的 `not_ready`。依赖检查使用 `ready`、`unavailable`、`timeout` 或
 `misconfigured`；有意不绑定 Runtime 时，`runtime` 检查使用 `not_ready`。

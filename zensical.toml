@@ -40,6 +40,7 @@ nav = [
             { "Reference" = [
                 { "Interfaces" = "en/docs/reference/interfaces.md" },
                 { "Configuration" = "en/docs/reference/configuration.md" },
+                { "HTTP API Reference" = "api/index.html" },
             ] },
         ] },
         { "Development" = [
@@ -48,7 +49,7 @@ nav = [
             { "Pydantic AI Inference" = "en/development/pydantic-ai-inference.md" },
             { "Remote Access Implementation" = "en/development/remote-access-implementation.md" },
             { "Server Web UI" = "en/development/server-web-ui.md" },
-            { "API Reference" = "en/modules.md" },
+            { "Python API Reference" = "en/modules.md" },
         ] },
         { "Blog" = [
             { "Overview" = "en/blog/index.md" },
@@ -115,6 +116,7 @@ nav = [
             { "参考" = [
                 { "接口" = "zh/docs/reference/interfaces.md" },
                 { "配置" = "zh/docs/reference/configuration.md" },
+                { "HTTP API 参考" = "api/index.html" },
             ] },
         ] },
         { "开发" = [
@@ -123,7 +125,7 @@ nav = [
             { "Pydantic AI 推理" = "zh/development/pydantic-ai-inference.md" },
             { "远程访问实现" = "zh/development/remote-access-implementation.md" },
             { "Server Web UI" = "zh/development/server-web-ui.md" },
-            { "API 参考" = "zh/modules.md" },
+            { "Python API 参考" = "zh/modules.md" },
         ] },
         { "博客" = [
             { "概览" = "zh/blog/index.md" },
