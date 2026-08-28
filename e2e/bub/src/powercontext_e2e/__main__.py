@@ -20,10 +20,38 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from .settings import HarnessSettings
+
+if TYPE_CHECKING:
+    from .catalog import E2ETask
+
+
+async def _run_default_acceptance(
+    tasks: tuple[E2ETask, ...],
+    *,
+    output_dir: Path,
+    settings: HarnessSettings,
+) -> bool:
+    from .catalog import select_tasks
+    from .runner import run_tasks
+
+    collect_all_passed = await run_tasks(
+        select_tasks(tasks, categories=("acceptance",)),
+        output_dir=output_dir,
+        settings=settings,
+        failure_policy="collect-all",
+    )
+    fail_fast_passed = await run_tasks(
+        select_tasks(tasks, categories=("batch:acceptance",)),
+        output_dir=output_dir / "fail-fast",
+        settings=settings,
+        failure_policy="fail-fast",
+    )
+    return collect_all_passed and fail_fast_passed
 
 
 def main() -> None:
@@ -49,6 +77,12 @@ def main() -> None:
         help="Select one category; repeat to select more than one.",
     )
     acceptance_parser.add_argument("--output", type=Path, required=True)
+    acceptance_parser.add_argument(
+        "--failure-policy",
+        choices=("collect-all", "fail-fast"),
+        default="collect-all",
+        help="Continue through case failures or stop the Harbor trial at the first failed step.",
+    )
 
     rescore_parser = subparsers.add_parser("rescore")
     rescore_parser.add_argument("replay", type=Path)
@@ -66,11 +100,22 @@ def main() -> None:
 
         tasks = load_tasks(args.manifest)
         selected = select_tasks(tasks, ids=tuple(args.id), categories=tuple(args.category))
-        passed = asyncio.run(
-            run_tasks(
-                selected,
-                output_dir=args.output,
-                settings=settings,
+        passed = (
+            asyncio.run(
+                run_tasks(
+                    selected,
+                    output_dir=args.output,
+                    settings=settings,
+                    failure_policy=args.failure_policy,
+                )
+            )
+            if args.id or args.category
+            else asyncio.run(
+                _run_default_acceptance(
+                    tasks,
+                    output_dir=args.output,
+                    settings=settings,
+                )
             )
         )
     raise SystemExit(0 if passed else 1)

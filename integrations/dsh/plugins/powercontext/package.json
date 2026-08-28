@@ -34,7 +34,7 @@
     "sync:openapi": "node scripts/sync-openapi.mjs",
     "gen": "node scripts/gen-operations.mjs",
     "gen:check": "node scripts/gen-operations.mjs --check",
-    "build": "node scripts/gen-operations.mjs && tsdown",
+    "build": "node scripts/gen-operations.mjs && tsdown && node scripts/normalize-build-output.mjs",
     "prepare": "node scripts/prepare.mjs",
     "test": "vitest run --exclude=tests/e2e/**",
     "test:e2e": "vitest run tests/e2e",
@@ -82,6 +82,7 @@
     }
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
     "@types/node": "^24.3.0",
     "tsdown": "^0.16.2",
     "typescript": "^5.9.2",

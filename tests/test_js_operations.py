@@ -66,6 +66,7 @@ def test_js_operations_record_method_path_location_and_scope() -> None:
 def test_committed_js_operations_match_openapi() -> None:
     generator = _load_generator()
     doc = yaml.safe_load(generator.CONTRACT_PATH.read_text(encoding="utf-8"))
-    assert generator.GENERATED_PATH.is_file()
-    committed = generator.GENERATED_PATH.read_text(encoding="utf-8").replace("\r\n", "\n")
-    assert committed == generator.render_operations_source(doc)
+    for path in generator.GENERATED_PATHS:
+        assert path.is_file()
+        committed = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+        assert committed == generator.render_operations_source(doc)

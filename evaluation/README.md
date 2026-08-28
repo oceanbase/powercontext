@@ -1,7 +1,8 @@
 # PowerContext evaluation console
 
-This directory contains a self-progressing SWE-bench Pro OFF/ON evaluation service. The web process owns the HTTP
-API and report UI; the worker owns task execution, retries, resource cleanup, and durable recovery.
+This directory contains a self-progressing SWE-bench Pro evaluation service. A batch can run the paired OFF/ON
+experiment or only one Arm to reduce cost and latency. The web process owns the HTTP API and report UI; the worker
+owns task execution, retries, resource cleanup, and durable recovery.
 
 The service is intentionally deployment-neutral. Host names, operators, filesystem roots, optional proxy endpoints, Docker
 network ranges, credentials, and service locations are supplied by the operator. The repository does not contain a
@@ -165,14 +166,17 @@ Verify the control plane before submitting work:
 curl --fail --silent http://127.0.0.1:8787/api/health
 ```
 
-Open `http://127.0.0.1:8787/`, choose `swebench-pro-stability-v1`, preview the request, and confirm it. This 24-task
-set is the deployment regression suite; use it before the 731-task `swebench-pro-public-v2` set. The same bounded
-batch can be created from the CLI after Web and Worker are healthy:
+Open `http://127.0.0.1:8787/`, choose `swebench-pro-stability-v1` and an `OFF + ON`, `ON only`, or `OFF only` run.
+This 24-task set is the deployment regression suite; use it before the 731-task `swebench-pro-public-v2` set. A
+completed aggregate report can freeze any executed Arm as an immutable baseline. Reports may select multiple
+compatible baselines for historical comparison without rerunning evaluation, while the baseline library lists the
+newest saved baselines first. The same bounded batch can be created from the CLI after Web and Worker are healthy:
 
 ```bash
 uv run --project evaluation powercontext-eval swebench-pro create-batch \
   --console-url http://127.0.0.1:8787 \
   --task-set swebench-pro-stability-v1 \
+  --treatment-mode on_only \
   --powercontext-ref latest \
   --idempotency-key "stability-$(date -u +%Y%m%dT%H%M%SZ)"
 ```

@@ -21,7 +21,14 @@ from typing import Any, Literal, cast
 
 import pytest
 
+from powercontext_eval.models import Arm, TreatmentMode
 from powercontext_eval.paths import EvaluationPaths
+from powercontext_eval.web.baselines import (
+    BaselineCreate,
+    BaselineItemRecord,
+    BaselineSelection,
+    BaselineSnapshot,
+)
 from powercontext_eval.web.batches import BatchControlEventType, BatchCreate, BatchStatus
 from powercontext_eval.web.controls import BatchControlIntent, BatchPauseReason
 from powercontext_eval.web.models import (
@@ -69,6 +76,37 @@ def batch_request(key: str, *, model: str = "gpt-5.6-sol") -> BatchCreate:
         reasoning_effort="medium",
         treatment_mode="off_on",
         idempotency_key=key,
+    )
+
+
+def baseline_snapshot(*, resolved: bool) -> BaselineSnapshot:
+    return BaselineSnapshot(
+        benchmark="swebench-pro",
+        task_set="swebench-pro-public-v2",
+        instance_set_digest="d" * 64,
+        total_tasks=1,
+        resolved_tasks=int(resolved),
+        execution_failures=0,
+        model="gpt-5.6-sol",
+        reasoning_effort="medium",
+        dataset_revision="dataset-v1",
+        harness_revision="harness-v1",
+        powercontext_sha="a" * 40,
+        codex_version="0.145.0",
+        items=(
+            BaselineItemRecord(
+                baseline_id="",
+                instance_id="instance-one",
+                source_index=0,
+                source_task_id="source-task",
+                source_attempt_id="source-task.attempt-0001",
+                status=TaskStatus.SUCCEEDED,
+                resolved=resolved,
+                input_tokens=10,
+                output_tokens=5,
+                total_tokens=15,
+            ),
+        ),
     )
 
 
@@ -2021,3 +2059,76 @@ def test_batch_record_round_trips_container_env(store: TaskStore) -> None:
         "OPENROUTER_API_KEY": "sk-test",
         "POWERCONTEXT_SERVER_HTTP_PORT": "8000",
     }
+
+
+def test_baselines_are_single_arm_immutable_and_listed_newest_first(store: TaskStore) -> None:
+    source, _ = store.create_batch(batch_request("baseline-source"), ("instance_a",), now=NOW)
+    older, created = store.create_baseline(
+        BaselineCreate(
+            name="Older ON",
+            source_batch_id=source.batch_id,
+            source_arm=Arm.ON,
+            expected_report_revision=101,
+            idempotency_key="baseline-older",
+        ),
+        baseline_snapshot(resolved=False),
+        now=NOW,
+    )
+    newer, _ = store.create_baseline(
+        BaselineCreate(
+            name="Newer OFF",
+            source_batch_id=source.batch_id,
+            source_arm=Arm.OFF,
+            expected_report_revision=102,
+            idempotency_key="baseline-newer",
+        ),
+        baseline_snapshot(resolved=True),
+        now=NOW + timedelta(seconds=1),
+    )
+
+    assert created is True
+    assert [baseline.baseline_id for baseline in store.list_baselines()] == [newer.baseline_id, older.baseline_id]
+    assert store.list_baseline_items(older.baseline_id)[0].resolved is False
+    assert store.list_baseline_items(newer.baseline_id)[0].resolved is True
+
+
+def test_baseline_selections_are_multiple_and_do_not_change_batch_execution(store: TaskStore) -> None:
+    request = batch_request("single-arm-selection").model_copy(
+        update={"treatment_mode": TreatmentMode.ON_ONLY},
+    )
+    batch, _ = store.create_batch(request, ("instance_a",), now=NOW)
+    first, _ = store.create_baseline(
+        BaselineCreate(
+            name="First",
+            source_batch_id=batch.batch_id,
+            source_arm=Arm.ON,
+            expected_report_revision=1,
+            idempotency_key="selection-first",
+        ),
+        baseline_snapshot(resolved=True),
+        now=NOW,
+    )
+    second, _ = store.create_baseline(
+        BaselineCreate(
+            name="Second",
+            source_batch_id=batch.batch_id,
+            source_arm=Arm.OFF,
+            expected_report_revision=1,
+            idempotency_key="selection-second",
+        ),
+        baseline_snapshot(resolved=False),
+        now=NOW + timedelta(seconds=1),
+    )
+
+    selected = store.replace_baseline_selections(
+        batch.batch_id,
+        (
+            BaselineSelection(baseline_id=first.baseline_id, current_arm=Arm.ON),
+            BaselineSelection(baseline_id=second.baseline_id, current_arm=Arm.ON),
+        ),
+        now=NOW + timedelta(seconds=2),
+    )
+
+    assert selected == store.list_baseline_selections(batch.batch_id)
+    assert store.get_batch(batch.batch_id).request.treatment_mode is TreatmentMode.ON_ONLY
+    assert all(task.status is TaskStatus.QUEUED for task in store.list_batch_tasks(batch.batch_id))

@@ -16,11 +16,23 @@
 
 <footer class="site-footer">
   <div class="site-footer-inner">
-    <a class="footer-brand" href="{{ url_for('dashboard_home') }}" aria-label="PowerContext Dashboard">
-      <img class="brand-mark" src="{{ url_for('web_static', path='/oceanbase-logo.svg') }}" alt="">
-      <span>OceanBase</span>
-      <span class="brand-divider" aria-hidden="true">|</span>
-      <span class="brand-product">PowerContext</span>
+    <a
+      class="footer-brand"
+      href="{{ url_for(home_route) }}"
+      aria-label="PowerContext Dashboard"
+      data-i18n-aria-label="brandHomeLabel"
+    >
+      <img
+        class="brand-wordmark brand-wordmark-color"
+        src="{{ url_for('web_static', path='/powercontext-color.png') }}"
+        alt="PowerContext"
+      >
+      <img
+        class="brand-wordmark brand-wordmark-reverse"
+        src="{{ url_for('web_static', path='/powercontext-reverse.png') }}"
+        alt=""
+        aria-hidden="true"
+      >
     </a>
     <div class="footer-maintainer" data-i18n="maintainedBy">Maintained by OceanBase.</div>
   </div>

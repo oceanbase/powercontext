@@ -69,7 +69,7 @@ def test_http_sdk_generates_reviewed_experience_and_managed_skill_candidates() -
                 transport=httpx.ASGITransport(app=app),
                 base_url="http://testserver",
             ) as transport:
-                client = PowerContextClient("http://testserver", http_client=transport)
+                client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
                 captured = await client.capture_content_source(
                     CaptureContentSourceRequest(
                         scope_id="project",
@@ -120,7 +120,7 @@ def test_http_generation_reports_missing_model_without_creating_a_candidate() ->
                 transport=httpx.ASGITransport(app=app),
                 base_url="http://testserver",
             ) as transport:
-                client = PowerContextClient("http://testserver", http_client=transport)
+                client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
                 captured = await client.capture_content_source(
                     CaptureContentSourceRequest(
                         scope_id="project",

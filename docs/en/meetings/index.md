@@ -1,3 +1,8 @@
+---
+template: records.html
+title: Meeting notes
+---
+
 # Meeting notes
 
 Meeting notes record project updates, demonstrations, decisions, and assigned follow-up work. They reflect the

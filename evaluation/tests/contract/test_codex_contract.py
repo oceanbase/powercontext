@@ -404,6 +404,7 @@ class TranscriptDocker:
         self,
         *,
         fail_at: str | None = None,
+        plugin_version: str = "0.1.0",
         host_identity: bytes = b"fixture-person\n",
         container_identity: bytes | None = None,
         host_tokensflow_version: bytes = b"tokensflow 1.0.16\n",
@@ -411,6 +412,7 @@ class TranscriptDocker:
     ) -> None:
         self.commands: list[tuple[str, ...]] = []
         self.fail_at = fail_at
+        self.plugin_version = plugin_version
         self.host_identity = host_identity
         self.container_identity = container_identity if container_identity is not None else host_identity
         self.host_tokensflow_version = host_tokensflow_version
@@ -481,7 +483,7 @@ class TranscriptDocker:
                         "installed": [
                             {
                                 "pluginId": "powercontext@powercontext",
-                                "version": "0.1.0",
+                                "version": self.plugin_version,
                                 "installed": True,
                                 "enabled": True,
                             }
@@ -535,10 +537,10 @@ class FakeRelay:
         self.events.append(("stop", "exact"))
 
 
-def sut_config(tmp_path: Path) -> SutConfig:
+def sut_config(tmp_path: Path, *, plugin_version: str = "0.1.0") -> SutConfig:
     manifest = tmp_path / "source/integrations/codex/plugins/powercontext/.codex-plugin/plugin.json"
     manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text(json.dumps({"name": "powercontext", "version": "0.1.0"}))
+    manifest.write_text(json.dumps({"name": "powercontext", "version": plugin_version}))
     lock = tmp_path / "source/integrations/codex/plugins/powercontext/uv.lock"
     lock.write_text("version = 1\n")
     tokensflow_binary = tmp_path / "tokensflow"
@@ -948,9 +950,9 @@ def test_plugin_list_fails_closed_after_transient_budget(tmp_path: Path, monkeyp
 
 def test_sut_transcript_has_hardening_mount_allowlist_shared_network_and_scope(tmp_path: Path) -> None:
     paths = make_paths(tmp_path)
-    docker = TranscriptDocker()
+    docker = TranscriptDocker(plugin_version="0.2.0")
     relay = FakeRelay()
-    config = sut_config(tmp_path)
+    config = sut_config(tmp_path, plugin_version="0.2.0")
     config.codex_binary.write_text("binary")
     config.uv_binary.write_text("binary")
 
@@ -1017,7 +1019,7 @@ def test_sut_transcript_has_hardening_mount_allowlist_shared_network_and_scope(t
     }
     source_provenance = json.loads((paths.result_root / "powercontext/provenance.json").read_text())
     assert source_provenance["checkout_sha"] == "a" * 40
-    assert source_provenance["plugin_version"] == "0.1.0"
+    assert source_provenance["plugin_version"] == "0.2.0"
     assert len(source_provenance["plugin_manifest_sha256"]) == 64
     evidence_command = next(command for command in transcript if "evidence" in command)
     assert "eval:run-1:on" in evidence_command
@@ -3457,11 +3459,11 @@ def test_source_head_and_manifest_are_verified_before_any_docker_command(tmp_pat
     assert docker.commands == [("git", "rev-parse", "--verify", "HEAD^{commit}")]
 
 
-def test_manifest_version_mismatch_is_rejected_before_docker(tmp_path: Path) -> None:
+def test_manifest_without_a_version_is_rejected_before_docker(tmp_path: Path) -> None:
     paths = make_paths(tmp_path)
     config = sut_config(tmp_path)
     manifest = config.source_checkout / "integrations/codex/plugins/powercontext/.codex-plugin/plugin.json"
-    manifest.write_text(json.dumps({"name": "powercontext", "version": "9.9.9"}))
+    manifest.write_text(json.dumps({"name": "powercontext"}))
     docker = TranscriptDocker()
 
     with pytest.raises(InvalidTreatment, match="manifest"):

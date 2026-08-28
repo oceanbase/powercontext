@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
@@ -28,13 +29,48 @@ from powercontext.builtin.runtime.config import (
     HandoffReportConfig,
     InferenceConfig,
     RuntimeConfig,
-    normalize_database_discriminator,
 )
-from powercontext.paths import default_database_path, sqlite_url
+from powercontext.paths import default_database_path, default_seekdb_path, sqlite_url
+from powercontext.transport import is_loopback_host
+
+_UNSAFE_BIND_MESSAGE = (
+    "A non-loopback bind requires bearer authentication; "
+    "set allow_unauthenticated_non_loopback to opt in when TLS is "
+    "terminated upstream or the network is otherwise controlled"
+)
+
+
+class UnauthenticatedNonLoopbackBindError(ValueError):
+    """Raised when a bind would expose an unauthenticated Server off loopback.
+
+    A dedicated type lets callers that assemble the settings (e.g. the CLI) recognise this
+    policy failure by identity -- via pydantic's ``ctx['error']`` -- and translate it into an
+    actionable message, without matching against the raw validation text.
+    """
+
+
+class MissingBearerTokenError(ValueError):
+    """Raised when authentication is enabled but no bearer token is configured.
+
+    Recognised by identity the same way as :class:`UnauthenticatedNonLoopbackBindError`, so the
+    CLI can point the operator at the concrete token / disable levers instead of surfacing
+    pydantic's raw validation report.
+    """
 
 
 def _default_database() -> SQLiteConfig:
     return SQLiteConfig(url=sqlite_url(default_database_path()))
+
+
+def is_unauthenticated_non_loopback_bind(
+    *,
+    host: str,
+    auth_enabled: bool,
+    allow_unauthenticated_non_loopback: bool,
+) -> bool:
+    """Return whether a bind exposes an unauthenticated Server off loopback."""
+
+    return not is_loopback_host(host) and not auth_enabled and not allow_unauthenticated_non_loopback
 
 
 class HttpConfig(BaseModel):
@@ -68,7 +104,7 @@ class BearerAuthConfig(BaseModel):
     @model_validator(mode="after")
     def require_token_when_enabled(self) -> BearerAuthConfig:
         if self.enabled and (self.token is None or not self.token.get_secret_value()):
-            raise ValueError("Bearer token is required when authentication is enabled")  # noqa: TRY003
+            raise MissingBearerTokenError("Bearer token is required when authentication is enabled")  # noqa: TRY003
         return self
 
 
@@ -88,15 +124,13 @@ class DashboardScopeConfig(BaseModel):
 
 
 class DashboardConfig(BaseModel):
-    """Optional personal Dashboard served by the local Server."""
+    """Personal Dashboard served by the local Server."""
 
-    enabled: bool = False
+    enabled: bool = True
     scopes: list[DashboardScopeConfig] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def validate_scopes(self) -> DashboardConfig:
-        if self.enabled and not self.scopes:
-            raise ValueError("Enabled Dashboard requires at least one scope")  # noqa: TRY003
         scope_ids = [scope.scope_id for scope in self.scopes]
         if len(scope_ids) != len(set(scope_ids)):
             raise ValueError("Dashboard scope IDs must be unique")  # noqa: TRY003
@@ -144,6 +178,7 @@ class ServerSettings(BaseSettings):
     http: HttpConfig = Field(default_factory=HttpConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
     auth: BearerAuthConfig = Field(default_factory=BearerAuthConfig)
+    allow_unauthenticated_non_loopback: bool = False
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     logging: ServerLoggingConfig = Field(default_factory=ServerLoggingConfig)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
@@ -154,15 +189,33 @@ class ServerSettings(BaseSettings):
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
 
-    @model_validator(mode="before")
+    @field_validator("database", mode="before")
+    @classmethod
+    def default_seekdb_database_path(cls, value: object) -> object:
+        if not isinstance(value, Mapping) or value.get("kind") != "seekdb":
+            return value
+        path = value.get("path")
+        if "path" in value and not (isinstance(path, str) and not path.strip()):
+            return value
+        normalized = dict(value)
+        normalized["path"] = default_seekdb_path()
+        return normalized
+
+    @field_validator("database", mode="before")
     @classmethod
     def default_database_to_sqlite(cls, value: object) -> object:
-        return normalize_database_discriminator(value)
+        if not isinstance(value, Mapping) or value.get("kind", "sqlite") != "sqlite":
+            return value
+        return {"kind": "sqlite", "url": _default_database().url, **value}
 
     @model_validator(mode="after")
-    def require_authentication_for_dashboard(self) -> ServerSettings:
-        if self.dashboard.enabled and not self.auth.enabled:
-            raise ValueError("Dashboard requires Server bearer authentication")  # noqa: TRY003
+    def reject_unauthenticated_non_loopback_bind(self) -> ServerSettings:
+        if is_unauthenticated_non_loopback_bind(
+            host=self.http.host,
+            auth_enabled=self.auth.enabled,
+            allow_unauthenticated_non_loopback=self.allow_unauthenticated_non_loopback,
+        ):
+            raise UnauthenticatedNonLoopbackBindError(_UNSAFE_BIND_MESSAGE)
         return self
 
 
@@ -174,7 +227,10 @@ __all__ = [
     "HttpConfig",
     "McpConfig",
     "MetricsConfig",
+    "MissingBearerTokenError",
     "ServerLoggingConfig",
     "ServerSettings",
     "TracingConfig",
+    "UnauthenticatedNonLoopbackBindError",
+    "is_unauthenticated_non_loopback_bind",
 ]

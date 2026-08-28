@@ -389,6 +389,7 @@ describe("EvaluationApi HTTP", () => {
     const report = {
       task_id: "task-1",
       acceptance_valid: true,
+      treatment_mode: "off_on",
       off: {
         arm: "off",
         state: "treatment_validated",

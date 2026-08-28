@@ -70,7 +70,7 @@ def test_http_sdk_external_skill_registry_preserves_host_local_authority(tmp_pat
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             capabilities = await client.get_capabilities()
             assert capabilities.external_skill_registry is True
             assert capabilities.managed_skill_generation is False
@@ -131,7 +131,7 @@ def test_http_sdk_explicitly_imports_exact_external_snapshot_into_review(tmp_pat
                 transport=httpx.ASGITransport(app=app),
                 base_url="http://testserver",
             ) as transport:
-                client = PowerContextClient("http://testserver", http_client=transport)
+                client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
                 registration = (
                     await client.scan_external_skills(ScanExternalSkillsRequest(scope_id="project:example"))
                 ).registrations[0]

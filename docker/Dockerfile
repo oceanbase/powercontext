@@ -18,13 +18,19 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ ./src/
 
+ARG POWERCONTEXT_VERSION
+
 RUN --mount=type=cache,id=powercontext-uv,target=/root/.cache/uv \
-    uv sync \
+    test -n "${POWERCONTEXT_VERSION}" \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" uv sync \
     --frozen \
     --no-dev \
     --no-editable \
     --extra cli \
-    --extra server
+    --extra server \
+    --refresh-package powercontext \
+    && test "$(.venv/bin/python -c 'from importlib.metadata import version; print(version("powercontext"))')" \
+    = "${POWERCONTEXT_VERSION}"
 
 
 FROM python:3.11-slim-bookworm AS runtime
@@ -42,6 +48,12 @@ ENV PATH="/app/.venv/bin:$PATH" \
     POWERCONTEXT_HOME=/data \
     POWERCONTEXT_SERVER_HTTP_HOST=0.0.0.0 \
     POWERCONTEXT_SERVER_HTTP_PORT=8000
+
+# The container binds 0.0.0.0 so a published port is reachable, and its network namespace is the
+# controlled boundary the unauthenticated-bind guard is designed for. Declare that opt-in here so the
+# documented `docker run` starts out of the box; production deployments should still enable bearer
+# auth or terminate TLS upstream (see docker/README.md).
+ENV POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true
 
 COPY --from=builder --chown=powercontext:powercontext /app/.venv /app/.venv
 

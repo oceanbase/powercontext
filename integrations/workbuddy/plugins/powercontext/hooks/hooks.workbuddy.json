@@ -1,0 +1,17 @@
+{
+  "description": "Recall relevant memory and capture the current WorkBuddy prompt as a Source.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<POWERCONTEXT_PYTHON>\" \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
+            "timeout": 10,
+            "statusMessage": "Syncing PowerContext"
+          }
+        ]
+      }
+    ]
+  }
+}

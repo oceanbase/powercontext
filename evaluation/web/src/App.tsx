@@ -21,6 +21,7 @@ import { AppShell } from "./components/AppShell";
 import { BatchLauncher } from "./components/BatchLauncher";
 import { AuthPanel } from "./components/AuthPanel";
 import { BatchOverview } from "./components/BatchOverview";
+import { BaselineLibrary } from "./components/BaselineLibrary";
 import { BatchRuntime } from "./components/BatchRuntime";
 import { BatchTaskReport } from "./components/BatchTaskReport";
 import { ReportIndex } from "./components/ReportIndex";
@@ -48,10 +49,11 @@ function useLocation(): [string, (next: string) => void] {
 interface Route {
   batchId: string | null;
   taskId: string | null;
-  page: "overview" | "runtime" | "tasks" | "task";
+  page: "overview" | "runtime" | "tasks" | "task" | "baselines";
 }
 
 function parseRoute(path: string): Route {
+  if (path === "/baselines") return { batchId: null, taskId: null, page: "baselines" };
   const runtimeMatch = path.match(/^\/report\/([^/]+)\/running$/);
   if (runtimeMatch?.[1]) {
     return { batchId: decodeURIComponent(runtimeMatch[1]), taskId: null, page: "runtime" };
@@ -85,7 +87,9 @@ export function App({ api: injectedApi }: AppProps) {
   const route = parseRoute(path);
 
   let content;
-  if (route.page === "task" && route.batchId !== null && route.taskId !== null) {
+  if (route.page === "baselines") {
+    content = <div className="page"><BaselineLibrary api={api} navigate={navigate} /></div>;
+  } else if (route.page === "task" && route.batchId !== null && route.taskId !== null) {
     content = (
       <div className="page">
         <TaskRunDetail
@@ -121,7 +125,7 @@ export function App({ api: injectedApi }: AppProps) {
         <PageHeader
           eyebrow="PowerContext Evaluation"
           title="总体报告"
-          description="选择已有批次，或提交一次固定 731 任务的完整 OFF / ON 评测。"
+          description="选择已有批次，或提交固定任务集的 OFF + ON、仅 ON 或仅 OFF 评测。"
         />
         <div className="batch-home-grid">
           <div className="batch-home-actions">

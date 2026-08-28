@@ -16,11 +16,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
@@ -29,10 +30,23 @@ from pydantic import ValidationError
 
 from powercontext_eval.artifacts import ArmState
 from powercontext_eval.benchmarks.swebench_pro.adapter import DATASET_REVISION, HARNESS_COMMIT, SweBenchProInstance
+from powercontext_eval.models import Arm, TreatmentMode
 from powercontext_eval.report import ArmReport, ReportBundle, TestGroupReport
+from powercontext_eval.web.baselines import (
+    BaselineComparison,
+    BaselineCompatibility,
+    BaselineItemRecord,
+    BaselineRecord,
+    BaselineSnapshot,
+    ComparisonCoverage,
+    CompatibilityStatus,
+    HistoricalResolutionComparison,
+    HistoricalTokenComparison,
+)
 from powercontext_eval.web.batches import (
     BatchRecord,
     BatchReportResponse,
+    BatchStatus,
     BatchTaskDetailResponse,
     BatchTaskItem,
     BatchTaskPage,
@@ -117,6 +131,10 @@ class InvalidReportArtifact(ReportingError):
         super().__init__("Evaluation report artifacts are invalid")
 
 
+class StaleReportRevision(ReportingError):
+    """The report changed after the operator chose to save it."""
+
+
 def _directory_flags() -> int:
     return os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
 
@@ -196,8 +214,6 @@ def _load_bundle(run_fd: int) -> tuple[ReportBundle, os.stat_result]:
         bundle = ReportBundle.model_validate_json(raw, strict=True)
     except (ValidationError, ValueError, UnicodeDecodeError):
         raise InvalidReportArtifact from None
-    if bundle.off.arm != "off" or bundle.on.arm != "on":
-        raise InvalidReportArtifact
     return bundle, metadata
 
 
@@ -216,29 +232,32 @@ def _load_evidence(run_fd: int, arm: str) -> TreatmentEvidence:
 def _validate_evidence(
     bundle: ReportBundle,
     run_id: str,
-    off: TreatmentEvidence,
-    on: TreatmentEvidence,
+    evidence: Mapping[Arm, TreatmentEvidence],
 ) -> None:
     expected_sha = bundle.revisions.get("powercontext")
     configured_plugin_id = bundle.configuration.get("plugin_id", _PLUGIN_ID)
-    configured_plugin_version = bundle.configuration.get("plugin_version", off.plugin_version)
-    common = (
-        expected_sha is not None
-        and off.plugin_checkout_sha == expected_sha
-        and on.plugin_checkout_sha == expected_sha
-        and off.plugin_id == configured_plugin_id == on.plugin_id == _PLUGIN_ID
-        and bool(off.plugin_version)
-        and off.plugin_version == configured_plugin_version == on.plugin_version
-        and off.plugin_installed
-        and on.plugin_installed
-        and off.server_ready
-        and on.server_ready
-        and off.scope_id == f"eval:{run_id}:off"
-        and on.scope_id == f"eval:{run_id}:on"
-    )
-    activity = off.prompt_sources == 0 and off.mcp_requests == 0 and on.prompt_sources > 0 and on.mcp_requests > 0
-    if not common or not activity:
+    if set(evidence) != set(bundle.treatment_mode.arms) or expected_sha is None:
         raise InvalidReportArtifact
+    versions = {item.plugin_version for item in evidence.values()}
+    configured_plugin_version = bundle.configuration.get("plugin_version", next(iter(versions), ""))
+    if len(versions) != 1 or not configured_plugin_version:
+        raise InvalidReportArtifact
+    for arm, item in evidence.items():
+        common = (
+            item.plugin_checkout_sha == expected_sha
+            and item.plugin_id == configured_plugin_id == _PLUGIN_ID
+            and item.plugin_version == configured_plugin_version
+            and item.plugin_installed
+            and item.server_ready
+            and item.scope_id == f"eval:{run_id}:{arm.value}"
+        )
+        activity = (
+            item.prompt_sources == 0 and item.mcp_requests == 0
+            if arm is Arm.OFF
+            else item.prompt_sources > 0 and item.mcp_requests > 0
+        )
+        if not common or not activity:
+            raise InvalidReportArtifact
 
 
 def _arm_response(arm: Literal["off", "on"], report: ArmReport) -> ArmResponse:
@@ -280,6 +299,11 @@ def _comparisons(off: ArmReport, on: ArmReport) -> ComparisonResponse:
 
 
 def _acceptance_valid(bundle: ReportBundle) -> bool:
+    if bundle.off is None:
+        assert bundle.on is not None
+        return bundle.on.treatment_valid and bundle.on.state in _COMPARABLE_STATES and bundle.on.resolved
+    if bundle.on is None:
+        return bundle.off.treatment_valid and bundle.off.state in _COMPARABLE_STATES and bundle.off.resolved
     lifecycle_is_comparable = bundle.off.state == bundle.on.state and bundle.off.state in _COMPARABLE_STATES
     official_outcomes_are_coherent = (
         bundle.off.passed is True and bundle.on.passed is True and bundle.off.resolved and bundle.on.resolved
@@ -298,16 +322,18 @@ def load_report(run_dir: Path, run_root: Path | None = None) -> ReportResponse:
     run_fd, run_id = _open_run(run_dir, run_root)
     try:
         bundle, report_metadata = _load_bundle(run_fd)
-        off_evidence = _load_evidence(run_fd, "off")
-        on_evidence = _load_evidence(run_fd, "on")
-        _validate_evidence(bundle, run_id, off_evidence, on_evidence)
+        evidence = {arm: _load_evidence(run_fd, arm.value) for arm in bundle.treatment_mode.arms}
+        _validate_evidence(bundle, run_id, evidence)
         return ReportResponse(
             task_id=run_id,
             acceptance_valid=_acceptance_valid(bundle),
-            off=_arm_response("off", bundle.off),
-            on=_arm_response("on", bundle.on),
-            comparison=_comparisons(bundle.off, bundle.on),
-            evidence=EvidenceResponse(off=off_evidence, on=on_evidence),
+            treatment_mode=bundle.treatment_mode,
+            off=_arm_response("off", bundle.off) if bundle.off is not None else None,
+            on=_arm_response("on", bundle.on) if bundle.on is not None else None,
+            comparison=(
+                _comparisons(bundle.off, bundle.on) if bundle.off is not None and bundle.on is not None else None
+            ),
+            evidence=EvidenceResponse(off=evidence.get(Arm.OFF), on=evidence.get(Arm.ON)),
             gold_validation=bundle.gold_validation,
             revisions=bundle.revisions,
             configuration=bundle.configuration,
@@ -359,11 +385,17 @@ def _bundle_for_task(task: TaskRecord, runs_root: Path) -> ReportBundle:
         raise InvalidReportArtifact
     bundle = _load_batch_bundle(task_run_dir(task, runs_root), runs_root)
     if (
-        bundle.off.arm != "off"
-        or bundle.on.arm != "on"
+        bundle.treatment_mode != task.request.treatment_mode
         or bundle.configuration.get("instance") != task.request.instance_id
-        or bundle.off.resolved != task.result.off_resolved
-        or bundle.on.resolved != task.result.on_resolved
+    ):
+        raise InvalidReportArtifact
+    for arm, report in ((Arm.OFF, bundle.off), (Arm.ON, bundle.on)):
+        if (report is None) != (arm not in task.request.treatment_mode.arms):
+            raise InvalidReportArtifact
+        if report is not None and report.resolved != task.result.resolved_for(arm):
+            raise InvalidReportArtifact
+    if {arm for arm in (Arm.OFF, Arm.ON) if task.result.resolved_for(arm) is not None} != set(
+        task.request.treatment_mode.arms
     ):
         raise InvalidReportArtifact
     return bundle
@@ -426,11 +458,20 @@ def _task_item(
     tokens = TaskTokenDelta()
     if task.status is TaskStatus.SUCCEEDED:
         bundle = _bundle_for_task(task, runs_root)
-        category = _pair_category(bundle.off.resolved, bundle.on.resolved)
-        off = _task_arm(bundle.off)
-        on = _task_arm(bundle.on)
-        delta = None if off.total_tokens is None or on.total_tokens is None else on.total_tokens - off.total_tokens
-        tokens = TaskTokenDelta(off=off.total_tokens, on=on.total_tokens, delta=delta)
+        off = _task_arm(bundle.off) if bundle.off is not None else None
+        on = _task_arm(bundle.on) if bundle.on is not None else None
+        if off is not None and on is not None:
+            category = _pair_category(off.resolved, on.resolved)
+        delta = (
+            None
+            if off is None or on is None or off.total_tokens is None or on.total_tokens is None
+            else on.total_tokens - off.total_tokens
+        )
+        tokens = TaskTokenDelta(
+            off=off.total_tokens if off is not None else None,
+            on=on.total_tokens if on is not None else None,
+            delta=delta,
+        )
     elif task.status in _EXECUTION_FAILURE_STATES:
         category = PairCategory.EXECUTION_FAILURE
     return BatchTaskItem(
@@ -454,15 +495,15 @@ def _task_item(
     )
 
 
-def _metric_aggregate(values: dict[str, list[int]]) -> TokenMetricAggregate:
-    off = sum(values["off"])
-    on = sum(values["on"])
+def _metric_aggregate(values: dict[str, list[int]], mode: TreatmentMode) -> TokenMetricAggregate:
+    off = sum(values["off"]) if Arm.OFF in mode.arms else None
+    on = sum(values["on"]) if Arm.ON in mode.arms else None
     return TokenMetricAggregate(
         off=off,
         on=on,
-        delta=on - off,
-        off_measured_tasks=len(values["off"]),
-        on_measured_tasks=len(values["on"]),
+        delta=on - off if off is not None and on is not None else None,
+        off_measured_tasks=len(values["off"]) if Arm.OFF in mode.arms else None,
+        on_measured_tasks=len(values["on"]) if Arm.ON in mode.arms else None,
     )
 
 
@@ -491,13 +532,12 @@ def load_batch_estimate_samples(
             or task.finished_at is None
         ):
             continue
-        off_total = _arm_total(bundle.off)
-        on_total = _arm_total(bundle.on)
-        if off_total is None or on_total is None:
+        arm_totals = [_arm_total(report) for report in (bundle.off, bundle.on) if report is not None]
+        if not arm_totals or any(total is None for total in arm_totals):
             continue
         samples.append(
             EstimateSample(
-                tokens=off_total + on_total,
+                tokens=sum(total for total in arm_totals if total is not None),
                 duration_seconds=max(0, round((task.finished_at - task.started_at).total_seconds())),
             )
         )
@@ -531,30 +571,45 @@ def load_batch_report(
         catalog.require(task.request.instance_id)
         if task.status is TaskStatus.SUCCEEDED:
             bundle = _bundle_for_task(task, runs_root)
-            category = _pair_category(bundle.off.resolved, bundle.on.resolved)
-            categories[category] += 1
-            comparable += 1
-            off_resolved += int(bundle.off.resolved)
-            on_resolved += int(bundle.on.resolved)
-            metric_pairs = {
-                "input": (bundle.off.metrics.input_tokens, bundle.on.metrics.input_tokens),
-                "output": (bundle.off.metrics.output_tokens, bundle.on.metrics.output_tokens),
-                "total": (_arm_total(bundle.off), _arm_total(bundle.on)),
+            if bundle.off is not None:
+                off_resolved += int(bundle.off.resolved)
+            if bundle.on is not None:
+                on_resolved += int(bundle.on.resolved)
+            if bundle.off is not None and bundle.on is not None:
+                category = _pair_category(bundle.off.resolved, bundle.on.resolved)
+                categories[category] += 1
+                comparable += 1
+            metric_values = {
+                "input": {
+                    "off": bundle.off.metrics.input_tokens if bundle.off is not None else None,
+                    "on": bundle.on.metrics.input_tokens if bundle.on is not None else None,
+                },
+                "output": {
+                    "off": bundle.off.metrics.output_tokens if bundle.off is not None else None,
+                    "on": bundle.on.metrics.output_tokens if bundle.on is not None else None,
+                },
+                "total": {
+                    "off": _arm_total(bundle.off) if bundle.off is not None else None,
+                    "on": _arm_total(bundle.on) if bundle.on is not None else None,
+                },
             }
-            for metric_name, (off_value, on_value) in metric_pairs.items():
-                if off_value is not None and on_value is not None:
-                    token_values[metric_name]["off"].append(off_value)
-                    token_values[metric_name]["on"].append(on_value)
-            paired_tokens = metric_pairs["total"]
+            for metric_name, arm_values in metric_values.items():
+                if batch.request.treatment_mode is TreatmentMode.OFF_ON and any(
+                    value is None for value in arm_values.values()
+                ):
+                    continue
+                for arm_name, value in arm_values.items():
+                    if value is not None:
+                        token_values[metric_name][arm_name].append(value)
+            selected_totals = [metric_values["total"][arm.value] for arm in batch.request.treatment_mode.arms]
             if (
-                paired_tokens[0] is not None
-                and paired_tokens[1] is not None
+                all(value is not None for value in selected_totals)
                 and task.started_at is not None
                 and task.finished_at is not None
             ):
                 estimate_samples.append(
                     EstimateSample(
-                        tokens=paired_tokens[0] + paired_tokens[1],
+                        tokens=sum(value for value in selected_totals if value is not None),
                         duration_seconds=max(0, round((task.finished_at - task.started_at).total_seconds())),
                     )
                 )
@@ -566,7 +621,8 @@ def load_batch_report(
             elif revisions != candidate_revisions or configuration != candidate_configuration:
                 raise InvalidReportArtifact
         elif task.status in _EXECUTION_FAILURE_STATES:
-            categories[PairCategory.EXECUTION_FAILURE] += 1
+            if batch.request.treatment_mode is TreatmentMode.OFF_ON:
+                categories[PairCategory.EXECUTION_FAILURE] += 1
             execution_failures += 1
 
     if revisions is None:
@@ -593,21 +649,32 @@ def load_batch_report(
     on_rate = on_resolved / denominator * 100
     return BatchReportResponse(
         batch_id=batch.batch_id,
+        treatment_mode=batch.request.treatment_mode,
         report_revision=batch.control.version + sum(task.attempt_count * 100 + task.version for task in tasks),
         total_tasks=total,
         terminal_tasks=terminal_tasks,
-        comparable_pairs=comparable,
+        comparable_pairs=comparable if batch.request.treatment_mode is TreatmentMode.OFF_ON else None,
         execution_failures=execution_failures,
         cancelled_tasks=status_counts[TaskStatus.CANCELLED],
-        off=ResolutionAggregate(resolved=off_resolved, total=terminal_tasks, rate_percent=off_rate),
-        on=ResolutionAggregate(resolved=on_resolved, total=terminal_tasks, rate_percent=on_rate),
-        resolution_rate_delta_points=on_rate - off_rate,
-        pair_categories=categories,
+        off=(
+            ResolutionAggregate(resolved=off_resolved, total=terminal_tasks, rate_percent=off_rate)
+            if Arm.OFF in batch.request.treatment_mode.arms
+            else None
+        ),
+        on=(
+            ResolutionAggregate(resolved=on_resolved, total=terminal_tasks, rate_percent=on_rate)
+            if Arm.ON in batch.request.treatment_mode.arms
+            else None
+        ),
+        resolution_rate_delta_points=(
+            on_rate - off_rate if batch.request.treatment_mode is TreatmentMode.OFF_ON else None
+        ),
+        pair_categories=categories if batch.request.treatment_mode is TreatmentMode.OFF_ON else None,
         task_statuses={status: status_counts[status] for status in TaskStatus},
         tokens=TokenAggregate(
-            input=_metric_aggregate(token_values["input"]),
-            output=_metric_aggregate(token_values["output"]),
-            total=_metric_aggregate(token_values["total"]),
+            input=_metric_aggregate(token_values["input"], batch.request.treatment_mode),
+            output=_metric_aggregate(token_values["output"], batch.request.treatment_mode),
+            total=_metric_aggregate(token_values["total"], batch.request.treatment_mode),
         ),
         control=batch.control,
         latest_usage=latest_usage,
@@ -622,6 +689,244 @@ def load_batch_report(
         ),
         revisions=revisions,
         configuration=configuration,
+    )
+
+
+def instance_set_digest(tasks: Sequence[TaskRecord]) -> str:
+    """Return a stable identity for the exact ordered benchmark instance set."""
+
+    instance_ids = [task.instance_id for task in tasks]
+    if any(instance_id is None for instance_id in instance_ids):
+        raise InvalidReportArtifact
+    payload = json.dumps(instance_ids, ensure_ascii=True, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def create_baseline_snapshot(
+    batch: BatchRecord,
+    tasks: Sequence[TaskRecord],
+    *,
+    arm: Arm,
+    expected_report_revision: int,
+    runs_root: Path,
+    catalog: BenchmarkCatalog,
+) -> BaselineSnapshot:
+    """Materialize immutable comparison facts for one exact completed batch arm."""
+
+    if batch.status is not BatchStatus.COMPLETED:
+        raise ValueError("Only completed batches can be saved as baselines")
+    if arm not in batch.request.treatment_mode.arms:
+        raise ValueError("The selected baseline arm was not executed")
+    report = load_batch_report(batch, tasks, runs_root=runs_root, catalog=catalog)
+    if report.report_revision != expected_report_revision:
+        raise StaleReportRevision
+    items: list[BaselineItemRecord] = []
+    resolved_tasks = 0
+    for task in tasks:
+        resolved: bool | None = None
+        input_tokens: int | None = None
+        output_tokens: int | None = None
+        total_tokens: int | None = None
+        if task.status is TaskStatus.SUCCEEDED:
+            bundle = _bundle_for_task(task, runs_root)
+            arm_report = bundle.off if arm is Arm.OFF else bundle.on
+            if arm_report is None:
+                raise InvalidReportArtifact
+            resolved = arm_report.resolved
+            input_tokens = arm_report.metrics.input_tokens
+            output_tokens = arm_report.metrics.output_tokens
+            total_tokens = _arm_total(arm_report)
+            resolved_tasks += int(resolved)
+        if task.instance_id is None or task.source_index is None:
+            raise InvalidReportArtifact
+        items.append(
+            BaselineItemRecord(
+                baseline_id="",
+                instance_id=task.instance_id,
+                source_index=task.source_index,
+                source_task_id=task.task_id,
+                source_attempt_id=task.attempt_id,
+                status=task.status,
+                resolved=resolved,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+            )
+        )
+    dataset_revision = report.revisions.get("dataset")
+    harness_revision = report.revisions.get("harness")
+    if not dataset_revision or not harness_revision:
+        raise InvalidReportArtifact
+    return BaselineSnapshot(
+        benchmark=batch.request.benchmark,
+        task_set=batch.request.task_set,
+        instance_set_digest=instance_set_digest(tasks),
+        total_tasks=batch.total_tasks,
+        resolved_tasks=resolved_tasks,
+        execution_failures=report.execution_failures,
+        model=batch.request.model,
+        reasoning_effort=batch.request.reasoning_effort,
+        dataset_revision=dataset_revision,
+        harness_revision=harness_revision,
+        powercontext_sha=report.revisions.get("powercontext"),
+        codex_version=report.configuration.get("codex"),
+        items=tuple(items),
+    )
+
+
+def baseline_compatibility(
+    baseline: BaselineRecord,
+    batch: BatchRecord,
+    tasks: Sequence[TaskRecord],
+    report: BatchReportResponse,
+    *,
+    current_arm: Arm,
+) -> BaselineCompatibility:
+    """Classify comparison safety without treating the PowerContext revision as a gate."""
+
+    hard_reasons: list[str] = []
+    checks = (
+        (baseline.benchmark, batch.request.benchmark, "benchmark differs"),
+        (baseline.task_set, batch.request.task_set, "task set differs"),
+        (baseline.instance_set_digest, instance_set_digest(tasks), "instance set differs"),
+        (baseline.total_tasks, batch.total_tasks, "task count differs"),
+        (baseline.model, batch.request.model, "model differs"),
+        (baseline.reasoning_effort, batch.request.reasoning_effort, "reasoning effort differs"),
+        (baseline.dataset_revision, report.revisions.get("dataset"), "dataset revision differs"),
+        (baseline.harness_revision, report.revisions.get("harness"), "harness revision differs"),
+    )
+    hard_reasons.extend(reason for baseline_value, current_value, reason in checks if baseline_value != current_value)
+    if baseline.codex_version is not None and baseline.codex_version != report.configuration.get("codex"):
+        hard_reasons.append("Codex version differs")
+    if current_arm not in batch.request.treatment_mode.arms:
+        hard_reasons.append("current arm was not executed")
+    if hard_reasons:
+        return BaselineCompatibility(status=CompatibilityStatus.INCOMPATIBLE, reasons=tuple(hard_reasons))
+    if baseline.source_arm is not current_arm:
+        return BaselineCompatibility(
+            status=CompatibilityStatus.WARNING,
+            reasons=("cross-arm comparison",),
+        )
+    return BaselineCompatibility(status=CompatibilityStatus.COMPATIBLE)
+
+
+def _historical_tokens(
+    baseline_items: Sequence[BaselineItemRecord],
+    current_values: Mapping[str, int | None],
+    field: Literal["input_tokens", "output_tokens", "total_tokens"],
+) -> HistoricalTokenComparison | None:
+    baseline_values = [getattr(item, field) for item in baseline_items if getattr(item, field) is not None]
+    measured_current = [value for value in current_values.values() if value is not None]
+    if not baseline_values or not measured_current:
+        return None
+    baseline_total = sum(baseline_values)
+    current_total = sum(measured_current)
+    return HistoricalTokenComparison(
+        baseline=baseline_total,
+        current=current_total,
+        delta=current_total - baseline_total,
+        baseline_measured_tasks=len(baseline_values),
+        current_measured_tasks=len(measured_current),
+    )
+
+
+def compare_batch_to_baseline(
+    batch: BatchRecord,
+    tasks: Sequence[TaskRecord],
+    report: BatchReportResponse,
+    baseline: BaselineRecord,
+    baseline_items: Sequence[BaselineItemRecord],
+    *,
+    current_arm: Arm,
+    runs_root: Path,
+) -> BaselineComparison:
+    """Compare frozen per-instance facts without invoking the evaluation runner."""
+
+    compatibility = baseline_compatibility(baseline, batch, tasks, report, current_arm=current_arm)
+    baseline_by_instance = {item.instance_id: item for item in baseline_items}
+    current_by_instance = {task.instance_id: task for task in tasks if task.instance_id is not None}
+    matched_ids = sorted(set(baseline_by_instance) & set(current_by_instance))
+    categories: dict[
+        Literal[
+            "baseline_fail_current_pass",
+            "baseline_pass_current_fail",
+            "both_pass",
+            "both_fail",
+        ],
+        int,
+    ] = {
+        "baseline_fail_current_pass": 0,
+        "baseline_pass_current_fail": 0,
+        "both_pass": 0,
+        "both_fail": 0,
+    }
+    current_resolved = 0
+    comparable = 0
+    current_failures = 0
+    baseline_failures = 0
+    current_tokens: dict[str, dict[str, int | None]] = {
+        "input_tokens": {},
+        "output_tokens": {},
+        "total_tokens": {},
+    }
+    matched_baseline_items: list[BaselineItemRecord] = []
+    for instance_id in matched_ids:
+        baseline_item = baseline_by_instance[instance_id]
+        task = current_by_instance[instance_id]
+        matched_baseline_items.append(baseline_item)
+        baseline_failures += int(baseline_item.status in _EXECUTION_FAILURE_STATES)
+        current_failures += int(task.status in _EXECUTION_FAILURE_STATES)
+        current_result: bool | None = None
+        values = {"input_tokens": None, "output_tokens": None, "total_tokens": None}
+        if task.status is TaskStatus.SUCCEEDED:
+            bundle = _bundle_for_task(task, runs_root)
+            arm_report = bundle.off if current_arm is Arm.OFF else bundle.on
+            if arm_report is None:
+                raise InvalidReportArtifact
+            current_result = arm_report.resolved
+            current_resolved += int(current_result)
+            values = {
+                "input_tokens": arm_report.metrics.input_tokens,
+                "output_tokens": arm_report.metrics.output_tokens,
+                "total_tokens": _arm_total(arm_report),
+            }
+        for field, value in values.items():
+            current_tokens[field][instance_id] = value
+        if baseline_item.resolved is not None and current_result is not None:
+            comparable += 1
+            if baseline_item.resolved and current_result:
+                categories["both_pass"] += 1
+            elif baseline_item.resolved:
+                categories["baseline_pass_current_fail"] += 1
+            elif current_result:
+                categories["baseline_fail_current_pass"] += 1
+            else:
+                categories["both_fail"] += 1
+    total = len(matched_ids)
+    baseline_rate = baseline.resolved_tasks / total * 100 if total else 0.0
+    current_rate = current_resolved / total * 100 if total else 0.0
+    return BaselineComparison(
+        baseline=baseline,
+        current_arm=current_arm,
+        compatibility=compatibility,
+        coverage=ComparisonCoverage(
+            matched_tasks=total,
+            comparable_tasks=comparable,
+            current_execution_failures=current_failures,
+            baseline_execution_failures=baseline_failures,
+        ),
+        resolution=HistoricalResolutionComparison(
+            baseline_resolved=baseline.resolved_tasks,
+            current_resolved=current_resolved,
+            total=total,
+            baseline_rate_percent=baseline_rate,
+            current_rate_percent=current_rate,
+            delta_points=current_rate - baseline_rate,
+        ),
+        outcome_categories=categories,
+        input_tokens=_historical_tokens(matched_baseline_items, current_tokens["input_tokens"], "input_tokens"),
+        output_tokens=_historical_tokens(matched_baseline_items, current_tokens["output_tokens"], "output_tokens"),
+        total_tokens=_historical_tokens(matched_baseline_items, current_tokens["total_tokens"], "total_tokens"),
     )
 
 
@@ -740,8 +1045,8 @@ def load_batch_task_detail(
     on = None
     if task.status is TaskStatus.SUCCEEDED:
         bundle = _bundle_for_task(task, runs_root)
-        off = _detail_arm(bundle.off)
-        on = _detail_arm(bundle.on)
+        off = _detail_arm(bundle.off) if bundle.off is not None else None
+        on = _detail_arm(bundle.on) if bundle.on is not None else None
     finalization_by_arm = {record.arm: tokensflow_finalization_summary(record) for record in finalizations}
     return BatchTaskDetailResponse(
         task=item,

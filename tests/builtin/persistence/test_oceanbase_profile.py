@@ -127,6 +127,29 @@ def test_official_dialect_builds_an_async_engine_without_opening_a_connection() 
     asyncio.run(scenario())
 
 
+def test_oceanbase_profile_hides_sql_parameters(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def scenario() -> None:
+        captured: dict[str, object] = {}
+        engine = _Engine()
+
+        def create_engine(_url: object, **options: object) -> AsyncEngine:
+            captured.update(options)
+            return cast(AsyncEngine, engine)
+
+        async def create_no_tables(_connection: object, _tables: tuple[Table, ...]) -> None:
+            return None
+
+        monkeypatch.setattr(oceanbase_profile_module, "create_async_engine", create_engine)
+        monkeypatch.setattr(oceanbase_profile_module, "create_tables", create_no_tables)
+
+        async with OceanBaseProfile.open(OceanBaseConfig(url=SecretStr(VALID_URL)), tables=()):
+            pass
+
+        assert captured["hide_parameters"] is True
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("row", [None, ("ob_compatibility_mode", "ORACLE")])
 def test_profile_requires_an_oceanbase_mysql_tenant(
     row: tuple[str, str] | None,

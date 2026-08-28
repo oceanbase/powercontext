@@ -45,6 +45,14 @@ def _column_budget(column) -> int:
     raise _UnbudgetedColumnTypeError(column.type)
 
 
+def test_mysql_ddl_uses_utf8mb4_bin_for_identity_keys() -> None:
+    dialect = mysql.dialect()
+    ddl = str(CreateTable(SOURCES_TABLE).compile(dialect=dialect))
+    assert "scope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" in ddl
+    assert "source_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" in ddl
+    assert "source_type VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" in ddl
+
+
 def test_mysql_ddl_uses_mediumblob_for_every_canonical_payload() -> None:
     dialect = mysql.dialect()
     expected = {

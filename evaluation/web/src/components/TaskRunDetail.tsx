@@ -125,7 +125,6 @@ export function TaskRunDetail({ api, batchId, taskId, search, navigate }: TaskRu
   const problemPreview = problemStatement.length > 360
     ? `${problemStatement.slice(0, 360)}…`
     : problemStatement;
-  const hasComparison = off !== null && on !== null;
   const didNotRun = task.status === "queued" || task.status === "cancelled";
 
   return (
@@ -140,14 +139,14 @@ export function TaskRunDetail({ api, batchId, taskId, search, navigate }: TaskRu
           <p>{task.repository}</p>
         </div>
         <div className="task-result-summary" aria-label="任务对比汇总">
-          {hasComparison ? (
+          {off !== null || on !== null ? (
             <>
-              <span className={off.resolved ? "resolution--pass" : "resolution--fail"}>
+              {off !== null && <span className={off.resolved ? "resolution--pass" : "resolution--fail"}>
                 OFF {off.resolved ? "通过" : "未通过"}
-              </span>
-              <span className={on.resolved ? "resolution--pass" : "resolution--fail"}>
+              </span>}
+              {on !== null && <span className={on.resolved ? "resolution--pass" : "resolution--fail"}>
                 ON {on.resolved ? "通过" : "未通过"}
-              </span>
+              </span>}
             </>
           ) : (
             <span>{task.status === "cancelled" ? "已取消" : task.status === "queued" ? "排队中" : "评测执行失败"}</span>
@@ -222,15 +221,15 @@ export function TaskRunDetail({ api, batchId, taskId, search, navigate }: TaskRu
           <div className="empty-state">
             {task.status === "cancelled" ? "任务未执行，因此没有官方评测结果。" : "任务尚未执行。"}
           </div>
-        ) : detail.off === null || detail.on === null ? (
+        ) : detail.off === null && detail.on === null ? (
           <div className="failure-box">
             <strong>评测执行失败</strong>
             {task.failure_summary && <p>{task.failure_summary}</p>}
           </div>
         ) : (
           <div className="official-grid">
-            <OfficialArm label="OFF" arm={detail.off} />
-            <OfficialArm label="ON" arm={detail.on} />
+            {detail.off !== null && <OfficialArm label="OFF" arm={detail.off} />}
+            {detail.on !== null && <OfficialArm label="ON" arm={detail.on} />}
           </div>
         )}
         <details className="required-tests">
@@ -251,7 +250,7 @@ export function TaskRunDetail({ api, batchId, taskId, search, navigate }: TaskRu
           <h2>完整上下文时间线</h2>
           <p>任务未执行，因此没有上下文时间线。</p>
         </section>
-      ) : !hasComparison ? (
+      ) : off === null && on === null ? (
         <section className="report-section empty-state">
           <h2>完整上下文时间线</h2>
           <p>
@@ -266,6 +265,10 @@ export function TaskRunDetail({ api, batchId, taskId, search, navigate }: TaskRu
           batchId={batchId}
           taskId={taskId}
           {...(task.attempt_id === null ? {} : { attemptId: task.attempt_id })}
+          availableArms={[
+            ...(off === null ? [] : ["off" as const]),
+            ...(on === null ? [] : ["on" as const]),
+          ]}
         />
       )}
     </div>

@@ -27,7 +27,7 @@ def render_report(observation: TaskObservation, report: EvaluationReport) -> str
     markdown = Markdown(renderer=MarkdownRenderer)
     document = block.Document()
     children: list[Element] = []
-    children.extend(_nodes(markdown, "# PowerContext end-to-end Memory evaluation"))
+    children.extend(_nodes(markdown, "# PowerContext end-to-end evaluation"))
     children.append(block.BlankLine(0))
     children.extend(
         _nodes(
@@ -50,10 +50,21 @@ def render_report(observation: TaskObservation, report: EvaluationReport) -> str
     )
     children.extend(_nodes(markdown, reward_lines))
     children.append(block.BlankLine(0))
-    children.extend(_nodes(markdown, "## Memory evaluation"))
+    children.extend(_nodes(markdown, "## Evaluation"))
     children.append(block.BlankLine(0))
     children.extend(_nodes(markdown, f"```text\n{_evaluation_text(report)}\n```"))
     document.children = children
+    return markdown.render(document)
+
+
+def render_evaluation_summary(report: EvaluationReport) -> str:
+    markdown = Markdown(renderer=MarkdownRenderer)
+    document = block.Document()
+    document.children = [
+        *_nodes(markdown, "# PowerContext end-to-end evaluation"),
+        block.BlankLine(0),
+        *_nodes(markdown, f"```text\n{_evaluation_text(report)}\n```"),
+    ]
     return markdown.render(document)
 
 

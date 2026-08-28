@@ -39,6 +39,7 @@ from powercontext_eval.benchmarks.swebench_pro.gold_overrides import (
     SOURCE595_DATASET_PATCH_SHA256,
     SOURCE595_INSTANCE_ID,
 )
+from powercontext_eval.models import Arm, TreatmentMode
 
 
 class MetricSet(BaseModel):
@@ -190,9 +191,26 @@ class ReportBundle(BaseModel):
     title: str
     revisions: Mapping[str, str]
     configuration: Mapping[str, str]
-    off: ArmReport
-    on: ArmReport
+    treatment_mode: TreatmentMode = TreatmentMode.OFF_ON
+    off: ArmReport | None = None
+    on: ArmReport | None = None
     gold_validation: GoldValidationAudit | None = None
+
+    @field_validator("treatment_mode", mode="before")
+    @classmethod
+    def parse_treatment_mode(cls, value: object) -> object:
+        return TreatmentMode(value) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_arms(self) -> Self:
+        present = {arm for arm, report in ((Arm.OFF, self.off), (Arm.ON, self.on)) if report is not None}
+        if present != set(self.treatment_mode.arms):
+            raise ValueError("Report arms do not match the treatment mode")
+        if self.off is not None and self.off.arm != "off":
+            raise ValueError("OFF report is bound to the wrong arm")
+        if self.on is not None and self.on.arm != "on":
+            raise ValueError("ON report is bound to the wrong arm")
+        return self
 
     @model_validator(mode="after")
     def validate_gold_binding(self) -> Self:
@@ -332,6 +350,8 @@ def _gold_validation_section(audit: GoldValidationAudit) -> list[str]:
 
 def _comparison(bundle: ReportBundle) -> list[str]:
     lines = ["## Comparison", ""]
+    if bundle.off is None or bundle.on is None:
+        return lines + ["Comparison unavailable: this run contains one treatment arm.", ""]
     comparable_states = {ArmState.TREATMENT_VALIDATED, ArmState.REPORTED}
     if not (
         bundle.off.state in comparable_states
@@ -374,10 +394,9 @@ def _validated_bundle(bundle: ReportBundle) -> ReportBundle:
         expected_bundle_fields = set(ReportBundle.model_fields)
         if set(bundle.__dict__) != expected_bundle_fields:
             raise ValueError
-        for model, model_type in (
-            (bundle.off, ArmReport),
-            (bundle.on, ArmReport),
-        ):
+        for model, model_type in ((bundle.off, ArmReport), (bundle.on, ArmReport)):
+            if model is None:
+                continue
             if type(model) is not model_type or set(model.__dict__) != set(model_type.model_fields):
                 raise ValueError
             if type(model.metrics) is not MetricSet or set(model.metrics.__dict__) != set(MetricSet.model_fields):
@@ -400,14 +419,15 @@ def render_report(bundle: ReportBundle) -> str:
     """Render only the supplied validated bundle, with no external reads."""
 
     bundle = _validated_bundle(bundle)
-    if bundle.off.arm != "off" or bundle.on.arm != "on":
-        raise ValueError("Report arms must be supplied in OFF then ON roles")
     lines = [f"# {_cell(bundle.title)}", ""]
     lines.extend(_mapping_table("Resolved revisions", bundle.revisions))
     lines.extend(_mapping_table("Configuration", bundle.configuration))
     if bundle.gold_validation is not None:
         lines.extend(_gold_validation_section(bundle.gold_validation))
-    lines.extend(_arm_section("OFF", bundle.off))
-    lines.extend(_arm_section("ON", bundle.on))
-    lines.extend(_comparison(bundle))
+    if bundle.off is not None:
+        lines.extend(_arm_section("OFF", bundle.off))
+    if bundle.on is not None:
+        lines.extend(_arm_section("ON", bundle.on))
+    if bundle.off is not None and bundle.on is not None:
+        lines.extend(_comparison(bundle))
     return "\n".join(lines)

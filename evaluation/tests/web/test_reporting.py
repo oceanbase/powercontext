@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from powercontext_eval.artifacts import ArmState
+from powercontext_eval.models import TreatmentMode
 from powercontext_eval.report import ArmReport, MetricSet, ReportBundle
 from powercontext_eval.web.reporting import InvalidReportArtifact, UnsafeReportPath, load_raw_report, load_report
 
@@ -115,6 +116,37 @@ def test_loads_validated_report_and_derives_exact_comparisons(tmp_path: Path) ->
     assert response.evidence.on.mcp_requests == 2
     assert dict(response.revisions) == {"harness": HARNESS_SHA, "powercontext": POWERCONTEXT_SHA}
     assert dict(response.configuration) == dict(_bundle().configuration)
+
+
+@pytest.mark.parametrize("mode", (TreatmentMode.ON_ONLY, TreatmentMode.OFF_ONLY))
+def test_loads_single_arm_report_without_inventing_the_missing_arm(
+    tmp_path: Path,
+    mode: TreatmentMode,
+) -> None:
+    arm = "on" if mode is TreatmentMode.ON_ONLY else "off"
+    source = _bundle().on if arm == "on" else _bundle().off
+    assert source is not None
+    bundle = ReportBundle(
+        title="single arm",
+        revisions=_bundle().revisions,
+        configuration=_bundle().configuration,
+        treatment_mode=mode,
+        off=source if arm == "off" else None,
+        on=source if arm == "on" else None,
+    )
+    runs_root = tmp_path / "runs"
+    run_dir = runs_root / "run-single"
+    evidence_dir = run_dir / "arms" / arm / "powercontext"
+    evidence_dir.mkdir(parents=True)
+    (evidence_dir / "treatment.json").write_text(json.dumps(_evidence("run-single", arm)))
+    (run_dir / "report.json").write_text(bundle.model_dump_json())
+
+    response = load_report(run_dir, runs_root)
+
+    assert response.treatment_mode is mode
+    assert (response.off is not None) is (arm == "off")
+    assert (response.on is not None) is (arm == "on")
+    assert response.comparison is None
 
 
 @pytest.mark.parametrize(

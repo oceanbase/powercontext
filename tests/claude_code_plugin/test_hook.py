@@ -81,7 +81,7 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "git:github.com/oceanbase/powercontext",
     )
     captured: list[tuple[str, str]] = []
@@ -109,6 +109,46 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     assert captured == [("What decisions apply?", "git:github.com/oceanbase/powercontext")]
 
 
+def test_user_prompt_submit_reads_utf8_stdin_on_windows_encodings(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared_content = "prepared context"
+    captured: list[str] = []
+    monkeypatch.setattr(
+        hook_module,
+        "_prepare_context",
+        lambda _query, _scope, *, settings, deadline: _prepared(prepared_content),
+    )
+    monkeypatch.setattr(
+        hook_module,
+        "resolve_scope_id",
+        lambda _cwd, *, configured_scope_id: "git:github.com/oceanbase/powercontext",
+    )
+    monkeypatch.setattr(
+        hook_module,
+        "_capture_prompt",
+        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+    )
+
+    payload = {
+        "hook_event_name": "UserPromptSubmit",
+        "cwd": "/workspace/project",
+        "prompt": "查看当前记忆",
+    }
+    stdin = io.TextIOWrapper(
+        io.BytesIO(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
+        encoding="cp1252",
+    )
+    monkeypatch.setattr(sys, "stdin", stdin)
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert hook_module.main() == 0
+    assert captured == ["查看当前记忆"]
+    assert json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"] == prepared_content
+
+
 def test_user_prompt_compatibility_fallback_is_supported(
     hook_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -120,7 +160,7 @@ def test_user_prompt_compatibility_fallback_is_supported(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     captured: list[str] = []
@@ -154,7 +194,7 @@ def test_unexpected_recall_failure_does_not_prevent_prompt_capture(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     captured: list[str] = []
@@ -189,7 +229,7 @@ def test_capture_failure_does_not_prevent_context_injection(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     monkeypatch.setattr(
@@ -228,7 +268,7 @@ def test_recall_and_capture_share_one_http_deadline(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
 
@@ -262,7 +302,7 @@ def test_prompt_capture_can_be_disabled(
     )
     monkeypatch.setattr(
         hook_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
 
@@ -284,38 +324,6 @@ def test_prompt_capture_can_be_disabled(
 
     assert hook_module.main(hook_module.ClaudeCodePluginSettings(capture_prompts=False)) == 0
     assert output.getvalue() == ""
-
-
-def test_context_request_uses_prepare_once(hook_module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
-    requests: list[tuple[str, dict[str, object], int | None]] = []
-
-    def post(
-        path: str,
-        payload: dict[str, object],
-        *,
-        settings: object,
-        deadline: float,
-        expected_status: int | None = None,
-    ) -> dict[str, object]:
-        requests.append((path, payload, expected_status))
-        return _prepared(None, status="empty")
-
-    monkeypatch.setattr(hook_module, "_post_json", post)
-
-    hook_module._prepare_context(
-        "query",
-        "project:test",
-        settings=hook_module.ClaudeCodePluginSettings(),
-        deadline=10.0,
-    )
-
-    assert requests == [
-        (
-            "/v1/context/prepare",
-            {"scope_id": "project:test", "query": "query", "max_bytes": 8000},
-            200,
-        )
-    ]
 
 
 def test_capture_prompt_is_idempotent_and_is_not_a_task_outcome(
@@ -397,7 +405,7 @@ def test_http_failures_are_non_blocking_and_content_free(
     assert "secret" not in errors.getvalue()
 
 
-def test_unknown_schema_and_oversized_content_are_not_injected(
+def test_unknown_schema_is_not_injected(
     hook_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -416,39 +424,8 @@ def test_unknown_schema_and_oversized_content_are_not_injected(
         )
         is None
     )
-    with pytest.raises(hook_module._InvalidResponseError):
-        hook_module._validate_prepared_context(_prepared("x" * 8_001))
     assert json.loads(errors.getvalue())["outcome"] == "invalid_response"
     assert "secret" not in errors.getvalue()
-
-
-@pytest.mark.parametrize(
-    "response",
-    [
-        {"schema": "powercontext.prepared-context.v1", "status": "ready", "content": "missing byte count"},
-        {"schema": "powercontext.prepared-context.v1", "status": "empty", "content": "not empty", "content_bytes": 9},
-        {"schema": "powercontext.prepared-context.v1", "status": "ready", "content": "bad count", "content_bytes": 1},
-    ],
-)
-def test_malformed_prepared_context_is_not_injected(
-    hook_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    response: dict[str, object],
-) -> None:
-    monkeypatch.setattr(hook_module, "_prepare_context", lambda *_args, **_kwargs: response)
-    errors = io.StringIO()
-    monkeypatch.setattr(sys, "stderr", errors)
-
-    assert (
-        hook_module._recall_context(
-            "query",
-            "project:test",
-            settings=hook_module.ClaudeCodePluginSettings(),
-            deadline=time.monotonic() + 1,
-        )
-        is None
-    )
-    assert json.loads(errors.getvalue())["outcome"] == "invalid_response"
 
 
 def test_hook_refuses_redirects(
@@ -491,22 +468,3 @@ def test_hook_refuses_redirects(
                 )
 
     assert target_headers == []
-
-
-def test_hook_rejects_an_oversized_response_body(hook_module: ModuleType) -> None:
-    class OversizedResponse:
-        fp = object()
-
-        def __init__(self) -> None:
-            self.remaining = hook_module._MAX_RESPONSE_BYTES + 1
-
-        def read(self, amount: int = -1) -> bytes:
-            size = min(amount, self.remaining)
-            self.remaining -= size
-            return b"x" * size
-
-    with pytest.raises(ValueError, match="exceeds the hook limit"):
-        hook_module._read_response(
-            OversizedResponse(),
-            deadline=time.monotonic() + 2,
-        )

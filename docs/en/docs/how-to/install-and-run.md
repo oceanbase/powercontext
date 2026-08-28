@@ -7,25 +7,38 @@ description: Install PowerContext from Git and run the local Server.
 
 ## Install the application
 
-Install `uv`, then install PowerContext directly from a Git ref:
+You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS or Linux. Then install
+PowerContext directly from a Git ref:
 
 ```bash
 uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
-This works on macOS and Linux and does not require a user-managed repository checkout. Git uses its normal credential
-configuration, including credential helpers and SSH settings. For an SSH-based install, replace the HTTPS URL with the
-Git URL approved for your environment.
+The command does not leave a repository checkout for you to manage. Git uses its normal credential configuration,
+including credential helpers and SSH settings. For an SSH-based install, replace the HTTPS URL with the Git URL
+approved for your environment.
 
 To install a tested branch or tag, replace `master` after the final `@`. Use the same ref when configuring integrations:
 
 ```bash
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
-powercontext setup dsh --source oceanbase/powercontext --ref <ref>
 ```
 
-For host-specific options, see [Configure Codex](configure-codex.md) and
-[Configure DeepSeek Harness](configure-dsh.md).
+Per-host commands remain the explicit path. The first-class catalog contains `codex`, `claude-code`, `dsh`,
+`openclaw`, `opencode`, `pi`, and `hermes`. To install more than one in one run, pass `--host` repeatedly, or omit
+`--host` on a TTY to choose from the catalog. `powercontext setup` with no subcommand still prints help:
+
+```bash
+powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref <ref>
+```
+
+Without `--server-url`, Claude Code and OpenClaw keep their `http://127.0.0.1:8000` defaults. An explicit
+`--server-url` overrides both selected hosts. OpenClaw's `--scope-mode` defaults to `agent`. Selected Codex, DSH,
+OpenCode, Pi, and Hermes integrations pass their existing post-install diagnostics before they are reported as
+installed. After installing Hermes, run `hermes memory setup` and select PowerContext before starting Hermes.
+
+WorkBuddy remains available through `powercontext setup workbuddy`, but it is not part of `setup select`. The
+integration guides in the site navigation describe host-specific prerequisites, options, and behavior.
 
 ## Run the local Server
 
@@ -37,17 +50,68 @@ With no environment variables, the Server:
 
 - binds to `127.0.0.1:8000`;
 - enables Streamable HTTP MCP at `/mcp`;
+- enables the Dashboard at `/`; when no scopes are configured, the page shows an explicit empty state;
 - creates a persistent SQLite database in the operating system's user data directory;
 - supports explicit Memory operations without an inference provider.
 
+After startup, the terminal prints the Dashboard URL, such as `http://127.0.0.1:8000/`. The Dashboard shares the
+Server listener and port with the HTTP API and MCP. If Dashboard initialization fails, the Server logs a warning with
+the direct cause and continues serving the other interfaces. Set `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false` to
+disable the Dashboard explicitly.
+
 `Ctrl-C` performs a clean shutdown. Restarting the command reopens the same database.
+
+This minimal launch does not enable model-backed extraction or vector search. To generate and validate one explicit
+environment file for those capabilities, continue with the
+[Full-capability Quick Start](full-capability-runtime.md).
+
+## Use embedded seekDB
+
+Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` wheel is available. Windows does not
+support this embedded backend. Install or replace the tool with the optional seekDB extra:
+
+```bash
+uv tool install --force "powercontext[cli,server,seekdb] @ git+https://github.com/oceanbase/powercontext.git@master"
+```
+
+When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit
+SQLAlchemy database URL is not valid for seekDB. Then select the backend and start the Server:
+
+```bash
+unset POWERCONTEXT_SERVER_DATABASE_URL
+export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
+powercontext server run
+```
+
+The CLI does not search for a `.env` file automatically. Export these values in the shell, configure them in the
+process manager or container, or pass a specific file with `powercontext server run --env-file <path>`.
+
+PowerContext always uses seekDB's built-in `test` database. Leave `POWERCONTEXT_SERVER_DATABASE_PATH` unset to store
+the instance in the `seekdb` subdirectory of the PowerContext user data directory. If `POWERCONTEXT_HOME` is set, the
+default is `$POWERCONTEXT_HOME/seekdb`; set `POWERCONTEXT_SERVER_DATABASE_PATH` only when a different location is
+required.
+
+In another terminal, verify that the Server and database are ready:
+
+```bash
+powercontext doctor
+powercontext ready
+powercontext capabilities
+```
 
 ## Verify the installation
 
 ```bash
 powercontext doctor
+powercontext doctor integrations
 powercontext doctor codex
+powercontext doctor claude-code
 powercontext doctor dsh
+powercontext doctor openclaw
+powercontext doctor opencode
+powercontext doctor pi
+powercontext doctor hermes
+powercontext doctor workbuddy
 powercontext ready
 powercontext capabilities
 ```
@@ -55,9 +119,15 @@ powercontext capabilities
 `doctor` checks the installed package, Server liveness, and Server readiness without requiring an integration. Server
 readiness covers the database and each configured inference provider. Runtime or database failures return
 `not_ready`; an inference failure returns `degraded` without removing database-backed operations from traffic.
-`doctor codex` and `doctor dsh` separately check the optional host CLI and PowerContext plugin. `ready` and
-`capabilities` show the readiness and enabled capabilities of the running service. For complete status definitions and
-recovery steps, see [Troubleshoot](troubleshoot.md).
+`doctor integrations` is an optional read-only overview of every first-class host; a missing CLI does not fail that
+command. The individual `doctor <host>` commands check one optional host CLI and all of its PowerContext integration
+items. WorkBuddy has an individual `doctor workbuddy` command but is not included in the first-class overview. The
+content commands exercise the public HTTP SDK path. `ready` and `capabilities` show the readiness and enabled
+capabilities of the running service. For complete status definitions and recovery steps, see
+[Troubleshoot](troubleshoot.md).
+
+For a long-running process, Docker, authentication, or remote access, continue with
+[Deploy the Server](deploy-server.md).
 
 ## Update or replace an installation
 
@@ -66,11 +136,11 @@ To replace the installed tool with a chosen ref:
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
 powercontext setup codex --source oceanbase/powercontext --ref <ref>
-powercontext setup dsh --source oceanbase/powercontext --ref <ref>
 ```
 
-Restart the Server and open a new host session after updating. Existing SQLite data remains in the user data
-directory unless `POWERCONTEXT_HOME` or the database URL changes.
+Repeat the setup command for each installed host, using the same ref. Restart the Server and open a new host session
+after updating. Existing SQLite data remains in the user data directory unless `POWERCONTEXT_HOME` or the database URL
+changes.
 
 ## Install a Python role
 
@@ -81,5 +151,5 @@ uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git
 ```
 
 Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for
-the Server-backed command line.
-An extra that is only present in the isolated `uv tool` environment is not importable by an unrelated Python project.
+the Server-backed command line. An extra that is only present in the isolated `uv tool` environment is not importable
+by an unrelated Python project.

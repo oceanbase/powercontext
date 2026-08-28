@@ -109,7 +109,7 @@ def test_client_span_injects_w3c_trace_context(monkeypatch) -> None:
 
     async def request_capabilities() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
-            client = PowerContextClient("http://testserver", http_client=http_client)
+            client = PowerContextClient("http://testserver", http_client=http_client, trust_transport_security=True)
             await client.get_capabilities()
 
     asyncio.run(request_capabilities())

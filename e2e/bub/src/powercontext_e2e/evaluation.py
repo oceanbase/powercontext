@@ -17,7 +17,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
+from .catalog import MemoryEvaluationSpec, OutcomeEvaluationSpec
 from .models import (
     CaseEvaluation,
     EvaluationReport,
@@ -27,6 +29,65 @@ from .models import (
 )
 
 CAPTURE_EVENTS = frozenset({"user_prompt", "llm_result", "tool_result"})
+FailurePolicy = Literal["fail-fast", "collect-all"]
+
+
+def evaluate_observation(
+    observation: TaskObservation,
+    *,
+    experiment: str,
+    failure_policy: FailurePolicy,
+) -> EvaluationReport:
+    evaluation = observation.task.evaluation
+    if isinstance(evaluation, OutcomeEvaluationSpec):
+        return _evaluate_execution(
+            observation,
+            evaluation,
+            experiment=experiment,
+            failure_policy=failure_policy,
+        )
+    return MemoryEvaluator.evaluate(observation, experiment=experiment)
+
+
+def _evaluate_execution(
+    observation: TaskObservation,
+    evaluation: OutcomeEvaluationSpec,
+    *,
+    experiment: str,
+    failure_policy: FailurePolicy,
+) -> EvaluationReport:
+    expected = (
+        evaluation.expected_execution.collect_all
+        if failure_policy == "collect-all"
+        else evaluation.expected_execution.fail_fast
+    )
+    actual = observation.status
+    expected_reward = {"completed": 1, "failed": 0}.get(expected)
+    actual_reward = observation.harbor.rewards.get("reward")
+    reward_matches = expected == "skipped" or actual_reward == expected_reward
+    return EvaluationReport(
+        experiment=experiment,
+        cases=(
+            CaseEvaluation(
+                name=observation.task.id,
+                assertions={
+                    "execution_outcome": EvaluationValue(
+                        value=actual == expected and reward_matches,
+                        reason=(
+                            f"Expected {expected!r}; observed {actual!r}."
+                            if expected == "skipped"
+                            else (
+                                f"Expected {expected!r} with Harbor reward {expected_reward!r}; "
+                                f"observed {actual!r} with Harbor reward {actual_reward!r}."
+                            )
+                        ),
+                    )
+                },
+                labels={"task_outcome": EvaluationValue(value=actual)},
+                attributes=_attributes(observation),
+            ),
+        ),
+    )
 
 
 class MemoryEvaluator:
@@ -35,7 +96,27 @@ class MemoryEvaluator:
     @staticmethod
     def evaluate(observation: TaskObservation, *, experiment: str) -> EvaluationReport:
         task = observation.task
+        attributes = _attributes(observation)
+        if observation.status == "skipped":
+            return EvaluationReport(
+                experiment=experiment,
+                cases=(
+                    CaseEvaluation(
+                        name=task.id,
+                        assertions={
+                            "execution_completed": EvaluationValue(
+                                value=False,
+                                reason="Skipped after an earlier task stopped the shared Harbor trial.",
+                            )
+                        },
+                        labels={"task_outcome": EvaluationValue(value="skipped")},
+                        attributes=attributes,
+                    ),
+                ),
+            )
         evaluation = task.evaluation
+        if not isinstance(evaluation, MemoryEvaluationSpec):
+            raise TypeError("MemoryEvaluator requires a Memory evaluation task")  # noqa: TRY003
         eligible_records = [record for record in observation.capture_records if record.event in CAPTURE_EVENTS]
         captured_records = [record for record in eligible_records if record.status == "captured"]
         capture_coverage = len(captured_records) / len(eligible_records) if eligible_records else 0.0
@@ -87,17 +168,9 @@ class MemoryEvaluator:
             any(fragment.casefold() in entry.text.casefold() for entry in observation.memory_after.entries)
             for fragment in evaluation.expected_memory
         )
+        observed_checksum = observation.harbor.source_task_checksum or observation.harbor.task_checksum
         thresholds = evaluation.thresholds
 
-        attributes = {
-            "commit": observation.environment.commit,
-            "database": observation.environment.database,
-            "dataset": task.dataset.name or str(task.dataset.path),
-            "execution_adapter": task.execution.type,
-            "harbor_task_id": task.dataset.task_id,
-            "run_id": observation.run_id,
-            "workload_id": task.id,
-        }
         metrics = {
             "capture_events": len(eligible_records),
             "captured_sources": len(captured_records),
@@ -115,8 +188,8 @@ class MemoryEvaluator:
                 reason=None if observation.status == "completed" else "; ".join(observation.errors),
             ),
             "task_provenance_matches": EvaluationValue(
-                value=observation.harbor.task_checksum == task.dataset.checksum,
-                reason=f"Expected {task.dataset.checksum!r}; observed {observation.harbor.task_checksum!r}.",
+                value=observed_checksum == task.dataset.checksum,
+                reason=(f"Expected {task.dataset.checksum!r}; observed {observed_checksum!r}."),
             ),
             "native_acp_evidence_recorded": EvaluationValue(
                 value=not missing_native_artifacts,
@@ -171,7 +244,7 @@ class MemoryEvaluator:
                 for name, reward in sorted(observation.harbor.rewards.items())
             },
         }
-        labels = {"task_outcome": EvaluationValue(value=_task_outcome(observation.harbor))}
+        labels = {"task_outcome": EvaluationValue(value=_task_outcome(observation.harbor, observation.status))}
         return EvaluationReport(
             experiment=experiment,
             cases=(
@@ -192,9 +265,26 @@ def _contains_fragments(value: str, expected: tuple[str, ...]) -> bool:
     return all(fragment.casefold() in folded for fragment in expected)
 
 
-def _task_outcome(harbor: HarborTrialObservation) -> str:
+def _attributes(observation: TaskObservation) -> dict[str, str]:
+    task = observation.task
+    return {
+        "commit": observation.environment.commit,
+        "database": observation.environment.database,
+        "dataset": task.dataset.name or str(task.dataset.path),
+        "execution_adapter": task.execution.type,
+        "harbor_task_id": task.dataset.task_id,
+        "run_id": observation.run_id,
+        "workload_id": task.id,
+    }
+
+
+def _task_outcome(harbor: HarborTrialObservation, status: Literal["completed", "failed", "skipped"]) -> str:
+    if status == "skipped":
+        return "skipped"
     if harbor.exception_type is not None:
         return f"error:{harbor.exception_type}"
+    if status == "failed":
+        return "not_passed"
     if not harbor.rewards:
         return "unscored"
     return "passed" if all(float(reward) >= 1 for reward in harbor.rewards.values()) else "not_passed"

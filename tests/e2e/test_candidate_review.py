@@ -104,7 +104,7 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             capabilities = await client.get_capabilities()
             captured = await client.capture_content_source(
                 CaptureContentSourceRequest(
@@ -261,7 +261,9 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
                 transport=httpx.ASGITransport(app=app),
                 base_url="http://testserver",
             )
-            self._client = PowerContextClient("http://testserver", http_client=self._transport)
+            self._client = PowerContextClient(
+                "http://testserver", http_client=self._transport, trust_transport_security=True
+            )
             return self
 
         async def __aexit__(self, *_args) -> None:

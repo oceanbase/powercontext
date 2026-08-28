@@ -73,6 +73,19 @@ def test_setup_dsh_rejects_a_ref_that_escapes_the_checkout_root(tmp_path: Path, 
         dsh_cli.resolve_dsh_plugin_dir(source="oceanbase/powercontext", ref="../../etc")
 
 
+def test_setup_dsh_does_not_echo_source_credentials(tmp_path: Path, monkeypatch) -> None:
+    import powercontext.cli.dsh as dsh_cli
+
+    marker = "redacted-value"
+    source = f"https://{marker}@github.com/oceanbase/powercontext"
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+
+    with pytest.raises(SetupError) as raised:
+        dsh_cli.resolve_dsh_plugin_dir(source=source, ref="master")
+
+    assert marker not in str(raised.value)
+
+
 def test_setup_dsh_clones_a_github_url_and_replaces_a_broken_checkout(tmp_path: Path, monkeypatch) -> None:
     import powercontext.cli.dsh as dsh_cli
 

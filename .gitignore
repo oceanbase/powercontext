@@ -6,6 +6,11 @@ docs/source
 # Local visual brainstorming sessions.
 .superpowers/
 
+# Local agent artifacts and generated outputs.
+.omx/
+docs/superpowers/
+output/
+
 # From https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
 
 # Byte-compiled / optimized / DLL files
@@ -151,6 +156,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.bak-*
 .envrc
 .powercontext/
 .powercontext-e2e/
@@ -230,3 +236,15 @@ integrations/dsh/coverage/
 integrations/dsh/*.tgz
 !integrations/dsh/plugins/powercontext/lib/
 !integrations/dsh/plugins/powercontext/lib/**
+
+# PowerContext OpenClaw plugin (Node)
+integrations/openclaw/plugins/memory-powercontext/artifacts/
+integrations/openclaw/plugins/memory-powercontext/*.tgz
+
+# PowerContext Pi package (Node)
+integrations/pi/node_modules/
+integrations/pi/coverage/
+integrations/pi/*.tgz
+integrations/pi/plugins/powercontext/node_modules/
+integrations/pi/plugins/powercontext/coverage/
+integrations/pi/plugins/powercontext/*.tgz

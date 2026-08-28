@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import AbstractAsyncContextManager
 from typing import Any, TypedDict, cast
 
 from bub import tool
@@ -25,13 +26,14 @@ from pydantic import BaseModel, Field
 from powercontext.client import PowerContextClient
 from powercontext.http import PrepareContextRequest, RememberMemoryRequest, SearchMemoryRequest
 
-from .plugin import STATE_KEY
+from .plugin import STATE_KEY, open_client
 
 
 class ToolSettings(TypedDict):
     base_url: str
     scope_id: str
     timeout: float
+    trust_transport_security: bool
 
 
 class SearchInput(BaseModel):
@@ -51,7 +53,7 @@ async def search_memory(param: SearchInput, *, context: Any) -> str:
 
     settings = _settings(context)
     request = SearchMemoryRequest(scope_id=settings["scope_id"], query=param.query, limit=param.limit)
-    async with PowerContextClient(settings["base_url"], timeout=settings["timeout"]) as client:
+    async with _client(settings) as client:
         response = await client.search_memory(request)
     if not response.hits:
         return "(no matching PowerContext memory)"
@@ -81,7 +83,7 @@ async def remember_memory(param: RememberInput, *, context: Any) -> str:
         text=param.text,
         reason=param.reason,
     )
-    async with PowerContextClient(settings["base_url"], timeout=settings["timeout"]) as client:
+    async with _client(settings) as client:
         response = await client.remember_memory(request)
     if response.entry is None:
         return "(PowerContext accepted the memory without an entry receipt)"
@@ -94,7 +96,7 @@ async def prepare_context(query: str, *, context: Any) -> str:
 
     settings = _settings(context)
     request = PrepareContextRequest(scope_id=settings["scope_id"], query=query)
-    async with PowerContextClient(settings["base_url"], timeout=settings["timeout"]) as client:
+    async with _client(settings) as client:
         response = await client.prepare_context(request)
     return response.content or "(no relevant PowerContext context)"
 
@@ -102,3 +104,11 @@ async def prepare_context(query: str, *, context: Any) -> str:
 def _settings(context: Any) -> ToolSettings:
     settings = context.state[STATE_KEY]
     return cast(ToolSettings, settings)
+
+
+def _client(settings: ToolSettings) -> AbstractAsyncContextManager[PowerContextClient]:
+    return open_client(
+        settings["base_url"],
+        timeout=settings["timeout"],
+        trust_transport_security=settings["trust_transport_security"],
+    )

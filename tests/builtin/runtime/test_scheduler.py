@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+from typing import Any
 
 import pytest
 
@@ -38,10 +39,10 @@ from powercontext.builtin.sources import SourceCursor
 
 
 class _Provider:
-    def __init__(self, context: PowerContext) -> None:
+    def __init__(self, context: PowerContext[Any, Any, Any]) -> None:
         self.context = context
 
-    async def get(self, scope_id: str, /) -> PowerContext:
+    async def get(self, scope_id: str, /) -> PowerContext[Any, Any, Any]:
         del scope_id
         return self.context
 

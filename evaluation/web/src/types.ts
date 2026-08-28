@@ -15,6 +15,8 @@
  */
 
 export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "interrupted" | "cancelled";
+export type Arm = "off" | "on";
+export type TreatmentMode = "off_on" | "on_only" | "off_only";
 
 export type TaskPhase =
   | "preparing"
@@ -44,15 +46,15 @@ export interface TaskCreate {
   instance_id: "instance_flipt-io__flipt-518ec324b66a07fdd95464a5e9ca5fe7681ad8f9";
   model: string;
   reasoning_effort: "medium";
-  treatment_mode: "off_on";
+  treatment_mode: TreatmentMode;
   idempotency_key: string;
 }
 
 export interface TaskResult {
   artifact_dir: string;
   report_path: string;
-  off_resolved: boolean;
-  on_resolved: boolean;
+  off_resolved: boolean | null;
+  on_resolved: boolean | null;
 }
 
 interface TaskRecordBase {
@@ -162,7 +164,7 @@ export interface Capabilities {
   instances: "instance_flipt-io__flipt-518ec324b66a07fdd95464a5e9ca5fe7681ad8f9"[];
   models: string[];
   reasoning_efforts: "medium"[];
-  treatment_modes: "off_on"[];
+  treatment_modes: TreatmentMode[];
 }
 
 export interface HealthResponse {
@@ -235,8 +237,8 @@ export interface TreatmentEvidence {
 }
 
 export interface EvidenceResponse {
-  off: TreatmentEvidence;
-  on: TreatmentEvidence;
+  off: TreatmentEvidence | null;
+  on: TreatmentEvidence | null;
 }
 
 export interface GoldValidationAudit {
@@ -256,9 +258,10 @@ export interface GoldValidationAudit {
 export interface ReportResponse {
   task_id: string;
   acceptance_valid: boolean;
-  off: ArmResponse & { arm: "off" };
-  on: ArmResponse & { arm: "on" };
-  comparison: ComparisonResponse;
+  treatment_mode: TreatmentMode;
+  off: (ArmResponse & { arm: "off" }) | null;
+  on: (ArmResponse & { arm: "on" }) | null;
+  comparison: ComparisonResponse | null;
   evidence: EvidenceResponse;
   gold_validation?: GoldValidationAudit | null | undefined;
   revisions: Record<string, string>;
@@ -358,7 +361,7 @@ export interface BatchCreate {
   task_set: BatchTaskSet;
   model: string;
   reasoning_effort: "medium";
-  treatment_mode: "off_on";
+  treatment_mode: TreatmentMode;
   idempotency_key: string;
   usage_pause_percent: number;
   initial_control_intent: "run" | "pause";
@@ -383,7 +386,7 @@ export interface BatchPreview {
   task_set: BatchTaskSet;
   model: string;
   reasoning_effort: "medium";
-  treatment_mode: "off_on";
+  treatment_mode: TreatmentMode;
   total_tasks: number;
   usage_pause_percent: number;
   usage: UsageSnapshot | null;
@@ -399,11 +402,11 @@ export interface ResolutionAggregate {
 }
 
 export interface TokenMetricAggregate {
-  off: number;
-  on: number;
-  delta: number;
-  off_measured_tasks: number;
-  on_measured_tasks: number;
+  off: number | null;
+  on: number | null;
+  delta: number | null;
+  off_measured_tasks: number | null;
+  on_measured_tasks: number | null;
 }
 
 export interface TokenAggregate {
@@ -414,16 +417,17 @@ export interface TokenAggregate {
 
 export interface BatchReport {
   batch_id: string;
+  treatment_mode: TreatmentMode;
   report_revision: number;
   total_tasks: number;
   terminal_tasks: number;
-  comparable_pairs: number;
+  comparable_pairs: number | null;
   execution_failures: number;
   cancelled_tasks: number;
-  off: ResolutionAggregate;
-  on: ResolutionAggregate;
-  resolution_rate_delta_points: number;
-  pair_categories: Record<PairCategory, number>;
+  off: ResolutionAggregate | null;
+  on: ResolutionAggregate | null;
+  resolution_rate_delta_points: number | null;
+  pair_categories: Record<PairCategory, number> | null;
   task_statuses: Record<TaskStatus, number>;
   tokens: TokenAggregate;
   control: BatchControlState;
@@ -628,4 +632,81 @@ export interface ContextPageOptions {
 
 export interface BatchEventSubscription {
   close(): void;
+}
+
+export interface BaselineRecord {
+  baseline_id: string;
+  name: string;
+  source_batch_id: string;
+  source_arm: Arm;
+  source_report_revision: number;
+  benchmark: "swebench-pro";
+  task_set: BatchTaskSet;
+  instance_set_digest: string;
+  total_tasks: number;
+  resolved_tasks: number;
+  execution_failures: number;
+  model: string;
+  reasoning_effort: "medium";
+  dataset_revision: string;
+  harness_revision: string;
+  powercontext_sha: string | null;
+  codex_version: string | null;
+  created_at: string;
+}
+
+export interface BaselineSelection {
+  baseline_id: string;
+  current_arm: Arm;
+}
+
+export interface BaselineCompatibility {
+  status: "compatible" | "warning" | "incompatible";
+  reasons: string[];
+}
+
+export interface BaselineCandidate {
+  baseline: BaselineRecord;
+  compatibility: BaselineCompatibility;
+}
+
+export interface BaselineComparison {
+  baseline: BaselineRecord;
+  current_arm: Arm;
+  compatibility: BaselineCompatibility;
+  coverage: {
+    matched_tasks: number;
+    comparable_tasks: number;
+    current_execution_failures: number;
+    baseline_execution_failures: number;
+  };
+  resolution: {
+    baseline_resolved: number;
+    current_resolved: number;
+    total: number;
+    baseline_rate_percent: number;
+    current_rate_percent: number;
+    delta_points: number;
+  };
+  outcome_categories: Record<
+    "baseline_fail_current_pass" | "baseline_pass_current_fail" | "both_pass" | "both_fail",
+    number
+  >;
+  input_tokens: HistoricalTokenComparison | null;
+  output_tokens: HistoricalTokenComparison | null;
+  total_tokens: HistoricalTokenComparison | null;
+}
+
+export interface HistoricalTokenComparison {
+  baseline: number;
+  current: number;
+  delta: number;
+  baseline_measured_tasks: number;
+  current_measured_tasks: number;
+}
+
+export interface BaselineComparisonResponse {
+  batch_id: string;
+  report_revision: number;
+  comparisons: BaselineComparison[];
 }

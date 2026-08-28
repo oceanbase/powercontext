@@ -72,10 +72,12 @@ jobs:
           import os
           import re
           import subprocess
-          import tomllib
           from pathlib import Path
 
-          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          version = subprocess.check_output(
+              ["uvx", "--from", "hatchling", "--with", "hatch-vcs", "hatchling", "version"],
+              text=True,
+          ).strip()
           source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
           label = os.environ.get("ARTIFACT_LABEL") or os.environ.get("SOURCE_REF") or "source"
           slug = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-.").lower() or "source"

@@ -39,6 +39,12 @@ def default_database_path() -> Path:
     return powercontext_data_dir() / "powercontext.db"
 
 
+def default_seekdb_path() -> Path:
+    """Return the installed Server's default embedded seekDB directory."""
+
+    return powercontext_data_dir() / "seekdb"
+
+
 def default_scheduler_path() -> Path:
     """Return the installed Server's default scheduler database path."""
 
@@ -55,6 +61,7 @@ __all__ = [
     "POWERCONTEXT_HOME_ENV",
     "default_database_path",
     "default_scheduler_path",
+    "default_seekdb_path",
     "powercontext_data_dir",
     "sqlite_url",
 ]

@@ -13,14 +13,18 @@ wheels = [
 
 [[package]]
 name = "powercontext-codex-plugin-runtime"
-version = "0.1.0"
+version = "0.2.0"
 source = { virtual = "." }
 dependencies = [
     { name = "pydantic-settings" },
+    { name = "typing-extensions" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic-settings", specifier = ">=2.7,<3" }]
+requires-dist = [
+    { name = "pydantic-settings", specifier = ">=2.7,<3" },
+    { name = "typing-extensions", specifier = ">=4.12,<5" },
+]
 
 [[package]]
 name = "pydantic"

@@ -76,7 +76,7 @@ from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.statistics import StatisticsRepository
-from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
     GenerationCapabilityUnavailableError,
@@ -95,6 +95,7 @@ from powercontext.builtin.sources import (
     ExternalSkillImportMode,
     ExternalSkillSnapshotCapture,
     SourceCursor,
+    SourceJournalEntry,
     validate_scope_id,
 )
 from powercontext.builtin.statistics import RecallTokenMeasurement
@@ -344,6 +345,15 @@ class RelationalContexts:
         self._activation_locks: dict[str, asyncio.Lock] = {}
         self._experience_locks: dict[str, asyncio.Lock] = {}
 
+    def evict(self, scope_id: str, /) -> None:
+        """Discard inactive scope-local compositions and serialization locks."""
+
+        scope = validate_scope_id(scope_id)
+        self._contexts.pop(scope, None)
+        self._source_locks.pop(scope, None)
+        self._activation_locks.pop(scope, None)
+        self._experience_locks.pop(scope, None)
+
     def review(self, scope_id: str, /) -> ReviewService:
         """Return Candidate and reviewed Artifact operations bound to one scope."""
 
@@ -430,6 +440,20 @@ class RelationalContexts:
             values = (
                 await connection.execute(
                     select(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id).order_by(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id)
+                )
+            ).scalars()
+            return tuple(str(value) for value in values)
+
+    async def handoff_scope_ids(self) -> tuple[str, ...]:
+        """Return scopes with a committed Handoff head, in deterministic order."""
+
+        async with self.database.transaction() as connection:
+            values = (
+                await connection.execute(
+                    select(ARTIFACT_HEADS_TABLE.c.scope_id)
+                    .where(ARTIFACT_HEADS_TABLE.c.family == Handoff.family)
+                    .distinct()
+                    .order_by(ARTIFACT_HEADS_TABLE.c.scope_id)
                 )
             ).scalars()
             return tuple(str(value) for value in values)
@@ -547,6 +571,18 @@ class _RelationalSources:
                 return (await self._repository.get(connection, self._scope_id, ref)).journal_position
         except RepositoryNotFoundError:
             raise SourceNotFoundError(source) from None
+
+    async def entries(self) -> tuple[SourceJournalEntry, ...]:
+        async with self._database.connection(self._bound_connection) as connection:
+            rows = await self._repository.list(connection, self._scope_id)
+        return tuple(
+            SourceJournalEntry(
+                source_ref=row.ref,
+                source=row.value,
+                position=row.journal_position,
+            )
+            for row in rows
+        )
 
     def _as_ref(self, source: Source) -> SourceRef:
         return SourceRef(source_type=self._source_names[type(source)], source_id=source.name)

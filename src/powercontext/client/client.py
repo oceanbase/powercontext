@@ -26,6 +26,7 @@ from pydantic import TypeAdapter, ValidationError
 from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
 from powercontext.client.tracing import ClientSpan
 from powercontext.http import (
+    AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
@@ -38,6 +39,7 @@ from powercontext.http import (
     CommittedHandoff,
     ContinueHandoffRequest,
     CreateHandoffReportProjectRequest,
+    CreateWorkContractRequest,
     DetachHandoffReportWorkspaceRequest,
     ErrorResponse,
     ExperienceArtifact,
@@ -56,7 +58,9 @@ from powercontext.http import (
     GetMemoryEntryRequest,
     GetSkillRequest,
     GetStatsRequest,
+    HandoffAcknowledgement,
     HandoffActivation,
+    HandoffCurrentWorkRequest,
     HandoffDraft,
     HandoffReportActivityPage,
     HandoffReportResponse,
@@ -64,10 +68,12 @@ from powercontext.http import (
     HandoffResolution,
     HealthResponse,
     ImportExternalSkillRequest,
+    KnownHandoffScopePage,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListHandoffReportActivitiesRequest,
+    ListHandoffReportKnownScopesRequest,
     ListHandoffReportProjectsRequest,
     ListHandoffReportWorkstreamsRequest,
     ListMemoryChangesRequest,
@@ -79,6 +85,7 @@ from powercontext.http import (
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
+    PreparedWorkHandoff,
     PrepareHandoffRequest,
     ProjectDescriptor,
     ProjectPage,
@@ -88,6 +95,7 @@ from powercontext.http import (
     PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
     RecordHandoffReportActivityRequest,
+    RecordTaskOutcomeRequest,
     RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
@@ -104,10 +112,12 @@ from powercontext.http import (
     StoredHandoffReportActivity,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
+    WorkSourceReceipt,
     WorkstreamDescriptor,
     WorkstreamPage,
 )
 from powercontext.http._generated.operations import (
+    ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
     ATTACH_HANDOFF_REPORT_WORKSPACE,
@@ -115,6 +125,7 @@ from powercontext.http._generated.operations import (
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_HANDOFF_REPORT_PROJECT,
+    CREATE_WORK_CONTRACT,
     DETACH_HANDOFF_REPORT_WORKSPACE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
@@ -131,10 +142,12 @@ from powercontext.http._generated.operations import (
     GET_READINESS,
     GET_SKILL,
     GET_STATS,
+    HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
     LIST_HANDOFF_REPORT_ACTIVITIES,
+    LIST_HANDOFF_REPORT_KNOWN_SCOPES,
     LIST_HANDOFF_REPORT_PROJECTS,
     LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
@@ -145,6 +158,7 @@ from powercontext.http._generated.operations import (
     PROPOSE_SKILL,
     PURGE_HANDOFF_REPORT_ACTIVITIES,
     RECORD_HANDOFF_REPORT_ACTIVITY,
+    RECORD_TASK_OUTCOME,
     REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
@@ -158,6 +172,7 @@ from powercontext.http._generated.operations import (
     UPDATE_HANDOFF_REPORT_WORKSTREAM,
     Operation,
 )
+from powercontext.transport import is_plaintext_non_loopback
 
 REQUEST_ID_HEADER = "X-PowerContext-Request-ID"
 _RequestT = TypeVar("_RequestT")
@@ -174,8 +189,23 @@ class PowerContextClient:
         token: str | None = None,
         timeout: float = 10.0,
         http_client: httpx.AsyncClient | None = None,
+        trust_transport_security: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
+        # Plaintext HTTP is only trusted on loopback -- for *any* request, not just an authenticated
+        # one. The request body itself carries Memory content, so a missing bearer token does not make
+        # an unencrypted non-loopback request safe. When this facade opens the transport itself,
+        # ``base_url``'s scheme accurately reflects what crosses the wire. A caller-supplied
+        # ``http_client`` *may* instead own a transport whose ``http://`` label is only a routing
+        # token -- an in-process ASGI app, a Unix socket, or a TLS-terminating proxy -- but a plain
+        # pooling ``httpx.AsyncClient`` (e.g. the shared client the LangGraph adapter installs) is
+        # exactly as exposed as one we would open ourselves. Supplying a transport is therefore not
+        # evidence of safety: the guard stays on for caller-supplied transports too, and a caller that
+        # knows its transport is secure must say so explicitly via ``trust_transport_security`` rather
+        # than have safety inferred from the argument being set.
+        transport_trusted = http_client is not None and trust_transport_security
+        if not transport_trusted and is_plaintext_non_loopback(self._base_url):
+            raise ValueError("refusing to send requests over unencrypted non-loopback HTTP")  # noqa: TRY003
         self._headers = {"Authorization": f"Bearer {token}"} if token else None
         self._owned_http_client: httpx.AsyncClient | None = None
         if http_client is None:
@@ -252,6 +282,14 @@ class PowerContextClient:
         """List Report Projects with cursor pagination."""
 
         return await self._request(LIST_HANDOFF_REPORT_PROJECTS, request)
+
+    async def list_handoff_report_known_scopes(
+        self,
+        request: ListHandoffReportKnownScopesRequest,
+    ) -> KnownHandoffScopePage:
+        """List scopes that contain a committed Handoff."""
+
+        return await self._request(LIST_HANDOFF_REPORT_KNOWN_SCOPES, request)
 
     async def register_handoff_report_workstream(
         self,
@@ -346,8 +384,8 @@ class PowerContextClient:
             mode="json",
             by_alias=True,
         )
+        span = ClientSpan.start(GET_HANDOFF_REPORT.operation_id)
         try:
-            span = ClientSpan.start(GET_HANDOFF_REPORT.operation_id)
             headers = {} if self._headers is None else dict(self._headers)
             span.inject(headers)
             response = await self._http_client.request(
@@ -384,6 +422,26 @@ class PowerContextClient:
         """Capture raw content as durable Source evidence."""
 
         return await self._request(CAPTURE_CONTENT_SOURCE, request)
+
+    async def create_work_contract(self, request: CreateWorkContractRequest) -> WorkSourceReceipt:
+        """Create one grounded delegation baseline as durable Source evidence."""
+
+        return await self._request(CREATE_WORK_CONTRACT, request)
+
+    async def handoff_current_work(self, request: HandoffCurrentWorkRequest) -> PreparedWorkHandoff:
+        """Capture inspected current state and prepare a temporary Handoff."""
+
+        return await self._request(HANDOFF_CURRENT_WORK, request)
+
+    async def acknowledge_handoff(self, request: AcknowledgeHandoffRequest) -> HandoffAcknowledgement:
+        """Resolve a Handoff and durably record the receiver's acknowledgement."""
+
+        return await self._request(ACKNOWLEDGE_HANDOFF, request)
+
+    async def record_task_outcome(self, request: RecordTaskOutcomeRequest) -> WorkSourceReceipt:
+        """Record one completion-aware attempt outcome without erasing uncertainty."""
+
+        return await self._request(RECORD_TASK_OUTCOME, request)
 
     async def flush_memory(self, request: FlushMemoryRequest) -> FlushMemoryResponse:
         """Run one bounded Source-to-Memory activation."""
@@ -551,8 +609,8 @@ class PowerContextClient:
             else:
                 json_payload = payload
 
+        span = ClientSpan.start(operation.operation_id)
         try:
-            span = ClientSpan.start(operation.operation_id)
             headers = {} if self._headers is None else dict(self._headers)
             span.inject(headers)
             response = await self._http_client.request(

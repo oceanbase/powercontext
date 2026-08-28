@@ -24,16 +24,25 @@ from contextlib import suppress
 from hashlib import sha256
 from pathlib import Path
 from time import monotonic
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+if TYPE_CHECKING:
+    from typing_extensions import override
+else:
+    _MethodT = TypeVar("_MethodT")
+
+    def override(method: _MethodT, /) -> _MethodT:
+        return method
+
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from hooks import prepared_context as _prepared_context  # noqa: E402
-from scripts.project_scope import derive_scope_id  # noqa: E402
+from scripts.project_scope import resolve_scope_id  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse
@@ -62,6 +71,7 @@ class _Response(Protocol):
 class _RejectRedirects(HTTPRedirectHandler):
     """Leave every 3xx response to urllib's default HTTP error handler."""
 
+    @override
     def redirect_request(
         self,
         req: Request,
@@ -92,7 +102,11 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
 
     try:
         settings = ClaudeCodePluginSettings.from_environment() if settings is None else settings
-        payload = cast(dict[str, Any], json.load(sys.stdin))
+        stdin = sys.stdin
+        if hasattr(stdin, "buffer"):
+            payload = cast(dict[str, Any], json.loads(stdin.buffer.read().decode("utf-8")))
+        else:
+            payload = cast(dict[str, Any], json.load(stdin))
         if not _is_user_prompt_submit(payload.get("hook_event_name")):
             return 0
         prompt = _prompt(payload)
@@ -101,7 +115,7 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
             _emit_context_event("skipped")
             return 0
 
-        scope_id = derive_scope_id(cwd, configured_scope_id=settings.scope_id)
+        scope_id = resolve_scope_id(cwd, configured_scope_id=settings.scope_id)
         http_deadline = monotonic() + settings.http_budget_seconds
         context = None
         with suppress(Exception):

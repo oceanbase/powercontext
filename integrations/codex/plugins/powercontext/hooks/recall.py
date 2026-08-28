@@ -30,11 +30,13 @@ from typing import Any, Protocol, cast
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from typing_extensions import override
+
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from hooks import prepared_context as _prepared_context  # noqa: E402
-from scripts.project_scope import derive_scope_id  # noqa: E402
+from scripts.project_scope import resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
@@ -46,7 +48,7 @@ _READ_CHUNK_BYTES = 65_536
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-codex-plugin/0.1.0",
+    "User-Agent": "powercontext-codex-plugin/0.2.0",
 }
 
 
@@ -64,6 +66,7 @@ class _Response(Protocol):
 class _RejectRedirects(HTTPRedirectHandler):
     """Leave every 3xx response to urllib's default HTTP error handler."""
 
+    @override
     def redirect_request(
         self,
         req: Request,
@@ -95,7 +98,11 @@ def main(settings: CodexPluginSettings | None = None) -> int:
     try:
         settings = CodexPluginSettings() if settings is None else settings
         http_deadline = monotonic() + settings.http_budget_seconds
-        payload = cast(dict[str, Any], json.load(sys.stdin))
+        stdin = sys.stdin
+        if hasattr(stdin, "buffer"):
+            payload = cast(dict[str, Any], json.loads(stdin.buffer.read().decode("utf-8")))
+        else:
+            payload = cast(dict[str, Any], json.load(stdin))
         if not _is_user_prompt_submit(payload.get("hook_event_name")):
             return 0
         prompt = payload.get("prompt")
@@ -103,7 +110,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         if not isinstance(prompt, str) or not prompt.strip() or not isinstance(cwd, str):
             _emit_context_event("skipped")
             return 0
-        scope_id = derive_scope_id(cwd, configured_scope_id=settings.scope_id)
+        scope_id = resolve_scope_id(cwd, configured_scope_id=settings.scope_id)
         context = _recall_context(prompt, scope_id, settings=settings, deadline=http_deadline)
         if settings.capture_prompts and len(prompt) <= _MAX_SOURCE_LENGTH:
             with suppress(Exception):

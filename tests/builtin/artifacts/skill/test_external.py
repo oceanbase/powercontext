@@ -12,11 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from pathlib import Path
 
 import pytest
 
 from powercontext.builtin.artifacts.skill import (
+    AgentSkillProvider,
+    AgentSkillTarget,
     CodexSkillProvider,
     CodexSkillRoot,
     ExternalSkillResolutionStatus,
@@ -107,16 +110,30 @@ def test_scan_skips_invalid_or_symlinked_packages(tmp_path: Path) -> None:
     invalid = root / "missing-frontmatter"
     invalid.mkdir()
     (invalid / "SKILL.md").write_text("# Missing frontmatter\n", encoding="utf-8")
-    (package / "linked").symlink_to(invalid, target_is_directory=True)
+    symlink_created = False
+    try:
+        (package / "linked").symlink_to(invalid, target_is_directory=True)
+    except OSError as error:
+        # Windows requires SeCreateSymbolicLinkPrivilege (WinError 1314) for this test fixture.
+        # Enable Windows Developer Mode or run the test as Administrator to gain this privilege.
+
+        if os.name != "nt" or getattr(error, "winerror", None) != 1314:
+            raise
+    else:
+        symlink_created = True
 
     scan = _provider(root).scan()
 
-    assert scan.registrations == ()
-    assert scan.skipped == 2
+    expected_skipped = 2 if symlink_created else 1
+    assert scan.skipped == expected_skipped
+    if symlink_created:
+        assert scan.registrations == ()
+    else:
+        assert [registration.name for registration in scan.registrations] == ["friendly-python"]
 
 
 def test_codex_provider_requires_unique_stable_root_ids(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="root IDs"):
+    with pytest.raises(ValueError, match="target IDs"):
         CodexSkillProvider(
             host_id="workstation-1",
             roots=(
@@ -124,3 +141,41 @@ def test_codex_provider_requires_unique_stable_root_ids(tmp_path: Path) -> None:
                 CodexSkillRoot(root_id="repository", installation_scope="user", path=tmp_path),
             ),
         )
+
+
+def test_agent_provider_discovers_codex_and_claude_code_targets(tmp_path: Path) -> None:
+    codex_package = _write_skill(tmp_path / ".agents" / "skills", "codex-review")
+    claude_package = tmp_path / ".claude" / "skills" / "claude-review"
+    claude_package.mkdir(parents=True)
+    (claude_package / "SKILL.md").write_text(
+        "---\ndescription: Review a change with Claude Code.\n---\n\nReview the change.\n",
+        encoding="utf-8",
+    )
+    provider = AgentSkillProvider(
+        host_id="workstation-1",
+        targets=(
+            AgentSkillTarget(
+                target_id="codex-project",
+                agent_kind="codex",
+                installation_scope="project",
+                path=codex_package.parent,
+            ),
+            AgentSkillTarget(
+                target_id="claude-project",
+                agent_kind="claude_code",
+                installation_scope="project",
+                path=claude_package.parent,
+            ),
+        ),
+    )
+
+    scan = provider.scan()
+
+    assert scan.skipped == 0
+    assert [registration.external_skill_id for registration in scan.registrations] == [
+        "codex:project:codex-project/codex-review",
+        "claude_code:project:claude-project/claude-review",
+    ]
+    assert scan.registrations[1].name == "claude-review"
+    assert scan.registrations[1].provider == "claude_code"
+    assert provider.resolve(scan.registrations[1]).entrypoint == str(claude_package / "SKILL.md")

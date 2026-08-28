@@ -161,7 +161,7 @@ def test_client_downloads_handoff_report_bytes_and_sets_download_flag() -> None:
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
             client = PowerContextClient("https://memory.example", http_client=http_client)
-            request = GetHandoffReportRequest(project_id="project-1")
+            request = GetHandoffReportRequest(scope_id="scope-1")
             rendered = await client.get_handoff_report(request)
             content = await client.download_handoff_report(request)
 
@@ -169,6 +169,7 @@ def test_client_downloads_handoff_report_bytes_and_sets_download_flag() -> None:
         assert content == b"# Handoff Report\n"
         assert len(requests) == 2
         assert json.loads(requests[0].content)["download"] is False
+        assert json.loads(requests[0].content)["scope_id"] == "scope-1"
         assert json.loads(requests[1].content)["download"] is True
 
     asyncio.run(scenario())

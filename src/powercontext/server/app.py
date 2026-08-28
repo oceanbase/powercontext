@@ -192,6 +192,21 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     StatisticsPeriod as RuntimeStatisticsPeriod,
 )
+from powercontext.builtin.work import (
+    AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
+)
+from powercontext.builtin.work import (
+    CreateWorkContract as RuntimeCreateWorkContract,
+)
+from powercontext.builtin.work import (
+    HandoffAcknowledgement as RuntimeHandoffAcknowledgement,
+)
+from powercontext.builtin.work import (
+    HandoffCurrentWork as RuntimeHandoffCurrentWork,
+)
+from powercontext.builtin.work import PreparedWorkHandoff as RuntimePreparedWorkHandoff
+from powercontext.builtin.work import RecordTaskOutcome as RuntimeRecordTaskOutcome
+from powercontext.builtin.work import WorkSourceReceipt as RuntimeWorkSourceReceipt
 from powercontext.errors import (
     ArtifactNotFoundError,
     PowerContextError,
@@ -199,6 +214,7 @@ from powercontext.errors import (
     SourceConflictError,
 )
 from powercontext.http import (
+    AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
@@ -211,6 +227,7 @@ from powercontext.http import (
     CommittedHandoff,
     ContinueHandoffRequest,
     CreateHandoffReportProjectRequest,
+    CreateWorkContractRequest,
     DetachHandoffReportWorkspaceRequest,
     ErrorDetail,
     ErrorResponse,
@@ -230,6 +247,8 @@ from powercontext.http import (
     GetMemoryEntryRequest,
     GetSkillRequest,
     GetStatsRequest,
+    HandoffAcknowledgement,
+    HandoffCurrentWorkRequest,
     HandoffReportActivity,
     HandoffReportActivityPage,
     HandoffReportResponse,
@@ -237,10 +256,13 @@ from powercontext.http import (
     HandoffSelection,
     HealthResponse,
     ImportExternalSkillRequest,
+    KnownHandoffScope,
+    KnownHandoffScopePage,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListHandoffReportActivitiesRequest,
+    ListHandoffReportKnownScopesRequest,
     ListHandoffReportProjectsRequest,
     ListHandoffReportWorkstreamsRequest,
     ListMemoryChangesRequest,
@@ -251,6 +273,7 @@ from powercontext.http import (
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
+    PreparedWorkHandoff,
     PrepareHandoffRequest,
     ProjectDescriptor,
     ProjectPage,
@@ -261,6 +284,7 @@ from powercontext.http import (
     ReadinessResponse,
     ReadinessStatus,
     RecordHandoffReportActivityRequest,
+    RecordTaskOutcomeRequest,
     RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
@@ -277,6 +301,7 @@ from powercontext.http import (
     StoredHandoffReportActivity,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
+    WorkSourceReceipt,
     WorkstreamDescriptor,
     WorkstreamPage,
 )
@@ -293,6 +318,7 @@ from powercontext.http import (
     PreparedHandoff as TransportPreparedHandoff,
 )
 from powercontext.http._generated.operations import (
+    ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
     API_DESCRIPTION,
     API_TITLE,
@@ -303,6 +329,7 @@ from powercontext.http._generated.operations import (
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_HANDOFF_REPORT_PROJECT,
+    CREATE_WORK_CONTRACT,
     DETACH_HANDOFF_REPORT_WORKSPACE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
@@ -319,10 +346,12 @@ from powercontext.http._generated.operations import (
     GET_READINESS,
     GET_SKILL,
     GET_STATS,
+    HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
     LIST_HANDOFF_REPORT_ACTIVITIES,
+    LIST_HANDOFF_REPORT_KNOWN_SCOPES,
     LIST_HANDOFF_REPORT_PROJECTS,
     LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
@@ -334,6 +363,7 @@ from powercontext.http._generated.operations import (
     PROPOSE_SKILL,
     PURGE_HANDOFF_REPORT_ACTIVITIES,
     RECORD_HANDOFF_REPORT_ACTIVITY,
+    RECORD_TASK_OUTCOME,
     REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
@@ -462,6 +492,20 @@ class _HandoffApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedHandoffApplication: ...
 
 
+class _ScopedWorkApplication(Protocol):
+    async def create_contract(self, request: RuntimeCreateWorkContract, /) -> RuntimeWorkSourceReceipt: ...
+
+    async def handoff_current(self, request: RuntimeHandoffCurrentWork, /) -> RuntimePreparedWorkHandoff: ...
+
+    async def acknowledge(self, request: RuntimeAcknowledgeHandoff, /) -> RuntimeHandoffAcknowledgement: ...
+
+    async def record_outcome(self, request: RuntimeRecordTaskOutcome, /) -> RuntimeWorkSourceReceipt: ...
+
+
+class _WorkApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedWorkApplication: ...
+
+
 class _ScopedMemoryApplication(Protocol):
     async def remember(self, request: RuntimeRememberMemoryRequest, /) -> MemoryMutationResult: ...
 
@@ -498,6 +542,7 @@ class ServerApplication(Protocol):
     experience: _ExperienceApplication
     external_skills: _ExternalSkillApplication
     handoff: _HandoffApplication
+    work: _WorkApplication
     memory: _MemoryApplication
     review: _ReviewApplication
     skill: _SkillApplication
@@ -566,7 +611,7 @@ def create_app(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="invalid_request",
             message="The request violates the API contract.",
-            details={"errors": error.errors()},
+            details={"errors": _validation_error_details(error)},
         )
 
     @app.exception_handler(_RuntimeNotReadyError)
@@ -596,6 +641,7 @@ def create_app(
         _add_route(app, GET_HANDOFF_REPORT_PROJECT, get_handoff_report_project)
         _add_route(app, UPDATE_HANDOFF_REPORT_PROJECT, update_handoff_report_project)
         _add_route(app, LIST_HANDOFF_REPORT_PROJECTS, list_handoff_report_projects)
+        _add_route(app, LIST_HANDOFF_REPORT_KNOWN_SCOPES, list_handoff_report_known_scopes)
         _add_route(app, REGISTER_HANDOFF_REPORT_WORKSTREAM, register_handoff_report_workstream)
         _add_route(app, LIST_HANDOFF_REPORT_WORKSTREAMS, list_handoff_report_workstreams)
         _add_route(app, UPDATE_HANDOFF_REPORT_WORKSTREAM, update_handoff_report_workstream)
@@ -611,6 +657,10 @@ def create_app(
     _add_route(app, REMEMBER_MEMORY, remember_memory)
     _add_route(app, SEARCH_MEMORY, search_memory)
     _add_route(app, PREPARE_CONTEXT, prepare_context)
+    _add_route(app, CREATE_WORK_CONTRACT, create_work_contract)
+    _add_route(app, HANDOFF_CURRENT_WORK, handoff_current_work)
+    _add_route(app, ACKNOWLEDGE_HANDOFF, acknowledge_handoff)
+    _add_route(app, RECORD_TASK_OUTCOME, record_task_outcome)
     _add_route(app, ACTIVATE_HANDOFF, activate_handoff)
     _add_route(app, PREPARE_HANDOFF, prepare_handoff)
     _add_route(app, FINALIZE_HANDOFF, finalize_handoff)
@@ -725,6 +775,17 @@ async def list_handoff_report_projects(
     )
     return ProjectPage(
         items=[_project_descriptor_response(item) for item in result.items],
+        next_cursor=result.next_cursor,
+    )
+
+
+async def list_handoff_report_known_scopes(
+    request: ListHandoffReportKnownScopesRequest,
+    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
+) -> KnownHandoffScopePage:
+    result = await report.list_known_scopes(cursor=request.cursor, limit=request.limit)
+    return KnownHandoffScopePage(
+        items=[KnownHandoffScope(scope_id=scope_id) for scope_id in result.items],
         next_cursor=result.next_cursor,
     )
 
@@ -856,7 +917,7 @@ async def get_handoff_report(
     report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
 ) -> HandoffReportResponse | Response:
     result = await report.get_report(
-        request.project_id,
+        request.scope_id,
         locale=None if request.locale is None else request.locale.value,
         include_evidence_checks=request.include_evidence_checks,
         report_format=request.format.value,
@@ -964,6 +1025,46 @@ async def prepare_context(
 ) -> PreparedContext:
     result = await application.context.for_scope(request.scope_id).prepare(mapping.prepare_context_request(request))
     return mapping.prepared_context_response(result)
+
+
+async def create_work_contract(
+    request: CreateWorkContractRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> WorkSourceReceipt:
+    result = await application.work.for_scope(request.scope_id).create_contract(
+        mapping.create_work_contract_request(request)
+    )
+    return mapping.work_source_receipt_response(result)
+
+
+async def handoff_current_work(
+    request: HandoffCurrentWorkRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> PreparedWorkHandoff:
+    result = await application.work.for_scope(request.scope_id).handoff_current(
+        mapping.handoff_current_work_request(request)
+    )
+    return mapping.prepared_work_handoff_response(result)
+
+
+async def acknowledge_handoff(
+    request: AcknowledgeHandoffRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> HandoffAcknowledgement:
+    result = await application.work.for_scope(request.scope_id).acknowledge(
+        mapping.acknowledge_handoff_request(request)
+    )
+    return mapping.handoff_acknowledgement_response(result)
+
+
+async def record_task_outcome(
+    request: RecordTaskOutcomeRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> WorkSourceReceipt:
+    result = await application.work.for_scope(request.scope_id).record_outcome(
+        mapping.record_task_outcome_request(request)
+    )
+    return mapping.work_source_receipt_response(result)
 
 
 async def prepare_handoff(
@@ -1378,6 +1479,16 @@ def _error_response(
 ) -> JSONResponse:
     error = ErrorResponse(error=ErrorDetail(code=code, message=message, details=details))
     return JSONResponse(status_code=response_status, content=error.model_dump(mode="json"))
+
+
+def _validation_error_details(error: RequestValidationError) -> list[Any]:
+    details: list[Any] = []
+    for item in error.errors():
+        if isinstance(item, dict):
+            details.append({key: value for key, value in item.items() if key != "input"})
+        else:
+            details.append(item)
+    return details
 
 
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:

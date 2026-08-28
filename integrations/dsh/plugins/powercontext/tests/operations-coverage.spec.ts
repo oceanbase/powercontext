@@ -30,7 +30,6 @@ describe('operations coverage', () => {
     const fromYaml = parseOperations(loadYamlDoc()).map((row) => row.operationId).sort()
     const generated = [...OPERATION_IDS].sort()
     expect(generated).toEqual(fromYaml)
-    expect(generated).toHaveLength(48)
   })
 
   it('records method, path, and location for each operation', () => {
@@ -52,7 +51,7 @@ describe('operations coverage', () => {
       location: 'body',
       scope: true,
     })
-    expect(OPERATIONS.get_handoff_report.scope).toBe(false)
+    expect(OPERATIONS.get_handoff_report.scope).toBe(true)
     expect(OPERATIONS.get_capabilities.location).toBeNull()
   })
 

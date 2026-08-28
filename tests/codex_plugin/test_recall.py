@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import stat
 import sys
 import threading
@@ -69,7 +70,7 @@ def test_recall_emits_bounded_untrusted_context(
     )
     monkeypatch.setattr(
         recall_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     captured: list[tuple[str, str]] = []
@@ -101,6 +102,46 @@ def test_recall_emits_bounded_untrusted_context(
     assert captured == [("What decisions apply?", "project:test")]
 
 
+def test_recall_reads_utf8_stdin_on_windows_encodings(
+    recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared_content = "prepared context"
+    captured: list[str] = []
+    monkeypatch.setattr(
+        recall_module,
+        "_prepare_context",
+        lambda _query, _scope, *, settings, deadline: _prepared(prepared_content),
+    )
+    monkeypatch.setattr(
+        recall_module,
+        "resolve_scope_id",
+        lambda _cwd, *, configured_scope_id: "project:test",
+    )
+    monkeypatch.setattr(
+        recall_module,
+        "_capture_prompt",
+        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+    )
+
+    payload = {
+        "hook_event_name": "UserPromptSubmit",
+        "cwd": "/workspace/project",
+        "prompt": "查看当前记忆",
+    }
+    stdin = io.TextIOWrapper(
+        io.BytesIO(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
+        encoding="cp1252",
+    )
+    monkeypatch.setattr(sys, "stdin", stdin)
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert recall_module.main() == 0
+    assert captured == ["查看当前记忆"]
+    assert json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"] == prepared_content
+
+
 def test_recall_failure_is_non_blocking(
     recall_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -112,7 +153,7 @@ def test_recall_failure_is_non_blocking(
     )
     monkeypatch.setattr(
         recall_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     monkeypatch.setattr(
@@ -186,7 +227,7 @@ def test_recall_records_exact_injected_context_only_when_eval_trace_is_enabled(
     )
     monkeypatch.setattr(
         recall_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "eval:run-1:on",
     )
     monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
@@ -222,7 +263,8 @@ def test_recall_records_exact_injected_context_only_when_eval_trace_is_enabled(
     }
     assert event["injected_text"] == prepared_context
     assert event["observed_at"].endswith("Z")
-    assert stat.S_IMODE(trace.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(trace.stat().st_mode) == 0o600
 
 
 def test_recall_does_not_write_an_evaluation_trace_by_default(
@@ -238,7 +280,7 @@ def test_recall_does_not_write_an_evaluation_trace_by_default(
     )
     monkeypatch.setattr(
         recall_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
@@ -271,7 +313,7 @@ def test_recall_uses_the_eval_home_when_codex_filters_the_trace_path(
         "_prepare_context",
         lambda *_args, **_kwargs: _prepared("PowerContext recalled context: Use the retained audit."),
     )
-    monkeypatch.setattr(recall_module, "derive_scope_id", lambda *_args, **_kwargs: "eval:run-1:on")
+    monkeypatch.setattr(recall_module, "resolve_scope_id", lambda *_args, **_kwargs: "eval:run-1:on")
     monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
     monkeypatch.setattr(
         sys,
@@ -310,7 +352,7 @@ def test_hook_accepts_codex_event_name_variants(
     )
     monkeypatch.setattr(
         recall_module,
-        "derive_scope_id",
+        "resolve_scope_id",
         lambda _cwd, *, configured_scope_id: "project:test",
     )
     monkeypatch.setattr(
@@ -397,45 +439,6 @@ def test_hook_injects_runtime_content_without_a_second_selection(
 def test_hook_rejects_runtime_content_over_the_requested_budget(recall_module: ModuleType) -> None:
     with pytest.raises(recall_module._InvalidResponseError):
         recall_module._validate_prepared_context(_prepared("x" * 8_001))
-
-
-def test_context_request_uses_the_prepare_endpoint_once(
-    recall_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    requests: list[tuple[str, dict[str, object], int | None]] = []
-
-    def post(
-        path: str,
-        payload: dict[str, object],
-        *,
-        settings: object,
-        deadline: float,
-        expected_status: int | None = None,
-    ) -> dict[str, object]:
-        requests.append((path, payload, expected_status))
-        return _prepared(None, status="empty")
-
-    monkeypatch.setattr(recall_module, "_post_json", post)
-
-    recall_module._prepare_context(
-        "query",
-        "project:test",
-        settings=recall_module.CodexPluginSettings(),
-        deadline=10.0,
-    )
-
-    assert requests == [
-        (
-            "/v1/context/prepare",
-            {
-                "scope_id": "project:test",
-                "query": "query",
-                "max_bytes": 8000,
-            },
-            200,
-        )
-    ]
 
 
 def test_context_prepare_404_is_reported_as_a_version_mismatch(

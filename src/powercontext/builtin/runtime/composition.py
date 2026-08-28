@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import JsonValue
+from typing_extensions import override
 
 from powercontext.builtin.artifacts.experience import ExperienceCandidatePipeline, ExperienceGenerator
 from powercontext.builtin.artifacts.handoff import (
@@ -36,8 +37,8 @@ from powercontext.builtin.artifacts.memory import (
     MemoryRerankDecision,
     MemoryReranker,
 )
-from powercontext.builtin.artifacts.skill import CodexSkillProvider, ExternalSkillProvider, SkillGenerator
-from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
+from powercontext.builtin.artifacts.skill import AgentSkillProvider, ExternalSkillProvider, SkillGenerator
+from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter, RuntimeWorkContinuityReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.handoff_report.sqlite import HANDOFF_REPORT_TABLES
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
@@ -52,10 +53,12 @@ from powercontext.builtin.persistence.oceanbase.memory_index import (
     OceanBaseMemoryVectorIndex,
 )
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
+from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
-from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVec1Index
+from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVectorIndex
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.runtime._scope_cache import ScopeCacheObserver
 from powercontext.builtin.runtime.application import BuiltinRuntime
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
@@ -94,6 +97,7 @@ class BuiltinConfigurationError(RuntimeError):
 
 
 class _ContentEvidenceProjector(DefaultMemoryEvidenceProjector):
+    @override
     def project_source(self, source: Source, /) -> JsonValue:
         if isinstance(source, ContentSource):
             return {
@@ -106,6 +110,7 @@ class _ContentEvidenceProjector(DefaultMemoryEvidenceProjector):
 
 
 class _ContentHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
+    @override
     def project_source(self, source: Source, /) -> JsonValue:
         if isinstance(source, ContentSource):
             return {
@@ -163,6 +168,7 @@ async def open_builtin_runtime(
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
     instrumentation: InstrumentationSettings | None = None,
+    scope_cache_observer: ScopeCacheObserver | None = None,
     tracing: RuntimeTracing | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
@@ -261,6 +267,9 @@ async def open_builtin_runtime(
                     handoff_generation=contexts.handoff_generation,
                 ),
                 source_window_limit=config.runtime.source_window_limit,
+                scope_cache_size=config.runtime.scope_cache_size,
+                scope_evictor=contexts.evict,
+                scope_cache_observer=scope_cache_observer,
                 scope_ids=contexts.scope_ids,
                 review_service=contexts.review,
                 generation_service=contexts.generation,
@@ -278,6 +287,8 @@ async def open_builtin_runtime(
             runtime.handoff_report = HandoffReportApplication(
                 contexts.database,
                 RuntimeHandoffReadAdapter(runtime.handoff),
+                continuity=RuntimeWorkContinuityReadAdapter(runtime.work),
+                scope_ids=contexts.handoff_scope_ids,
             )
         if config.runtime.schedule_seconds is not None and configured_pipeline is None:
             raise BuiltinConfigurationError("scheduled-pipeline")
@@ -316,14 +327,13 @@ async def open_builtin_contexts(
     if isinstance(database, SQLiteConfig):
         experience_index = SQLiteExperienceFTSIndex()
         indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
-        if database.vec1_extension is not None:
-            if embedding_model is None:
-                raise ValueError("SQLite Vec1 requires an embedding model")  # noqa: TRY003
-            indexes.append(SQLiteMemoryVec1Index(database.vec1_extension, embedding_model.profile))
+        if embedding_model is not None:
+            indexes.append(SQLiteMemoryVectorIndex(embedding_model.profile))
         index = CompositeMemoryIndex(*indexes)
         async with SQLiteProfile.open(
             database,
             tables=BUILTIN_TABLES + report_tables + index.tables,
+            load_vector_extension=embedding_model is not None,
         ) as profile:
             async with profile.database.transaction() as connection:
                 await index.initialize(connection)
@@ -344,18 +354,19 @@ async def open_builtin_contexts(
                 memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
             )
         return
-    if not isinstance(database, OceanBaseConfig):
-        raise BuiltinConfigurationError("database")
-
     experience_index = OceanBaseExperienceFTSIndex()
     indexes = [OceanBaseMemoryFTSIndex()]
     if embedding_model is not None:
         indexes.append(OceanBaseMemoryVectorIndex(embedding_model.profile))
     index = CompositeMemoryIndex(*indexes)
-    async with OceanBaseProfile.open(
-        database,
-        tables=BUILTIN_TABLES + report_tables + index.tables,
-    ) as profile:
+    tables = BUILTIN_TABLES + report_tables + index.tables
+    if isinstance(database, OceanBaseConfig):
+        profile_context = OceanBaseProfile.open(database, tables=tables)
+    elif isinstance(database, SeekDBConfig):
+        profile_context = SeekDBProfile.open(database, tables=tables)
+    else:
+        raise BuiltinConfigurationError("database")
+    async with profile_context as profile:
         async with profile.database.transaction() as connection:
             await index.initialize(connection)
             await experience_index.initialize(connection)
@@ -551,7 +562,11 @@ async def _embedding_models(
 
     def adapter(instrument: InstrumentationSettings | bool | None) -> EmbeddingModel:
         return PydanticAIEmbeddingModel(
-            embedder=Embedder(model, instrument=instrument),
+            embedder=Embedder(
+                model,
+                settings={"dimensions": profile.dimension},
+                instrument=instrument,
+            ),
             batch_size=settings.embedding_batch_size,
             profile=profile,
             limits=limits,
@@ -576,11 +591,11 @@ def _required(value: ValueT | None) -> ValueT:
 
 
 def _external_skill_provider(settings: ExternalSkillsConfig) -> ExternalSkillProvider | None:
-    if not settings.codex_roots:
+    if not settings.agent_targets:
         return None
     if settings.host_id is None:
         raise BuiltinConfigurationError("external-skill-host")
-    return CodexSkillProvider(host_id=settings.host_id, roots=settings.codex_roots)
+    return AgentSkillProvider(host_id=settings.host_id, targets=settings.agent_targets)
 
 
 def _search_modes(capabilities: MemoryCapabilities) -> tuple[MemorySearchMode, ...]:

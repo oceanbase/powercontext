@@ -56,9 +56,11 @@ from powercontext.builtin.runtime.application import (
     ScopedSkillApplication,
     ScopedSourceApplication,
     ScopedStatisticsApplication,
+    ScopedWorkApplication,
     SkillApplication,
     SourceApplication,
     StatisticsApplication,
+    WorkApplication,
 )
 from powercontext.builtin.runtime.composition import (
     BuiltinConfigurationError,
@@ -121,11 +123,13 @@ from powercontext.builtin.runtime.models import (
 )
 from powercontext.builtin.runtime.protocols import PowerContextProvider
 from powercontext.builtin.runtime.readiness import (
+    CachedReadinessProbe,
     ReadinessCheckStatus,
     ReadinessProbeDefinition,
     RuntimeReadiness,
     RuntimeReadinessChecks,
     RuntimeReadinessStatus,
+    dependency_readiness_probe,
 )
 from powercontext.builtin.statistics import (
     ArtifactInventoryStatistics,
@@ -160,6 +164,7 @@ __all__ = [
     "BuiltinConfig",
     "BuiltinConfigurationError",
     "BuiltinRuntime",
+    "CachedReadinessProbe",
     "CandidateFamilyCount",
     "CandidateInventoryStatistics",
     "CaptureSource",
@@ -263,6 +268,7 @@ __all__ = [
     "ScopedSkillApplication",
     "ScopedSourceApplication",
     "ScopedStatisticsApplication",
+    "ScopedWorkApplication",
     "SearchMemoryRequest",
     "SkillApplication",
     "SkillCandidate",
@@ -274,6 +280,8 @@ __all__ = [
     "StatisticsApplication",
     "StatisticsPeriod",
     "UsageStatistics",
+    "WorkApplication",
+    "dependency_readiness_probe",
     "open_builtin_contexts",
     "open_builtin_runtime",
 ]

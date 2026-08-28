@@ -44,7 +44,13 @@ class _ContentCandidatePipeline:
         )
 
 
-def test_builtin_runtime_uses_the_selected_sqlite_database() -> None:
+def test_builtin_runtime_uses_sqlite_fts_without_vector_extension(tmp_path, monkeypatch) -> None:
+    missing_extension = tmp_path / "missing-sqlite-vec"
+    monkeypatch.setattr(
+        "powercontext.builtin.persistence.sqlite.profile.sqlite_vec.loadable_path",
+        lambda: str(missing_extension),
+    )
+
     async def scenario() -> None:
         async with open_builtin_runtime(
             BuiltinConfig(database=SQLiteConfig()),

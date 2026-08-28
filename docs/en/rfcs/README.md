@@ -1,3 +1,8 @@
+---
+template: records.html
+title: PowerContext RFCs
+---
+
 # PowerContext RFCs
 
 RFCs record substantial design proposals and the decisions made about them.

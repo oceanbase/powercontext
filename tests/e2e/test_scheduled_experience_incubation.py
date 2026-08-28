@@ -93,7 +93,7 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(tmp_p
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             captured = await client.capture_content_source(
                 CaptureContentSourceRequest(
                     scope_id=scope_id,
@@ -123,7 +123,7 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(tmp_p
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             await asyncio.sleep(0.08)
             candidates = await _pending_experience(client, scope_id)
             assert len(candidates) == 1

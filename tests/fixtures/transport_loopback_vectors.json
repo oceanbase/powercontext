@@ -1,0 +1,16 @@
+{
+  "_comment": "Shared transport-policy host vectors -- the single source of truth for the loopback contract. Consumed by the Python drift guard (tests/test_transport.py) and the Pi plugin's Vitest drift guard (integrations/pi/plugins/powercontext/tests/transport-policy.spec.ts). Every entry is a valid URL authority so both languages can build http://<host>:8000: loopback hosts must be trusted for plaintext, non_loopback hosts must be refused plaintext. Keep this aligned with src/powercontext/transport.py.",
+  "loopback": [
+    "127.0.0.1",
+    "127.0.0.2",
+    "127.1.2.3",
+    "localhost",
+    "LOCALHOST",
+    "[::1]"
+  ],
+  "non_loopback": [
+    "0.0.0.0",
+    "memory.example",
+    "192.168.1.10"
+  ]
+}

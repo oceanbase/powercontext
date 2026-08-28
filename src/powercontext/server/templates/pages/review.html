@@ -1,0 +1,247 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
+{% extends "base.html" %}
+
+{% block title %}PowerContext Review{% endblock %}
+
+{% block content %}
+{% include "components/login.html" %}
+
+{% set status_title_key = "reviewTitle" %}
+{% set status_title = "Review" %}
+{% include "components/status.html" %}
+
+<section class="server-content" id="review-inbox">
+  <div class="hero review-hero">
+    <div>
+      <p class="page-kind" data-i18n="reviewTitle">Review</p>
+      <h1 data-i18n="reviewInboxTitle">Experience and Skill review</h1>
+      <p class="review-intro" data-i18n="reviewIntro">Inspect evidence, revise proposals, and make explicit decisions.</p>
+    </div>
+    <div class="scope-picker review-scope-picker">
+      <label for="review-scope-search" data-i18n="selectScope">Scope</label>
+      <div class="scope-combobox" id="review-scope-combobox">
+        <input
+          id="review-scope-search"
+          type="search"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls="review-scope-options"
+          aria-expanded="false"
+          autocomplete="off"
+          spellcheck="false"
+          data-i18n-placeholder="searchScopesPlaceholder"
+          placeholder="Search by scope name or ID"
+        >
+        <div class="scope-options" id="review-scope-options" role="listbox" hidden></div>
+      </div>
+      <span class="scope-search-status" id="review-scope-search-status" role="status" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <div class="review-toolbar" aria-label="Review filters" data-i18n-aria-label="reviewFilters">
+    <label>
+      <span data-i18n="family">Family</span>
+      <select id="review-family-filter">
+        <option value="" data-i18n="allFamilies">All families</option>
+        <option value="experience" data-i18n="experience">Experience</option>
+        <option value="skill" data-i18n="skill">Skill</option>
+      </select>
+    </label>
+    <label>
+      <span data-i18n="status">Status</span>
+      <select id="review-status-filter">
+        <option value="pending" data-i18n="pending">Pending</option>
+        <option value="approved" data-i18n="approved">Approved</option>
+        <option value="rejected" data-i18n="rejected">Rejected</option>
+      </select>
+    </label>
+    <button class="secondary-button review-refresh" id="review-refresh" type="button" data-i18n="refresh">Refresh</button>
+    <p class="review-live-status" id="review-live-status" role="status" aria-live="polite"></p>
+  </div>
+
+  <div class="review-workspace">
+    <section class="review-queue" aria-labelledby="review-queue-title">
+      <div class="review-panel-heading">
+        <div>
+          <h2 id="review-queue-title" data-i18n="candidateQueue">Candidates</h2>
+          <p id="review-queue-caption"></p>
+        </div>
+      </div>
+      <div class="review-list" id="review-list" role="listbox" aria-label="Candidates" data-i18n-aria-label="candidateQueue"></div>
+      <div class="empty-state" id="review-empty" hidden>
+        <strong data-i18n="noCandidates">No Candidates match these filters.</strong>
+        <p data-i18n="noCandidatesHint">Try another family or status.</p>
+      </div>
+      <button class="secondary-button review-load-more" id="review-load-more" type="button" data-i18n="loadMore" hidden>Load more</button>
+    </section>
+
+    <article class="review-detail" id="review-detail" aria-label="Candidate detail" data-i18n-aria-label="candidateDetail">
+      <div class="review-detail-empty" id="review-detail-empty">
+        <p class="page-kind" data-i18n="candidateDetail">Candidate detail</p>
+        <h2 data-i18n="selectCandidate">Select a Candidate to inspect it.</h2>
+        <p data-i18n="selectCandidateHint">The full proposal and exact evidence references will appear here.</p>
+      </div>
+
+      <div id="review-detail-content" hidden>
+        <header class="review-detail-header">
+          <div>
+            <p class="page-kind" id="review-detail-family"></p>
+            <h2 id="review-candidate-title"></h2>
+            <code id="review-candidate-id"></code>
+          </div>
+          <div class="review-detail-state">
+            <span class="status-badge" id="review-detail-status"></span>
+            <span id="review-detail-version"></span>
+          </div>
+        </header>
+
+        <div class="review-alert" id="review-alert" role="alert" aria-live="assertive" hidden></div>
+        <div class="review-conflict-actions" id="review-conflict-actions" hidden>
+          <button class="secondary-button" id="review-resume-draft" type="button" data-i18n="resumeDraft">Resume revision</button>
+          <button class="secondary-button" id="review-discard-draft" type="button" data-i18n="discardDraft">Discard draft</button>
+        </div>
+
+        <section class="review-proposal" aria-labelledby="review-proposal-title">
+          <h3 id="review-proposal-title" data-i18n="proposal">Proposal</h3>
+          <dl id="review-proposal-fields"></dl>
+        </section>
+
+        <section class="review-evidence" aria-labelledby="review-evidence-title">
+          <h3 id="review-evidence-title" data-i18n="evidence">Evidence</h3>
+          <div class="review-evidence-groups">
+            <div>
+              <h4 data-i18n="sourceReferences">Source references</h4>
+              <ul id="review-source-refs"></ul>
+            </div>
+            <div>
+              <h4 data-i18n="artifactReferences">Artifact references</h4>
+              <ul id="review-artifact-refs"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="review-lineage" aria-labelledby="review-lineage-title">
+          <h3 id="review-lineage-title" data-i18n="lineage">Lineage and decision</h3>
+          <dl id="review-lineage-fields"></dl>
+        </section>
+
+        <section class="review-publication" id="review-publication" aria-labelledby="review-publication-title" hidden>
+          <div class="review-publication-heading">
+            <div>
+              <h3 id="review-publication-title" data-i18n="managedSkillPublication">Managed Skill delivery</h3>
+              <p data-i18n="publicationIntro">Create a reviewed revision or publish the approved revision to an Agent Skill root.</p>
+            </div>
+            <span class="status-badge" id="review-publication-state"></span>
+          </div>
+          <p class="review-publication-status" id="review-publication-status" role="status" aria-live="polite"></p>
+          <div class="review-publication-empty" id="review-publication-empty" hidden>
+            <strong data-i18n="noPublishTargets">No writable Skill target is configured.</strong>
+            <p data-i18n="noPublishTargetsHint">Enable managed publication on an explicit local Skill root.</p>
+          </div>
+          <div id="review-publication-content" hidden>
+            <div class="review-publication-overview">
+              <label class="review-publication-target" for="review-publication-target">
+                <span data-i18n="publishTarget">Publish target</span>
+                <select id="review-publication-target"></select>
+              </label>
+              <dl class="review-publication-facts">
+                <div>
+                  <dt data-i18n="publishedRevision">Published revision</dt>
+                  <dd id="review-published-revision"></dd>
+                </div>
+                <div>
+                  <dt data-i18n="discovery">Discovery</dt>
+                  <dd id="review-publication-discovery"></dd>
+                </div>
+              </dl>
+            </div>
+            <div class="review-publication-path">
+              <span data-i18n="destination">Destination</span>
+              <code id="review-publication-destination"></code>
+            </div>
+          </div>
+          <div class="review-publication-actions">
+            <button class="secondary-button" id="review-create-skill-revision" type="button" data-i18n="createSkillRevision">Create revision</button>
+            <button class="primary-button" id="review-publish-skill" type="button" data-i18n="publishSkill" hidden>Publish Skill</button>
+          </div>
+        </section>
+
+        <div class="review-actions" id="review-actions" hidden>
+          <button class="secondary-button" id="review-edit" type="button" data-i18n="revise">Revise</button>
+          <button class="primary-button" id="review-approve" type="button" data-i18n="approve">Approve</button>
+          <button class="danger-button" id="review-reject" type="button" data-i18n="reject">Reject</button>
+        </div>
+
+        <form class="review-revision-form" id="review-revision-form" hidden>
+          <div class="review-form-heading">
+            <div>
+              <h3 id="review-revision-title" data-i18n="reviseProposal">Revise proposal</h3>
+              <p id="review-revision-note" data-i18n="revisionEvidenceNote">Evidence and lineage references remain unchanged.</p>
+            </div>
+            <span id="review-draft-version"></span>
+          </div>
+          <div class="review-form-fields" id="review-form-fields"></div>
+          <div class="review-form-actions">
+            <button class="primary-button" id="review-save-revision" type="submit" data-i18n="saveRevision">Save revision</button>
+            <button class="secondary-button" id="review-cancel-revision" type="button" data-i18n="cancel">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </article>
+  </div>
+</section>
+
+<dialog class="review-dialog" id="review-approve-dialog">
+  <form method="dialog">
+    <h2 data-i18n="approveCandidate">Approve Candidate?</h2>
+    <p data-i18n="approveConfirmation">This creates or updates the managed Artifact from the current proposal.</p>
+    <div class="review-dialog-actions">
+      <button class="secondary-button" value="cancel" data-i18n="cancel">Cancel</button>
+      <button class="primary-button" id="review-confirm-approve" value="default" data-i18n="approve">Approve</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="review-dialog" id="review-publish-dialog">
+  <form method="dialog">
+    <h2 data-i18n="publishSkillCandidate">Publish this managed Skill?</h2>
+    <p id="review-publish-confirmation"></p>
+    <div class="review-dialog-actions">
+      <button class="secondary-button" value="cancel" data-i18n="cancel">Cancel</button>
+      <button class="primary-button" id="review-confirm-publish" value="default" data-i18n="publishSkill">Publish Skill</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="review-dialog" id="review-reject-dialog">
+  <form id="review-reject-form">
+    <h2 data-i18n="rejectCandidate">Reject Candidate?</h2>
+    <p data-i18n="rejectConfirmation">Record a clear reason for rejecting this proposal.</p>
+    <label class="field-label" for="review-reject-reason" data-i18n="rejectionReason">Rejection reason</label>
+    <textarea id="review-reject-reason" maxlength="2000" required></textarea>
+    <div class="review-dialog-actions">
+      <button class="secondary-button" id="review-cancel-reject" type="button" data-i18n="cancel">Cancel</button>
+      <button class="danger-button" id="review-confirm-reject" type="submit" data-i18n="reject">Reject</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('web_static', path='/review.js') }}?v=agent-targets-v1"></script>
+{% endblock %}

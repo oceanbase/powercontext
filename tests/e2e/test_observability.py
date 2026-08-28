@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 from pathlib import Path
 
 import httpx
@@ -286,6 +287,49 @@ def test_observability_signals_correlate_without_counting_the_mcp_bridge(caplog,
     assert scope_id not in signal_payload
 
 
+def test_database_failure_log_does_not_include_memory_content(caplog, tmp_path) -> None:
+    database_path = tmp_path / "failure-log.db"
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+    memory_content = "PROBE-SENSITIVE-MEMORY-1318"
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with sqlite3.connect(database_path) as connection:
+            connection.executescript("""
+                CREATE TRIGGER reject_memory_insert
+                BEFORE INSERT ON pc_memory_entry_versions
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced persistence failure');
+                END;
+            """)
+        caplog.clear()
+        with caplog.at_level(logging.ERROR, logger="powercontext.server.app"):
+            response = client.post(
+                "/v1/memory/remember",
+                json={"scope_id": "project:failure-log", "kind": "fact", "text": memory_content},
+            )
+
+    records = [
+        record for record in caplog.records if getattr(record, "event", None) == "application.operation.completed"
+    ]
+    assert response.status_code == 500
+    assert len(records) == 1
+    record = records[0]
+    assert record.operation == "remember_memory"
+    assert record.outcome == "failure"
+    assert record.error_code == "internal_error"
+    assert record.exc_info is not None
+
+    formatter = logging.Formatter()
+    rendered_records = tuple(formatter.format(record) for record in caplog.records)
+    assert "forced persistence failure" in formatter.format(record)
+    assert all(memory_content not in rendered for rendered in rendered_records)
+
+
 def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeypatch, tmp_path) -> None:
     # Pydantic AI also resolves already-constructed models through `infer_model`, so pass those through.
     monkeypatch.setattr(
@@ -532,16 +576,19 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
                 RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text=memory_content),))
             )
 
-            # Holding the scope lock outside the Runtime makes the next write observe real contention.
-            lock = runtime._locks[scope_id]
-            await lock.acquire()
-            contending = asyncio.create_task(
-                memory.remember(RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Second fact."),)))
-            )
-            await asyncio.sleep(0.05)
-            assert not contending.done()
-            lock.release()
-            await contending
+            # Holding the scope lock inside an operation makes the next write observe real contention.
+            async with runtime._scope_operation(scope_id):
+                lock = runtime._lock(scope_id)
+                await lock.acquire()
+                contending = asyncio.create_task(
+                    memory.remember(
+                        RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Second fact."),))
+                    )
+                )
+                await asyncio.sleep(0.05)
+                assert not contending.done()
+                lock.release()
+                await contending
 
             # A failure inside the critical section must still release the lock for later writes.
             with pytest.raises(RevisionConflictError):
@@ -574,15 +621,19 @@ def test_scope_lock_is_released_when_stage_teardown_fails(tmp_path) -> None:
     scope_id = "project:private-broken-tracing"
 
     async def scenario() -> bool:
-        async with open_builtin_runtime(
-            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'broken-tracing.db'}")),
-            tracing=_ScopeLockTeardownFailingTracing(),
-        ) as runtime:
+        async with (
+            open_builtin_runtime(
+                BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'broken-tracing.db'}")),
+                tracing=_ScopeLockTeardownFailingTracing(),
+            ) as runtime,
+            runtime._scope_operation(scope_id),
+        ):
+            lock = runtime._lock(scope_id)
             with pytest.raises(_StageTeardownError):
                 await runtime.memory.for_scope(scope_id).remember(
                     RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Guarded fact."),))
                 )
-            return runtime._locks[scope_id].locked()
+            return lock.locked()
 
     assert asyncio.run(scenario()) is False
 
@@ -593,8 +644,8 @@ def test_vector_search_exports_embedding_under_memory_search_without_recording_t
         lambda _model, **_kwargs: TestEmbeddingModel(dimensions=3),
     )
     monkeypatch.setattr(
-        "powercontext.builtin.runtime.composition.SQLiteMemoryFTSIndex",
-        _VectorMemoryIndex,
+        "powercontext.builtin.runtime.composition.SQLiteMemoryVectorIndex",
+        lambda _profile: _VectorMemoryIndex(),
     )
 
     exporter = InMemorySpanExporter()

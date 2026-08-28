@@ -17,6 +17,7 @@ id: locomo-multihop-football
 categories:
   - acceptance
   - sample
+  - batch:locomo
 provenance:
   source: benchmark/locomo/dataset/locomo10.json
   revision: 4448275ea2c5cd0af5774d80aea7b05b5a16e1b996caf8554ca3d762a301ae84
@@ -28,7 +29,7 @@ provenance:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: locomo-multihop-football
-  checksum: 1b3697582140d2b2adb82adcd00cc33a4203da4284f55da3da124f5ee98320db
+  checksum: d2700bd79b6f5e7d96bb0ab802c414a4a90fd652eb2612036a99aebd2b25f9e4
 execution:
   type: bub
   model: false

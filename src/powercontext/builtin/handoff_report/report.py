@@ -22,7 +22,7 @@ from typing import Annotated, Literal, TypeAlias
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictInt, field_validator, model_validator
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.handoff import HandoffContent, HandoffEvidenceCheck
+from powercontext.builtin.artifacts.handoff import HandoffContent, HandoffDisposition, HandoffEvidenceCheck
 from powercontext.builtin.handoff_report.models import (
     HandoffReportTrust,
     ProjectDescriptor,
@@ -32,6 +32,7 @@ from powercontext.builtin.handoff_report.models import (
     ReportSelectionEntry,
     WorkstreamDescriptor,
 )
+from powercontext.builtin.work import WorkContinuity
 
 ReportEvidenceChecks: TypeAlias = tuple[HandoffEvidenceCheck, ...] | Literal["not_checked"]
 ReportActivityCoverageStatus: TypeAlias = Literal["not_configured", "captured", "unavailable"]
@@ -59,6 +60,8 @@ ReportHandoffActivityRelation: TypeAlias = Literal[
 ReportHandoffBoundaryCoverage: TypeAlias = Literal["unavailable"]
 MAX_REPORT_WORKSTREAMS = 100
 MAX_REPORT_ACTIVITIES = 5_000
+MAX_REPORT_HANDOFF_HISTORY = 20
+MAX_REPORT_HANDOFF_HISTORY_EXCERPT_LENGTH = 240
 
 
 class _ReportOutputValue(BaseModel):
@@ -118,12 +121,27 @@ class ReportPeriodComparison(_ReportOutputValue):
         return self
 
 
+class HandoffRevisionSummary(_ReportOutputValue):
+    """Bounded display metadata for one committed Handoff Revision."""
+
+    reference: ArtifactRef
+    objective_excerpt: Annotated[str, Field(max_length=MAX_REPORT_HANDOFF_HISTORY_EXCERPT_LENGTH)]
+    disposition: HandoffDisposition
+    next_action_excerpt: Annotated[str | None, Field(max_length=MAX_REPORT_HANDOFF_HISTORY_EXCERPT_LENGTH)] = None
+    state_count: StrictInt = Field(ge=1)
+    omission_count: StrictInt = Field(ge=0)
+
+
 class WorkstreamReport(_ReportOutputValue):
     """One Workstream projected from an exact Handoff selection."""
 
     workstream: WorkstreamDescriptor
+    continuity: WorkContinuity
     handoff_ref: ArtifactRef | None
     content: HandoffContent | None
+    handoff_revision_count: StrictInt = Field(default=0, ge=0)
+    handoff_history_truncated: bool = False
+    handoff_history: Annotated[tuple[HandoffRevisionSummary, ...], Field(max_length=MAX_REPORT_HANDOFF_HISTORY)] = ()
     evidence_checks: ReportEvidenceChecks = "not_checked"
     evidence_unavailable: bool = False
     activities: Annotated[tuple[ReportActivityEvent, ...], Field(max_length=MAX_REPORT_ACTIVITIES)] = ()
@@ -135,6 +153,8 @@ class WorkstreamReport(_ReportOutputValue):
 
     @model_validator(mode="after")
     def validate_handoff_projection(self) -> WorkstreamReport:
+        if self.continuity.scope_id != self.workstream.scope_id:
+            raise ValueError("continuity scope must match its Workstream")  # noqa: TRY003
         if self.handoff_ref is None:
             _validate_no_handoff(self)
         else:
@@ -155,6 +175,8 @@ def _validate_no_handoff(report: WorkstreamReport) -> None:
         raise ValueError("a Workstream without Handoff must have no_handoff work status")  # noqa: TRY003
     if report.reporting_status != "no_handoff":
         raise ValueError("a Workstream without Handoff must report missing Handoff state")  # noqa: TRY003
+    if report.handoff_revision_count != 0 or report.handoff_history or report.handoff_history_truncated:
+        raise ValueError("a Workstream without Handoff cannot contain Handoff Revision history")  # noqa: TRY003
 
 
 def _validate_selected_handoff(report: WorkstreamReport) -> None:
@@ -166,6 +188,31 @@ def _validate_selected_handoff(report: WorkstreamReport) -> None:
         raise ValueError("work status must match the exact Handoff disposition")  # noqa: TRY003
     if report.reporting_status == "no_handoff":
         raise ValueError("an exact Handoff selection cannot report missing Handoff state")  # noqa: TRY003
+    _validate_handoff_history(report)
+
+
+def _validate_handoff_history(report: WorkstreamReport) -> None:
+    handoff_ref = report.handoff_ref
+    if handoff_ref is None:
+        raise ValueError("Handoff Revision history requires an exact selected Handoff")  # noqa: TRY003
+    if not report.handoff_history:
+        raise ValueError("an exact Handoff selection must contain Handoff Revision history")  # noqa: TRY003
+    if report.handoff_history[-1].reference != handoff_ref:
+        raise ValueError("Handoff Revision history must end at the exact selected Handoff")  # noqa: TRY003
+    if report.handoff_revision_count < len(report.handoff_history):
+        raise ValueError("Handoff Revision count cannot be smaller than its projected history")  # noqa: TRY003
+    if report.handoff_history_truncated != (report.handoff_revision_count > len(report.handoff_history)):
+        raise ValueError("Handoff Revision truncation must match its projected history")  # noqa: TRY003
+    references = tuple(item.reference for item in report.handoff_history)
+    if any(
+        reference.family != handoff_ref.family or reference.artifact_id != handoff_ref.artifact_id
+        for reference in references
+    ):
+        raise ValueError("Handoff Revision history must belong to the selected Artifact lifecycle")  # noqa: TRY003
+    if tuple(reference.revision for reference in references) != tuple(
+        sorted({reference.revision for reference in references})
+    ):
+        raise ValueError("Handoff Revision history must be unique and ascending")  # noqa: TRY003
 
 
 class HandoffReport(_ReportOutputValue):

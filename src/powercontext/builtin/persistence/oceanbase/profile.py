@@ -86,6 +86,7 @@ class OceanBaseProfile:
         engine = create_async_engine(
             config.url.get_secret_value(),
             echo=config.echo,
+            hide_parameters=True,
             pool_pre_ping=config.pool_pre_ping,
         )
         database = AsyncDatabase.own(engine)

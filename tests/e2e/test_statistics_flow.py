@@ -94,6 +94,7 @@ def _client(app) -> tuple[httpx.AsyncClient, PowerContextClient]:
         "http://testserver",
         token=_AUTH_TOKEN,
         http_client=transport,
+        trust_transport_security=True,
     )
 
 

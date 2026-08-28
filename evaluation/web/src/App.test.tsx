@@ -32,14 +32,14 @@ describe("App batch report navigation", () => {
     expect(screen.getByRole("link", { name: "任务详细报告" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("link", { name: "当前运行任务" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getAllByRole("navigation")).toHaveLength(1);
-    expect(screen.getAllByRole("link")).toHaveLength(4);
+    expect(screen.getAllByRole("link")).toHaveLength(5);
     expect(screen.queryByRole("link", { name: /工作台|测试任务|验收报告|单任务详情/ })).not.toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "预览评测" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "开始评测" })).toBeVisible();
     expect(await screen.findByText("Worker 工作中")).toBeVisible();
     expect(screen.getByText("任务对 3 / 4")).toBeVisible();
     expect(screen.getByText("队列 1")).toBeVisible();
     expect(screen.getByText("资源门禁开放")).toBeVisible();
-    expect(screen.getByText("Worker 按配置并行运行独立任务对")).toBeVisible();
+    expect(screen.getByText("Worker 按配置并行运行独立任务")).toBeVisible();
     expect(screen.queryByText("全局同时只运行一个任务，其余任务排队")).not.toBeInTheDocument();
   });
 
@@ -97,8 +97,7 @@ describe("App batch report navigation", () => {
     const api = apiStub({ createBatch: vi.fn().mockResolvedValue(created) });
     render(<App api={api} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "预览评测" }));
-    fireEvent.click(await screen.findByRole("button", { name: "确认并开始评测" }));
+    fireEvent.click(await screen.findByRole("button", { name: "开始评测" }));
 
     await waitFor(() => expect(window.location.pathname).toBe("/report/batch%2Fnew"));
     expect(await screen.findByRole("heading", { name: "总体报告" })).toBeVisible();

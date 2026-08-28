@@ -18,7 +18,9 @@
 {% set is_zh = "/zh/" in canonical %}
 {% set home_url = "zh/" if is_zh else "en/" %}
 {% set is_docs = "/docs/" in canonical or "/development/" in canonical or "/modules/" in canonical %}
-{% set is_rfcs = "/rfcs/" in canonical %}
+{% set is_docs_overview = is_docs and page.meta and page.meta.page_type == "docs-overview" %}
+{% set is_records = "/rfcs/" in canonical or "/meetings/" in canonical %}
+{% set is_record_index = page.title in ["PowerContext RFCs", "PowerContext RFC", "Meeting notes", "会议纪要"] %}
 {% set previous_url = (page.previous_page.url | string) if page.previous_page else "" %}
 {% set next_url = (page.next_page.url | string) if page.next_page else "" %}
 {% set language_path = "/zh/" if is_zh else "/en/" %}
@@ -26,10 +28,10 @@
 {% set next_same_language = language_path in "/" ~ next_url %}
 {% set previous_is_docs = "/docs/" in "/" ~ previous_url or "/development/" in "/" ~ previous_url or "/modules/" in "/" ~ previous_url %}
 {% set next_is_docs = "/docs/" in "/" ~ next_url or "/development/" in "/" ~ next_url or "/modules/" in "/" ~ next_url %}
-{% set previous_is_rfcs = "/rfcs/" in "/" ~ previous_url %}
-{% set next_is_rfcs = "/rfcs/" in "/" ~ next_url %}
-{% set show_previous = page.previous_page and previous_same_language and ((is_docs and previous_is_docs) or (is_rfcs and previous_is_rfcs) or (not is_docs and not is_rfcs)) %}
-{% set show_next = page.next_page and next_same_language and ((is_docs and next_is_docs) or (is_rfcs and next_is_rfcs) or (not is_docs and not is_rfcs)) %}
+{% set previous_is_records = "/rfcs/" in "/" ~ previous_url or "/meetings/" in "/" ~ previous_url %}
+{% set next_is_records = "/rfcs/" in "/" ~ next_url or "/meetings/" in "/" ~ next_url %}
+{% set show_previous = not is_docs_overview and not is_record_index and page.previous_page and previous_same_language and ((is_docs and previous_is_docs) or (is_records and previous_is_records) or (not is_docs and not is_records)) %}
+{% set show_next = not is_docs_overview and not is_record_index and page.next_page and next_same_language and ((is_docs and next_is_docs) or (is_records and next_is_records) or (not is_docs and not is_records)) %}
 <footer class="md-footer pc-footer">
   {% if "navigation.footer" in features %}
     {% if show_previous or show_next %}
@@ -62,17 +64,15 @@
   {% endif %}
   <div class="pc-footer__meta md-typeset">
     <div class="pc-footer__inner md-grid">
-      <a class="pc-footer__wordmark" href="{{ home_url | url }}" aria-label="{{ 'OceanBase PowerContext 首页' if is_zh else 'OceanBase PowerContext home' }}">
-        <img src="{{ 'assets/images/oceanbase-logo.svg' | url }}" alt="">
-        <span class="pc-brand__owner">OceanBase</span>
-        <span class="pc-brand__divider" aria-hidden="true">|</span>
-        <span class="pc-footer__product">PowerContext</span>
+      <a class="pc-footer__wordmark" href="{{ home_url | url }}" aria-label="{{ 'PowerContext 首页' if is_zh else 'PowerContext home' }}">
+        <img class="pc-footer__wordmark-image pc-footer__wordmark-image--color" src="{{ 'assets/images/powercontext-color.png' | url }}" alt="PowerContext">
+        <img class="pc-footer__wordmark-image pc-footer__wordmark-image--reverse" src="{{ 'assets/images/powercontext-reverse.png' | url }}" alt="" aria-hidden="true">
       </a>
       <nav class="pc-footer__nav" aria-label="{{ '页脚导航' if is_zh else 'Footer navigation' }}">
         <a href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ "文档" if is_zh else "Docs" }}</a>
         <a href="{{ ('zh/blog/' if is_zh else 'en/blog/') | url }}">{{ "博客" if is_zh else "Blog" }}</a>
         <a href="{{ ('zh/changelog/' if is_zh else 'en/changelog/') | url }}">{{ "更新日志" if is_zh else "Changelog" }}</a>
-        <a href="{{ ('zh/rfcs/' if is_zh else 'en/rfcs/') | url }}">{{ "RFC" if is_zh else "RFCs" }}</a>
+        <a href="{{ ('zh/rfcs/' if is_zh else 'en/rfcs/') | url }}">{{ "RFC 与会议纪要" if is_zh else "RFCs & Meetings" }}</a>
       </nav>
       <div class="pc-footer__end">
         <div class="pc-footer__copyright">{{ config.copyright }}</div>

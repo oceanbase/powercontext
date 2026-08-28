@@ -17,19 +17,20 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { EvaluationApi } from "../api";
-import type { ContextEvent } from "../types";
+import type { Arm, ContextEvent } from "../types";
 
 interface ContextTimelineProps {
   api: EvaluationApi;
   batchId: string;
   taskId: string;
   attemptId?: string;
+  availableArms?: Arm[];
 }
 
 const PAGE_SIZE = 200;
 
-export function ContextTimeline({ api, batchId, taskId, attemptId }: ContextTimelineProps) {
-  const [arm, setArm] = useState<"off" | "on">("on");
+export function ContextTimeline({ api, batchId, taskId, attemptId, availableArms = ["off", "on"] }: ContextTimelineProps) {
+  const [arm, setArm] = useState<Arm>(availableArms.includes("on") ? "on" : availableArms[0] ?? "on");
   const [events, setEvents] = useState<ContextEvent[] | null>(null);
   const [selected, setSelected] = useState<ContextEvent | null>(null);
   const [error, setError] = useState(false);
@@ -83,22 +84,22 @@ export function ContextTimeline({ api, batchId, taskId, attemptId }: ContextTime
           <p>{taskId} · 按实际观察时间排序</p>
         </div>
         <div className="timeline-tabs" role="group" aria-label="选择实验组时间线">
-          <button
+          {availableArms.includes("off") && <button
             type="button"
             className={arm === "off" ? "timeline-tab timeline-tab--active" : "timeline-tab"}
             aria-pressed={arm === "off"}
             onClick={() => setArm("off")}
           >
             OFF 时间线
-          </button>
-          <button
+          </button>}
+          {availableArms.includes("on") && <button
             type="button"
             className={arm === "on" ? "timeline-tab timeline-tab--active" : "timeline-tab"}
             aria-pressed={arm === "on"}
             onClick={() => setArm("on")}
           >
             ON 时间线
-          </button>
+          </button>}
         </div>
       </div>
 

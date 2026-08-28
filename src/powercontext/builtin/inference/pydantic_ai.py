@@ -60,7 +60,11 @@ class PydanticAIConfigurationError(InferenceConfigurationError):
             "provider-rejected": "provider rejected the configured Pydantic AI request",
             "pydantic-rejected": "Pydantic AI rejected the configured request",
         }
-        super().__init__(messages.get(code, f"Pydantic AI adapter is not configured correctly: {code}"))
+        message = messages.get(code, f"Pydantic AI adapter is not configured correctly: {code}")
+        if code == "provider-rejected" and detail is not None:
+            # The detail is structured (e.g. "HTTP 400"), never the raw provider response body.
+            message = f"{message} ({detail})"
+        super().__init__(message)
 
 
 try:
@@ -316,7 +320,7 @@ def _map_error(
             return InferenceTimeoutError(operation, timeout_seconds)
         if error.status_code in {409, 425, 429} or error.status_code >= 500:
             return InferenceUnavailableError(operation)
-        return PydanticAIConfigurationError("provider-rejected")
+        return PydanticAIConfigurationError("provider-rejected", detail=f"HTTP {error.status_code}")
     if isinstance(error, (ModelAPIError, ConcurrencyLimitExceeded, OSError)):
         return InferenceUnavailableError(operation)
     if isinstance(error, (UnexpectedModelBehavior, UsageLimitExceeded, ValidationError)):

@@ -57,6 +57,15 @@ _LABELS = {
         "vcs": "VCS 上下文",
         "evidence": "证据引用",
         "evidence_checks": "Evidence 检查",
+        "revision_history": "Handoff Revision 历史",
+        "revision_history_summary": "共 {total} 个 Revision，显示最近 {shown} 个。",  # noqa: RUF001
+        "revision_state_count": "状态条目",
+        "revision_omission_count": "缺失条目",
+        "continuity": "连续性时间线",
+        "transfer_state": "交接状态",
+        "outcome_state": "结果状态",
+        "journal_order_notice": "按 Source journal 的稳定位置排序；位置表示先后顺序，不代表时间戳。",  # noqa: RUF001
+        "invalid_work_records": "无法读取的 Work 记录",
         "metadata": "报告元数据",
         "selection_digest": "Selection Digest",
         "report_digest": "Report Digest",
@@ -102,6 +111,15 @@ _LABELS = {
         "vcs": "VCS Context",
         "evidence": "Evidence References",
         "evidence_checks": "Evidence Checks",
+        "revision_history": "Handoff Revision History",
+        "revision_history_summary": "{total} Revisions total. Showing the latest {shown}.",
+        "revision_state_count": "State Items",
+        "revision_omission_count": "Omissions",
+        "continuity": "Continuity Timeline",
+        "transfer_state": "Transfer State",
+        "outcome_state": "Outcome State",
+        "journal_order_notice": "Ordered by stable Source journal position; positions show sequence, not timestamps.",
+        "invalid_work_records": "Unreadable Work Records",
         "metadata": "Report Metadata",
         "selection_digest": "Selection Digest",
         "report_digest": "Report Digest",
@@ -126,6 +144,11 @@ def render_markdown(report: HandoffReport, /) -> str:
     projection = finalize_digests(report.model_copy(update={"format": "markdown", "renderer_version": "markdown-v1"}))
     labels = _LABELS[projection.locale]
     lines = _front_matter_lines(projection)
+    overview_identity = (
+        f"Scope: {_code_span(projection.workstreams[0].workstream.scope_id)}"
+        if _is_scope_report(projection)
+        else f"Project: {_text(projection.project.title)}"
+    )
     lines.extend([
         "---",
         "",
@@ -133,7 +156,7 @@ def render_markdown(report: HandoffReport, /) -> str:
         "",
         f"## {labels['overview']}",
         "",
-        f"- Project: {_text(projection.project.title)}",
+        f"- {overview_identity}",
         f"- Workstreams: {projection.coverage.selected_workstreams}",
         f"- Missing Handoff: {projection.coverage.missing_handoff_workstreams}",
         f"- Continuable: {projection.summary.continuable_count}",
@@ -226,12 +249,61 @@ def _render_workstream(item: WorkstreamReport, labels: dict[str, str]) -> list[s
         elif item.evidence_checks:
             lines.extend(f"- {_code_span(check.claim)}: {_code_span(check.status)}" for check in item.evidence_checks)
             lines.append("")
+    lines.extend(_render_revision_history(item, labels))
+    continuity = item.continuity
+    lines.extend((f"#### {labels['continuity']}", ""))
+    lines.extend((
+        f"- {labels['transfer_state']}: {_code_span(continuity.coverage.transfer_state)}",
+        f"- {labels['outcome_state']}: {_code_span(continuity.coverage.outcome_state)}",
+        f"- {labels['invalid_work_records']}: {continuity.invalid_record_count}",
+        f"- {_text(labels['journal_order_notice'])}",
+    ))
+    if continuity.events:
+        for event in continuity.events:
+            detail = event.summary or event.actor or labels["none"]
+            lines.append(
+                f"- {_code_span(f'#{event.position}')} {_code_span(event.kind)} / "
+                f"{_code_span(event.status)}: {_text(detail)}"
+            )
+    else:
+        lines.append(labels["none"])
+    lines.append("")
     lines.extend((f"#### {labels['activities']}", ""))
     if item.activities:
         for event in item.activities:
             lines.extend(_render_activity(event, labels))
     else:
         lines.extend((labels["none"], ""))
+    return lines
+
+
+def _render_revision_history(item: WorkstreamReport, labels: dict[str, str]) -> list[str]:
+    lines = [f"#### {labels['revision_history']}", ""]
+    if item.handoff_history:
+        lines.extend((
+            _text(
+                labels["revision_history_summary"].format(
+                    total=item.handoff_revision_count,
+                    shown=len(item.handoff_history),
+                )
+            ),
+            "",
+        ))
+        for revision in reversed(item.handoff_history):
+            reference = revision.reference
+            lines.append(
+                f"- {_code_span(f'@{reference.revision}')} {_code_span(revision.disposition)}: "
+                f"{_text(revision.objective_excerpt)}"
+            )
+            lines.append(
+                f"  - {labels['revision_state_count']}: {revision.state_count}; "
+                f"{labels['revision_omission_count']}: {revision.omission_count}"
+            )
+            if revision.next_action_excerpt is not None:
+                lines.append(f"  - {labels['next']}: {_text(revision.next_action_excerpt)}")
+    else:
+        lines.append(labels["none"])
+    lines.append("")
     return lines
 
 
@@ -270,9 +342,16 @@ def _front_matter_lines(report: HandoffReport) -> list[str]:
         "schema: powercontext.handoff-report.v1",
         f"locale: {report.locale}",
         "format: markdown",
-        f"project_id: {_yaml_string(report.project.project_id)}",
-        f"project_key: {_yaml_string(report.project.project_key)}",
-        f"project_version: {report.project.version}",
+    ]
+    if _is_scope_report(report):
+        lines.append(f"scope_id: {_yaml_string(report.workstreams[0].workstream.scope_id)}")
+    else:
+        lines.extend((
+            f"project_id: {_yaml_string(report.project.project_id)}",
+            f"project_key: {_yaml_string(report.project.project_key)}",
+            f"project_version: {report.project.version}",
+        ))
+    lines.extend((
         f"report_kind: {report.report_kind}",
         f"selection_digest: {_yaml_string(report.selection_digest or '')}",
         f"report_digest: {_yaml_string(report.report_digest or '')}",
@@ -280,7 +359,7 @@ def _front_matter_lines(report: HandoffReport) -> list[str]:
         f"trust: {report.trust}",
         f"selection_consistency: {report.selection_consistency}",
         f"activity_cursor: {report.activity_cursor}",
-    ]
+    ))
     if report.end_selection:
         lines.append("end_selection:")
         for entry in report.end_selection:
@@ -306,6 +385,10 @@ def _front_matter_lines(report: HandoffReport) -> list[str]:
     else:
         lines.append("activity_selection: []")
     return lines
+
+
+def _is_scope_report(report: HandoffReport) -> bool:
+    return report.project.project_id == "unused" and len(report.workstreams) == 1
 
 
 def _agent(event: ReportActivityEvent, labels: dict[str, str]) -> str:

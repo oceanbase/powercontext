@@ -14,13 +14,16 @@
 
 import asyncio
 import logging
+import os
 import re
+import shlex
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -29,8 +32,10 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
+from powercontext.builtin.inference.pydantic_ai import PydanticAIConfigurationError
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, MemoryExtractionProfile, RuntimeConfig
 from powercontext.http import (
@@ -55,7 +60,7 @@ class _FailingEmbeddingModel:
         model="test:embedding",
         dimension=3,
         distance="l2",
-        normalization="none",
+        normalization="unit",
     )
 
     def __init__(self, error: Exception) -> None:
@@ -83,12 +88,15 @@ class _SequencedEmbeddingModel:
 
 
 def test_settings_load_server_environment(monkeypatch) -> None:
+    monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_SCOPES", raising=False)
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.2")
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
     monkeypatch.setenv(
         "POWERCONTEXT_SERVER_DATABASE_URL",
         "sqlite+aiosqlite:////var/lib/powercontext/test.db",
     )
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE", "64")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT", "25")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE", "conversation")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED", "true")
@@ -102,8 +110,11 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     monkeypatch.setenv(
         "POWERCONTEXT_SERVER_EXTERNAL_SKILLS",
         (
-            '{"host_id":"workstation-1","codex_roots":['
-            '{"root_id":"repository","installation_scope":"project","path":"/srv/project/.agents/skills"}]}'
+            '{"host_id":"workstation-1","targets":['
+            '{"target_id":"codex-project","agent_kind":"codex","installation_scope":"project",'
+            '"path":"/srv/project/.agents/skills","allow_managed_publish":true},'
+            '{"target_id":"claude-user","agent_kind":"claude_code","installation_scope":"user",'
+            '"path":"/home/example/.claude/skills"}]}'
         ),
     )
 
@@ -111,7 +122,9 @@ def test_settings_load_server_environment(monkeypatch) -> None:
 
     assert settings.http.host == "127.0.0.2"
     assert settings.http.port == 9000
+    assert isinstance(settings.database, SQLiteConfig)
     assert settings.database.url == "sqlite+aiosqlite:////var/lib/powercontext/test.db"
+    assert settings.runtime.scope_cache_size == 64
     assert settings.runtime.source_window_limit == 25
     assert settings.runtime.memory_extraction_profile is MemoryExtractionProfile.CONVERSATION
     assert settings.runtime.memory_rerank_enabled is True
@@ -122,9 +135,37 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.inference.generation_max_requests == 4
     assert settings.mcp.enabled is False
     assert settings.mcp.path == "/context"
+    assert settings.dashboard.enabled is True
+    assert settings.dashboard.scopes == []
     assert settings.external_skills.host_id == "workstation-1"
-    assert settings.external_skills.codex_roots[0].root_id == "repository"
-    assert settings.external_skills.codex_roots[0].path.as_posix() == "/srv/project/.agents/skills"
+    assert settings.external_skills.targets[0].target_id == "codex-project"
+    assert settings.external_skills.targets[0].path.as_posix() == "/srv/project/.agents/skills"
+    assert settings.external_skills.targets[0].allow_managed_publish is True
+    assert settings.external_skills.targets[1].agent_kind == "claude_code"
+    assert settings.external_skills.targets[1].path.as_posix() == "/home/example/.claude/skills"
+
+
+def test_env_example_loads_server_settings(monkeypatch) -> None:
+    for name in tuple(os.environ):
+        if name.startswith("POWERCONTEXT_SERVER_"):
+            monkeypatch.delenv(name)
+
+    for line in Path(".env.example").read_text(encoding="utf-8").splitlines():
+        assignment = line.strip()
+        if not assignment or assignment.startswith("#"):
+            continue
+        parsed = shlex.split(assignment, comments=True, posix=True)
+        assert len(parsed) == 1
+        name, value = parsed[0].split("=", maxsplit=1)
+        monkeypatch.setenv(name, value)
+
+    settings = ServerSettings()
+
+    assert isinstance(settings.database, SQLiteConfig)
+    assert settings.dashboard.scopes[0].scope_id == "project:quickstart"
+    assert settings.runtime.schedule_seconds == 60
+    assert settings.inference.generation_model == "openai:gpt-4.1-mini"
+    assert settings.inference.embedding_dimension == 1536
 
 
 def test_server_settings_select_oceanbase(monkeypatch) -> None:
@@ -136,6 +177,53 @@ def test_server_settings_select_oceanbase(monkeypatch) -> None:
 
     assert isinstance(settings.database, OceanBaseConfig)
     assert settings.database.url.get_secret_value() == url
+
+
+def test_server_settings_select_embedded_seekdb(tmp_path, monkeypatch) -> None:
+    data_dir = tmp_path / "powercontext-data"
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
+
+    settings = ServerSettings()
+
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.path == data_dir / "seekdb"
+    assert settings.database.database == "test"
+    assert not data_dir.exists()
+
+
+@pytest.mark.parametrize("configured_path", ["", "   "])
+def test_server_settings_default_blank_embedded_seekdb_path(configured_path, tmp_path, monkeypatch) -> None:
+    data_dir = tmp_path / "powercontext-data"
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", configured_path)
+
+    settings = ServerSettings()
+
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.path == data_dir / "seekdb"
+
+
+def test_server_settings_override_embedded_seekdb_path(tmp_path, monkeypatch) -> None:
+    database_path = tmp_path / "custom-seekdb"
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(database_path))
+
+    settings = ServerSettings()
+
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.path == database_path
+    assert settings.database.database == "test"
+
+
+def test_server_settings_reject_custom_embedded_seekdb_database(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "seekdb"))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_DATABASE", "custom")
+
+    with pytest.raises(ValidationError, match="Input should be 'test'"):
+        ServerSettings()
 
 
 def test_server_scheduler_uses_the_powercontext_data_directory(tmp_path, monkeypatch) -> None:
@@ -366,6 +454,30 @@ def test_server_factory_caches_and_redacts_degraded_embedding_readiness(caplog, 
     assert "secret provider response" not in caplog.text
 
 
+def test_server_factory_reports_a_rejected_embedding_request_with_a_redacted_reason(tmp_path) -> None:
+    embedding = _FailingEmbeddingModel(PydanticAIConfigurationError("provider-rejected", detail="HTTP 400"))
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        embedding_model=embedding,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "degraded",
+        "checks": {
+            "runtime": "ready",
+            "database": "ready",
+            "inference.embedding": "misconfigured: provider-rejected (HTTP 400)",
+        },
+    }
+
+
 @pytest.mark.parametrize(
     ("error", "expected_status"),
     [
@@ -499,7 +611,7 @@ def test_server_factory_reports_missing_embedding_api_prefix_as_degraded(caplog,
             "checks": {
                 "runtime": "ready",
                 "database": "ready",
-                "inference.embedding": "misconfigured",
+                "inference.embedding": "misconfigured: provider-rejected (HTTP 404)",
             },
         }
     )
@@ -542,6 +654,55 @@ def test_prepare_context_rejects_memory_specific_tuning_fields(tmp_path) -> None
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "invalid_request"
+
+
+def test_prepare_context_rejects_unicode_surrogates_without_crashing(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    body = '{"scope_id":"project:test","query":"\\udcaa"}'.encode(
+        "utf-8",
+        "surrogatepass",
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/context/prepare",
+            content=body,
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "invalid_request"
+    assert "input" not in error["details"]["errors"][0]
+
+
+def test_prepare_context_rejects_invalid_request_without_input_field(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/context/prepare",
+            json={
+                "scope_id": "project:test",
+                "query": "query",
+                "candidate_limit": 2,
+            },
+        )
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "invalid_request"
+    assert "input" not in error["details"]["errors"][0]
 
 
 def test_stats_returns_inclusive_utc_periods_for_empty_scope(tmp_path) -> None:

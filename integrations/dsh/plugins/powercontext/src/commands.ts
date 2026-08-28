@@ -15,6 +15,7 @@
  */
 
 import type { JsonObject } from './client.ts'
+import { requireService } from './dsh-service.ts'
 import { invokeOperation, type PluginRuntime, type ToolResult } from './invoke.ts'
 import { UNSCOPED_MESSAGE } from './scope.ts'
 
@@ -117,14 +118,13 @@ export function registerCommands(
   ctx: { get: (name: string) => unknown },
   runtime: PluginRuntime,
 ): void {
-  const commands = ctx.get('commands') as {
+  const commands = requireService<{
     register: (definition: {
       name: string
       description: string
       handler: (invocation: { rawInput: string; signal: AbortSignal; agent: { session: { header: { cwd?: string } } } }) => Promise<CommandResult>
     }) => unknown
-  } | undefined
-  if (!commands) return
+  }>(ctx, 'commands')
   commands.register({
     name: 'pc',
     description: 'PowerContext status, search, review, and diagnostics',

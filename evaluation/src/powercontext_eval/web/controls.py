@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from powercontext_eval.benchmarks.swebench_pro.catalog import PUBLIC_V2_TASK_SET, TaskSet
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, is_safe_codex_model
-from powercontext_eval.models import PowerContextRef
+from powercontext_eval.models import PowerContextRef, TreatmentMode
 from powercontext_eval.web.models import TaskStatus
 
 if TYPE_CHECKING:
@@ -61,7 +61,13 @@ class BatchPreviewRequest(_FrozenModel):
     powercontext_ref: str
     task_set: TaskSet = PUBLIC_V2_TASK_SET
     model: str = DEFAULT_CODEX_MODEL
+    treatment_mode: TreatmentMode = TreatmentMode.OFF_ON
     usage_pause_percent: Annotated[int, Field(ge=1, le=100)] = 80
+
+    @field_validator("treatment_mode", mode="before")
+    @classmethod
+    def parse_treatment_mode(cls, value: object) -> object:
+        return TreatmentMode(value) if isinstance(value, str) else value
 
     @field_validator("powercontext_ref")
     @classmethod

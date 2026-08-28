@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from powercontext_eval.benchmarks.swebench_pro.catalog import TaskSet
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT, is_safe_codex_model
-from powercontext_eval.models import PowerContextRef
+from powercontext_eval.models import PowerContextRef, TreatmentMode
 from powercontext_eval.web.controls import BatchControlState
 from powercontext_eval.web.estimation import BatchEstimate
 from powercontext_eval.web.models import FailureCategory, FailureCode, TaskPhase, TaskStatus
@@ -41,11 +41,16 @@ class BatchCreate(_FrozenModel):
     task_set: TaskSet
     model: str = DEFAULT_CODEX_MODEL
     reasoning_effort: Literal["medium"] = DEFAULT_REASONING_EFFORT
-    treatment_mode: Literal["off_on"]
+    treatment_mode: TreatmentMode
     idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
     usage_pause_percent: Annotated[int, Field(ge=1, le=100)] = 80
     initial_control_intent: Literal["run", "pause"] = "run"
     container_env: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("treatment_mode", mode="before")
+    @classmethod
+    def parse_treatment_mode(cls, value: object) -> object:
+        return TreatmentMode(value) if isinstance(value, str) else value
 
     @field_validator("powercontext_ref")
     @classmethod
@@ -69,13 +74,18 @@ class BatchPreviewResponse(_FrozenModel):
     task_set: TaskSet
     model: str
     reasoning_effort: Literal["medium"]
-    treatment_mode: Literal["off_on"]
+    treatment_mode: TreatmentMode
     total_tasks: Annotated[int, Field(ge=1)]
     usage_pause_percent: Annotated[int, Field(ge=1, le=100)]
     usage: UsageSnapshot | None
     estimate: BatchEstimate
     can_start: bool
     block_reason: Literal["usage_threshold_reached"] | None = None
+
+    @field_validator("treatment_mode", mode="before")
+    @classmethod
+    def parse_treatment_mode(cls, value: object) -> object:
+        return TreatmentMode(value) if isinstance(value, str) else value
 
 
 class TaskRetryRequest(_FrozenModel):
@@ -211,11 +221,11 @@ class ResolutionAggregate(_FrozenModel):
 
 
 class TokenMetricAggregate(_FrozenModel):
-    off: Annotated[int, Field(ge=0)]
-    on: Annotated[int, Field(ge=0)]
-    delta: int
-    off_measured_tasks: Annotated[int, Field(ge=0)]
-    on_measured_tasks: Annotated[int, Field(ge=0)]
+    off: Annotated[int, Field(ge=0)] | None = None
+    on: Annotated[int, Field(ge=0)] | None = None
+    delta: int | None = None
+    off_measured_tasks: Annotated[int, Field(ge=0)] | None = None
+    on_measured_tasks: Annotated[int, Field(ge=0)] | None = None
 
 
 class TokenAggregate(_FrozenModel):
@@ -226,16 +236,17 @@ class TokenAggregate(_FrozenModel):
 
 class BatchReportResponse(_FrozenModel):
     batch_id: str
+    treatment_mode: TreatmentMode
     report_revision: Annotated[int, Field(ge=0)]
     total_tasks: Annotated[int, Field(ge=1)]
     terminal_tasks: Annotated[int, Field(ge=0)]
-    comparable_pairs: Annotated[int, Field(ge=0)]
+    comparable_pairs: Annotated[int, Field(ge=0)] | None = None
     execution_failures: Annotated[int, Field(ge=0)]
     cancelled_tasks: Annotated[int, Field(ge=0)]
-    off: ResolutionAggregate
-    on: ResolutionAggregate
-    resolution_rate_delta_points: Annotated[float, Field(allow_inf_nan=False)]
-    pair_categories: dict[PairCategory, Annotated[int, Field(ge=0)]]
+    off: ResolutionAggregate | None = None
+    on: ResolutionAggregate | None = None
+    resolution_rate_delta_points: Annotated[float, Field(allow_inf_nan=False)] | None = None
+    pair_categories: dict[PairCategory, Annotated[int, Field(ge=0)]] | None = None
     task_statuses: dict[TaskStatus, Annotated[int, Field(ge=0)]]
     tokens: TokenAggregate
     control: BatchControlState
@@ -243,6 +254,11 @@ class BatchReportResponse(_FrozenModel):
     estimate: BatchEstimate
     revisions: dict[str, str]
     configuration: dict[str, str]
+
+    @field_validator("treatment_mode", mode="before")
+    @classmethod
+    def parse_report_treatment_mode(cls, value: object) -> object:
+        return TreatmentMode(value) if isinstance(value, str) else value
 
 
 class TaskArmSummary(_FrozenModel):

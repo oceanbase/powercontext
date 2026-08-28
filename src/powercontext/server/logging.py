@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from opentelemetry import trace
+from typing_extensions import override
 
 from powercontext.server.settings import ServerLoggingConfig
 
@@ -43,6 +44,7 @@ _OPERATIONAL_FIELDS = (
 
 
 class OperationalContextFilter(logging.Filter):
+    @override
     def filter(self, record: logging.LogRecord) -> bool:
         span_context = trace.get_current_span().get_span_context()
         if span_context.is_valid:
@@ -59,6 +61,7 @@ class OperationalContextFilter(logging.Filter):
 class JsonFormatter(logging.Formatter):
     """Render a stable operational record without serializing arbitrary extras."""
 
+    @override
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
@@ -75,6 +78,7 @@ class JsonFormatter(logging.Formatter):
 
 
 class _HumanContextFilter(OperationalContextFilter):
+    @override
     def filter(self, record: logging.LogRecord) -> bool:
         super().filter(record)
         request_id = getattr(record, "request_id", None)
@@ -84,6 +88,23 @@ class _HumanContextFilter(OperationalContextFilter):
         record.trace_context = (
             "" if trace_id is None else f" trace_id={trace_id}" + ("" if span_id is None else f" span_id={span_id}")
         )
+        return True
+
+
+class _UvicornDisplayNameFilter(logging.Filter):
+    """Rewrite uvicorn's logger name for downstream display.
+
+    Uvicorn emits lifecycle and error records through ``uvicorn.error``.
+    Logger selection, hierarchy, and effective-level checks use that logger.
+    This filter then rewrites only ``record.name``, so later filters on the
+    same logger and downstream handler filters and formatters observe
+    ``uvicorn``. Parent logger filters are not applied during propagation.
+    """
+
+    @override
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name == "uvicorn.error":
+            record.name = "uvicorn"
         return True
 
 
@@ -102,7 +123,10 @@ def configure_server_logging(config: ServerLoggingConfig) -> None:
     logging.config.dictConfig({
         "version": 1,
         "disable_existing_loggers": False,
-        "filters": {"operational": {"()": _HumanContextFilter}},
+        "filters": {
+            "operational": {"()": _HumanContextFilter},
+            "uvicorn_display_name": {"()": _UvicornDisplayNameFilter},
+        },
         "formatters": {"server": formatter},
         "handlers": {
             "server": {
@@ -122,6 +146,7 @@ def configure_server_logging(config: ServerLoggingConfig) -> None:
                 "handlers": ["server"],
                 "level": config.level,
                 "propagate": False,
+                "filters": ["uvicorn_display_name"],
             },
         },
     })

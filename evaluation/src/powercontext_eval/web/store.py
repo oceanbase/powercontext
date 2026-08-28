@@ -26,10 +26,17 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from re import fullmatch
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT
 from powercontext_eval.paths import EvaluationPaths
+from powercontext_eval.web.baselines import (
+    BaselineCreate,
+    BaselineItemRecord,
+    BaselineRecord,
+    BaselineSelection,
+    BaselineSnapshot,
+)
 from powercontext_eval.web.batches import (
     BatchControlEvent,
     BatchControlEventType,
@@ -80,6 +87,10 @@ class TaskNotFound(TaskStoreError):
 
 class BatchNotFound(TaskStoreError):
     """The requested batch does not exist."""
+
+
+class BaselineNotFound(TaskStoreError):
+    """The requested immutable baseline does not exist."""
 
 
 class TaskConflict(TaskStoreError):
@@ -388,6 +399,52 @@ class TaskStore:
                     lease_expires_at TEXT,
                     UNIQUE(attempt_id, arm)
                 );
+                CREATE TABLE IF NOT EXISTS baselines (
+                    baseline_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    baseline_id TEXT NOT NULL UNIQUE,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    request_json TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    source_batch_id TEXT NOT NULL REFERENCES batches(batch_id),
+                    source_arm TEXT NOT NULL CHECK (source_arm IN ('off', 'on')),
+                    source_report_revision INTEGER NOT NULL CHECK (source_report_revision >= 0),
+                    benchmark TEXT NOT NULL CHECK (benchmark = 'swebench-pro'),
+                    task_set TEXT NOT NULL,
+                    instance_set_digest TEXT NOT NULL,
+                    total_tasks INTEGER NOT NULL CHECK (total_tasks > 0),
+                    resolved_tasks INTEGER NOT NULL CHECK (resolved_tasks >= 0),
+                    execution_failures INTEGER NOT NULL CHECK (execution_failures >= 0),
+                    model TEXT NOT NULL,
+                    reasoning_effort TEXT NOT NULL,
+                    dataset_revision TEXT NOT NULL,
+                    harness_revision TEXT NOT NULL,
+                    powercontext_sha TEXT,
+                    codex_version TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS baseline_items (
+                    baseline_id TEXT NOT NULL REFERENCES baselines(baseline_id),
+                    instance_id TEXT NOT NULL,
+                    source_index INTEGER NOT NULL CHECK (source_index >= 0),
+                    source_task_id TEXT NOT NULL,
+                    source_attempt_id TEXT,
+                    status TEXT NOT NULL,
+                    resolved INTEGER CHECK (resolved IN (0, 1)),
+                    input_tokens INTEGER CHECK (input_tokens >= 0),
+                    output_tokens INTEGER CHECK (output_tokens >= 0),
+                    total_tokens INTEGER CHECK (total_tokens >= 0),
+                    PRIMARY KEY (baseline_id, instance_id),
+                    UNIQUE (baseline_id, source_index)
+                );
+                CREATE TABLE IF NOT EXISTS batch_baseline_selections (
+                    batch_id TEXT NOT NULL REFERENCES batches(batch_id),
+                    baseline_id TEXT NOT NULL REFERENCES baselines(baseline_id),
+                    current_arm TEXT NOT NULL CHECK (current_arm IN ('off', 'on')),
+                    sort_order INTEGER NOT NULL CHECK (sort_order >= 0),
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (batch_id, baseline_id, current_arm),
+                    UNIQUE (batch_id, sort_order)
+                );
                 """,
             )
             task_columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
@@ -540,6 +597,12 @@ class TaskStore:
                     ON tokensflow_finalizations(lease_expires_at);
                 CREATE INDEX IF NOT EXISTS tokensflow_finalizations_attempt
                     ON tokensflow_finalizations(attempt_id, arm);
+                CREATE INDEX IF NOT EXISTS baselines_created_desc
+                    ON baselines(created_at DESC, baseline_seq DESC);
+                CREATE INDEX IF NOT EXISTS baseline_items_source
+                    ON baseline_items(baseline_id, source_index);
+                CREATE INDEX IF NOT EXISTS batch_baseline_selections_order
+                    ON batch_baseline_selections(batch_id, sort_order);
                 """,
             )
 
@@ -675,6 +738,178 @@ class TaskStore:
 
         with self._connection() as connection:
             return self._batch_record(connection, self._select_batch(connection, batch_id))
+
+    def create_baseline(
+        self,
+        request: BaselineCreate,
+        snapshot: BaselineSnapshot,
+        *,
+        now: datetime,
+    ) -> tuple[BaselineRecord, bool]:
+        """Freeze one completed batch arm without copying mutable run artifacts."""
+
+        if len(snapshot.items) != snapshot.total_tasks:
+            raise ValueError("Baseline snapshot item count does not match its task count")
+        if [item.source_index for item in snapshot.items] != list(range(snapshot.total_tasks)):
+            raise ValueError("Baseline snapshot items must retain contiguous source order")
+        request_json = request.model_dump_json()
+        created_at = _timestamp(now)
+        with self._write() as connection:
+            self._select_batch(connection, request.source_batch_id)
+            existing = connection.execute(
+                "SELECT * FROM baselines WHERE idempotency_key = ?",
+                (request.idempotency_key,),
+            ).fetchone()
+            if existing is not None:
+                self._require_idempotent_request(existing["request_json"], request_json)
+                return self._baseline_record(existing), False
+            placeholder = f"pending-baseline-{uuid.uuid4().hex}"
+            cursor = connection.execute(
+                """
+                INSERT INTO baselines(
+                    baseline_id, idempotency_key, request_json, name, source_batch_id,
+                    source_arm, source_report_revision, benchmark, task_set,
+                    instance_set_digest, total_tasks, resolved_tasks, execution_failures,
+                    model, reasoning_effort, dataset_revision, harness_revision,
+                    powercontext_sha, codex_version, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    placeholder,
+                    request.idempotency_key,
+                    request_json,
+                    request.name,
+                    request.source_batch_id,
+                    request.source_arm.value,
+                    request.expected_report_revision,
+                    snapshot.benchmark,
+                    snapshot.task_set,
+                    snapshot.instance_set_digest,
+                    snapshot.total_tasks,
+                    snapshot.resolved_tasks,
+                    snapshot.execution_failures,
+                    snapshot.model,
+                    snapshot.reasoning_effort,
+                    snapshot.dataset_revision,
+                    snapshot.harness_revision,
+                    snapshot.powercontext_sha,
+                    snapshot.codex_version,
+                    created_at,
+                ),
+            )
+            sequence = cursor.lastrowid
+            if sequence is None:  # pragma: no cover - guaranteed by SQLite
+                raise TaskStoreError("SQLite did not assign a baseline sequence")
+            baseline_id = _baseline_id(now, sequence)
+            connection.execute(
+                "UPDATE baselines SET baseline_id = ? WHERE baseline_seq = ?",
+                (baseline_id, sequence),
+            )
+            connection.executemany(
+                """
+                INSERT INTO baseline_items(
+                    baseline_id, instance_id, source_index, source_task_id,
+                    source_attempt_id, status, resolved, input_tokens,
+                    output_tokens, total_tokens
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        baseline_id,
+                        item.instance_id,
+                        item.source_index,
+                        item.source_task_id,
+                        item.source_attempt_id,
+                        item.status.value,
+                        None if item.resolved is None else int(item.resolved),
+                        item.input_tokens,
+                        item.output_tokens,
+                        item.total_tokens,
+                    )
+                    for item in snapshot.items
+                ],
+            )
+            row = connection.execute("SELECT * FROM baselines WHERE baseline_id = ?", (baseline_id,)).fetchone()
+            assert row is not None
+            return self._baseline_record(row), True
+
+    def get_baseline(self, baseline_id: str) -> BaselineRecord:
+        with self._connection() as connection:
+            row = connection.execute("SELECT * FROM baselines WHERE baseline_id = ?", (baseline_id,)).fetchone()
+        if row is None:
+            raise BaselineNotFound(f"Baseline not found: {baseline_id}")
+        return self._baseline_record(row)
+
+    def list_baselines(self) -> list[BaselineRecord]:
+        """List newest immutable baselines first, with a stable sequence tie-breaker."""
+
+        with self._connection() as connection:
+            rows = connection.execute("SELECT * FROM baselines ORDER BY created_at DESC, baseline_seq DESC").fetchall()
+        return [self._baseline_record(row) for row in rows]
+
+    def list_baseline_items(self, baseline_id: str) -> list[BaselineItemRecord]:
+        with self._connection() as connection:
+            if connection.execute("SELECT 1 FROM baselines WHERE baseline_id = ?", (baseline_id,)).fetchone() is None:
+                raise BaselineNotFound(f"Baseline not found: {baseline_id}")
+            rows = connection.execute(
+                "SELECT * FROM baseline_items WHERE baseline_id = ? ORDER BY source_index ASC",
+                (baseline_id,),
+            ).fetchall()
+        return [self._baseline_item(row) for row in rows]
+
+    def replace_baseline_selections(
+        self,
+        batch_id: str,
+        selections: Sequence[BaselineSelection],
+        *,
+        now: datetime,
+    ) -> tuple[BaselineSelection, ...]:
+        """Replace only report presentation state; no task is queued or rerun."""
+
+        now_text = _timestamp(now)
+        if len(selections) > 10:
+            raise ValueError("At most ten baseline comparisons may be selected")
+        with self._write() as connection:
+            batch = self._batch_record(connection, self._select_batch(connection, batch_id))
+            for selection in selections:
+                if selection.current_arm not in batch.request.treatment_mode.arms:
+                    raise TaskConflict("Selected current arm was not executed by this batch")
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM baselines WHERE baseline_id = ?", (selection.baseline_id,)
+                    ).fetchone()
+                    is None
+                ):
+                    raise BaselineNotFound(f"Baseline not found: {selection.baseline_id}")
+            connection.execute("DELETE FROM batch_baseline_selections WHERE batch_id = ?", (batch_id,))
+            connection.executemany(
+                """
+                INSERT INTO batch_baseline_selections(
+                    batch_id, baseline_id, current_arm, sort_order, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (batch_id, selection.baseline_id, selection.current_arm.value, index, now_text)
+                    for index, selection in enumerate(selections)
+                ],
+            )
+        return tuple(selections)
+
+    def list_baseline_selections(self, batch_id: str) -> tuple[BaselineSelection, ...]:
+        with self._connection() as connection:
+            self._select_batch(connection, batch_id)
+            rows = connection.execute(
+                """
+                SELECT baseline_id, current_arm
+                FROM batch_baseline_selections
+                WHERE batch_id = ?
+                ORDER BY sort_order ASC
+                """,
+                (batch_id,),
+            ).fetchall()
+        return tuple(
+            BaselineSelection(baseline_id=str(row["baseline_id"]), current_arm=str(row["current_arm"])) for row in rows
+        )
 
     def save_usage_snapshot(self, snapshot: UsageSnapshot) -> UsageSnapshot:
         """Append one normalized account-wide usage observation."""
@@ -2515,6 +2750,61 @@ class TaskStore:
             strict=True,
         )
 
+    @staticmethod
+    def _baseline_record(row: sqlite3.Row) -> BaselineRecord:
+        return BaselineRecord(
+            baseline_id=str(row["baseline_id"]),
+            name=str(row["name"]),
+            source_batch_id=str(row["source_batch_id"]),
+            source_arm=str(row["source_arm"]),
+            source_report_revision=_stored_int(row["source_report_revision"], name="baseline report revision"),
+            benchmark=cast(Literal["swebench-pro"], str(row["benchmark"])),
+            task_set=cast(
+                Literal["swebench-pro-public-v2", "swebench-pro-stability-v1"],
+                str(row["task_set"]),
+            ),
+            instance_set_digest=str(row["instance_set_digest"]),
+            total_tasks=_stored_int(row["total_tasks"], name="baseline task count"),
+            resolved_tasks=_stored_int(row["resolved_tasks"], name="baseline resolved count"),
+            execution_failures=_stored_int(row["execution_failures"], name="baseline failure count"),
+            model=str(row["model"]),
+            reasoning_effort=cast(Literal["medium"], str(row["reasoning_effort"])),
+            dataset_revision=str(row["dataset_revision"]),
+            harness_revision=str(row["harness_revision"]),
+            powercontext_sha=str(row["powercontext_sha"]) if row["powercontext_sha"] is not None else None,
+            codex_version=str(row["codex_version"]) if row["codex_version"] is not None else None,
+            created_at=_parse_timestamp(row["created_at"]),
+        )
+
+    @staticmethod
+    def _baseline_item(row: sqlite3.Row) -> BaselineItemRecord:
+        return BaselineItemRecord(
+            baseline_id=str(row["baseline_id"]),
+            instance_id=str(row["instance_id"]),
+            source_index=_stored_int(row["source_index"], name="baseline source index"),
+            source_task_id=str(row["source_task_id"]),
+            source_attempt_id=str(row["source_attempt_id"]) if row["source_attempt_id"] is not None else None,
+            status=TaskStatus(str(row["status"])),
+            resolved=(
+                bool(_stored_int(row["resolved"], name="baseline resolution")) if row["resolved"] is not None else None
+            ),
+            input_tokens=(
+                _stored_int(row["input_tokens"], name="baseline input tokens")
+                if row["input_tokens"] is not None
+                else None
+            ),
+            output_tokens=(
+                _stored_int(row["output_tokens"], name="baseline output tokens")
+                if row["output_tokens"] is not None
+                else None
+            ),
+            total_tokens=(
+                _stored_int(row["total_tokens"], name="baseline total tokens")
+                if row["total_tokens"] is not None
+                else None
+            ),
+        )
+
     def _batch_record(self, connection: sqlite3.Connection, row: sqlite3.Row) -> BatchRecord:
         batch_id = row["batch_id"]
         if not isinstance(batch_id, str):
@@ -2933,6 +3223,11 @@ def _batch_id(now: datetime, sequence: int) -> str:
     batch_id = f"batch-{now.astimezone(UTC):%Y%m%d-%H%M%S-%f}-{sequence:010d}-{uuid.uuid4().hex[:8]}"
     EvaluationPaths(Path("."), batch_id)
     return batch_id
+
+
+def _baseline_id(now: datetime, sequence: int) -> str:
+    _timestamp(now)
+    return f"baseline-{now.astimezone(UTC):%Y%m%d-%H%M%S-%f}-{sequence:010d}-{uuid.uuid4().hex[:8]}"
 
 
 def _batch_task_id(now: datetime, batch_sequence: int, source_index: int) -> str:

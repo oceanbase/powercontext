@@ -40,7 +40,7 @@ from powercontext_eval.benchmarks.swebench_pro.gold_overrides import (
 )
 from powercontext_eval.codex import CodexOutcome
 from powercontext_eval.errors import CommandFailed
-from powercontext_eval.models import Arm
+from powercontext_eval.models import Arm, TreatmentMode
 from powercontext_eval.powercontext_sut import ProxyRelayConfig, SutConfig
 from powercontext_eval.process import CommandResult, ProcessRunner
 from powercontext_eval.report import ReportBundle
@@ -295,8 +295,9 @@ def _run_with_fakes(
     model: str | None = None,
     docker_network_pool: str | None = None,
     extra_no_proxy_hosts: tuple[str, ...] | None = None,
+    treatment_mode: TreatmentMode = TreatmentMode.OFF_ON,
 ) -> tuple[RunConfig, MinimalRunResult, dict[str, object]]:
-    config = _config(tmp_path)
+    config = replace(_config(tmp_path), treatment_mode=treatment_mode)
     if model is not None:
         config = replace(config, model=model)
     if docker_network_pool is not None:
@@ -396,6 +397,28 @@ def _run_with_fakes(
             return OfficialEvaluation(instance.instance_id, True, "", "")
 
     class FakeSut:
+        @staticmethod
+        def _outcome(arm: Arm, store: ArtifactStore) -> object:
+            observed_at = datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+            store.write_text(
+                "context/codex-observed.jsonl",
+                f'{{"sequence":1,"observed_at":"{observed_at}","event":{{"type":"agent_message","message":"done"}}}}\n',
+            )
+            events.append(arm)
+            return SimpleNamespace(codex=CodexOutcome("", None))
+
+        def run_arm(
+            self,
+            sut_config: object,
+            arm: Arm,
+            _paths: object,
+            _prompt: bytes,
+            store: ArtifactStore,
+        ) -> object:
+            observed["sut_config"] = sut_config
+            observed["single_arm"] = arm
+            return self._outcome(arm, store)
+
         def run_pair(
             self,
             sut_config: object,
@@ -409,17 +432,11 @@ def _run_with_fakes(
             stores = cast(dict[Arm, ArtifactStore], kwargs["stores"])
             observed["stores"] = stores
             assert before_arm is not None
+            outcomes = {}
             for arm in (Arm.OFF, Arm.ON):
                 before_arm(arm)
-                events.append(arm)
-                observed_at = datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
-                stores[arm].write_text(
-                    "context/codex-observed.jsonl",
-                    f'{{"sequence":1,"observed_at":"{observed_at}",'
-                    '"event":{"type":"agent_message","message":"done"}}\n',
-                )
-            outcome = SimpleNamespace(codex=CodexOutcome("", None))
-            return {Arm.OFF: outcome, Arm.ON: outcome}
+                outcomes[arm] = self._outcome(arm, stores[arm])
+            return outcomes
 
     monkeypatch.setattr("powercontext_eval.runner.ProcessRunner", FakeProcess)
     monkeypatch.setattr("powercontext_eval.runner.GitSource", lambda **kwargs: FakeSource())
@@ -447,6 +464,36 @@ def test_runner_propagates_batch_model_to_codex_pair_and_report(
     )
     assert (sut_config.model, sut_config.reasoning_effort) == ("gpt-5.6-luna", "medium")
     assert report.configuration["model"] == "gpt-5.6-luna"
+
+
+@pytest.mark.parametrize(
+    ("mode", "arm"),
+    ((TreatmentMode.ON_ONLY, Arm.ON), (TreatmentMode.OFF_ONLY, Arm.OFF)),
+)
+def test_runner_executes_and_reports_exactly_one_requested_arm(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: TreatmentMode,
+    arm: Arm,
+) -> None:
+    config, result, observed = _run_with_fakes(
+        tmp_path,
+        monkeypatch,
+        [],
+        treatment_mode=mode,
+    )
+
+    assert observed["single_arm"] is arm
+    assert result.off_resolved is (True if arm is Arm.OFF else None)
+    assert result.on_resolved is (True if arm is Arm.ON else None)
+    report = ReportBundle.model_validate_json(
+        (config.root / "runs" / result.run_id / "report.json").read_text(),
+        strict=True,
+    )
+    assert report.treatment_mode is mode
+    assert (report.off is not None) is (arm is Arm.OFF)
+    assert (report.on is not None) is (arm is Arm.ON)
+    assert len(cast(list[EvaluatorCall], observed["evaluator_calls"])) == 2
     assert report.configuration["reasoning_effort"] == "medium"
 
 
