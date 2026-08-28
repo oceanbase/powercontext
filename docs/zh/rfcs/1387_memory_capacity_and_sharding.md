@@ -1,6 +1,6 @@
 - 提案名称：`memory_capacity_and_sharding`
-- 开始日期：2026-08-27
-- RFC PR：[待创建]
+- 开始日期：2026-08-28
+- RFC PR：[oceanbase/powercontext#1387](https://github.com/oceanbase/powercontext/pull/1387)
 
 # Summary
 
@@ -262,4 +262,3 @@ head 在分页期间会前插新 entry；以 `(ordinal, entry_id)` 继续读取�
 - `drop` 可审计、不会破坏旧 citation，mutation response 不把 drop 当作业务目标。
 - search、prepare context、statistics 和 citation lifecycle 对合法 root shards 的 identity 处理一致。
 - 合法大批量 remember/candidate 不被人为的 100-item 上限截断；只受最终 manifest budget 影响。
-

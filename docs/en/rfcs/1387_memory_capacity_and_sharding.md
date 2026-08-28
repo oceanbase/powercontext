@@ -1,6 +1,6 @@
 - Proposal Name: `memory_capacity_and_sharding`
-- Start Date: 2026-08-27
-- RFC PR: [to be created]
+- Start Date: 2026-08-28
+- RFC PR: [oceanbase/powercontext#1387](https://github.com/oceanbase/powercontext/pull/1387)
 
 # Summary
 
