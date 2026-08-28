@@ -1,6 +1,6 @@
-- Proposal Name: `source_integration_shape`
+- Proposal Name: `source_definition_and_observation_model`
 - Status: Proposed
-- Start Date: 2026-08-25
+- Start Date: 2026-08-27
 - RFC PR：[oceanbase/powercontext#1388](https://github.com/oceanbase/powercontext/pull/1388)
 - Tracking Issue：[oceanbase/powercontext#1240](https://github.com/oceanbase/powercontext/issues/1240)
 - Related Discussion: [oceanbase/powercontext#1240](https://github.com/oceanbase/powercontext/issues/1240),
@@ -204,7 +204,7 @@ Materialization 回答精确 SourceRef 的返回值来自哪里：
 | `referenced` | Immutable external revision | 重读 reference 得到相同 canonical value 与 digest |
 
 Captured Source 可以把 external locator、provider revision 与 digest 保留为 provenance。因为读取权威仍是
-保留值，所以它依然是 captured。
+保留值，所以它依然是 captured。这覆盖了 hybrid design 中有价值的部分，而不引入 fallback 语义含糊的第三种模式。
 
 只有当外部系统及其 reader 能够寻址不可变历史值时，Definition 才能使用 referenced materialization。读取
 path、page ID、issue ID 或 URL 的当前值并不足够。Modification time 与 ETag 可以参与 provenance 或 conflict
@@ -400,27 +400,6 @@ SourceRef。发布 Artifact 不会发布其 origin Scope 中的所有 Source。
 observation。其 provenance 可以引用 origin scoped SourceRef，但原始 Source 不会移动，两个 SourceKey 也不会
 因此变成同一 identity。
 
-
-## Persistence、retention、迁移与 operation freezing
-
-持久化模型必须把 Scope-owned Source history 与可变的 current-head selection 分开表示。每个接受的 observation 都会
-获得一个不可变 SourceRef。推进 head、删除 head 或修改 locator 都不能删除或改写 observation。Artifact、Candidate
-和 Handoff lineage 必须保留其计算实际使用的精确 SourceRef。
-
-被 durable Artifact、Candidate 或 Handoff 引用的 observation 必须免于普通 garbage collection。删除 head 不得删除
-历史 observation。Legal 或 user-requested hard deletion 是单独的、可审计的操作；如果它移除了已被引用的 evidence，
-产生的 lineage break 必须显式且可观察。
-
-消费 `latest` 的 operation 必须在开始时解析并冻结精确 SourceRef（或等价的 Source high-watermark）。之后 head
-推进不能改变该 operation 的输入，输出 lineage 必须记录实际使用的 observation。Exact read 必须区分历史缺失、
-referenced content 不可用、Definition 不兼容和 current head 已删除；任何一种情况都不能静默替换为更新的
-observation 或 provider 当前值。
-
-从当前两段式 Source row 迁移时，迁移必须一对一且幂等：每个旧 row 获得稳定的 SourceKey/head 和确定性的
-observation identity，已有 Artifact、Candidate 和 Handoff reference 继续解析到同一份 payload。旧的两段式读取
-仍是显式的兼容路径，不能解析到更新的 head。只有在维持这条规则时，旧 worker 与新 worker 才能并存。中断后的
-迁移必须可以继续执行，且不能重复创建 observation 或改变 payload-conflict 语义；回滚不能改写已接受的 evidence。
-
 ## Conformance
 
 Source Definition 只有在以下 mandatory contract 的 conformance scenario 通过后才能被支持：
@@ -480,6 +459,12 @@ identity 都会变成 integration-private convention。标准模型直接表达�
 
 两个 public reference type 可以让 SourceRef 表示逻辑身份，但 Artifact evidence 必须拒绝 SourceRef，只接受
 ObservationRef。让 SourceRef 本身保持精确，符合现有 ArtifactRef 原则：durable lineage 引用 immutable state。
+
+## Add hybrid materialization
+
+增加一种有时从外部读取、有时回退到 captured data 的第三种模式，会掩盖哪个 value 才是 authoritative，以及哪些
+failure 应对外可见。Captured observation 可以把完整 external reference 保留为 provenance；referenced
+observation 要么被精确解析，要么失败。
 
 ## Let Parent or Connector identity own Sources
 
@@ -545,13 +530,5 @@ PowerContext 的要求不同：当 Artifact 已经引用这份原文时，当前
 显式 plugin discovery 与 deployment policy 可以建立在 Definition 和 Connector registration 之上，但不会让
 package installation 等同于 activation。
 
-Retention policy 可以进一步定义何时回收未被引用的 observation，以及如何报告 unavailable exact evidence；但必须
-保留上文规定的最低 lineage protection。Legal 或 user-requested deletion 可以作为单独的 audited workflow 规定。
-删除 Source head 本身不授权移除 evidence。
-
-# 请求决策
-
-请将本 Source Definition 与 observation contract 作为 #1388 的基线，并将 TencentDB-Agent-Memory 调研保留为
-prior art。具体请批准 SourceKey/SourceRef 分离、不可变 observation 与 exact materialization、named projection、
-Connector lifecycle 边界，以及上文的 persistence、retention、operation freeze 和 migration 不变量。后续具体
-schema 与 rollout 只有在保持这些不变量的前提下才能推进。
+Retention policy 只有在定义精确 Artifact evidence 如何报告 unavailable content，以及 legal/user-requested
+deletion 如何与 immutable lineage 交互之后，才能回收 captured value。Source head deletion 本身不授权删除证据。

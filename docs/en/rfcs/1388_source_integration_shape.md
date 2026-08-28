@@ -1,6 +1,6 @@
-- Proposal Name: `source_integration_shape`
+- Proposal Name: `source_definition_and_observation_model`
 - Status: Proposed
-- Start Date: 2026-08-25
+- Start Date: 2026-08-27
 - RFC PR: [oceanbase/powercontext#1388](https://github.com/oceanbase/powercontext/pull/1388)
 - Tracking Issue: [oceanbase/powercontext#1240](https://github.com/oceanbase/powercontext/issues/1240)
 - Related Discussion: [oceanbase/powercontext#1240](https://github.com/oceanbase/powercontext/issues/1240),
@@ -217,7 +217,8 @@ Materialization answers where the value returned for an exact SourceRef comes fr
 | `referenced` | Immutable external revision | Re-reading the reference returns the same canonical value and digest |
 
 A captured Source may retain an external locator, provider revision, and digest as provenance. It remains captured
-because the retained value is the read authority.
+because the retained value is the read authority. This covers the useful part of a hybrid design without creating a
+third mode with ambiguous fallback semantics.
 
 A Definition can use referenced materialization only when the external system and its reader can address immutable
 historical values. Reading the current value at a path, page ID, issue ID, or URL is not sufficient. Modification
@@ -428,29 +429,6 @@ If an application deliberately captures the same external value into another Sco
 Scope-owned Source observation. Its provenance may cite the origin Scoped SourceRef, but the original Source is not
 moved and the two SourceKeys are not made identical.
 
-
-## Persistence, retention, migration, and operation freezing
-
-The persistence model MUST represent Scope-owned Source history separately from the mutable current-head selection.
-Each accepted observation receives one immutable SourceRef. Head advancement, head deletion, and locator changes MUST
-not delete or rewrite observations. Artifact, Candidate, and Handoff lineage MUST retain the exact SourceRefs used by
-their computation.
-
-An observation referenced by a durable Artifact, Candidate, or Handoff MUST be protected from ordinary garbage
-collection. Head deletion MUST NOT delete historical observations. Legal or user-requested hard deletion is a separate
-audited operation; if it removes cited evidence, the resulting lineage break MUST be explicit and observable.
-
-An operation that consumes `latest` MUST resolve and freeze exact SourceRefs (or an equivalent Source high-watermark)
-at operation start. Later head advancement MUST NOT change the operation's inputs, and its output lineage MUST record
-the observations actually used. Exact reads MUST distinguish missing history, unavailable referenced content, definition
-incompatibility, and a deleted current head; none may be silently replaced by a newer observation or current provider value.
-
-Migration from the current two-part Source rows MUST be one-to-one and idempotent: each legacy row receives a stable
-SourceKey/head and deterministic observation identity, and existing Artifact, Candidate, and Handoff references continue
-to resolve to that same payload. Legacy two-part reads remain an explicit compatibility path and MUST NOT resolve to a
-newer head. Old and new workers may coexist only while this rule is enforced. An interrupted migration MUST resume
-without duplicating observations or changing payload-conflict semantics; rollback MUST NOT rewrite accepted evidence.
-
 ## Conformance
 
 A Source Definition can be supported only after its mandatory contract passes conformance scenarios for:
@@ -518,6 +496,12 @@ Two public reference types would make SourceRef logical, but Artifact evidence w
 to reject SourceRef and accept only ObservationRef. Defining SourceRef itself as exact follows the existing ArtifactRef
 principle that durable lineage references immutable state.
 
+## Add hybrid materialization
+
+A third mode that sometimes reads externally and sometimes falls back to captured data obscures which value is
+authoritative and which failures are visible. A captured observation can retain a complete external reference as
+provenance. A referenced observation either resolves exactly or fails.
+
 ## Let Parent or Connector identity own Sources
 
 Scope Parent is organization, and Connector identity is acquisition provenance. Neither is a durable ownership
@@ -541,7 +525,6 @@ Connector replacement change Source identity.
 - OpenMetadata separates the Source that emits records from connection checks, workflow status, and the sink.
 - Nowledge Mem's TiddlyWiki importer uses stable logical IDs, canonical payload digests, source revalidation, and
   per-item outcomes. Those behaviors inform the separation between Source observations and Connector run state.
-
 
 ## TencentDB-Agent-Memory research (research input)
 
@@ -586,14 +569,6 @@ References:
 Explicit plugin discovery and deployment policy may build on Definition and Connector registration without making
 package installation equivalent to activation.
 
-Retention policies may define when unreferenced observations are reclaimed and how unavailable exact evidence is
-reported; they must preserve the minimum lineage protection above. Legal or user-requested deletion can be specified as
-a separate audited workflow. Source head deletion alone does not authorize evidence removal.
-
-# Decision requested
-
-Approve this Source Definition and observation contract as the baseline for #1388, with the TencentDB-Agent-Memory
-research retained as prior art. In particular, approve the SourceKey/SourceRef separation, immutable observations
-and exact materialization, named projections, Connector lifecycle boundary, and the persistence, retention,
-operation-freezing, and migration invariants above. Concrete schema and rollout work may proceed only if it preserves
-these invariants.
+Retention policies may reclaim captured values only after defining how exact Artifact evidence reports unavailable
+content and how legal or user-requested deletion interacts with immutable lineage. A Source head deletion alone does
+not authorize evidence removal.
