@@ -217,8 +217,7 @@ Materialization answers where the value returned for an exact SourceRef comes fr
 | `referenced` | Immutable external revision | Re-reading the reference returns the same canonical value and digest |
 
 A captured Source may retain an external locator, provider revision, and digest as provenance. It remains captured
-because the retained value is the read authority. This covers the useful part of a hybrid design without creating a
-third mode with ambiguous fallback semantics.
+because the retained value is the read authority.
 
 A Definition can use referenced materialization only when the external system and its reader can address immutable
 historical values. Reading the current value at a path, page ID, issue ID, or URL is not sufficient. Modification
@@ -518,12 +517,6 @@ both identities directly.
 Two public reference types would make SourceRef logical, but Artifact evidence would need
 to reject SourceRef and accept only ObservationRef. Defining SourceRef itself as exact follows the existing ArtifactRef
 principle that durable lineage references immutable state.
-
-## Add hybrid materialization
-
-A third mode that sometimes reads externally and sometimes falls back to captured data obscures which value is
-authoritative and which failures are visible. A captured observation can retain a complete external reference as
-provenance. A referenced observation either resolves exactly or fails.
 
 ## Let Parent or Connector identity own Sources
 

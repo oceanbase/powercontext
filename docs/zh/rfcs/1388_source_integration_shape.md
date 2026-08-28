@@ -204,7 +204,7 @@ Materialization 回答精确 SourceRef 的返回值来自哪里：
 | `referenced` | Immutable external revision | 重读 reference 得到相同 canonical value 与 digest |
 
 Captured Source 可以把 external locator、provider revision 与 digest 保留为 provenance。因为读取权威仍是
-保留值，所以它依然是 captured。这覆盖了 hybrid design 中有价值的部分，而不引入 fallback 语义含糊的第三种模式。
+保留值，所以它依然是 captured。
 
 只有当外部系统及其 reader 能够寻址不可变历史值时，Definition 才能使用 referenced materialization。读取
 path、page ID、issue ID 或 URL 的当前值并不足够。Modification time 与 ETag 可以参与 provenance 或 conflict
@@ -480,12 +480,6 @@ identity 都会变成 integration-private convention。标准模型直接表达�
 
 两个 public reference type 可以让 SourceRef 表示逻辑身份，但 Artifact evidence 必须拒绝 SourceRef，只接受
 ObservationRef。让 SourceRef 本身保持精确，符合现有 ArtifactRef 原则：durable lineage 引用 immutable state。
-
-## Add hybrid materialization
-
-增加一种有时从外部读取、有时回退到 captured data 的第三种模式，会掩盖哪个 value 才是 authoritative，以及哪些
-failure 应对外可见。Captured observation 可以把完整 external reference 保留为 provenance；referenced
-observation 要么被精确解析，要么失败。
 
 ## Let Parent or Connector identity own Sources
 
