@@ -54,12 +54,13 @@ class _ModelHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         content_length = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(content_length))
+        path = self.path.partition("?")[0]
         self.server.requests.append({
-            "path": self.path,
+            "path": path,
             "headers": {name.lower(): value for name, value in self.headers.items()},
             "body": body,
         })
-        if self.path == "/v1/embeddings":
+        if path == "/v1/embeddings":
             response = {
                 "object": "list",
                 "model": body["model"],
@@ -69,7 +70,7 @@ class _ModelHandler(BaseHTTPRequestHandler):
                 ],
                 "usage": {"prompt_tokens": 1, "total_tokens": 1},
             }
-        elif self.path == "/v1/chat/completions":
+        elif path == "/v1/chat/completions":
             response = {
                 "id": "chatcmpl-readiness",
                 "object": "chat.completion",
@@ -83,6 +84,17 @@ class _ModelHandler(BaseHTTPRequestHandler):
                     }
                 ],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            }
+        elif path == "/v1/messages":
+            response = {
+                "id": "msg-readiness",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "ok"}],
+                "model": body["model"],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
             }
         else:
             self.send_error(404)
@@ -175,6 +187,42 @@ def test_inference_settings_hide_header_values_in_validation_errors() -> None:
         )
 
     assert "validation-secret" not in str(captured.value)
+
+
+@pytest.mark.parametrize("header_name", ["Bad Header", "Bad\tHeader", "X-Ünicode"])
+def test_inference_settings_reject_invalid_http_field_names(header_name: str) -> None:
+    with pytest.raises(ValidationError, match="HTTP field names"):
+        InferenceConfig(
+            generation_model="openai-chat:generator",
+            generation_headers={header_name: SecretStr("secret")},
+        )
+
+
+def test_anthropic_custom_endpoint_uses_standard_environment_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-standard-key")
+
+    async def scenario() -> None:
+        with _model_server() as (server, base_url):
+            config = BuiltinConfig(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+                inference=InferenceConfig(
+                    generation_model="anthropic:tiny-generator",
+                    generation_base_url=AnyHttpUrl(base_url.removesuffix("/v1")),
+                ),
+            )
+
+            async with open_builtin_runtime(config) as runtime:
+                readiness = await runtime.readiness()
+
+            assert readiness.checks["inference.generation"].value == "ready"
+            assert server.requests
+            assert server.requests[0]["path"] == "/v1/messages"
+            assert server.requests[0]["headers"]["x-api-key"] == "anthropic-standard-key"
+
+    asyncio.run(scenario())
 
 
 def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(

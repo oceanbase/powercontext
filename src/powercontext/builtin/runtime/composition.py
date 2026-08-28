@@ -687,7 +687,10 @@ def _provider_factory(
                 )
                 resources.push_async_callback(client.close)
                 return AnthropicProvider(anthropic_client=client)
-            return AnthropicProvider(base_url=str(base_url), api_key="api-key-not-set")
+            return AnthropicProvider(
+                base_url=str(base_url),
+                api_key=os.getenv("ANTHROPIC_API_KEY") or "api-key-not-set",
+            )
         raise BuiltinConfigurationError("inference-endpoint-provider")
 
     return create_provider

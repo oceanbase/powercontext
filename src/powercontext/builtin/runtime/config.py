@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any, Literal, Self
 
@@ -27,6 +28,8 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime._scope_cache import DEFAULT_SCOPE_CACHE_SIZE
+
+_HTTP_FIELD_NAME_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
 
 class RuntimeConfig(BaseModel):
@@ -100,7 +103,7 @@ class InferenceConfig(BaseModel):
         normalized_names: set[str] = set()
         for name, secret in value.items():
             normalized_name = name.casefold()
-            if not name or name != name.strip() or any(character in name for character in "\r\n:"):
+            if _HTTP_FIELD_NAME_PATTERN.fullmatch(name) is None:
                 raise ValueError("inference header names must be non-empty HTTP field names")  # noqa: TRY003
             if normalized_name in normalized_names:
                 raise ValueError("inference header names must be unique ignoring case")  # noqa: TRY003
