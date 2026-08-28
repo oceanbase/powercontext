@@ -3,6 +3,7 @@
 - Proposal Name: source_integration_shape
 - Status: Proposed
 - Start Date: 2026-08-25
+- RFC PR: [oceanbase/powercontext#1388](https://github.com/oceanbase/powercontext/pull/1388)
 - Tracking Issue: [oceanbase/powercontext#1240](https://github.com/oceanbase/powercontext/issues/1240)
 - Related RFCs: [RFC 0019](0019_local_source_memory_runtime.md), [RFC 0020](0020_runtime_backed_memory_remote_access.md), and [RFC 0051](0051_experience_skill_artifact_families.md)
 
@@ -148,12 +149,12 @@ the metadata and fetcher separation, but adds a retained immutable snapshot for 
 
 References:
 
-- [SourceFetcher types](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/main/MemoryKnowledge/src/source-fetcher/types.ts)
-- [SourceFetcher registry](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/main/MemoryKnowledge/src/source-fetcher/registry.ts)
-- [Git fetcher](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/main/MemoryKnowledge/src/source-fetcher/git-fetcher.ts)
-- [Wiki source index](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/main/MemoryKnowledge/src/engines/wiki/index-db.ts)
-- [Knowledge metadata schema](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/main/MemoryKnowledge/src/db/client.ts)
-- [CodeGraph service](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/main/MemoryKnowledge/src/store/code-graph-service.ts)
+- [SourceFetcher types](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/5299c00aaf65481703c180fd69df066d11254eb7/MemoryKnowledge/src/source-fetcher/types.ts)
+- [SourceFetcher registry](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/5299c00aaf65481703c180fd69df066d11254eb7/MemoryKnowledge/src/source-fetcher/registry.ts)
+- [Git fetcher](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/5299c00aaf65481703c180fd69df066d11254eb7/MemoryKnowledge/src/source-fetcher/git-fetcher.ts)
+- [Wiki source index](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/5299c00aaf65481703c180fd69df066d11254eb7/MemoryKnowledge/src/engines/wiki/index-db.ts)
+- [Knowledge metadata schema](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/5299c00aaf65481703c180fd69df066d11254eb7/MemoryKnowledge/src/db/client.ts)
+- [CodeGraph service](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/5299c00aaf65481703c180fd69df066d11254eb7/MemoryKnowledge/src/store/code-graph-service.ts)
 
 # Persistence and Runtime impact
 
