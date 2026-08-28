@@ -46,7 +46,7 @@ from powercontext.limits import (
 
 SHARED_METADATA = MetaData()
 
-_MYSQL_IDENTITY_COLLATION = "utf8mb4_bin"
+MYSQL_IDENTITY_COLLATION = "utf8mb4_bin"
 
 
 def identity_string(length: int):
@@ -58,11 +58,12 @@ def identity_string(length: int):
 
     ``create_all(checkfirst=True)`` does not rewrite existing column collations,
     and OceanBase rejects ``ALTER COLUMN ... COLLATE`` when foreign keys exist.
-    Existing MySQL/OceanBase schemas must be recreated to pick up this type.
+    The OceanBase profile rejects incompatible existing schemas so operators
+    can recreate them before the Server accepts work.
     """
 
     return String(length).with_variant(
-        VARCHAR(length, charset="utf8mb4", collation=_MYSQL_IDENTITY_COLLATION),
+        VARCHAR(length, charset="utf8mb4", collation=MYSQL_IDENTITY_COLLATION),
         "mysql",
     )
 

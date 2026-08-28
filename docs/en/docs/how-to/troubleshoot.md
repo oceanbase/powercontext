@@ -154,6 +154,34 @@ powercontext server run
 Use the same environment variable whenever you start or diagnose that instance. PowerContext creates missing parent
 directories for a file-backed SQLite database.
 
+## OceanBase startup rejects an incompatible schema
+
+Current PowerContext releases compare opaque identity columns byte-for-byte with `utf8mb4_bin`. A database created by
+an older release may still use a case-insensitive collation such as `utf8mb4_general_ci`. The Server checks existing
+identity columns before creating any missing tables and refuses to start when it finds a mismatch. The startup error
+lists each affected `table.column`, its actual collation, and the required collation; it never includes the database
+URL or credentials.
+
+Do not alter these columns in place. They participate in primary keys, foreign keys, and indexes, and an earlier
+case-insensitive deployment may already have treated distinct identities as the same value. Use a new empty database
+so the previous database remains available for recovery:
+
+1. Stop the Server and every process that writes to the database.
+2. Take and verify a full recoverable backup using your normal OceanBase backup procedure.
+3. Export the PowerContext table data with OceanBase `obdumper` in CSV or SQL data mode **without `--ddl`**. Keep the
+   export and the original database unchanged until the migration is verified. Supply credentials through your
+   approved secret-handling process rather than placing them in logs or documentation.
+4. Create a new empty OceanBase MySQL-mode database and point `POWERCONTEXT_SERVER_DATABASE_URL` at it. Start the
+   current PowerContext version once to create tables with `utf8mb4_bin`, then stop it before restoring data.
+5. Import only the exported row data into the existing new tables with OceanBase `obloader`, again **without
+   `--ddl`**. Importing the old DDL would recreate the incompatible collations.
+6. Compare row counts, inspect the identity-column collations, and test identities that differ only by case or accent.
+   Start normal traffic only after these checks pass. Retain the old database and backup until the new deployment has
+   completed your rollback window.
+
+If records were previously merged because the old collation considered their identities equal, changing the schema
+cannot reconstruct them. Resolve those records from an authoritative source before accepting writes.
+
 ## An inference readiness check fails
 
 When generation or embedding is configured, Server readiness makes one minimal real provider request. This catches

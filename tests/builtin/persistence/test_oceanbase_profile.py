@@ -27,21 +27,26 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from powercontext.builtin.persistence.oceanbase import (
+    IncompatibleOceanBaseSchemaError,
     OceanBaseConfig,
     OceanBaseProfile,
     UnsupportedOceanBaseTenantError,
 )
 from powercontext.builtin.persistence.oceanbase import profile as oceanbase_profile_module
+from powercontext.builtin.persistence.tables import SOURCES_TABLE
 
 VALID_URL = "mysql+aoceanbase://root%40tenant:secret@127.0.0.1:2881/powercontext?charset=utf8mb4"
 
 
 class _Result:
-    def __init__(self, row: tuple[str, str] | None = ("ob_compatibility_mode", "MYSQL")) -> None:
-        self._row = row
+    def __init__(self, rows: tuple[tuple[object, ...], ...]) -> None:
+        self._rows = rows
 
-    def first(self) -> tuple[str, str] | None:
-        return self._row
+    def first(self) -> tuple[object, ...] | None:
+        return self._rows[0] if self._rows else None
+
+    def all(self) -> list[tuple[object, ...]]:
+        return list(self._rows)
 
 
 class _Connection:
@@ -49,9 +54,23 @@ class _Connection:
         self.row = row
         self.statements: list[str] = []
 
-    async def exec_driver_sql(self, statement: str) -> _Result:
+    async def exec_driver_sql(self, statement: str, parameters: object | None = None) -> _Result:
         self.statements.append(statement)
-        return _Result(self.row)
+        if "ob_compatibility_mode" in statement:
+            return _Result(() if self.row is None else (self.row,))
+        return _Result(())
+
+
+class _SchemaConnection(_Connection):
+    def __init__(self, columns: tuple[tuple[object, ...], ...]) -> None:
+        super().__init__()
+        self.columns = columns
+
+    async def exec_driver_sql(self, statement: str, parameters: object | None = None) -> _Result:
+        self.statements.append(statement)
+        if "ob_compatibility_mode" in statement:
+            return _Result((("ob_compatibility_mode", "MYSQL"),))
+        return _Result(self.columns)
 
 
 class _Begin(AbstractAsyncContextManager[_Connection]):
@@ -71,9 +90,14 @@ class _Begin(AbstractAsyncContextManager[_Connection]):
 
 
 class _Engine:
-    def __init__(self, *, row: tuple[str, str] | None = ("ob_compatibility_mode", "MYSQL")) -> None:
+    def __init__(
+        self,
+        *,
+        row: tuple[str, str] | None = ("ob_compatibility_mode", "MYSQL"),
+        connection: _Connection | None = None,
+    ) -> None:
         self.url = make_url(VALID_URL)
-        self.connection = _Connection(row)
+        self.connection = connection or _Connection(row)
 
     def begin(self) -> _Begin:
         return _Begin(self.connection)
@@ -169,6 +193,71 @@ def test_profile_requires_an_oceanbase_mysql_tenant(
     asyncio.run(scenario())
 
 
+def test_profile_rejects_legacy_identity_column_collation(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def scenario() -> None:
+        engine = _Engine(
+            connection=_SchemaConnection((
+                ("pc_sources", "source_id", "utf8mb4_unicode_ci"),
+                ("pc_sources", "scope_id", "utf8mb4_general_ci"),
+                ("pc_artifacts", "scope_id", "utf8mb4_general_ci"),
+            ))
+        )
+        created = False
+
+        async def create_no_tables(_connection: object, _tables: tuple[Table, ...]) -> None:
+            nonlocal created
+            created = True
+
+        monkeypatch.setattr(oceanbase_profile_module, "create_tables", create_no_tables)
+        with pytest.raises(IncompatibleOceanBaseSchemaError, match="utf8mb4_general_ci") as caught:
+            async with OceanBaseProfile.attach(cast(AsyncEngine, engine), tables=()):
+                pass
+
+        assert not created
+        assert caught.value.columns == (
+            "pc_artifacts.scope_id",
+            "pc_sources.scope_id",
+            "pc_sources.source_id",
+        )
+        message = str(caught.value)
+        assert "pc_sources.scope_id" in message
+        assert "pc_sources.source_id" in message
+        assert "pc_artifacts.scope_id" in message
+        assert "back up" in message.casefold()
+        assert "recreate" in message.casefold()
+        assert "restore" in message.casefold()
+        assert "secret" not in message
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        (),
+        (("pc_sources", "scope_id", "UTF8MB4_BIN"),),
+    ],
+)
+def test_profile_creates_tables_for_empty_or_compatible_schema(
+    columns: tuple[tuple[object, ...], ...],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        engine = _Engine(connection=_SchemaConnection(columns))
+        created: list[tuple[Table, ...]] = []
+
+        async def create_selected_tables(_connection: object, tables: tuple[Table, ...]) -> None:
+            created.append(tables)
+
+        monkeypatch.setattr(oceanbase_profile_module, "create_tables", create_selected_tables)
+        async with OceanBaseProfile.attach(cast(AsyncEngine, engine), tables=(SOURCES_TABLE,)):
+            pass
+
+        assert created == [(SOURCES_TABLE,)]
+
+    asyncio.run(scenario())
+
+
 LIVE_URL = os.environ.get("POWERCONTEXT_TEST_OCEANBASE_URL")
 
 
@@ -184,5 +273,42 @@ def test_live_oceanbase_profile_smoke() -> None:
             profile.database.transaction() as connection,
         ):
             assert await connection.scalar(select(1)) == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.skipif(
+    not LIVE_URL,
+    reason="set POWERCONTEXT_TEST_OCEANBASE_URL to a dedicated OceanBase MySQL-mode test database",
+)
+def test_live_oceanbase_profile_rejects_old_schema_collation() -> None:
+    async def scenario() -> None:
+        assert LIVE_URL is not None
+        config = OceanBaseConfig(url=SecretStr(LIVE_URL))
+        async with OceanBaseProfile.open(config, tables=()) as setup_profile:
+            try:
+                async with setup_profile.database.transaction() as connection:
+                    await connection.exec_driver_sql("DROP TABLE IF EXISTS `pc_sources`")
+                    await connection.exec_driver_sql(
+                        "CREATE TABLE `pc_sources` ("
+                        "scope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL, "
+                        "source_type VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL, "
+                        "source_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL, "
+                        "payload MEDIUMBLOB NOT NULL, journal_position BIGINT NOT NULL, "
+                        "PRIMARY KEY (scope_id, source_type, source_id))"
+                    )
+
+                with pytest.raises(IncompatibleOceanBaseSchemaError) as caught:
+                    async with OceanBaseProfile.attach(setup_profile.database.engine, tables=(SOURCES_TABLE,)):
+                        pass
+
+                assert caught.value.columns == (
+                    "pc_sources.scope_id",
+                    "pc_sources.source_id",
+                    "pc_sources.source_type",
+                )
+            finally:
+                async with setup_profile.database.transaction() as connection:
+                    await connection.exec_driver_sql("DROP TABLE IF EXISTS `pc_sources`")
 
     asyncio.run(scenario())
