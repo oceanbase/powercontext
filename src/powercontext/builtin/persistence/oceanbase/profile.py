@@ -41,7 +41,6 @@ _SCHEMA_COLUMNS_QUERY = """
 SELECT TABLE_NAME, COLUMN_NAME, COLLATION_NAME
 FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE()
-  AND LEFT(TABLE_NAME, 3) = 'pc_'
   AND DATA_TYPE = 'varchar'
 """
 _SCHEMA_RECREATION_GUIDE = (
@@ -156,7 +155,7 @@ async def _initialized_profile(profile: OceanBaseProfile) -> AsyncIterator[Ocean
     try:
         async with profile.database.transaction() as connection:
             await _require_mysql_tenant(connection)
-            await _require_compatible_identity_collations(connection)
+            await _require_compatible_identity_collations(connection, profile.tables)
             await create_tables(connection, profile.tables)
         yield profile
     finally:
@@ -173,14 +172,28 @@ async def _require_mysql_tenant(connection: AsyncConnection) -> None:
         raise UnsupportedOceanBaseTenantError(mode)
 
 
-async def _require_compatible_identity_collations(connection: AsyncConnection) -> None:
+async def _require_compatible_identity_collations(
+    connection: AsyncConnection,
+    tables: tuple[Table, ...],
+) -> None:
     """Reject legacy PowerContext VARCHAR columns with non-binary identity semantics."""
+
+    identity_columns = {
+        (table.name, column.name)
+        for table in tables
+        for column in table.columns
+        if getattr(column.type.dialect_impl(connection.dialect), "collation", None) == MYSQL_IDENTITY_COLLATION
+    }
+    if not identity_columns:
+        return
 
     result = await connection.exec_driver_sql(_SCHEMA_COLUMNS_QUERY)
     incompatible: list[_IdentityCollationMismatch] = []
     for table_name_value, column_name_value, actual_value in result.all():
         table_name = str(table_name_value)
         column_name = str(column_name_value)
+        if (table_name, column_name) not in identity_columns:
+            continue
         actual_collation = None if actual_value is None else str(actual_value)
         if actual_collation is None or actual_collation.casefold() != MYSQL_IDENTITY_COLLATION.casefold():
             incompatible.append(_IdentityCollationMismatch(table_name, column_name, actual_collation))
