@@ -23,6 +23,7 @@ import mimetypes
 import posixpath
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from importlib import import_module
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
@@ -124,13 +125,13 @@ class OpenDALTextFileConnector:
         """Create a Connector from one OpenDAL service and its runtime-only options."""
 
         try:
-            from opendalfs import OpendalFileSystem
+            opendalfs = import_module("opendalfs")
         except ImportError as error:
             raise ImportError(  # noqa: TRY003
                 "OpenDALTextFileConnector.from_service requires powercontext-connector-opendal on Python 3.12+"
             ) from error
         backend_options: dict[str, Any] = dict(storage_options or {})
-        filesystem = OpendalFileSystem(
+        filesystem = opendalfs.OpendalFileSystem(
             scheme=service,
             asynchronous=False,
             skip_instance_cache=True,
