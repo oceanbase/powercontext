@@ -363,7 +363,7 @@ def test_mcp_describes_review_write_side_effects_for_host_approval() -> None:
         assert decision is not None, f"{name} carries no annotations for an MCP host to prompt on"
         assert decision.readOnlyHint is False
         assert decision.destructiveHint is True
-        assert decision.idempotentHint is False
+        assert decision.idempotentHint is True
         assert decision.openWorldHint is False
 
 
