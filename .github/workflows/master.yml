@@ -52,6 +52,21 @@ jobs:
       - name: Run end-to-end tests
         run: make e2e-test
 
+  dsh-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Set up project tools
+        uses: jdx/mise-action@v2
+
+      - name: Test DSH package
+        run: make js-test
+
   pi-package:
     runs-on: ubuntu-latest
     steps:

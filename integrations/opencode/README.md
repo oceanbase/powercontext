@@ -5,7 +5,7 @@
 Install PowerContext and the plugin from the same Git ref:
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext setup opencode --source oceanbase/powercontext --ref master
 powercontext server run
 opencode

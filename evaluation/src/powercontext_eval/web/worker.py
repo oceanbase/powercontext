@@ -38,7 +38,7 @@ from powercontext_eval.benchmarks.swebench_pro.prediction import BinaryPatchErro
 from powercontext_eval.codex import CodexCapacityError, CodexInfrastructureError, UnsafeCodexInvocation
 from powercontext_eval.errors import CommandCancelled, CommandError, GitSourceError, PowerContextEvalError
 from powercontext_eval.git_source import GitSource
-from powercontext_eval.models import PowerContextRef
+from powercontext_eval.models import Arm, PowerContextRef
 from powercontext_eval.paths import EvaluationPaths
 from powercontext_eval.powercontext_sut import (
     InvalidTreatment,
@@ -324,6 +324,7 @@ class TaskPairWorker:
             docker_network_pool=self._config.docker_network_pool,
             extra_no_proxy_hosts=self._config.extra_no_proxy_hosts,
             run_id=_execution_run_id(task),
+            treatment_mode=task.request.treatment_mode,
             model=task.request.model,
             reasoning_effort=task.request.reasoning_effort,
             finalization_registrar=self._finalization_registrar(task),
@@ -464,6 +465,13 @@ class TaskPairWorker:
                 os.close(descriptor)
         except (FileNotFoundError, OSError, RuntimeError, ValueError, InvalidReportBundle):
             raise InvalidReportBundle("Runner returned an unsafe report path") from None
+        returned_arms = {
+            arm
+            for arm, resolved in ((Arm.OFF, result.off_resolved), (Arm.ON, result.on_resolved))
+            if resolved is not None
+        }
+        if returned_arms != set(task.request.treatment_mode.arms):
+            raise InvalidReportBundle("Runner outcomes do not match the requested treatment mode")
         return TaskResult(
             artifact_dir=os.fspath(layout.run_artifacts.relative_to(self._config.run_root)),
             report_path=os.fspath(expected_report.relative_to(self._config.run_root)),

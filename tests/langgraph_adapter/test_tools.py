@@ -64,7 +64,7 @@ def _run(app: FastAPI, scenario: Callable[[], Awaitable[None]]) -> None:
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
         ):
-            with shared_http_client(transport):
+            with shared_http_client(transport, trust_transport_security=True):
                 await scenario()
 
     asyncio.run(driver())

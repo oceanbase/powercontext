@@ -48,7 +48,9 @@ def test_capabilities_flow_through_server_sdk_and_cli(monkeypatch: pytest.Monkey
                 transport=httpx.ASGITransport(app=server_app),
                 base_url="http://testserver",
             )
-            self._sdk = PowerContextClient("http://testserver", http_client=self._http_client)
+            self._sdk = PowerContextClient(
+                "http://testserver", http_client=self._http_client, trust_transport_security=True
+            )
             return self
 
         async def __aexit__(

@@ -14,13 +14,12 @@ primitives that are stable public API. It never starts or embeds the Server.
 The package is not yet published to PyPI, so install it from source alongside a running Server:
 
 ```bash
-uv pip install "powercontext-langgraph @ git+https://github.com/oceanbase/powercontext.git#subdirectory=integrations/langgraph"
+uv pip install "powercontext-langgraph @ git+https://github.com/oceanbase/powercontext.git@master#subdirectory=integrations/langgraph"
 powercontext server run
 ```
 
-From a checkout you can install the local path instead: `uv pip install ./integrations/langgraph`. Publishing to
-PyPI is pending a standalone build and release step that advances the package version independently of the root
-`powercontext` distribution; until that lands, use the source install above.
+From a checkout you can install the local path instead: `uv pip install ./integrations/langgraph`. The adapter is not
+currently published on PyPI, so use one of these source installations.
 
 The package depends on `powercontext[client]`, `langgraph`, `langchain-core`, and `pydantic-settings`. It does not
 pull in the Server; point it at a Server you run separately.
@@ -148,10 +147,10 @@ Server. Implementing only search and raising for the rest produces an object tha
 fails at runtime inside unrelated nodes or tools, which is worse than providing no store. The adapter therefore
 integrates at the node and tool level and does not occupy the `store` parameter of `compile()`.
 
-## Scope of this release
+## Current scope
 
-In scope: Memory read and write, and bounded context preparation.
+Included: Memory read and write, and bounded context preparation.
 
-Out of scope for this release: automatic trajectory capture, checkpointing, Handoff, Artifact Candidate review, and
-Experience or Skill generation. Use `powercontext_remember` for explicit writes; automatic capture of a run as Source
-evidence is not part of this adapter.
+Not included: automatic trajectory capture, checkpointing, Handoff, Artifact Candidate review, and Experience or
+Skill generation. Use `powercontext_remember` for explicit writes; automatic capture of a run as Source evidence is
+not part of this adapter.

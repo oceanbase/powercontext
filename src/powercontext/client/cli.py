@@ -980,7 +980,11 @@ async def _enroll_remote_skill_target(
     credential_saved = False
     installation: ReceiverServiceInstallation | None = None
     try:
-        async with PowerContextClient(options.server_url, timeout=options.timeout) as client:
+        async with PowerContextClient(
+            options.server_url,
+            timeout=options.timeout,
+            allow_insecure_http=insecure_http,
+        ) as client:
             enrolled = await client.enroll_remote_skill_target(request)
         _write_receiver_config(
             destination,

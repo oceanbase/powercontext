@@ -85,7 +85,11 @@ class HandoffWorkstreamSelection(BaseModel):
 def register_handoff_workstream_picker(server: FastMCP, http_client: httpx.AsyncClient) -> None:
     """Register the Report-backed Workstream picker on an existing MCP server."""
 
-    picker = _HandoffWorkstreamPicker(PowerContextClient("http://fastapi", http_client=http_client))
+    # ``http_client`` is the Server's own in-process ASGI transport; ``http://fastapi`` is only a
+    # routing label, so vouch for it explicitly rather than have the loopback guard reject it.
+    picker = _HandoffWorkstreamPicker(
+        PowerContextClient("http://fastapi", http_client=http_client, trust_transport_security=True)
+    )
     server.tool(
         picker.select,
         name="select_handoff_workstream",

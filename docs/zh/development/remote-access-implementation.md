@@ -17,11 +17,23 @@ uv add "powercontext[cli,server]"
 uv run powercontext server run
 ```
 
-默认监听 `127.0.0.1:8000`，SQLite 数据保存在 `powercontext.db`。命令参数可以覆盖监听地址：
+默认监听 `127.0.0.1:8000`，SQLite 数据保存在 `powercontext.db`。命令参数可以覆盖监听地址，但**未认证**的 Server 会拒绝
+绑定到可路由地址：请启用 bearer 认证（推荐——在反向代理处终止 TLS），或在 TLS 已由上游终止 / 网络受控时显式 opt-in。
 
 ```bash
-uv run powercontext server run --host 0.0.0.0 --port 8080
+# 推荐：先为 Server 启用认证，再绑定可路由地址（生产环境在前面加 TLS）。
+POWERCONTEXT_SERVER_AUTH_ENABLED=true \
+POWERCONTEXT_SERVER_AUTH_TOKEN="replace-with-a-strong-token" \
+  uv run powercontext server run --host 0.0.0.0 --port 8080
 ```
+
+```bash
+# 或者，在 TLS 由上游终止 / 网络受控的前提下，显式 opt-in 到未认证绑定。
+POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true \
+  uv run powercontext server run --host 0.0.0.0 --port 8080
+```
+
+不带上述任一设置直接 `--host 0.0.0.0` 会以报错退出，而不会静默地暴露一个未认证的 Server。
 
 进程会打开配置的 database，创建按 scope 隔离的 Builtin runtime，并在关闭时释放其持有的 database、inference 和
 scheduler 资源。

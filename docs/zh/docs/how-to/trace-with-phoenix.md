@@ -24,7 +24,7 @@ Phoenix 的 UI 和 OTLP HTTP 接收端都在端口 `6006`。打开 <http://local
 recording 和 export 需要 `tracing-otlp` extra：
 
 ```bash
-uv tool install "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 缺少该 extra 时，启用 tracing 会在启动阶段直接报错，而不是静默丢弃 span。

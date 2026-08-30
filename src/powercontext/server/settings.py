@@ -36,6 +36,31 @@ from powercontext.builtin.runtime.config import (
     RuntimeConfig,
 )
 from powercontext.paths import default_database_path, default_seekdb_path, sqlite_url
+from powercontext.transport import is_loopback_host
+
+_UNSAFE_BIND_MESSAGE = (
+    "A non-loopback bind requires bearer authentication; "
+    "set allow_unauthenticated_non_loopback to opt in when TLS is "
+    "terminated upstream or the network is otherwise controlled"
+)
+
+
+class UnauthenticatedNonLoopbackBindError(ValueError):
+    """Raised when a bind would expose an unauthenticated Server off loopback.
+
+    A dedicated type lets callers that assemble the settings (e.g. the CLI) recognise this
+    policy failure by identity -- via pydantic's ``ctx['error']`` -- and translate it into an
+    actionable message, without matching against the raw validation text.
+    """
+
+
+class MissingBearerTokenError(ValueError):
+    """Raised when authentication is enabled but no bearer token is configured.
+
+    Recognised by identity the same way as :class:`UnauthenticatedNonLoopbackBindError`, so the
+    CLI can point the operator at the concrete token / disable levers instead of surfacing
+    pydantic's raw validation report.
+    """
 
 
 def _default_database() -> SQLiteConfig:
@@ -62,6 +87,17 @@ def _default_local_external_skills(workspace: Path) -> ExternalSkillsConfig:
             ),
         ),
     )
+
+
+def is_unauthenticated_non_loopback_bind(
+    *,
+    host: str,
+    auth_enabled: bool,
+    allow_unauthenticated_non_loopback: bool,
+) -> bool:
+    """Return whether a bind exposes an unauthenticated Server off loopback."""
+
+    return not is_loopback_host(host) and not auth_enabled and not allow_unauthenticated_non_loopback
 
 
 class HttpConfig(BaseModel):
@@ -95,7 +131,7 @@ class BearerAuthConfig(BaseModel):
     @model_validator(mode="after")
     def require_token_when_enabled(self) -> BearerAuthConfig:
         if self.enabled and (self.token is None or not self.token.get_secret_value()):
-            raise ValueError("Bearer token is required when authentication is enabled")  # noqa: TRY003
+            raise MissingBearerTokenError("Bearer token is required when authentication is enabled")  # noqa: TRY003
         return self
 
 
@@ -172,6 +208,7 @@ class ServerSettings(BaseSettings):
     allow_insecure_http: bool = False
     mcp: McpConfig = Field(default_factory=McpConfig)
     auth: BearerAuthConfig = Field(default_factory=BearerAuthConfig)
+    allow_unauthenticated_non_loopback: bool = False
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     logging: ServerLoggingConfig = Field(default_factory=ServerLoggingConfig)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
@@ -254,6 +291,16 @@ class ServerSettings(BaseSettings):
             return value
         return {"kind": "sqlite", "url": _default_database().url, **value}
 
+    @model_validator(mode="after")
+    def reject_unauthenticated_non_loopback_bind(self) -> ServerSettings:
+        if is_unauthenticated_non_loopback_bind(
+            host=self.http.host,
+            auth_enabled=self.auth.enabled,
+            allow_unauthenticated_non_loopback=self.allow_unauthenticated_non_loopback,
+        ):
+            raise UnauthenticatedNonLoopbackBindError(_UNSAFE_BIND_MESSAGE)
+        return self
+
 
 __all__ = [
     "BearerAuthConfig",
@@ -263,7 +310,10 @@ __all__ = [
     "HttpConfig",
     "McpConfig",
     "MetricsConfig",
+    "MissingBearerTokenError",
     "ServerLoggingConfig",
     "ServerSettings",
     "TracingConfig",
+    "UnauthenticatedNonLoopbackBindError",
+    "is_unauthenticated_non_loopback_bind",
 ]

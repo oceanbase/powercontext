@@ -42,7 +42,14 @@ from powercontext_eval.benchmarks.swebench_pro.catalog import (
 from powercontext_eval.codex import DEFAULT_REASONING_EFFORT
 from powercontext_eval.errors import GitSourceError
 from powercontext_eval.git_source import GitSource
-from powercontext_eval.models import PowerContextRef
+from powercontext_eval.models import Arm, PowerContextRef
+from powercontext_eval.web.baselines import (
+    BaselineCandidate,
+    BaselineComparisonResponse,
+    BaselineCreate,
+    BaselineSelectionUpdate,
+    CompatibilityStatus,
+)
 from powercontext_eval.web.batches import (
     BatchCreate,
     BatchPreviewResponse,
@@ -61,7 +68,11 @@ from powercontext_eval.web.reporting import (
     BenchmarkCatalog,
     InvalidReportArtifact,
     ReportingError,
+    StaleReportRevision,
     UnsafeReportPath,
+    baseline_compatibility,
+    compare_batch_to_baseline,
+    create_baseline_snapshot,
     load_batch_estimate_samples,
     load_batch_report,
     load_batch_task_detail,
@@ -74,7 +85,14 @@ from powercontext_eval.web.reporting import (
 )
 from powercontext_eval.web.resources import FilesystemResourceProbe, ResourceProbe, ResourceUnavailable
 from powercontext_eval.web.revision import RUNTIME_SCHEMA_VERSION, current_build_revision
-from powercontext_eval.web.store import BatchNotFound, TaskAdmissionRejected, TaskConflict, TaskNotFound, TaskStore
+from powercontext_eval.web.store import (
+    BaselineNotFound,
+    BatchNotFound,
+    TaskAdmissionRejected,
+    TaskConflict,
+    TaskNotFound,
+    TaskStore,
+)
 from powercontext_eval.web.usage import AccountUsage, UsageSnapshot, is_fresh
 
 _TERMINAL = {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.INTERRUPTED, TaskStatus.CANCELLED}
@@ -403,7 +421,7 @@ def create_app(
                 or candidate.task_set != request.task_set
                 or candidate.model != request.model
                 or candidate.reasoning_effort != DEFAULT_REASONING_EFFORT
-                or candidate.treatment_mode != "off_on"
+                or candidate.treatment_mode != request.treatment_mode
             ):
                 continue
             try:
@@ -516,7 +534,7 @@ def create_app(
             task_set=request.task_set,
             model=request.model,
             reasoning_effort=DEFAULT_REASONING_EFFORT,
-            treatment_mode="off_on",
+            treatment_mode=request.treatment_mode,
             total_tasks=total_tasks,
             usage_pause_percent=request.usage_pause_percent,
             usage=snapshot,
@@ -576,6 +594,171 @@ def create_app(
             content=[_batch_payload(batch) for batch in task_store.list_batches()],
             headers=_NO_STORE,
         )
+
+    @app.post("/api/baselines")
+    def create_baseline(request: BaselineCreate) -> Response:
+        try:
+            batch = task_store.get_batch(request.source_batch_id)
+            tasks = task_store.list_batch_tasks(request.source_batch_id)
+            snapshot = create_baseline_snapshot(
+                batch,
+                tasks,
+                arm=request.source_arm,
+                expected_report_revision=request.expected_report_revision,
+                runs_root=config.run_root / "runs",
+                catalog=get_catalog(),
+            )
+            baseline, created = task_store.create_baseline(request, snapshot, now=datetime.now(UTC))
+        except BatchNotFound:
+            return _error(404, "batch_not_found", "The requested evaluation batch does not exist.")
+        except StaleReportRevision:
+            return _error(409, "report_revision_conflict", "The batch report changed before the baseline was saved.")
+        except TaskConflict:
+            return _error(409, "idempotency_conflict", "The idempotency key belongs to a different request.")
+        except (CatalogError, ReportingError, OSError, ValueError):
+            return _error(409, "baseline_unavailable", "The selected batch arm cannot be saved as a baseline.")
+        return JSONResponse(
+            status_code=201 if created else 200,
+            content=baseline.model_dump(mode="json"),
+            headers=_NO_STORE,
+        )
+
+    @app.get("/api/baselines")
+    def list_baselines() -> Response:
+        return JSONResponse(
+            content=[baseline.model_dump(mode="json") for baseline in task_store.list_baselines()],
+            headers=_NO_STORE,
+        )
+
+    @app.get("/api/baselines/{baseline_id}")
+    def get_baseline(baseline_id: str) -> Response:
+        try:
+            baseline = task_store.get_baseline(baseline_id)
+        except BaselineNotFound:
+            return _error(404, "baseline_not_found", "The requested baseline does not exist.")
+        return JSONResponse(content=baseline.model_dump(mode="json"), headers=_NO_STORE)
+
+    @app.get("/api/batches/{batch_id}/baseline-candidates")
+    def baseline_candidates(batch_id: str, current_arm: Arm) -> Response:
+        selected = batch_inputs(batch_id)
+        if isinstance(selected, JSONResponse):
+            return selected
+        batch, tasks = selected
+        try:
+            report = load_batch_report(
+                batch,
+                tasks,
+                runs_root=config.run_root / "runs",
+                catalog=get_catalog(),
+            )
+            candidates = [
+                BaselineCandidate(
+                    baseline=baseline,
+                    compatibility=baseline_compatibility(
+                        baseline,
+                        batch,
+                        tasks,
+                        report,
+                        current_arm=current_arm,
+                    ),
+                )
+                for baseline in task_store.list_baselines()
+            ]
+        except (CatalogError, ReportingError, OSError, ValueError):
+            return _error(409, "report_unavailable", "The batch report is not available.")
+        return JSONResponse(
+            content=[candidate.model_dump(mode="json") for candidate in candidates],
+            headers=_NO_STORE,
+        )
+
+    @app.get("/api/batches/{batch_id}/baseline-selections")
+    def baseline_selections(batch_id: str) -> Response:
+        try:
+            selections = task_store.list_baseline_selections(batch_id)
+        except BatchNotFound:
+            return _error(404, "batch_not_found", "The requested evaluation batch does not exist.")
+        return JSONResponse(
+            content=[selection.model_dump(mode="json") for selection in selections],
+            headers=_NO_STORE,
+        )
+
+    @app.put("/api/batches/{batch_id}/baseline-selections")
+    def update_baseline_selections(batch_id: str, request: BaselineSelectionUpdate) -> Response:
+        selected = batch_inputs(batch_id)
+        if isinstance(selected, JSONResponse):
+            return selected
+        batch, tasks = selected
+        try:
+            report = load_batch_report(
+                batch,
+                tasks,
+                runs_root=config.run_root / "runs",
+                catalog=get_catalog(),
+            )
+            for selection in request.selections:
+                baseline = task_store.get_baseline(selection.baseline_id)
+                compatibility = baseline_compatibility(
+                    baseline,
+                    batch,
+                    tasks,
+                    report,
+                    current_arm=selection.current_arm,
+                )
+                if compatibility.status is CompatibilityStatus.INCOMPATIBLE:
+                    return _error(409, "baseline_incompatible", "The selected baseline is not compatible.")
+            selections = task_store.replace_baseline_selections(
+                batch_id,
+                request.selections,
+                now=datetime.now(UTC),
+            )
+        except BaselineNotFound:
+            return _error(404, "baseline_not_found", "The requested baseline does not exist.")
+        except TaskConflict:
+            return _error(409, "baseline_selection_conflict", "The baseline selection is invalid.")
+        except (CatalogError, ReportingError, OSError, ValueError):
+            return _error(409, "report_unavailable", "The batch report is not available.")
+        return JSONResponse(
+            content=[selection.model_dump(mode="json") for selection in selections],
+            headers=_NO_STORE,
+        )
+
+    @app.get("/api/batches/{batch_id}/baseline-comparisons")
+    def baseline_comparisons(batch_id: str) -> Response:
+        selected = batch_inputs(batch_id)
+        if isinstance(selected, JSONResponse):
+            return selected
+        batch, tasks = selected
+        try:
+            report = load_batch_report(
+                batch,
+                tasks,
+                runs_root=config.run_root / "runs",
+                catalog=get_catalog(),
+            )
+            comparisons = []
+            for selection in task_store.list_baseline_selections(batch_id):
+                baseline = task_store.get_baseline(selection.baseline_id)
+                comparisons.append(
+                    compare_batch_to_baseline(
+                        batch,
+                        tasks,
+                        report,
+                        baseline,
+                        task_store.list_baseline_items(baseline.baseline_id),
+                        current_arm=selection.current_arm,
+                        runs_root=config.run_root / "runs",
+                    )
+                )
+            response = BaselineComparisonResponse(
+                batch_id=batch_id,
+                report_revision=report.report_revision,
+                comparisons=tuple(comparisons),
+            )
+        except BaselineNotFound:
+            return _error(409, "baseline_unavailable", "A selected baseline no longer exists.")
+        except (CatalogError, ReportingError, OSError, ValueError):
+            return _error(409, "report_unavailable", "The batch comparison is not available.")
+        return JSONResponse(content=response.model_dump(mode="json"), headers=_NO_STORE)
 
     @app.get("/api/batches/{batch_id}")
     def get_batch(batch_id: str) -> Response:

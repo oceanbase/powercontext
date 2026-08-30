@@ -1151,6 +1151,35 @@ paths:
           $ref: "#/components/responses/InvalidRequest"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/target/rename:
+    post:
+      tags: [skill]
+      summary: Rename a remote Agent Skill target
+      description: Change the human-readable target name with target generation CAS while retaining its durable identity.
+      operationId: rename_remote_skill_target
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameRemoteSkillTargetRequest"
+      responses:
+        "200":
+          description: Renamed remote target.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSkillTarget"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/skill/remote/target/revoke:
     post:
       tags: [skill]
@@ -1711,6 +1740,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProjectPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/handoff-reports/scopes/list-known:
+    post:
+      tags: [handoff-reports]
+      summary: List scopes that contain a committed Handoff
+      operationId: list_handoff_report_known_scopes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListHandoffReportKnownScopesRequest"
+      responses:
+        "200":
+          description: A cursor-paginated page of scopes that can be rendered as Handoff Reports.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnownHandoffScopePage"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "422":
@@ -3738,6 +3794,7 @@ components:
       required:
         - scope_id
         - target_id
+        - display_name
         - agent_kind
         - installation_scope
         - delivery_mode
@@ -3745,6 +3802,8 @@ components:
         - state
         - receiver_version
         - environment_fingerprint
+        - machine_hostname
+        - workspace_name
         - last_seen_at
         - generation
       properties:
@@ -3757,6 +3816,11 @@ components:
           minLength: 1
           maxLength: 64
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
         agent_kind:
           $ref: "#/components/schemas/RemoteAgentKind"
         installation_scope:
@@ -3780,6 +3844,18 @@ components:
         environment_fingerprint:
           type: string
           pattern: '^[0-9a-f]{64}$'
+          nullable: true
+        machine_hostname:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '.*\S.*'
+          nullable: true
+        workspace_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
           nullable: true
         last_seen_at:
           type: string
@@ -3834,7 +3910,7 @@ components:
     CreateRemoteSkillTargetRequest:
       type: object
       additionalProperties: false
-      required: [scope_id, agent_kind]
+      required: [scope_id, agent_kind, display_name]
       properties:
         scope_id:
           type: string
@@ -3843,6 +3919,11 @@ components:
           pattern: '.*\S.*'
         agent_kind:
           $ref: "#/components/schemas/RemoteAgentKind"
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
     RemoteSkillTargetEnrollment:
       type: object
       additionalProperties: false
@@ -3880,6 +3961,18 @@ components:
           type: string
           pattern: '^[0-9a-f]{64}$'
           nullable: true
+        machine_hostname:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '.*\S.*'
+          nullable: true
+        workspace_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+          nullable: true
     RemoteSkillTargetCredential:
       type: object
       additionalProperties: false
@@ -3914,6 +4007,29 @@ components:
           minLength: 1
           maxLength: 64
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        expected_generation:
+          type: integer
+          minimum: 0
+    RenameRemoteSkillTargetRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target_id, display_name, expected_generation]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
         expected_generation:
           type: integer
           minimum: 0
@@ -4596,12 +4712,19 @@ components:
     GetHandoffReportRequest:
       type: object
       additionalProperties: false
-      required: [project_id]
+      required: [scope_id]
       properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
         project_id:
           type: string
           minLength: 1
           maxLength: 256
+          nullable: true
+          deprecated: true
+          description: Retained for wire compatibility and ignored when generating a scope report.
         locale:
           $ref: "#/components/schemas/ReportLocale"
           nullable: true
@@ -4619,6 +4742,39 @@ components:
           default: false
         period:
           $ref: "#/components/schemas/HandoffReportPeriodRequest"
+          nullable: true
+    ListHandoffReportKnownScopesRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        cursor:
+          type: string
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+    KnownHandoffScope:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+    KnownHandoffScopePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnownHandoffScope"
+        next_cursor:
+          type: string
           nullable: true
     HandoffReportPeriodRequest:
       type: object

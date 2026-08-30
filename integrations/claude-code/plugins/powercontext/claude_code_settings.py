@@ -16,13 +16,28 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
+# Kept in lockstep with powercontext.transport.LOOPBACK_HOSTS; the plugin ships
+# isolated and cannot import powercontext.
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Mirror ``powercontext.transport.is_loopback_host`` for the isolated plugin."""
+
+    normalized = host.strip().lower()
+    if normalized in _LOOPBACK_HOSTS:
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,7 +160,7 @@ def _http_base_url(value: str) -> str:
         raise ValueError("PowerContext Server URL must use HTTP or HTTPS")  # noqa: TRY003
     if parsed.query or parsed.fragment:
         raise ValueError("PowerContext Server URL must not contain a query or fragment")  # noqa: TRY003
-    if parsed.scheme == "http" and parsed.hostname.lower() not in _LOOPBACK_HOSTS:
+    if parsed.scheme == "http" and not _is_loopback_host(parsed.hostname):
         raise ValueError("unencrypted PowerContext URLs must be loopback addresses")  # noqa: TRY003
     path = parsed.path.rstrip("/")
     if path.endswith("/mcp"):

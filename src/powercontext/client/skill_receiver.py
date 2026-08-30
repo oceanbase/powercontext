@@ -180,7 +180,15 @@ class RemoteSkillReceiver:
         self._credential = config.credential.get_secret_value()
         self._mac_key = hashlib.sha256(f"powercontext.receiver.v1\0{self._credential}".encode()).digest()
         self._owned_client = client is None
-        self._client = PowerContextClient(config.server_url, token=self._credential) if client is None else client
+        self._client = (
+            PowerContextClient(
+                config.server_url,
+                token=self._credential,
+                allow_insecure_http=config.allow_insecure_http,
+            )
+            if client is None
+            else client
+        )
 
     async def __aenter__(self) -> RemoteSkillReceiver:
         return self

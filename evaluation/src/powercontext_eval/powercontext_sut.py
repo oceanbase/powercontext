@@ -46,7 +46,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -519,10 +519,9 @@ class SutConfig:
     reasoning_effort: str = DEFAULT_REASONING_EFFORT
     recorder_script: Path = _DEFAULT_RECORDER_SCRIPT
     limits: ContainerLimits = ContainerLimits()
-    plugin_version: str = "0.1.0"
     codex_timeout: float = 3600
     finalization_registrar: TokensFlowFinalizationRegistrar | None = None
-    container_env: Mapping[str, str] = MappingProxyType({})
+    container_env: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         if _SAFE_RUN_ID.fullmatch(self.run_id) is None:
@@ -866,8 +865,6 @@ class DockerSut:
                 raise TypeError
         except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
             raise InvalidTreatment("PowerContext plugin manifest is invalid") from error
-        if version != config.plugin_version:
-            raise InvalidTreatment("PowerContext plugin manifest version does not match configuration")
         lockfile = config.source_checkout / _PLUGIN_RELATIVE / "uv.lock"
         try:
             metadata = lockfile.stat(follow_symlinks=False)

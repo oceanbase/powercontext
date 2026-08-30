@@ -28,6 +28,22 @@ class Arm(StrEnum):
     ON = "on"
 
 
+class TreatmentMode(StrEnum):
+    """The exact treatment arms executed for one evaluation task."""
+
+    OFF_ON = "off_on"
+    ON_ONLY = "on_only"
+    OFF_ONLY = "off_only"
+
+    @property
+    def arms(self) -> tuple[Arm, ...]:
+        if self is TreatmentMode.OFF_ON:
+            return (Arm.OFF, Arm.ON)
+        if self is TreatmentMode.ON_ONLY:
+            return (Arm.ON,)
+        return (Arm.OFF,)
+
+
 class PowerContextRef(BaseModel):
     """An explicit, immutable PowerContext source reference."""
 

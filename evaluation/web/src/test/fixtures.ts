@@ -77,6 +77,7 @@ export const health: HealthResponse = {
 export const report: ReportResponse = {
   task_id: "task-report",
   acceptance_valid: true,
+  treatment_mode: "off_on",
   off: {
     arm: "off",
     state: "treatment_validated",
@@ -212,6 +213,7 @@ export function batchRecord(overrides: Partial<BatchRecord> = {}): BatchRecord {
 
 export const batchReport: BatchReport = {
   batch_id: "batch-001",
+  treatment_mode: "off_on",
   report_revision: 10_100,
   total_tasks: 100,
   terminal_tasks: 100,
@@ -435,6 +437,16 @@ export function record(status: TaskRecord["status"], taskId = `task-${status}`):
 export function apiStub(overrides: Partial<Record<keyof EvaluationApi, unknown>> = {}): EvaluationApi {
   return {
     listBatches: vi.fn().mockResolvedValue([]),
+    listBaselines: vi.fn().mockResolvedValue([]),
+    createBaseline: vi.fn(),
+    listBaselineCandidates: vi.fn().mockResolvedValue([]),
+    listBaselineSelections: vi.fn().mockResolvedValue([]),
+    updateBaselineSelections: vi.fn().mockResolvedValue([]),
+    getBaselineComparisons: vi.fn().mockResolvedValue({
+      batch_id: "batch-001",
+      report_revision: batchReport.report_revision,
+      comparisons: [],
+    }),
     getBatch: vi.fn().mockResolvedValue(batchRecord()),
     previewBatch: vi.fn().mockResolvedValue({
       powercontext_ref: "latest",

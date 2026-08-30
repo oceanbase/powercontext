@@ -141,6 +141,37 @@ def test_receiver_allows_remote_cleartext_http_with_explicit_permission(tmp_path
     assert receiver.config.allow_insecure_http is True
 
 
+def test_receiver_forwards_cleartext_permission_to_its_owned_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client_options: list[dict[str, object]] = []
+
+    def owned_client(*_args: object, **kwargs: object) -> _FakeRemoteClient:
+        client_options.append(kwargs)
+        return _FakeRemoteClient()
+
+    monkeypatch.setattr(receiver_module, "PowerContextClient", owned_client)
+
+    RemoteSkillReceiver(
+        RemoteSkillReceiverConfig(
+            server_url="http://11.162.218.22:8765",
+            target_id="codex-a",
+            credential=SecretStr("pct_installation-a.super-secret-target-value"),
+            agent_kind="codex",
+            workspace=tmp_path,
+            allow_insecure_http=True,
+        )
+    )
+
+    assert client_options == [
+        {
+            "token": "pct_installation-a.super-secret-target-value",
+            "allow_insecure_http": True,
+        }
+    ]
+
+
 @pytest.mark.parametrize(
     ("agent_kind", "relative_root"),
     (("codex", ".agents/skills"), ("claude_code", ".claude/skills")),

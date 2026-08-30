@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from functools import cache
 from typing import Literal
@@ -27,6 +28,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, PackageLoader, select_autoescape
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.skill import (
     AgentKind,
@@ -60,6 +62,8 @@ from powercontext.http import (
 )
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH
 from powercontext.sources import SourceRef
+
+logger = logging.getLogger(__name__)
 
 _PAGE_HEADERS = {
     "Cache-Control": "no-store",
@@ -249,7 +253,14 @@ class _DashboardSkillProjectionRoutes:
                 "The approved managed Skill could not be published to the configured Agent target.",
                 details={"reason": str(error)},
             )
-        await application.external_skills.for_scope(request.scope_id).scan()
+        # The publication itself succeeded above; registry bookkeeping failure must not turn the
+        # response into a 500 because _skill_projection_response reports on-disk state anyway.
+        try:
+            await application.external_skills.for_scope(request.scope_id).scan()
+        except Exception as error:
+            log_safely(
+                logger, logging.WARNING, "PowerContext external Skill scan failed after publication", exc_info=error
+            )
         return await _skill_projection_response(application, request.scope_id, skill, self._targets)
 
     async def unpublish(
@@ -282,7 +293,14 @@ class _DashboardSkillProjectionRoutes:
                 "The approved managed Skill could not be unpublished from the configured Agent target.",
                 details={"reason": str(error)},
             )
-        await application.external_skills.for_scope(request.scope_id).scan()
+        # The publication removal already succeeded; keep registry bookkeeping best-effort for
+        # the same reason as the publish path above.
+        try:
+            await application.external_skills.for_scope(request.scope_id).scan()
+        except Exception as error:
+            log_safely(
+                logger, logging.WARNING, "PowerContext external Skill scan failed after unpublication", exc_info=error
+            )
         return await _skill_projection_response(application, request.scope_id, skill, self._targets)
 
 
@@ -622,9 +640,16 @@ async def _skill_projection_response(
         )
     if not targets_config:
         return DashboardSkillProjection(artifact=skill.as_ref(), name=skill.content.name, targets=[])
-    registrations = await application.external_skills.for_scope(scope_id).list(
-        ListExternalSkillsRequest(include_unavailable=True)
-    )
+    # Registry discovery is best-effort bookkeeping; when it cannot be read (for example an
+    # unavailable registry database), report on-disk state with stale discovery instead of
+    # failing the whole response after the projection was already changed.
+    try:
+        registrations = await application.external_skills.for_scope(scope_id).list(
+            ListExternalSkillsRequest(include_unavailable=True)
+        )
+    except Exception as error:
+        log_safely(logger, logging.WARNING, "PowerContext external Skill registry discovery failed", exc_info=error)
+        registrations = ()
     targets = []
     package = await application.skill.for_scope(scope_id).package(skill.as_ref())
     for target in targets_config:

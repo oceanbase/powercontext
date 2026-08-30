@@ -204,7 +204,7 @@ def test_swebench_pro_run_defaults_optional_integrations_off(monkeypatch) -> Non
     assert captured[0].proxy_url is None
 
 
-def test_cli_creates_a_luna_batch_atomically_paused(monkeypatch) -> None:
+def test_cli_creates_a_single_arm_luna_batch_atomically_paused(monkeypatch) -> None:
     calls: list[tuple[Request, float]] = []
 
     class Response:
@@ -238,6 +238,8 @@ def test_cli_creates_a_luna_batch_atomically_paused(monkeypatch) -> None:
             "gpt-5.6-luna",
             "--task-set",
             "swebench-pro-stability-v1",
+            "--treatment-mode",
+            "on_only",
             "--start-paused",
         ],
     )
@@ -252,6 +254,7 @@ def test_cli_creates_a_luna_batch_atomically_paused(monkeypatch) -> None:
     payload = json.loads(request.data)
     assert payload["model"] == "gpt-5.6-luna"
     assert payload["task_set"] == "swebench-pro-stability-v1"
+    assert payload["treatment_mode"] == "on_only"
     assert payload["initial_control_intent"] == "pause"
 
 

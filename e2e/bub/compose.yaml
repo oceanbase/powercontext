@@ -76,6 +76,8 @@ services:
       - POWERCONTEXT_CLIENT_TIMEOUT=150
       - POWERCONTEXT_BUB_BASE_URL=http://host-gateway:8000
       - POWERCONTEXT_BUB_TIMEOUT=150
+      # The agent-to-server hop stays on the private Compose bridge, so the harness vouches for it.
+      - POWERCONTEXT_BUB_TRUST_TRANSPORT_SECURITY=true
     volumes:
       - ${POWERCONTEXT_E2E_OUTPUT}:/evidence
       - ${POWERCONTEXT_E2E_CODEX_AUTH_MOUNT:-/dev/null}:/codex/auth.json:ro

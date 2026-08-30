@@ -67,8 +67,23 @@ function envInteger(
   return value
 }
 
+function isIpv4Loopback(host: string): boolean {
+  const octets = host.split('.')
+  if (octets.length !== 4) return false
+  if (!octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)) return false
+  // The whole 127.0.0.0/8 block is loopback, not just 127.0.0.1.
+  return octets[0] === '127'
+}
+
 function isLoopback(hostname: string): boolean {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
+  // Mirror the shared `is_loopback_host` transport contract (src/powercontext/transport.py): trim,
+  // lowercase, drop the IPv6 brackets that URL.hostname keeps, then accept `localhost`, the whole
+  // IPv4 127.0.0.0/8 block, and IPv6 ::1. Drift here is pinned by transport-policy.spec.ts, which
+  // shares its host vectors with the Python drift guard.
+  const normalized = hostname.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '')
+  if (!normalized) return false
+  if (normalized === 'localhost' || normalized === '::1') return true
+  return isIpv4Loopback(normalized)
 }
 
 function normalizeBaseUrl(value: string): string {

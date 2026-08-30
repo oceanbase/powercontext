@@ -59,7 +59,7 @@ describe("ReportView", () => {
       ...report,
       acceptance_valid: false,
       off: {
-        ...report.off,
+        ...report.off!,
         state: "treatment_validated",
         resolution: "unresolved",
         passed: false,

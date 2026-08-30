@@ -1,20 +1,23 @@
 ---
-title: 配置 Pydantic AI
-description: 为 Pydantic AI 增加持久化 Memory 工具、自动 Context 准备和可选轨迹采集。
+title: Pydantic AI 适配器预览
+description: 了解当前 Pydantic AI 适配器 API 和安装状态。
 ---
 
-# 配置 Pydantic AI
+# Pydantic AI 适配器预览
 
-当 Pydantic AI Agent 需要通过运行中的 PowerContext Server 共享持久化 Memory 时，安装独立发行的
-`powercontext-pydantic-ai` 包。
+仓库中包含一个预览适配器，用于让 Pydantic AI Agent 通过运行中的 PowerContext Server 共享持久化 Memory。目前
+还没有受支持的独立安装方式。
 
-## 安装适配器
+## 使用前检查可用状态
 
-先启动 Server，再在 Agent 应用中安装：
+`powercontext-pydantic-ai` 目前没有发布到 PyPI。它的源码包还要求正式版本
+`powercontext[client]>=0.0.3`，而当前公开包和 `master` 的开发版本都不满足该约束。因此，旧的 PyPI 命令和直接从
+Git subdirectory 安装都会在依赖解析时失败。
 
-```bash
-uv add powercontext-pydantic-ai "pydantic-ai-slim[openai]"
-```
+请等待根包和适配器发布兼容版本后再把它加入应用。仓库贡献者可以通过根目录开发环境运行适配器测试；后续内容仅用于
+说明预览 API，不能作为受支持的安装路径。
+
+## 挂载预览 Capability
 
 下面的示例使用 OpenAI。使用其他 Provider 时，请安装匹配的 `pydantic-ai-slim` Provider extra，并修改模型字符串。
 
@@ -103,5 +106,5 @@ Capture 默认关闭。只有在允许把初始用户文本、可见模型文本
 连接 PowerContext MCP 不需要额外适配器包，但对 Pydantic AI 来说能力较低。MCP 提供显式工具，不会自动调用
 `prepare_context`，也不会采集轨迹或在 checkpoint/run 结束时 Flush。
 
-首版只支持普通 Pydantic AI run；Temporal、DBOS、Prefect 等 durable execution 尚未验证。Handoff、Candidate
+预览版只支持普通 Pydantic AI run；Temporal、DBOS、Prefect 等 durable execution 尚未验证。Handoff、Candidate
 Review、Experience 与 Skill operation 不在本适配器范围内。

@@ -206,7 +206,9 @@ export function TaskList({ api, onSelect }: TaskListProps) {
                     {task.phase ? phaseLabels[task.phase] : "—"}
                     {task.status === "succeeded" && (
                       <small>
-                        OFF {task.off_resolved ? "解决" : "未解决"} · ON {task.on_resolved ? "解决" : "未解决"}
+                        {task.off_resolved !== null && `OFF ${task.off_resolved ? "解决" : "未解决"}`}
+                        {task.off_resolved !== null && task.on_resolved !== null && " · "}
+                        {task.on_resolved !== null && `ON ${task.on_resolved ? "解决" : "未解决"}`}
                       </small>
                     )}
                   </td>

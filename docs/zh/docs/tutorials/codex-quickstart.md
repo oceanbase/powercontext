@@ -18,7 +18,7 @@ Memory。
 在任意目录执行：
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext setup codex --source oceanbase/powercontext --ref master
 ```
 

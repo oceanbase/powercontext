@@ -17,8 +17,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import type { EvaluationApi } from "../api";
-import type { BatchCreate, BatchPreview, BatchRecord, BatchTaskSet } from "../types";
-import { formatUsageWindow } from "../usageFormat";
+import type { BaselineRecord, BatchCreate, BatchRecord, BatchTaskSet, TreatmentMode } from "../types";
 
 interface BatchLauncherProps {
   api: EvaluationApi;
@@ -33,30 +32,18 @@ function idempotencyKey(): string {
   return `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function number(value: number): string {
-  return new Intl.NumberFormat("zh-CN").format(value);
-}
-
-function dateTime(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
-}
-
 export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
   const [revision, setRevision] = useState("latest");
   const [taskSet, setTaskSet] = useState<BatchTaskSet>("swebench-pro-public-v2");
   const [model, setModel] = useState("gpt-5.6-sol");
   const [models, setModels] = useState<string[]>(["gpt-5.6-sol"]);
+  const [treatmentMode, setTreatmentMode] = useState<TreatmentMode>("off_on");
+  const [baselines, setBaselines] = useState<BaselineRecord[]>([]);
+  const [selectedBaselineIds, setSelectedBaselineIds] = useState<string[]>([]);
   const [startPaused, setStartPaused] = useState(false);
   const [threshold, setThreshold] = useState(80);
   const [envRows, setEnvRows] = useState<{ key: string; value: string }[]>([]);
-  const [preview, setPreview] = useState<BatchPreview | null>(null);
-  const [pending, setPending] = useState<"preview" | "submitting" | null>(null);
+  const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const controller = useRef<AbortController | null>(null);
   const generation = useRef(0);
@@ -64,6 +51,7 @@ export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
     revision: string;
     taskSet: BatchTaskSet;
     model: string;
+    treatmentMode: TreatmentMode;
     threshold: number;
     initialControlIntent: "run" | "pause";
     key: string;
@@ -79,10 +67,14 @@ export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
 
   useEffect(() => {
     const capabilitiesController = new AbortController();
-    api.getCapabilities(capabilitiesController.signal).then((capabilities) => {
+    Promise.all([
+      api.getCapabilities(capabilitiesController.signal),
+      api.listBaselines(capabilitiesController.signal),
+    ]).then(([capabilities, availableBaselines]) => {
       if (capabilitiesController.signal.aborted) return;
       setModels(capabilities.models);
       setModel((current) => capabilities.models.includes(current) ? current : (capabilities.models[0] ?? ""));
+      setBaselines(availableBaselines);
     }).catch(() => undefined);
     return () => capabilitiesController.abort();
   }, [api]);
@@ -90,13 +82,12 @@ export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
   const invalidatePreview = () => {
     controller.current?.abort();
     generation.current += 1;
-    setPending(null);
-    setPreview(null);
+    setPending(false);
     setMessage("");
     confirmationKey.current = null;
   };
 
-  const requestPreview = async (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     setMessage("");
     if (!revisionPattern.test(revision)) {
@@ -115,74 +106,73 @@ export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
     const nextController = new AbortController();
     controller.current = nextController;
     const currentGeneration = ++generation.current;
-    setPending("preview");
+    setPending(true);
     try {
-      const result = await api.previewBatch(
-        { powercontext_ref: revision, task_set: taskSet, model, usage_pause_percent: threshold },
+      const preview = await api.previewBatch(
+        { powercontext_ref: revision, task_set: taskSet, model, treatment_mode: treatmentMode, usage_pause_percent: threshold },
         nextController.signal,
       );
       if (nextController.signal.aborted || generation.current !== currentGeneration) return;
-      confirmationKey.current = null;
-      setPreview(result);
-    } catch {
-      if (!nextController.signal.aborted && generation.current === currentGeneration) {
-        setMessage("当前无法读取 Codex 用量或评测预览，请稍后重试。");
+      if (!preview.can_start) {
+        setMessage("当前用量已达到暂停阈值，暂时不能创建评测。");
+        return;
       }
-    } finally {
-      if (!nextController.signal.aborted && generation.current === currentGeneration) setPending(null);
-    }
-  };
-
-  const confirm = async () => {
-    if (preview === null || !preview.can_start || pending !== null) return;
-    const intent = {
-      revision: preview.powercontext_ref,
-      taskSet: preview.task_set,
-      model: preview.model,
-      threshold: preview.usage_pause_percent,
-      initialControlIntent: startPaused ? "pause" as const : "run" as const,
-    };
-    if (
-      confirmationKey.current?.revision !== intent.revision
-      || confirmationKey.current.taskSet !== intent.taskSet
-      || confirmationKey.current.model !== intent.model
-      || confirmationKey.current.threshold !== intent.threshold
-      || confirmationKey.current.initialControlIntent !== intent.initialControlIntent
-    ) {
-      confirmationKey.current = { ...intent, key: idempotencyKey() };
-    }
-    const request: BatchCreate = {
-      powercontext_ref: preview.powercontext_ref,
-      benchmark: preview.benchmark,
-      task_set: preview.task_set,
-      model: preview.model,
-      reasoning_effort: preview.reasoning_effort,
-      treatment_mode: preview.treatment_mode,
-      usage_pause_percent: preview.usage_pause_percent,
-      idempotency_key: confirmationKey.current.key,
-      initial_control_intent: intent.initialControlIntent,
-      container_env: envRows.filter((row) => row.key.trim()).reduce(
-        (acc, row) => ({ ...acc, [row.key.trim()]: row.value }),
-        {} as Record<string, string>,
-      ),
-    };
-    controller.current?.abort();
-    const nextController = new AbortController();
-    controller.current = nextController;
-    const currentGeneration = ++generation.current;
-    setMessage("");
-    setPending("submitting");
-    try {
+      const intent = {
+        revision: preview.powercontext_ref,
+        taskSet: preview.task_set,
+        model: preview.model,
+        treatmentMode: preview.treatment_mode,
+        threshold: preview.usage_pause_percent,
+        initialControlIntent: startPaused ? "pause" as const : "run" as const,
+      };
+      if (
+        confirmationKey.current?.revision !== intent.revision
+        || confirmationKey.current.taskSet !== intent.taskSet
+        || confirmationKey.current.model !== intent.model
+        || confirmationKey.current.treatmentMode !== intent.treatmentMode
+        || confirmationKey.current.threshold !== intent.threshold
+        || confirmationKey.current.initialControlIntent !== intent.initialControlIntent
+      ) {
+        confirmationKey.current = { ...intent, key: idempotencyKey() };
+      }
+      const request: BatchCreate = {
+        powercontext_ref: preview.powercontext_ref,
+        benchmark: preview.benchmark,
+        task_set: preview.task_set,
+        model: preview.model,
+        reasoning_effort: preview.reasoning_effort,
+        treatment_mode: preview.treatment_mode,
+        usage_pause_percent: preview.usage_pause_percent,
+        idempotency_key: confirmationKey.current.key,
+        initial_control_intent: intent.initialControlIntent,
+        container_env: envRows.filter((row) => row.key.trim()).reduce(
+          (acc, row) => ({ ...acc, [row.key.trim()]: row.value }),
+          {} as Record<string, string>,
+        ),
+      };
       const batch = await api.createBatch(request, nextController.signal);
+      if (selectedBaselineIds.length > 0) {
+        const currentArm = treatmentMode === "off_only" ? "off" : "on";
+        try {
+          await api.updateBaselineSelections(
+            batch.batch_id,
+            selectedBaselineIds.map((baselineId) => ({ baseline_id: baselineId, current_arm: currentArm })),
+            nextController.signal,
+          );
+        } catch {
+          // The batch already exists. Continue to its report so an incompatible
+          // presentation-only baseline can be replaced without submitting work again.
+        }
+      }
       if (nextController.signal.aborted || generation.current !== currentGeneration) return;
       confirmationKey.current = null;
       onCreated(batch);
     } catch {
       if (!nextController.signal.aborted && generation.current === currentGeneration) {
-        setMessage("提交失败，未创建新的确认意图；可以安全重试。");
+        setMessage("提交失败；幂等键已保留，可以安全重试。");
       }
     } finally {
-      if (!nextController.signal.aborted && generation.current === currentGeneration) setPending(null);
+      if (!nextController.signal.aborted && generation.current === currentGeneration) setPending(false);
     }
   };
 
@@ -198,12 +188,16 @@ export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
 
       <div className="batch-contract" aria-label="固定评测范围">
         <strong>{taskSet === "swebench-pro-public-v2" ? "SWE-bench Pro public v2" : "稳定性回归 v1"}</strong>
-        <span>{taskSet === "swebench-pro-public-v2" ? "731" : "24"} 个任务，每个任务依次运行 OFF / ON</span>
+        <span>
+          {taskSet === "swebench-pro-public-v2" ? "731" : "24"} 个任务 · {treatmentMode === "off_on"
+            ? "OFF + ON"
+            : treatmentMode === "on_only" ? "仅 ON" : "仅 OFF"}
+        </span>
         <span>{model} · medium</span>
-        <span>Worker 按配置并行运行独立任务对</span>
+        <span>Worker 按配置并行运行独立任务</span>
       </div>
 
-      <form onSubmit={requestPreview} className="launcher-form">
+      <form onSubmit={submit} className="launcher-form">
         <label>
           任务集
           <select
@@ -219,6 +213,36 @@ export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
           </select>
           <span className="field-hint">固定清单；稳定性回归包含 20 路首批和 4 项队列补位</span>
         </label>
+        <fieldset className="env-editor">
+          <legend>运行方式</legend>
+          <label className="checkbox-field">
+            <input
+              type="radio"
+              name="treatment-mode"
+              checked={treatmentMode === "off_on"}
+              onChange={() => { invalidatePreview(); setTreatmentMode("off_on"); }}
+            />
+            OFF + ON
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="radio"
+              name="treatment-mode"
+              checked={treatmentMode === "on_only"}
+              onChange={() => { invalidatePreview(); setTreatmentMode("on_only"); }}
+            />
+            仅 ON
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="radio"
+              name="treatment-mode"
+              checked={treatmentMode === "off_only"}
+              onChange={() => { invalidatePreview(); setTreatmentMode("off_only"); }}
+            />
+            仅 OFF
+          </label>
+        </fieldset>
         <label>
           PowerContext 版本
           <input
@@ -248,7 +272,7 @@ export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
           </select>
           <span className="field-hint">批次创建后固定，重试也保持不变</span>
         </label>
-        <fieldset className="env-editor">
+        {treatmentMode !== "off_only" && <fieldset className="env-editor">
           <legend>容器环境变量（可选，仅 ON 臂）</legend>
           <span className="field-hint">PowerContext Server 在 ON 臂启动时读取这些变量，例如 POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL</span>
           {envRows.map((row, index) => (
@@ -287,6 +311,24 @@ export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
           >
             + 添加变量
           </button>
+        </fieldset>}
+        <fieldset className="env-editor">
+          <legend>历史基线（可选，可多选）</legend>
+          <span className="field-hint">这里只设置初始对比，报告完成后仍可随时增删，不会重新运行评测。</span>
+          {baselines.filter((baseline) => baseline.task_set === taskSet && baseline.model === model).length === 0 ? (
+            <span className="field-hint">暂无与当前任务集和模型匹配的基线。</span>
+          ) : baselines.filter((baseline) => baseline.task_set === taskSet && baseline.model === model).map((baseline) => (
+            <label className="checkbox-field" key={baseline.baseline_id}>
+              <input
+                type="checkbox"
+                checked={selectedBaselineIds.includes(baseline.baseline_id)}
+                onChange={(event) => setSelectedBaselineIds((current) => event.target.checked
+                  ? [...current, baseline.baseline_id]
+                  : current.filter((baselineId) => baselineId !== baseline.baseline_id))}
+              />
+              {baseline.name} · {baseline.source_arm.toUpperCase()} · {baseline.resolved_tasks}/{baseline.total_tasks}
+            </label>
+          ))}
         </fieldset>
         <label className="threshold-field">
           <span className="threshold-field__label">暂停阈值</span>
@@ -304,7 +346,7 @@ export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
             />
             <span>%</span>
           </span>
-          <span className="field-hint">达到阈值后，在当前完整 OFF / ON 任务结束时暂停</span>
+          <span className="field-hint">达到阈值后，在当前任务结束时暂停</span>
         </label>
         <label className="checkbox-field">
           <input
@@ -319,52 +361,10 @@ export function BatchLauncher({ api, onCreated }: BatchLauncherProps) {
           创建后保持暂停
           <span className="field-hint">批次和任务原子写入暂停状态，显式恢复前 Worker 不会领取</span>
         </label>
-        <button className="primary-button" type="submit" disabled={pending !== null}>
-          {pending === "preview" ? "正在读取…" : "预览评测"}
+        <button className="primary-button" type="submit" disabled={pending}>
+          {pending ? "正在提交…" : "开始评测"}
         </button>
       </form>
-
-      {preview !== null && (
-        <section className="launch-preview" aria-label="评测确认">
-          <div className="launch-preview__head">
-            <div>
-              <p className="eyebrow">确认信息</p>
-              <h3>{number(preview.total_tasks)} 个基准任务</h3>
-            </div>
-            <strong className="usage-reading">
-              {preview.usage === null ? "API Key 计费" : `当前用量 ${preview.usage.used_percent}%`}
-            </strong>
-          </div>
-          <dl className="preview-facts">
-            <div><dt>任务集</dt><dd>SWE-bench Pro public v2</dd></div>
-            <div><dt>运行方式</dt><dd>每个任务 OFF / ON 配对执行</dd></div>
-            <div><dt>Codex 模型</dt><dd>{preview.model} · {preview.reasoning_effort}</dd></div>
-            <div><dt>暂停阈值</dt><dd>{preview.usage === null ? "不适用" : `${preview.usage_pause_percent}%`}</dd></div>
-            <div><dt>计量窗口</dt><dd>{preview.usage === null ? "API Key" : formatUsageWindow(preview.usage.window_duration_minutes)}</dd></div>
-            <div><dt>额度重置</dt><dd>{preview.usage === null ? "由 Provider 管理" : dateTime(preview.usage.resets_at)}</dd></div>
-            <div><dt>用量采样</dt><dd>{preview.usage === null ? "不采集订阅用量" : dateTime(preview.usage.observed_at)}</dd></div>
-            <div>
-              <dt>剩余估算</dt>
-              <dd>
-                {preview.estimate.quality === "unavailable"
-                  ? "暂无可靠估算"
-                  : `${preview.estimate.quality === "preliminary" ? "初步估算" : "已测量"} · ${preview.estimate.sample_size} 个样本`}
-              </dd>
-            </div>
-          </dl>
-          {!preview.can_start && (
-            <p className="usage-blocked">当前用量已达到暂停阈值</p>
-          )}
-          <button
-            className="primary-button"
-            type="button"
-            disabled={!preview.can_start || pending !== null}
-            onClick={confirm}
-          >
-            {pending === "submitting" ? "正在提交…" : "确认并开始评测"}
-          </button>
-        </section>
-      )}
 
       <div className="form-feedback" aria-live="polite">
         {message && <p className="error-message">{message}</p>}

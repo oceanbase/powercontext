@@ -36,14 +36,17 @@ from pydantic import ValidationError
 
 from powercontext.http import HealthResponse, ReadinessResponse, ReadinessStatus
 from powercontext.paths import powercontext_data_dir
+from powercontext.transport import is_loopback_host
 
 HELP_OPTION_NAMES = ("-h", "--help")
 DEFAULT_MARKETPLACE_SOURCE = "oceanbase/powercontext"
 DEFAULT_MARKETPLACE_REF = "master"
+DEFAULT_CLAUDE_CODE_SERVER_URL = "http://127.0.0.1:8000"
+DEFAULT_OPENCLAW_SERVER_URL = "http://127.0.0.1:8000"
+DEFAULT_OPENCLAW_SCOPE_MODE = "agent"
 PLUGIN_NAME = "powercontext"
 CLAUDE_MARKETPLACE_NAME = "powercontext"
 _GITHUB_REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$")
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 setup_app = typer.Typer(
     name="setup",
@@ -281,6 +284,10 @@ class SetupError(RuntimeError):
         return cls(f"Integration CLI did not return {name}")
 
     @classmethod
+    def post_install_verification(cls, failures: list[str]) -> SetupError:
+        return cls(f"post-install verification failed: {'; '.join(failures)}")
+
+    @classmethod
     def claude_plugin_not_enabled(cls) -> SetupError:
         return cls("Claude Code did not report an enabled PowerContext plugin after installation.")
 
@@ -428,7 +435,7 @@ def setup_claude_code(
     server_url: Annotated[
         str,
         typer.Option(help="PowerContext Server base URL configured for the plugin."),
-    ] = "http://127.0.0.1:8000",
+    ] = DEFAULT_CLAUDE_CODE_SERVER_URL,
     capture_prompts: Annotated[
         bool,
         typer.Option(help="Capture Claude Code user prompts as ordinary Source evidence."),
@@ -514,11 +521,11 @@ def setup_openclaw(
     server_url: Annotated[
         str,
         typer.Option(help="PowerContext Server base URL configured for the plugin."),
-    ] = "http://127.0.0.1:8000",
+    ] = DEFAULT_OPENCLAW_SERVER_URL,
     scope_mode: Annotated[
         str,
         typer.Option("--scope-mode", help="Memory scope mode: agent or project."),
-    ] = "agent",
+    ] = DEFAULT_OPENCLAW_SCOPE_MODE,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Write the result as JSON."),
@@ -645,7 +652,7 @@ def setup_hermes(
         typer.Option("--json", help="Write the result as JSON."),
     ] = False,
 ) -> None:
-    """Install the PowerContext Hermes memory provider."""
+    """Install the PowerContext Hermes provider and /pc command companion."""
 
     from powercontext.cli.hermes import install_hermes_plugin, run_hermes_diagnostics
 
@@ -665,9 +672,56 @@ def setup_hermes(
         return
     typer.echo("PowerContext Hermes setup complete.")
     typer.echo(f"Plugin: {result.plugin} ({result.plugin_path})")
+    typer.echo(f"Command companion: {result.command_plugin_path}")
     typer.echo(f"Hermes home: {result.hermes_home}")
     typer.echo(f"Data directory: {result.data_dir}")
     typer.echo("Next: run `hermes memory setup`, select PowerContext, then start Hermes.")
+
+
+@setup_app.command("select")
+def setup_select(
+    host: Annotated[
+        list[str] | None,
+        typer.Option(help="First-class host to install. Repeatable. Required with --json or a non-TTY."),
+    ] = None,
+    source: Annotated[
+        str,
+        typer.Option(help="Git source or local path passed to each selected installer."),
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[
+        str,
+        typer.Option(help="Git ref used for a remote source."),
+    ] = DEFAULT_MARKETPLACE_REF,
+    server_url: Annotated[
+        str | None,
+        typer.Option(help="PowerContext Server base URL override for Claude Code and OpenClaw."),
+    ] = None,
+    scope_mode: Annotated[
+        str,
+        typer.Option("--scope-mode", help="OpenClaw memory scope mode: agent or project."),
+    ] = DEFAULT_OPENCLAW_SCOPE_MODE,
+    capture_prompts: Annotated[
+        bool,
+        typer.Option(help="Capture Claude Code user prompts as ordinary Source evidence."),
+    ] = True,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Install selected first-class host plugins without scanning PATH."""
+
+    from powercontext.cli.hosts import run_setup_select
+
+    run_setup_select(
+        hosts=host,
+        source=source,
+        ref=ref,
+        server_url=server_url,
+        scope_mode=scope_mode,
+        capture_prompts=capture_prompts,
+        json_output=json_output,
+    )
 
 
 @setup_app.command("workbuddy")
@@ -864,6 +918,20 @@ def doctor_openclaw(
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)
+
+
+@doctor_app.command("integrations")
+def doctor_integrations(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Write the result as JSON."),
+    ] = False,
+) -> None:
+    """Report first-class host CLI and integration status without failing on missing CLIs."""
+
+    from powercontext.cli.hosts import run_doctor_integrations
+
+    run_doctor_integrations(json_output=json_output)
 
 
 def install_codex_plugin(*, source: str, ref: str) -> CodexSetupResult:
@@ -1217,7 +1285,7 @@ def _normalize_claude_server_url(value: str) -> str:
         raise SetupError.claude_server_url_scheme()
     if parsed.query or parsed.fragment:
         raise SetupError.claude_server_url_suffix()
-    if parsed.scheme == "http" and parsed.hostname.lower() not in _LOOPBACK_HOSTS:
+    if parsed.scheme == "http" and not is_loopback_host(parsed.hostname):
         raise SetupError.claude_server_url_transport()
     path = parsed.path.rstrip("/")
     if path.endswith("/mcp"):

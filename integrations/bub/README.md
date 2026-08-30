@@ -38,6 +38,7 @@ validated by Pydantic before the plugin starts.
 | `POWERCONTEXT_BUB_CAPTURE_CHECKPOINT_EVERY` | `5` | Flush Memory after this many captured events |
 | `POWERCONTEXT_BUB_CAPTURE_MAX_BYTES` | `8192` | Maximum UTF-8 bytes stored for one captured event |
 | `POWERCONTEXT_BUB_CAPTURE_LOG` | unset | Optional JSONL evidence path; records metadata but not event content |
+| `POWERCONTEXT_BUB_TRUST_TRANSPORT_SECURITY` | `false` | Vouch for a plaintext non-loopback `BASE_URL` on an operator-controlled network (for example a private Compose bridge); otherwise such URLs are refused |
 
 Captured tool arguments redact values under credential-like keys. Known credential environment values are also
 removed from serialized event content. Keep the PowerContext scope and optional capture log protected because normal

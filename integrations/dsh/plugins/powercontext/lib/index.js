@@ -249,6 +249,102 @@ const OPERATIONS = {
 		location: "body",
 		scope: true
 	},
+	list_managed_skills: {
+		method: "POST",
+		path: "/v1/skill/library",
+		location: "body",
+		scope: true
+	},
+	update_skill_lifecycle: {
+		method: "POST",
+		path: "/v1/skill/lifecycle",
+		location: "body",
+		scope: true
+	},
+	get_skill_package_manifest: {
+		method: "POST",
+		path: "/v1/skill/package/manifest",
+		location: "body",
+		scope: true
+	},
+	download_skill_package: {
+		method: "POST",
+		path: "/v1/skill/package/download",
+		location: "body",
+		scope: true
+	},
+	propose_skill_package: {
+		method: "POST",
+		path: "/v1/skill/package/propose",
+		location: "body",
+		scope: true
+	},
+	record_skill_usage: {
+		method: "POST",
+		path: "/v1/skill/usage",
+		location: "body",
+		scope: true
+	},
+	list_remote_skill_targets: {
+		method: "POST",
+		path: "/v1/skill/remote/targets",
+		location: "body",
+		scope: true
+	},
+	create_remote_skill_target: {
+		method: "POST",
+		path: "/v1/skill/remote/target/create",
+		location: "body",
+		scope: true
+	},
+	enroll_remote_skill_target: {
+		method: "POST",
+		path: "/v1/skill/remote/target/enroll",
+		location: "body",
+		scope: false
+	},
+	rename_remote_skill_target: {
+		method: "POST",
+		path: "/v1/skill/remote/target/rename",
+		location: "body",
+		scope: true
+	},
+	revoke_remote_skill_target: {
+		method: "POST",
+		path: "/v1/skill/remote/target/revoke",
+		location: "body",
+		scope: true
+	},
+	publish_remote_skill: {
+		method: "POST",
+		path: "/v1/skill/remote/publication/publish",
+		location: "body",
+		scope: true
+	},
+	unpublish_remote_skill: {
+		method: "POST",
+		path: "/v1/skill/remote/publication/unpublish",
+		location: "body",
+		scope: true
+	},
+	reconcile_remote_skills: {
+		method: "POST",
+		path: "/v1/skill/remote/reconcile",
+		location: "body",
+		scope: false
+	},
+	download_remote_skill_package: {
+		method: "POST",
+		path: "/v1/skill/remote/package/download",
+		location: "body",
+		scope: false
+	},
+	record_remote_skill_receipt: {
+		method: "POST",
+		path: "/v1/skill/remote/receipt",
+		location: "body",
+		scope: false
+	},
 	scan_external_skills: {
 		method: "POST",
 		path: "/v1/external-skills/scan",
@@ -321,6 +417,12 @@ const OPERATIONS = {
 		location: "body",
 		scope: false
 	},
+	list_handoff_report_known_scopes: {
+		method: "POST",
+		path: "/v1/handoff-reports/scopes/list-known",
+		location: "body",
+		scope: false
+	},
 	get_handoff_report_project: {
 		method: "POST",
 		path: "/v1/handoff-reports/projects/get",
@@ -355,7 +457,7 @@ const OPERATIONS = {
 		method: "POST",
 		path: "/v1/handoff-reports/get",
 		location: "body",
-		scope: false
+		scope: true
 	},
 	record_handoff_report_activity: {
 		method: "POST",
@@ -566,6 +668,14 @@ var PowerContextClient = class {
 		});
 	}
 };
+
+//#endregion
+//#region src/dsh-service.ts
+function requireService(ctx, name$1) {
+	const service = ctx.get(name$1);
+	if (service == null) throw new Error(`${PLUGIN_NAME} requires the "${name$1}" service`);
+	return service;
+}
 
 //#endregion
 //#region src/secrets.ts
@@ -920,9 +1030,7 @@ async function handlePcCommand(rawInput, runtime, scopeId, signal) {
 	};
 }
 function registerCommands(ctx, runtime) {
-	const commands = ctx.get("commands");
-	if (!commands) return;
-	commands.register({
+	requireService(ctx, "commands").register({
 		name: "pc",
 		description: "PowerContext status, search, review, and diagnostics",
 		handler: async (invocation) => {
@@ -1303,18 +1411,14 @@ If PowerContext is unavailable, say so once and continue the task.
 Revising or retiring memory requires the exact citation returned by the Server.
 Do not approve artifact candidates unless the user explicitly asked; use /pc review approve instead.`;
 function registerGuidance(ctx) {
-	const systemPrompt = ctx.get("systemPrompt");
-	if (!systemPrompt) return;
-	systemPrompt.section({
+	requireService(ctx, "systemPrompt").section({
 		name: "tool:powercontext",
 		order: 120,
 		text: GUIDANCE
 	});
 }
 function registerSkill(ctx) {
-	const skills = ctx.get("skills");
-	if (!skills) return;
-	skills.register({
+	requireService(ctx, "skills").register({
 		name: "project-context",
 		description: "Restore project memory or transfer current work through PowerContext.",
 		source: "runtime",
@@ -1805,7 +1909,13 @@ function registerTools(ctx, runtime, defineTool) {
 //#endregion
 //#region src/index.ts
 const name = PLUGIN_NAME;
-const inject = ["tools", "agents"];
+const inject = [
+	"tools",
+	"agents",
+	"commands",
+	"skills",
+	"systemPrompt"
+];
 const Config = { "~standard": {
 	version: 1,
 	vendor: "powercontext-dsh",

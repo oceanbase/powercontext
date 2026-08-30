@@ -18,7 +18,7 @@ repository with the credentials already configured on your machine.
 Run these commands from any directory:
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext setup codex --source oceanbase/powercontext --ref master
 ```
 

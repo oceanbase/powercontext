@@ -34,6 +34,7 @@ from pydantic import ValidationError
 
 from powercontext_eval.benchmarks.swebench_pro.catalog import PUBLIC_V2_TASK_SET, SweBenchProCatalog, TaskSet
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT
+from powercontext_eval.models import TreatmentMode
 from powercontext_eval.powercontext_sut import DEFAULT_DOCKER_NETWORK_POOL, run_codex_contract_smoke
 from powercontext_eval.runner import RunConfig, run_swebench_pro_instance
 from powercontext_eval.web.batches import BatchCreate
@@ -258,6 +259,7 @@ def swebench_pro_create_batch(
     powercontext_ref: str = typer.Option("latest", "--powercontext-ref"),
     task_set: str = typer.Option(PUBLIC_V2_TASK_SET, "--task-set"),
     model: str = typer.Option(DEFAULT_CODEX_MODEL, "--model"),
+    treatment_mode: TreatmentMode = typer.Option(TreatmentMode.OFF_ON, "--treatment-mode"),
     usage_pause_percent: int = typer.Option(80, "--usage-pause-percent", min=1, max=100),
     start_paused: bool = typer.Option(False, "--start-paused/--start-running"),
 ) -> None:
@@ -271,7 +273,7 @@ def swebench_pro_create_batch(
             task_set=cast(TaskSet, task_set),
             model=model,
             reasoning_effort=DEFAULT_REASONING_EFFORT,
-            treatment_mode="off_on",
+            treatment_mode=treatment_mode,
             idempotency_key=idempotency_key,
             usage_pause_percent=usage_pause_percent,
             initial_control_intent="pause" if start_paused else "run",

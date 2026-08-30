@@ -49,7 +49,7 @@ from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFOR
 from powercontext_eval.context_trace import write_context_trace
 from powercontext_eval.errors import CommandFailed
 from powercontext_eval.git_source import GitSource
-from powercontext_eval.models import Arm, PowerContextRef
+from powercontext_eval.models import Arm, PowerContextRef, TreatmentMode
 from powercontext_eval.paths import EvaluationPaths
 from powercontext_eval.powercontext_sut import (
     DEFAULT_DOCKER_NETWORK_POOL,
@@ -152,6 +152,7 @@ class RunConfig:
     registry_binary: Path
     auth_json: Path
     run_id: str
+    treatment_mode: TreatmentMode = TreatmentMode.OFF_ON
     tokensflow_enabled: bool = False
     tokensflow_binary: Path | None = None
     tokensflow_user_home: Path | None = None
@@ -163,10 +164,12 @@ class RunConfig:
     model: str = DEFAULT_CODEX_MODEL
     reasoning_effort: str = DEFAULT_REASONING_EFFORT
     finalization_registrar: TokensFlowFinalizationRegistrar | None = None
-    container_env: Mapping[str, str] = MappingProxyType({})
+    container_env: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     cancel_event: threading.Event | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if isinstance(self.treatment_mode, str):
+            object.__setattr__(self, "treatment_mode", TreatmentMode(self.treatment_mode))
         if not is_safe_codex_model(self.model):
             raise ValueError("Codex model is unsafe")
         if self.reasoning_effort != DEFAULT_REASONING_EFFORT:
@@ -188,8 +191,8 @@ class RunResult:
 
     run_id: str
     report_path: Path
-    off_resolved: bool
-    on_resolved: bool
+    off_resolved: bool | None
+    on_resolved: bool | None
 
 
 # Public compatibility name retained while the web task schema migrates from a single task to batches.
@@ -352,11 +355,13 @@ def _run_swebench_pro_instance(
     )
     run_store.write_json("gold/validation.json", gold_audit.model_dump(mode="json"))
 
-    def arms() -> tuple[OfficialEvaluation, OfficialEvaluation, Mapping[Arm, SutOutcome], dict[Arm, int]]:
+    selected_arms = config.treatment_mode.arms
+
+    def arms() -> tuple[dict[Arm, OfficialEvaluation], Mapping[Arm, SutOutcome], dict[Arm, int]]:
         codex_secrets = auth_secret_variants(config.auth_json)
         arm_paths: dict[Arm, ArmPaths] = {}
         stores: dict[Arm, ArtifactStore] = {}
-        for arm in (Arm.OFF, Arm.ON):
+        for arm in selected_arms:
             arm_work = layout.arm_work(arm)
             runtime = arm_work / "runtime"
             root_home = runtime / "root-home"
@@ -387,34 +392,43 @@ def _run_swebench_pro_instance(
                 secrets += tokensflow_secret_variants(tokensflow_credentials)
             stores[arm] = ArtifactStore(layout.arm_artifacts(arm), forbidden_values=secrets)
         prompt = instance.codex_prompt().encode()
-        outcomes = DockerSut(process).run_pair(
-            SutConfig(
-                run_id=run_id,
-                task_image=task_image_id,
-                codex_binary=config.codex_binary,
-                uv_binary=config.uv_binary,
-                source_checkout=materialized,
-                plugin_checkout_sha=resolved.sha,
-                proxy=ProxyRelayConfig(config.proxy_url) if config.proxy_url is not None else None,
-                docker_network_pool=config.docker_network_pool,
-                extra_no_proxy_hosts=config.extra_no_proxy_hosts,
-                tokensflow_enabled=config.tokensflow_enabled,
-                tokensflow_binary=config.tokensflow_binary,
-                tokensflow_egress_network=config.tokensflow_egress_network,
-                model=config.model,
-                reasoning_effort=config.reasoning_effort,
-                finalization_registrar=config.finalization_registrar,
-                container_env=config.container_env,
-            ),
-            paths=arm_paths,
-            prompts={Arm.OFF: prompt, Arm.ON: prompt},
-            stores=stores,
-            before_arm=lambda arm: emit_phase(RunPhase.RUNNING_OFF if arm is Arm.OFF else RunPhase.RUNNING_ON),
+        sut_config = SutConfig(
+            run_id=run_id,
+            task_image=task_image_id,
+            codex_binary=config.codex_binary,
+            uv_binary=config.uv_binary,
+            source_checkout=materialized,
+            plugin_checkout_sha=resolved.sha,
+            proxy=ProxyRelayConfig(config.proxy_url) if config.proxy_url is not None else None,
+            docker_network_pool=config.docker_network_pool,
+            extra_no_proxy_hosts=config.extra_no_proxy_hosts,
+            tokensflow_enabled=config.tokensflow_enabled,
+            tokensflow_binary=config.tokensflow_binary,
+            tokensflow_egress_network=config.tokensflow_egress_network,
+            model=config.model,
+            reasoning_effort=config.reasoning_effort,
+            finalization_registrar=config.finalization_registrar,
+            container_env=config.container_env,
         )
+        sut = DockerSut(process)
+        if config.treatment_mode is TreatmentMode.OFF_ON:
+            outcomes = sut.run_pair(
+                sut_config,
+                paths=arm_paths,
+                prompts={arm: prompt for arm in selected_arms},
+                stores=stores,
+                before_arm=lambda arm: emit_phase(RunPhase.RUNNING_OFF if arm is Arm.OFF else RunPhase.RUNNING_ON),
+            )
+        else:
+            arm = selected_arms[0]
+            emit_phase(RunPhase.RUNNING_OFF if arm is Arm.OFF else RunPhase.RUNNING_ON)
+            outcomes = {
+                arm: sut.run_arm(sut_config, arm, arm_paths[arm], prompt, stores[arm]),
+            }
         official: dict[Arm, OfficialEvaluation] = {}
         patch_sizes: dict[Arm, int] = {}
         emit_phase(RunPhase.OFFICIAL_EVALUATION)
-        for arm in (Arm.OFF, Arm.ON):
+        for arm in selected_arms:
             patch = process.run(
                 ("git", "diff", "--binary", "--full-index", instance.base_commit, "--"),
                 cwd=arm_paths[arm].workspace,
@@ -451,17 +465,20 @@ def _run_swebench_pro_instance(
                 official=official[arm],
                 official_observed_at=datetime.now(UTC),
             )
-        return official[Arm.OFF], official[Arm.ON], outcomes, patch_sizes
+        return official, outcomes, patch_sizes
 
-    off_eval, on_eval, outcomes, patch_sizes = run_after_gold(
+    official, outcomes, patch_sizes = run_after_gold(
         GoldResult(instance.instance_id, gold.resolved),
         arms,
     )
-    off_outcome = outcomes[Arm.OFF]
-    on_outcome = outcomes[Arm.ON]
     emit_phase(RunPhase.GENERATING_REPORT)
+    arm_reports = {arm: _arm_report(arm, official[arm], outcomes[arm], patch_sizes[arm]) for arm in selected_arms}
     report = ReportBundle(
-        title="PowerContext Codex SWE-bench Pro comparison",
+        title=(
+            "PowerContext Codex SWE-bench Pro comparison"
+            if config.treatment_mode is TreatmentMode.OFF_ON
+            else f"PowerContext Codex SWE-bench Pro {selected_arms[0].value.upper()} run"
+        ),
         revisions={
             "dataset": DATASET_REVISION,
             "harness": HARNESS_COMMIT,
@@ -476,9 +493,11 @@ def _run_swebench_pro_instance(
             "extra_no_proxy_hosts": ",".join(config.extra_no_proxy_hosts),
             "proxy": "enabled" if config.proxy_url is not None else "disabled",
             "tokensflow": "enabled" if config.tokensflow_enabled else "disabled",
+            "treatment_mode": config.treatment_mode.value,
         },
-        off=_arm_report(Arm.OFF, off_eval, off_outcome, patch_sizes[Arm.OFF]),
-        on=_arm_report(Arm.ON, on_eval, on_outcome, patch_sizes[Arm.ON]),
+        treatment_mode=config.treatment_mode,
+        off=arm_reports.get(Arm.OFF),
+        on=arm_reports.get(Arm.ON),
         gold_validation=gold_audit,
     )
     rendered = render_report(report)
@@ -486,7 +505,12 @@ def _run_swebench_pro_instance(
         raise RuntimeError("Report rendering is not deterministic")
     report_path = run_store.create_text("report.md", rendered)
     run_store.create_json("report.json", report.model_dump(mode="json"))
-    return RunResult(run_id, report_path, off_eval.resolved, on_eval.resolved)
+    return RunResult(
+        run_id,
+        report_path,
+        official[Arm.OFF].resolved if Arm.OFF in official else None,
+        official[Arm.ON].resolved if Arm.ON in official else None,
+    )
 
 
 def _evaluator_test_requirements(

@@ -1034,7 +1034,9 @@ Server 可通过 `POWERCONTEXT_SERVER_PUBLIC_URL` 一次性配置远端可达地
 HTTPS 仍是默认传输边界。受保护的内部测试网络可以在一期 PoC 中显式启用直连明文 HTTP：Server 设置
 `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true`，远端注册同时传入 `remote-enroll --allow-insecure-http`。任一端单独
 启用都不足以放行：Server 开关关闭时继续拒绝非 loopback HTTP 的 Receiver 请求；CLI 未提供参数时，会在发送一次性
-注册口令前拒绝该 URL。只有 Server 开关已启用时，Dashboard 才接受公布的 HTTP 地址，并持续展示明文传输警告、在
+注册口令前拒绝该 URL。如果 Server 自身以未鉴权方式绑定非 loopback 地址，操作者还必须单独设置
+`POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true`；它表示接受所有 Server route 暴露，不能由仅针对
+Receiver 的传输例外隐式开启。只有 Server 开关已启用时，Dashboard 才接受公布的 HTTP 地址，并持续展示明文传输警告、在
 可复制命令中加入 Receiver 参数。Receiver 把许可和凭据一起保存到 owner-only 配置文件，因此一次同步、watch 模式和
 systemd user service 共用同一传输策略。该配置字段为向后兼容的增量字段，不新增数据库表，也不需要历史数据迁移。
 明文链路不会加密注册口令、target credential、技能包或 Receipt，只能用于受保护的内部测试网络，不能视为生产环境中

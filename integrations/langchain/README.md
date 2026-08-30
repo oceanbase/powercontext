@@ -7,18 +7,18 @@ user/assistant turn as Source evidence after a successful agent run.
 ## Install
 
 ```bash
-uv tool install "powercontext[cli,server]==0.0.2"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run
 ```
 
 Keep the Server running, then install the middleware in the LangChain application's environment:
 
 ```bash
-uv pip install "powercontext-langchain @ git+https://github.com/oceanbase/powercontext.git#subdirectory=integrations/langchain"
+uv pip install "powercontext-langchain @ git+https://github.com/oceanbase/powercontext.git@master#subdirectory=integrations/langchain"
 ```
 
 Skip the Server installation when the application already connects to a separately managed Server. From a checkout,
-install the middleware with `uv pip install ./integrations/langchain`.
+install the middleware with `uv pip install ./integrations/langchain`. The package is not currently published on PyPI.
 
 This package owns its Scope, Settings, Client wiring, and Middleware implementation. It neither imports nor depends on
 the separate `powercontext-langgraph` adapter. LangChain itself uses LangGraph internally, so installing LangChain may

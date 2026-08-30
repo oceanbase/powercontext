@@ -13,12 +13,12 @@ description: 把 LangGraph 图连接到运行中的 PowerContext Server，获得
 该包尚未发布到 PyPI，请从源码安装，并配合一个运行中的 Server：
 
 ```bash
-uv pip install "powercontext-langgraph @ git+https://github.com/oceanbase/powercontext.git#subdirectory=integrations/langgraph"
+uv pip install "powercontext-langgraph @ git+https://github.com/oceanbase/powercontext.git@master#subdirectory=integrations/langgraph"
 powercontext server run
 ```
 
-在仓库检出目录下，也可以直接安装本地路径：`uv pip install ./integrations/langgraph`。发布到 PyPI 需要一个独立的
-构建与发布步骤，且该包版本需独立于根 `powercontext` 分发单独推进；在此之前，请使用上面的源码安装方式。
+在仓库检出目录下，也可以直接安装本地路径：`uv pip install ./integrations/langgraph`。该适配器目前没有发布到
+PyPI，请使用上述任一种源码安装方式。
 
 该包依赖 `powercontext[client]`、`langgraph`、`langchain-core` 和 `pydantic-settings`，不会拉入 Server；请把它指向
 一个单独运行的 Server。
@@ -134,9 +134,9 @@ debug 级别记录。Memory 工具返回简短的 `(PowerContext unavailable: ..
 search、其余抛错，会产生一个能通过装配期校验、却在无关节点或工具内运行时失败的对象，比不提供 store 更糟。因此适配器
 在节点和工具层集成，不占用 `compile()` 的 `store` 参数。
 
-## 本次发布范围
+## 当前范围
 
-范围内：Memory 读写，以及有界上下文准备。
+已包含：Memory 读写，以及有界上下文准备。
 
-本次发布范围外：自动轨迹采集、checkpointing、Handoff、Artifact Candidate 审核，以及 Experience 或 Skill 生成。显式写入
-请用 `powercontext_remember`；把一次运行自动采集为 Source 证据不属于本适配器。
+未包含：自动轨迹采集、checkpointing、Handoff、Artifact Candidate 审核，以及 Experience 或 Skill 生成。显式写入请用
+`powercontext_remember`；把一次运行自动采集为 Source 证据不属于本适配器。

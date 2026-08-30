@@ -185,7 +185,7 @@ def test_server_databases_share_source_to_memory_search_behavior(
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             readiness = await client.get_readiness()
             capabilities = await client.get_capabilities()
             captured = await client.capture_content_source(
@@ -258,7 +258,7 @@ def test_server_databases_keep_case_and_accent_variant_identities_distinct(
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             await client.remember_memory(RememberMemoryRequest(scope_id=writer_scope, kind="fact", text=memory_text))
             leaked = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=reader_scope))
             await client.remember_memory(
@@ -295,7 +295,7 @@ def test_inference_failure_degrades_readiness_without_blocking_database_operatio
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             readiness = await client.get_readiness()
             captured = await client.capture_content_source(
                 CaptureContentSourceRequest(
@@ -331,7 +331,7 @@ def test_sdk_handoff_lifecycle_reaches_generation_and_persistence(tmp_path: Path
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             capabilities = await client.get_capabilities()
             captured = await client.capture_content_source(
                 CaptureContentSourceRequest(
@@ -421,7 +421,7 @@ def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> N
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             contract = await client.create_work_contract(
                 CreateWorkContractRequest.model_validate({
                     "scope_id": scope_id,
@@ -602,7 +602,7 @@ def test_server_databases_share_vector_and_hybrid_search_behavior(
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             capabilities = await client.get_capabilities()
             await client.capture_content_source(
                 CaptureContentSourceRequest(
@@ -655,7 +655,7 @@ def test_sdk_memory_lifecycle_reaches_one_composed_runtime(tmp_path: Path) -> No
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             remembered = await client.remember_memory(
                 RememberMemoryRequest(
                     scope_id="project:powercontext",
@@ -775,7 +775,7 @@ def test_runtime_conflicts_keep_http_and_sdk_error_context(tmp_path: Path) -> No
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             remembered = await client.remember_memory(
                 RememberMemoryRequest(scope_id="project", kind="decision", text="first")
             )

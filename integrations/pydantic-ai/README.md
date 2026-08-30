@@ -1,17 +1,19 @@
 # PowerContext for Pydantic AI
 
-`powercontext-pydantic-ai` connects a Pydantic AI agent to a running PowerContext Server through the public async
-Python Client. It provides three tools, prepares relevant context before model requests, and can optionally capture
-bounded agent events and flush them into Memory.
+This directory contains a preview `powercontext-pydantic-ai` adapter. It connects a Pydantic AI agent to a running
+PowerContext Server through the public asynchronous Python Client. It provides three tools, prepares relevant context
+before model requests, and can optionally capture bounded agent events and flush them into Memory.
 
-## Install and use
+## Availability
 
-```bash
-uv add powercontext-pydantic-ai "pydantic-ai-slim[openai]"
-```
+The adapter is not currently published on PyPI. Its source metadata requires a final `powercontext[client]>=0.0.3`,
+which the current public root package and the development version from `master` do not satisfy. Do not use the old
+PyPI command or a direct Git subdirectory install; both fail dependency resolution. Repository contributors can run
+the adapter tests through the root development environment.
 
-The example below uses OpenAI. For another provider, install the matching `pydantic-ai-slim` provider extra and
-change the model string.
+The remaining sections document the preview API for development and review; they are not a supported installation
+path. The example uses OpenAI. For another provider, use the matching `pydantic-ai-slim` provider extra and change the
+model string after compatible packages are released.
 
 ```python
 from pydantic_ai import Agent
@@ -73,5 +75,5 @@ run.
 
 PowerContext MCP requires no Pydantic AI-specific package and remains a useful lower-capability alternative. It does
 not provide automatic `prepare_context`, trajectory capture, or checkpoint/final flush. Temporal, DBOS, Prefect, and
-other durable-execution integrations have not been validated in this first release. Handoff, Candidate Review,
-Experience, and Skill operations are outside this adapter's initial scope.
+other durable-execution integrations have not been validated for the preview. Handoff, Candidate Review, Experience,
+and Skill operations are outside this adapter's scope.

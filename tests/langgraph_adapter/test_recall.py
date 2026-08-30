@@ -95,10 +95,10 @@ def _run(app: FastAPI, scenario: Callable[[PowerContextClient], Awaitable[None]]
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             from powercontext_langgraph.client import shared_http_client
 
-            with shared_http_client(transport):
+            with shared_http_client(transport, trust_transport_security=True):
                 await scenario(client)
 
     asyncio.run(driver())

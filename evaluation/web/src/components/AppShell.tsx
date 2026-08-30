@@ -52,7 +52,7 @@ export function AppShell({ api, path, batchId, navigate, children }: AppShellPro
     {
       href: encodedBatchId === null ? "/" : `/report/${encodedBatchId}`,
       label: "总体报告",
-      current: !taskReport && !runtimeReport,
+      current: path !== "/baselines" && !taskReport && !runtimeReport,
       disabled: false,
     },
     {
@@ -66,6 +66,12 @@ export function AppShell({ api, path, batchId, navigate, children }: AppShellPro
       label: "任务详细报告",
       current: taskReport,
       disabled: encodedBatchId === null,
+    },
+    {
+      href: "/baselines",
+      label: "基线库",
+      current: path === "/baselines",
+      disabled: false,
     },
   ];
   const onLink = (event: MouseEvent<HTMLAnchorElement>, href: string, disabled = false) => {

@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_valid
 
 from powercontext_eval.artifacts import ArmState
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT, is_safe_codex_model
-from powercontext_eval.models import PowerContextRef
+from powercontext_eval.models import Arm, PowerContextRef, TreatmentMode
 from powercontext_eval.report import GoldValidationAudit
 from powercontext_eval.runner import INSTANCE_ID
 
@@ -120,9 +120,14 @@ class TaskCreate(FrozenModel):
     instance_id: str = Field(min_length=1, max_length=300, pattern=r"^[A-Za-z0-9._-]+$")
     model: str = DEFAULT_CODEX_MODEL
     reasoning_effort: Literal["medium"] = DEFAULT_REASONING_EFFORT
-    treatment_mode: Literal["off_on"]
+    treatment_mode: TreatmentMode
     idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
     container_env: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("treatment_mode", mode="before")
+    @classmethod
+    def parse_treatment_mode(cls, value: object) -> object:
+        return TreatmentMode(value) if isinstance(value, str) else value
 
     @field_validator("powercontext_ref")
     @classmethod
@@ -157,8 +162,11 @@ class SafeFailure(FrozenModel):
 class TaskResult(FrozenModel):
     artifact_dir: str
     report_path: str
-    off_resolved: bool
-    on_resolved: bool
+    off_resolved: bool | None = None
+    on_resolved: bool | None = None
+
+    def resolved_for(self, arm: Arm) -> bool | None:
+        return self.off_resolved if arm is Arm.OFF else self.on_resolved
 
 
 class TaskRecord(FrozenModel):
@@ -325,7 +333,14 @@ class Capabilities(FrozenModel):
     instances: tuple[Literal["instance_flipt-io__flipt-518ec324b66a07fdd95464a5e9ca5fe7681ad8f9"], ...] = (INSTANCE_ID,)
     models: tuple[str, ...] = (DEFAULT_CODEX_MODEL,)
     reasoning_efforts: tuple[Literal["medium"], ...] = ("medium",)
-    treatment_modes: tuple[Literal["off_on"], ...] = ("off_on",)
+    treatment_modes: tuple[TreatmentMode, ...] = tuple(TreatmentMode)
+
+    @field_validator("treatment_modes", mode="before")
+    @classmethod
+    def parse_treatment_modes(cls, value: object) -> object:
+        if isinstance(value, (list, tuple)):
+            return tuple(TreatmentMode(item) if isinstance(item, str) else item for item in value)
+        return value
 
 
 class HealthResponse(FrozenModel):
@@ -391,16 +406,17 @@ class TreatmentEvidence(FrozenModel):
 
 
 class EvidenceResponse(FrozenModel):
-    off: TreatmentEvidence
-    on: TreatmentEvidence
+    off: TreatmentEvidence | None = None
+    on: TreatmentEvidence | None = None
 
 
 class ReportResponse(FrozenModel):
     task_id: str
     acceptance_valid: bool
-    off: ArmResponse
-    on: ArmResponse
-    comparison: ComparisonResponse
+    treatment_mode: TreatmentMode = TreatmentMode.OFF_ON
+    off: ArmResponse | None = None
+    on: ArmResponse | None = None
+    comparison: ComparisonResponse | None = None
     evidence: EvidenceResponse
     gold_validation: GoldValidationAudit | None = None
     revisions: Mapping[str, str]
@@ -408,6 +424,11 @@ class ReportResponse(FrozenModel):
     generated_at: datetime
 
     _utc_timestamp = field_validator("generated_at")(_require_utc)
+
+    @field_validator("treatment_mode", mode="before")
+    @classmethod
+    def parse_report_treatment_mode(cls, value: object) -> object:
+        return TreatmentMode(value) if isinstance(value, str) else value
 
     @field_validator("revisions", "configuration")
     @classmethod
@@ -420,6 +441,16 @@ class ReportResponse(FrozenModel):
 
     @model_validator(mode="after")
     def require_distinct_arms(self) -> Self:
-        if self.off.arm != "off" or self.on.arm != "on":
-            raise ValueError("Report arms must preserve OFF/ON roles")
+        present = {arm for arm, response in ((Arm.OFF, self.off), (Arm.ON, self.on)) if response is not None}
+        evidence = {
+            arm for arm, response in ((Arm.OFF, self.evidence.off), (Arm.ON, self.evidence.on)) if response is not None
+        }
+        if present != set(self.treatment_mode.arms) or evidence != present:
+            raise ValueError("Report arms and evidence must match the treatment mode")
+        if self.off is not None and self.off.arm != "off":
+            raise ValueError("Report OFF arm has the wrong role")
+        if self.on is not None and self.on.arm != "on":
+            raise ValueError("Report ON arm has the wrong role")
+        if (self.comparison is None) is (self.treatment_mode is TreatmentMode.OFF_ON):
+            raise ValueError("Only paired reports contain an OFF/ON comparison")
         return self

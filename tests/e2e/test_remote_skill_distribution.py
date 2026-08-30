@@ -232,7 +232,11 @@ def test_remote_enrollment_rejects_non_loopback_cleartext_http() -> None:
                 transport=httpx.ASGITransport(app=app),
                 base_url="http://testserver",
             ) as transport:
-                client = PowerContextClient("http://testserver", http_client=transport)
+                client = PowerContextClient(
+                    "http://testserver",
+                    http_client=transport,
+                    trust_transport_security=True,
+                )
                 enrollment = await client.create_remote_skill_target(
                     CreateRemoteSkillTargetRequest(
                         scope_id="project:one",
@@ -264,7 +268,11 @@ def test_remote_enrollment_allows_non_loopback_cleartext_http_only_after_server_
                 transport=httpx.ASGITransport(app=app),
                 base_url="http://testserver",
             ) as transport:
-                client = PowerContextClient("http://testserver", http_client=transport)
+                client = PowerContextClient(
+                    "http://testserver",
+                    http_client=transport,
+                    trust_transport_security=True,
+                )
                 enrollment = await client.create_remote_skill_target(
                     CreateRemoteSkillTargetRequest(
                         scope_id="project:one",

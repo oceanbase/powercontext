@@ -49,6 +49,12 @@ ENV PATH="/app/.venv/bin:$PATH" \
     POWERCONTEXT_SERVER_HTTP_HOST=0.0.0.0 \
     POWERCONTEXT_SERVER_HTTP_PORT=8000
 
+# The container binds 0.0.0.0 so a published port is reachable, and its network namespace is the
+# controlled boundary the unauthenticated-bind guard is designed for. Declare that opt-in here so the
+# documented `docker run` starts out of the box; production deployments should still enable bearer
+# auth or terminate TLS upstream (see docker/README.md).
+ENV POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true
+
 COPY --from=builder --chown=powercontext:powercontext /app/.venv /app/.venv
 
 USER powercontext

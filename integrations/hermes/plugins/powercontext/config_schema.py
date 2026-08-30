@@ -88,5 +88,25 @@ CONFIG_SCHEMA = ProviderConfigSchema(
             default="true",
             description="Run bounded memory extraction when the Hermes session ends.",
         ),
+        ProviderField(
+            key="evaluation_trace",
+            label="Evaluation trace",
+            kind=KIND_BOOL,
+            default="false",
+            description="Record recalled context in per-session local JSONL files.",
+        ),
+        ProviderField(
+            key="evaluation_trace_path",
+            label="Evaluation trace directory",
+            kind=KIND_TEXT,
+            description="Optional directory for per-session evaluation trace files.",
+        ),
+        ProviderField(
+            key="workstream_persistence",
+            label="Git-private Workstream binding",
+            kind=KIND_BOOL,
+            default="true",
+            description="Use the shared .git/powercontext/codex-workspace.json scope binding when present.",
+        ),
     ),
 )

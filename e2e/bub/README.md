@@ -90,6 +90,8 @@ Against an existing PowerContext Server, run the default `acceptance` category:
 ```bash
 export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:8000
 export POWERCONTEXT_BUB_BASE_URL=http://host-gateway:8000
+# host-gateway is plaintext non-loopback; the harness network is private, so vouch for it explicitly.
+export POWERCONTEXT_BUB_TRUST_TRANSPORT_SECURITY=true
 make harness-acceptance
 ```
 

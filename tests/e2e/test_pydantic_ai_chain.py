@@ -119,7 +119,7 @@ def test_pydantic_ai_capture_checkpoint_recall_and_search_chain(
                     timeout: float = 10,
                 ) -> None:
                     del timeout
-                    super().__init__(base_url, token=token, http_client=transport)
+                    super().__init__(base_url, token=token, http_client=transport, trust_transport_security=True)
 
             monkeypatch.setattr(toolset_module, "PowerContextClient", AsgiPowerContextClient)
             settings = PowerContextSettings(
@@ -196,7 +196,7 @@ def test_pydantic_ai_final_flush_catches_up_across_more_than_ten_source_windows(
                 base_url="http://testserver",
             ) as transport,
         ):
-            seed_client = PowerContextClient("http://testserver", http_client=transport)
+            seed_client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             for index in range(20):
                 await seed_client.capture_content_source(
                     CaptureContentSourceRequest(
@@ -216,7 +216,7 @@ def test_pydantic_ai_final_flush_catches_up_across_more_than_ten_source_windows(
                     timeout: float = 10,
                 ) -> None:
                     del timeout
-                    super().__init__(base_url, token=token, http_client=transport)
+                    super().__init__(base_url, token=token, http_client=transport, trust_transport_security=True)
 
             monkeypatch.setattr(toolset_module, "PowerContextClient", AsgiPowerContextClient)
             capture_settings = PowerContextSettings(

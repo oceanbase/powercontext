@@ -49,7 +49,7 @@ function percent(value: number | null): string {
 }
 
 const metricRows: Array<{
-  key: keyof ReportResponse["comparison"];
+  key: keyof NonNullable<ReportResponse["comparison"]>;
   label: string;
   kind: "integer" | "seconds";
 }> = [
@@ -102,7 +102,7 @@ export function ReportView({ api, taskId }: ReportViewProps) {
   }
   if (report === null) return <section className="panel state-message">正在加载验收报告…</section>;
 
-  const comparable = Object.values(report.comparison).some((metric) => metric !== null);
+  const comparable = report.comparison !== null && Object.values(report.comparison).some((metric) => metric !== null);
   return (
     <article className={`report-view${report.acceptance_valid ? "" : " report-view--invalid"}`}>
       <header className="report-identity">
@@ -117,7 +117,7 @@ export function ReportView({ api, taskId }: ReportViewProps) {
 
       {!report.acceptance_valid && <p className="invalid-note">报告保留实际结果，但不构成有效验收结论。</p>}
 
-      <section className="report-section" aria-labelledby="comparison-heading">
+      {report.comparison !== null && <section className="report-section" aria-labelledby="comparison-heading">
         <h3 id="comparison-heading">OFF / ON 指标对照</h3>
         {!comparable && <p className="comparison-unavailable">当前报告不具备有效的 OFF / ON 对照数据。</p>}
         <div className="table-scroll">
@@ -125,27 +125,27 @@ export function ReportView({ api, taskId }: ReportViewProps) {
             <thead><tr><th scope="col">指标</th><th scope="col">OFF</th><th scope="col">ON</th><th scope="col">变化量（ON − OFF）</th><th scope="col">变化率</th></tr></thead>
             <tbody>
               {metricRows.map(({ key, label, kind }) => {
-                const metric = report.comparison[key];
+                const metric = report.comparison?.[key] ?? null;
                 return <MetricRow key={key} label={label} metric={metric} kind={kind} />;
               })}
             </tbody>
           </table>
         </div>
-      </section>
+      </section>}
 
       <section className="report-section" aria-labelledby="arms-heading">
         <h3 id="arms-heading">评测臂结果</h3>
         <div className="arm-grid">
-          <ArmCard arm={report.off} />
-          <ArmCard arm={report.on} />
+          {report.off !== null && <ArmCard arm={report.off} />}
+          {report.on !== null && <ArmCard arm={report.on} />}
         </div>
       </section>
 
       <section className="report-section" aria-labelledby="evidence-heading">
         <h3 id="evidence-heading">处理证据</h3>
         <div className="arm-grid">
-          <EvidenceCard label="OFF" evidence={report.evidence.off} />
-          <EvidenceCard label="ON" evidence={report.evidence.on} />
+          {report.evidence.off !== null && <EvidenceCard label="OFF" evidence={report.evidence.off} />}
+          {report.evidence.on !== null && <EvidenceCard label="ON" evidence={report.evidence.on} />}
         </div>
       </section>
 

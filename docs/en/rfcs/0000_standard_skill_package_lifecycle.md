@@ -1083,6 +1083,9 @@ HTTPS remains the default transport boundary. A first-phase internal PoC may exp
 setting `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true` on the Server and passing `remote-enroll --allow-insecure-http` on
 the target. Either side alone is insufficient: the Server continues to reject non-loopback HTTP Receiver requests when
 its switch is off, while the CLI refuses the URL before sending the one-time enrollment code when its option is absent.
+If the Server itself binds an unauthenticated listener to a non-loopback address, the operator must separately set
+`POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true`; that setting acknowledges exposure of all Server routes
+and is not implied by the Receiver-only transport exception.
 The Dashboard accepts an advertised HTTP URL only while the Server switch is enabled, displays a persistent warning, and
 adds the Receiver option to its copyable command. The Receiver stores the permission beside its credential in the
 owner-only configuration file, so one-shot sync, watch mode, and the systemd user service share one transport policy.

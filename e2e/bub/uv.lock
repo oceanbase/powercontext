@@ -1627,6 +1627,7 @@ requires-dist = [
     { name = "fastmcp", marker = "extra == 'server'", specifier = ">=3.4,<4" },
     { name = "httpx", extras = ["socks"], marker = "extra == 'cli'", specifier = ">=0.28,<1" },
     { name = "httpx", extras = ["socks"], marker = "extra == 'client'", specifier = ">=0.28,<1" },
+    { name = "inquirerpy", marker = "extra == 'cli'", specifier = ">=0.3,<1" },
     { name = "jinja2", marker = "extra == 'server'", specifier = ">=3.1,<4" },
     { name = "opentelemetry-api", marker = "extra == 'cli'", specifier = ">=1.30,<2" },
     { name = "opentelemetry-api", marker = "extra == 'client'", specifier = ">=1.30,<2" },
@@ -1699,6 +1700,7 @@ version = "0.0.1"
 source = { editable = "../../integrations/bub" }
 dependencies = [
     { name = "bub" },
+    { name = "httpx" },
     { name = "powercontext", extra = ["client"] },
     { name = "pydantic-settings" },
 ]
@@ -1706,6 +1708,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "bub", specifier = ">=0.4.0,<0.5.0" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "powercontext", extras = ["client"], specifier = ">=0.0.3" },
     { name = "pydantic-settings", specifier = ">=2.7,<3" },
 ]

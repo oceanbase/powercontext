@@ -29,7 +29,7 @@ from powercontext.client import PowerContextClient
 from .scope import PowerContextScope, resolve_scope_id
 from .settings import PowerContextLangChainSettings
 
-_SHARED_HTTP_CLIENT: ContextVar[httpx.AsyncClient | None] = ContextVar(
+_SHARED_HTTP_CLIENT: ContextVar[tuple[httpx.AsyncClient, bool] | None] = ContextVar(
     "powercontext_langchain_http_client", default=None
 )
 
@@ -69,19 +69,35 @@ def _secret_value(secret: SecretStr | None) -> str | None:
 
 
 def open_client(config: ResolvedConfig) -> PowerContextClient:
-    """Return a client for one operation, borrowing a shared HTTP client when installed."""
+    """Return a client for one operation, borrowing a shared HTTP client when installed.
+
+    A borrowed client keeps its own timeout configuration, so ``config.timeout`` applies only
+    when no shared client is installed.
+    """
 
     shared = _SHARED_HTTP_CLIENT.get()
     if shared is not None:
-        return PowerContextClient(config.base_url, token=config.token, http_client=shared)
+        client, trust_transport_security = shared
+        return PowerContextClient(
+            config.base_url,
+            token=config.token,
+            http_client=client,
+            trust_transport_security=trust_transport_security,
+        )
     return PowerContextClient(config.base_url, token=config.token, timeout=config.timeout)
 
 
 @contextmanager
-def shared_http_client(client: httpx.AsyncClient) -> Iterator[None]:
-    """Install a shared HTTP client for the duration of a block."""
+def shared_http_client(client: httpx.AsyncClient, *, trust_transport_security: bool = False) -> Iterator[None]:
+    """Install a shared HTTP client for the duration of a block.
 
-    token = _SHARED_HTTP_CLIENT.set(client)
+    A plain pooling client keeps the default transport-safety guard, so it still refuses to send
+    requests over non-loopback plaintext. Pass ``trust_transport_security=True`` only when the
+    installed client's transport is secure despite an ``http://`` base URL -- an in-process ASGI app,
+    a Unix-domain socket, or a proxy that terminates TLS.
+    """
+
+    token = _SHARED_HTTP_CLIENT.set((client, trust_transport_security))
     try:
         yield
     finally:

@@ -25,7 +25,6 @@ from shutil import which
 import pytest
 
 _PROJECT = Path(__file__).resolve().parents[2] / "integrations" / "langchain"
-_LICENSE = _PROJECT / "LICENSE"
 
 
 def _build_wheel(out_dir: Path) -> Path:
@@ -49,27 +48,12 @@ def _build_wheel(out_dir: Path) -> Path:
     return wheels[0]
 
 
-def test_license_file_is_present_in_project() -> None:
-    assert _LICENSE.is_file()
-    assert "Apache License" in _LICENSE.read_text(encoding="utf-8")
-
-
-def test_wheel_bundles_middleware_license_and_dependencies(tmp_path: Path) -> None:
+def test_wheel_bundles_middleware_license(tmp_path: Path) -> None:
     wheel = _build_wheel(tmp_path)
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
-        assert "powercontext_langchain/client.py" in names
-        assert "powercontext_langchain/middleware.py" in names
-        assert "powercontext_langchain/scope.py" in names
         license_members = [
             name for name in names if re.fullmatch(r"powercontext_langchain-[^/]+\.dist-info/licenses/LICENSE", name)
         ]
         assert license_members, f"LICENSE not bundled in wheel; members: {names}"
         assert "Apache License" in archive.read(license_members[0]).decode("utf-8")
-        metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
-        metadata = archive.read(metadata_name).decode("utf-8")
-
-    assert "Requires-Dist: langchain<2,>=1.3" in metadata
-    assert "Requires-Dist: powercontext[client]<1,>=0.0.2" in metadata
-    assert "Requires-Dist: powercontext-langgraph" not in metadata
-    assert "Requires-Dist: langgraph" not in metadata

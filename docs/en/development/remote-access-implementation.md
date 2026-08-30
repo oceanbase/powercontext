@@ -19,11 +19,25 @@ uv run powercontext server run
 ```
 
 The default listener is `127.0.0.1:8000`. SQLite data is stored in `powercontext.db`. Command options can override the
-listener:
+listener, but binding to a routable address is refused for an *unauthenticated* Server: enable bearer authentication
+(recommended -- terminate TLS at a reverse proxy), or opt in explicitly when TLS is terminated upstream or the network
+is otherwise controlled.
 
 ```bash
-uv run powercontext server run --host 0.0.0.0 --port 8080
+# Recommended: authenticate the Server, then bind a routable address (put TLS in front in production).
+POWERCONTEXT_SERVER_AUTH_ENABLED=true \
+POWERCONTEXT_SERVER_AUTH_TOKEN="replace-with-a-strong-token" \
+  uv run powercontext server run --host 0.0.0.0 --port 8080
 ```
+
+```bash
+# Or, with TLS terminated upstream / a controlled network, opt in to an unauthenticated bind.
+POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true \
+  uv run powercontext server run --host 0.0.0.0 --port 8080
+```
+
+Running `--host 0.0.0.0` without one of the above exits with an error rather than silently exposing an
+unauthenticated Server.
 
 The process opens its configured database, creates a scope-bound Builtin runtime, and closes owned database, inference,
 and scheduler resources during shutdown.

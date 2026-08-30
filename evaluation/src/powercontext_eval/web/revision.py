@@ -22,7 +22,7 @@ from functools import lru_cache
 from pathlib import Path
 from re import fullmatch
 
-RUNTIME_SCHEMA_VERSION = 2
+RUNTIME_SCHEMA_VERSION = 3
 _REVISION_ENVIRONMENT = "POWERCONTEXT_EVAL_BUILD_REVISION"
 
 

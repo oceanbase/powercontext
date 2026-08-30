@@ -51,7 +51,7 @@ def test_dsh_http_paths_work_without_a_model(tmp_path: Path) -> None:
                 base_url="http://testserver",
             ) as transport,
         ):
-            client = PowerContextClient("http://testserver", http_client=transport)
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             live = await client.get_liveness()
             ready = await client.get_readiness()
             remembered = await client.remember_memory(
