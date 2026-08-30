@@ -17,6 +17,7 @@ nav = [
                 { "Codex quickstart" = "en/docs/tutorials/codex-quickstart.md" },
                 { "Install and run" = "en/docs/how-to/install-and-run.md" },
                 { "Full-capability Quick Start" = "en/docs/how-to/full-capability-runtime.md" },
+                { "Deploy the Server" = "en/docs/how-to/deploy-server.md" },
                 { "Core concepts" = "en/docs/explanation/core-concepts.md" },
                 { "Memory and Handoff" = "en/docs/explanation/memory-and-handoff.md" },
                 { "Experience and Skill lifecycle" = "en/docs/explanation/experience-and-skill-lifecycle.md" },
@@ -30,8 +31,9 @@ nav = [
             { "Integrations" = [
                 { "Configure Codex" = "en/docs/how-to/configure-codex.md" },
                 { "Configure Claude Code" = "en/docs/how-to/configure-claude-code.md" },
-                { "Configure Pydantic AI" = "en/docs/how-to/configure-pydantic-ai.md" },
+                { "Pydantic AI adapter preview" = "en/docs/how-to/configure-pydantic-ai.md" },
                 { "Configure DeepSeek Harness" = "en/docs/how-to/configure-dsh.md" },
+                { "Configure Hermes" = "en/docs/how-to/configure-hermes.md" },
                 { "Configure LangChain middleware" = "en/docs/how-to/configure-langchain.md" },
                 { "Configure LangGraph" = "en/docs/how-to/configure-langgraph.md" },
                 { "Configure Pi" = "en/docs/how-to/configure-pi.md" },
@@ -42,6 +44,7 @@ nav = [
             ] },
             { "Reference" = [
                 { "Interfaces" = "en/docs/reference/interfaces.md" },
+                { "HTTP API" = "en/docs/reference/http-api.md" },
                 { "Configuration" = "en/docs/reference/configuration.md" },
             ] },
         ] },
@@ -51,7 +54,7 @@ nav = [
             { "Pydantic AI Inference" = "en/development/pydantic-ai-inference.md" },
             { "Remote Access Implementation" = "en/development/remote-access-implementation.md" },
             { "Server Web UI" = "en/development/server-web-ui.md" },
-            { "API Reference" = "en/modules.md" },
+            { "Python API reference" = "en/modules.md" },
         ] },
         { "Blog" = [
             { "Overview" = "en/blog/index.md" },
@@ -95,6 +98,7 @@ nav = [
                 { "Codex 快速入门" = "zh/docs/tutorials/codex-quickstart.md" },
                 { "安装和运行" = "zh/docs/how-to/install-and-run.md" },
                 { "完整功能 Quick Start" = "zh/docs/how-to/full-capability-runtime.md" },
+                { "部署 Server" = "zh/docs/how-to/deploy-server.md" },
                 { "核心概念" = "zh/docs/explanation/core-concepts.md" },
                 { "理解 Memory 和 Handoff" = "zh/docs/explanation/memory-and-handoff.md" },
                 { "Experience 与 Skill 生命周期" = "zh/docs/explanation/experience-and-skill-lifecycle.md" },
@@ -108,8 +112,9 @@ nav = [
             { "集成方式" = [
                 { "配置 Codex" = "zh/docs/how-to/configure-codex.md" },
                 { "配置 Claude Code" = "zh/docs/how-to/configure-claude-code.md" },
-                { "配置 Pydantic AI" = "zh/docs/how-to/configure-pydantic-ai.md" },
+                { "Pydantic AI 适配器预览" = "zh/docs/how-to/configure-pydantic-ai.md" },
                 { "配置 DeepSeek Harness" = "zh/docs/how-to/configure-dsh.md" },
+                { "配置 Hermes" = "zh/docs/how-to/configure-hermes.md" },
                 { "配置 LangChain middleware" = "zh/docs/how-to/configure-langchain.md" },
                 { "配置 LangGraph" = "zh/docs/how-to/configure-langgraph.md" },
                 { "配置 Pi" = "zh/docs/how-to/configure-pi.md" },
@@ -120,6 +125,7 @@ nav = [
             ] },
             { "参考" = [
                 { "接口" = "zh/docs/reference/interfaces.md" },
+                { "HTTP API" = "zh/docs/reference/http-api.md" },
                 { "配置" = "zh/docs/reference/configuration.md" },
             ] },
         ] },
@@ -129,7 +135,7 @@ nav = [
             { "Pydantic AI 推理" = "zh/development/pydantic-ai-inference.md" },
             { "远程访问实现" = "zh/development/remote-access-implementation.md" },
             { "Server Web UI" = "zh/development/server-web-ui.md" },
-            { "API 参考" = "zh/modules.md" },
+            { "Python API 参考" = "zh/modules.md" },
         ] },
         { "博客" = [
             { "概览" = "zh/blog/index.md" },

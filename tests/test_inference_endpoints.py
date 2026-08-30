@@ -217,7 +217,7 @@ def test_anthropic_custom_endpoint_uses_standard_environment_api_key(
             async with open_builtin_runtime(config) as runtime:
                 readiness = await runtime.readiness()
 
-            assert readiness.checks["inference.generation"].value == "ready"
+            assert readiness.checks["inference.generation"] == "ready"
             assert server.requests
             assert server.requests[0]["path"] == "/v1/messages"
             assert server.requests[0]["headers"]["x-api-key"] == "anthropic-standard-key"
@@ -272,9 +272,9 @@ def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(
                 search = await memory.search(SearchMemoryRequest(query="deployment environment", mode="fts", limit=1))
 
             assert readiness.status.value == "ready"
-            assert readiness.checks["inference.generation"].value == "ready"
-            assert readiness.checks["inference.embedding"].value == "ready"
-            assert readiness.checks["inference.rerank"].value == "ready"
+            assert readiness.checks["inference.generation"] == "ready"
+            assert readiness.checks["inference.embedding"] == "ready"
+            assert readiness.checks["inference.rerank"] == "ready"
             assert search.rerank is not None
             assert search.rerank.selected_ranks == (1,)
 

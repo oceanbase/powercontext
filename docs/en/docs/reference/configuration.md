@@ -5,7 +5,27 @@ description: PowerContext paths, Server, Client, inference, and Agent integratio
 
 # Configuration
 
-PowerContext reads configuration from environment variables when each process starts.
+PowerContext reads configuration from environment variables when each process starts. The CLI does not search for a
+`.env` file automatically. Export values in the shell, have the service manager or container supply them, or pass an
+explicit file to a command that accepts `--env-file`. An Agent host may load its own environment file according to
+that host's rules.
+
+## Explicit environment files
+
+Create a guided configuration, inspect it without printing credentials, and validate it before launch:
+
+```bash
+powercontext config init --output .env
+powercontext config show --env-file .env
+powercontext config validate --env-file .env
+powercontext server run --env-file .env
+```
+
+`config init` writes the file with mode `0600`. When `server run` receives `--env-file`, assignments in that file
+override same-named process values. Inherited `POWERCONTEXT_SERVER_*` values that are missing from the file are
+ignored, so validation and launch use the same Server configuration. `config show` redacts recognized and
+generator-recorded credentials; still treat the file itself as a secret-bearing deployment artifact. See the
+[Full-capability Quick Start](../how-to/full-capability-runtime.md) for the guided setup and verification flow.
 
 ## User data
 
@@ -44,27 +64,29 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_LOGGING_ACCESS` | `true` | Log external HTTP and logical MCP request completion |
 | `POWERCONTEXT_SERVER_METRICS_ENABLED` | `true` | Expose Prometheus metrics at `/metrics` |
 | `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | Enable span recording and OTLP export |
-| `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async database URL |
+| `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | Storage backend: `sqlite`, `seekdb`, or `oceanbase` |
+| `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekDB |
+| `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekDB path; used only when `DATABASE_KIND=seekdb` |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Inactive scope compositions retained by the Runtime; in-flight scopes are never evicted |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Sources processed in one activation |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory selection policy: `coding` or `conversation` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | Apply listwise reranking after coarse Memory retrieval |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | Coarse candidate pool supplied to the reranker |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | unset | Scheduler interval; unset disables scheduling |
-| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model identifier for Memory extraction |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model used by configured extraction, generation, Handoff, and reranking operations |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider default | Custom generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | JSON object of static generation client headers; values are secrets |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS` | `{}` | JSON object of Pydantic AI generation model settings |
-| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation timeout |
-| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS` | `2` | Maximum model requests in one generation operation |
-| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | unset | Pydantic AI embedding model identifier |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Timeout in seconds for one structured generation operation |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS` | `2` | Maximum provider requests for one structured generation operation, including retries |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | unset | Pydantic AI embedding model; requires profile ID and dimension |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL` | provider default | Custom OpenAI-compatible embeddings base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | JSON object of static embedding client headers; values are secrets |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL_SETTINGS` | `{}` | JSON object of Pydantic AI embedding model settings |
-| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID` | unset | Stable embedding deployment identity |
-| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION` | unset | Embedding vector dimension |
-| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` | `unit` | `unit` or `none` vector normalization |
-| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS` | `30` | Embedding timeout |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID` | unset | Stable identity for the model, dimension, and normalization used by the vector index |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION` | unset | Positive output dimension requested from and validated against the embedding model |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` | `unit` | Vector normalization: `unit` or `none` |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS` | `30` | Timeout in seconds for one embedding request |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | Maximum texts sent in one embedding request |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` | generation model | Optional dedicated Pydantic AI model for LLM reranking |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_BASE_URL` | inherited/provider default | Custom LLM reranker provider base URL |
@@ -80,17 +102,24 @@ Static bearer authentication is disabled by default. When enabled, API and MCP r
 loopback address (`localhost`, `::1`, or any address in `127.0.0.0/8`). The Server refuses to start when it binds to a
 non-loopback address while authentication is disabled; either enable authentication, keep the bind on loopback, or,
 when TLS is terminated upstream or the network is otherwise controlled, set
-`POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true` to opt in explicitly. Use TLS before exposing an authenticated Server over a network.
+`POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true` to opt in explicitly. Use TLS before exposing an
+authenticated Server over a network.
 
-The Python Client and CLI apply the matching rule for outbound requests: a configured unencrypted `http://` Server URL is
-accepted only for loopback hosts, and the Client refuses to send any request -- authenticated or not -- over unencrypted
-non-loopback HTTP. Code whose `http://` base URL is only a routing label for a transport that is secure in practice (an
-in-process ASGI app, a Unix-domain socket, or a proxy that terminates TLS) must supply its own `http_client` and pass
-`trust_transport_security=True` explicitly.
+The Python Client and CLI apply the matching rule for outbound requests: a configured unencrypted `http://` Server
+URL is accepted only for loopback hosts. The Client refuses to send any request, authenticated or not, over
+unencrypted non-loopback HTTP. Code whose `http://` base URL is only a routing label for a transport that is secure in
+practice, such as an in-process ASGI app, Unix-domain socket, or TLS-terminating proxy, must supply its own
+`http_client` and pass `trust_transport_security=True` explicitly. See
+[Deploy the Server](../how-to/deploy-server.md) for a safe Docker and remote-access setup.
 
 The Dashboard is enabled by default and shares the Server listener and port with the HTTP API and MCP. With no scopes
 configured, the page shows an empty state. Dashboard initialization failures are logged with their direct cause and do
 not prevent the Server HTTP API, MCP, or health checks from starting.
+
+When bearer authentication is enabled, the HTML shells at `/`, `/skills`, `/reviews`, and `/handoff-reports`, plus
+their static assets, remain public so the browser can render the sign-in form. Data requests stay protected. Enter the
+Server token in that form; the browser keeps it only in the current tab's session storage. Disable both Dashboard and
+Handoff Report if even these sign-in pages must not be exposed.
 
 Handoff Report is independently enabled by default at `/handoff-reports`. When no scope contains a committed Handoff,
 it shows a data-free template preview. See [Use Handoff Report](../how-to/use-handoff-report.md) for scope discovery,
@@ -330,3 +359,15 @@ after changing its environment.
 Pi rejects base URLs containing credentials, a query, or a fragment. Recall, capture, and boundary flushing fail open;
 explicit `pc_*` durable writes require confirmation and are refused when Pi has no interactive UI. Restart Pi after
 changing these variables.
+
+## Other Agent integrations
+
+Some integrations have their own configuration file or environment prefix. Their guides are the source of truth:
+
+- [Hermes](../how-to/configure-hermes.md)
+- [LangChain](../how-to/configure-langchain.md)
+- [LangGraph](../how-to/configure-langgraph.md)
+- [OpenClaw](../how-to/configure-openclaw.md)
+- [OpenCode](../how-to/configure-opencode.md)
+- [Pydantic AI adapter preview](../how-to/configure-pydantic-ai.md)
+- [WorkBuddy](../how-to/configure-workbuddy.md)

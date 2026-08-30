@@ -388,6 +388,213 @@ def test_review_publishes_an_approved_managed_skill_into_configured_agent_target
     }
 
 
+class _ScanFailingScopedExternalSkills:
+    """Delegate everything to the real scoped application except scan."""
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+
+    async def scan(self):
+        raise OSError
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+
+class _ScanFailingExternalSkills:
+    def __init__(self, inner) -> None:
+        self._inner = inner
+
+    def for_scope(self, scope_id: str):
+        return _ScanFailingScopedExternalSkills(self._inner.for_scope(scope_id))
+
+
+def test_publish_reports_success_when_post_publish_scan_fails(tmp_path, caplog) -> None:
+    codex_skill_root = tmp_path / "repository" / ".agents" / "skills"
+    settings = ServerSettings(
+        auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-secret")),
+        dashboard=DashboardConfig(
+            enabled=True,
+            scopes=[DashboardScopeConfig(scope_id="project:powercontext", display_name="PowerContext")],
+        ),
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'publish-scan-failure.db'}"),
+        external_skills=ExternalSkillsConfig(
+            host_id="dashboard-test",
+            targets=(
+                AgentSkillTarget(
+                    target_id="codex-project",
+                    agent_kind="codex",
+                    installation_scope="project",
+                    path=codex_skill_root,
+                    allow_managed_publish=True,
+                ),
+            ),
+        ),
+        mcp=McpConfig(enabled=False),
+    )
+    app = create_server_app(settings=settings)
+
+    with TestClient(app) as client, caplog.at_level(logging.WARNING):
+        source = client.post(
+            "/v1/sources/content",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "source_id": "managed-skill-evidence",
+                "content": "The contract workflow was reviewed and its validation passed.",
+            },
+        ).json()["source"]
+        candidate = client.post(
+            "/v1/skill/propose",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "proposal": {
+                    "name": "review-contract-change",
+                    "description": "Use when changing the reviewed public contract.",
+                    "instructions": "Regenerate the client and inspect the contract diff.",
+                    "validation": ["Run the contract tests."],
+                },
+                "source_refs": [source],
+                "artifact_refs": [],
+            },
+        ).json()
+        approved = client.post(
+            "/v1/artifact-candidates/approve",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "candidate_id": candidate["candidate_id"],
+                "expected_version": candidate["version"],
+            },
+        ).json()
+        selection = {
+            "scope_id": "project:powercontext",
+            "candidate_id": approved["candidate_id"],
+            "artifact": approved["result_artifact"],
+        }
+        application = app.state.application
+        application.external_skills = _ScanFailingExternalSkills(application.external_skills)
+        published = client.post(
+            "/dashboard/skill-projections/publish",
+            headers=_AUTH_HEADERS,
+            json={**selection, "target_id": "codex-project"},
+        )
+
+    assert published.status_code == 200
+    assert published.json()["targets"][0]["state"] == "current"
+    assert codex_skill_root.joinpath("review-contract-change").joinpath("SKILL.md").is_file()
+    scan_failures = [
+        record for record in caplog.records if record.levelno == logging.WARNING and "scan failed" in record.message
+    ]
+    assert len(scan_failures) == 1
+
+
+class _RegistryUnavailableScopedExternalSkills:
+    """Delegate everything to the real scoped application except registry reads and writes."""
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+
+    async def scan(self):
+        raise OSError
+
+    async def list(self, *args, **kwargs):
+        raise OSError
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+
+class _RegistryUnavailableExternalSkills:
+    def __init__(self, inner) -> None:
+        self._inner = inner
+
+    def for_scope(self, scope_id: str):
+        return _RegistryUnavailableScopedExternalSkills(self._inner.for_scope(scope_id))
+
+
+def test_publish_reports_stale_discovery_when_registry_database_is_unavailable(tmp_path, caplog) -> None:
+    codex_skill_root = tmp_path / "repository" / ".agents" / "skills"
+    settings = ServerSettings(
+        auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-secret")),
+        dashboard=DashboardConfig(
+            enabled=True,
+            scopes=[DashboardScopeConfig(scope_id="project:powercontext", display_name="PowerContext")],
+        ),
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'publish-registry-down.db'}"),
+        external_skills=ExternalSkillsConfig(
+            host_id="dashboard-test",
+            targets=(
+                AgentSkillTarget(
+                    target_id="codex-project",
+                    agent_kind="codex",
+                    installation_scope="project",
+                    path=codex_skill_root,
+                    allow_managed_publish=True,
+                ),
+            ),
+        ),
+        mcp=McpConfig(enabled=False),
+    )
+    app = create_server_app(settings=settings)
+
+    with TestClient(app) as client, caplog.at_level(logging.WARNING):
+        source = client.post(
+            "/v1/sources/content",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "source_id": "managed-skill-evidence",
+                "content": "The contract workflow was reviewed and its validation passed.",
+            },
+        ).json()["source"]
+        candidate = client.post(
+            "/v1/skill/propose",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "proposal": {
+                    "name": "review-contract-change",
+                    "description": "Use when changing the reviewed public contract.",
+                    "instructions": "Regenerate the client and inspect the contract diff.",
+                    "validation": ["Run the contract tests."],
+                },
+                "source_refs": [source],
+                "artifact_refs": [],
+            },
+        ).json()
+        approved = client.post(
+            "/v1/artifact-candidates/approve",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "candidate_id": candidate["candidate_id"],
+                "expected_version": candidate["version"],
+            },
+        ).json()
+        selection = {
+            "scope_id": "project:powercontext",
+            "candidate_id": approved["candidate_id"],
+            "artifact": approved["result_artifact"],
+        }
+        application = app.state.application
+        application.external_skills = _RegistryUnavailableExternalSkills(application.external_skills)
+        published = client.post(
+            "/dashboard/skill-projections/publish",
+            headers=_AUTH_HEADERS,
+            json={**selection, "target_id": "codex-project"},
+        )
+
+    assert published.status_code == 200
+    assert published.json()["targets"][0]["state"] == "current"
+    assert published.json()["targets"][0]["discovery"] == "unavailable"
+    assert codex_skill_root.joinpath("review-contract-change").joinpath("SKILL.md").is_file()
+    warnings = [record.message for record in caplog.records if record.levelno == logging.WARNING]
+    assert sum("scan failed" in message for message in warnings) == 1
+    assert sum("discovery failed" in message for message in warnings) == 1
+
+
 def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_path) -> None:
     database_path = tmp_path / "handoff-dashboard.db"
     disabled_app = create_server_app(settings=_handoff_report_settings(database_path, enabled=False))

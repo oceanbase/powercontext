@@ -43,7 +43,7 @@ RFC（request for comments）流程为重大变更提供一致路径，使维护
 
 ## RFC 流程
 
-- Fork [PowerContext repo](https://github.com/oceanbase/powercontext)，并从 `main` 创建分支。
+- Fork [PowerContext repo](https://github.com/oceanbase/powercontext)，并从 `master` 创建分支。
 - 将 [`0000_example.md`](0000_example.md) 复制为 `0000-my-feature.md`，其中 `my-feature` 应具有描述性。
 - 打开 pull request 前不要分配 RFC 编号。RFC 编号应与 pull request 编号一致。
 - 提交包含 RFC 文档的 pull request，文档位于 `docs/en/rfcs/` 下，并同步维护 `docs/zh/rfcs/` 中的中文翻译。

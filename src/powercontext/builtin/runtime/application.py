@@ -492,7 +492,15 @@ class ScopedExperienceApplication:
             ),
             self._runtime._locked(self.scope_id),
         ):
-            return await incubator(self.scope_id, window_limit)
+            with self._runtime._stage("experience.incubation", attributes={}) as span:
+                result = await incubator(self.scope_id, window_limit)
+                if span is not None:
+                    span.set_attributes({
+                        "powercontext.experience.incubation.source_count": result.source_count,
+                        "powercontext.experience.incubation.candidate_count": result.candidate_count,
+                    })
+                    span.set_outcome("success" if result.processed else "noop")
+                return result
 
 
 class ExperienceApplication:
@@ -1042,7 +1050,12 @@ class ScopedMemoryApplication:
         ) as context:
             window_limit = self._runtime.source_window_limit if limit is None else limit
             async with self._runtime._locked(self.scope_id):
-                return await context.triggers.flush(limit=window_limit)
+                with self._runtime._stage("memory.flush", attributes={}) as span:
+                    result = await context.triggers.flush(limit=window_limit)
+                    if span is not None:
+                        span.set_attributes({"powercontext.memory.flush.source_count": result.source_count})
+                        span.set_outcome("success" if result.processed else "noop")
+                    return result
 
     async def cursor(self) -> SourceCursor:
         async with self._runtime._context(self.scope_id) as context:
@@ -1074,29 +1087,39 @@ class ScheduledSourceProcessor:
                 if self._runtime._closing or self._runtime._closed:
                     return
                 started_at = perf_counter()
-                try:
-                    result = await self._runtime.memory.for_scope(scope_id).flush()
-                except asyncio.CancelledError:
-                    _log_scheduled_processing(
-                        "cancelled",
-                        operation="process_source_window",
-                        started_at=started_at,
-                    )
-                    raise
-                except Exception as error:
-                    _log_scheduled_processing(
-                        "failure",
-                        operation="process_source_window",
-                        started_at=started_at,
-                        error=error,
-                    )
-                else:
-                    _log_scheduled_processing(
-                        "success" if result.processed else "noop",
-                        operation="process_source_window",
-                        started_at=started_at,
-                        source_count=result.source_count,
-                    )
+                with self._runtime._background(
+                    "scheduled.process_source_window",
+                    operation="process_source_window",
+                ) as span:
+                    try:
+                        result = await self._runtime.memory.for_scope(scope_id).flush()
+                    except asyncio.CancelledError:
+                        _log_scheduled_processing(
+                            "cancelled",
+                            operation="process_source_window",
+                            started_at=started_at,
+                        )
+                        raise
+                    except Exception as error:
+                        _log_scheduled_processing(
+                            "failure",
+                            operation="process_source_window",
+                            started_at=started_at,
+                            error=error,
+                        )
+                        if span is not None:
+                            span.set_outcome("failure")
+                    else:
+                        outcome = "success" if result.processed else "noop"
+                        _log_scheduled_processing(
+                            outcome,
+                            operation="process_source_window",
+                            started_at=started_at,
+                            source_count=result.source_count,
+                        )
+                        if span is not None:
+                            span.set_outcome(outcome)
+                            span.set_attributes({"powercontext.background.source_count": result.source_count})
 
 
 class ScheduledExperienceProcessor:
@@ -1114,30 +1137,43 @@ class ScheduledExperienceProcessor:
                 if self._runtime._closing or self._runtime._closed:
                     return
                 started_at = perf_counter()
-                try:
-                    result = await self._runtime.experience.for_scope(scope_id).incubate()
-                except asyncio.CancelledError:
-                    _log_scheduled_processing(
-                        "cancelled",
-                        operation="incubate_experience_candidates",
-                        started_at=started_at,
-                    )
-                    raise
-                except Exception as error:
-                    _log_scheduled_processing(
-                        "failure",
-                        operation="incubate_experience_candidates",
-                        started_at=started_at,
-                        error=error,
-                    )
-                else:
-                    _log_scheduled_processing(
-                        "success" if result.processed else "noop",
-                        operation="incubate_experience_candidates",
-                        started_at=started_at,
-                        source_count=result.source_count,
-                        candidate_count=result.candidate_count,
-                    )
+                with self._runtime._background(
+                    "scheduled.incubate_experience_candidates",
+                    operation="incubate_experience_candidates",
+                ) as span:
+                    try:
+                        result = await self._runtime.experience.for_scope(scope_id).incubate()
+                    except asyncio.CancelledError:
+                        _log_scheduled_processing(
+                            "cancelled",
+                            operation="incubate_experience_candidates",
+                            started_at=started_at,
+                        )
+                        raise
+                    except Exception as error:
+                        _log_scheduled_processing(
+                            "failure",
+                            operation="incubate_experience_candidates",
+                            started_at=started_at,
+                            error=error,
+                        )
+                        if span is not None:
+                            span.set_outcome("failure")
+                    else:
+                        outcome = "success" if result.processed else "noop"
+                        _log_scheduled_processing(
+                            outcome,
+                            operation="incubate_experience_candidates",
+                            started_at=started_at,
+                            source_count=result.source_count,
+                            candidate_count=result.candidate_count,
+                        )
+                        if span is not None:
+                            span.set_outcome(outcome)
+                            span.set_attributes({
+                                "powercontext.background.source_count": result.source_count,
+                                "powercontext.background.candidate_count": result.candidate_count,
+                            })
 
 
 def _log_scheduled_processing(
@@ -1450,6 +1486,16 @@ class BuiltinRuntime:
         if self._tracing is None:
             return nullcontext(None)
         return self._tracing.stage(name, attributes=attributes)
+
+    def _background(
+        self,
+        name: str,
+        *,
+        operation: str,
+    ) -> AbstractContextManager[RuntimeSpan | None]:
+        if self._tracing is None:
+            return nullcontext(None)
+        return self._tracing.background(name, operation=operation, attributes={})
 
     def _review(self, scope_id: str) -> ReviewService:
         if self._review_service is None:

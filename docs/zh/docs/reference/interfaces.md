@@ -7,19 +7,24 @@ description: 在 Agent 集成、CLI、Python SDK、HTTP 和 MCP 之间选择。
 
 所有远程接口都操作同一个 Server 和同一份持久化 Artifact 存储。
 
-| 接口 | 适用场景 | 安装 |
+| 接口 | 适用场景 | 从这里开始 |
 | --- | --- | --- |
-| Codex 插件 | 在 Codex 中跨会话恢复和显式维护 Memory | `powercontext setup codex` |
-| Pydantic AI 适配器 | Memory 工具、自动 Context 准备和可选轨迹采集 | `powercontext-pydantic-ai` |
-| DeepSeek Harness 插件 | 在 DeepSeek Harness 中跨会话恢复和显式维护 Memory | `powercontext setup dsh` |
-| LangChain middleware | 在 `create_agent` 中提供有界召回和完成轮次 Source 采集 | `powercontext-langchain` |
-| LangGraph 适配器 | 在 LangGraph 图中提供 Memory 工具和有界召回 | `powercontext-langgraph` |
-| Pi package | 在 Pi 中跨会话恢复、使用原生 Memory/Handoff 工具和 skill | `powercontext setup pi` |
-| CLI | 配置、诊断、Server 控制、能力检查和人工 Candidate 审核 | `powercontext[cli,server]` |
-| Python Client SDK | 对运行中的 Server 发起类型化异步调用 | `powercontext[client]` |
-| Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | 基础包 |
-| HTTP | 从任意语言集成服务 | `powercontext[server]` |
-| MCP | 面向 Agent 的 Memory 与工作连续性工具 | 由 Server 启用 |
+| Codex 插件 | 在 Codex 中跨会话恢复和显式维护 Memory | [配置 Codex](../how-to/configure-codex.md) |
+| Claude Code 插件 | 在 Claude Code 中跨会话恢复和交接 | [配置 Claude Code](../how-to/configure-claude-code.md) |
+| DeepSeek Harness 插件 | 在 DeepSeek Harness 中召回和显式维护 Memory | [配置 DeepSeek Harness](../how-to/configure-dsh.md) |
+| Hermes 集成 | 在 Hermes 中使用召回、Memory 和 Handoff 工具 | [配置 Hermes](../how-to/configure-hermes.md) |
+| OpenClaw 插件 | 在 OpenClaw 中使用有界召回和持久化 Memory 工具 | [配置 OpenClaw](../how-to/configure-openclaw.md) |
+| OpenCode 插件 | 在 OpenCode 中召回和维护 Memory | [配置 OpenCode](../how-to/configure-opencode.md) |
+| Pi package | 在 Pi 中使用召回、原生 Memory/Handoff 工具和 skill | [配置 Pi](../how-to/configure-pi.md) |
+| WorkBuddy 集成 | 在 WorkBuddy 中使用提示词召回、MCP 工具和 Handoff | [配置 WorkBuddy](../how-to/configure-workbuddy.md) |
+| Pydantic AI 适配器 | 预览 API；尚无受支持的独立安装方式 | [适配器状态](../how-to/configure-pydantic-ai.md) |
+| LangChain middleware | 在 `create_agent` 中提供有界召回和完成轮次 Source 采集 | [从源码安装](../how-to/configure-langchain.md) |
+| LangGraph 适配器 | 在 LangGraph 图中提供 Memory 工具和有界召回 | [从源码安装](../how-to/configure-langgraph.md) |
+| CLI | 配置、诊断、Server 控制和人工 Candidate 审核 | [安装和运行](../how-to/install-and-run.md) |
+| Python Client SDK | 对运行中的 Server 发起类型化异步调用 | [安装 Client role](../how-to/install-and-run.md) |
+| Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | [Python API 参考](/zh/modules/) |
+| HTTP | 从任意语言集成服务 | [HTTP API](http-api.md) |
+| MCP | 面向 Agent 的 Memory 与工作连续性工具 | Server 在 `/mcp` 启用 |
 
 ## Codex 插件
 
@@ -76,10 +81,10 @@ project-context skill 指导 DeepSeek Harness 何时检索、记忆、修订或�
 
 ## Pydantic AI 适配器
 
-独立发行的 `powercontext-pydantic-ai` 通过公共 Python Client 提供三个 Memory 工具，并可自动前置有界
-`PreparedContext`。可选 Capture 会保存经过清洗和限长的可见模型事件与已完成工具事件，执行 checkpoint Flush，并在
-run 结束后 Flush 剩余 Source。MCP 不需要适配器包，但不提供自动 Context 准备、Capture 或 Flush。参见
-[配置 Pydantic AI](../how-to/configure-pydantic-ai.md)。
+仓库中包含一个 Pydantic AI 预览适配器，通过公共 Python Client 提供三个 Memory 工具，并可自动前置有界
+`PreparedContext`。目前还没有受支持的独立安装包。可选 Capture 会保存经过清洗和限长的可见模型事件与已完成工具
+事件，执行 checkpoint Flush，并在 run 结束后 Flush 剩余 Source。MCP 不需要适配器包，但不提供自动 Context 准备、
+Capture 或 Flush。参见 [Pydantic AI 适配器预览](../how-to/configure-pydantic-ai.md)。
 
 ## LangGraph 适配器
 
@@ -89,10 +94,10 @@ run 结束后 Flush 剩余 Source。MCP 不需要适配器包，但不提供自�
 `PowerContextScope` 是用于图 `context_schema` 的 dataclass，承载 scope 和单次运行的连接覆盖项。召回节点和工具
 从 LangGraph runtime 读取当前 scope，否则回退到 `POWERCONTEXT_LANGGRAPH_*` 环境配置。
 
-Scope 解析优先取显式 `scope_id`，其次取由 Git remote 推导的 scope，都没有时报错——这与 Codex resolver 相反，
+Scope 解析优先取显式 `scope_id`，其次取由 Git remote 推导的 scope，都没有时报错。这与 Codex resolver 相反，
 因为已部署的图其工作目录通常无法标识项目。`TOKEN` 是裸 token，由 Client 组装为 `Authorization: Bearer`，不同于
 Codex、Claude Code 和 DeepSeek Harness 插件使用的 `POWERCONTEXT_*_AUTHORIZATION` header。召回和工具都会失败开放：
-Server 不可用时图仍能到达终点，工具返回一段简短的不可用字符串。本次发布只覆盖 Memory 读写和有界召回；自动采集、
+Server 不可用时图仍能到达终点，工具返回一段简短的不可用字符串。适配器只覆盖 Memory 读写和有界召回；自动采集、
 checkpointing 和 Handoff 不在范围内。适配器有意不实现 `BaseStore`——Memory 模型不提供其所需的按 key 读取、upsert
 和删除操作。它不会启动或内嵌 Server。
 
@@ -101,8 +106,8 @@ checkpointing 和 Handoff 不在范围内。适配器有意不实现 `BaseStore`
 `PowerContextMiddleware` 使用 LangChain 的 `AgentMiddleware` API。它在不修改 agent state 的前提下，把一份有界
 PreparedContext 注入每个当前模型请求。自动采集默认关闭；显式传入 `auto_capture=True` 后，运行成功时会把最新用户消息
 和最终的纯文本或 structured answer 采集为 Content Source 证据。Source-to-Memory 激活仍由 Server 负责。召回和采集
-都会失败开放，且都不会启动或内嵌 Server。它由独立的 `powercontext-langchain` 包分发；LangGraph 适配器仍是单独的
-节点与工具集成。
+都会失败开放，且都不会启动或内嵌 Server。其源码打包为 `powercontext-langchain`，但目前没有发布到 PyPI；
+LangGraph 适配器仍是单独的节点与工具集成。
 
 ## Pi package
 
@@ -113,24 +118,16 @@ Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久
 ## CLI
 
 ```text
-powercontext setup codex
-powercontext setup claude-code
-powercontext setup dsh
-powercontext setup openclaw
-powercontext setup opencode
-powercontext setup pi
-powercontext setup hermes
-powercontext setup select
+powercontext setup <host> --source oceanbase/powercontext --ref master
+powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref master
+powercontext config init --output .env
+powercontext config show --env-file .env
+powercontext config validate --env-file .env
 powercontext doctor
+powercontext doctor <host>
 powercontext doctor integrations
-powercontext doctor codex
-powercontext doctor claude-code
-powercontext doctor dsh
-powercontext doctor openclaw
-powercontext doctor opencode
-powercontext doctor pi
-powercontext doctor hermes
 powercontext server run
+powercontext server run --env-file .env
 powercontext ready
 powercontext capabilities
 powercontext experience generate --scope-id project:example --source-ref content/SOURCE_ID
@@ -148,6 +145,13 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 
 所有内容命令都调用已配置的 Server。可选的 `server` role 会增加 `powercontext server run`，但不会在 CLI
 中创建第二套内容 profile。
+
+`config` 命令组用于生成、脱敏显示和校验显式环境文件。CLI 不会隐式搜索该文件；使用 `config show`、
+`config validate` 或 `server run` 时需要通过 `--env-file` 传入。配置优先级和凭据处理规则见[配置](configuration.md)。
+
+`<host>` 可以是 `codex`、`claude-code`、`dsh`、`hermes`、`openclaw`、`opencode`、`pi` 或
+`workbuddy`。`setup select` 和 `doctor integrations` 使用的一级宿主目录包含上述除 WorkBuddy 外的所有宿主；
+WorkBuddy 仍可通过显式的 `setup workbuddy` 和 `doctor workbuddy` 命令使用。
 
 `powercontext doctor` 检查安装包和 Server，不要求任何集成。`powercontext doctor integrations` 打印全部一级宿主的只读矩阵；
 CLI 不在 PATH 上时该行是 `missing`，不会让整条命令失败。各个 `powercontext doctor <host>` 命令在对应 CLI
@@ -283,7 +287,8 @@ Discovery 不进入 Review。显式调用 `import_external_skill` 并提供精�
 
 ## HTTP 和 MCP
 
-Server 在 `/openapi.json` 提供 OpenAPI 文档，在 `/health/ready` 提供就绪检查，在 `/v1/capabilities`
+鉴权、curl 示例、操作分组、错误格式和完整 OpenAPI 契约见 [HTTP API](http-api.md)。Server 在
+`/openapi.json` 提供 OpenAPI 文档，在 `/health/ready` 提供就绪检查，在 `/v1/capabilities`
 提供能力信息，并默认在 `/mcp` 提供 Streamable HTTP MCP。HTTP 是完整应用契约，MCP 是面向 Agent 的
 Memory 与 Candidate Review operation 子集。五个 Candidate Review operation 通过 HTTP 和 MCP 使用相同的
 validation、`expected_version` 并发校验和 approval transaction。Experience/Skill generation、exact read、

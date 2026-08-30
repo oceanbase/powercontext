@@ -55,7 +55,7 @@ project:quickstart
 #### 1. Install
 
 ```bash
-uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 #### 2. Generate the configuration

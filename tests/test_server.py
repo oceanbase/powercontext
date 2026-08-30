@@ -32,6 +32,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
+from powercontext.builtin.inference.pydantic_ai import PydanticAIConfigurationError
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
@@ -453,6 +454,30 @@ def test_server_factory_caches_and_redacts_degraded_embedding_readiness(caplog, 
     assert "secret provider response" not in caplog.text
 
 
+def test_server_factory_reports_a_rejected_embedding_request_with_a_redacted_reason(tmp_path) -> None:
+    embedding = _FailingEmbeddingModel(PydanticAIConfigurationError("provider-rejected", detail="HTTP 400"))
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        embedding_model=embedding,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "degraded",
+        "checks": {
+            "runtime": "ready",
+            "database": "ready",
+            "inference.embedding": "misconfigured: provider-rejected (HTTP 400)",
+        },
+    }
+
+
 @pytest.mark.parametrize(
     ("error", "expected_status"),
     [
@@ -586,7 +611,7 @@ def test_server_factory_reports_missing_embedding_api_prefix_as_degraded(caplog,
             "checks": {
                 "runtime": "ready",
                 "database": "ready",
-                "inference.embedding": "misconfigured",
+                "inference.embedding": "misconfigured: provider-rejected (HTTP 404)",
             },
         }
     )

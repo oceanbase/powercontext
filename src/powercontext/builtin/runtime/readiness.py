@@ -41,7 +41,7 @@ class ReadinessCheckStatus(StrEnum):
     MISCONFIGURED = "misconfigured"
 
 
-ReadinessProbe = Callable[[], Awaitable[ReadinessCheckStatus]]
+ReadinessProbe = Callable[[], Awaitable[str]]
 
 
 class RuntimeReadinessStatus(StrEnum):
@@ -65,7 +65,7 @@ class RuntimeReadiness:
     """Aggregate the safe readiness outcomes for one Runtime."""
 
     status: RuntimeReadinessStatus
-    checks: Mapping[str, ReadinessCheckStatus]
+    checks: Mapping[str, str]
 
     @property
     def ready(self) -> bool:
@@ -98,7 +98,7 @@ class RuntimeReadinessChecks:
         return RuntimeReadiness(status=status, checks=checks)
 
     @staticmethod
-    async def _run(probe: ReadinessProbe) -> ReadinessCheckStatus:
+    async def _run(probe: ReadinessProbe) -> str:
         try:
             return await probe()
         except asyncio.CancelledError:
@@ -123,10 +123,10 @@ class CachedReadinessProbe:
         self._transient_ttl_seconds = transient_ttl_seconds
         self._clock = monotonic if clock is None else clock
         self._lock = asyncio.Lock()
-        self._result: ReadinessCheckStatus | None = None
+        self._result: str | None = None
         self._expires_at = 0.0
 
-    async def __call__(self) -> ReadinessCheckStatus:
+    async def __call__(self) -> str:
         """Return a fresh cached result, refreshing it at most once."""
 
         result = self._fresh_result()
@@ -146,7 +146,7 @@ class CachedReadinessProbe:
             self._expires_at = self._clock() + ttl_seconds
             return result
 
-    def _fresh_result(self) -> ReadinessCheckStatus | None:
+    def _fresh_result(self) -> str | None:
         return self._result if self._result is not None and self._clock() < self._expires_at else None
 
 
@@ -157,13 +157,13 @@ def dependency_readiness_probe(
 ) -> ReadinessProbe:
     """Convert one dependency operation into a bounded, redacted probe."""
 
-    async def probe() -> ReadinessCheckStatus:
+    async def probe() -> str:
         try:
             await asyncio.wait_for(operation(), timeout=timeout_seconds)
         except asyncio.CancelledError:
             raise
-        except InferenceConfigurationError:
-            return ReadinessCheckStatus.MISCONFIGURED
+        except InferenceConfigurationError as error:
+            return _misconfigured_check(error)
         except TimeoutError:
             return ReadinessCheckStatus.TIMEOUT
         except Exception:
@@ -171,6 +171,18 @@ def dependency_readiness_probe(
         return ReadinessCheckStatus.READY
 
     return probe
+
+
+def _misconfigured_check(error: InferenceConfigurationError) -> str:
+    """Expose the stable redacted reason carried by the error, never its message."""
+
+    code = getattr(error, "code", None)
+    if not isinstance(code, str) or not code:
+        return ReadinessCheckStatus.MISCONFIGURED.value
+    detail = getattr(error, "detail", None)
+    if isinstance(detail, str) and detail:
+        return f"{ReadinessCheckStatus.MISCONFIGURED.value}: {code} ({detail})"
+    return f"{ReadinessCheckStatus.MISCONFIGURED.value}: {code}"
 
 
 __all__ = [

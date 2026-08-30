@@ -759,7 +759,10 @@ async def _embedding_models(
         normalization=settings.embedding_normalization,
     )
     limits = InferenceLimits(timeout_seconds=settings.embedding_timeout_seconds)
-    embedding_settings = cast(EmbeddingSettings, dict(settings.embedding_model_settings))
+    embedding_settings = cast(
+        EmbeddingSettings,
+        settings.embedding_model_settings | {"dimensions": profile.dimension},
+    )
 
     def adapter(instrument: InstrumentationSettings | bool | None) -> EmbeddingModel:
         return PydanticAIEmbeddingModel(

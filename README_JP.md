@@ -1,5 +1,12 @@
 # PowerContext
 
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="theme/powercontext/assets/images/powercontext-reverse.png">
+  <img alt="PowerContext" src="theme/powercontext/assets/images/powercontext-color.png" width="480" />
+</picture>
+
 **記憶を超えて**
 
 [![PyPI version](https://img.shields.io/pypi/v/powercontext)](https://pypi.org/project/powercontext/)
@@ -7,6 +14,8 @@
 [![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/74cF8vbNEs)
 
 *[English](README.md) · [中文](README_CN.md) · [日本語](README_JP.md)*
+
+</div>
 
 PowerContext は [PowerMem](https://www.powermem.ai/) のアップグレード版であり、人と Agent の協働を支える
 コンテキストランタイムです。共同で進めた作業を、理解・引き継ぎ・継続が可能なプロジェクトコンテキストとして
@@ -19,23 +28,26 @@ macOS または Linux、Python 3.11 以降、[`uv`](https://docs.astral.sh/uv/)�
 ### 1. PowerContext とインテグレーションをインストールする
 
 ```bash
-uv tool install "powercontext[cli,server]==0.0.2"
-
-# 1 つ以上のインテグレーションを選択します。
-powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
-powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
-powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
-powercontext setup hermes --source oceanbase/powercontext --ref master
-
-# OpenClaw は現在、master から対応する CLI とインテグレーションをインストールする必要があります。
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+
+# 1 つ以上のインテグレーションを選択します。すべての setup コマンドは master ブランチからインストールします。
+powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext setup claude-code --source oceanbase/powercontext --ref master
+powercontext setup dsh --source oceanbase/powercontext --ref master
+powercontext setup hermes --source oceanbase/powercontext --ref master
 powercontext setup openclaw --source oceanbase/powercontext --ref master
+powercontext setup opencode --source oceanbase/powercontext --ref master
+powercontext setup pi --source oceanbase/powercontext --ref master
+powercontext setup workbuddy --source oceanbase/powercontext --ref master
+
+# 複数の Host を一度にインストールすることもできます。
+powercontext setup select --host codex --host claude-code --host opencode \
+  --source oceanbase/powercontext --ref master
 ```
 
-最初のコマンドは、隔離された環境に最新リリースの CLI とローカル Server をインストールします。リリース版の setup
-コマンドは、対応するリポジトリの tag から各インテグレーションをインストールします。OpenClaw がリリースに含まれる
-までは、追加の `uv tool install` コマンドによって CLI、Server、インテグレーションを同じ `master` revision に
-そろえます。既存のインストールを更新するには、setup をもう一度実行してください。
+最初のコマンドは、隔離された環境に最新の `master` revision から CLI とローカル Server をインストールします。
+各 setup コマンドは、同じ `master` revision から対応するインテグレーションをインストールします。既存の
+インストールを更新するには、setup をもう一度実行してください。
 
 ### 2. ローカル Server を起動して検証する
 
@@ -49,7 +61,8 @@ powercontext server run
 
 ```bash
 powercontext doctor
-powercontext doctor codex  # または: claude-code / dsh / hermes / openclaw
+powercontext doctor integrations
+powercontext doctor codex  # codex をインストールした Host 名に置き換えてください。
 ```
 
 デフォルトでは、Server は `127.0.0.1:8000` で待ち受け、`/mcp` で Streamable HTTP MCP を公開し、
@@ -83,9 +96,10 @@ powercontext doctor codex  # または: claude-code / dsh / hermes / openclaw
 
 ## インテグレーション
 
-PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent、OpenClaw、WorkBuddy 向けの公式インテグレーションと
-インストールガイドを提供します。これらのインテグレーションは、PowerContext Server を通じて同じスコープ付きデータと
-履歴を保持する契約を使用します。ホストインテグレーションが Server を自動的に起動したり、組み込んだりすることはありません。
+PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent、OpenClaw、OpenCode、
+WorkBuddy、Bub、Pydantic AI、LangChain、LangGraph 向けの公式インテグレーションとインストールガイドを提供します。
+これらのインテグレーションは、PowerContext Server を通じて同じスコープ付きデータと履歴を保持する契約を使用します。
+ホストインテグレーションが Server を自動的に起動したり、組み込んだりすることはありません。
 
 ### 公式インテグレーション
 
@@ -97,9 +111,21 @@ PowerContext は Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Codi
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/en/docs/how-to/configure-openclaw.md"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
+</tr>
+<tr>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-opencode.md"><img src="https://github.com/anomalyco.png?size=120" alt="OpenCode" width="48" height="48" /><br /><sub><b>OpenCode</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="docs/assets/workbuddy.svg" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
+<td align="center" width="120"><a href="integrations/bub/README.md"><img src="https://github.com/bubbuild.png?size=120" alt="Bub" width="48" height="48" /><br /><sub><b>Bub</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-pydantic-ai.md"><img src="https://github.com/pydantic.png?size=120" alt="Pydantic AI" width="48" height="48" /><br /><sub><b>Pydantic AI</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-langchain.md"><img src="https://github.com/langchain-ai.png?size=120" alt="LangChain" width="48" height="48" /><br /><sub><b>LangChain</b></sub></a></td>
+<td align="center" width="120"><a href="docs/en/docs/how-to/configure-langgraph.md"><img src="https://github.com/langchain-ai.png?size=120" alt="LangGraph" width="48" height="48" /><br /><sub><b>LangGraph</b></sub></a></td>
 </tr>
 </table>
+
+Python Agent アプリケーションでは、[LangChain ミドルウェア](docs/en/docs/how-to/configure-langchain.md)、
+[LangGraph ノードとツールアダプター](docs/en/docs/how-to/configure-langgraph.md)、
+[Pydantic AI ミドルウェア](docs/en/docs/how-to/configure-pydantic-ai.md)、
+[Bub プラグイン](integrations/bub/README.md) を利用できます。
 
 ## 開発
 

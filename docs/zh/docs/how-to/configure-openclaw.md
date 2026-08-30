@@ -7,7 +7,7 @@ description: 为 OpenClaw 安装 PowerContext memory 插件，并控制召回、
 
 ## 安装或刷新插件
 
-在 PowerContext 正式版本包含 OpenClaw 之前，从同一个 `master` revision 安装 CLI 和插件：
+从同一个 `master` revision 安装 CLI 和插件：
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
