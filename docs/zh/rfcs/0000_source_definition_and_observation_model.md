@@ -287,6 +287,9 @@ cross-Scope provenance 的 reference 必须显式携带 owner Scope。
 Reference resolution 会验证全部四个 identity components，以及 stored observation 的 Definition version 与
 digest。无法解析精确 observation，不等同于 logical Source 已删除、head 已推进或 Connector 不可用。
 
+不带 `observation_id` 的已接受兼容引用仍然标识一个不可变 observation。解析时不得将其视为 SourceKey、current
+head 或 `latest`。compatibility layer 可以在边界恢复完整 SourceRef，但不得重定向该 evidence。
+
 ## Definition registration contract
 
 Executable Definition 属于 worker。Worker 用它解析 definition-native input、canonicalize Source value，并计算
@@ -389,6 +392,10 @@ package 在 PowerContext Server 之外执行，并使用 remote worker ingestion
 Artifact revision 记录其计算直接使用的精确 SourceRef。推进 Source head 不改变现有 Artifact lineage。针对较新
 observation 的重新计算会产生新的 Artifact revision，而不是重写旧 evidence。
 
+被 durable Artifact revision 引用的 observation 受普通 retention 与 garbage collection 保护。推进或删除 Source
+head 不会授权删除该 observation。显式 deletion policy 可以使被引用的 evidence 不再可用，但必须在 lineage 中
+保留 SourceRef 并报告不可用状态，不能把该引用解析到另一个 observation。
+
 Source 保留在 producing Scope。Context Reference 可以按照 Scope organization contract 扩展 read selection，
 但不会改变 Source ownership。跨 Scope 的精确 Artifact publication 在 lineage 中保留 origin Scope 与精确
 SourceRef。发布 Artifact 不会发布其 origin Scope 中的所有 Source。
@@ -486,6 +493,10 @@ replacement 改变 Source identity。
 - OpenMetadata 把负责生成 record 的 Source 与 connection check、workflow status、sink 分离。
 - Nowledge Mem 的 TiddlyWiki importer 使用 stable logical ID、canonical payload digest、source revalidation 与
   per-item outcome。这些行为为 Source observation 与 Connector run state 的分离提供依据。
+- [TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory/tree/5299c00aaf65481703c180fd69df066d11254eb7)
+  使用 SourceFetcher registry 获取 provider value，以 provider revision 与 content hash 检测变化，并单独维护
+  synchronization 和 audit state。这些模式属于 Connector acquisition，不能替代 immutable Source observation，
+  因为 Artifact citation 必须在 provider current state 变化后仍然保留它使用过的值。
 
 # Unresolved questions
 

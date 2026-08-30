@@ -308,6 +308,10 @@ Reference resolution verifies all four identity components and the stored observ
 digest. Failure to resolve the exact observation is distinct from the logical Source being deleted, the head having
 advanced, or the Connector being unavailable.
 
+An accepted compatibility reference without `observation_id` still denotes one immutable observation. Resolution
+must not treat it as a SourceKey, a current head, or `latest`. A compatibility layer may restore the full SourceRef at
+its boundary, but it cannot redirect the evidence.
+
 ## Definition registration contract
 
 Executable Definitions belong to the worker that resolves definition-native inputs, canonicalizes Source values,
@@ -418,6 +422,11 @@ An Artifact revision records exact SourceRefs used directly by its computation. 
 change existing Artifact lineage. Recalculation against a newer observation produces a new Artifact revision rather
 than rewriting prior evidence.
 
+An observation referenced by a durable Artifact revision is protected from ordinary retention and garbage
+collection. Advancing or deleting a Source head does not authorize removing that observation. An explicit deletion
+policy may make cited evidence unavailable, but it must preserve the SourceRef in lineage and report the
+unavailability rather than resolve the reference to another observation.
+
 Sources remain in their producing Scope. A Context Reference may expand a read selection according to the Scope
 organization contract, but it does not change Source ownership. Exact Artifact publication across Scopes retains the
 origin Scope and exact SourceRef in lineage. Publishing an Artifact does not publish every Source in its origin Scope.
@@ -522,6 +531,11 @@ Connector replacement change Source identity.
 - OpenMetadata separates the Source that emits records from connection checks, workflow status, and the sink.
 - Nowledge Mem's TiddlyWiki importer uses stable logical IDs, canonical payload digests, source revalidation, and
   per-item outcomes. Those behaviors inform the separation between Source observations and Connector run state.
+- [TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory/tree/5299c00aaf65481703c180fd69df066d11254eb7)
+  uses a SourceFetcher registry for provider acquisition, provider revisions and content hashes for change detection,
+  and separate synchronization and audit state. Those patterns belong to Connector acquisition. They do not replace
+  immutable Source observations because an Artifact citation must retain the value it used after the provider's
+  current state changes.
 
 # Unresolved questions
 
