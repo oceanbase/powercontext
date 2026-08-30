@@ -481,13 +481,6 @@ replacement 改变 Source identity。
 - [Scope organization and Agent integration design](https://github.com/oceanbase/powercontext/pull/1345) 分离
   Scope ownership、read sharing、organization、delivery 与 observation。本 RFC 对 Source ownership、identity、
   exact evidence 与 acquisition 应用同样的分离原则。
-- [Apache OpenDAL OFS RFC-0016](https://github.com/apache/opendal-ofs/blob/main/rfcs/0016_filesystem_architecture.md)
-  分离 namespace authority 与 access frontend，并禁止 frontend 宣称底层无法兑现的保证。Source materialization
-  遵循同样的 authority rule。
-- [opendalfs](https://github.com/fsspec/opendalfs) 通过 fsspec interface 暴露 OpenDAL services，展示了
-  backend-neutral filesystem acquisition。它的 path 与 file metadata 不定义 Source identity 或 immutable
-  revision semantics。只有完整调用链能够寻址并验证不可变 revision 时，backend read 才能满足 referenced
-  materialization。
 - DataHub stateful ingestion 把 connector checkpoint 与 stale-entity detection 同 emitted metadata identity
   分离。Airbyte 把 connector state 当作 opaque recovery boundary，而不是 record identity。
 - OpenMetadata 把负责生成 record 的 Source 与 connection check、workflow status、sink 分离。

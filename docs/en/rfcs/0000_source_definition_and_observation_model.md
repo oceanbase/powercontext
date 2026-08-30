@@ -519,13 +519,6 @@ Connector replacement change Source identity.
 - The [Scope organization and Agent integration design](https://github.com/oceanbase/powercontext/pull/1345) separates
   Scope ownership, read sharing, organization, delivery, and observation. This RFC applies the same separation to
   Source ownership, identity, exact evidence, and acquisition.
-- [Apache OpenDAL OFS RFC-0016](https://github.com/apache/opendal-ofs/blob/main/rfcs/0016_filesystem_architecture.md)
-  separates namespace authority from access frontends and forbids a frontend from advertising guarantees that the
-  underlying layers cannot enforce. Source materialization follows the same authority rule.
-- [opendalfs](https://github.com/fsspec/opendalfs) exposes OpenDAL services through the fsspec interface and
-  demonstrates backend-neutral filesystem acquisition. Its paths and file metadata do not define Source identity or
-  immutable revision semantics. A backend read can satisfy referenced materialization only when the complete stack
-  addresses and verifies an immutable revision.
 - DataHub stateful ingestion separates connector checkpoints and stale-entity detection from emitted metadata
   identity. Airbyte treats connector state as an opaque recovery boundary rather than record identity.
 - OpenMetadata separates the Source that emits records from connection checks, workflow status, and the sink.
