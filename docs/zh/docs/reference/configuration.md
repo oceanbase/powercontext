@@ -5,7 +5,24 @@ description: PowerContext 路径、Server、Client、推理和 Agent 集成环�
 
 # 配置
 
-PowerContext 进程启动时从环境变量读取配置。
+PowerContext 进程启动时从环境变量读取配置。CLI 不会自动搜索 `.env` 文件；请在 shell 中导出变量、由服务管理器
+或容器提供，或者向支持 `--env-file` 的命令显式传入文件。Agent 宿主可能会按照自身规则加载自己的环境文件。
+
+## 显式环境文件
+
+通过引导生成配置，在不显示凭据的情况下检查内容，并在启动前完成校验：
+
+```bash
+powercontext config init --output .env
+powercontext config show --env-file .env
+powercontext config validate --env-file .env
+powercontext server run --env-file .env
+```
+
+`config init` 会以 `0600` 权限写入文件。`server run` 收到 `--env-file` 后，文件中的赋值会覆盖进程中的同名值；
+文件中不存在的旧 `POWERCONTEXT_SERVER_*` 进程变量会被忽略，因此校验和启动使用同一份 Server 配置。
+`config show` 会隐藏已识别及生成器记录的凭据，但仍应把原文件当作可能含有秘密的部署文件保护。完整的引导与验证流程见
+[完整功能 Quick Start](../how-to/full-capability-runtime.md)。
 
 ## 用户数据
 
@@ -44,32 +61,47 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_LOGGING_ACCESS` | `true` | 记录外部 HTTP 和逻辑 MCP request completion |
 | `POWERCONTEXT_SERVER_METRICS_ENABLED` | `true` | 在 `/metrics` 暴露 Prometheus metrics |
 | `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | 启用 span recording 和 OTLP export |
-| `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLAlchemy 异步数据库 URL |
+| `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | 存储后端：`sqlite`、`seekdb` 或 `oceanbase` |
+| `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekDB 不设置 |
+| `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekDB 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 单次 activation 最多处理的 Source 数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory 选择策略：`coding` 或 `conversation` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | 在 Memory 粗召回后应用 listwise rerank |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | 未设置 | Scheduler 间隔；未设置即不启用 |
-| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 用于 Memory extraction 的 Pydantic AI 模型标识 |
-| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Generation 超时 |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 配置的 extraction、generation、Handoff 和 rerank 操作共用的 Pydantic AI 模型 |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | 单次结构化 generation 操作的超时秒数 |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS` | `2` | 单次结构化 generation 操作最多发起的 provider 请求数，包含重试 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | 未设置 | Pydantic AI embedding model；必须同时设置 profile ID 和 dimension |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID` | 未设置 | vector index 使用的模型、dimension 和 normalization 的稳定标识 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION` | 未设置 | 向 embedding model 请求并校验的正整数输出维度 |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` | `unit` | vector normalization：`unit` 或 `none` |
+| `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS` | `30` | 单次 embedding 请求的超时秒数 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | 单次 embedding 请求最多发送的文本数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 孵化间隔；未设置即不启用该 job |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 未设置 | 包含 host identity 和显式 Agent Skill targets 的 JSON object |
 
 静态 Bearer 鉴权默认关闭。启用后，API 和 MCP 请求必须携带 `Authorization: Bearer <token>`；liveness 和
-readiness endpoint 仍然公开。明文 HTTP 仅在 loopback 地址（`localhost`、`::1` 及 `127.0.0.0/8` 网段内的任意地址）上受信任。当 Server 绑定到
-非 loopback 地址且鉴权关闭时会拒绝启动；此时应启用鉴权、改回绑定 loopback，或在 TLS 由上游终止或网络本身受控的场景下，
+readiness endpoint 仍然公开。明文 HTTP 仅在 loopback 地址（`localhost`、`::1` 及 `127.0.0.0/8` 网段内的任意
+地址）上受信任。当 Server 绑定到非 loopback 地址且鉴权关闭时会拒绝启动；此时应启用鉴权、改回绑定 loopback，或在
+TLS 由上游终止或网络本身受控的场景下，
 显式设置 `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true` 主动选择接受。通过网络暴露启用鉴权的
 Server 前必须配置 TLS。
 
 Python Client 和 CLI 对出站请求应用相同规则：配置的明文 `http://` Server URL 仅接受 loopback 主机，并且 Client 拒绝
-通过明文的非 loopback HTTP 发送任何请求——无论是否携带 Bearer token。当代码的 `http://` base URL 只是路由标签、
-实际传输是安全的（进程内 ASGI 应用、Unix domain socket、由代理终止 TLS）时，必须自行传入 `http_client` 并显式设置
-`trust_transport_security=True`。
+通过明文的非 loopback HTTP 发送任何请求，无论是否携带 Bearer token。当代码的 `http://` base URL 只是路由标签、
+实际传输是安全的，例如进程内 ASGI 应用、Unix domain socket 或由代理终止 TLS 时，必须自行传入 `http_client` 并
+显式设置 `trust_transport_security=True`。
+
+安全的 Docker 和远程访问配置见[部署 Server](../how-to/deploy-server.md)。
 
 Dashboard 默认启用，并与 HTTP API、MCP 共用监听地址和端口。默认未配置 scope，页面会显示空状态；Dashboard
 初始化失败只记录包含直接原因的 warning，不影响 Server 的 HTTP API、MCP 和健康检查启动。
+
+启用 Bearer 鉴权后，`/`、`/skills`、`/reviews`、`/handoff-reports` 的 HTML 外壳及其静态资源仍保持公开，以便
+浏览器渲染登录表单；数据请求仍受鉴权保护。在表单中输入 Server token 后，浏览器只把它保存在当前标签页的 session
+storage 中。如果连这些登录页也不能暴露，应同时关闭 Dashboard 和 Handoff Report。
 
 Handoff Report 独立默认启用，路径为 `/handoff-reports`。没有任何 scope 包含 committed Handoff 时，页面显示无数据
 模板预览。Scope discovery、检查、Revision 写入和导出步骤见[使用 Handoff Report](../how-to/use-handoff-report.md)。
@@ -297,3 +329,15 @@ Authorization 只能来自环境变量，不能加入 Server URL 或插件选项
 
 Pi 会拒绝包含凭据、query 或 fragment 的 base URL。召回、采集和边界 flush 都会正常降级；显式 `pc_*` 持久化写入
 必须确认，Pi 没有交互 UI 时会被拒绝。修改这些变量后需要重启 Pi。
+
+## 其他 Agent 集成
+
+部分集成使用自己的配置文件或环境变量前缀，具体指南是这些设置的准确信息源：
+
+- [Hermes](../how-to/configure-hermes.md)
+- [LangChain](../how-to/configure-langchain.md)
+- [LangGraph](../how-to/configure-langgraph.md)
+- [OpenClaw](../how-to/configure-openclaw.md)
+- [OpenCode](../how-to/configure-opencode.md)
+- [Pydantic AI 适配器预览](../how-to/configure-pydantic-ai.md)
+- [WorkBuddy](../how-to/configure-workbuddy.md)

@@ -1,5 +1,12 @@
 # PowerContext
 
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="theme/powercontext/assets/images/powercontext-reverse.png">
+  <img alt="PowerContext" src="theme/powercontext/assets/images/powercontext-color.png" width="480" />
+</picture>
+
 **不止于记忆**
 
 [![PyPI version](https://img.shields.io/pypi/v/powercontext)](https://pypi.org/project/powercontext/)
@@ -7,6 +14,8 @@
 [![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/74cF8vbNEs)
 
 *[English](README.md) · [中文](README_CN.md) · [日本語](README_JP.md)*
+
+</div>
 
 PowerContext 是 [PowerMem](https://www.powermem.ai/) 的升级版本，也是面向人机协作的上下文运行层。它将共同推进的工作沉淀为可理解、可交接、可延续的项目上下文。
 
@@ -17,23 +26,25 @@ PowerContext 是 [PowerMem](https://www.powermem.ai/) 的升级版本，也是�
 ### 1. 安装 PowerContext 和集成
 
 ```bash
-uv tool install "powercontext[cli,server]==0.0.2"
-
-# 选择一个或多个集成。
-powercontext setup codex --source oceanbase/powercontext --ref v0.0.2
-powercontext setup claude-code --source oceanbase/powercontext --ref v0.0.2
-powercontext setup dsh --source oceanbase/powercontext --ref v0.0.2
-powercontext setup hermes --source oceanbase/powercontext --ref master
-
-# OpenClaw 和 OpenCode 当前需要从 master 安装匹配的 CLI 和集成。
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+
+# 选择一个或多个集成。所有 setup 命令都从 master 分支安装。
+powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext setup claude-code --source oceanbase/powercontext --ref master
+powercontext setup dsh --source oceanbase/powercontext --ref master
+powercontext setup hermes --source oceanbase/powercontext --ref master
 powercontext setup openclaw --source oceanbase/powercontext --ref master
 powercontext setup opencode --source oceanbase/powercontext --ref master
+powercontext setup pi --source oceanbase/powercontext --ref master
+powercontext setup workbuddy --source oceanbase/powercontext --ref master
+
+# 或者一次性安装多个 Host。
+powercontext setup select --host codex --host claude-code --host opencode \
+  --source oceanbase/powercontext --ref master
 ```
 
-第一条命令会在隔离环境中安装最新发布的 CLI 和本地 Server；发布版的 setup 命令会从匹配的仓库 tag
-安装对应集成。在 OpenClaw 和 OpenCode 进入正式发布版之前，额外的 `uv tool install` 命令会让 CLI、Server
-和集成使用同一个 `master` revision。如需刷新现有集成，请再次运行 setup。
+第一条命令会在隔离环境中从最新 `master` revision 安装 CLI 和本地 Server；每条 setup 命令都会从同一个
+`master` revision 安装对应集成。如需刷新现有集成，请再次运行 setup。
 
 ### 2. 启动并验证本地 Server
 
@@ -47,7 +58,8 @@ powercontext server run
 
 ```bash
 powercontext doctor
-powercontext doctor codex  # or: claude-code / dsh / hermes / openclaw
+powercontext doctor integrations
+powercontext doctor codex  # 请把 codex 换成已安装的宿主。
 ```
 
 默认情况下，Server 监听 `127.0.0.1:8000`，在 `/mcp` 提供 Streamable HTTP MCP，并将数据持久化到本地
@@ -80,8 +92,8 @@ SQLite 数据库。显式 Memory 操作无需配置 inference provider 即可使
 
 ## 集成
 
-PowerContext 为 Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent、OpenClaw、OpenCode 和
-WorkBuddy 提供官方集成与安装指南。
+PowerContext 为 Codex、Claude Code、DeepSeek Harness、Hermes Agent、Pi Coding Agent、OpenClaw、OpenCode、
+WorkBuddy、Bub、Pydantic AI、LangChain 和 LangGraph 提供官方集成与安装指南。
 这些集成都通过 PowerContext Server 使用同一套作用域数据和保留历史的契约；宿主集成不会自行启动或内嵌 Server。
 
 ### 官方集成
@@ -94,10 +106,21 @@ WorkBuddy 提供官方集成与安装指南。
 <td align="center" width="120"><a href="integrations/hermes/README.md"><img src="https://github.com/NousResearch/hermes-agent/blob/main/website/static/img/logo.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /><br /><sub><b>Hermes Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/zh/docs/how-to/configure-pi.md"><img src="https://github.com/earendil-works.png?size=120" alt="Pi Coding Agent" width="48" height="48" /><br /><sub><b>Pi Coding Agent</b></sub></a></td>
 <td align="center" width="120"><a href="docs/zh/docs/how-to/configure-openclaw.md"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
+</tr>
+<tr>
 <td align="center" width="120"><a href="docs/zh/docs/how-to/configure-opencode.md"><img src="https://github.com/anomalyco.png?size=120" alt="OpenCode" width="48" height="48" /><br /><sub><b>OpenCode</b></sub></a></td>
 <td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="docs/assets/workbuddy.svg" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
+<td align="center" width="120"><a href="integrations/bub/README.md"><img src="https://github.com/bubbuild.png?size=120" alt="Bub" width="48" height="48" /><br /><sub><b>Bub</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/how-to/configure-pydantic-ai.md"><img src="https://github.com/pydantic.png?size=120" alt="Pydantic AI" width="48" height="48" /><br /><sub><b>Pydantic AI</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/how-to/configure-langchain.md"><img src="https://github.com/langchain-ai.png?size=120" alt="LangChain" width="48" height="48" /><br /><sub><b>LangChain</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/how-to/configure-langgraph.md"><img src="https://github.com/langchain-ai.png?size=120" alt="LangGraph" width="48" height="48" /><br /><sub><b>LangGraph</b></sub></a></td>
 </tr>
 </table>
+
+Python Agent 应用可以使用 [LangChain 中间件](docs/zh/docs/how-to/configure-langchain.md)、
+[LangGraph 节点与工具适配器](docs/zh/docs/how-to/configure-langgraph.md)、
+[Pydantic AI 中间件](docs/zh/docs/how-to/configure-pydantic-ai.md) 或
+[Bub 插件](integrations/bub/README.md)。
 
 ## 开发
 

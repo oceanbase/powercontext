@@ -10,7 +10,7 @@ The plugin deliberately uses only the Python standard library for HTTP, so it
 can be copied into Hermes without adding an HTTP client dependency. Its
 provider configuration is read from `$HERMES_HOME/powercontext/config.json`.
 
-To install or refresh the provider from a matching PowerContext release tag:
+To install or refresh the provider from the matching PowerContext `master` revision:
 
 ```bash
 powercontext setup hermes --source oceanbase/powercontext --ref master

@@ -66,14 +66,13 @@ await graph.ainvoke(state, context=PowerContextScope(scope_id="git:github.com/ac
 This package is not yet published to PyPI, so install it from source alongside a running Server:
 
 ```bash
-uv pip install "powercontext-langgraph @ git+https://github.com/oceanbase/powercontext.git#subdirectory=integrations/langgraph"
+uv pip install "powercontext-langgraph @ git+https://github.com/oceanbase/powercontext.git@master#subdirectory=integrations/langgraph"
 powercontext server run
 ```
 
-From a checkout of this repository you can instead install the local path, e.g.
-`uv pip install ./integrations/langgraph`. Publishing to PyPI is pending a standalone build and release step for the
-package (its version must be advanced independently of the root `powercontext` distribution); until that lands, use
-the source install above.
+From a checkout of this repository you can instead install the local path, for example
+`uv pip install ./integrations/langgraph`. The adapter is not currently published on PyPI, so use one of these source
+installations.
 
 ## Configuration
 

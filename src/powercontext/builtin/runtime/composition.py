@@ -562,7 +562,11 @@ async def _embedding_models(
 
     def adapter(instrument: InstrumentationSettings | bool | None) -> EmbeddingModel:
         return PydanticAIEmbeddingModel(
-            embedder=Embedder(model, instrument=instrument),
+            embedder=Embedder(
+                model,
+                settings={"dimensions": profile.dimension},
+                instrument=instrument,
+            ),
             batch_size=settings.embedding_batch_size,
             profile=profile,
             limits=limits,

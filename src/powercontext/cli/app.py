@@ -26,7 +26,7 @@ from powercontext.client.cli import configure_client, register_commands
 
 COMMAND_PROVIDER_GROUP = "powercontext.cli"
 HELP_OPTION_NAMES = ("-h", "--help")
-DOCUMENTATION_URL = "https://github.com/oceanbase/powercontext/tree/main/docs/en/docs"
+DOCUMENTATION_URL = "https://github.com/oceanbase/powercontext/tree/master/docs/en/docs"
 ISSUES_URL = "https://github.com/oceanbase/powercontext/issues"
 
 

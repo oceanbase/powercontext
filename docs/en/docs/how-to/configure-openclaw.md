@@ -7,7 +7,7 @@ description: Install the PowerContext memory plugin for OpenClaw and control rec
 
 ## Install or refresh the plugin
 
-Until a PowerContext release includes OpenClaw, install the CLI and plugin from the same `master` revision:
+Install the CLI and plugin from the same `master` revision:
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"

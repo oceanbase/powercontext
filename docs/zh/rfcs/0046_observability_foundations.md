@@ -84,6 +84,9 @@ PowerContext 区分以下工作单元：
 Runtime stage span 的 `powercontext.operation.unit` 值为 `stage`。它们用于展示内部耗时，但不会产生新的
 application operation。
 
+Background activation 的 `powercontext.operation.unit` 值为 `background`。定时 activation 会开启独立 trace，而不是
+继承入站请求上下文。
+
 直接 HTTP call 会产生一次 external request 和一次 application operation。MCP tool call 同样产生一次
 external request 和一次 application operation。其内部 HTTP bridge 不计为第二次 external request。
 

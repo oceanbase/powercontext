@@ -345,6 +345,28 @@ def test_mcp_describes_handoff_tool_side_effects_for_host_approval() -> None:
     assert resolve.openWorldHint is False
 
 
+def test_mcp_describes_review_write_side_effects_for_host_approval() -> None:
+    review_writes = {
+        "approve_artifact_candidate",
+        "reject_artifact_candidate",
+        "revise_artifact_candidate",
+    }
+
+    async def inspect_annotations() -> dict[str, Any]:
+        async with Client(create_mcp_server(create_app())) as client:
+            return {tool.name: tool.annotations for tool in await client.list_tools() if tool.name in review_writes}
+
+    annotations = run_async(inspect_annotations)
+
+    assert set(annotations) == review_writes
+    for name, decision in annotations.items():
+        assert decision is not None, f"{name} carries no annotations for an MCP host to prompt on"
+        assert decision.readOnlyHint is False
+        assert decision.destructiveHint is True
+        assert decision.idempotentHint is True
+        assert decision.openWorldHint is False
+
+
 def test_mcp_exact_entry_tools_use_nested_citations() -> None:
     async def exact_entry_tool_schemas() -> dict[str, dict[str, Any]]:
         server = create_mcp_server(create_app())

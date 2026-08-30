@@ -30,6 +30,9 @@ overview:
     - title: 理解与运行
       description: 判断什么需要保留，配置 Server，或排查无法工作的环境。
       cards:
+        - title: 完整功能 Quick Start
+          description: 生成一份经过校验的配置，并验证抽取、向量搜索和 Agent 闭环。
+          href: zh/docs/how-to/full-capability-runtime/
         - title: 核心概念
           description: 理解 scope、证据、带 Revision 的 Artifact、prepared context 和工作连续性。
           href: zh/docs/explanation/core-concepts/
@@ -42,6 +45,12 @@ overview:
         - title: 配置
           description: 设置存储、provider、接口和运行行为。
           href: zh/docs/reference/configuration/
+        - title: 部署 Server
+          description: 使用持久化数据、健康检查、鉴权和安全网络边界运行 Server。
+          href: zh/docs/how-to/deploy-server/
+        - title: HTTP API
+          description: 从任意语言调用 Server，并查阅完整 OpenAPI 契约。
+          href: zh/docs/reference/http-api/
         - title: 审核 Candidate
           description: 检查、修订、批准或拒绝待审核的 Experience 和 Skill 提案。
           href: zh/docs/how-to/review-candidates/
