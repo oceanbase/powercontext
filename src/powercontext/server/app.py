@@ -74,6 +74,7 @@ from powercontext.builtin.artifacts.skill import (
 from powercontext.builtin.artifacts.skill.distribution import (
     RemotePublicationGenerationError,
     RemoteSkillDistributionError,
+    RemoteSkillLifecycleError,
     RemoteTargetAuthenticationError,
     RemoteTargetEnrollmentError,
     RemoteTargetStateError,
@@ -2178,6 +2179,8 @@ def _map_remote_skill_error(error: Exception) -> tuple[int, str, str, dict[str, 
         return status.HTTP_409_CONFLICT, error.code, "The enrollment cannot be completed.", None
     if isinstance(error, RemotePublicationGenerationError):
         return status.HTTP_409_CONFLICT, error.code, "The remote publication generation is stale.", None
+    if isinstance(error, RemoteSkillLifecycleError):
+        return status.HTTP_422_UNPROCESSABLE_CONTENT, error.code, "The Skill lifecycle rejects publication.", None
     if isinstance(error, RemoteTargetStateError):
         return status.HTTP_409_CONFLICT, error.code, "The remote target state rejects this operation.", None
     if isinstance(error, RemoteSkillDistributionError):

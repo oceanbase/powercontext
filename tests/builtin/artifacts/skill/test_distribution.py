@@ -19,6 +19,7 @@ import pytest
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.skill import SkillContent, build_instruction_skill_package
 from powercontext.builtin.artifacts.skill.distribution import (
+    RemoteSkillLifecycleError,
     RemoteSkillObservation,
     RemoteSkillOperation,
     RemoteSkillReceipt,
@@ -29,6 +30,7 @@ from powercontext.builtin.artifacts.skill.distribution import (
 )
 from powercontext.builtin.artifacts.skill.projection import AgentSkillProjectionState
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTargetState
+from powercontext.builtin.persistence.artifact_governance import ArtifactLifecycleState
 from powercontext.builtin.persistence.skill_publications import SkillPublicationDesiredState
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
@@ -210,6 +212,51 @@ def test_remote_publish_reconcile_download_receipt_and_safe_unpublish_converge()
             assert (await service.reconcile(credential, (), "0.1.0", "e" * 64)).actions == ()
             with pytest.raises(RemoteTargetAuthenticationError):
                 await service.download(credential, remove.generation, artifact, package.reference)
+
+    asyncio.run(exercise())
+
+
+def test_remote_publish_distinguishes_skill_lifecycle_from_target_state() -> None:
+    async def exercise() -> None:
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+            scope_id = "project:one"
+            artifact, _package_snapshot = await _approved_package(contexts, scope_id)
+            service = contexts.remote_skill_distribution()
+            _enrollment, target = await _active_target(service, scope_id)
+            await contexts.update_skill_lifecycle(
+                scope_id,
+                artifact.artifact_id,
+                0,
+                ArtifactLifecycleState.DEPRECATED,
+                None,
+            )
+
+            with pytest.raises(RemoteSkillLifecycleError):
+                await service.publish(scope_id, target.target_id, artifact, None)
+
+            publication = await service.publish(
+                scope_id,
+                target.target_id,
+                artifact,
+                None,
+                allow_deprecated=True,
+            )
+            await contexts.update_skill_lifecycle(
+                scope_id,
+                artifact.artifact_id,
+                1,
+                ArtifactLifecycleState.RETIRED,
+                None,
+            )
+
+            with pytest.raises(RemoteSkillLifecycleError):
+                await service.publish(
+                    scope_id,
+                    target.target_id,
+                    artifact,
+                    publication.generation,
+                    allow_deprecated=True,
+                )
 
     asyncio.run(exercise())
 

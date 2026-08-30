@@ -54,7 +54,7 @@ def install_systemd_user_service(
 
     _require_linux()
     resolved_config = config_file.expanduser().resolve(strict=True)
-    powercontext = _required_executable("powercontext")
+    powercontext = _powercontext_executable()
     systemctl = _required_executable("systemctl")
     installation = _installation(config.target_id)
     contents = render_systemd_user_service(
@@ -144,6 +144,16 @@ def _required_executable(name: str) -> Path:
     if resolved is None:
         raise ReceiverServiceError(f"cannot install the Receiver service because {name!r} is not available")
     return Path(resolved).resolve(strict=True)
+
+
+def _powercontext_executable() -> Path:
+    invoked = Path(sys.argv[0]).expanduser()
+    if invoked.name == "powercontext" and invoked.is_absolute():
+        try:
+            return invoked.resolve(strict=True)
+        except OSError:
+            pass
+    return _required_executable("powercontext")
 
 
 def _atomic_write(path: Path, contents: str) -> None:

@@ -65,7 +65,6 @@ from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsCon
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.protocols import RuntimeTracing
 from powercontext.builtin.runtime.readiness import (
-    READINESS_PROBE_TIMEOUT_SECONDS,
     CachedReadinessProbe,
     ReadinessProbe,
     ReadinessProbeDefinition,
@@ -464,7 +463,7 @@ async def _generation_pipelines(
 
     async def probe_generation() -> None:
         # Readiness probing runs outside any operation span; keep it out of traces.
-        await probe_pydantic_ai_model(provider_model, timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS)
+        await probe_pydantic_ai_model(provider_model, timeout_seconds=settings.generation_timeout_seconds)
 
     limits = InferenceLimits(
         timeout_seconds=settings.generation_timeout_seconds,
@@ -536,7 +535,9 @@ async def _generation_pipelines(
             evidence_projector=_ContentHandoffEvidenceProjector(),
         ),
         (None if rerank_generator is None else LLMMemoryReranker(UsageReportingStructuredGenerator(rerank_generator))),
-        CachedReadinessProbe(dependency_readiness_probe(probe_generation)),
+        CachedReadinessProbe(
+            dependency_readiness_probe(probe_generation, timeout_seconds=settings.generation_timeout_seconds)
+        ),
     )
 
 

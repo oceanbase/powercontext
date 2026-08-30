@@ -29,6 +29,7 @@ from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
+import powercontext.builtin.runtime.composition as runtime_composition
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
@@ -38,6 +39,7 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, MemoryExtractionProfile, RuntimeConfig
+from powercontext.builtin.runtime.readiness import READINESS_PROBE_TIMEOUT_SECONDS
 from powercontext.http import (
     Capabilities,
     ReadinessResponse,
@@ -467,11 +469,27 @@ def test_server_factory_reports_database_failure_as_not_ready(monkeypatch, tmp_p
     assert "secret database URL" not in response.text
 
 
-def test_server_factory_reports_database_and_configured_generation_readiness(tmp_path) -> None:
+def test_server_factory_reports_database_and_configured_generation_readiness(monkeypatch, tmp_path) -> None:
+    probe_timeouts: list[float] = []
+    readiness_timeouts: list[float] = []
+    original_readiness_probe = runtime_composition.dependency_readiness_probe
+
+    async def probe_generation(_model, /, *, timeout_seconds: float) -> None:
+        probe_timeouts.append(timeout_seconds)
+
+    def capture_readiness_timeout(operation, *, timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS):
+        readiness_timeouts.append(timeout_seconds)
+        return original_readiness_probe(operation, timeout_seconds=timeout_seconds)
+
+    monkeypatch.setattr(
+        "powercontext.builtin.inference.pydantic_ai.probe_pydantic_ai_model",
+        probe_generation,
+    )
+    monkeypatch.setattr(runtime_composition, "dependency_readiness_probe", capture_readiness_timeout)
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
-            inference=InferenceConfig(generation_model="test"),
+            inference=InferenceConfig(generation_model="test", generation_timeout_seconds=12.5),
             mcp=McpConfig(enabled=False),
         )
     )
@@ -488,6 +506,8 @@ def test_server_factory_reports_database_and_configured_generation_readiness(tmp
             "inference.generation": "ready",
         },
     }
+    assert probe_timeouts == [12.5]
+    assert 12.5 in readiness_timeouts
 
 
 def test_server_factory_reports_generation_failure_as_degraded(monkeypatch, tmp_path) -> None:

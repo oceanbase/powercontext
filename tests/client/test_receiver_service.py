@@ -85,3 +85,34 @@ def test_systemd_user_service_uninstall_does_not_claim_an_absent_unit_was_stoppe
 
     with pytest.raises(ReceiverServiceError, match="does not exist"):
         uninstall_systemd_user_service("codex-a")
+
+
+def test_systemd_user_service_uses_the_invoked_venv_entrypoint_when_it_is_not_on_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    config_file = tmp_path / "project with space/.powercontext/remote-skill-target.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text("credential stays here", encoding="utf-8")
+    entrypoint = tmp_path / "venv/bin/powercontext"
+    entrypoint.parent.mkdir(parents=True)
+    entrypoint.write_text("#!/bin/sh\n", encoding="utf-8")
+    entrypoint.chmod(0o755)
+    monkeypatch.setattr(service_module.sys, "argv", [str(entrypoint), "skill", "remote-service-install"])
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(
+        service_module,
+        "_required_executable",
+        lambda name: (
+            Path("/usr/bin/systemctl")
+            if name == "systemctl"
+            else pytest.fail("the invoked venv entrypoint should not require a PATH lookup")
+        ),
+    )
+    monkeypatch.setattr(service_module, "_run_systemctl", lambda *_args: None)
+
+    installation = install_systemd_user_service(config_file, config, interval_seconds=3)
+
+    contents = installation.unit_path.read_text(encoding="utf-8")
+    assert str(entrypoint) in contents

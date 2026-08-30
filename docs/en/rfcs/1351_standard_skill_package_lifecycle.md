@@ -1,6 +1,6 @@
 - Proposal Name: `standard_skill_package_lifecycle`
 - Start Date: 2026-08-21
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#1351](https://github.com/oceanbase/powercontext/pull/1351)
 - Related RFCs: [RFC 0031](0050_artifact_candidate_review_inbox.md),
   [RFC 0051](0051_experience_skill_artifact_families.md),
   [RFC 0072](0072_scoped_statistics_and_usage.md), and

@@ -38,7 +38,9 @@ from powercontext.http import (
     RemoteAgentKind,
     RenameRemoteSkillTargetRequest,
     RevokeRemoteSkillTargetRequest,
+    SkillLifecycleState,
     UnpublishRemoteSkillRequest,
+    UpdateSkillLifecycleRequest,
 )
 from powercontext.server.app import ServerApplication, create_app
 
@@ -77,6 +79,15 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 )
                 assert approved.result_artifact is not None
 
+                await admin.update_skill_lifecycle(
+                    UpdateSkillLifecycleRequest(
+                        scope_id="project:one",
+                        artifact_id=approved.result_artifact.artifact_id,
+                        expected_generation=0,
+                        lifecycle_state=SkillLifecycleState.DEPRECATED,
+                    )
+                )
+
                 enrollment = await admin.create_remote_skill_target(
                     CreateRemoteSkillTargetRequest(
                         scope_id="project:one",
@@ -108,12 +119,24 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 assert renamed.machine_hostname == "build-host-01"
                 assert renamed.workspace_name == "powercontext"
                 assert renamed.target_id == activated.target_id
+                with pytest.raises(ServerResponseError) as lifecycle_rejected:
+                    await admin.publish_remote_skill(
+                        PublishRemoteSkillRequest(
+                            scope_id="project:one",
+                            target_id=activated.target_id,
+                            artifact=approved.result_artifact,
+                            expected_generation=None,
+                        )
+                    )
+                assert lifecycle_rejected.value.status_code == 422
+                assert lifecycle_rejected.value.code == "invalid_skill_lifecycle"
                 publication = await admin.publish_remote_skill(
                     PublishRemoteSkillRequest(
                         scope_id="project:one",
                         target_id=activated.target_id,
                         artifact=approved.result_artifact,
                         expected_generation=None,
+                        allow_deprecated=True,
                     )
                 )
                 assert publication.generation == 0

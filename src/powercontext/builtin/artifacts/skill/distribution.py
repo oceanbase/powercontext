@@ -87,6 +87,10 @@ class RemotePublicationGenerationError(RemoteSkillDistributionError):
     code = "publication_generation_conflict"
 
 
+class RemoteSkillLifecycleError(RemoteSkillDistributionError):
+    code = "invalid_skill_lifecycle"
+
+
 class RemoteTargetEnrollment(BaseModel):
     """Pending target plus the enrollment code returned exactly once."""
 
@@ -423,9 +427,9 @@ class RemoteSkillDistributionService:
             skill, package = await self._load_package_backed_skill(connection, scope, artifact)
             governance = await self._governance.get(connection, scope, Skill.family, artifact.artifact_id)
             if governance.lifecycle_state is ArtifactLifecycleState.RETIRED:
-                raise RemoteTargetStateError("retired managed Skills cannot be published")
+                raise RemoteSkillLifecycleError("retired managed Skills cannot be published")
             if governance.lifecycle_state is ArtifactLifecycleState.DEPRECATED and not allow_deprecated:
-                raise RemoteTargetStateError("deprecated managed Skills require an explicit publication override")
+                raise RemoteSkillLifecycleError("deprecated managed Skills require an explicit publication override")
             current = await self._publications.find(connection, scope, target_id, artifact.artifact_id)
             if current is None:
                 if expected_generation is not None:
@@ -866,6 +870,7 @@ __all__ = [
     "RemoteSkillAction",
     "RemoteSkillDistributionError",
     "RemoteSkillDistributionService",
+    "RemoteSkillLifecycleError",
     "RemoteSkillObservation",
     "RemoteSkillOperation",
     "RemoteSkillReceipt",

@@ -281,7 +281,7 @@ async def probe_pydantic_ai_model(
         await asyncio.wait_for(
             model.request(
                 [ModelRequest(parts=[UserPromptPart("Reply with one token.")])],
-                ModelSettings(max_tokens=1),
+                ModelSettings(max_tokens=16),
                 ModelRequestParameters(),
             ),
             timeout=timeout_seconds,
