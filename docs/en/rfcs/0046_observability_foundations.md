@@ -87,6 +87,9 @@ PowerContext distinguishes these units:
 Runtime stage spans use `stage` as their `powercontext.operation.unit` value. They expose internal latency without
 creating another application operation.
 
+Background activations use `background` as their `powercontext.operation.unit` value. Scheduled activations start their
+own trace rather than inheriting an inbound request context.
+
 A direct HTTP call produces one external request and one application operation. An MCP tool call also produces one
 external request and one application operation. Its internal HTTP bridge does not count as a second external request.
 

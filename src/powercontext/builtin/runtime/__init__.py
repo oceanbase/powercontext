@@ -127,11 +127,13 @@ from powercontext.builtin.runtime.models import (
 )
 from powercontext.builtin.runtime.protocols import PowerContextProvider, RemoteIngestion
 from powercontext.builtin.runtime.readiness import (
+    CachedReadinessProbe,
     ReadinessCheckStatus,
     ReadinessProbeDefinition,
     RuntimeReadiness,
     RuntimeReadinessChecks,
     RuntimeReadinessStatus,
+    dependency_readiness_probe,
 )
 from powercontext.builtin.statistics import (
     ArtifactInventoryStatistics,
@@ -166,6 +168,7 @@ __all__ = [
     "BuiltinConfig",
     "BuiltinConfigurationError",
     "BuiltinRuntime",
+    "CachedReadinessProbe",
     "CandidateFamilyCount",
     "CandidateInventoryStatistics",
     "CaptureSource",
@@ -287,6 +290,7 @@ __all__ = [
     "SubmitSourceObservation",
     "UsageStatistics",
     "WorkApplication",
+    "dependency_readiness_probe",
     "open_builtin_contexts",
     "open_builtin_runtime",
 ]

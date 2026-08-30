@@ -30,6 +30,9 @@ overview:
     - title: Understand and operate
       description: Decide what persists, configure the Server, or resolve a broken setup.
       cards:
+        - title: Full-capability Quick Start
+          description: Generate one validated configuration and verify extraction, vector search, and an Agent loop.
+          href: en/docs/how-to/full-capability-runtime/
         - title: Core concepts
           description: Understand scopes, evidence, revisioned Artifacts, prepared context, and work continuity.
           href: en/docs/explanation/core-concepts/
@@ -42,6 +45,12 @@ overview:
         - title: Configuration
           description: Set storage, providers, interfaces, and runtime behavior.
           href: en/docs/reference/configuration/
+        - title: Deploy the Server
+          description: Run a persistent Server with health checks, authentication, and a safe network boundary.
+          href: en/docs/how-to/deploy-server/
+        - title: HTTP API
+          description: Call the Server from any language and find the complete OpenAPI contract.
+          href: en/docs/reference/http-api/
         - title: Review Candidates
           description: Inspect, revise, approve, or reject pending Experience and Skill proposals.
           href: en/docs/how-to/review-candidates/

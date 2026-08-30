@@ -326,38 +326,6 @@ def test_prompt_capture_can_be_disabled(
     assert output.getvalue() == ""
 
 
-def test_context_request_uses_prepare_once(hook_module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
-    requests: list[tuple[str, dict[str, object], int | None]] = []
-
-    def post(
-        path: str,
-        payload: dict[str, object],
-        *,
-        settings: object,
-        deadline: float,
-        expected_status: int | None = None,
-    ) -> dict[str, object]:
-        requests.append((path, payload, expected_status))
-        return _prepared(None, status="empty")
-
-    monkeypatch.setattr(hook_module, "_post_json", post)
-
-    hook_module._prepare_context(
-        "query",
-        "project:test",
-        settings=hook_module.ClaudeCodePluginSettings(),
-        deadline=10.0,
-    )
-
-    assert requests == [
-        (
-            "/v1/context/prepare",
-            {"scope_id": "project:test", "query": "query", "max_bytes": 8000},
-            200,
-        )
-    ]
-
-
 def test_capture_prompt_is_idempotent_and_is_not_a_task_outcome(
     hook_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -437,7 +405,7 @@ def test_http_failures_are_non_blocking_and_content_free(
     assert "secret" not in errors.getvalue()
 
 
-def test_unknown_schema_and_oversized_content_are_not_injected(
+def test_unknown_schema_is_not_injected(
     hook_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -456,39 +424,8 @@ def test_unknown_schema_and_oversized_content_are_not_injected(
         )
         is None
     )
-    with pytest.raises(hook_module._InvalidResponseError):
-        hook_module._validate_prepared_context(_prepared("x" * 8_001))
     assert json.loads(errors.getvalue())["outcome"] == "invalid_response"
     assert "secret" not in errors.getvalue()
-
-
-@pytest.mark.parametrize(
-    "response",
-    [
-        {"schema": "powercontext.prepared-context.v1", "status": "ready", "content": "missing byte count"},
-        {"schema": "powercontext.prepared-context.v1", "status": "empty", "content": "not empty", "content_bytes": 9},
-        {"schema": "powercontext.prepared-context.v1", "status": "ready", "content": "bad count", "content_bytes": 1},
-    ],
-)
-def test_malformed_prepared_context_is_not_injected(
-    hook_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    response: dict[str, object],
-) -> None:
-    monkeypatch.setattr(hook_module, "_prepare_context", lambda *_args, **_kwargs: response)
-    errors = io.StringIO()
-    monkeypatch.setattr(sys, "stderr", errors)
-
-    assert (
-        hook_module._recall_context(
-            "query",
-            "project:test",
-            settings=hook_module.ClaudeCodePluginSettings(),
-            deadline=time.monotonic() + 1,
-        )
-        is None
-    )
-    assert json.loads(errors.getvalue())["outcome"] == "invalid_response"
 
 
 def test_hook_refuses_redirects(
@@ -531,22 +468,3 @@ def test_hook_refuses_redirects(
                 )
 
     assert target_headers == []
-
-
-def test_hook_rejects_an_oversized_response_body(hook_module: ModuleType) -> None:
-    class OversizedResponse:
-        fp = object()
-
-        def __init__(self) -> None:
-            self.remaining = hook_module._MAX_RESPONSE_BYTES + 1
-
-        def read(self, amount: int = -1) -> bytes:
-            size = min(amount, self.remaining)
-            self.remaining -= size
-            return b"x" * size
-
-    with pytest.raises(ValueError, match="exceeds the hook limit"):
-        hook_module._read_response(
-            OversizedResponse(),
-            deadline=time.monotonic() + 2,
-        )

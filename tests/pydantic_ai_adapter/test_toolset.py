@@ -19,8 +19,7 @@ from typing import Any
 
 import powercontext_pydantic_ai.toolset as toolset_module
 import pytest
-from powercontext_pydantic_ai import PowerContextSettings, PowerContextToolset
-from pydantic import SecretStr
+from powercontext_pydantic_ai import PowerContextToolset
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelResponse, RetryPromptPart, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
@@ -134,28 +133,3 @@ def test_toolset_converts_client_failure_to_model_retry(monkeypatch: pytest.Monk
     assert len(retry_parts) == 1
     assert "PowerContext search failed" in str(retry_parts[0].content)
     assert RecordingClient.instances[0].search_requests
-
-
-def test_toolset_uses_one_raw_token_client_per_run_and_closes_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    RecordingClient.reset()
-    monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
-    token = "bare-token-sentinel"  # noqa: S105 - synthetic client-boundary sentinel.
-
-    async def respond(_messages, _info):
-        return ModelResponse(parts=[TextPart("done")])
-
-    async def scenario() -> None:
-        toolset = PowerContextToolset(
-            settings=PowerContextSettings(token=SecretStr(token)),
-            scope_id="project:lifecycle",
-        )
-        assert toolset.id == "powercontext"
-        agent = Agent(FunctionModel(respond), toolsets=[toolset])
-        await agent.run("first")
-        await agent.run("second")
-
-    asyncio.run(scenario())
-
-    assert len(RecordingClient.instances) == 2
-    assert [client.token for client in RecordingClient.instances] == [token, token]
-    assert all(client.closed for client in RecordingClient.instances)

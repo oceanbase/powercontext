@@ -10,7 +10,7 @@ The integration requires Hermes Agent v0.20.4 or newer.
 ## Install with the PowerContext CLI
 
 With Hermes installed and available on `PATH`, install or refresh the provider
-from the matching PowerContext release tag:
+from the matching PowerContext `master` revision:
 
 ```bash
 powercontext setup hermes --source oceanbase/powercontext --ref master

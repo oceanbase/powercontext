@@ -1,20 +1,24 @@
 ---
-title: Configure Pydantic AI
-description: Add durable Memory tools, automatic context preparation, and optional trajectory capture to Pydantic AI.
+title: Pydantic AI adapter preview
+description: Review the current Pydantic AI adapter API and its installation status.
 ---
 
-# Configure Pydantic AI
+# Pydantic AI adapter preview
 
-Use the independently released `powercontext-pydantic-ai` package when a Pydantic AI agent should share durable
-Memory through a running PowerContext Server.
+The repository contains a preview adapter that lets a Pydantic AI agent share durable Memory through a running
+PowerContext Server. It is not yet available as a supported standalone installation.
 
-## Install the adapter
+## Check availability before using it
 
-Start the Server, then install the adapter in the agent application:
+`powercontext-pydantic-ai` is not currently published on PyPI. Its source package also requires a final
+`powercontext[client]>=0.0.3`, which the current public package and the development version from `master` do not
+satisfy. Therefore, both the old PyPI command and a direct Git subdirectory install fail dependency resolution.
 
-```bash
-uv add powercontext-pydantic-ai "pydantic-ai-slim[openai]"
-```
+Do not add this adapter to an application until compatible root and adapter packages have been released. Repository
+contributors can run its tests through the root development environment; the remaining sections document the preview
+API for development and review, not a supported installation path.
+
+## Attach the preview capability
 
 The example below uses OpenAI. For another provider, install the matching `pydantic-ai-slim` provider extra and
 change the model string.
@@ -108,5 +112,5 @@ Connecting PowerContext MCP requires no adapter package, but it is a lower-capab
 provides explicit tools; it does not automatically call `prepare_context`, capture trajectory events, or Flush at
 checkpoints and run completion.
 
-This first adapter release supports ordinary Pydantic AI runs. Durable execution through Temporal, DBOS, Prefect, or
-similar systems is not yet validated. Handoff, Candidate Review, Experience, and Skill operations are not included.
+The preview supports ordinary Pydantic AI runs. Durable execution through Temporal, DBOS, Prefect, or similar systems
+is not yet validated. Handoff, Candidate Review, Experience, and Skill operations are not included.

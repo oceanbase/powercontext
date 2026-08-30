@@ -409,6 +409,24 @@ def test_embedding_adapter_maps_provider_errors_and_preserves_cause() -> None:
     asyncio.run(scenario())
 
 
+def test_embedding_adapter_maps_a_rejected_request_to_a_stable_reason_without_leaking_body() -> None:
+    async def scenario() -> None:
+        provider_error = ModelHTTPError(400, "result-model", {"error": {"message": "secret provider body"}})
+        adapter = PydanticAIEmbeddingModel(
+            embedder=Embedder(ResultEmbeddingModel((), error=provider_error)),
+            profile=TEST_PROFILE,
+        )
+
+        with pytest.raises(PydanticAIConfigurationError) as error:
+            await adapter.embed(("bounded text",))
+        assert error.value.code == "provider-rejected"
+        assert error.value.detail == "HTTP 400"
+        assert "HTTP 400" in str(error.value)
+        assert "secret provider body" not in str(error.value)
+
+    asyncio.run(scenario())
+
+
 def test_instrumented_embedding_spans_nest_under_the_active_span_without_recording_text() -> None:
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)

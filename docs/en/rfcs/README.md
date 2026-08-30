@@ -43,7 +43,7 @@ Useful preparatory steps include:
 
 ## The RFC process
 
-- Fork the [PowerContext repo](https://github.com/oceanbase/powercontext) and create a branch from `main`.
+- Fork the [PowerContext repo](https://github.com/oceanbase/powercontext) and create a branch from `master`.
 - Copy [`0000_example.md`](0000_example.md) to `0000-my-feature.md`, where `my-feature` is descriptive.
 - Do not assign an RFC number before opening the pull request. The RFC number should match the pull request number.
 - Submit a pull request containing the RFC document under `docs/en/rfcs/` and keep its Chinese translation in sync.

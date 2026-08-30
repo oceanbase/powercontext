@@ -7,19 +7,24 @@ description: Choose between Agent integrations, the CLI, Python SDKs, HTTP, and 
 
 All remote interfaces operate on the same Server and persistent Artifact storage.
 
-| Interface | Intended use | Install |
+| Interface | Intended use | Start here |
 | --- | --- | --- |
-| Codex plugin | Cross-session recall and explicit Memory maintenance in Codex | `powercontext setup codex` |
-| Pydantic AI adapter | Memory tools, automatic context preparation, and optional trajectory capture | `powercontext-pydantic-ai` |
-| DeepSeek Harness plugin | Cross-session recall and explicit Memory maintenance in DeepSeek Harness | `powercontext setup dsh` |
-| LangChain middleware | Bounded recall and completed-turn Source capture in `create_agent` | `powercontext-langchain` |
-| LangGraph adapter | Memory tools and bounded recall inside a LangGraph graph | `powercontext-langgraph` |
-| Pi package | Cross-session recall, native Memory/Handoff tools, and skills in Pi | `powercontext setup pi` |
-| CLI | Setup, diagnostics, Server control, capability checks, and human Candidate review | `powercontext[cli,server]` |
-| Python Client SDK | Typed async calls to a running Server | `powercontext[client]` |
-| Core SDK | In-process Source, Artifact, Trigger, and composition contracts | base package |
-| HTTP | Service integration from any language | `powercontext[server]` |
-| MCP | Agent tools for Memory and work continuity | enabled by Server |
+| Codex plugin | Cross-session recall and explicit Memory maintenance in Codex | [Configure Codex](../how-to/configure-codex.md) |
+| Claude Code plugin | Cross-session recall and Handoff in Claude Code | [Configure Claude Code](../how-to/configure-claude-code.md) |
+| DeepSeek Harness plugin | Recall and explicit Memory maintenance in DeepSeek Harness | [Configure DeepSeek Harness](../how-to/configure-dsh.md) |
+| Hermes integration | Recall, Memory, and Handoff tools in Hermes | [Configure Hermes](../how-to/configure-hermes.md) |
+| OpenClaw plugin | Bounded recall and durable Memory tools in OpenClaw | [Configure OpenClaw](../how-to/configure-openclaw.md) |
+| OpenCode plugin | Recall and Memory maintenance in OpenCode | [Configure OpenCode](../how-to/configure-opencode.md) |
+| Pi package | Recall, native Memory/Handoff tools, and skills in Pi | [Configure Pi](../how-to/configure-pi.md) |
+| WorkBuddy integration | Prompt recall, MCP tools, and Handoff in WorkBuddy | [Configure WorkBuddy](../how-to/configure-workbuddy.md) |
+| Pydantic AI adapter | Preview API; no supported standalone install yet | [Adapter status](../how-to/configure-pydantic-ai.md) |
+| LangChain middleware | Bounded recall and completed-turn Source capture in `create_agent` | [Install from source](../how-to/configure-langchain.md) |
+| LangGraph adapter | Memory tools and bounded recall inside a LangGraph graph | [Install from source](../how-to/configure-langgraph.md) |
+| CLI | Setup, diagnostics, Server control, and human Candidate review | [Install and run](../how-to/install-and-run.md) |
+| Python Client SDK | Typed asynchronous calls to a running Server | [Install the client role](../how-to/install-and-run.md#install-a-python-role) |
+| Core SDK | In-process Source, Artifact, Trigger, and composition contracts | [Python API reference](/en/modules/) |
+| HTTP | Service integration from any language | [HTTP API](http-api.md) |
+| MCP | Agent tools for Memory and work continuity | Enabled by the Server at `/mcp` |
 
 ## Codex plugin
 
@@ -85,11 +90,11 @@ HTTP operations. The plugin never starts or embeds the Server.
 
 ## Pydantic AI adapter
 
-The independent `powercontext-pydantic-ai` distribution contributes three Memory tools through the public Python
-Client and can automatically prepend bounded `PreparedContext`. Optional capture stores redacted, bounded visible
-model and completed tool events, performs checkpoint Flush, and flushes remaining Sources after the run. MCP needs no
-adapter package but does not provide automatic context preparation, capture, or Flush. See
-[Configure Pydantic AI](../how-to/configure-pydantic-ai.md).
+The repository contains a preview Pydantic AI adapter with three Memory tools and automatic bounded
+`PreparedContext`. It is not currently available as a supported standalone package. Optional capture stores
+redacted, bounded visible model and completed tool events, performs checkpoint Flush, and flushes remaining Sources
+after the run. MCP needs no adapter package but does not provide automatic context preparation, capture, or Flush.
+See [Pydantic AI adapter preview](../how-to/configure-pydantic-ai.md).
 
 ## LangGraph adapter
 
@@ -100,11 +105,11 @@ labelled untrusted historical evidence; and `PowerContextScope` is a dataclass f
 carries the scope and per-run connection overrides. The recall node and tools read the active scope from the LangGraph
 runtime and otherwise fall back to `POWERCONTEXT_LANGGRAPH_*` environment settings.
 
-Scope resolution prefers an explicit `scope_id`, then a Git-remote-derived scope, and otherwise raises — the inverse of
-the Codex resolver, because a deployed graph's working directory rarely identifies the project. `TOKEN` is a bare token
-that the Client composes into `Authorization: Bearer`, unlike the `POWERCONTEXT_*_AUTHORIZATION` header used by the
+Scope resolution prefers an explicit `scope_id`, then a Git-remote-derived scope, and otherwise raises. This is the
+inverse of the Codex resolver because a deployed graph's working directory rarely identifies the project. `TOKEN` is
+a bare token that the Client composes into `Authorization: Bearer`, unlike the `POWERCONTEXT_*_AUTHORIZATION` header used by the
 Codex, Claude Code, and DeepSeek Harness plugins. Recall and the tools fail open: on Server unavailability the graph
-still reaches its end and the tools return a short unavailable string. This release covers Memory read and write and
+still reaches its end and the tools return a short unavailable string. The adapter covers Memory read and write and
 bounded recall only; automatic capture, checkpointing, and Handoff are out of scope. The adapter deliberately does not
 implement `BaseStore`, whose get, upsert-by-key, and delete operations the Memory model does not provide. It never
 starts or embeds the Server.
@@ -115,8 +120,8 @@ starts or embeds the Server.
 current model request without changing agent state. Automatic capture is disabled by default; pass `auto_capture=True`
 to capture the latest user message and final plain-text or structured answer as Content Source evidence after a
 successful run. Source-to-Memory activation remains a Server responsibility. Recall and capture fail open, and neither
-path starts or embeds the Server. It ships independently as `powercontext-langchain`; the LangGraph adapter remains a
-separate node-and-tool integration.
+path starts or embeds the Server. Its source is packaged as `powercontext-langchain`, but it is not currently
+published on PyPI. The LangGraph adapter remains a separate node-and-tool integration.
 
 ## Pi package
 
@@ -128,24 +133,16 @@ boundary flushing fail open; explicit durable writes require interactive confirm
 ## CLI
 
 ```text
-powercontext setup codex
-powercontext setup claude-code
-powercontext setup dsh
-powercontext setup openclaw
-powercontext setup opencode
-powercontext setup pi
-powercontext setup hermes
-powercontext setup select
+powercontext setup <host> --source oceanbase/powercontext --ref master
+powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref master
+powercontext config init --output .env
+powercontext config show --env-file .env
+powercontext config validate --env-file .env
 powercontext doctor
+powercontext doctor <host>
 powercontext doctor integrations
-powercontext doctor codex
-powercontext doctor claude-code
-powercontext doctor dsh
-powercontext doctor openclaw
-powercontext doctor opencode
-powercontext doctor pi
-powercontext doctor hermes
 powercontext server run
+powercontext server run --env-file .env
 powercontext ready
 powercontext capabilities
 powercontext experience generate --scope-id project:example --source-ref content/SOURCE_ID
@@ -163,6 +160,14 @@ powercontext external-skill import --scope-id project:example --fingerprint SHA2
 
 All content commands call the configured Server. The optional `server` role adds `powercontext server run`; it does
 not create a second content profile inside the CLI.
+
+The `config` group creates, redacts, and validates an explicit environment file. The CLI never searches for that file
+implicitly; pass it to `config show`, `config validate`, or `server run` with `--env-file`. See
+[Configuration](configuration.md) for precedence and credential-handling rules.
+
+Use `codex`, `claude-code`, `dsh`, `hermes`, `openclaw`, `opencode`, `pi`, or `workbuddy` for `<host>`.
+The first-class catalog used by `setup select` and `doctor integrations` contains every listed host except WorkBuddy.
+WorkBuddy remains available through the explicit `setup workbuddy` and `doctor workbuddy` commands.
 
 `powercontext doctor` checks the package and Server without requiring an integration. `powercontext doctor integrations`
 prints a read-only matrix for every first-class host; a missing CLI is `missing` and does not fail the command.
@@ -306,10 +311,11 @@ want the supplied SQLite or OceanBase-backed implementation in the same process.
 
 ## HTTP and MCP
 
-The Server publishes its OpenAPI document at `/openapi.json`, readiness at `/health/ready`, capabilities at
+See [HTTP API](http-api.md) for authentication, curl examples, operation groups, errors, and the complete OpenAPI
+contract. The Server publishes its OpenAPI document at `/openapi.json`, readiness at `/health/ready`, capabilities at
 `/v1/capabilities`, and Streamable HTTP MCP at `/mcp` by default. HTTP is the complete application contract. MCP is a
-curated agent-facing projection of Memory and Candidate Review operations. The five Candidate Review operations use the
-same validation, `expected_version` concurrency checks, and approval transaction over HTTP and MCP.
+curated agent-facing projection of Memory and Candidate Review operations. The five Candidate Review operations use
+the same validation, `expected_version` concurrency checks, and approval transaction over HTTP and MCP.
 Readiness is `ready` with HTTP 200 when all checks pass, `degraded` with HTTP 200 when only configured inference checks
 fail, and `not_ready` with HTTP 503 when the Runtime or database fails. Dependency checks use `ready`, `unavailable`,
 `timeout`, or `misconfigured`; an intentionally unbound Runtime reports `not_ready` for the `runtime` check.

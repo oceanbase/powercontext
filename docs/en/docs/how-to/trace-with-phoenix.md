@@ -25,7 +25,7 @@ running. Pin an explicit tag so the endpoint and UI layout match this guide.
 Recording and export require the `tracing-otlp` extra:
 
 ```bash
-uv tool install "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 Without this extra, enabling tracing fails at startup with an explicit error instead of silently dropping spans.
@@ -68,12 +68,13 @@ Memory extraction runs during the flush, not during capture.
 ## Read the trace
 
 Open <http://localhost:6006>, select the `default` project, and open the most recent trace for
-`powercontext-server`. The flush produces four nested spans in one trace:
+`powercontext-server`. The flush produces five nested spans in one trace:
 
 | Span | Meaning |
 | --- | --- |
 | `HTTP flush_memory` | The inbound HTTP request. `powercontext.request.id` matches the `X-PowerContext-Request-ID` response header. |
 | `powercontext flush_memory` | The application operation, independent of the transport that invoked it. |
+| `memory.flush` | The Runtime stage that processes the Source window. Inference spans nest beneath it when extraction runs. |
 | `invoke_agent memory_extraction` | One PowerContext generation task. The name identifies the purpose, not the model. |
 | `chat <model>` | One request to the model provider, with token usage and latency. |
 
@@ -84,9 +85,11 @@ take the write lock, so they emit no `scope.lock` span:
 | --- | --- |
 | `scope.context` | Resolving the scope's context from the configured provider; near zero for the built-in provider, visible when a provider does I/O here. |
 | `scope.lock` | Waiting for the scope write lock, ending the moment it is acquired. `powercontext.scope.lock.contended` reports whether another operation already held it. |
+| `memory.flush` | One Source-window flush for `flush_memory` or a scheduled activation. |
 | `memory.search` | Memory lookup for `search_memory` or `prepare_context`; embedding and reranking spans, when present, are nested beneath it. |
 | `memory.rerank` | One actual reranker call; model-backed reranking nests `invoke_agent memory_rerank` beneath it. |
 | `experience.search` | Experience recall during `prepare_context`; emitted even when recall is not configured. |
+| `experience.incubation` | One Experience incubation run for a scheduled activation. |
 | `context.build` | The synchronous step that selects and renders the final prepared context from recalled candidates. |
 
 The other PowerContext generation tasks appear under the same convention: `experience_incubation`,
@@ -96,6 +99,23 @@ configured, embedding calls appear as `embeddings <model>` spans under the opera
 Spans are exported in batches, so allow a few seconds before refreshing. An MCP request produces
 `MCP mcp.tools.call` in place of the `HTTP` span. Readiness probes are deliberately not traced, so health checks do not
 create single-span traces.
+
+## Scheduled background spans
+
+When a scheduler interval is configured (`schedule_seconds` or `experience_schedule_seconds`), each scheduled activation
+starts its own trace instead of joining an unrelated request trace. The activation is the root span with
+`powercontext.operation.unit` set to `background`:
+
+| Span | Meaning |
+| --- | --- |
+| `scheduled.process_source_window` | One scheduled Source-window activation. Its outcome is `success`, `noop`, `failure`, or `cancelled`. |
+| `scheduled.incubate_experience_candidates` | One scheduled Experience incubation activation, with the same outcome vocabulary. |
+| `memory.flush` | The flush run beneath a Source-window activation; it also appears under `HTTP flush_memory`. |
+| `experience.incubation` | The incubation run beneath an Experience activation. |
+
+Scheduled roots record only bounded counts — `powercontext.background.source_count` and
+`powercontext.background.candidate_count` — and never a `scope_id`, request ID, or Memory content. Inference spans created
+by a scheduled activation are nested beneath its root in the same trace.
 
 ## What is not exported
 

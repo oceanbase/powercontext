@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import struct
 from collections.abc import Mapping
+from re import search
 from typing import Any
 
 from sqlalchemy import (
@@ -327,6 +328,9 @@ class SQLiteMemoryVectorIndex:
                 f"USING vec0(embedding float[{self.profile.dimension}])"
             )
             probe = _pack_vector((0.0,) * self.profile.dimension)
+            # A previous run may have been interrupted between inserting and deleting
+            # the probe row; clear any leftover before probing again.
+            await connection.execute(_DELETE_VECTOR_SQL, {"vector_id": -1})
             await connection.execute(
                 _INSERT_VECTOR_SQL,
                 {"vector_id": -1, "embedding": probe},
@@ -339,7 +343,8 @@ class SQLiteMemoryVectorIndex:
             ).one_or_none()
             await connection.execute(_DELETE_VECTOR_SQL, {"vector_id": -1})
         except SQLAlchemyError as error:
-            raise CapabilityNotSupportedError("vector", "sqlite-vec probe failed") from error
+            detail = await _probe_failure_detail(connection, error, self.profile.dimension)
+            raise CapabilityNotSupportedError("vector", detail) from error
         if row is None or int(row[0]) != -1:
             raise CapabilityNotSupportedError("vector", "sqlite-vec probe returned an invalid row")
 
@@ -523,6 +528,36 @@ class SQLiteMemoryVectorIndex:
                 )
             )
         return tuple(hydrated)
+
+
+async def _probe_failure_detail(connection: AsyncConnection, error: SQLAlchemyError, dimension: int) -> str:
+    orig = getattr(error, "orig", None)
+    detail = str(orig) if orig is not None else str(error)
+    existing = await _existing_vec_dimension(connection)
+    if existing is not None and existing != dimension:
+        return (
+            "sqlite-vec probe failed: the existing pc_memory_entry_vec table dimension "
+            f"{existing} does not match the configured embedding profile dimension {dimension}; "
+            f"migrate the table or align the embedding dimension configuration ({detail})"
+        )
+    return f"sqlite-vec probe failed: {detail}"
+
+
+async def _existing_vec_dimension(connection: AsyncConnection) -> int | None:
+    """Return the dimension of a pre-existing vec0 table, or None when it cannot be confirmed."""
+
+    try:
+        row = (
+            await connection.exec_driver_sql(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pc_memory_entry_vec'"
+            )
+        ).one_or_none()
+    except SQLAlchemyError:
+        return None
+    if row is None:
+        return None
+    match = search(r"float\[(\d+)\]", str(row[0]))
+    return int(match.group(1)) if match is not None else None
 
 
 def _pack_vector(vector: tuple[float, ...]) -> bytes:

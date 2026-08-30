@@ -16,7 +16,7 @@ normal OpenClaw work.
 
 ## Install or refresh the plugin
 
-Until a PowerContext release includes OpenClaw, install the CLI and plugin from the same `master` revision:
+Install the CLI and plugin from the same `master` revision:
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
@@ -42,10 +42,10 @@ powercontext server run
 openclaw
 ```
 
-To change the Server endpoint or memory scope during setup:
+To use a Server that actually listens on another port, or to change the memory scope during setup:
 
 ```bash
-powercontext setup openclaw --server-url http://127.0.0.1:8765 --scope-mode project
+powercontext setup openclaw --server-url http://127.0.0.1:9000 --scope-mode project
 ```
 
 Run `setup openclaw` again to refresh an existing installation.

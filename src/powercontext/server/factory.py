@@ -244,7 +244,7 @@ class _ServerReadinessProbe:
             )
         return ReadinessResponse(
             status=ReadinessStatus(readiness.status.value),
-            checks={name: status.value for name, status in readiness.checks.items()},
+            checks={name: str(status) for name, status in readiness.checks.items()},
         )
 
     def _observe(self, status: ReadinessStatus) -> None:

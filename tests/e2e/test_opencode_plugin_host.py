@@ -20,7 +20,7 @@ import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from shutil import which
+from shutil import copyfile, which
 from time import monotonic
 from typing import Any, cast
 
@@ -85,8 +85,10 @@ def test_opencode_run_normalizes_prompt_before_recall_and_capture(tmp_path: Path
             path = tmp_path / name
             path.mkdir()
             env[f"XDG_{name.upper()}_HOME"] = str(path)
+        installed_plugin = tmp_path / "config" / "opencode" / "plugins" / "powercontext-opencode.js"
+        installed_plugin.parent.mkdir(parents=True)
+        copyfile(plugin, installed_plugin)
         env.update({
-            "OPENCODE_CONFIG_CONTENT": json.dumps({"plugin": [plugin.as_uri()]}),
             "OPENCODE_DISABLE_AUTOUPDATE": "true",
             "POWERCONTEXT_OPENCODE_BASE_URL": f"http://127.0.0.1:{server.server_port}",
             "POWERCONTEXT_OPENCODE_SCOPE_ID": "project:test",

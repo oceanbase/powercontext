@@ -107,6 +107,11 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     LIST_ARTIFACT_CANDIDATES.operation_id,
     GET_ARTIFACT_CANDIDATE.operation_id,
 })
+_MCP_REVIEW_WRITE_OPERATION_IDS = frozenset({
+    APPROVE_ARTIFACT_CANDIDATE.operation_id,
+    REJECT_ARTIFACT_CANDIDATE.operation_id,
+    REVISE_ARTIFACT_CANDIDATE.operation_id,
+})
 
 
 def _select_mcp_type(route: HTTPRoute, _: MCPType) -> MCPType:
@@ -140,6 +145,18 @@ def _annotate_mcp_component(
         component.annotations = ToolAnnotations(
             readOnlyHint=False,
             destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        )
+    elif route.operation_id in _MCP_REVIEW_WRITE_OPERATION_IDS:
+        # Approval and rejection are terminal; a revision replaces the proposal a reviewer last
+        # inspected. MCP visibility is not an authorization boundary (RFC 0050), so these hints
+        # only let a host apply its own confirmation policy. An exact replay is rejected by the
+        # pending-head CAS before anything is written, so repeated identical calls have no
+        # additional effect and the tools are idempotent in the MCP sense.
+        component.annotations = ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=True,
             idempotentHint=True,
             openWorldHint=False,
         )

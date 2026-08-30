@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Mapping
 from functools import cache
 from typing import Literal
@@ -28,6 +29,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, PackageLoader, select_autoescape
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.skill import AgentKind, AgentSkillTarget, ExternalSkillResolutionStatus
 from powercontext.builtin.artifacts.skill.projection import (
@@ -40,6 +42,8 @@ from powercontext.builtin.review import CandidateStatus
 from powercontext.builtin.runtime import GetArtifactCandidateRequest, GetSkillRequest, ListExternalSkillsRequest
 from powercontext.http import ErrorDetail, ErrorResponse
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH
+
+logger = logging.getLogger(__name__)
 
 _PAGE_HEADERS = {
     "Cache-Control": "no-store",
@@ -160,7 +164,14 @@ class _DashboardSkillProjectionRoutes:
                 "The approved managed Skill could not be published to the configured Agent target.",
                 details={"reason": str(error)},
             )
-        await application.external_skills.for_scope(request.scope_id).scan()
+        # The publication itself succeeded above; registry bookkeeping failure must not turn the
+        # response into a 500 because _skill_projection_response reports on-disk state anyway.
+        try:
+            await application.external_skills.for_scope(request.scope_id).scan()
+        except Exception as error:
+            log_safely(
+                logger, logging.WARNING, "PowerContext external Skill scan failed after publication", exc_info=error
+            )
         return await _skill_projection_response(application, request.scope_id, skill, self._targets)
 
 
@@ -360,13 +371,19 @@ async def _skill_projection_response(
     skill,
     targets_config: tuple[AgentSkillTarget, ...],
 ) -> DashboardSkillProjection:
-    registrations = (
-        ()
-        if not targets_config
-        else await application.external_skills.for_scope(scope_id).list(
-            ListExternalSkillsRequest(include_unavailable=True)
-        )
-    )
+    if not targets_config:
+        registrations = ()
+        # Registry discovery is best-effort bookkeeping; when it cannot be read (for example an
+        # unavailable registry database), report on-disk state with stale discovery instead of
+        # failing the whole response after the projection was already published.
+    else:
+        try:
+            registrations = await application.external_skills.for_scope(scope_id).list(
+                ListExternalSkillsRequest(include_unavailable=True)
+            )
+        except Exception as error:
+            log_safely(logger, logging.WARNING, "PowerContext external Skill registry discovery failed", exc_info=error)
+            registrations = ()
     targets = []
     for target in targets_config:
         status = await asyncio.to_thread(inspect_skill_projection, skill.as_ref(), skill.content, target)

@@ -7,9 +7,8 @@ description: 安装 PowerContext WorkBuddy hooks 并控制其本地行为。
 
 ## 前置条件
 
-- 已安装并可运行的 PowerContext。在带有 WorkBuddy 支持的新版本发布前，从与下方插件相同的 `master`
-  revision 安装 CLI 和本地 Server：
-  `uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"`。
+- 已安装并可运行的 PowerContext。从与下方插件相同的 `master` revision 安装 CLI 和本地 Server：
+  `uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"`。
   然后执行 `powercontext server run` 启动 Server。
 - 支持用户级 hooks、MCP 和 Skills 的 WorkBuddy 桌面应用。
 - 用于执行 hook 进程的 Python 3.11 或更新版本，且已加入 `PATH`。
