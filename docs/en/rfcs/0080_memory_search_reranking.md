@@ -11,7 +11,7 @@ structured generation request selects a sparse, ordered subset from that bounded
 returns final hits.
 
 The first policy is `powercontext.memory.rerank.listwise.v1`: retrieve up to 30 coarse candidates by default and let
-the configured LLM reranker select no more than the caller's requested `limit`. Reranking is disabled by default,
+the configured generation model select no more than the caller's requested `limit`. Reranking is disabled by default,
 does not change stored Memory or indexes, and preserves every selected hit's exact Artifact, entry, and Revision
 identity.
 
@@ -46,9 +46,6 @@ export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT=30
 powercontext server run
 ```
 
-To isolate reranking from other generation workloads, configure `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` and its
-provider settings instead. The built-in policy remains an LLM structured-generation operation in either form.
-
 The existing search request remains unchanged:
 
 ```python
@@ -72,7 +69,7 @@ timeout and request bound and fixes temperature to zero. This improves repeatabi
 deterministic.
 
 Reranking is therefore appropriate when answer quality matters more than the added model latency and token cost. Keep
-it disabled for low-latency lexical lookup or when no LLM reranker is available.
+it disabled for low-latency lexical lookup or when no generation model is available.
 
 ## Observe a search
 
@@ -98,10 +95,9 @@ contract compatible. A benchmark can use the in-process trace to score the coars
 | `memory_rerank_enabled` | `false` | Assemble and apply the listwise Memory reranker. |
 | `memory_rerank_candidate_limit` | `30` | Coarse fused pool, from 1 through 100. |
 
-By default the implementation reuses `InferenceConfig.generation_model` and its provider settings. A deployment may
-instead configure the LLM reranker through `rerank_model`, `rerank_base_url`, `rerank_headers`,
-`rerank_model_settings`, `rerank_timeout_seconds`, and `rerank_max_requests`. Startup fails with a configuration error
-when reranking is enabled without a generation model, a rerank model, or an explicitly injected `MemoryReranker`.
+The first implementation reuses `InferenceConfig.generation_model`, `generation_timeout_seconds`, and
+`generation_max_requests`. Startup fails with a configuration error when reranking is enabled without a generation
+model or an explicitly injected `MemoryReranker`.
 
 An injected reranker is an application composition choice and is applied even when the environment flag is false. This
 supports tests and deployments with a provider-specific adapter while keeping environment-driven composition explicit.
