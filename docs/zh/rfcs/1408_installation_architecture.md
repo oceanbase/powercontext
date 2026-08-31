@@ -1,6 +1,6 @@
 - Proposal Name: `installation_architecture`
 - Start Date: 2026-08-31
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#1408](https://github.com/oceanbase/powercontext/pull/1408)
 - Related RFCs: [RFC 1299](1299_local_server_availability_and_service_installation.md)
 
 # Summary
