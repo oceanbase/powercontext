@@ -16,7 +16,7 @@ openapi: 3.0.3
 info:
   title: PowerContext API
   description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
-  version: 0.0.2
+  version: 0.1.0
 security:
   - BearerAuth: []
   - {}

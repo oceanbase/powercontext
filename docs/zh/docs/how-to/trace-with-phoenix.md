@@ -66,12 +66,13 @@ Memory extraction 发生在 flush 阶段，而不是捕获阶段。
 ## 查看 trace
 
 打开 <http://localhost:6006>，选择 `default` project，打开 `powercontext-server` 最新的一条 trace。这次 flush
-在同一条 trace 中产生四层嵌套 span：
+在同一条 trace 中产生五层嵌套 span：
 
 | Span | 含义 |
 | --- | --- |
 | `HTTP flush_memory` | 入站 HTTP 请求。`powercontext.request.id` 与响应头 `X-PowerContext-Request-ID` 一致。 |
 | `powercontext flush_memory` | application 操作，与调用它的 transport 无关。 |
+| `memory.flush` | 实际处理 Source window 的 Runtime stage。extraction 跑起来时，推理 span 嵌套在它下面。 |
 | `invoke_agent memory_extraction` | 一次 PowerContext generation 任务。名字标识用途，不是模型名。 |
 | `chat <model>` | 一次发往模型 provider 的请求，包含 token 用量和耗时。 |
 
@@ -82,9 +83,11 @@ scope 相关操作还会在 application operation 之下添加以下内部 stage
 | --- | --- |
 | `scope.context` | 从配置的 provider 解析该 scope 的 context；内建 provider 下接近零，provider 在此做 I/O 时才可见。 |
 | `scope.lock` | 等待该 scope 的写锁，在获取到锁的瞬间结束。`powercontext.scope.lock.contended` 表示进入时是否已被其他操作持有。 |
+| `memory.flush` | 一次 Source-window flush，出现在 `flush_memory` 或定时激活之下。 |
 | `memory.search` | `search_memory` 或 `prepare_context` 中的 Memory 查询；存在 embedding 或 reranking span 时，它们嵌套在其下。 |
 | `memory.rerank` | 一次实际 reranker 调用；使用模型的 reranking 会在其下嵌套 `invoke_agent memory_rerank`。 |
 | `experience.search` | `prepare_context` 中的 Experience recall；未配置 recall 时也会产生。 |
+| `experience.incubation` | 一次 Experience incubation，出现在定时激活之下。 |
 | `context.build` | 根据召回候选同步选择并渲染最终 prepared context 的步骤。 |
 
 其他 generation 任务遵循同样的命名约定：`experience_incubation`、`experience_generation`、`skill_generation`、
@@ -93,6 +96,22 @@ span 挂在触发它的操作之下。
 
 span 是批量导出的，刷新前请稍等几秒。MCP 请求会用 `MCP mcp.tools.call` 取代 `HTTP` span。readiness 探活被有意
 排除在 trace 之外，因此健康检查不会产生只含单个 span 的 trace。
+
+## 定时后台 span
+
+配置了定时器间隔（`schedule_seconds` 或 `experience_schedule_seconds`）后，每次定时激活都会开启一条**独立**的
+trace，而不会并入无关的请求 trace。激活本身是根 span，其 `powercontext.operation.unit` 为 `background`：
+
+| Span | 含义 |
+| --- | --- |
+| `scheduled.process_source_window` | 一次定时 Source-window 激活，outcome 为 `success`、`noop`、`failure` 或 `cancelled`。 |
+| `scheduled.incubate_experience_candidates` | 一次定时 Experience incubation 激活，outcome 词表相同。 |
+| `memory.flush` | Source-window 激活下的 flush 执行；它也会出现在 `HTTP flush_memory` 之下。 |
+| `experience.incubation` | Experience 激活下的 incubation 执行。 |
+
+定时根 span 只记录有界的计数——`powercontext.background.source_count` 与
+`powercontext.background.candidate_count`——绝不携带 `scope_id`、request ID 或 Memory 内容。定时激活产生的推理
+span 会作为其根 span 的子节点嵌套在同一条 trace 中。
 
 ## 哪些内容不会被导出
 

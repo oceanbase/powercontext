@@ -122,7 +122,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Build documentation
-        run: uv run zensical build --clean
+        run: make docs-build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

@@ -24,6 +24,9 @@ overview:
         - title: Continue in OpenCode
           description: Recall and maintain project context with the native OpenCode plugin.
           href: en/docs/how-to/configure-opencode/
+        - title: Load an Agent Plugin
+          description: Use reusable PowerContext skills and MCP configuration in compatible agents.
+          href: en/docs/how-to/configure-agent-plugin/
         - title: Hand off current work
           description: Prepare a checked Handoff for another task, session, or model.
           href: en/docs/how-to/handoff-with-codex/

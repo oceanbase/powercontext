@@ -27,6 +27,7 @@ from powercontext.server.context import is_internal_bridge
 
 _PUBLIC_PATHS = frozenset({
     "/",
+    "/docs",
     "/handoff-reports",
     "/reviews",
     "/skills",

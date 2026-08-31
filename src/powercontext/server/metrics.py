@@ -22,7 +22,17 @@ from time import perf_counter
 from typing import Any
 
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    GCCollector,
+    Histogram,
+    PlatformCollector,
+    ProcessCollector,
+    generate_latest,
+)
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from typing_extensions import override
 
@@ -34,6 +44,9 @@ class ServerMetrics:
 
     def __init__(self) -> None:
         self.registry = CollectorRegistry()
+        ProcessCollector(registry=self.registry)
+        PlatformCollector(registry=self.registry)
+        GCCollector(registry=self.registry)
         self.transport_requests = Counter(
             "powercontext_server_transport_requests_total",
             "External transport requests completed by the Server.",
