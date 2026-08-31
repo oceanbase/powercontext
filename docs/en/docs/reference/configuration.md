@@ -74,6 +74,7 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | Coarse candidate pool supplied to the reranker |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | unset | Scheduler interval; unset disables scheduling |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model used by configured extraction, generation, Handoff, and reranking operations |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS` | `{}` | JSON object of Pydantic AI model settings shared by generation and reranking |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Timeout in seconds for one structured generation operation |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS` | `2` | Maximum provider requests for one structured generation operation, including retries |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | unset | Pydantic AI embedding model; requires profile ID and dimension |
@@ -126,6 +127,19 @@ Provider credentials, such as `OPENAI_API_KEY`, are read by the configured infer
 command-line arguments, documentation, or Memory. Replace `provider:model-name` with a model identifier supported by
 Pydantic AI. Scheduled extraction requires both a generation model and
 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`. An explicit Memory write does not require either.
+
+For provider-specific request parameters, set model settings as one JSON object. For example, an OpenAI-compatible
+endpoint that supports Qwen's thinking switch can receive `chat_template_kwargs.enable_thinking=false` through the
+portable Pydantic AI `extra_body` setting:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS='{"extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}'
+```
+
+The Server applies these settings to extraction, Experience and Skill generation, Handoff generation, optional LLM
+reranking, and the generation readiness probe. The readiness probe always overrides `max_tokens` to `1`, and reranking
+always overrides `temperature` to `0`. Only settings supported by the selected Pydantic AI model and provider are
+meaningful. Keep credentials and static headers in the selected provider's configuration rather than this JSON object.
 
 The default `coding` extraction profile keeps cross-task work context such as preferences, decisions, constraints,
 expensive facts, and unfinished progress. Select `conversation` when the product must preserve independently

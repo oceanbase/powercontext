@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from pydantic import JsonValue
 from typing_extensions import override
@@ -406,7 +406,7 @@ async def _generation_pipelines(
 
     from pydantic_ai.models import infer_model
     from pydantic_ai.models.instrumented import InstrumentedModel
-    from pydantic_ai.settings import ModelSettings
+    from pydantic_ai.settings import ModelSettings, merge_model_settings
 
     from powercontext.builtin.artifacts.experience import (
         EXPERIENCE_GENERATION_INSTRUCTIONS,
@@ -447,10 +447,15 @@ async def _generation_pipelines(
 
     provider_model = await resources.enter_async_context(infer_model(settings.generation_model))
     model = provider_model if instrumentation is None else InstrumentedModel(provider_model, instrumentation)
+    model_settings = cast(ModelSettings, dict(settings.generation_model_settings)) or None
 
     async def probe_generation() -> None:
         # Readiness probing runs outside any operation span; keep it out of traces.
-        await probe_pydantic_ai_model(provider_model, timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS)
+        await probe_pydantic_ai_model(
+            provider_model,
+            timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS,
+            model_settings=model_settings,
+        )
 
     limits = InferenceLimits(
         timeout_seconds=settings.generation_timeout_seconds,
@@ -462,6 +467,7 @@ async def _generation_pipelines(
         input_type=MemoryExtractionInput,
         output_type=MemoryExtractionOutput,
         limits=limits,
+        model_settings=model_settings,
         name="memory_extraction",
     )
     experience_generator = PydanticAIStructuredGenerator(
@@ -470,6 +476,7 @@ async def _generation_pipelines(
         input_type=ExperienceIncubationInput,
         output_type=ExperienceIncubationOutput,
         limits=limits,
+        model_settings=model_settings,
         name="experience_incubation",
     )
     explicit_experience_generator = PydanticAIStructuredGenerator(
@@ -478,6 +485,7 @@ async def _generation_pipelines(
         input_type=ArtifactGenerationInput,
         output_type=ExperienceGenerationOutput,
         limits=limits,
+        model_settings=model_settings,
         name="experience_generation",
     )
     skill_generator = PydanticAIStructuredGenerator(
@@ -486,6 +494,7 @@ async def _generation_pipelines(
         input_type=ArtifactGenerationInput,
         output_type=SkillGenerationOutput,
         limits=limits,
+        model_settings=model_settings,
         name="skill_generation",
     )
     handoff_generator = PydanticAIStructuredGenerator(
@@ -494,6 +503,7 @@ async def _generation_pipelines(
         input_type=HandoffGenerationInput,
         output_type=HandoffGenerationOutput,
         limits=limits,
+        model_settings=model_settings,
         name="handoff_generation",
     )
     rerank_generator = (
@@ -503,7 +513,7 @@ async def _generation_pipelines(
             input_type=MemoryRerankInput,
             output_type=MemoryRerankOutput,
             limits=limits,
-            model_settings=ModelSettings(temperature=0.0),
+            model_settings=merge_model_settings(model_settings, ModelSettings(temperature=0.0)),
             name="memory_rerank",
         )
         if runtime.memory_rerank_enabled

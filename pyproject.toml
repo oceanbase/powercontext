@@ -65,6 +65,7 @@ server = [
     "powercontext[builtin]",
     "prometheus-client>=0.21,<1",
     "pydantic-settings>=2.7,<3",
+    "scalar-fastapi>=1.8.2,<2",
     "uvicorn>=0.34,<1",
 ]
 tracing-otlp = [

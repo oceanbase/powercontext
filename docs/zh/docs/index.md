@@ -24,6 +24,9 @@ overview:
         - title: 在 OpenCode 中继续
           description: 通过原生 OpenCode 插件召回并维护项目上下文。
           href: zh/docs/how-to/configure-opencode/
+        - title: 加载 Agent Plugin
+          description: 在兼容 Agent 中使用可复用的 PowerContext skills 和 MCP 配置。
+          href: zh/docs/how-to/configure-agent-plugin/
         - title: 交接当前工作
           description: 为另一个任务、会话或模型准备一份经过检查的 Handoff。
           href: zh/docs/how-to/handoff-with-codex/
