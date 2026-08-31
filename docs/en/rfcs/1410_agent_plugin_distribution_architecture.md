@@ -20,7 +20,7 @@ behind a fictional universal host API.
 
 However, the current distributions also independently maintain content that is not inherently host-specific:
 
-- the project-context Skill and its guidance;
+- the `powercontext-project-context` Skill and its guidance;
 - MCP server identity and connection intent;
 - plugin name, version, description, and repository metadata;
 - operation and tool naming conventions;
@@ -79,9 +79,9 @@ Contributors decide where to edit a behavior by asking what makes it different:
 | A generated copy in a host directory | Nowhere; edit its source and regenerate |
 
 For example, a correction to project-memory recall guidance is made once in
-`integrations/agent-plugin/powercontext/skills/project-context/SKILL.md`. A Claude Code-only lifecycle hook is still
-changed in the Claude Code runtime. A different MCP header syntax belongs in the corresponding target descriptor and
-adapter, not in another copy of the MCP server definition.
+`integrations/agent-plugin/powercontext/skills/powercontext-project-context/SKILL.md`. A Claude Code-only lifecycle hook
+is still changed in the Claude Code runtime. A different MCP header syntax belongs in the corresponding target
+descriptor and adapter, not in another copy of the MCP server definition.
 
 ## Contributor workflow
 
@@ -111,9 +111,9 @@ symlinks, submodules, or a local build step.
 
 ### Change shared Skill behavior
 
-Issue [#1378](https://github.com/oceanbase/powercontext/issues/1378) requires the project-context Skill to recognize
-explicit memory requests. The accepted trigger contract is updated in the canonical `project-context` Skill. Adapters
-may mechanically encode declared operation identifiers for a host, but cannot replace the Skill body, append arbitrary
+Issue [#1378](https://github.com/oceanbase/powercontext/issues/1378) requires the
+`powercontext-project-context` Skill to recognize explicit memory requests. The accepted trigger contract is updated in
+that canonical Skill. Adapters copy the Skill unchanged; they cannot rename it, replace its body, append arbitrary
 provider instructions, or override its frontmatter.
 
 ### Change MCP configuration
@@ -138,7 +138,8 @@ Migration is incremental:
 2. Adopt the existing canonical plugin without changing installation behavior.
 3. Add adapters one host at a time and compare their output with the existing distribution.
 4. Switch each migrated portable file to generated ownership and enable drift checks for that target.
-5. Normalize names and retain documented compatibility aliases for a bounded release window.
+5. Normalize names. Migrate the legacy `project-context` installation atomically, and retain documented tool aliases
+   for a bounded release window.
 6. Remove obsolete copies and aliases after all supported installation paths consume generated distributions.
 
 Until a target completes step 4, its current directory remains authoritative. A file must never have two claimed
@@ -182,7 +183,7 @@ integrations/
 │   │   ├── plugin.json
 │   │   ├── mcp.json
 │   │   └── skills/
-│   │       └── project-context/
+│   │       └── powercontext-project-context/
 │   │           ├── SKILL.md
 │   │           ├── references/
 │   │           └── scripts/
@@ -231,7 +232,7 @@ The Canonical Plugin follows the Agent Plugins specification:
 - `plugin.json` is the portable manifest and declares the specification schema version;
 - `skills/` contains immediate child directories conforming to Agent Skills;
 - `mcp.json` contains portable MCP server configuration and uses the same specification version;
-- the canonical Skill has local name `project-context` and package-qualified identity `powercontext/project-context`;
+- the canonical Skill directory and frontmatter name are both `powercontext-project-context`;
 - all referenced paths resolve within the plugin root;
 - packaged Skills are real files, not external symlinks.
 
@@ -258,15 +259,15 @@ An adapter must classify every canonical component as `projected`, `unsupported`
 is an error. Unsupported required capabilities fail generation; unsupported optional capabilities produce an explicit
 diagnostic and capability record.
 
-Adapters contain structural translation, not content forks. They may rename fields, wrap documents, select supported
-components, and materialize provider metadata. They must not carry an alternative Skill body, an alternative portable
-MCP server definition, or host runtime business logic.
+Adapters contain structural translation, not content forks. They may map provider field keys, wrap documents, select
+supported components, and materialize provider metadata. They cannot rename canonical identities or carry an
+alternative Skill body, portable MCP server definition, or host runtime business logic.
 
 ## Target descriptors
 
 Each maintained distribution has one descriptor validated by `target.schema.json`. The descriptor declares the target
-ID, output root, adapter kind, capability-manifest entry, provider-only manifest fields, naming projection, native
-runtime roots, compatibility aliases, and the generated-output manifest path.
+ID, output root, adapter kind, capability-manifest entry, provider-only manifest fields, native runtime roots,
+compatibility aliases, and the generated-output manifest path.
 
 A target descriptor:
 
@@ -314,18 +315,17 @@ target output root. The generator must never recursively clean an integration di
 
 ## Skill projection
 
-The canonical built-in Skill has local name `project-context` and package-qualified identity
-`powercontext/project-context`, matching the existing Agent Plugin. A target with a flat global Skill namespace encodes
-that identity mechanically as `powercontext-project-context`; this encoded form is not a second semantic identity.
+The canonical built-in Skill has one name: `powercontext-project-context`. Its directory name and `SKILL.md` frontmatter
+must match that value exactly. Every target distribution uses the same name; an adapter cannot shorten, qualify, or
+otherwise encode it. A host that cannot preserve the name reports the Skill as unsupported.
 
-The complete canonical Skill is the default projection. Version 1 defines no free-form extension slots. An adapter may
-rewrite only inline operation tokens that exactly match declared OpenAPI operation IDs, using the target's naming
-projection. Any unmatched, ambiguous, or undeclared rewrite fails generation. Provider-specific guidance remains a
-separate Native Runtime asset rather than being appended to the shared Skill.
+The complete canonical Skill is copied byte-for-byte. Version 1 defines no free-form extension slots and no Skill-body
+rewrites. The Skill refers to PowerContext operations by their canonical OpenAPI operation IDs rather than embedding a
+host-specific callable spelling. Provider-specific guidance remains a separate Native Runtime asset.
 
 Adapters must preserve:
 
-- the canonical Skill's logical identity and semantic purpose;
+- the canonical Skill name and semantic purpose;
 - all portable trigger and safety instructions;
 - referenced assets, scripts, and references;
 - the relative internal link structure.
@@ -374,22 +374,26 @@ This choice does not constrain runtime languages:
 The compiler invokes no Node or Python provider runtime while rendering. Target-specific runtime builds remain the
 responsibility of their existing package workflows.
 
-## Naming contract
+## Central naming contract
 
 The normalized names are:
 
 | Entity | Canonical form |
 | --- | --- |
 | Plugin | `powercontext` |
-| Project context Skill | local `project-context`; qualified `powercontext/project-context` |
+| Project context Skill | `powercontext-project-context` |
 | MCP server | `powercontext` |
 | API operation | OpenAPI `<operation_id>` |
+| MCP tool | `<operation_id>` within the `powercontext` server |
 | Native global tool | `powercontext_<operation_id>` |
 | Transitional compatibility alias | explicit target mapping, including existing `pc_*` names |
 
-Adapters may encode a canonical name to satisfy a provider's syntax, but the mapping must be mechanical and recorded.
-They must not invent a different semantic name. Compatibility aliases are listed explicitly because existing `pc_*`
-names are not always mechanical operation-ID prefixes. New aliases must record their introduction and removal release,
+This table is the single naming contract. The generator validates its values against the Canonical Plugin and OpenAPI;
+target descriptors can reference them but cannot rename, qualify, shorten, or override them. If a host cannot represent
+a canonical name, the component is unsupported for that host rather than assigned another identity.
+
+Compatibility aliases are listed explicitly because existing `pc_*` names are not always mechanical operation-ID
+prefixes. They are migration aids, not canonical names. New aliases must record their introduction and removal release,
 emit deprecation metadata where supported, and remain for at least two minor releases and 90 days.
 
 ## Generated-artifact and release policy
@@ -423,11 +427,15 @@ are classified before they are normalized:
 - a true capability difference is recorded in the capability manifest;
 - a lifecycle difference remains in Native Runtime code.
 
-Changing provider-facing Skill encodings or native tool prefixes may affect prompts, documentation, and saved
-configurations. Generated distributions retain explicit aliases for at least two minor releases and 90 days; alias
-removal requires release notes and a target-descriptor change. A host that cannot safely expose aliases keeps the legacy
-name until a separately reviewed breaking change. No persisted PowerContext memory format or HTTP API changes as part
-of this RFC.
+The first source migration atomically renames the existing `project-context` directory and frontmatter to
+`powercontext-project-context`. Generated distributions never emit both Skill names. Installers may recognize and
+replace the legacy directory during the compatibility window, but documentation, manifests, and generated Skills use
+only the canonical name.
+
+Changing native tool prefixes may affect prompts and saved configurations. Generated distributions retain explicit
+tool aliases for at least two minor releases and 90 days; alias removal requires release notes and a target-descriptor
+change. A host that cannot safely expose aliases keeps the legacy tool name until a separately reviewed breaking change.
+No persisted PowerContext memory format or HTTP API changes as part of this RFC.
 
 ## Security and authority
 

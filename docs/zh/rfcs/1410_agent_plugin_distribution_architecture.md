@@ -18,7 +18,7 @@ PowerContext 当前为多个 Agent 宿主提供集成。这些宿主在扩展目
 
 但是，各个 distribution 也在独立维护本质上与宿主无关的内容：
 
-- project-context Skill 及其使用指导；
+- `powercontext-project-context` Skill 及其使用指导；
 - MCP Server 的标识和连接意图；
 - 插件名称、版本、描述和仓库元数据；
 - operation 和 tool 的命名规范；
@@ -74,9 +74,9 @@ effective capabilities = canonical capabilities ∩ host capabilities ∩ adapte
 | 宿主目录中的生成副本 | 不在这里修改；修改来源并重新生成 |
 
 例如，project memory recall 指导的修正只在
-`integrations/agent-plugin/powercontext/skills/project-context/SKILL.md` 中进行一次。Claude Code 专属生命周期 hook
-仍然在 Claude Code runtime 中修改。某个宿主采用不同的 MCP header 语法时，差异属于对应 target descriptor 和
-adapter，而不是另一份 MCP Server 定义。
+`integrations/agent-plugin/powercontext/skills/powercontext-project-context/SKILL.md` 中进行一次。Claude Code 专属
+生命周期 hook 仍然在 Claude Code runtime 中修改。某个宿主采用不同的 MCP header 语法时，差异属于对应 target
+descriptor 和 adapter，而不是另一份 MCP Server 定义。
 
 ## Contributor workflow
 
@@ -105,9 +105,9 @@ uv run python -m scripts.agent_plugins check
 
 ### 修改共享 Skill 行为
 
-Issue [#1378](https://github.com/oceanbase/powercontext/issues/1378) 要求 project-context Skill 识别显式 memory 请求。
-接受后的 trigger contract 应在规范的 `project-context` Skill 中修改。Adapter 可以按宿主规则机械编码已声明的 operation
-identifier，但不能替换 Skill 正文、追加任意 provider instruction 或覆盖 frontmatter。
+Issue [#1378](https://github.com/oceanbase/powercontext/issues/1378) 要求 `powercontext-project-context` Skill 识别显式
+memory 请求。接受后的 trigger contract 应在该 canonical Skill 中修改。Adapter 原样复制 Skill，不能重命名、替换正文、
+追加任意 provider instruction 或覆盖 frontmatter。
 
 ### 修改 MCP 配置
 
@@ -128,7 +128,7 @@ identifier，但不能替换 Skill 正文、追加任意 provider instruction �
 2. 采用现有 Canonical Plugin，同时保持现有安装行为不变。
 3. 每次为一个宿主添加 adapter，并把输出与现有 distribution 比较。
 4. 将已迁移的 portable file 切换为生成所有权，并对该 target 启用 drift check。
-5. 规范化名称，同时在有限 release window 内保留有文档的 compatibility alias。
+5. 规范化名称，原子迁移 legacy `project-context` installation，并在有限 release window 内保留有文档的 tool alias。
 6. 所有受支持的安装路径都消费 generated distribution 后，移除废弃副本和 alias。
 
 Target 完成第 4 步之前，其当前目录仍是权威来源。迁移期间，一个文件不能同时声明两个来源。
@@ -171,7 +171,7 @@ integrations/
 │   │   ├── plugin.json
 │   │   ├── mcp.json
 │   │   └── skills/
-│   │       └── project-context/
+│   │       └── powercontext-project-context/
 │   │           ├── SKILL.md
 │   │           ├── references/
 │   │           └── scripts/
@@ -218,7 +218,7 @@ Canonical Plugin 遵循 Agent Plugins specification：
 - `plugin.json` 是 portable manifest，并声明 specification schema version；
 - `skills/` 的直接子目录遵循 Agent Skills；
 - `mcp.json` 包含 portable MCP Server 配置，并使用相同的 specification version；
-- 规范 Skill 的本地名称是 `project-context`，package-qualified identity 是 `powercontext/project-context`；
+- 规范 Skill 的目录名和 frontmatter name 都是 `powercontext-project-context`；
 - 所有引用路径都解析在 plugin root 内；
 - 打包的 Skill 使用真实文件，不使用指向外部的 symlink。
 
@@ -244,14 +244,15 @@ Canonical Plugin 遵循 Agent Plugins specification：
 Adapter 必须把每个 canonical component 分类为 `projected`、`unsupported` 或 `not_applicable`。静默遗漏属于错误。
 不支持的 required capability 会使生成失败；不支持的 optional capability 必须产生显式 diagnostic 和 capability record。
 
-Adapter 只包含结构转换，不包含内容分叉。它可以重命名字段、包裹 document、选择受支持的 component，以及生成 provider
-metadata；不能包含另一份 Skill 正文、另一份 portable MCP Server 定义或宿主 runtime 业务逻辑。
+Adapter 只包含结构转换，不包含内容分叉。它可以映射 provider field key、包裹 document、选择受支持的 component，以及
+生成 provider metadata；不能重命名 canonical identity，也不能包含另一份 Skill 正文、portable MCP Server 定义或宿主
+runtime 业务逻辑。
 
 ## Target descriptors
 
 每个 maintained distribution 对应一个由 `target.schema.json` 校验的 descriptor。Descriptor 声明 target ID、output root、
-adapter kind、capability-manifest entry、provider-only manifest field、naming projection、native runtime root、
-compatibility alias 和 generated-output manifest 路径。
+adapter kind、capability-manifest entry、provider-only manifest field、native runtime root、compatibility alias 和
+generated-output manifest 路径。
 
 Target descriptor 必须满足：
 
@@ -296,17 +297,17 @@ integration test 负责。Generator 不从文件、tool 数量或 runtime intros
 
 ## Skill projection
 
-规范 built-in Skill 的本地名称是 `project-context`，package-qualified identity 是 `powercontext/project-context`，
-与现有 Agent Plugin 一致。使用 flat global Skill namespace 的 target 将其机械编码为 `powercontext-project-context`；
-这个编码不是第二个语义标识。
+规范 built-in Skill 只有一个名称：`powercontext-project-context`。其目录名和 `SKILL.md` frontmatter 必须与该值完全一致。
+所有 target distribution 使用同一个名称；adapter 不能缩短、限定或以其他方式编码该名称。无法保留名称的宿主将该 Skill
+报告为 unsupported。
 
-默认投影为完整 canonical Skill。Version 1 不定义自由文本 extension slot。Adapter 只能根据 target naming projection，
-改写与已声明 OpenAPI operation ID 精确匹配的 inline operation token；任何无法匹配、有歧义或未声明的改写都使生成失败。
-Provider-specific guidance 保持为单独的 Native Runtime asset，不追加到共享 Skill 中。
+完整 canonical Skill 按字节原样复制。Version 1 不定义自由文本 extension slot，也不允许改写 Skill 正文。Skill 通过
+canonical OpenAPI operation ID 指代 PowerContext operation，不嵌入宿主专属 callable spelling。Provider-specific
+guidance 保持为单独的 Native Runtime asset。
 
 Adapter 必须保留：
 
-- canonical Skill 的逻辑标识和语义目的；
+- canonical Skill name 和语义目的；
 - 所有 portable trigger 和 safety instruction；
 - 引用的 asset、script 和 reference；
 - relative internal link structure。
@@ -353,22 +354,27 @@ generator 和 validation。实现复用项目现有 schema tooling，并遵循 `
 Compiler 在渲染期间不执行任何 Node 或 Python provider runtime。Target-specific runtime build 继续由现有 package workflow
 负责。
 
-## Naming contract
+## Central naming contract
 
 规范名称如下：
 
 | Entity | Canonical form |
 | --- | --- |
 | Plugin | `powercontext` |
-| Project context Skill | 本地 `project-context`；qualified `powercontext/project-context` |
+| Project context Skill | `powercontext-project-context` |
 | MCP Server | `powercontext` |
 | API operation | OpenAPI `<operation_id>` |
+| MCP tool | `powercontext` Server 内的 `<operation_id>` |
 | Native global tool | `powercontext_<operation_id>` |
 | Transitional compatibility alias | 显式 target mapping，包括现有 `pc_*` 名称 |
 
-Adapter 可以为了满足 provider 语法编码 canonical name，但映射必须是机械且有记录的，不能另行创造语义名称。现有
-`pc_*` 名称并不总是 operation-ID 的机械前缀，因此 compatibility alias 必须逐项列出。新增 alias 必须记录引入和移除
-release，在宿主支持时携带 deprecation metadata，并至少保留两个 minor release 和 90 天。
+该表是唯一的 naming contract。Generator 根据 Canonical Plugin 和 OpenAPI 校验这些值；Target descriptor 可以引用，
+但不能重命名、限定、缩短或覆盖。宿主无法表示 canonical name 时，该 component 对此宿主属于 unsupported，而不是获得
+另一个 identity。
+
+现有 `pc_*` 名称并不总是 operation-ID 的机械前缀，因此 compatibility alias 必须逐项列出。它们是迁移辅助，不是
+canonical name。新增 alias 必须记录引入和移除 release，在宿主支持时携带 deprecation metadata，并至少保留两个
+minor release 和 90 天。
 
 ## Generated-artifact and release policy
 
@@ -399,10 +405,13 @@ descriptor 将对应字段标记为独立所有时才能保留自身版本，也
 - 真实 capability difference 记录到 capability manifest；
 - lifecycle difference 继续保留在 Native Runtime code 中。
 
-修改 provider-facing Skill encoding 或 native tool prefix 可能影响 prompt、documentation 和保存的配置。Generated
-distribution 至少保留 compatibility alias 两个 minor release 和 90 天；移除 alias 必须包含 release note 和 target
-descriptor 变更。无法安全暴露 alias 的宿主继续保留 legacy name，直到单独评审 breaking change。本 RFC 不改变持久化
-PowerContext memory format 或 HTTP API。
+第一次 source migration 将现有 `project-context` 目录和 frontmatter 原子重命名为
+`powercontext-project-context`。Generated distribution 不会同时生成两个 Skill name。Installer 可以在兼容窗口内识别并
+替换 legacy directory，但 documentation、manifest 和 generated Skill 只使用 canonical name。
+
+修改 native tool prefix 可能影响 prompt 和保存的配置。Generated distribution 至少保留 tool alias 两个 minor release
+和 90 天；移除 alias 必须包含 release note 和 target descriptor 变更。无法安全暴露 alias 的宿主继续保留 legacy tool
+name，直到单独评审 breaking change。本 RFC 不改变持久化 PowerContext memory format 或 HTTP API。
 
 ## Security and authority
 
