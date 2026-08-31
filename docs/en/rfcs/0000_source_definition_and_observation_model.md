@@ -53,6 +53,22 @@ or become temporarily unreadable. Artifacts that used an earlier value must cont
 The two-part `(source_type, source_id)` Source reference cannot express both the stable logical object and its immutable observation
 without making every integration invent a composite `source_id`.
 
+For example, using only the provider object ID makes the second value conflict with or replace the first. Using only
+a value digest keeps both values but loses the fact that they describe the same continuing object:
+
+```text
+provider object 42
+      |
+      +-- value v1 ----> exact observation 1
+      `-- value v2 ----> exact observation 2
+             ^
+             |
+       same logical Source
+```
+
+The model therefore keeps logical identity and exact evidence separate. Consumers can follow the continuing Source
+when they need current state while Artifacts keep citing the observation they actually used.
+
 The extension boundary is also incomplete. A Source adapter binds a native input class to a concrete
 Source class and a read result, while the built-in Runtime and relational persistence assemble a fixed adapter set.
 This does not state the durable rules an independently defined Source type must follow across identity, persistence,
@@ -255,6 +271,78 @@ ContentSource is suitable for prompts, explicit text capture, import records, an
 already owns an immutable identity. Integrations that observe one logical object over time should define or reuse a
 multi-observation Source type instead.
 
+The two ingestion paths differ at acquisition time but converge on Scope-owned Source history:
+
+| Concern | `ContentSource` capture | Source Definition and Connector ingestion |
+| --- | --- | --- |
+| Typical input | Text already held by the caller | Objects discovered in an external system |
+| Identity | One caller-stable immutable identity | One logical identity with exact observations |
+| Type contract | Built-in captured text and metadata | Definition-owned value, provenance, and projections |
+| Synchronization | One request, with no checkpoint | Discovery, per-item outcomes, replay, and checkpoint comparison |
+| Downstream use | Built-in text evidence | A named projection understood by the consumer |
+
+`ContentSource` is the shorter path when the caller already has final text and an immutable identity. The remote
+ingestion APIs do not replace it. They add the lifecycle needed when a worker must discover, normalize, and
+re-observe external objects without loading provider code or credentials into the Server.
+
+## Source participation in Scope flows
+
+Durable acceptance appends an exact observation to the Source journal of its owner Scope. Acceptance does not create
+Memory or another Artifact by itself. A Scope-local processor later selects a bounded Source window, asks for a
+projection it understands, and may produce a new Artifact revision that cites the exact SourceRef:
+
+```text
+Connector or direct caller
+          |
+          | bind Scope A
+          v
+Source observation
+          |
+          v
+Scope A Source journal ----> Scope-local processor
+                                   |
+                          named projection
+                                   |
+                                   v
+                         Scope A Memory revision
+                         cites exact SourceRef
+```
+
+A new observation can cause later processing, but it does not rewrite an earlier Artifact revision:
+
+```text
+SourceKey(scope-a, record, provider-object-42)
+|-- observation-1 ----> Memory revision 3
+`-- observation-2 ----> Memory revision 4
+
+Memory revision 3 continues to cite observation-1.
+```
+
+A consumer uses a Source only through its native Definition or a compatible named projection. For example, a Memory
+extractor that requires text evidence can consume any Source Definition that advertises the matching text
+projection. It does not need to know whether the Source began as a file, page, issue, or `ContentSource`. A missing
+capability remains explicit; the consumer does not infer text from metadata.
+
+Cross-Scope use depends on the intended ownership and delivery behavior:
+
+```text
+Scope A Source history
+          |
+          +-- Context Reference from Scope B
+          |      `-- later Prepare Context may read eligible Scope A material
+          |
+          +-- publish exact Artifact revision
+          |      `-- Scope B receives one selected result with origin provenance
+          |
+          `-- deliberate capture into Scope B
+                 `-- Scope B owns a new Source and runs its own downstream flow
+```
+
+Use a Context Reference for continuing read access and exact Artifact publication for a selected result. If Scope B
+must own and independently process the external value, capture it into Scope B as a new Scope-owned observation and
+retain the origin reference in provenance when applicable. None of these operations moves the original Source or
+makes Parent imply read access.
+
 # Reference-level explanation
 
 ## Source identity contract
@@ -343,6 +431,30 @@ interaction consists of four generic operations:
 2. read the opaque checkpoint for one Connector binding;
 3. submit a worker-materialized Source observation with all declared projections; and
 4. compare-and-swap the binding checkpoint from the value read at run start.
+
+The normal sequence is:
+
+```text
+Connector worker                              PowerContext Server
+       |                                               |
+       |-- register Definition manifest -------------->|
+       |<---------------- exact registered manifest ---|
+       |                                               |
+       |-- get binding checkpoint -------------------->|
+       |<-------------------------- checkpoint C0 -----|
+       |                                               |
+       |-- submit observation 1 ---------------------->|
+       |<---------------- durable SourceRef receipt ---|
+       |-- submit observation 2 ---------------------->|
+       |<---------------- durable SourceRef receipt ---|
+       |                                               |
+       |-- commit checkpoint expected=C0, next=C1 ---->|
+       |<-------------------------- committed C1 ------|
+```
+
+If the worker stops after a durable receipt but before the checkpoint commit, the next run starts from the earlier
+checkpoint and may submit the observation again. Identical submission is idempotent. Checkpoint comparison prevents
+two runs of the same binding from silently replacing each other's progress.
 
 The observation envelope carries the Definition name, version and fingerprint, canonical Source payload, and one
 value for every projection declared by the manifest. The Server validates envelope identity, payload schema,

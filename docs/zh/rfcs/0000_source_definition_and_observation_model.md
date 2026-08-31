@@ -47,6 +47,22 @@ ETag 或 provider 当前值读取，并不能满足 referenced 契约。
 精确证据。二元 `(source_type, source_id)` Source reference 无法同时表达稳定的逻辑对象和不可变观察，只能迫使每个集成自行发明复合
 `source_id`。
 
+例如，只使用 provider object ID 时，第二个 value 会与第一个冲突或替换它。只使用 value digest 虽然能保留
+两个 value，却无法表达它们来自同一个持续存在的对象：
+
+```text
+provider object 42
+      |
+      +-- value v1 ----> exact observation 1
+      `-- value v2 ----> exact observation 2
+             ^
+             |
+       same logical Source
+```
+
+因此，本模型分别保存 logical identity 与 exact evidence。需要 current state 的 consumer 可以沿着同一个
+logical Source 读取，而 Artifact 继续引用它实际使用的 observation。
+
 扩展边界也不完整。Source adapter 将 native input class 绑定到具体 Source class 和读取结果，而内置
 Runtime 与关系型持久化会组装固定 adapter 集合。它没有说明独立定义的 Source 类型在身份、持久化、传输与
 Artifact evidence 上必须长期满足哪些规则。
@@ -237,6 +253,76 @@ logical Source lifecycle。
 ContentSource 适合 prompt、显式文本捕获、import record，以及调用方已经拥有不可变身份的其他场景。持续观察同一
 逻辑对象的集成应定义或复用 multi-observation Source type。
 
+两条 ingestion 路径的 acquisition 方式不同，但最终都进入 Scope-owned Source history：
+
+| Concern | `ContentSource` capture | Source Definition 与 Connector ingestion |
+| --- | --- | --- |
+| Typical input | 调用方已经持有的文本 | 从外部系统发现的对象 |
+| Identity | 一个由调用方保持稳定的不可变身份 | 一个 logical identity 及其 exact observations |
+| Type contract | 内置 captured text 与 metadata | Definition-owned value、provenance 与 projections |
+| Synchronization | 单次请求，没有 checkpoint | Discovery、per-item outcomes、replay 与 checkpoint comparison |
+| Downstream use | 内置 text evidence | Consumer 能理解的 named projection |
+
+当调用方已经持有最终文本和不可变身份时，`ContentSource` 是更短的路径。Remote ingestion API 不替代它；
+这组 API 用于 worker 需要发现、规范化并重复观察外部对象的场景，同时避免把 provider code 或 credentials
+加载进 Server。
+
+## Source 如何参与 Scope 流程
+
+Server 持久化接受 exact observation 后，会将它追加到 owner Scope 的 Source journal。接受 observation
+本身不会创建 Memory 或其他 Artifact。Scope-local processor 随后选择一个有界 Source window，请求它能理解的
+projection，并可能产生一个引用 exact SourceRef 的新 Artifact revision：
+
+```text
+Connector or direct caller
+          |
+          | bind Scope A
+          v
+Source observation
+          |
+          v
+Scope A Source journal ----> Scope-local processor
+                                   |
+                          named projection
+                                   |
+                                   v
+                         Scope A Memory revision
+                         cites exact SourceRef
+```
+
+新的 observation 可以触发后续处理，但不会重写旧 Artifact revision：
+
+```text
+SourceKey(scope-a, record, provider-object-42)
+|-- observation-1 ----> Memory revision 3
+`-- observation-2 ----> Memory revision 4
+
+Memory revision 3 continues to cite observation-1.
+```
+
+Consumer 只能通过 native Definition 或兼容的 named projection 使用 Source。例如，需要 text evidence 的
+Memory extractor 可以处理任何声明了对应 text projection 的 Source Definition，不需要知道 Source 最初来自
+file、page、issue 还是 `ContentSource`。缺失的 capability 必须保持显式，consumer 不会从 metadata 推断文本。
+
+跨 Scope 使用 Source 时，需要先确定预期的 ownership 与 delivery 行为：
+
+```text
+Scope A Source history
+          |
+          +-- Context Reference from Scope B
+          |      `-- later Prepare Context may read eligible Scope A material
+          |
+          +-- publish exact Artifact revision
+          |      `-- Scope B receives one selected result with origin provenance
+          |
+          `-- deliberate capture into Scope B
+                 `-- Scope B owns a new Source and runs its own downstream flow
+```
+
+持续读取使用 Context Reference；交付一个选定结果时，发布 exact Artifact revision。如果 Scope B 必须拥有并
+独立处理这个外部值，应在 Scope B 中显式 capture，形成新的 Scope-owned observation，并在适用时把 origin
+reference 保留到 provenance。以上操作都不会移动原始 Source，Parent 也不会因此获得 read access。
+
 # Reference-level explanation
 
 ## Source identity contract
@@ -317,6 +403,30 @@ Connector 在独立 worker 进程中运行。Worker 拥有 provider access 与�
 2. 读取一个 Connector binding 的 opaque checkpoint；
 3. 提交 worker 已物化的 Source observation 及其全部声明 projection；
 4. 从 run 开始时读到的值 compare-and-swap binding checkpoint。
+
+正常时序如下：
+
+```text
+Connector worker                              PowerContext Server
+       |                                               |
+       |-- register Definition manifest -------------->|
+       |<---------------- exact registered manifest ---|
+       |                                               |
+       |-- get binding checkpoint -------------------->|
+       |<-------------------------- checkpoint C0 -----|
+       |                                               |
+       |-- submit observation 1 ---------------------->|
+       |<---------------- durable SourceRef receipt ---|
+       |-- submit observation 2 ---------------------->|
+       |<---------------- durable SourceRef receipt ---|
+       |                                               |
+       |-- commit checkpoint expected=C0, next=C1 ---->|
+       |<-------------------------- committed C1 ------|
+```
+
+如果 worker 在收到 durable receipt 后、提交 checkpoint 前停止，下次 run 会从较早的 checkpoint 开始，并可能
+再次提交同一个 observation。相同提交具有幂等性。Checkpoint comparison 会阻止同一 binding 的两个 run
+静默覆盖彼此的进度。
 
 Observation envelope 携带 Definition name、version 与 fingerprint、canonical Source payload，以及 manifest 声明的
 每个 projection value。Server 在 durable acceptance 前验证 envelope identity、payload schema、projection key
