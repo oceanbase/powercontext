@@ -116,7 +116,9 @@ class InferenceConfig(BaseModel):
     @classmethod
     def reserve_headers_field(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
         if "extra_headers" in value:
-            raise ValueError("configure inference headers through the dedicated headers field")  # noqa: TRY003
+            raise ValueError(  # noqa: TRY003
+                "configure credentials and static headers through the dedicated headers field"
+            )
         return value
 
     @model_validator(mode="after")
@@ -130,9 +132,9 @@ class InferenceConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_workload_overrides(self) -> Self:
-        if self.generation_model is None and (
-            self.generation_base_url is not None or self.generation_headers or self.generation_model_settings
-        ):
+        if self.generation_model is None and self.generation_model_settings:
+            raise ValueError("generation_model_settings requires generation_model")  # noqa: TRY003
+        if self.generation_model is None and (self.generation_base_url is not None or self.generation_headers):
             raise ValueError("generation overrides require generation_model")  # noqa: TRY003
         if self.embedding_model is None and (
             self.embedding_base_url is not None or self.embedding_headers or self.embedding_model_settings

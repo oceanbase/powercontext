@@ -257,16 +257,30 @@ def test_structured_generator_times_out_and_cancels_underlying_call() -> None:
 
 
 def test_generation_readiness_probe_uses_one_bounded_text_request() -> None:
-    observed_max_tokens: list[int | None] = []
+    observed_settings: list[dict[str, object] | None] = []
 
     async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         assert messages
-        observed_max_tokens.append(None if info.model_settings is None else info.model_settings.get("max_tokens"))
+        observed_settings.append(None if info.model_settings is None else dict(info.model_settings))
         return ModelResponse(parts=[TextPart("ok")])
 
-    asyncio.run(probe_pydantic_ai_model(FunctionModel(respond), timeout_seconds=1))
+    asyncio.run(
+        probe_pydantic_ai_model(
+            FunctionModel(respond),
+            timeout_seconds=1,
+            model_settings={
+                "max_tokens": 100,
+                "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+            },
+        )
+    )
 
-    assert observed_max_tokens == [1]
+    assert observed_settings == [
+        {
+            "max_tokens": 1,
+            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+        }
+    ]
 
 
 def test_generation_readiness_probe_maps_bad_provider_endpoint_without_leaking_body() -> None:

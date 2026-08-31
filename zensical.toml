@@ -40,6 +40,7 @@ nav = [
                 { "Configure WorkBuddy" = "en/docs/how-to/configure-workbuddy.md" },
                 { "Configure OpenClaw" = "en/docs/how-to/configure-openclaw.md" },
                 { "Configure OpenCode" = "en/docs/how-to/configure-opencode.md" },
+                { "Configure Agent Plugin" = "en/docs/how-to/configure-agent-plugin.md" },
                 { "Trace with Phoenix" = "en/docs/how-to/trace-with-phoenix.md" },
             ] },
             { "Reference" = [
@@ -121,6 +122,7 @@ nav = [
                 { "配置 WorkBuddy" = "zh/docs/how-to/configure-workbuddy.md" },
                 { "配置 OpenClaw" = "zh/docs/how-to/configure-openclaw.md" },
                 { "配置 OpenCode" = "zh/docs/how-to/configure-opencode.md" },
+                { "配置 Agent Plugin" = "zh/docs/how-to/configure-agent-plugin.md" },
                 { "用 Phoenix 查看 trace" = "zh/docs/how-to/trace-with-phoenix.md" },
             ] },
             { "参考" = [
