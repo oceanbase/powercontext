@@ -1649,6 +1649,7 @@ requires-dist = [
     { name = "pyobvector", marker = "extra == 'seekdb'", specifier = ">=0.2.28,<0.3" },
     { name = "pyobvector", marker = "extra == 'server'", specifier = ">=0.2.28,<0.3" },
     { name = "rfc8785", specifier = ">=0.1.4,<1" },
+    { name = "scalar-fastapi", marker = "extra == 'server'", specifier = ">=1.8.2,<2" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'builtin'", specifier = ">=2,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'seekdb'", specifier = ">=2,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'server'", specifier = ">=2,<3" },
@@ -1697,7 +1698,7 @@ dependencies = [
 requires-dist = [
     { name = "bub", specifier = ">=0.4.0,<0.5.0" },
     { name = "httpx", specifier = ">=0.28,<1" },
-    { name = "powercontext", extras = ["client"], specifier = ">=0.0.3" },
+    { name = "powercontext", extras = ["client"] },
     { name = "pydantic-settings", specifier = ">=2.7,<3" },
 ]
 

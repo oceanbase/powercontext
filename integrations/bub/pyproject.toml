@@ -20,7 +20,7 @@ requires-python = ">=3.12,<4.0"
 dependencies = [
     "bub>=0.4.0,<0.5.0",
     "httpx>=0.28,<1",
-    "powercontext[client]>=0.0.3",
+    "powercontext[client]",
     "pydantic-settings>=2.7,<3",
 ]
 
