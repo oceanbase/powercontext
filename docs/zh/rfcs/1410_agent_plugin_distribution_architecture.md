@@ -1,6 +1,6 @@
 - Proposal Name: `agent_plugin_distribution_architecture`
 - Start Date: 2026-08-31
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#1410](https://github.com/oceanbase/powercontext/pull/1410)
 - Tracking Issue: [oceanbase/powercontext#1405](https://github.com/oceanbase/powercontext/issues/1405)
 
 # Summary
