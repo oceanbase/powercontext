@@ -5,6 +5,10 @@ description: 从 Git 安装 PowerContext，并运行本地 Server。
 
 # 安装和运行
 
+如果你是第一次使用 PowerContext，请先跟随 [Agent 分步入门](../tutorials/agent-quickstart.md)选择 Host，并从零
+跑通 Memory 与该 Host 支持的 Handoff 路径。本指南集中说明安装角色、Server 启动方式、seekDB、诊断和更新，
+便于已经明确目标的用户按需查找操作。
+
 ## 安装应用
 
 需要在 macOS 或 Linux 上准备 Python 3.11 或更新版本、Git 和

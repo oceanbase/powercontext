@@ -1,7 +1,7 @@
 ---
 template: home.html
 title: PowerContext
-description: 让项目决定、约束和下一步在 Codex 与 Claude Code 会话之间继续可用。
+description: 通过 HTTP 为自己的 AI 接入 Memory，或选择受支持的 Agent 跑通跨会话恢复与 Handoff。
 hide:
   - navigation
   - toc
@@ -12,26 +12,26 @@ home:
     title:
       - 换一个会话，
       - 项目继续向前。
-    lead: PowerContext 把项目里的决定、约束和下一步保存在对话之外。再次打开 Codex 或 Claude Code 时，相关上下文已经准备好。
-    note: Codex、Claude Code、Python、HTTP 和 MCP 连接同一份项目 Memory。
+    lead: PowerContext 把决定、约束、下一步和任务边界保存在对话之外。现有 AI 应用可以直接调用 HTTP API；Codex、Claude Code、DSH、OpenCode 等 Agent 也可以连接同一个 Server。
+    note: 你控制模型、身份和写入授权；PowerContext 提供带 citation 的 Memory、请求时上下文和保留历史的修订。
     actions:
-      - label: 从 Codex 开始
-        href: zh/docs/tutorials/codex-quickstart/
+      - label: 选择你的 Agent
+        href: zh/docs/tutorials/agent-quickstart/
         kind: primary
-      - label: 了解上下文如何延续
-        href: zh/docs/explanation/memory-and-handoff/
+      - label: 为自己的 AI 接入 API
+        href: zh/docs/tutorials/api-quickstart/
         kind: secondary
   continuity:
-    label: 同一项目，两次会话
-    title: 项目背景，不必重讲。
-    lead: 决定只需记录一次。后续会话可以恢复它，并核对来源和精确 Revision。
+    label: 同一项目，多个会话
+    title: 一个 Agent 停下，工作仍能继续。
+    lead: 实现、独立检查和兼容性验证可以由不同 Agent 完成；Handoff 传递经过检查的边界，人决定是否继续。
     steps:
-      - title: 记录
-        description: 在 Codex 中留下规则：Handoff 默认保持临时，用户明确要求后才提交。
-      - title: 继续
-        description: 在 Claude Code 中打开同一项目，不必重新解释之前的对话。
-      - title: 核对
-        description: 恢复这条规则，同时查看它的来源和精确 Revision。
+      - title: Agent A 实现
+        description: 记录项目决定、约束和下一步，并把目标、改动、检查与遗漏整理为 Handoff。
+      - title: Agent B 独立核对
+        description: 在另一个 Host 中按 exact Revision 接收，再用当前仓库重新验证证据和风险。
+      - title: 人决定
+        description: 人确认范围、能力和授权，决定继续、澄清或拒绝；接收不等于任务已经完成。
   ownership:
     label: Memory 与 Handoff
     title:
@@ -42,9 +42,9 @@ home:
     result: "LOCOMO：答对率 90.78% · 搜索 p95 延迟 1.38 秒"
     command: powercontext server run
     primary_action:
-      label: 阅读快速入门
-      href: zh/docs/tutorials/codex-quickstart/
+      label: 打开 Agent 分步入门
+      href: zh/docs/tutorials/agent-quickstart/
     secondary_action:
-      label: 浏览文档
-      href: zh/docs/
+      label: 打开 HTTP API 生命周期教程
+      href: zh/docs/tutorials/api-quickstart/
 ---

@@ -1,0 +1,294 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
+{% extends "main.html" %}
+
+{% set benchmark = page.meta["benchmark"] %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ 'assets/javascripts/benchmark.js' | url }}"></script>
+{% endblock %}
+
+{% block site_nav %}
+  <div class="md-sidebar md-sidebar--primary pc-mobile-sidebar" data-md-component="sidebar" data-md-type="navigation">
+    <div class="md-sidebar__scrollwrap">
+      <div class="md-sidebar__inner">{% include "partials/nav.html" %}</div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block container %}
+  <div class="md-content pc-benchmark" data-md-component="content">
+    <article class="md-content__inner md-typeset">
+      <section class="pc-benchmark-hero" aria-labelledby="benchmark-title">
+        <div class="shell pc-benchmark-hero__grid">
+          <div class="pc-benchmark-hero__copy">
+            <p class="pc-benchmark-label">{{ benchmark["hero"]["label"] }}</p>
+            <h1 id="benchmark-title">{% for line in benchmark["hero"]["title"] %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h1>
+            <p class="pc-benchmark-hero__lead">{{ benchmark["hero"]["lead"] }}</p>
+            <nav class="pc-benchmark-hero__actions" aria-label="{{ benchmark['hero']['actions_label'] }}">
+              {% for action in benchmark["hero"]["actions"] %}
+                <a href="#{{ action['target'] }}">{{ action["label"] }}</a>
+              {% endfor %}
+            </nav>
+          </div>
+
+          <div class="pc-benchmark-hero__visual" data-benchmark-reveal aria-label="{{ benchmark['hero']['visual_label'] }}">
+            {% for result in benchmark["hero"]["results"] %}
+              <div class="pc-benchmark-hero__result">
+                <span class="pc-benchmark-hero__result-name">{{ result["name"] }}</span>
+                <strong aria-hidden="true" data-count-to="{{ result['value'] }}" data-count-decimals="{{ result['decimals'] }}" data-count-suffix="{{ result['suffix'] }}">{{ result["display"] }}</strong>
+                <span class="pc-visually-hidden">{{ result["accessible"] }}</span>
+                <span>{{ result["metric"] }}</span>
+              </div>
+            {% endfor %}
+            <div class="pc-benchmark-hero__signal" aria-hidden="true"><span></span><span></span><span></span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="pc-benchmark-orientation shell" aria-labelledby="benchmark-orientation-title">
+        <header>
+          <h2 id="benchmark-orientation-title">{{ benchmark["orientation"]["title"] }}</h2>
+          <p>{{ benchmark["orientation"]["lead"] }}</p>
+        </header>
+        <div class="pc-benchmark-orientation__tests">
+          {% for test in benchmark["orientation"]["tests"] %}
+            <article data-benchmark-reveal>
+              <span>{{ test["name"] }}</span>
+              <h3>{{ test["question"] }}</h3>
+              <p>{{ test["answer"] }}</p>
+              <a href="#{{ test['target'] }}">{{ test["link"] }}</a>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="pc-benchmark-study shell" id="locomo" aria-labelledby="locomo-title">
+        <header class="pc-benchmark-study__header">
+          <h2 id="locomo-title">{{ benchmark["locomo"]["title"] }}</h2>
+          <p>{{ benchmark["locomo"]["lead"] }}</p>
+        </header>
+
+        <dl class="pc-benchmark-facts" data-benchmark-reveal>
+          {% for fact in benchmark["locomo"]["facts"] %}
+            <div><dt>{{ fact["label"] }}</dt><dd>{{ fact["value"] }}</dd></div>
+          {% endfor %}
+        </dl>
+
+        <div class="pc-locomo-categories" aria-label="{{ benchmark['locomo']['categories_label'] }}">
+          {% for category in benchmark["locomo"]["categories"] %}
+            <article data-benchmark-reveal>
+              <strong>{{ category["count"] }}</strong>
+              <h3>{{ category["name"] }}</h3>
+              <p>{{ category["description"] }}</p>
+            </article>
+          {% endfor %}
+        </div>
+
+        <div class="pc-metric-comparison" data-metric-comparison data-benchmark-reveal>
+          <div class="pc-metric-comparison__intro">
+            <div>
+              <h3>{{ benchmark["locomo"]["results_title"] }}</h3>
+              <p>{{ benchmark["locomo"]["results_lead"] }}</p>
+            </div>
+            <div class="pc-metric-tabs" role="tablist" aria-label="{{ benchmark['locomo']['tabs_label'] }}">
+              {% for metric in benchmark["locomo"]["metrics"] %}
+                <button id="metric-{{ metric['id'] }}-tab" type="button" role="tab" aria-controls="metric-{{ metric['id'] }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ '0' if loop.first else '-1' }}" data-metric-target="{{ metric['id'] }}">{{ metric["label"] }}</button>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="pc-metric-panels">
+            {% for metric in benchmark["locomo"]["metrics"] %}
+              <section id="metric-{{ metric['id'] }}" class="pc-metric-panel{% if loop.first %} is-active{% endif %}" role="tabpanel" aria-labelledby="metric-{{ metric['id'] }}-tab" data-metric-panel="{{ metric['id'] }}">
+                <div class="pc-metric-panel__callout">
+                  <strong>{{ metric["callout"] }}</strong>
+                  <span>{{ metric["callout_detail"] }}</span>
+                </div>
+                <div class="pc-metric-panel__lanes" aria-label="{{ metric['chart_label'] }}">
+                  {% for row in metric["rows"] %}
+                    <div class="pc-metric-lane" style="--benchmark-scale: {{ row['scale'] }}%;">
+                      <div class="pc-metric-lane__meta"><span>{{ row["name"] }}</span><strong>{{ row["display"] }}</strong></div>
+                      <span class="pc-metric-lane__bar" aria-hidden="true"></span>
+                    </div>
+                  {% endfor %}
+                </div>
+                <p class="pc-metric-panel__direction">{{ metric["direction"] }}</p>
+              </section>
+            {% endfor %}
+          </div>
+        </div>
+
+        <aside class="pc-benchmark-note" data-benchmark-reveal>
+          <strong>{{ benchmark["locomo"]["scope_title"] }}</strong>
+          <p>{{ benchmark["locomo"]["scope"] }}</p>
+        </aside>
+      </section>
+
+      <section class="pc-benchmark-study pc-benchmark-study--swe shell" id="swe-bench" aria-labelledby="swe-bench-title">
+        <header class="pc-benchmark-study__header">
+          <h2 id="swe-bench-title">{{ benchmark["swe"]["title"] }}</h2>
+          <p>{{ benchmark["swe"]["lead"] }}</p>
+        </header>
+
+        <div class="pc-swe-method" data-benchmark-reveal>
+          {% for item in benchmark["swe"]["method"] %}
+            <div><strong>{{ item["title"] }}</strong><span>{{ item["description"] }}</span></div>
+          {% endfor %}
+        </div>
+
+        <figure class="pc-swe-result" data-swe-result data-benchmark-reveal aria-labelledby="swe-result-caption">
+          <div class="pc-swe-result__scores">
+            {% for score in benchmark["swe"]["scores"] %}
+              <div class="pc-swe-score pc-swe-score--{{ score['kind'] }}">
+                <span>{{ score["label"] }}</span>
+                <strong aria-hidden="true" data-count-to="{{ score['count'] }}">{{ score["count"] }}</strong>
+                <span class="pc-visually-hidden">{{ score["accessible"] }}</span>
+                <small>{{ score["rate"] }}</small>
+              </div>
+            {% endfor %}
+            <div class="pc-swe-result__delta" aria-label="{{ benchmark['swe']['delta_accessible'] }}">
+              <strong>{{ benchmark["swe"]["delta"] }}</strong>
+              <span>{{ benchmark["swe"]["delta_label"] }}</span>
+            </div>
+          </div>
+          <figcaption id="swe-result-caption">{{ benchmark["swe"]["caption"] }}</figcaption>
+        </figure>
+
+        <aside class="pc-benchmark-note" data-benchmark-reveal>
+          <strong>{{ benchmark["swe"]["scope_title"] }}</strong>
+          <p>{{ benchmark["swe"]["scope"] }}</p>
+        </aside>
+      </section>
+
+      <section class="pc-benchmark-leaderboards shell" id="leaderboards" aria-labelledby="leaderboards-title" data-leaderboards>
+        <header class="pc-benchmark-leaderboards__header">
+          <h2 id="leaderboards-title">{{ benchmark["leaderboards"]["title"] }}</h2>
+          <p>{{ benchmark["leaderboards"]["lead"] }}</p>
+          <small>{{ benchmark["leaderboards"]["updated"] }}</small>
+        </header>
+
+        <div class="pc-leaderboard-tabs" role="tablist" aria-label="{{ benchmark['leaderboards']['tabs_label'] }}" data-benchmark-reveal>
+          {% for board_key in ["locomo", "swe"] %}
+            {% set board = benchmark["leaderboards"][board_key] %}
+            <button id="{{ board['id'] }}-tab" type="button" role="tab" aria-controls="{{ board['id'] }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ '0' if loop.first else '-1' }}" data-leaderboard-target="{{ board_key }}">
+              <span>{{ board["tab"] }}</span>
+              <strong>{{ board["count"] }}</strong>
+            </button>
+          {% endfor %}
+        </div>
+
+        <div class="pc-leaderboard-panels" data-benchmark-reveal>
+          {% for board_key in ["locomo", "swe"] %}
+            {% set board = benchmark["leaderboards"][board_key] %}
+            <section id="{{ board['id'] }}" class="pc-leaderboard-panel{% if loop.first %} is-active{% endif %}" role="tabpanel" aria-labelledby="{{ board['id'] }}-tab" data-leaderboard-panel="{{ board_key }}"{% if not loop.first %} hidden{% endif %}>
+              <header class="pc-leaderboard-panel__header">
+                <h3>{{ board["title"] }}</h3>
+                <p>{{ board["lead"] }}</p>
+              </header>
+
+              {% if board_key == "swe" %}
+                <aside class="pc-leaderboard-spotlight" aria-label="{{ board['spotlight']['label'] }}">
+                  <div>
+                    <span>{{ board["spotlight"]["label"] }}</span>
+                    <strong>{{ board["spotlight"]["value"] }}</strong>
+                  </div>
+                  <p>{{ board["spotlight"]["detail"] }}</p>
+                  <small>{{ board["spotlight"]["status"] }}</small>
+                </aside>
+              {% endif %}
+
+              <div class="pc-leaderboard-table-wrap">
+                <table class="pc-leaderboard-table" aria-label="{{ board['table_label'] }}">
+                  <thead>
+                    {% if board_key == "locomo" %}
+                      <tr><th scope="col">{{ board["columns"]["rank"] }}</th><th scope="col">{{ board["columns"]["system"] }}</th><th scope="col">{{ board["columns"]["score"] }}</th><th scope="col">{{ board["columns"]["protocol"] }}</th><th scope="col">{{ board["columns"]["evidence"] }}</th></tr>
+                    {% else %}
+                      <tr><th scope="col">{{ board["columns"]["rank"] }}</th><th scope="col">{{ board["columns"]["system"] }}</th><th scope="col">{{ board["columns"]["score"] }}</th><th scope="col">{{ board["columns"]["provider"] }}</th><th scope="col">{{ board["columns"]["harness"] }}</th></tr>
+                    {% endif %}
+                  </thead>
+                  <tbody>
+                    {% for row in board["rows"] %}
+                      <tr{% if row["highlight"] %} class="is-powercontext"{% endif %} style="--rank-index: {{ loop.index0 }};">
+                        <td class="pc-leaderboard-rank">{{ row["rank"] }}</td>
+                        <th scope="row">
+                          {% if board_key == "locomo" %}
+                            <a href="{{ row['source'] }}">{{ row["name"] }}</a>
+                          {% else %}
+                            {{ row["name"] }}{% if row["star"] %}<sup>*</sup>{% endif %}
+                          {% endif %}
+                        </th>
+                        <td class="pc-leaderboard-score">{{ row["score"] }}{% if board_key == "swe" %}<small>{{ row["ci"] }}</small>{% endif %}</td>
+                        {% if board_key == "locomo" %}
+                          <td class="pc-leaderboard-protocol">{{ row["protocol"] }}</td>
+                          <td><span class="pc-leaderboard-evidence">{{ row["evidence"] }}</span></td>
+                        {% else %}
+                          <td>{{ row["provider"] }}</td>
+                          <td><span class="pc-leaderboard-evidence">{{ board["harness_star"] if row["star"] else board["harness_default"] }}</span></td>
+                        {% endif %}
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+
+              <footer class="pc-leaderboard-panel__footer">
+                <div><strong>{{ board["note_title"] }}</strong><p>{{ board["note"] }}</p></div>
+                {% if board_key == "swe" %}<a href="{{ board['source'] }}">{{ benchmark["leaderboards"]["source_label"] }}</a>{% endif %}
+              </footer>
+            </section>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="pc-benchmark-reading shell" aria-labelledby="reading-title">
+        <header>
+          <h2 id="reading-title">{{ benchmark["reading"]["title"] }}</h2>
+          <p>{{ benchmark["reading"]["lead"] }}</p>
+        </header>
+        <div class="pc-benchmark-table-wrap" data-benchmark-reveal>
+          <table class="pc-benchmark-table">
+            <thead><tr><th scope="col">{{ benchmark["reading"]["columns"]["dimension"] }}</th><th scope="col">LoCoMo</th><th scope="col">SWE-bench Pro</th></tr></thead>
+            <tbody>
+              {% for row in benchmark["reading"]["rows"] %}
+                <tr><th scope="row">{{ row["dimension"] }}</th><td>{{ row["locomo"] }}</td><td>{{ row["swe"] }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="pc-benchmark-sources shell" aria-labelledby="sources-title">
+        <div>
+          <h2 id="sources-title">{{ benchmark["sources"]["title"] }}</h2>
+          <p>{{ benchmark["sources"]["lead"] }}</p>
+        </div>
+        <ol>
+          {% for source in benchmark["sources"]["items"] %}
+            <li data-benchmark-reveal><span>{{ source["type"] }}</span><a href="{{ source['href'] }}">{{ source["label"] }}</a><p>{{ source["description"] }}</p></li>
+          {% endfor %}
+        </ol>
+      </section>
+
+      <section class="pc-benchmark-cta shell" data-benchmark-reveal>
+        <div><h2>{{ benchmark["cta"]["title"] }}</h2><p>{{ benchmark["cta"]["lead"] }}</p></div>
+        <a class="primary-button large" href="{{ benchmark['cta']['href'] }}">{{ benchmark["cta"]["label"] }}</a>
+      </section>
+    </article>
+  </div>
+{% endblock %}

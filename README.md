@@ -22,15 +22,23 @@ collaboration. It turns shared work into project context that can be understood,
 
 ## Quick start
 
-You need macOS or Linux, Python 3.11 or newer, [`uv`](https://docs.astral.sh/uv/), and at least one supported agent
-host.
+You need macOS or Linux, Python 3.11 or newer, and [`uv`](https://docs.astral.sh/uv/). Choose your entry:
 
-### 1. Install PowerContext and integrations
+- already have an AI application and do not use an Agent Host: follow the
+  [HTTP API lifecycle tutorial](docs/en/docs/tutorials/api-quickstart.md) to complete the first Source, Memory,
+  PreparedContext, Experience, Skill, and Review loop over HTTP;
+- use Codex, Claude Code, DSH, OpenCode, or another Host: follow the
+  [Agent step-by-step quickstart](docs/en/docs/tutorials/agent-quickstart.md) for its actual Memory, automatic-recall,
+  and Handoff surface.
+
+The commands below are the shorter shared installation path.
+
+### 1. Install PowerContext, then add integrations for Agent Hosts
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 
-# Choose one or more integrations. Every setup command installs from the master branch.
+# Only the Agent Host path needs one or more integrations. Every setup command installs from master.
 powercontext setup codex --source oceanbase/powercontext --ref master
 powercontext setup claude-code --source oceanbase/powercontext --ref master
 powercontext setup dsh --source oceanbase/powercontext --ref master
@@ -47,7 +55,7 @@ powercontext setup select --host codex --host claude-code --host opencode \
 
 The first command installs the CLI and local Server from the latest `master` revision in an isolated environment.
 Every setup command installs its integration from the same `master` revision. Run setup again to refresh an existing
-integration.
+integration. HTTP API users need only the first install command and can skip every `powercontext setup` command.
 
 ### 2. Start and verify the local Server
 
@@ -67,6 +75,28 @@ powercontext doctor codex  # Replace codex with the host you installed.
 
 By default, the Server listens on `127.0.0.1:8000`, exposes Streamable HTTP MCP at `/mcp`, and persists data in a
 local SQLite database. Explicit Memory operations work without configuring an inference provider.
+
+### 3. Complete the Agent Memory and Handoff loop
+
+Start a new session from one project directory and follow the prompts in the
+[Agent step-by-step quickstart](docs/en/docs/tutorials/agent-quickstart.md). It shows how to:
+
+1. select and diagnose an installed Agent Host;
+2. save explicit project Memory and recover it in another session;
+3. use one-line, `pc_*`, or `/pc` Handoff according to the Host's real capabilities;
+4. verify a non-Codex DSH-to-OpenCode continuation with one exact Revision.
+
+No generation model is required for this first loop. Configure inference only when you continue to model-backed
+extraction and vector search. For the Codex-specific Hook and one-line flow, continue with the
+[complete Codex tutorial](docs/en/docs/tutorials/codex-quickstart.md).
+
+### 4. Or add the HTTP API to your own AI
+
+Without an Agent Host, call `POST /v1/context/prepare` before each model request and supply the returned read-only,
+untrusted historical context to the model. Call `POST /v1/memory/remember` only after explicit user or business-policy
+authorization. The [HTTP API lifecycle tutorial](docs/en/docs/tutorials/api-quickstart.md) provides one small Python
+learning path; use the [Scalar API Reference](https://oceanbase.github.io/powercontext/api/) for every endpoint and
+schema.
 
 ## Core capabilities
 

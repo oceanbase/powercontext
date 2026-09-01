@@ -1,7 +1,7 @@
 ---
 template: home.html
 title: PowerContext
-description: Keep project decisions, constraints, and next steps available across Codex and Claude Code sessions.
+description: Add Memory to your own AI over HTTP, or choose a supported agent for cross-session recovery and Handoff.
 hide:
   - navigation
   - toc
@@ -12,26 +12,26 @@ home:
     title:
       - Start a new session.
       - Keep moving.
-    lead: PowerContext keeps project decisions, constraints, and next steps outside the chat. When Codex or Claude Code opens the project again, the relevant context is ready.
-    note: Codex, Claude Code, Python, HTTP, and MCP share the same project Memory.
+    lead: PowerContext keeps decisions, constraints, next steps, and work boundaries outside the chat. Existing AI applications can call HTTP directly; Codex, Claude Code, DSH, OpenCode, and other agents can connect to the same Server.
+    note: You control the model, identity, and write authorization; PowerContext provides cited Memory, request-time context, and history-preserving revisions.
     actions:
-      - label: Start with Codex
-        href: en/docs/tutorials/codex-quickstart/
+      - label: Choose your agent
+        href: en/docs/tutorials/agent-quickstart/
         kind: primary
-      - label: How context carries over
-        href: en/docs/explanation/memory-and-handoff/
+      - label: Add the API to your AI
+        href: en/docs/tutorials/api-quickstart/
         kind: secondary
   continuity:
-    label: One project, two sessions
-    title: Do not start from scratch.
-    lead: Record a decision once. The next session can recover it with its source and exact revision.
+    label: One project, multiple sessions
+    title: One agent stops. Work continues.
+    lead: Different agents can implement, review, and validate compatibility. Handoff transfers an inspected boundary; a human decides whether to continue.
     steps:
-      - title: Save
-        description: In Codex, record that a Handoff stays temporary until the user asks to commit it.
-      - title: Continue
-        description: Open the same project in Claude Code without replaying the earlier chat.
-      - title: Check
-        description: Recover the rule together with its source and exact revision.
+      - title: Agent A implements
+        description: Record decisions, constraints, and next steps, then assemble the objective, changes, checks, and omissions as a Handoff.
+      - title: Agent B checks independently
+        description: Receive the exact Revision in another host and verify its evidence and risks against the current repository.
+      - title: A human decides
+        description: Confirm scope, capability, and authorization, then continue, request clarification, or decline. Receipt is not completion.
   ownership:
     label: Memory and Handoff
     title:
@@ -42,9 +42,9 @@ home:
     result: "LOCOMO: 90.78% correct · 1.38 s p95 search latency"
     command: powercontext server run
     primary_action:
-      label: Read the quickstart
-      href: en/docs/tutorials/codex-quickstart/
+      label: Open the Agent quickstart
+      href: en/docs/tutorials/agent-quickstart/
     secondary_action:
-      label: Explore documentation
-      href: en/docs/
+      label: Open the API lifecycle tutorial
+      href: en/docs/tutorials/api-quickstart/
 ---

@@ -14,7 +14,9 @@ nav = [
         { "Docs" = [
             { "Get started" = [
                 { "Overview" = "en/docs/index.md" },
-                { "Codex quickstart" = "en/docs/tutorials/codex-quickstart.md" },
+                { "HTTP API lifecycle tutorial" = "en/docs/tutorials/api-quickstart.md" },
+                { "Agent step-by-step quickstart" = "en/docs/tutorials/agent-quickstart.md" },
+                { "Complete Codex tutorial" = "en/docs/tutorials/codex-quickstart.md" },
                 { "Install and run" = "en/docs/how-to/install-and-run.md" },
                 { "Full-capability Quick Start" = "en/docs/how-to/full-capability-runtime.md" },
                 { "Deploy the Server" = "en/docs/how-to/deploy-server.md" },
@@ -50,6 +52,7 @@ nav = [
                 { "HTTP API Reference" = "api/index.html" },
             ] },
         ] },
+        { "Benchmarks" = "en/benchmarks/index.md" },
         { "Development" = [
             { "Core Protocol" = "en/development/core-protocol.md" },
             { "Memory Layer" = "en/development/memory-layer.md" },
@@ -99,7 +102,9 @@ nav = [
         { "文档" = [
             { "开始使用" = [
                 { "概览" = "zh/docs/index.md" },
-                { "Codex 快速入门" = "zh/docs/tutorials/codex-quickstart.md" },
+                { "HTTP API 生命周期教程" = "zh/docs/tutorials/api-quickstart.md" },
+                { "Agent 分步入门" = "zh/docs/tutorials/agent-quickstart.md" },
+                { "Codex 完整教程" = "zh/docs/tutorials/codex-quickstart.md" },
                 { "安装和运行" = "zh/docs/how-to/install-and-run.md" },
                 { "完整功能 Quick Start" = "zh/docs/how-to/full-capability-runtime.md" },
                 { "部署 Server" = "zh/docs/how-to/deploy-server.md" },
@@ -135,6 +140,7 @@ nav = [
                 { "HTTP API 参考" = "api/index.html" },
             ] },
         ] },
+        { "评估测试" = "zh/benchmarks/index.md" },
         { "开发" = [
             { "Core Protocol" = "zh/development/core-protocol.md" },
             { "Memory Layer" = "zh/development/memory-layer.md" },
