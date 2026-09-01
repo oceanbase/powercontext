@@ -40,12 +40,12 @@ const translations = {
     tokenLabel: "Server token",
     continue: "Continue",
     selectScope: "View",
-    estimatedReduction: "Compared with the original content",
+    estimatedReduction: "Compared with using the original materials directly",
     sources: "Work materials",
     memoryEntries: "Memory",
     artifacts: "Saved content",
     pendingReview: "Awaiting review",
-    artifactFamilies: "Saved content",
+    artifactFamilies: "By type",
     family: "Type",
     currentArtifacts: "Saved",
     pendingCandidates: "Awaiting review",
@@ -53,12 +53,12 @@ const translations = {
     handoff: "Handoff",
     memory: "Memory",
     skill: "Skill",
-    dailyActivity: "Daily context use",
-    noRecall: "No content found",
-    hitNoReduction: "No savings",
-    moreSavings: "More savings",
-    recallTrend: "Token use compared with the original content",
-    estimatedReductionSeries: "Tokens saved or used",
+    other: "Other",
+    noContent: "No content yet",
+    dailyActivity: "Use over the last 30 days",
+    noActivity: "No use",
+    moreActivity: "More use",
+    recallTrend: "Tokens saved or used each day",
     dark: "Dark",
     light: "Light",
     switchDark: "Switch to dark mode",
@@ -67,19 +67,23 @@ const translations = {
     switchEnglish: "Switch to English",
     languageChinese: "中文",
     languageEnglish: "EN",
-    updated: "Updated {value}",
-    recallCoverage: "Last 30 days · {comparable} / {preparations} uses compared",
-    noPreparations: "Last 30 days · no context use",
+    updated: "As of {value}",
+    recallCoverage: "In the last 30 days, {comparable} of {preparations} uses could be compared.",
+    noPreparations: "No use in the last 30 days.",
     tokensSaved: "Saved about {tokens} tokens",
     tokensAdded: "Used about {tokens} more tokens",
     tokensUnchanged: "Token use was about the same",
     noComparison: "Not enough data to compare",
-    activitySummary: "In the last 30 days, PowerContext found content {hits} times. {comparison}.",
-    activityAria: "Content found in the last 30 days and tokens saved or used compared with the original content",
-    activityHit: "{date}: content found {hits} times; {comparison}",
-    trendDescription: "In the last 30 days, PowerContext found content {hits} times. {comparison}.",
+    activitySummary: "Used {preparations} times in the last 30 days; content was found {hits} times.",
+    activityUnavailable: "Usage data is not available.",
+    activityAria: "Context use over the last 30 days",
+    activityHit: "{date}: used {preparations} times; content found {hits} times",
+    trendHit: "{date}: {comparable} of {preparations} uses could be compared; {comparison}",
+    trendDescription: "In the last 30 days, {comparable} of {preparations} uses could be compared. {comparison}.",
+    axisSaved: "Saved {tokens}",
+    axisAdded: "Used {tokens}",
     authRejected: "The Server rejected this token.",
-    requestFailed: "The Overview request failed with HTTP {status}.",
+    requestFailed: "Couldn't load the Overview. Try again.",
     serverUnavailable: "The Server is unavailable.",
     retry: "Retry",
     noScopes: "There is no work to show here.",
@@ -101,12 +105,12 @@ const translations = {
     tokenLabel: "服务器访问令牌",
     continue: "继续",
     selectScope: "查看",
-    estimatedReduction: "相比原始内容",
+    estimatedReduction: "相比直接使用原始材料",
     sources: "工作材料",
     memoryEntries: "记忆",
     artifacts: "已保存内容",
     pendingReview: "待审核",
-    artifactFamilies: "已保存内容",
+    artifactFamilies: "按类型查看",
     family: "类型",
     currentArtifacts: "已保存",
     pendingCandidates: "待审核",
@@ -114,12 +118,12 @@ const translations = {
     handoff: "交接",
     memory: "记忆",
     skill: "技能",
-    dailyActivity: "每日上下文使用",
-    noRecall: "没有找到内容",
-    hitNoReduction: "没有节省",
-    moreSavings: "节省更多",
-    recallTrend: "Token 用量对比",
-    estimatedReductionSeries: "节省或多用的 Token",
+    other: "其他",
+    noContent: "暂无内容",
+    dailyActivity: "过去 30 天的使用情况",
+    noActivity: "未使用",
+    moreActivity: "使用更多",
+    recallTrend: "每天节省或多用的 Token",
     dark: "深色",
     light: "浅色",
     switchDark: "切换至深色模式",
@@ -128,19 +132,23 @@ const translations = {
     switchEnglish: "切换至英文",
     languageChinese: "中文",
     languageEnglish: "EN",
-    updated: "更新于 {value}",
-    recallCoverage: "过去 30 天 · {comparable} / {preparations} 次可比较",
-    noPreparations: "过去 30 天 · 暂无上下文使用记录",
+    updated: "截至 {value}",
+    recallCoverage: "过去 30 天共使用 {preparations} 次，其中 {comparable} 次可以比较。",
+    noPreparations: "过去 30 天暂无使用记录。",
     tokensSaved: "节省约 {tokens} Token",
     tokensAdded: "多用约 {tokens} Token",
     tokensUnchanged: "Token 用量基本相同",
     noComparison: "暂时无法比较",
-    activitySummary: "过去 30 天找到可用内容 {hits} 次。{comparison}。",
-    activityAria: "过去 30 天找到可用内容的次数，以及与原始内容相比节省或多用的 Token",
-    activityHit: "{date}：找到可用内容 {hits} 次，{comparison}",
-    trendDescription: "过去 30 天找到可用内容 {hits} 次。{comparison}。",
+    activitySummary: "过去 30 天共使用 {preparations} 次，其中 {hits} 次找到内容。",
+    activityUnavailable: "暂无使用数据。",
+    activityAria: "过去 30 天的上下文使用情况",
+    activityHit: "{date}：使用 {preparations} 次，找到内容 {hits} 次",
+    trendHit: "{date}：共使用 {preparations} 次，其中 {comparable} 次可以比较，{comparison}",
+    trendDescription: "过去 30 天共使用 {preparations} 次，其中 {comparable} 次可以比较。{comparison}。",
+    axisSaved: "节省 {tokens}",
+    axisAdded: "多用 {tokens}",
     authRejected: "服务器拒绝了该访问令牌。",
-    requestFailed: "概览请求失败（HTTP {status}）。",
+    requestFailed: "无法加载概览，请重试。",
     serverUnavailable: "无法连接服务器。",
     retry: "重试",
     noScopes: "这里还没有可查看的工作。",
@@ -160,6 +168,7 @@ const signOut = document.getElementById("sign-out");
 const scopeSelect = document.getElementById("scope-select");
 const authenticationRequired = document.documentElement.dataset.serverAuthRequired === "true";
 const svgNamespace = "http://www.w3.org/2000/svg";
+const productArtifactFamilies = new Set(["experience", "handoff", "skill"]);
 let currentView = null;
 let currentScopes = [];
 let currentAuthError = null;
@@ -219,7 +228,7 @@ async function authenticate(token, scopeId = "") {
       return;
     }
     if (!response.ok) {
-      showPageStatus("requestFailed", {status: response.status}, true);
+      showPageStatus("requestFailed", {}, true);
       return;
     }
     currentScopes = await response.json();
@@ -227,7 +236,7 @@ async function authenticate(token, scopeId = "") {
       return;
     }
     if (currentScopes.length === 0) {
-      showPageStatus("noScopes", {}, true);
+      showPageStatus("noScopes");
       return;
     }
     const selectedScopeId = currentScopes.some((scope) => scope.scope_id === scopeId)
@@ -269,7 +278,7 @@ async function loadStatistics(token, scopeId, request = null) {
       return;
     }
     if (!response.ok) {
-      showPageStatus("requestFailed", {status: response.status}, true);
+      showPageStatus("requestFailed", {}, true);
       return;
     }
     const statistics = await response.json();
@@ -344,6 +353,7 @@ function renderDashboard(view) {
   const statistics = view.statistics;
   const inventory = statistics.inventory;
   const recall = statistics.recall;
+  const comparisonAvailable = recall.estimator !== null;
   authShell.hidden = true;
   pageStatus.hidden = true;
   dashboard.hidden = false;
@@ -354,16 +364,16 @@ function renderDashboard(view) {
   setText("as-of", translate("updated", {value: formatDateTime(statistics.as_of)}));
   setText("sources", formatNumber(inventory.sources.total));
   setText("memory-entries", formatNumber(inventory.memory.entries.active));
-  setText("artifacts", formatNumber(inventory.artifacts.total));
+  setText("artifacts", formatNumber(savedArtifactCount(inventory)));
   setText("pending-reviews", formatNumber(inventory.candidates.pending));
-  setText("token-reduction", recall.totals.comparable_preparations === 0
+  setText("token-reduction", !comparisonAvailable || recall.totals.comparable_preparations === 0
     ? translate("noComparison")
     : formatTokenComparison(recall.totals.token_reduction));
-  setText("recall-hits", formatRecallCoverage(recall.totals));
+  setText("recall-hits", formatRecallCoverage(recall.totals, comparisonAvailable));
 
   renderArtifactFamilies(inventory);
-  renderHeatmap(recall.daily);
-  renderTrend(recall.daily);
+  renderHeatmap(recall.daily, comparisonAvailable);
+  renderTrend(recall.daily, comparisonAvailable);
 }
 
 function renderScopes(scopes, selectedScopeId) {
@@ -382,12 +392,31 @@ function renderArtifactFamilies(inventory) {
   rows.replaceChildren();
   const families = new Map();
   for (const family of inventory.artifacts.by_family) {
-    families.set(family.family, {family: family.family, total: family.total, pending: 0});
+    const displayFamily = productArtifactFamily(family.family);
+    if (displayFamily === null) {
+      continue;
+    }
+    const current = families.get(displayFamily) || {family: displayFamily, total: 0, pending: 0};
+    current.total += family.total;
+    families.set(displayFamily, current);
   }
   for (const candidate of inventory.candidates.by_family) {
-    const family = families.get(candidate.family) || {family: candidate.family, total: 0, pending: 0};
-    family.pending = candidate.pending;
-    families.set(candidate.family, family);
+    const displayFamily = productArtifactFamily(candidate.family);
+    if (displayFamily === null) {
+      continue;
+    }
+    const family = families.get(displayFamily) || {family: displayFamily, total: 0, pending: 0};
+    family.pending += candidate.pending;
+    families.set(displayFamily, family);
+  }
+  if (families.size === 0) {
+    const row = document.createElement("tr");
+    const empty = document.createElement("td");
+    empty.colSpan = 3;
+    empty.textContent = translate("noContent");
+    row.appendChild(empty);
+    rows.appendChild(row);
+    return;
   }
   for (const family of [...families.values()].sort((left, right) => left.family.localeCompare(right.family))) {
     const row = document.createElement("tr");
@@ -402,30 +431,50 @@ function renderArtifactFamilies(inventory) {
   }
 }
 
-function renderHeatmap(days) {
+function savedArtifactCount(inventory) {
+  return inventory.artifacts.by_family.reduce(
+    (total, family) => total + (family.family === "memory" ? 0 : family.total),
+    0
+  );
+}
+
+function productArtifactFamily(family) {
+  if (family === "memory") {
+    return null;
+  }
+  return productArtifactFamilies.has(family) ? family : "other";
+}
+
+function renderHeatmap(days, dataAvailable) {
   const heatmap = document.getElementById("heatmap");
   const tooltip = document.getElementById("activity-tooltip");
+  const chart = document.getElementById("activity-chart");
+  const legend = document.getElementById("activity-legend");
   heatmap.replaceChildren();
   tooltip.hidden = true;
+  if (!dataAvailable) {
+    chart.hidden = true;
+    legend.hidden = true;
+    setText("activity-summary", translate("activityUnavailable"));
+    return;
+  }
+  chart.hidden = false;
+  legend.hidden = false;
+  let totalPreparations = 0;
   let totalHits = 0;
-  let totalComparisons = 0;
-  let totalSavings = 0;
 
   for (const day of days) {
+    const preparations = day.preparations;
     const hits = day.ready_preparations;
-    const savings = day.token_reduction;
+    totalPreparations += preparations;
     totalHits += hits;
-    totalComparisons += day.comparable_preparations;
-    totalSavings += savings;
     const cell = document.createElement("span");
-    const level = heatmapLevel(hits, savings);
+    const level = heatmapLevel(preparations);
     cell.className = `activity-cell level-${level}`;
     const label = translate("activityHit", {
       date: formatDate(day.date),
-      hits: formatNumber(hits),
-      comparison: day.comparable_preparations === 0
-        ? translate("noComparison")
-        : formatTokenComparison(savings)
+      preparations: formatNumber(preparations),
+      hits: formatNumber(hits)
     });
     cell.addEventListener("pointerenter", (event) => showTooltip(tooltip, event, label));
     cell.addEventListener("pointermove", (event) => positionTooltip(tooltip, event));
@@ -435,42 +484,43 @@ function renderHeatmap(days) {
   }
 
   heatmap.setAttribute("aria-label", translate("activityAria"));
-  setText("activity-summary", translate("activitySummary", {
-    hits: formatNumber(totalHits),
-    comparison: totalComparisons === 0
-      ? translate("noComparison")
-      : formatTokenComparison(totalSavings)
-  }));
+  setText("activity-summary", totalPreparations === 0
+    ? translate("noPreparations")
+    : translate("activitySummary", {
+        preparations: formatNumber(totalPreparations),
+        hits: formatNumber(totalHits)
+      }));
 }
 
-function heatmapLevel(hits, savings) {
-  if (hits === 0) {
-    return 0;
-  }
-  if (savings <= 0) {
-    return 1;
-  }
-  if (savings < 256) {
-    return 2;
-  }
-  if (savings < 1024) {
-    return 3;
-  }
-  return 4;
+function heatmapLevel(preparations) {
+  return Math.min(preparations, 4);
 }
 
-function renderTrend(days) {
+function renderTrend(days, dataAvailable) {
   const chart = document.getElementById("trend-chart");
   const tooltip = document.getElementById("trend-tooltip");
+  const empty = document.getElementById("trend-empty");
+  const wrap = document.getElementById("trend-wrap");
   chart.replaceChildren();
   tooltip.hidden = true;
+  const comparableDays = days.filter((day) => day.comparable_preparations > 0);
+  if (!dataAvailable || comparableDays.length === 0) {
+    const message = translate("noComparison");
+    empty.textContent = message;
+    empty.hidden = false;
+    wrap.hidden = true;
+    setText("trend-description", message);
+    return;
+  }
+  empty.hidden = true;
+  wrap.hidden = false;
   const width = 720;
   const height = 220;
-  const insetLeft = 50;
+  const insetLeft = 104;
   const insetRight = 8;
   const insetY = 12;
   const plotHeight = height - insetY * 2;
-  const reductions = days.map((day) => day.token_reduction);
+  const reductions = comparableDays.map((day) => day.token_reduction);
   const observedMin = Math.min(0, ...reductions);
   const observedMax = Math.max(0, ...reductions);
   const minValue = observedMin;
@@ -493,7 +543,7 @@ function renderTrend(days) {
     chart.appendChild(line);
 
     const label = document.createElementNS(svgNamespace, "text");
-    label.textContent = formatCompact(value);
+    label.textContent = formatTokenAxis(value);
     label.setAttribute("x", String(insetLeft - 8));
     label.setAttribute("y", String(y + 4));
     label.setAttribute("class", "chart-axis-label");
@@ -503,8 +553,6 @@ function renderTrend(days) {
 
   chart.appendChild(series(
     days,
-    "token_reduction",
-    "chart-savings",
     minValue,
     maxValue,
     width,
@@ -519,28 +567,34 @@ function renderTrend(days) {
   setText("trend-middle", formatShortDate(days[Math.floor(days.length / 2)].date));
   setText("trend-end", formatShortDate(days[days.length - 1].date));
 
-  const hits = days.reduce((sum, day) => sum + day.ready_preparations, 0);
+  const preparations = days.reduce((sum, day) => sum + day.preparations, 0);
   const comparisons = days.reduce((sum, day) => sum + day.comparable_preparations, 0);
   const savings = days.reduce((sum, day) => sum + day.token_reduction, 0);
   setText("trend-description", translate("trendDescription", {
-    hits: formatNumber(hits),
-    comparison: comparisons === 0
-      ? translate("noComparison")
-      : formatTokenComparison(savings)
+    preparations: formatNumber(preparations),
+    comparable: formatNumber(comparisons),
+    comparison: formatTokenComparison(savings)
   }));
 }
 
-function series(days, field, className, minValue, maxValue, width, height, insetLeft, insetRight, insetY) {
-  const line = document.createElementNS(svgNamespace, "polyline");
+function series(days, minValue, maxValue, width, height, insetLeft, insetRight, insetY) {
+  const line = document.createElementNS(svgNamespace, "path");
   const plotWidth = width - insetLeft - insetRight;
   const plotHeight = height - insetY * 2;
-  const points = days.map((day, index) => {
+  let drawing = false;
+  const commands = [];
+  days.forEach((day, index) => {
+    if (day.comparable_preparations === 0) {
+      drawing = false;
+      return;
+    }
     const x = insetLeft + plotWidth * index / Math.max(days.length - 1, 1);
-    const y = chartY(day[field], minValue, maxValue, plotHeight, insetY);
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
+    const y = chartY(day.token_reduction, minValue, maxValue, plotHeight, insetY);
+    commands.push(`${drawing ? "L" : "M"} ${x.toFixed(2)} ${y.toFixed(2)}`);
+    drawing = true;
   });
-  line.setAttribute("points", points.join(" "));
-  line.setAttribute("class", className);
+  line.setAttribute("d", commands.join(" "));
+  line.setAttribute("class", "chart-savings");
   return line;
 }
 
@@ -559,13 +613,15 @@ function renderTrendPoints(
   const plotWidth = width - insetLeft - insetRight;
   const plotHeight = height - insetY * 2;
   days.forEach((day, index) => {
+    if (day.comparable_preparations === 0) {
+      return;
+    }
     const point = document.createElementNS(svgNamespace, "circle");
-    const label = translate("activityHit", {
+    const label = translate("trendHit", {
       date: formatDate(day.date),
-      hits: formatNumber(day.ready_preparations),
-      comparison: day.comparable_preparations === 0
-        ? translate("noComparison")
-        : formatTokenComparison(day.token_reduction)
+      preparations: formatNumber(day.preparations),
+      comparable: formatNumber(day.comparable_preparations),
+      comparison: formatTokenComparison(day.token_reduction)
     });
     point.setAttribute("cx", String(insetLeft + plotWidth * index / Math.max(days.length - 1, 1)));
     point.setAttribute("cy", String(chartY(day.token_reduction, minValue, maxValue, plotHeight, insetY)));
@@ -607,20 +663,17 @@ function setText(id, value) {
 }
 
 function formatFamily(value) {
-  if (translations[ui.locale()][value] || translations.en[value]) {
-    return translate(value);
-  }
-  return value
-    .split("_")
-    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
+  return translate(value);
 }
 
 function formatCompact(value) {
   return new Intl.NumberFormat(ui.localeTag(), {notation: "compact", maximumFractionDigits: 1}).format(value);
 }
 
-function formatRecallCoverage(totals) {
+function formatRecallCoverage(totals, dataAvailable) {
+  if (!dataAvailable) {
+    return "";
+  }
   if (totals.preparations === 0) {
     return translate("noPreparations");
   }
@@ -638,6 +691,16 @@ function formatTokenComparison(value) {
     return translate("tokensAdded", {tokens: formatCompact(Math.abs(value))});
   }
   return translate("tokensUnchanged");
+}
+
+function formatTokenAxis(value) {
+  if (value > 0) {
+    return translate("axisSaved", {tokens: formatCompact(value)});
+  }
+  if (value < 0) {
+    return translate("axisAdded", {tokens: formatCompact(Math.abs(value))});
+  }
+  return "0";
 }
 
 function formatDate(value) {

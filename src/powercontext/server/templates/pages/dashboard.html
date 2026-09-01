@@ -44,7 +44,7 @@
 
   <section class="overview" aria-label="Overview for the selected work" data-i18n-aria-label="scopeOverview">
     <div class="key-metric">
-      <div class="metric-label" data-i18n="estimatedReduction">Compared with the original content</div>
+      <div class="metric-label" data-i18n="estimatedReduction">Compared with using the original materials directly</div>
       <div class="metric-value" id="token-reduction">0</div>
       <div class="metric-note" id="recall-hits"></div>
     </div>
@@ -71,7 +71,7 @@
   <section class="data-section" aria-labelledby="families-title">
     <div class="section-heading">
       <div>
-        <h2 id="families-title" data-i18n="artifactFamilies">Saved content</h2>
+        <h2 id="families-title" data-i18n="artifactFamilies">By type</h2>
       </div>
     </div>
     <table class="family-table">
@@ -92,5 +92,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}?v=product-language-v3"></script>
+<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}?v=product-language-v4"></script>
 {% endblock %}

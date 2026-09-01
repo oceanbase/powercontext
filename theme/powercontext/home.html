@@ -51,7 +51,9 @@
               <canvas data-pc-spiral-canvas></canvas>
             </div>
           </div>
-          <p class="hero-note">{{ page.meta["home"]["hero"]["note"] }}</p>
+          {% if "note" in page.meta["home"]["hero"] %}
+            <p class="hero-note">{{ page.meta["home"]["hero"]["note"] }}</p>
+          {% endif %}
         </div>
       </section>
 
@@ -81,8 +83,12 @@
               <p>{{ page.meta["home"]["ownership"]["lead"] }}</p>
               <p>{{ page.meta["home"]["ownership"]["handoff"] }}</p>
             </div>
-            <p class="ownership-result">{{ page.meta["home"]["ownership"]["result"] }}</p>
-            <div class="command-block"><code><span>$</span> {{ page.meta["home"]["ownership"]["command"] }}</code></div>
+            {% if "result" in page.meta["home"]["ownership"] %}
+              <p class="ownership-result">{{ page.meta["home"]["ownership"]["result"] }}</p>
+            {% endif %}
+            {% if "command" in page.meta["home"]["ownership"] %}
+              <div class="command-block"><code><span>$</span> {{ page.meta["home"]["ownership"]["command"] }}</code></div>
+            {% endif %}
             <div class="ownership-actions">
               <a class="primary-button large" href="{{ page.meta['home']['ownership']['primary_action']['href'] | url }}">{{ page.meta["home"]["ownership"]["primary_action"]["label"] }}</a>
               <a class="text-link" href="{{ page.meta['home']['ownership']['secondary_action']['href'] | url }}">{{ page.meta["home"]["ownership"]["secondary_action"]["label"] }} <span aria-hidden="true">→</span></a>

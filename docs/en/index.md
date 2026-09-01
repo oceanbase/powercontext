@@ -8,12 +8,11 @@ hide:
   - footer
 home:
   hero:
-    label: Open source. Data stays local by default.
+    label: Open source. Local storage by default.
     title:
       - Start a new session.
       - Pick up where you left off.
-    lead: Save confirmed decisions, constraints, and progress in PowerContext. Supported Agents and AI applications connected over HTTP can use them in later sessions.
-    note: You choose the model and control identity and write access. PowerContext keeps Memory with its sources and version history.
+    lead: Save the decisions, constraints, and progress you will need later in PowerContext. Find them again in another session.
     actions:
       - label: Start with an Agent
         href: en/docs/tutorials/agent-quickstart/
@@ -23,24 +22,22 @@ home:
         kind: secondary
   continuity:
     label: Continue across sessions
-    title: You do not have to repeat the background.
-    lead: Save information once when it needs to last. Later sessions can find it, check where it came from, and see how it changed.
+    title: You do not have to repeat important information.
+    lead: Save information that needs to last. Later sessions can use it and see how it changed.
     steps:
       - title: Save
-        description: Record the decisions, constraints, and next steps that should outlast the current chat.
+        description: Record the decisions, constraints, and next steps you will need later.
+      - title: Find
+        description: Find the relevant information in another Agent or application without pasting content you already saved.
       - title: Continue
-        description: Open the same work in another Agent or application without pasting the earlier conversation.
-      - title: Check
-        description: Review the saved objective, progress, evidence, and omissions before continuing.
+        description: Check that the information still fits the current situation, then continue the work.
   ownership:
     label: Memory and Handoff
     title:
       - Remember what will matter later.
       - Hand off what is in progress.
     lead: Memory keeps information that stands on its own and will matter later. You can revise or retire an entry while preserving its history.
-    handoff: A Handoff saves the current objective and progress. It also records blockers and the next action so another person, Agent, or later session can continue. Proven approaches can become Experience. Recurring work can become Skills.
-    result: "LOCOMO: 90.78% correct · 1.38 s p95 search latency"
-    command: powercontext server run
+    handoff: A Handoff saves the current objective and progress. It also records blockers and the next action so another person, Agent, or later session can continue. A proven approach can become an Experience. Recurring work can become a Skill.
     primary_action:
       label: Read the Agent quickstart
       href: en/docs/tutorials/agent-quickstart/
