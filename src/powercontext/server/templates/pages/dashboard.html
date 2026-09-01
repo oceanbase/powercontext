@@ -37,21 +37,20 @@
         <select id="scope-select"></select>
       </div>
       <div class="hero-meta">
-        <span class="period-note" data-i18n="period30">Last 30 days</span>
-        <span aria-hidden="true"> · </span><span id="as-of"></span>
+        <span id="as-of"></span>
       </div>
     </div>
   </div>
 
   <section class="overview" aria-label="Overview for the selected work" data-i18n-aria-label="scopeOverview">
     <div class="key-metric">
-      <div class="metric-label" data-i18n="estimatedReduction">Estimated change in context length</div>
+      <div class="metric-label" data-i18n="estimatedReduction">Compared with the original content</div>
       <div class="metric-value" id="token-reduction">0</div>
       <div class="metric-note" id="recall-hits"></div>
     </div>
     <dl class="inventory">
       <div>
-        <dt data-i18n="sources">Recorded materials</dt>
+        <dt data-i18n="sources">Work materials</dt>
         <dd id="sources">0</dd>
       </div>
       <div>
@@ -80,7 +79,7 @@
       <thead>
         <tr>
           <th scope="col" data-i18n="family">Type</th>
-          <th scope="col" data-i18n="currentArtifacts">Available</th>
+          <th scope="col" data-i18n="currentArtifacts">Saved</th>
           <th scope="col" data-i18n="pendingCandidates">Awaiting review</th>
         </tr>
       </thead>
@@ -94,5 +93,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}?v=product-language-v1"></script>
+<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}?v=product-language-v2"></script>
 {% endblock %}

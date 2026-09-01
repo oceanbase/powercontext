@@ -38,7 +38,7 @@ home:
       - Remember what will matter later.
       - Hand off what is in progress.
     lead: Memory keeps information that stands on its own and will matter later. You can revise or retire an entry while preserving its history.
-    handoff: A Handoff saves the current objective and progress. It also records blockers and the next action so another person, Agent, or later session can continue. Proven approaches can become Experience. Recurring work can become Skills, which are reviewed before publication to an Agent.
+    handoff: A Handoff saves the current objective and progress. It also records blockers and the next action so another person, Agent, or later session can continue. Proven approaches can become Experience. Recurring work can become Skills.
     result: "LOCOMO: 90.78% correct · 1.38 s p95 search latency"
     command: powercontext server run
     primary_action:
