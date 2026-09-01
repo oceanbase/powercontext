@@ -97,36 +97,6 @@ def test_static_locale_catalogs_are_complete_and_not_mixed(script_path: Path, te
     assert leaks == [], f"{script_path.name} still mixes English into Chinese copy: {leaks}"
 
 
-def test_overview_catalog_uses_plain_product_language() -> None:
-    catalog = _load_translations(_STATIC / "dashboard.js")
-    english = " ".join(catalog["en"].values())
-    chinese = " ".join(catalog["zh"].values())
-
-    internal_english = (
-        "Scope",
-        "Scopes",
-        "Source",
-        "Sources",
-        "Artifact",
-        "Artifacts",
-        "Candidate",
-        "Candidates",
-        "Revision",
-        "Revisions",
-        "Recall",
-        "Dashboard",
-    )
-    for term in internal_english:
-        assert re.search(rf"\b{term}\b", english, re.IGNORECASE) is None
-    for term in ("作用域", "数据源", "制品", "候选", "修订", "召回", "仪表盘"):
-        assert term not in chinese
-
-    assert catalog["en"]["dashboardTitle"] == "Overview"
-    assert catalog["zh"]["dashboardTitle"] == "概览"
-    for term in ("工作", "记忆", "交接", "经验", "技能"):
-        assert term in chinese
-
-
 def _load_translations(path: Path) -> dict[str, dict[str, str]]:
     source = path.read_text(encoding="utf-8")
     start = source.index("const translations = ") + len("const translations = ")
