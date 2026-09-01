@@ -56,7 +56,6 @@
                 <span>{{ result["metric"] }}</span>
               </div>
             {% endfor %}
-            <div class="pc-benchmark-hero__signal" aria-hidden="true"><span></span><span></span><span></span></div>
           </div>
         </div>
       </section>
@@ -261,7 +260,8 @@
           <h2 id="reading-title">{{ benchmark["reading"]["title"] }}</h2>
           <p>{{ benchmark["reading"]["lead"] }}</p>
         </header>
-        <div class="pc-benchmark-table-wrap" data-benchmark-reveal>
+        <p class="pc-benchmark-table-hint">{{ benchmark["reading"]["scroll_hint"] }}</p>
+        <div class="pc-benchmark-table-wrap" data-benchmark-reveal tabindex="0" aria-label="{{ benchmark['reading']['table_label'] }}">
           <table class="pc-benchmark-table">
             <thead><tr><th scope="col">{{ benchmark["reading"]["columns"]["dimension"] }}</th><th scope="col">LoCoMo</th><th scope="col">SWE-bench Pro</th></tr></thead>
             <tbody>

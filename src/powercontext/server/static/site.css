@@ -4144,11 +4144,36 @@ button:disabled {
   }
 
   .topbar-inner {
+    height: auto;
+    padding-top: 10px;
     gap: 10px;
+    flex-wrap: wrap;
   }
 
   .primary-nav {
+    order: 3;
+    flex: 1 0 100%;
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+    display: flex;
+    overflow-x: auto;
+    gap: 0;
+    scrollbar-width: none;
+  }
+
+  .primary-nav::-webkit-scrollbar {
     display: none;
+  }
+
+  .primary-nav a {
+    flex: 1 0 auto;
+    justify-content: center;
+    padding-inline: 8px;
+  }
+
+  .topbar {
+    height: auto;
   }
 
   .review-toolbar label {
@@ -4372,6 +4397,11 @@ button:disabled {
 }
 
 @media (max-width: 360px) {
+  .primary-nav a {
+    padding-inline: 4px;
+    font-size: 12px;
+  }
+
   .brand-wordmark {
     width: 116px;
   }

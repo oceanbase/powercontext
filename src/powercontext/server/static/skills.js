@@ -140,7 +140,7 @@ const translations = {
     requestFailed: "The Skills request failed with HTTP {status}.",
     serverUnavailable: "The Server is unavailable.",
     retry: "Retry",
-    noScopes: "No Dashboard scopes are configured.",
+    noScopes: "There is no work to show here.",
     scopeUnavailable: "The selected scope is not available."
   },
   zh: {
@@ -258,7 +258,7 @@ const translations = {
     requestFailed: "技能请求失败（HTTP {status}）。",
     serverUnavailable: "服务器无法访问。",
     retry: "重试",
-    noScopes: "未配置仪表盘作用域。",
+    noScopes: "这里还没有可查看的工作。",
     scopeUnavailable: "选中的作用域不可用。"
   }
 };
@@ -474,7 +474,7 @@ async function authenticate(token, preferred = "") {
       return;
     }
     if (scopes.length === 0) {
-      showPageStatus("noScopes", {}, true);
+      showPageStatus("noScopes");
       return;
     }
     currentScopeId = scopes.some((scope) => scope.scope_id === preferred)

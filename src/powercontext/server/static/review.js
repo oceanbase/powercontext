@@ -168,7 +168,7 @@ const translations = {
     serverUnavailable: "The Server is unavailable.",
     authRejected: "The Server rejected this token.",
     retry: "Retry",
-    noScopes: "No Dashboard scopes are configured.",
+    noScopes: "There is no work to show here.",
     scopeUnavailable: "The selected scope is not available.",
     loading: "Loading...",
     loadingMore: "Loading more...",
@@ -320,7 +320,7 @@ const translations = {
     serverUnavailable: "服务器无法访问。",
     authRejected: "服务器拒绝了该访问令牌。",
     retry: "重试",
-    noScopes: "未配置仪表盘作用域。",
+    noScopes: "这里还没有可查看的工作。",
     scopeUnavailable: "选中的作用域不可用。",
     loading: "正在加载……",
     loadingMore: "正在加载更多……",
@@ -628,7 +628,7 @@ async function authenticate(token, preferredScopeId = "") {
       return;
     }
     if (scopes.length === 0) {
-      showPageStatus("noScopes", {}, true);
+      showPageStatus("noScopes");
       return;
     }
     const selectedScopeId = scopes.some((scope) => scope.scope_id === preferredScopeId)
