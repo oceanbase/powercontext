@@ -46,7 +46,6 @@ const translations = {
     artifacts: "Saved content",
     pendingReview: "Awaiting review",
     artifactFamilies: "Saved content",
-    artifactSubtitle: "Saved content by type, plus items awaiting review",
     family: "Type",
     currentArtifacts: "Saved",
     pendingCandidates: "Awaiting review",
@@ -56,12 +55,9 @@ const translations = {
     skill: "Skill",
     dailyActivity: "Daily context use",
     noRecall: "No content found",
-    hitNoReduction: "Content found · no savings",
-    reductionLow: "Saved 1 to 255 tokens",
-    reductionMedium: "Saved 256 to 1,023 tokens",
-    reductionHigh: "Saved 1,024+ tokens",
+    hitNoReduction: "No savings",
+    moreSavings: "More savings",
     recallTrend: "Token use compared with the original content",
-    trendSubtitle: "Tokens saved or used each day compared with the original content.",
     estimatedReductionSeries: "Tokens saved or used",
     dark: "Dark",
     light: "Light",
@@ -72,9 +68,8 @@ const translations = {
     languageChinese: "中文",
     languageEnglish: "EN",
     updated: "Updated {value}",
-    recallCoverage: "In the last 30 days, context was prepared {preparations} times; {comparable} could be compared with the original content.",
-    noComparablePreparations: "In the last 30 days, context was prepared {preparations} times. There is no comparable data yet.",
-    noPreparations: "No context was prepared in the last 30 days.",
+    recallCoverage: "Last 30 days · {comparable} / {preparations} uses compared",
+    noPreparations: "Last 30 days · no context use",
     tokensSaved: "Saved about {tokens} tokens",
     tokensAdded: "Used about {tokens} more tokens",
     tokensUnchanged: "Token use was about the same",
@@ -112,7 +107,6 @@ const translations = {
     artifacts: "已保存内容",
     pendingReview: "待审核",
     artifactFamilies: "已保存内容",
-    artifactSubtitle: "按类型查看已保存内容和待审核内容",
     family: "类型",
     currentArtifacts: "已保存",
     pendingCandidates: "待审核",
@@ -122,12 +116,9 @@ const translations = {
     skill: "技能",
     dailyActivity: "每日上下文使用",
     noRecall: "没有找到内容",
-    hitNoReduction: "已找到 · 没有节省",
-    reductionLow: "节省 1 至 255 Token",
-    reductionMedium: "节省 256 至 1,023 Token",
-    reductionHigh: "节省 1,024 Token 以上",
+    hitNoReduction: "没有节省",
+    moreSavings: "节省更多",
     recallTrend: "Token 用量对比",
-    trendSubtitle: "与原始内容相比，每天节省或多用的 Token。",
     estimatedReductionSeries: "节省或多用的 Token",
     dark: "深色",
     light: "浅色",
@@ -138,9 +129,8 @@ const translations = {
     languageChinese: "中文",
     languageEnglish: "EN",
     updated: "更新于 {value}",
-    recallCoverage: "过去 30 天共准备 {preparations} 次上下文，其中 {comparable} 次可以与原始内容比较。",
-    noComparablePreparations: "过去 30 天共准备 {preparations} 次上下文，暂无可比较的数据。",
-    noPreparations: "过去 30 天没有准备上下文。",
+    recallCoverage: "过去 30 天 · {comparable} / {preparations} 次可比较",
+    noPreparations: "过去 30 天 · 暂无上下文使用记录",
     tokensSaved: "节省约 {tokens} Token",
     tokensAdded: "多用约 {tokens} Token",
     tokensUnchanged: "Token 用量基本相同",
@@ -633,11 +623,6 @@ function formatCompact(value) {
 function formatRecallCoverage(totals) {
   if (totals.preparations === 0) {
     return translate("noPreparations");
-  }
-  if (totals.comparable_preparations === 0) {
-    return translate("noComparablePreparations", {
-      preparations: formatNumber(totals.preparations)
-    });
   }
   return translate("recallCoverage", {
     preparations: formatNumber(totals.preparations),
