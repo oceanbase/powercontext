@@ -624,11 +624,6 @@
   overflow: hidden;
   border-bottom: 1px solid var(--pc-rule);
   background-color: var(--pc-surface);
-  background-image:
-    linear-gradient(to right, rgb(16 24 40 / 0.028) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(16 24 40 / 0.028) 1px, transparent 1px);
-  background-position: center top;
-  background-size: 96px 96px;
 }
 
 .hero-inner {
@@ -651,8 +646,7 @@
   max-width: 680px;
 }
 
-.hero-label,
-.section-label {
+.hero-label {
   margin: 0 0 24px;
   color: var(--pc-accent-hover);
   font-size: 11px;
@@ -709,16 +703,6 @@
   position: relative;
   transform: rotate(-3deg);
   width: 100%;
-}
-
-.hero-kv::before {
-  position: absolute;
-  z-index: -1;
-  inset: 12% 0;
-  border-radius: 50%;
-  background: rgb(11 111 244 / 0.055);
-  content: "";
-  filter: blur(38px);
 }
 
 .hero-kv canvas {
@@ -792,18 +776,13 @@
   grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.65fr);
 }
 
-.continuity-intro .section-label {
-  grid-column: 1 / -1;
-  margin-bottom: -36px;
-}
-
 .continuity-intro h2 {
   max-width: 780px;
   margin: 0;
-  font-size: clamp(52px, 6vw, 78px);
+  font-size: clamp(40px, 4.6vw, 60px);
   font-weight: 520;
-  letter-spacing: -0.055em;
-  line-height: 1;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
 }
 
 .continuity-intro > p:last-child {
@@ -878,10 +857,10 @@
 
 .ownership-grid h2 {
   margin: 0;
-  font-size: clamp(56px, 6.5vw, 84px);
+  font-size: clamp(42px, 4.8vw, 64px);
   font-weight: 530;
-  letter-spacing: -0.06em;
-  line-height: 0.96;
+  letter-spacing: -0.03em;
+  line-height: 1.04;
 }
 
 .ownership-lead {
@@ -984,11 +963,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .continuity-intro .section-label {
-    grid-column: auto;
-    margin-bottom: -8px;
-  }
-
   .ownership-grid {
     min-height: 0;
     padding-block: 76px;
@@ -1032,7 +1006,7 @@
   }
 
   .continuity-intro h2 {
-    font-size: 48px;
+    font-size: 42px;
   }
 
   .continuity-flow {
@@ -1052,7 +1026,7 @@
   }
 
   .ownership-grid h2 {
-    font-size: 58px;
+    font-size: 46px;
   }
 
   .ownership-actions {
@@ -1080,7 +1054,7 @@
 
   .continuity-intro h2,
   .ownership-grid h2 {
-    font-size: 42px;
+    font-size: 36px;
   }
 
   .continuity-section > .shell {
@@ -1090,16 +1064,6 @@
   .ownership-lead p {
     font-size: 15px;
   }
-}
-
-[data-md-color-scheme="slate"] .brand-hero {
-  background-image:
-    linear-gradient(to right, rgb(220 232 251 / 0.045) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(220 232 251 / 0.045) 1px, transparent 1px);
-}
-
-[data-md-color-scheme="slate"] .hero-kv::before {
-  background: rgb(104 173 255 / 0.09);
 }
 
 @media screen and (max-width: 420px) {

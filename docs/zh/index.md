@@ -21,7 +21,6 @@ home:
         href: zh/docs/tutorials/api-quickstart/
         kind: secondary
   continuity:
-    label: 跨会话继续
     title: 重要信息不必反复交代。
     lead: 把需要长期保留的信息记下来。后续会话可以继续使用，也能查看修改记录。
     steps:
@@ -32,7 +31,6 @@ home:
       - title: 继续
         description: 确认这些信息仍符合当前情况，然后接着做。
   ownership:
-    label: 记忆与交接
     title:
       - 记住以后还要用的，
       - 交接手头正在做的。

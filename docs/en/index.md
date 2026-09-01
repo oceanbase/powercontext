@@ -21,7 +21,6 @@ home:
         href: en/docs/tutorials/api-quickstart/
         kind: secondary
   continuity:
-    label: Continue across sessions
     title: You do not have to repeat important information.
     lead: Save information that needs to last. Later sessions can use it and see how it changed.
     steps:
@@ -32,7 +31,6 @@ home:
       - title: Continue
         description: Check that the information still fits the current situation, then continue the work.
   ownership:
-    label: Memory and Handoff
     title:
       - Remember what will matter later.
       - Hand off what is in progress.

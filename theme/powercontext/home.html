@@ -60,7 +60,6 @@
       <section class="continuity-section" aria-labelledby="continuity-title">
         <div class="shell">
           <div class="continuity-intro">
-            <p class="section-label">{{ page.meta["home"]["continuity"]["label"] }}</p>
             <h2 id="continuity-title">{{ page.meta["home"]["continuity"]["title"] }}</h2>
             <p>{{ page.meta["home"]["continuity"]["lead"] }}</p>
           </div>
@@ -75,7 +74,6 @@
       <section class="ownership-section" aria-labelledby="ownership-title">
         <div class="ownership-grid shell">
           <div>
-            <p class="section-label">{{ page.meta["home"]["ownership"]["label"] }}</p>
             <h2 id="ownership-title">{% for line in page.meta["home"]["ownership"]["title"] %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h2>
           </div>
           <div class="ownership-copy">
