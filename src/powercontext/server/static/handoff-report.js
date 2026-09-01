@@ -35,11 +35,11 @@ const authenticationRequired = document.documentElement.dataset.serverAuthRequir
 const translations = {
   en: {
     pageTitle: "PowerContext Handoff Report",
-    dashboardTitle: "Dashboard",
+    dashboardTitle: "Overview",
     skillsTitle: "Skills",
     reviewTitle: "Review",
     handoffReportTitle: "Handoff Report",
-    brandHomeLabel: "PowerContext Dashboard",
+    brandHomeLabel: "PowerContext Overview",
     primaryNavigation: "Primary navigation",
     handoffSummary: "Handoff summary",
     maintainedBy: "Maintained by OceanBase.",
@@ -237,11 +237,11 @@ const translations = {
   },
   zh: {
     pageTitle: "PowerContext 项目交接报告",
-    dashboardTitle: "仪表盘",
+    dashboardTitle: "概览",
     skillsTitle: "技能",
     reviewTitle: "审核",
     handoffReportTitle: "交接报告",
-    brandHomeLabel: "PowerContext 仪表盘",
+    brandHomeLabel: "PowerContext 概览",
     primaryNavigation: "主导航",
     handoffSummary: "交接摘要",
     maintainedBy: "由 OceanBase 维护。",

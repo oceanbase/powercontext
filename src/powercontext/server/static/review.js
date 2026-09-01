@@ -27,11 +27,11 @@ import {createPageUi, createRequestGate} from "./page-ui.js?v=locale-complete";
 const translations = {
   en: {
     pageTitle: "PowerContext Review",
-    dashboardTitle: "Dashboard",
+    dashboardTitle: "Overview",
     skillsTitle: "Skills",
     reviewTitle: "Review",
     handoffReportTitle: "Handoff Report",
-    brandHomeLabel: "PowerContext Dashboard",
+    brandHomeLabel: "PowerContext Overview",
     primaryNavigation: "Primary navigation",
     maintainedBy: "Maintained by OceanBase.",
     signOut: "Sign out",
@@ -179,11 +179,11 @@ const translations = {
   },
   zh: {
     pageTitle: "PowerContext 审核",
-    dashboardTitle: "仪表盘",
+    dashboardTitle: "概览",
     skillsTitle: "技能",
     reviewTitle: "审核",
     handoffReportTitle: "交接报告",
-    brandHomeLabel: "PowerContext 仪表盘",
+    brandHomeLabel: "PowerContext 概览",
     primaryNavigation: "主导航",
     maintainedBy: "由 OceanBase 维护。",
     signOut: "退出",

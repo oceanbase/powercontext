@@ -155,7 +155,7 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     assert 'data-i18n-aria-label="primaryNavigation"' in home.text
     assert 'data-i18n-aria-label="scopeOverview"' in home.text
     assert 'data-i18n-aria-label="activityAria"' in home.text
-    assert "dashboard.js?v=default-startup-locale-v1" in home.text
+    assert "dashboard.js?v=product-language-v1" in home.text
     assert 'data-i18n="skillsTitle"' in skills.text
     assert 'aria-current="page" data-i18n="skillsTitle"' in skills.text
     assert 'id="skills-scope-search"' in skills.text
