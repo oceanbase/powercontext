@@ -159,16 +159,8 @@ docs-test: docs-build ## Test if documentation can be built without warnings or 
 	@test -f site/api/index.html
 	@cmp --silent openapi/powercontext.yaml site/api/openapi.yaml
 
-.PHONY: integration-manifest-docs
-integration-manifest-docs: ## Generate the checked-in integration capability reference pages.
-	@uv run python scripts/generate_integration_manifest_docs.py
-
-.PHONY: integration-manifest-docs-check
-integration-manifest-docs-check: ## Verify the integration capability reference pages are current.
-	@uv run python scripts/generate_integration_manifest_docs.py --check
-
 .PHONY: integration-manifest-check
-integration-manifest-check: integration-manifest-docs-check ## Verify the complete integration capability contract.
+integration-manifest-check: ## Verify the complete integration capability contract.
 	@uv run python -m pytest tests/test_integration_manifest.py
 
 .PHONY: docs

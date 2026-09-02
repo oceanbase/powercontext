@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ruff: noqa: C901, RUF001, S603, S607, SIM102, TRY003, TRY004
+# ruff: noqa: C901, S603, S607, SIM102, TRY003, TRY004
 
 """Repository contract for PowerContext integration capabilities."""
 
@@ -213,6 +213,7 @@ class IntegrationManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: int = Field(ge=1)
+    availability_definitions: dict[IntegrationAvailability, str]
     toolsets: tuple[IntegrationToolset, ...] = ()
     integrations: tuple[IntegrationDeclaration, ...] = Field(min_length=1)
 
@@ -220,6 +221,10 @@ class IntegrationManifest(BaseModel):
     def validate_declarations(self) -> IntegrationManifest:
         if self.schema_version != 1:
             raise ValueError(f"unsupported integration manifest schema version: {self.schema_version}")
+        if set(self.availability_definitions) != set(IntegrationAvailability):
+            raise ValueError("availability definitions must cover every availability state")
+        if any(not description.strip() for description in self.availability_definitions.values()):
+            raise ValueError("availability definitions must not be empty")
         toolsets = {toolset.id: toolset for toolset in self.toolsets}
         if len(toolsets) != len(self.toolsets):
             raise ValueError("toolset ids must be unique")
@@ -299,10 +304,6 @@ def derived_profiles(capabilities: Iterable[IntegrationCapability]) -> frozenset
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = REPOSITORY_ROOT / "integrations" / "capabilities.toml"
-DOCUMENTATION_PATHS = {
-    "en": REPOSITORY_ROOT / "docs" / "en" / "docs" / "reference" / "integration-capabilities.md",
-    "zh": REPOSITORY_ROOT / "docs" / "zh" / "docs" / "reference" / "integration-capabilities.md",
-}
 
 
 def load_integration_manifest(path: Path = MANIFEST_PATH) -> IntegrationManifest:
@@ -607,116 +608,7 @@ def _mcp_configuration_errors(integration_id: str, root: Path) -> list[str]:
     )
 
 
-_KIND_LABELS = {
-    "en": {
-        IntegrationKind.AGENT_HOST: "Agent host",
-        IntegrationKind.FRAMEWORK_ADAPTER: "Framework adapter",
-        IntegrationKind.EVALUATION_HARNESS: "Evaluation harness",
-    },
-    "zh": {
-        IntegrationKind.AGENT_HOST: "Agent 宿主",
-        IntegrationKind.FRAMEWORK_ADAPTER: "框架适配器",
-        IntegrationKind.EVALUATION_HARNESS: "评测 harness",
-    },
-}
-_AVAILABILITY_LABELS = {
-    "en": {
-        IntegrationAvailability.RELEASED: "Released",
-        IntegrationAvailability.MASTER_ONLY: "Master only",
-        IntegrationAvailability.EXPERIMENTAL: "Experimental",
-        IntegrationAvailability.PROPOSED: "Proposed",
-        IntegrationAvailability.UNSUPPORTED: "Unsupported",
-    },
-    "zh": {
-        IntegrationAvailability.RELEASED: "已发布",
-        IntegrationAvailability.MASTER_ONLY: "仅 master",
-        IntegrationAvailability.EXPERIMENTAL: "实验性",
-        IntegrationAvailability.PROPOSED: "提议中",
-        IntegrationAvailability.UNSUPPORTED: "不支持",
-    },
-}
-
-
-def render_integration_capability_reference(manifest: IntegrationManifest, locale: str) -> str:
-    if locale not in {"en", "zh"}:
-        raise ValueError(f"unsupported locale: {locale}")
-    if locale == "en":
-        front_matter = (
-            "---\n"
-            "title: Integration capability manifest\n"
-            "description: Versioned repository contract for PowerContext integrations.\n"
-            "---\n\n# Integration capability manifest\n\n"
-            "This page is generated from integrations/capabilities.toml. It is a repository contract, not a public HTTP capability API. "
-            "Implemented capabilities are backed by exact checked-in tool-surface probes.\n\n"
-            "candidate_review means candidates can be listed or read. It never grants approval authority.\n\n"
-            "## Support profiles\n\n"
-            "- **Minimal**: Memory read/write, Source capture, and Context injection.\n"
-            "- **Recommended**: Minimal plus Work Contract, Handoff, acknowledgement, and Task Outcome.\n"
-            "- **Full**: Recommended plus Experience, Skill, Candidate review, and External Skill.\n\n"
-            "## Current matrix\n\n"
-        )
-        evidence_heading, evidence_label = "## Evidence\n\n", "Implementation / docs / focused tests"
-    else:
-        front_matter = (
-            "---\ntitle: 集成能力清单\ndescription: PowerContext 集成的版本化仓库契约。\n---\n\n# 集成能力清单\n\n"
-            "本页由 integrations/capabilities.toml 生成。它是仓库契约，不是公开 HTTP capability API。已实现能力均由精确的工具面 probe 支撑。\n\n"
-            "candidate_review 表示可列举或读取候选材料，绝不授予批准权限。\n\n"
-            "## 支持 Profile\n\n"
-            "- **Minimal**：Memory 读写、Source capture 和 Context injection。\n"
-            "- **Recommended**：Minimal 加上 Work Contract、Handoff、acknowledgement 和 Task Outcome。\n"
-            "- **Full**：Recommended 加上 Experience、Skill、Candidate review 和 External Skill。\n\n"
-            "## 当前矩阵\n\n"
-        )
-        evidence_heading, evidence_label = "## 证据\n\n", "实现 / 文档 / 聚焦测试"
-    if locale == "en":
-        acceptance = (
-            "\n## Issue 1357 acceptance coverage\n\n"
-            "| Requirement | Enforced by |\n| --- | --- |\n"
-            "| Version, enum, and contradictory declarations | Schema validation tests |\n"
-            "| Kind and availability distinctions | Schema validation and status evidence tests |\n"
-            "| CLI, evidence, and actual tool surface | Integration manifest contract test |\n"
-            "| Documentation and tool exposure drift | Standard integration-manifest-check gate |\n"
-            "| Profiles and platform differences | Toolset-derived capability and profile validation |\n"
-            "| Tool visibility is not authorization | candidate_review contract definition |\n"
-        )
-    else:
-        acceptance = (
-            "\n## Issue 1357 验收覆盖\n\n"
-            "| 要求 | 强制方式 |\n| --- | --- |\n"
-            "| 版本、枚举和矛盾声明 | schema 校验测试 |\n"
-            "| kind 和 availability 区分 | schema 与状态证据测试 |\n"
-            "| CLI、证据和实际工具面 | integration manifest 契约测试 |\n"
-            "| 文档和工具暴露漂移 | 标准 integration-manifest-check 门禁 |\n"
-            "| profile 和平台差异 | toolset 推导的能力与 profile 校验 |\n"
-            "| 工具可见性不是授权 | candidate_review 契约定义 |\n"
-        )
-    rows = ["| ID | Kind | Availability | Profiles | Capabilities |", "| --- | --- | --- | --- | --- |"]
-    evidence_rows: list[str] = []
-    for integration in manifest.integrations:
-        profiles = ", ".join(profile.value for profile in integration.profiles) or "—"
-        capabilities = "<br>".join(capability.value for capability in integration.capabilities) or "—"
-        rows.append(
-            f"| {integration.id} | {_KIND_LABELS[locale][integration.kind]} | "
-            f"{_AVAILABILITY_LABELS[locale][integration.availability]} | {profiles} | {capabilities} |"
-        )
-        if integration.availability in IMPLEMENTED_AVAILABILITY:
-            pointers = [
-                *integration.evidence.implementation,
-                *integration.evidence.documentation,
-                *integration.evidence.tests,
-            ]
-            evidence_rows.append(
-                f"- **{integration.id}** ({evidence_label}): " + ", ".join(f"'{path}'" for path in pointers)
-            )
-        elif integration.availability is IntegrationAvailability.PROPOSED:
-            evidence_rows.append(f"- **{integration.id}**: '{integration.proposal}'")
-        else:
-            evidence_rows.append(f"- **{integration.id}**: '{integration.rationale}'")
-    return front_matter + "\n".join(rows) + "\n\n" + evidence_heading + "\n".join(evidence_rows) + "\n" + acceptance
-
-
 __all__ = [
-    "DOCUMENTATION_PATHS",
     "FULL_CAPABILITIES",
     "IMPLEMENTED_AVAILABILITY",
     "MANIFEST_PATH",
@@ -737,6 +629,5 @@ __all__ = [
     "evidence_path_errors",
     "load_integration_manifest",
     "release_tag_errors",
-    "render_integration_capability_reference",
     "tool_surface_errors",
 ]

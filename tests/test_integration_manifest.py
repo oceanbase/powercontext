@@ -21,12 +21,11 @@ from pydantic import ValidationError
 
 from powercontext.cli.system import setup_app
 from powercontext.integration_manifest import (
-    DOCUMENTATION_PATHS,
+    IntegrationAvailability,
     IntegrationManifest,
     evidence_path_errors,
     load_integration_manifest,
     release_tag_errors,
-    render_integration_capability_reference,
     tool_surface_errors,
 )
 
@@ -43,13 +42,10 @@ def test_manifest_matches_setup_catalog_evidence_and_actual_tool_surfaces() -> N
     assert tool_surface_errors(manifest) == ()
 
 
-@pytest.mark.parametrize("locale", ["en", "zh"])
-def test_generated_capability_reference_is_current(locale: str) -> None:
+def test_manifest_defines_each_availability_state() -> None:
     manifest = load_integration_manifest()
 
-    assert DOCUMENTATION_PATHS[locale].read_text(encoding="utf-8") == render_integration_capability_reference(
-        manifest, locale
-    )
+    assert set(manifest.availability_definitions) == set(IntegrationAvailability)
 
 
 def test_tool_surface_probe_rejects_renamed_or_added_tools() -> None:
@@ -74,6 +70,7 @@ def test_tool_surface_probe_rejects_renamed_or_added_tools() -> None:
         lambda payload: payload["integrations"][0].__setitem__("capabilities", ["unknown"]),
         lambda payload: payload["integrations"][0].__setitem__("toolsets", ["unknown-toolset"]),
         lambda payload: payload["integrations"][0]["evidence"].__setitem__("tests", []),
+        lambda payload: payload["availability_definitions"].pop("released"),
         lambda payload: payload["toolsets"][0]["tools"][0].__setitem__(
             "non_profile_reason", "duplicate classification"
         ),
@@ -142,7 +139,7 @@ def test_unimplemented_status_pointers_must_have_their_required_evidence(
             "kind": "agent_host",
             "availability": "unsupported",
             "capabilities": ["memory_read"],
-            "rationale": "docs/en/docs/reference/integration-capabilities.md",
+            "rationale": "docs/en/docs/reference/interfaces.md",
         },
         {
             "id": "unsupported-without-rationale",
@@ -153,7 +150,7 @@ def test_unimplemented_status_pointers_must_have_their_required_evidence(
             "id": "unsupported-with-implementation",
             "kind": "agent_host",
             "availability": "unsupported",
-            "rationale": "docs/en/docs/reference/integration-capabilities.md",
+            "rationale": "docs/en/docs/reference/interfaces.md",
             "evidence": {"implementation": ["src/powercontext/integration_manifest.py"]},
         },
     ],

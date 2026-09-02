@@ -14,6 +14,13 @@
 
 schema_version = 1
 
+[availability_definitions]
+released = "Available from a tagged PowerContext release."
+master_only = "Implemented on the current master branch but not yet released."
+experimental = "Implemented for evaluation; behavior and support can change without stability guarantees."
+proposed = "Planned in an issue, pull request, or RFC; it is not currently supported."
+unsupported = "Not supported; the manifest must record a maintained rationale."
+
 [[toolsets]]
 id = "server-mcp"
 probe = "server_mcp"
