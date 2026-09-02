@@ -21,11 +21,13 @@ from pydantic import ValidationError
 
 from powercontext.cli.system import setup_app
 from powercontext.integration_manifest import (
+    DOCUMENTATION_PATHS,
     IntegrationAvailability,
     IntegrationManifest,
     evidence_path_errors,
     load_integration_manifest,
     release_tag_errors,
+    render_integration_capability_reference,
     tool_surface_errors,
 )
 
@@ -46,6 +48,15 @@ def test_manifest_defines_each_availability_state() -> None:
     manifest = load_integration_manifest()
 
     assert set(manifest.availability_definitions) == set(IntegrationAvailability)
+
+
+@pytest.mark.parametrize("locale", ["en", "zh"])
+def test_generated_capability_matrix_is_current(locale: str) -> None:
+    manifest = load_integration_manifest()
+
+    assert DOCUMENTATION_PATHS[locale].read_text(encoding="utf-8") == render_integration_capability_reference(
+        manifest, locale
+    )
 
 
 def test_tool_surface_probe_rejects_renamed_or_added_tools() -> None:

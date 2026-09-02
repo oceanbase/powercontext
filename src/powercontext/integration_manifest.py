@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ruff: noqa: C901, S603, S607, SIM102, TRY003, TRY004
+# ruff: noqa: C901, RUF001, S603, S607, SIM102, TRY003, TRY004
 
 """Repository contract for PowerContext integration capabilities."""
 
@@ -145,6 +145,13 @@ class IntegrationEvidence(BaseModel):
         return bool(self.implementation or self.documentation or self.tests)
 
 
+class AvailabilityDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    en: str = Field(min_length=1)
+    zh: str = Field(min_length=1)
+
+
 class ToolExposure(BaseModel):
     """A normalized host-visible tool, hook, command, or adapter surface."""
 
@@ -213,7 +220,7 @@ class IntegrationManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: int = Field(ge=1)
-    availability_definitions: dict[IntegrationAvailability, str]
+    availability_definitions: dict[IntegrationAvailability, AvailabilityDefinition]
     toolsets: tuple[IntegrationToolset, ...] = ()
     integrations: tuple[IntegrationDeclaration, ...] = Field(min_length=1)
 
@@ -223,7 +230,11 @@ class IntegrationManifest(BaseModel):
             raise ValueError(f"unsupported integration manifest schema version: {self.schema_version}")
         if set(self.availability_definitions) != set(IntegrationAvailability):
             raise ValueError("availability definitions must cover every availability state")
-        if any(not description.strip() for description in self.availability_definitions.values()):
+        if any(
+            not description.strip()
+            for definition in self.availability_definitions.values()
+            for description in (definition.en, definition.zh)
+        ):
             raise ValueError("availability definitions must not be empty")
         toolsets = {toolset.id: toolset for toolset in self.toolsets}
         if len(toolsets) != len(self.toolsets):
@@ -304,6 +315,10 @@ def derived_profiles(capabilities: Iterable[IntegrationCapability]) -> frozenset
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = REPOSITORY_ROOT / "integrations" / "capabilities.toml"
+DOCUMENTATION_PATHS = {
+    "en": REPOSITORY_ROOT / "docs" / "en" / "docs" / "reference" / "integration-capabilities.md",
+    "zh": REPOSITORY_ROOT / "docs" / "zh" / "docs" / "reference" / "integration-capabilities.md",
+}
 
 
 def load_integration_manifest(path: Path = MANIFEST_PATH) -> IntegrationManifest:
@@ -608,12 +623,106 @@ def _mcp_configuration_errors(integration_id: str, root: Path) -> list[str]:
     )
 
 
+_KIND_LABELS = {
+    "en": {
+        IntegrationKind.AGENT_HOST: "Agent host",
+        IntegrationKind.FRAMEWORK_ADAPTER: "Framework adapter",
+        IntegrationKind.EVALUATION_HARNESS: "Evaluation harness",
+    },
+    "zh": {
+        IntegrationKind.AGENT_HOST: "Agent 宿主",
+        IntegrationKind.FRAMEWORK_ADAPTER: "框架适配器",
+        IntegrationKind.EVALUATION_HARNESS: "评测 harness",
+    },
+}
+_AVAILABILITY_LABELS = {
+    "en": {
+        IntegrationAvailability.RELEASED: "Released",
+        IntegrationAvailability.MASTER_ONLY: "Master only",
+        IntegrationAvailability.EXPERIMENTAL: "Experimental",
+        IntegrationAvailability.PROPOSED: "Proposed",
+        IntegrationAvailability.UNSUPPORTED: "Unsupported",
+    },
+    "zh": {
+        IntegrationAvailability.RELEASED: "已发布",
+        IntegrationAvailability.MASTER_ONLY: "仅 master",
+        IntegrationAvailability.EXPERIMENTAL: "实验性",
+        IntegrationAvailability.PROPOSED: "提议中",
+        IntegrationAvailability.UNSUPPORTED: "不支持",
+    },
+}
+
+
+def render_integration_capability_reference(manifest: IntegrationManifest, locale: str) -> str:
+    """Render the concise, generated capability matrix for one documentation locale."""
+
+    if locale not in {"en", "zh"}:
+        raise ValueError(f"unsupported locale: {locale}")
+    if locale == "en":
+        front_matter = (
+            "---\n"
+            "title: Integration capability matrix\n"
+            "description: Generated capability matrix for PowerContext integrations.\n"
+            "---\n\n# Integration capability matrix\n\n"
+            "This generated matrix is a repository contract, not a public HTTP capability API.\n\n"
+            "candidate_review permits listing and reading candidates only; it never grants decision authority.\n\n"
+            "## Availability\n\n"
+        )
+        profile_heading = "## Support profiles\n\n"
+        profile_lines = (
+            "- **Minimal**: Memory read/write, Source capture, and Context injection.\n"
+            "- **Recommended**: Minimal plus Work Contract, Handoff, acknowledgement, and Task Outcome.\n"
+            "- **Full**: Recommended plus Experience, Skill, Candidate review, and External Skill.\n\n"
+        )
+        matrix_heading = "## Current matrix\n\n"
+    else:
+        front_matter = (
+            "---\ntitle: 集成能力矩阵\ndescription: PowerContext 集成的生成式能力矩阵。\n"
+            "---\n\n# 集成能力矩阵\n\n"
+            "本矩阵由仓库 contract 生成，不是公开 HTTP capability API。\n\n"
+            "candidate_review 仅可列举和读取候选材料，不授予决策权限。\n\n"
+            "## 可用性\n\n"
+        )
+        profile_heading = "## 支持 Profile\n\n"
+        profile_lines = (
+            "- **Minimal**：Memory 读写、Source capture 和 Context injection。\n"
+            "- **Recommended**：Minimal 加上 Work Contract、Handoff、acknowledgement 和 Task Outcome。\n"
+            "- **Full**：Recommended 加上 Experience、Skill、Candidate review 和 External Skill。\n\n"
+        )
+        matrix_heading = "## 当前矩阵\n\n"
+    availability_lines = [
+        f"- **{_AVAILABILITY_LABELS[locale][availability]}**: "
+        f"{getattr(manifest.availability_definitions[availability], locale)}"
+        for availability in IntegrationAvailability
+    ]
+    rows = ["| ID | Kind | Availability | Profiles | Capabilities |", "| --- | --- | --- | --- | --- |"]
+    for integration in manifest.integrations:
+        profiles = ", ".join(profile.value for profile in integration.profiles) or "—"
+        capabilities = "<br>".join(capability.value for capability in integration.capabilities) or "—"
+        rows.append(
+            f"| {integration.id} | {_KIND_LABELS[locale][integration.kind]} | "
+            f"{_AVAILABILITY_LABELS[locale][integration.availability]} | {profiles} | {capabilities} |"
+        )
+    return (
+        front_matter
+        + "\n".join(availability_lines)
+        + "\n\n"
+        + profile_heading
+        + profile_lines
+        + matrix_heading
+        + "\n".join(rows)
+        + "\n"
+    )
+
+
 __all__ = [
+    "DOCUMENTATION_PATHS",
     "FULL_CAPABILITIES",
     "IMPLEMENTED_AVAILABILITY",
     "MANIFEST_PATH",
     "MINIMAL_CAPABILITIES",
     "RECOMMENDED_CAPABILITIES",
+    "AvailabilityDefinition",
     "IntegrationAvailability",
     "IntegrationCapability",
     "IntegrationDeclaration",
@@ -629,5 +738,6 @@ __all__ = [
     "evidence_path_errors",
     "load_integration_manifest",
     "release_tag_errors",
+    "render_integration_capability_reference",
     "tool_surface_errors",
 ]

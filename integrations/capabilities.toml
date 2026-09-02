@@ -14,12 +14,25 @@
 
 schema_version = 1
 
-[availability_definitions]
-released = "Available from a tagged PowerContext release."
-master_only = "Implemented on the current master branch but not yet released."
-experimental = "Implemented for evaluation; behavior and support can change without stability guarantees."
-proposed = "Planned in an issue, pull request, or RFC; it is not currently supported."
-unsupported = "Not supported; the manifest must record a maintained rationale."
+[availability_definitions.released]
+en = "Available from a tagged PowerContext release."
+zh = "可从带有 PowerContext tag 的发布版本获得。"
+
+[availability_definitions.master_only]
+en = "Implemented on the current master branch but not yet released."
+zh = "已在当前 master 分支实现，但尚未发布。"
+
+[availability_definitions.experimental]
+en = "Implemented for evaluation; behavior and support can change without stability guarantees."
+zh = "已为评估实现；行为与支持不承诺稳定，可能变更。"
+
+[availability_definitions.proposed]
+en = "Planned in an issue, pull request, or RFC; it is not currently supported."
+zh = "在 issue、PR 或 RFC 中规划，当前不受支持。"
+
+[availability_definitions.unsupported]
+en = "Not supported; the manifest must record a maintained rationale."
+zh = "当前不支持；manifest 必须记录维护中的理由。"
 
 [[toolsets]]
 id = "server-mcp"
