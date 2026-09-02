@@ -47,6 +47,7 @@ nav = [
                 { "Interfaces" = "en/docs/reference/interfaces.md" },
                 { "HTTP API" = "en/docs/reference/http-api.md" },
                 { "Configuration" = "en/docs/reference/configuration.md" },
+                { "HTTP API Reference" = "api/index.html" },
             ] },
         ] },
         { "Development" = [
@@ -65,6 +66,7 @@ nav = [
             { "RFCs" = [
                 { "Overview" = "en/rfcs/README.md" },
                 { "1410 Agent Plugin Distribution Architecture" = "en/rfcs/1410_agent_plugin_distribution_architecture.md" },
+                { "1345 Scope Organization and Agent Integration" = "en/rfcs/1345_scope_organization_and_agent_integration.md" },
                 { "1229 Unified Workloads and Long-Horizon Memory Evaluation" = "en/rfcs/1229_unified_workloads_and_long_horizon_memory_evaluation.md" },
                 { "1223 Human-Agent Work Continuity" = "en/rfcs/1223_human_agent_work_continuity.md" },
                 { "0082 Handoff Report" = "en/rfcs/0082_handoff_report.md" },
@@ -130,6 +132,7 @@ nav = [
                 { "接口" = "zh/docs/reference/interfaces.md" },
                 { "HTTP API" = "zh/docs/reference/http-api.md" },
                 { "配置" = "zh/docs/reference/configuration.md" },
+                { "HTTP API 参考" = "api/index.html" },
             ] },
         ] },
         { "开发" = [
@@ -148,6 +151,7 @@ nav = [
             { "RFC" = [
                 { "概览" = "zh/rfcs/README.md" },
                 { "1410 Agent Plugin 分发架构" = "zh/rfcs/1410_agent_plugin_distribution_architecture.md" },
+                { "1345 Scope 组织与 Agent 集成" = "zh/rfcs/1345_scope_organization_and_agent_integration.md" },
                 { "1229 统一工作负载与长程 Memory 评估" = "zh/rfcs/1229_unified_workloads_and_long_horizon_memory_evaluation.md" },
                 { "1223 人与 Agent 工作连续性" = "zh/rfcs/1223_human_agent_work_continuity.md" },
                 { "0082 Handoff 报告" = "zh/rfcs/0082_handoff_report.md" },

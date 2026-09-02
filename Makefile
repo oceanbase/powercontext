@@ -148,13 +148,20 @@ publish: ## Publish a release to PyPI.
 .PHONY: build-and-publish
 build-and-publish: build publish ## Build and publish.
 
+.PHONY: docs-build
+docs-build: ## Build the documentation and publish the canonical OpenAPI contract.
+	@install -D -m 0644 openapi/powercontext.yaml docs/api/openapi.yaml
+	@trap 'rm -f docs/api/openapi.yaml' EXIT; uv run zensical build --clean -s
+
 .PHONY: docs-test
-docs-test: ## Test if documentation can be built without warnings or errors
-	@uv run zensical build -s
+docs-test: docs-build ## Test if documentation can be built without warnings or errors
+	@test -f site/api/index.html
+	@cmp --silent openapi/powercontext.yaml site/api/openapi.yaml
 
 .PHONY: docs
 docs: ## Build and serve the documentation
-	@uv run zensical serve
+	@install -D -m 0644 openapi/powercontext.yaml docs/api/openapi.yaml
+	@trap 'rm -f docs/api/openapi.yaml' EXIT; uv run zensical serve $(ARGS)
 
 .PHONY: help
 help:

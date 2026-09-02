@@ -32,6 +32,7 @@ from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from opentelemetry.trace import SpanKind
+from scalar_fastapi import AgentScalarConfig, get_scalar_api_reference
 from starlette.middleware import Middleware
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.types import Lifespan
@@ -390,6 +391,7 @@ if TYPE_CHECKING:
     from powercontext.server.metrics import ServerMetrics
     from powercontext.server.tracing import ServerTracing
 
+_SCALAR_JS_URL = "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.66.1"
 REQUEST_ID_HEADER = "X-PowerContext-Request-ID"
 REPORT_SELECTION_DIGEST_HEADER = "X-PowerContext-Selection-Digest"
 REPORT_DIGEST_HEADER = "X-PowerContext-Report-Digest"
@@ -571,6 +573,8 @@ def create_app(
         title=API_TITLE,
         version=API_VERSION,
         description=API_DESCRIPTION,
+        docs_url=None,
+        redoc_url=None,
         lifespan=lifespan,
         middleware=list(middleware),
     )
@@ -686,6 +690,12 @@ def create_app(
     _add_route(app, APPROVE_ARTIFACT_CANDIDATE, approve_artifact_candidate)
     _add_route(app, REJECT_ARTIFACT_CANDIDATE, reject_artifact_candidate)
     _add_route(app, REVISE_ARTIFACT_CANDIDATE, revise_artifact_candidate)
+    app.add_api_route(
+        "/docs",
+        scalar_api_reference,
+        include_in_schema=False,
+        methods=["GET"],
+    )
 
     def canonical_openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
@@ -699,6 +709,21 @@ def create_app(
 
     app.openapi = canonical_openapi  # ty: ignore[invalid-assignment]
     return app
+
+
+async def scalar_api_reference(request: Request) -> Response:
+    """Render the runtime OpenAPI contract with Scalar."""
+
+    return get_scalar_api_reference(
+        content=request.app.openapi(),
+        title=f"{API_TITLE} Reference",
+        scalar_js_url=_SCALAR_JS_URL,
+        scalar_favicon_url="data:,",
+        with_default_fonts=False,
+        show_developer_tools="never",
+        telemetry=False,
+        agent=AgentScalarConfig(disabled=True),
+    )
 
 
 async def get_liveness() -> HealthResponse:
