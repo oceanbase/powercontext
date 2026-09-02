@@ -42,6 +42,12 @@ class SourceProjectionManifest(BaseModel):
     key: SourceProjectionKey
     schema_: dict[str, JsonValue] = Field(alias="schema")
 
+    @field_validator("schema_")
+    @classmethod
+    def validate_schema_references(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        _reject_remote_schema_references(value)
+        return value
+
 
 class SourceDefinitionManifest(BaseModel):
     """Immutable declarative identity registered by a remote worker."""
@@ -69,6 +75,12 @@ class SourceDefinitionManifest(BaseModel):
     ) -> tuple[SourceProjectionManifest, ...]:
         if len(value) > 16:
             raise ValueError("manifest must not declare more than 16 projections")  # noqa: TRY003
+        return value
+
+    @field_validator("source_schema")
+    @classmethod
+    def validate_source_schema_references(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        _reject_remote_schema_references(value)
         return value
 
     @field_validator("fingerprint")
@@ -225,6 +237,19 @@ def _json_object(value: object) -> dict[str, JsonValue]:
     if not isinstance(validated, dict):
         raise InvalidSourceDefinitionError(type(value), "schema", "must be a JSON object")
     return validated
+
+
+def _reject_remote_schema_references(schema: JsonValue) -> None:
+    pending = [schema]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key in {"$ref", "$dynamicRef"} and isinstance(nested, str) and not nested.startswith("#"):
+                    raise ValueError("remote schema references are not allowed")  # noqa: TRY003
+                pending.append(nested)
+        elif isinstance(value, list):
+            pending.extend(value)
 
 
 __all__ = [

@@ -48,6 +48,7 @@ from powercontext_connector_opendal.source import (
 
 OPENDAL_TEXT_FILE_CONNECTOR_NAME = "opendal-text-files"
 _DEFAULT_PATTERNS = ("**/*.md", "**/*.markdown", "**/*.txt", "**/*.rst", "**/*.adoc")
+DEFAULT_MAX_FILE_SIZE = 256 * 1024
 
 
 class _FsspecFileSystem(Protocol):
@@ -95,7 +96,7 @@ class OpenDALTextFileConnector:
         root: str = "",
         patterns: Sequence[str] = _DEFAULT_PATTERNS,
         max_files: int = 10_000,
-        max_file_size: int = 2 * 1024 * 1024,
+        max_file_size: int = DEFAULT_MAX_FILE_SIZE,
     ) -> None:
         if not source_namespace or source_namespace.strip() != source_namespace:
             raise ValueError("source_namespace must be a non-empty trimmed string")  # noqa: TRY003
@@ -125,7 +126,7 @@ class OpenDALTextFileConnector:
         storage_options: Mapping[str, object] | None = None,
         patterns: Sequence[str] = _DEFAULT_PATTERNS,
         max_files: int = 10_000,
-        max_file_size: int = 2 * 1024 * 1024,
+        max_file_size: int = DEFAULT_MAX_FILE_SIZE,
     ) -> OpenDALTextFileConnector:
         """Create a Connector from one OpenDAL service and its runtime-only options."""
 

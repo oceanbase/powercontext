@@ -21,7 +21,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
-from powercontext.errors import InvalidConnectorError, InvalidConnectorRunError
+from powercontext.errors import ConnectorSubmissionRejectedError, InvalidConnectorError, InvalidConnectorRunError
 from powercontext.limits import MAX_SCOPE_ID_LENGTH, MAX_SOURCE_ID_LENGTH, MAX_SOURCE_TYPE_LENGTH
 from powercontext.sources.models import SourceRef
 
@@ -165,7 +165,17 @@ class ConnectorRunSession:
         """Submit one item and record its durable Source reference exactly once."""
 
         self._claim_item(item_id, definition_name)
-        source_ref = await self._sink.submit(self.binding, item_id, definition_name, value)
+        try:
+            source_ref = await self._sink.submit(self.binding, item_id, definition_name, value)
+        except ConnectorSubmissionRejectedError as error:
+            outcome = ConnectorItemOutcome(
+                item_id=item_id,
+                definition_name=definition_name,
+                status=ConnectorSubmissionStatus.REJECTED,
+                detail=error.detail,
+            )
+            self._outcomes.append(outcome)
+            return outcome
         if source_ref.source_type != definition_name:
             raise InvalidConnectorRunError(
                 "definition-mismatch",

@@ -198,6 +198,27 @@ def test_remote_opendal_worker_keeps_checkpoint_before_a_rejected_item(tmp_path:
     asyncio.run(scenario())
 
 
+def test_remote_opendal_worker_rejects_an_oversized_observation_without_aborting(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        filesystem = MemoryFileSystem()
+        filesystem.pipe_file("large.txt", b"x" * (2 * 1024 * 1024))
+        connector = OpenDALTextFileConnector(
+            filesystem,
+            source_namespace="workspace-a",
+            max_file_size=2 * 1024 * 1024,
+        )
+
+        result, _ = await _run(_app(tmp_path / "powercontext.db"), connector)
+
+        assert result.status is ConnectorRunStatus.INCOMPLETE
+        assert result.committed_checkpoint is None
+        assert [(item.item_id, item.status) for item in result.items] == [
+            ("large.txt", ConnectorSubmissionStatus.REJECTED)
+        ]
+
+    asyncio.run(scenario())
+
+
 def test_text_file_definition_declares_its_executable_contract() -> None:
     definition = TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION
 

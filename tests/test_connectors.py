@@ -20,7 +20,7 @@ from copy import deepcopy
 import pytest
 from pydantic import JsonValue
 
-from powercontext import InvalidConnectorError, InvalidConnectorRunError
+from powercontext import ConnectorSubmissionRejectedError, InvalidConnectorError, InvalidConnectorRunError
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME, ContentCapture
 from powercontext.sources import (
     ConnectorBinding,
@@ -229,6 +229,42 @@ def test_connector_propagates_sink_failures_without_committing_a_checkpoint() ->
                 ContentConnector(ContentCapture(source_id="note-1", content="Remember this.")),
                 _binding(),
             )
+        assert events == []
+
+    asyncio.run(scenario())
+
+
+def test_connector_records_a_typed_submission_rejection_without_committing_a_checkpoint() -> None:
+    class RejectingSink:
+        async def submit(
+            self,
+            binding: ConnectorBinding,
+            item_id: str,
+            definition_name: str,
+            value: object,
+            /,
+        ) -> SourceRef:
+            del binding, item_id, definition_name, value
+            raise ConnectorSubmissionRejectedError(  # noqa: TRY003
+                "materialized value exceeds the submission budget"
+            )
+
+    async def scenario() -> None:
+        events: list[str] = []
+        lifecycle = ConnectorLifecycle(
+            sink=RejectingSink(),
+            checkpoints=MemoryCheckpointStore(events),
+        )
+
+        result = await lifecycle.run(
+            ContentConnector(ContentCapture(source_id="note-1", content="Remember this.")),
+            _binding(),
+        )
+
+        assert result.status is ConnectorRunStatus.INCOMPLETE
+        assert result.committed_checkpoint is None
+        assert result.items[0].status is ConnectorSubmissionStatus.REJECTED
+        assert result.items[0].detail == "materialized value exceeds the submission budget"
         assert events == []
 
     asyncio.run(scenario())

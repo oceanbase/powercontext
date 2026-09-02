@@ -26,6 +26,8 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from jsonschema.protocols import Validator
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -130,6 +132,7 @@ from powercontext.errors import (
     SourceDefinitionNotFoundError,
     SourceNotFoundError,
 )
+from powercontext.limits import MAX_SOURCE_OBSERVATION_BYTES
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     ConnectorBinding,
@@ -404,7 +407,7 @@ class RelationalContexts:
     ) -> SourceDefinitionManifest:
         """Register one immutable declarative Definition supplied by a worker."""
 
-        _validate_source_definition_manifest(manifest)
+        _validate_source_definition_manifest(manifest, self.source_registry)
         try:
             async with self.database.transaction() as connection:
                 stored = await self.repositories.source_definitions.register(connection, manifest)
@@ -946,15 +949,18 @@ def _validate_experience_plans(
         )
 
 
-def _validate_source_definition_manifest(manifest: SourceDefinitionManifest) -> None:
+def _validate_source_definition_manifest(
+    manifest: SourceDefinitionManifest,
+    source_registry: SourceDefinitionRegistry,
+) -> None:
     if len(manifest.model_dump_json(by_alias=True).encode()) > 64 * 1024:
         raise InvalidSourceDefinitionError(type(manifest), "manifest", "must not exceed 64 KiB")
     try:
-        BUILTIN_SOURCE_REGISTRY.definition_for_name(manifest.name)
+        source_registry.definition_for_name(manifest.name)
     except SourceDefinitionNotFoundError:
         pass
     else:
-        raise InvalidSourceDefinitionError(type(manifest), "name", "must not replace a built-in Source Definition")
+        raise InvalidSourceDefinitionError(type(manifest), "name", "must not replace an active Source Definition")
     _json_schema_validator(manifest.name, manifest.source_schema)
     standard_text_schema = TextEvidence.model_json_schema()
     for projection in manifest.projections:
@@ -972,7 +978,7 @@ def _validate_source_observation(source: SourceObservation, manifest: SourceDefi
         raise InvalidSourceObservationError("definition", "does not match the registered manifest identity")
     if source.definition_fingerprint != manifest.fingerprint:
         raise InvalidSourceObservationError("fingerprint", "does not match the registered manifest")
-    if len(source.model_dump_json().encode()) > 4 * 1024 * 1024:
+    if len(source.model_dump_json().encode()) > MAX_SOURCE_OBSERVATION_BYTES:
         raise InvalidSourceObservationError("size", "must not exceed 4 MiB")
     _validate_schema_value(manifest.name, manifest.source_schema, source.payload)
 
@@ -995,7 +1001,7 @@ def _validate_source_observation(source: SourceObservation, manifest: SourceDefi
 def _json_schema_validator(name: str, schema: Mapping[str, Any]) -> Validator:
     try:
         Draft202012Validator.check_schema(schema)
-        return Draft202012Validator(schema)
+        return Draft202012Validator(schema, registry=Registry())
     except SchemaError as error:
         raise InvalidSourceDefinitionError(type(schema), "schema", f"{name!r} is not valid JSON Schema") from error
 
@@ -1003,7 +1009,7 @@ def _json_schema_validator(name: str, schema: Mapping[str, Any]) -> Validator:
 def _validate_schema_value(name: str, schema: Mapping[str, Any], value: object) -> None:
     try:
         _json_schema_validator(name, schema).validate(value)
-    except JsonSchemaValidationError as error:
+    except (JsonSchemaValidationError, Unresolvable) as error:
         raise InvalidSourceObservationError("schema", f"value does not match {name!r}") from error
 
 

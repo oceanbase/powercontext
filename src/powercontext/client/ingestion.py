@@ -20,7 +20,7 @@ from pydantic import JsonValue
 from typing_extensions import override
 
 from powercontext.client.client import PowerContextClient
-from powercontext.errors import InvalidConnectorRunError
+from powercontext.errors import ConnectorSubmissionRejectedError, InvalidConnectorRunError
 from powercontext.http import (
     CommitConnectorCheckpointRequest,
     GetConnectorCheckpointRequest,
@@ -36,6 +36,7 @@ from powercontext.http import (
 from powercontext.http import (
     SourceObservation as HttpSourceObservation,
 )
+from powercontext.limits import MAX_SOURCE_OBSERVATION_BYTES
 from powercontext.sources import (
     Connector,
     ConnectorBinding,
@@ -78,6 +79,10 @@ class _RemoteConnectorSourceSink(ConnectorSourceSink):
             raise InvalidConnectorRunError(
                 "definition-mismatch",
                 f"input resolved as {observation.source_type!r}, expected {definition_name!r}",
+            )
+        if len(observation.model_dump_json().encode()) > MAX_SOURCE_OBSERVATION_BYTES:
+            raise ConnectorSubmissionRejectedError(  # noqa: TRY003
+                f"observation exceeds {MAX_SOURCE_OBSERVATION_BYTES} bytes"
             )
         receipt = await self._client.submit_source_observation(
             SubmitSourceObservationRequest(

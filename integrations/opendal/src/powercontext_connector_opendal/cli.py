@@ -29,6 +29,7 @@ from powercontext.sources import (
 )
 
 from powercontext_connector_opendal.connector import (
+    DEFAULT_MAX_FILE_SIZE,
     OPENDAL_TEXT_FILE_CONNECTOR_NAME,
     OpenDALTextFileConnector,
 )
@@ -95,7 +96,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--storage-option", action="append", default=[])
     parser.add_argument("--pattern", action="append")
     parser.add_argument("--max-files", type=int, default=10_000)
-    parser.add_argument("--max-file-size", type=int, default=2 * 1024 * 1024)
+    parser.add_argument("--max-file-size", type=int, default=DEFAULT_MAX_FILE_SIZE)
     return parser
 
 

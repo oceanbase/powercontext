@@ -173,6 +173,16 @@ class InvalidConnectorRunError(ConnectorError, RuntimeError):
         super().__init__(f"invalid Connector run {issue}: {detail}")
 
 
+class ConnectorSubmissionRejectedError(ConnectorError, ValueError):
+    """Raised when one materialized item cannot satisfy the submission contract."""
+
+    def __init__(self, detail: str) -> None:
+        if not detail or detail.strip() != detail:
+            raise ValueError("Connector submission rejection detail must be non-empty and trimmed")  # noqa: TRY003
+        self.detail = detail
+        super().__init__(f"Connector submission rejected: {detail}")
+
+
 class ArtifactError(PowerContextError):
     """Base exception for Artifact lookup and lifecycle failures."""
 
