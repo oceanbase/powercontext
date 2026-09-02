@@ -12,16 +12,17 @@ from powercontext.http._generated.models import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
-    AttachHandoffReportWorkspaceRequest,
+    ArtifactPublication,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    ClearScopeBindingRequest,
+    ClearScopeBindingResponse,
     CommitHandoffRequest,
     CommittedHandoff,
     ContinueHandoffRequest,
-    CreateHandoffReportProjectRequest,
+    CreateScopeRequest,
     CreateWorkContractRequest,
-    DetachHandoffReportWorkspaceRequest,
     ExperienceArtifact,
     ExternalSkillResolution,
     FinalizeHandoffRequest,
@@ -32,9 +33,7 @@ from powercontext.http._generated.models import (
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
-    GetHandoffReportProjectRequest,
     GetHandoffReportRequest,
-    GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
     GetStatsRequest,
@@ -42,20 +41,13 @@ from powercontext.http._generated.models import (
     HandoffActivation,
     HandoffCurrentWorkRequest,
     HandoffDraft,
-    HandoffReportActivityPage,
     HandoffReportResponse,
-    HandoffReportWorkspaceBinding,
     HandoffResolution,
     HealthResponse,
     ImportExternalSkillRequest,
-    KnownHandoffScopePage,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
-    ListHandoffReportActivitiesRequest,
-    ListHandoffReportKnownScopesRequest,
-    ListHandoffReportProjectsRequest,
-    ListHandoffReportWorkstreamsRequest,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -67,34 +59,32 @@ from powercontext.http._generated.models import (
     PreparedHandoff,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
-    ProjectDescriptor,
-    ProjectPage,
     ProposeExperienceRequest,
     ProposeSkillRequest,
-    PurgeHandoffReportActivitiesRequest,
-    PurgeHandoffReportActivitiesResponse,
+    PublishArtifactRequest,
     ReadinessResponse,
-    RecordHandoffReportActivityRequest,
     RecordTaskOutcomeRequest,
-    RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
+    ResolveScopeBindingRequest,
+    ResolveScopeSelectionRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
+    ScopeBinding,
+    ScopeDescriptor,
     ScopedStats,
+    ScopePage,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SetDefaultScopeRequest,
+    SetScopeBindingRequest,
     SkillArtifact,
-    StoredHandoffReportActivity,
-    UpdateHandoffReportProjectRequest,
-    UpdateHandoffReportWorkstreamRequest,
+    UpdateScopeRequest,
     WorkSourceReceipt,
-    WorkstreamDescriptor,
-    WorkstreamPage,
 )
 
 OPENAPI_VERSION = "3.0.3"
@@ -112,10 +102,12 @@ class Operation(BaseModel, Generic[RequestT, ResponseT]):
     operation_id: str
     request_type: type[RequestT] | None
     request_location: Literal["body", "query"] | None
+    path_parameters: tuple[str, ...]
     response_type: type[ResponseT]
     success_status: int
     summary: str
     tags: tuple[str, ...]
+    scope_mode: Literal["none", "current", "selection"]
     responses: dict[int | str, dict[str, JsonValue]]
 
 
@@ -125,10 +117,12 @@ GET_LIVENESS = Operation[None, HealthResponse](
     operation_id="get_liveness",
     request_type=None,
     request_location=None,
+    path_parameters=(),
     response_type=HealthResponse,
     success_status=200,
     summary="Get process liveness",
     tags=("health",),
+    scope_mode="none",
     responses={
         200: {
             "description": "The API process is alive.",
@@ -143,10 +137,12 @@ GET_READINESS = Operation[None, ReadinessResponse](
     operation_id="get_readiness",
     request_type=None,
     request_location=None,
+    path_parameters=(),
     response_type=ReadinessResponse,
     success_status=200,
     summary="Get deployment readiness",
     tags=("health",),
+    scope_mode="none",
     responses={
         200: {
             "description": "Required Server bindings are ready; optional capabilities may be degraded.",
@@ -165,10 +161,12 @@ GET_CAPABILITIES = Operation[None, Capabilities](
     operation_id="get_capabilities",
     request_type=None,
     request_location=None,
+    path_parameters=(),
     response_type=Capabilities,
     success_status=200,
     summary="Get runtime capabilities",
     tags=("capabilities",),
+    scope_mode="none",
     responses={
         200: {
             "description": "Behavior enabled by the assembled runtime.",
@@ -178,16 +176,236 @@ GET_CAPABILITIES = Operation[None, Capabilities](
     },
 )
 
+LIST_SCOPES = Operation[None, ScopePage](
+    method="GET",
+    path="/v1/scopes",
+    operation_id="list_scopes",
+    request_type=None,
+    request_location=None,
+    path_parameters=(),
+    response_type=ScopePage,
+    success_status=200,
+    summary="List observable Scopes",
+    tags=("scopes",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Durable Scope metadata in deterministic identity order."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+)
+
+CREATE_SCOPE = Operation[CreateScopeRequest, ScopeDescriptor](
+    method="POST",
+    path="/v1/scopes",
+    operation_id="create_scope",
+    request_type=CreateScopeRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ScopeDescriptor,
+    success_status=201,
+    summary="Create an independent Scope boundary",
+    tags=("scopes",),
+    scope_mode="none",
+    responses={
+        201: {"description": "The durable Scope descriptor."},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+    },
+)
+
+PUBLISH_ARTIFACT = Operation[PublishArtifactRequest, ArtifactPublication](
+    method="POST",
+    path="/v1/artifact-publications",
+    operation_id="publish_artifact",
+    request_type=PublishArtifactRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ArtifactPublication,
+    success_status=201,
+    summary="Publish one exact Artifact revision into another Scope",
+    tags=("scopes",),
+    scope_mode="none",
+    responses={
+        201: {"description": "Independent target Artifact and its exact source provenance."},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+    },
+)
+
+GET_SCOPE = Operation[None, ScopeDescriptor](
+    method="GET",
+    path="/v1/scopes/{scope_id}",
+    operation_id="get_scope",
+    request_type=None,
+    request_location=None,
+    path_parameters=("scope_id",),
+    response_type=ScopeDescriptor,
+    success_status=200,
+    summary="Get one Scope descriptor",
+    tags=("scopes",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The exact Scope descriptor."},
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+    },
+)
+
+UPDATE_SCOPE = Operation[UpdateScopeRequest, ScopeDescriptor](
+    method="PUT",
+    path="/v1/scopes/{scope_id}",
+    operation_id="update_scope",
+    request_type=UpdateScopeRequest,
+    request_location="body",
+    path_parameters=("scope_id",),
+    response_type=ScopeDescriptor,
+    success_status=200,
+    summary="Replace mutable Scope metadata and relationships",
+    tags=("scopes",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The updated Scope descriptor."},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+    },
+)
+
+GET_DEFAULT_SCOPE = Operation[None, ScopeDescriptor](
+    method="GET",
+    path="/v1/scopes/default",
+    operation_id="get_default_scope",
+    request_type=None,
+    request_location=None,
+    path_parameters=(),
+    response_type=ScopeDescriptor,
+    success_status=200,
+    summary="Get the default Scope binding target",
+    tags=("scopes",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The ordinary Scope selected by the host default pointer."},
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+    },
+)
+
+SET_DEFAULT_SCOPE = Operation[SetDefaultScopeRequest, ScopeDescriptor](
+    method="PUT",
+    path="/v1/scopes/default",
+    operation_id="set_default_scope",
+    request_type=SetDefaultScopeRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ScopeDescriptor,
+    success_status=200,
+    summary="Change the default Scope binding target",
+    tags=("scopes",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The selected ordinary Scope."},
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+    },
+)
+
+RESOLVE_SCOPE_SELECTION = Operation[ResolveScopeSelectionRequest, ScopePage](
+    method="POST",
+    path="/v1/scopes/selection/resolve",
+    operation_id="resolve_scope_selection",
+    request_type=ResolveScopeSelectionRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ScopePage,
+    success_status=200,
+    summary="Resolve an observation selection to a frozen Scope set",
+    tags=("scopes",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The selected Scope descriptors in deterministic order."},
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+    },
+)
+
+RESOLVE_SCOPE_BINDING = Operation[ResolveScopeBindingRequest, ScopeDescriptor](
+    method="POST",
+    path="/v1/scope-bindings/resolve",
+    operation_id="resolve_scope_binding",
+    request_type=ResolveScopeBindingRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ScopeDescriptor,
+    success_status=200,
+    summary="Resolve an explicit durable or default Scope binding",
+    tags=("scope-bindings",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The resolved Scope descriptor."},
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+    },
+)
+
+SET_SCOPE_BINDING = Operation[SetScopeBindingRequest, ScopeBinding](
+    method="PUT",
+    path="/v1/scope-bindings",
+    operation_id="set_scope_binding",
+    request_type=SetScopeBindingRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ScopeBinding,
+    success_status=200,
+    summary="Persist an external identity to Scope binding",
+    tags=("scope-bindings",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The durable external binding."},
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+    },
+)
+
+CLEAR_SCOPE_BINDING = Operation[ClearScopeBindingRequest, ClearScopeBindingResponse](
+    method="POST",
+    path="/v1/scope-bindings/clear",
+    operation_id="clear_scope_binding",
+    request_type=ClearScopeBindingRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ClearScopeBindingResponse,
+    success_status=200,
+    summary="Remove one durable external Scope binding",
+    tags=("scope-bindings",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Whether a durable binding was removed."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+    },
+)
+
 CAPTURE_CONTENT_SOURCE = Operation[CaptureContentSourceRequest, CaptureContentSourceResponse](
     method="POST",
     path="/v1/sources/content",
     operation_id="capture_content_source",
     request_type=CaptureContentSourceRequest,
     request_location="body",
+    path_parameters=(),
     response_type=CaptureContentSourceResponse,
     success_status=202,
     summary="Capture durable ContentSource evidence",
     tags=("sources",),
+    scope_mode="current",
     responses={
         202: {
             "description": "The Source is durably stored for later processing.",
@@ -207,10 +425,12 @@ PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
     operation_id="prepare_context",
     request_type=PrepareContextRequest,
     request_location="body",
+    path_parameters=(),
     response_type=PreparedContext,
     success_status=200,
     summary="Prepare bounded context for an Agent turn",
     tags=("context",),
+    scope_mode="current",
     responses={
         200: {
             "description": "Final context ready for direct injection, or a normal empty result.",
@@ -229,10 +449,12 @@ CREATE_WORK_CONTRACT = Operation[CreateWorkContractRequest, WorkSourceReceipt](
     operation_id="create_work_contract",
     request_type=CreateWorkContractRequest,
     request_location="body",
+    path_parameters=(),
     response_type=WorkSourceReceipt,
     success_status=202,
     summary="Create a grounded Work Contract",
     tags=("work",),
+    scope_mode="current",
     responses={
         202: {
             "description": "The Work Contract is durably captured as exact Source evidence.",
@@ -253,10 +475,12 @@ HANDOFF_CURRENT_WORK = Operation[HandoffCurrentWorkRequest, PreparedWorkHandoff]
     operation_id="handoff_current_work",
     request_type=HandoffCurrentWorkRequest,
     request_location="body",
+    path_parameters=(),
     response_type=PreparedWorkHandoff,
     success_status=200,
     summary="Hand off current work in one high-level operation",
     tags=("work",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The captured boundary and Prepared Handoff ready for explicit transfer.",
@@ -277,10 +501,12 @@ ACKNOWLEDGE_HANDOFF = Operation[AcknowledgeHandoffRequest, HandoffAcknowledgemen
     operation_id="acknowledge_handoff",
     request_type=AcknowledgeHandoffRequest,
     request_location="body",
+    path_parameters=(),
     response_type=HandoffAcknowledgement,
     success_status=200,
     summary="Resolve and acknowledge a Handoff",
     tags=("work",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The resolved Handoff and durable receiver acknowledgement.",
@@ -301,10 +527,12 @@ RECORD_TASK_OUTCOME = Operation[RecordTaskOutcomeRequest, WorkSourceReceipt](
     operation_id="record_task_outcome",
     request_type=RecordTaskOutcomeRequest,
     request_location="body",
+    path_parameters=(),
     response_type=WorkSourceReceipt,
     success_status=202,
     summary="Record a completion-aware Task Outcome",
     tags=("work",),
+    scope_mode="current",
     responses={
         202: {
             "description": "The Task Outcome is durably captured for Handoff evidence and reviewed "
@@ -326,10 +554,12 @@ ACTIVATE_HANDOFF = Operation[ActivateHandoffRequest, HandoffActivation](
     operation_id="activate_handoff",
     request_type=ActivateHandoffRequest,
     request_location="body",
+    path_parameters=(),
     response_type=HandoffActivation,
     success_status=200,
     summary="Activate Handoff generation at a Source boundary",
     tags=("handoff",),
+    scope_mode="current",
     responses={
         200: {
             "description": "A generated inspectable Draft, or an ignored boundary that was already consumed.",
@@ -349,10 +579,12 @@ PREPARE_HANDOFF = Operation[PrepareHandoffRequest, HandoffDraft](
     operation_id="prepare_handoff",
     request_type=PrepareHandoffRequest,
     request_location="body",
+    path_parameters=(),
     response_type=HandoffDraft,
     success_status=200,
     summary="Generate an inspectable Handoff Draft",
     tags=("handoff",),
+    scope_mode="current",
     responses={
         200: {
             "description": "An uncommitted Draft generated from the selected exact evidence.",
@@ -372,10 +604,12 @@ FINALIZE_HANDOFF = Operation[FinalizeHandoffRequest, PreparedHandoff](
     operation_id="finalize_handoff",
     request_type=FinalizeHandoffRequest,
     request_location="body",
+    path_parameters=(),
     response_type=PreparedHandoff,
     success_status=200,
     summary="Finalize an inspected Handoff Draft",
     tags=("handoff",),
+    scope_mode="current",
     responses={
         200: {
             "description": "A temporary Handoff ready for direct transfer or explicit commit.",
@@ -395,10 +629,12 @@ COMMIT_HANDOFF = Operation[CommitHandoffRequest, CommittedHandoff](
     operation_id="commit_handoff",
     request_type=CommitHandoffRequest,
     request_location="body",
+    path_parameters=(),
     response_type=CommittedHandoff,
     success_status=200,
     summary="Commit an explicit Handoff milestone",
     tags=("handoff",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The committed immutable Handoff Revision.",
@@ -419,10 +655,12 @@ CONTINUE_HANDOFF = Operation[ContinueHandoffRequest, HandoffResolution](
     operation_id="continue_handoff",
     request_type=ContinueHandoffRequest,
     request_location="body",
+    path_parameters=(),
     response_type=HandoffResolution,
     success_status=200,
     summary="Resolve a Handoff as untrusted historical input",
     tags=("handoff",),
+    scope_mode="current",
     responses={
         200: {
             "description": "Resolved content and per-statement evidence availability.",
@@ -442,10 +680,12 @@ FLUSH_MEMORY = Operation[FlushMemoryRequest, FlushMemoryResponse](
     operation_id="flush_memory",
     request_type=FlushMemoryRequest,
     request_location="body",
+    path_parameters=(),
     response_type=FlushMemoryResponse,
     success_status=200,
     summary="Process the pending Source window into Memory",
     tags=("memory",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The activation completed or found no pending Sources.",
@@ -464,10 +704,12 @@ REMEMBER_MEMORY = Operation[RememberMemoryRequest, MemoryMutationResponse](
     operation_id="remember_memory",
     request_type=RememberMemoryRequest,
     request_location="body",
+    path_parameters=(),
     response_type=MemoryMutationResponse,
     success_status=200,
     summary="Remember explicit Memory content",
     tags=("memory",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The explicit Memory mutation completed.",
@@ -487,10 +729,12 @@ SEARCH_MEMORY = Operation[SearchMemoryRequest, SearchMemoryResponse](
     operation_id="search_memory",
     request_type=SearchMemoryRequest,
     request_location="body",
+    path_parameters=(),
     response_type=SearchMemoryResponse,
     success_status=200,
     summary="Search active Memory entries",
     tags=("memory",),
+    scope_mode="current",
     responses={
         200: {
             "description": "Matching Memory entries, or an empty result when the scope has no Memory.",
@@ -510,10 +754,12 @@ LIST_MEMORY_ENTRIES = Operation[ListMemoryEntriesRequest, ListMemoryEntriesRespo
     operation_id="list_memory_entries",
     request_type=ListMemoryEntriesRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ListMemoryEntriesResponse,
     success_status=200,
     summary="List Memory entries",
     tags=("memory",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The selected entries from the current Memory head.",
@@ -533,10 +779,12 @@ GET_MEMORY_ENTRY = Operation[GetMemoryEntryRequest, MemoryEntry](
     operation_id="get_memory_entry",
     request_type=GetMemoryEntryRequest,
     request_location="body",
+    path_parameters=(),
     response_type=MemoryEntry,
     success_status=200,
     summary="Get an exact Memory entry version",
     tags=("memory",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The exact Memory entry version.",
@@ -556,10 +804,12 @@ REVISE_MEMORY_ENTRY = Operation[ReviseMemoryEntryRequest, MemoryMutationResponse
     operation_id="revise_memory_entry",
     request_type=ReviseMemoryEntryRequest,
     request_location="body",
+    path_parameters=(),
     response_type=MemoryMutationResponse,
     success_status=200,
     summary="Revise an exact Memory entry",
     tags=("memory",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The Memory entry revision completed.",
@@ -580,10 +830,12 @@ RETIRE_MEMORY_ENTRY = Operation[RetireMemoryEntryRequest, MemoryMutationResponse
     operation_id="retire_memory_entry",
     request_type=RetireMemoryEntryRequest,
     request_location="body",
+    path_parameters=(),
     response_type=MemoryMutationResponse,
     success_status=200,
     summary="Retire an exact Memory entry",
     tags=("memory",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The Memory entry retirement completed.",
@@ -604,10 +856,12 @@ LIST_MEMORY_CHANGES = Operation[ListMemoryChangesRequest, ListMemoryChangesRespo
     operation_id="list_memory_changes",
     request_type=ListMemoryChangesRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ListMemoryChangesResponse,
     success_status=200,
     summary="List Memory Revision changes",
     tags=("memory",),
+    scope_mode="current",
     responses={
         200: {
             "description": "Compact changes through the selected Memory Revision.",
@@ -627,10 +881,12 @@ PROPOSE_EXPERIENCE = Operation[ProposeExperienceRequest, ArtifactCandidate](
     operation_id="propose_experience",
     request_type=ProposeExperienceRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ArtifactCandidate,
     success_status=201,
     summary="Propose Experience content",
     tags=("experience",),
+    scope_mode="current",
     responses={
         201: {
             "description": "The pending Experience Candidate.",
@@ -650,10 +906,12 @@ GENERATE_EXPERIENCE = Operation[GenerateExperienceRequest, GeneratedCandidateRes
     operation_id="generate_experience",
     request_type=GenerateExperienceRequest,
     request_location="body",
+    path_parameters=(),
     response_type=GeneratedCandidateResponse,
     success_status=200,
     summary="Generate an Experience Candidate",
     tags=("experience",),
+    scope_mode="current",
     responses={
         200: {
             "description": "A pending Candidate or an explicit semantic no-op.",
@@ -673,10 +931,12 @@ GET_EXPERIENCE = Operation[GetExperienceRequest, ExperienceArtifact](
     operation_id="get_experience",
     request_type=GetExperienceRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ExperienceArtifact,
     success_status=200,
     summary="Get an exact Experience Revision",
     tags=("experience",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The exact approved Experience Revision.",
@@ -696,10 +956,12 @@ PROPOSE_SKILL = Operation[ProposeSkillRequest, ArtifactCandidate](
     operation_id="propose_skill",
     request_type=ProposeSkillRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ArtifactCandidate,
     success_status=201,
     summary="Propose managed Skill content",
     tags=("skill",),
+    scope_mode="current",
     responses={
         201: {
             "description": "The pending managed Skill Candidate.",
@@ -719,10 +981,12 @@ GENERATE_SKILL = Operation[GenerateSkillRequest, GeneratedCandidateResponse](
     operation_id="generate_skill",
     request_type=GenerateSkillRequest,
     request_location="body",
+    path_parameters=(),
     response_type=GeneratedCandidateResponse,
     success_status=200,
     summary="Generate a managed Skill Candidate",
     tags=("skill",),
+    scope_mode="current",
     responses={
         200: {
             "description": "A pending Candidate or an explicit semantic no-op.",
@@ -742,10 +1006,12 @@ GET_SKILL = Operation[GetSkillRequest, SkillArtifact](
     operation_id="get_skill",
     request_type=GetSkillRequest,
     request_location="body",
+    path_parameters=(),
     response_type=SkillArtifact,
     success_status=200,
     summary="Get an exact managed Skill Revision",
     tags=("skill",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The exact approved managed Skill Revision.",
@@ -765,10 +1031,12 @@ SCAN_EXTERNAL_SKILLS = Operation[ScanExternalSkillsRequest, ScanExternalSkillsRe
     operation_id="scan_external_skills",
     request_type=ScanExternalSkillsRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ScanExternalSkillsResponse,
     success_status=200,
     summary="Scan configured external Skill roots",
     tags=("skill",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The rebuildable provider snapshot.",
@@ -787,10 +1055,12 @@ LIST_EXTERNAL_SKILLS = Operation[ListExternalSkillsRequest, ListExternalSkillsRe
     operation_id="list_external_skills",
     request_type=ListExternalSkillsRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ListExternalSkillsResponse,
     success_status=200,
     summary="List external Skills visible on this host",
     tags=("skill",),
+    scope_mode="current",
     responses={
         200: {
             "description": "External Skills resolved against the current Agent, host, scope, and fingerprint.",
@@ -809,10 +1079,12 @@ RESOLVE_EXTERNAL_SKILL = Operation[ResolveExternalSkillRequest, ExternalSkillRes
     operation_id="resolve_external_skill",
     request_type=ResolveExternalSkillRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ExternalSkillResolution,
     success_status=200,
     summary="Resolve an exact external Skill fingerprint",
     tags=("skill",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The live exact-resolution result, which may be unavailable.",
@@ -832,10 +1104,12 @@ IMPORT_EXTERNAL_SKILL = Operation[ImportExternalSkillRequest, GeneratedCandidate
     operation_id="import_external_skill",
     request_type=ImportExternalSkillRequest,
     request_location="body",
+    path_parameters=(),
     response_type=GeneratedCandidateResponse,
     success_status=200,
     summary="Import or fork an external Skill into Review",
     tags=("skill",),
+    scope_mode="current",
     responses={
         200: {
             "description": "A pending managed Skill Candidate or an explicit semantic no-op.",
@@ -856,10 +1130,12 @@ LIST_ARTIFACT_CANDIDATES = Operation[ListArtifactCandidatesRequest, ArtifactCand
     operation_id="list_artifact_candidates",
     request_type=ListArtifactCandidatesRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ArtifactCandidatePage,
     success_status=200,
     summary="List Artifact Candidates",
     tags=("review",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The selected current Candidate heads.",
@@ -878,10 +1154,12 @@ GET_ARTIFACT_CANDIDATE = Operation[GetArtifactCandidateRequest, ArtifactCandidat
     operation_id="get_artifact_candidate",
     request_type=GetArtifactCandidateRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ArtifactCandidate,
     success_status=200,
     summary="Get an Artifact Candidate",
     tags=("review",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The current Candidate head.",
@@ -901,10 +1179,12 @@ APPROVE_ARTIFACT_CANDIDATE = Operation[ApproveArtifactCandidateRequest, Artifact
     operation_id="approve_artifact_candidate",
     request_type=ApproveArtifactCandidateRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ArtifactCandidate,
     success_status=200,
     summary="Approve an Artifact Candidate",
     tags=("review",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The approved Candidate and exact result Artifact.",
@@ -925,10 +1205,12 @@ REJECT_ARTIFACT_CANDIDATE = Operation[RejectArtifactCandidateRequest, ArtifactCa
     operation_id="reject_artifact_candidate",
     request_type=RejectArtifactCandidateRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ArtifactCandidate,
     success_status=200,
     summary="Reject an Artifact Candidate",
     tags=("review",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The rejected Candidate.",
@@ -949,10 +1231,12 @@ REVISE_ARTIFACT_CANDIDATE = Operation[ReviseArtifactCandidateRequest, ArtifactCa
     operation_id="revise_artifact_candidate",
     request_type=ReviseArtifactCandidateRequest,
     request_location="body",
+    path_parameters=(),
     response_type=ArtifactCandidate,
     success_status=200,
     summary="Revise an Artifact Candidate",
     tags=("review",),
+    scope_mode="current",
     responses={
         200: {
             "description": "The next pending Candidate version.",
@@ -968,18 +1252,20 @@ REVISE_ARTIFACT_CANDIDATE = Operation[ReviseArtifactCandidateRequest, ArtifactCa
 )
 
 GET_STATS = Operation[GetStatsRequest, ScopedStats](
-    method="GET",
+    method="POST",
     path="/v1/stats",
     operation_id="get_stats",
     request_type=GetStatsRequest,
-    request_location="query",
+    request_location="body",
+    path_parameters=(),
     response_type=ScopedStats,
     success_status=200,
-    summary="Get scoped product statistics",
+    summary="Aggregate product statistics over a Scope selection",
     tags=("stats",),
+    scope_mode="selection",
     responses={
         200: {
-            "description": "Current inventory, model usage, and recall token estimates for the scope.",
+            "description": "Current inventory, model usage, and recall token estimates for the frozen Scope set.",
             "headers": {
                 "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
                 "Cache-Control": {
@@ -995,193 +1281,18 @@ GET_STATS = Operation[GetStatsRequest, ScopedStats](
     },
 )
 
-CREATE_HANDOFF_REPORT_PROJECT = Operation[CreateHandoffReportProjectRequest, ProjectDescriptor](
-    method="POST",
-    path="/v1/handoff-reports/projects/create",
-    operation_id="create_handoff_report_project",
-    request_type=CreateHandoffReportProjectRequest,
-    request_location="body",
-    response_type=ProjectDescriptor,
-    success_status=201,
-    summary="Create a Handoff Report Project",
-    tags=("handoff-reports",),
-    responses={
-        201: {
-            "description": "The created Report Project.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        409: {"$ref": "#/components/responses/Conflict"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-LIST_HANDOFF_REPORT_PROJECTS = Operation[ListHandoffReportProjectsRequest, ProjectPage](
-    method="POST",
-    path="/v1/handoff-reports/projects/list",
-    operation_id="list_handoff_report_projects",
-    request_type=ListHandoffReportProjectsRequest,
-    request_location="body",
-    response_type=ProjectPage,
-    success_status=200,
-    summary="List Handoff Report Projects",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "A cursor-paginated page of Report Projects.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-LIST_HANDOFF_REPORT_KNOWN_SCOPES = Operation[ListHandoffReportKnownScopesRequest, KnownHandoffScopePage](
-    method="POST",
-    path="/v1/handoff-reports/scopes/list-known",
-    operation_id="list_handoff_report_known_scopes",
-    request_type=ListHandoffReportKnownScopesRequest,
-    request_location="body",
-    response_type=KnownHandoffScopePage,
-    success_status=200,
-    summary="List scopes that contain a committed Handoff",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "A cursor-paginated page of scopes that can be rendered as Handoff Reports.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-GET_HANDOFF_REPORT_PROJECT = Operation[GetHandoffReportProjectRequest, ProjectDescriptor](
-    method="POST",
-    path="/v1/handoff-reports/projects/get",
-    operation_id="get_handoff_report_project",
-    request_type=GetHandoffReportProjectRequest,
-    request_location="body",
-    response_type=ProjectDescriptor,
-    success_status=200,
-    summary="Get a Handoff Report Project",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "The exact current Report Project descriptor.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-UPDATE_HANDOFF_REPORT_PROJECT = Operation[UpdateHandoffReportProjectRequest, ProjectDescriptor](
-    method="POST",
-    path="/v1/handoff-reports/projects/update",
-    operation_id="update_handoff_report_project",
-    request_type=UpdateHandoffReportProjectRequest,
-    request_location="body",
-    response_type=ProjectDescriptor,
-    success_status=200,
-    summary="Update a Handoff Report Project",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "The updated Report Project descriptor.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-REGISTER_HANDOFF_REPORT_WORKSTREAM = Operation[RegisterHandoffReportWorkstreamRequest, WorkstreamDescriptor](
-    method="POST",
-    path="/v1/handoff-reports/workstreams/register",
-    operation_id="register_handoff_report_workstream",
-    request_type=RegisterHandoffReportWorkstreamRequest,
-    request_location="body",
-    response_type=WorkstreamDescriptor,
-    success_status=201,
-    summary="Register a Handoff Report Workstream",
-    tags=("handoff-reports",),
-    responses={
-        201: {
-            "description": "The registered Report Workstream.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-LIST_HANDOFF_REPORT_WORKSTREAMS = Operation[ListHandoffReportWorkstreamsRequest, WorkstreamPage](
-    method="POST",
-    path="/v1/handoff-reports/workstreams/list",
-    operation_id="list_handoff_report_workstreams",
-    request_type=ListHandoffReportWorkstreamsRequest,
-    request_location="body",
-    response_type=WorkstreamPage,
-    success_status=200,
-    summary="List Handoff Report Workstreams",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "A cursor-paginated page of Report Workstreams.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-UPDATE_HANDOFF_REPORT_WORKSTREAM = Operation[UpdateHandoffReportWorkstreamRequest, WorkstreamDescriptor](
-    method="POST",
-    path="/v1/handoff-reports/workstreams/update",
-    operation_id="update_handoff_report_workstream",
-    request_type=UpdateHandoffReportWorkstreamRequest,
-    request_location="body",
-    response_type=WorkstreamDescriptor,
-    success_status=200,
-    summary="Update a Handoff Report Workstream",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "The updated Report Workstream descriptor.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
 GET_HANDOFF_REPORT = Operation[GetHandoffReportRequest, HandoffReportResponse](
     method="POST",
     path="/v1/handoff-reports/get",
     operation_id="get_handoff_report",
     request_type=GetHandoffReportRequest,
     request_location="body",
+    path_parameters=(),
     response_type=HandoffReportResponse,
     success_status=200,
     summary="Generate a Handoff Report",
     tags=("handoff-reports",),
+    scope_mode="selection",
     responses={
         200: {
             "description": "A canonical JSON report, optionally accompanied by Markdown.",
@@ -1210,141 +1321,6 @@ GET_HANDOFF_REPORT = Operation[GetHandoffReportRequest, HandoffReportResponse](
         422: {"$ref": "#/components/responses/InvalidRequest"},
         413: {"$ref": "#/components/responses/ReportTooLarge"},
         503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-RECORD_HANDOFF_REPORT_ACTIVITY = Operation[RecordHandoffReportActivityRequest, StoredHandoffReportActivity](
-    method="POST",
-    path="/v1/handoff-reports/activities/record",
-    operation_id="record_handoff_report_activity",
-    request_type=RecordHandoffReportActivityRequest,
-    request_location="body",
-    response_type=StoredHandoffReportActivity,
-    success_status=201,
-    summary="Record a Handoff Report Activity",
-    tags=("handoff-reports",),
-    responses={
-        201: {
-            "description": "The idempotently recorded Report Activity.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-LIST_HANDOFF_REPORT_ACTIVITIES = Operation[ListHandoffReportActivitiesRequest, HandoffReportActivityPage](
-    method="POST",
-    path="/v1/handoff-reports/activities/list",
-    operation_id="list_handoff_report_activities",
-    request_type=ListHandoffReportActivitiesRequest,
-    request_location="body",
-    response_type=HandoffReportActivityPage,
-    success_status=200,
-    summary="List Handoff Report Activities",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "A frozen cursor page of Report Activities.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-PURGE_HANDOFF_REPORT_ACTIVITIES = Operation[PurgeHandoffReportActivitiesRequest, PurgeHandoffReportActivitiesResponse](
-    method="POST",
-    path="/v1/handoff-reports/activities/purge",
-    operation_id="purge_handoff_report_activities",
-    request_type=PurgeHandoffReportActivitiesRequest,
-    request_location="body",
-    response_type=PurgeHandoffReportActivitiesResponse,
-    success_status=200,
-    summary="Purge Handoff Report Activities",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "The number of deleted Report-owned Activity rows.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-GET_HANDOFF_REPORT_WORKSPACE = Operation[GetHandoffReportWorkspaceRequest, HandoffReportWorkspaceBinding](
-    method="POST",
-    path="/v1/handoff-reports/workspace-bindings/get",
-    operation_id="get_handoff_report_workspace",
-    request_type=GetHandoffReportWorkspaceRequest,
-    request_location="body",
-    response_type=HandoffReportWorkspaceBinding,
-    success_status=200,
-    summary="Get a Handoff Report Workspace Binding",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "The confirmed Workspace binding.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-ATTACH_HANDOFF_REPORT_WORKSPACE = Operation[AttachHandoffReportWorkspaceRequest, HandoffReportWorkspaceBinding](
-    method="POST",
-    path="/v1/handoff-reports/workspace-bindings/attach",
-    operation_id="attach_handoff_report_workspace",
-    request_type=AttachHandoffReportWorkspaceRequest,
-    request_location="body",
-    response_type=HandoffReportWorkspaceBinding,
-    success_status=200,
-    summary="Attach a Handoff Report Workspace Binding",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "The confirmed Workspace binding.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-DETACH_HANDOFF_REPORT_WORKSPACE = Operation[DetachHandoffReportWorkspaceRequest, HandoffReportWorkspaceBinding](
-    method="POST",
-    path="/v1/handoff-reports/workspace-bindings/detach",
-    operation_id="detach_handoff_report_workspace",
-    request_type=DetachHandoffReportWorkspaceRequest,
-    request_location="body",
-    response_type=HandoffReportWorkspaceBinding,
-    success_status=200,
-    summary="Detach a Handoff Report Workspace Binding",
-    tags=("handoff-reports",),
-    responses={
-        200: {
-            "description": "The detached Workspace binding record.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
         500: {"$ref": "#/components/responses/InternalError"},
     },
 )

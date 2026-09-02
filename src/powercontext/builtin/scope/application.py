@@ -22,6 +22,9 @@ import secrets
 from collections import deque
 from collections.abc import Callable, Sequence
 
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncConnection
+
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.scope.errors import (
     ScopeBindingNotFoundError,
@@ -91,20 +94,39 @@ class ScopeApplication:
 
     async def _create(self, draft: ScopeDraft) -> ScopeDescriptor:
         digest = _draft_digest(draft)
-        async with self._database.transaction() as connection:
-            existing = await self._repository.creation(connection, draft.idempotency_key)
-            if existing is not None:
-                existing_digest, scope_id = existing
-                if existing_digest != digest:
-                    raise ScopeIdempotencyConflictError(draft.idempotency_key)
-                return await self._required(connection, scope_id)
-            await self._validate_relationships(
-                connection,
-                scope_id=None,
-                parent_scope_id=draft.parent_scope_id,
-                context_references=draft.context_references,
-            )
-            return await self._repository.add(connection, self._id_factory(), draft, digest)
+        try:
+            async with self._database.transaction() as connection:
+                existing = await self._repository.creation(connection, draft.idempotency_key)
+                if existing is not None:
+                    return await self._resolve_creation(connection, draft.idempotency_key, digest, existing)
+                await self._validate_relationships(
+                    connection,
+                    scope_id=None,
+                    parent_scope_id=draft.parent_scope_id,
+                    context_references=draft.context_references,
+                )
+                return await self._repository.add(connection, self._id_factory(), draft, digest)
+        except IntegrityError:
+            # The transaction must roll back before reading the request that won
+            # the unique-key race. An unrelated integrity failure remains visible.
+            async with self._database.transaction() as connection:
+                existing = await self._repository.creation(connection, draft.idempotency_key)
+                if existing is None:
+                    raise
+                return await self._resolve_creation(connection, draft.idempotency_key, digest, existing)
+
+    async def _resolve_creation(
+        self,
+        connection: AsyncConnection,
+        idempotency_key: str,
+        request_digest: str,
+        creation: tuple[str, str],
+        /,
+    ) -> ScopeDescriptor:
+        existing_digest, scope_id = creation
+        if existing_digest != request_digest:
+            raise ScopeIdempotencyConflictError(idempotency_key)
+        return await self._required(connection, scope_id)
 
     async def get(self, scope_id: str, /) -> ScopeDescriptor:
         async with self._database.transaction() as connection:
@@ -192,7 +214,7 @@ class ScopeApplication:
             scopes = await self._repository.list(connection)
             return _subtree(scopes, root_scope_id)
 
-    async def _required(self, connection, scope_id: str) -> ScopeDescriptor:
+    async def _required(self, connection: AsyncConnection, scope_id: str) -> ScopeDescriptor:
         scope = await self._repository.get(connection, scope_id)
         if scope is None:
             raise ScopeNotFoundError(scope_id)
@@ -200,7 +222,7 @@ class ScopeApplication:
 
     async def _validate_relationships(
         self,
-        connection,
+        connection: AsyncConnection,
         *,
         scope_id: str | None,
         parent_scope_id: str | None,

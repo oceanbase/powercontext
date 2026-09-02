@@ -25,7 +25,17 @@ import yaml
 from datamodel_code_generator import GenerateConfig, InputFileType, generate
 from datamodel_code_generator.enums import StrictTypes
 from datamodel_code_generator.format import CodeFormatter, Formatter, PythonVersion
-from fastapi.openapi.models import MediaType, OpenAPI, PathItem, Reference, RequestBody, Response, Schema
+from fastapi.openapi.models import (
+    MediaType,
+    OpenAPI,
+    Parameter,
+    ParameterInType,
+    PathItem,
+    Reference,
+    RequestBody,
+    Response,
+    Schema,
+)
 from fastapi.openapi.models import Operation as OpenAPIOperation
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
@@ -145,7 +155,8 @@ def _generate_operations(
             if operation.operationId is None or operation.summary is None:
                 raise ContractGenerationError("operation metadata", path)  # noqa: TRY003
             operation_id = operation.operationId
-            request_model = _request_model(operation, schemas)
+            parameters = _operation_parameters(path_item, operation)
+            request_model = _request_model(operation, parameters, schemas)
             if request_model is not None:
                 imports.add(request_model[:2])
 
@@ -160,10 +171,14 @@ def _generate_operations(
                     operation_id=operation_id,
                     request_model=None if request_model is None else request_model[1],
                     request_location=None if request_model is None else request_model[2],
+                    path_parameters=tuple(
+                        parameter.name for parameter in parameters if parameter.in_ is ParameterInType.path
+                    ),
                     response_model=response_model[1],
                     success_status=success_status,
                     summary=operation.summary,
                     tags=tuple(operation.tags or ()),
+                    scope_mode=_scope_mode(operation),
                     responses={
                         int(code) if code.isdecimal() else code: _response_metadata(response)
                         for code, response in operation.responses.items()
@@ -198,10 +213,12 @@ class Operation(BaseModel, Generic[RequestT, ResponseT]):
     operation_id: str
     request_type: type[RequestT] | None
     request_location: Literal["body", "query"] | None
+    path_parameters: tuple[str, ...]
     response_type: type[ResponseT]
     success_status: int
     summary: str
     tags: tuple[str, ...]
+    scope_mode: Literal["none", "current", "selection"]
     responses: dict[int | str, dict[str, JsonValue]]
 
 
@@ -293,6 +310,7 @@ def _with_model_validator_import(source: str) -> str:
 
 def _request_model(
     operation: OpenAPIOperation,
+    parameters: tuple[Parameter, ...],
     schemas: dict[str, Schema | Reference],
 ) -> tuple[str, str, Literal["body", "query"]] | None:
     request_body = operation.requestBody
@@ -302,7 +320,7 @@ def _request_model(
         module, name = _model_for_json_content(request_body.content, schemas, "request body")
         return module, name, "body"
 
-    if not operation.parameters:
+    if not any(parameter.in_ is ParameterInType.query for parameter in parameters):
         return None
     operation_id = operation.operationId
     if operation_id is None:
@@ -311,6 +329,15 @@ def _request_model(
     if query_model not in schemas:
         raise ContractGenerationError("query request model", query_model)  # noqa: TRY003
     return "powercontext.http._generated.models", query_model, "query"
+
+
+def _operation_parameters(path_item: PathItem, operation: OpenAPIOperation) -> tuple[Parameter, ...]:
+    parameters: list[Parameter] = []
+    for parameter in (*(path_item.parameters or ()), *(operation.parameters or ())):
+        if not isinstance(parameter, Parameter):
+            raise ContractGenerationError("parameter reference", parameter)  # noqa: TRY003
+        parameters.append(parameter)
+    return tuple(parameters)
 
 
 def _success_response(
@@ -361,10 +388,12 @@ def _render_operation(
     operation_id: str,
     request_model: str | None,
     request_location: Literal["body", "query"] | None,
+    path_parameters: tuple[str, ...],
     response_model: str,
     success_status: int,
     summary: str,
     tags: tuple[str, ...],
+    scope_mode: Literal["none", "current", "selection"],
     responses: dict[int | str, dict[str, JsonValue]],
 ) -> str:
     request_type = "None" if request_model is None else request_model
@@ -374,12 +403,21 @@ def _render_operation(
     operation_id={operation_id!r},
     request_type={request_type},
     request_location={request_location!r},
+    path_parameters={path_parameters!r},
     response_type={response_model},
     success_status={success_status},
     summary={summary!r},
     tags={tags!r},
+    scope_mode={scope_mode!r},
     responses={pformat(responses, width=100, sort_dicts=False)},
 )"""
+
+
+def _scope_mode(operation: OpenAPIOperation) -> Literal["none", "current", "selection"]:
+    value = (operation.model_extra or {}).get("x-powercontext-scope-mode", "none")
+    if value not in {"none", "current", "selection"}:
+        raise ContractGenerationError("x-powercontext-scope-mode", value)
+    return value
 
 
 if __name__ == "__main__":

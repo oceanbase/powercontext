@@ -183,7 +183,6 @@ def _mount_optional_web_ui(app: FastAPI, settings: ServerSettings) -> None:
     try:
         mount_web_ui(
             app,
-            scopes={scope.scope_id: scope.display_name for scope in settings.dashboard.scopes},
             dashboard_enabled=settings.dashboard.enabled,
             handoff_report_enabled=settings.handoff_report.enabled,
             authentication_required=settings.auth.enabled,

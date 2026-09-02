@@ -31,6 +31,7 @@ from powercontext.client.errors import ClientError
 from powercontext.client.projections import SkillExportTarget, export_skill
 from powercontext.client.settings import ClientSettings
 from powercontext.http import (
+    AllScopeSelection,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
@@ -38,6 +39,7 @@ from powercontext.http import (
     CandidateFamily,
     CandidateStatus,
     Capabilities,
+    ExactScopeSelection,
     ExperienceProposal,
     ExternalSkillImportMode,
     ExternalSkillResolution,
@@ -61,12 +63,15 @@ from powercontext.http import (
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
     ScopedStats,
+    ScopeId,
+    ScopeSelection,
     SkillArtifact,
     SkillGenerationOrigin,
     SkillProposal,
     SkillValidationItem,
     SourceReference,
     StatsPeriod,
+    SubtreeScopeSelection,
 )
 
 HELP_OPTION_NAMES = ("-h", "--help")
@@ -157,12 +162,23 @@ def capabilities(context: typer.Context) -> None:
 
 def stats(
     context: typer.Context,
-    scope_id: Annotated[str, typer.Option(help="Application scope to inspect.")],
+    scope_id: Annotated[list[str] | None, typer.Option(help="Exact application scope to include.")] = None,
+    root_scope_id: Annotated[str | None, typer.Option(help="Organization subtree root to include.")] = None,
     period: Annotated[StatsPeriod, typer.Option(help="Bounded UTC statistics period.")] = StatsPeriod.FIELD_30D,
 ) -> None:
-    """Show current inventory and bounded usage for one scope."""
+    """Show current inventory and bounded usage for a Scope selection."""
 
-    request = GetStatsRequest(scope_id=scope_id, period=period)
+    if scope_id and root_scope_id is not None:
+        raise typer.BadParameter("--scope-id and --root-scope-id are mutually exclusive")  # noqa: TRY003
+    if root_scope_id is not None:
+        selection = ScopeSelection(root=SubtreeScopeSelection(mode="subtree", root_scope_id=root_scope_id))
+    elif scope_id:
+        selection = ScopeSelection(
+            root=ExactScopeSelection(mode="exact", scope_ids=[ScopeId(value) for value in scope_id])
+        )
+    else:
+        selection = ScopeSelection(root=AllScopeSelection(mode="all"))
+    request = GetStatsRequest(selection=selection, period=period)
     asyncio.run(_execute(context, lambda client: client.get_stats(request)))
 
 
@@ -762,7 +778,7 @@ def _print_human_response(response: _ClientResponse) -> None:
 
 def _print_stats(response: ScopedStats) -> None:
     inventory = response.inventory
-    typer.echo(f"Scope: {response.scope_id}")
+    typer.echo(f"Selection: {response.selection.root.mode} ({len(response.scope_ids)} Scopes)")
     typer.echo(f"As of: {response.as_of.isoformat()}")
     typer.echo(
         "Sources: "

@@ -22,23 +22,23 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import suppress
 from copy import deepcopy
-from datetime import UTC, datetime
 from functools import wraps
 from time import perf_counter
 from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypeVar, cast
-from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Query, Request, Response, status
+from fastapi import Depends, FastAPI, Request, Response, status
+from fastapi import Path as PathParameter
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from opentelemetry.trace import SpanKind
+from pydantic import ValidationError as PydanticValidationError
 from scalar_fastapi import AgentScalarConfig, get_scalar_api_reference
 from starlette.middleware import Middleware
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.types import Lifespan
 
 from powercontext._logging import log_safely
-from powercontext.artifacts import ArtifactRef
+from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.handoff import (
     HandoffEvidenceUnavailableError,
@@ -66,37 +66,18 @@ from powercontext.builtin.artifacts.skill import (
 )
 from powercontext.builtin.handoff_report import (
     HandoffReportApplication,
-    HandoffReportBusyError,
-    HandoffReportCatalogArgumentError,
     HandoffReportError,
     HandoffReportInconsistentError,
     HandoffReportTooLargeError,
-    ProjectConflictError,
-    ProjectNotFoundError,
-    ReportPeriodInput,
-    ScopeAlreadyGroupedError,
-    WorkspaceBindingConflictError,
-    WorkspaceBindingNotFoundError,
-    WorkstreamConflictError,
-    WorkstreamNotFoundError,
-)
-from powercontext.builtin.handoff_report.models import (
-    ExternalReference as ReportExternalReference,
-)
-from powercontext.builtin.handoff_report.models import (
-    ProjectDescriptor as DomainProjectDescriptor,
-)
-from powercontext.builtin.handoff_report.models import ReportActivityEvent as DomainReportActivityEvent
-from powercontext.builtin.handoff_report.models import RepositoryRef as DomainRepositoryRef
-from powercontext.builtin.handoff_report.models import (
-    WorkstreamDescriptor as DomainWorkstreamDescriptor,
-)
-from powercontext.builtin.handoff_report.repository import (
-    ActivityEventConflictError,
-    InvalidActivityEventError,
-    InvalidActivityRepositoryArgumentError,
 )
 from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
+from powercontext.builtin.publication import (
+    ArtifactPublicationApplication,
+    ArtifactPublicationConflictError,
+)
+from powercontext.builtin.publication import (
+    ArtifactPublicationRequest as DomainArtifactPublicationRequest,
+)
 from powercontext.builtin.review import (
     ArtifactTargetConflictError,
     CandidateConflictError,
@@ -193,6 +174,28 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     StatisticsPeriod as RuntimeStatisticsPeriod,
 )
+from powercontext.builtin.scope import (
+    ScopeApplication,
+    ScopeBindingNotFoundError,
+    ScopeDraft,
+    ScopeIdempotencyConflictError,
+    ScopeMutation,
+    ScopeNotFoundError,
+    ScopeRelationshipError,
+    ScopeVersionConflictError,
+)
+from powercontext.builtin.scope import (
+    ScopeBindingKey as DomainScopeBindingKey,
+)
+from powercontext.builtin.scope import (
+    ScopeDescriptor as DomainScopeDescriptor,
+)
+from powercontext.builtin.scope import (
+    ScopeExternalReference as DomainScopeExternalReference,
+)
+from powercontext.builtin.scope import (
+    ScopeSelection as DomainScopeSelection,
+)
 from powercontext.builtin.work import (
     AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
 )
@@ -220,16 +223,16 @@ from powercontext.http import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
-    AttachHandoffReportWorkspaceRequest,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    ClearScopeBindingRequest,
+    ClearScopeBindingResponse,
     CommitHandoffRequest,
     CommittedHandoff,
     ContinueHandoffRequest,
-    CreateHandoffReportProjectRequest,
+    CreateScopeRequest,
     CreateWorkContractRequest,
-    DetachHandoffReportWorkspaceRequest,
     ErrorDetail,
     ErrorResponse,
     ExperienceArtifact,
@@ -242,30 +245,19 @@ from powercontext.http import (
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
-    GetHandoffReportProjectRequest,
     GetHandoffReportRequest,
-    GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
     GetStatsRequest,
     HandoffAcknowledgement,
     HandoffCurrentWorkRequest,
-    HandoffReportActivity,
-    HandoffReportActivityPage,
     HandoffReportResponse,
-    HandoffReportWorkspaceBinding,
     HandoffSelection,
     HealthResponse,
     ImportExternalSkillRequest,
-    KnownHandoffScope,
-    KnownHandoffScopePage,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
-    ListHandoffReportActivitiesRequest,
-    ListHandoffReportKnownScopesRequest,
-    ListHandoffReportProjectsRequest,
-    ListHandoffReportWorkstreamsRequest,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
@@ -276,35 +268,38 @@ from powercontext.http import (
     PreparedContext,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
-    ProjectDescriptor,
-    ProjectPage,
     ProposeExperienceRequest,
     ProposeSkillRequest,
-    PurgeHandoffReportActivitiesRequest,
-    PurgeHandoffReportActivitiesResponse,
+    PublishArtifactRequest,
     ReadinessResponse,
     ReadinessStatus,
-    RecordHandoffReportActivityRequest,
     RecordTaskOutcomeRequest,
-    RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
+    ResolveScopeBindingRequest,
+    ResolveScopeSelectionRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
+    ScopeBinding,
+    ScopeBindingKey,
+    ScopeDescriptor,
     ScopedStats,
+    ScopePage,
+    ScopeSelection,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SetDefaultScopeRequest,
+    SetScopeBindingRequest,
     SkillArtifact,
-    StoredHandoffReportActivity,
-    UpdateHandoffReportProjectRequest,
-    UpdateHandoffReportWorkstreamRequest,
+    UpdateScopeRequest,
     WorkSourceReceipt,
-    WorkstreamDescriptor,
-    WorkstreamPage,
+)
+from powercontext.http import (
+    ArtifactPublication as TransportArtifactPublication,
 )
 from powercontext.http import (
     HandoffActivation as TransportHandoffActivation,
@@ -325,57 +320,54 @@ from powercontext.http._generated.operations import (
     API_TITLE,
     API_VERSION,
     APPROVE_ARTIFACT_CANDIDATE,
-    ATTACH_HANDOFF_REPORT_WORKSPACE,
     CAPTURE_CONTENT_SOURCE,
+    CLEAR_SCOPE_BINDING,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
-    CREATE_HANDOFF_REPORT_PROJECT,
+    CREATE_SCOPE,
     CREATE_WORK_CONTRACT,
-    DETACH_HANDOFF_REPORT_WORKSPACE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
     GENERATE_SKILL,
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
+    GET_DEFAULT_SCOPE,
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
-    GET_HANDOFF_REPORT_PROJECT,
-    GET_HANDOFF_REPORT_WORKSPACE,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
     GET_READINESS,
+    GET_SCOPE,
     GET_SKILL,
     GET_STATS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
-    LIST_HANDOFF_REPORT_ACTIVITIES,
-    LIST_HANDOFF_REPORT_KNOWN_SCOPES,
-    LIST_HANDOFF_REPORT_PROJECTS,
-    LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    LIST_SCOPES,
     OPENAPI_VERSION,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
-    PURGE_HANDOFF_REPORT_ACTIVITIES,
-    RECORD_HANDOFF_REPORT_ACTIVITY,
+    PUBLISH_ARTIFACT,
     RECORD_TASK_OUTCOME,
-    REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RESOLVE_EXTERNAL_SKILL,
+    RESOLVE_SCOPE_BINDING,
+    RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
-    UPDATE_HANDOFF_REPORT_PROJECT,
-    UPDATE_HANDOFF_REPORT_WORKSTREAM,
+    SET_DEFAULT_SCOPE,
+    SET_SCOPE_BINDING,
+    UPDATE_SCOPE,
     Operation,
 )
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
@@ -402,6 +394,7 @@ CapabilityProvider = Callable[[], Capabilities]
 ReadinessProbe = Callable[[], Awaitable[ReadinessResponse]]
 _RequestT = TypeVar("_RequestT")
 _ResponseT = TypeVar("_ResponseT")
+_ScopePathId = Annotated[str, PathParameter(min_length=1, max_length=256, pattern=r".*\S.*")]
 
 
 class _ScopedSourceApplication(Protocol):
@@ -537,8 +530,17 @@ class _ScopedStatisticsApplication(Protocol):
 class _StatisticsApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedStatisticsApplication: ...
 
+    async def overview(
+        self,
+        selection: DomainScopeSelection,
+        *,
+        period: RuntimeStatisticsPeriod,
+    ) -> RuntimeStatistics: ...
+
 
 class ServerApplication(Protocol):
+    scopes: ScopeApplication | None
+    publications: ArtifactPublicationApplication | None
     sources: _SourceApplication
     context: _ContextApplication
     experience: _ExperienceApplication
@@ -610,7 +612,11 @@ def create_app(
         return response
 
     @app.exception_handler(RequestValidationError)
-    async def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
+    @app.exception_handler(PydanticValidationError)
+    async def invalid_request(
+        request: Request,
+        error: RequestValidationError | PydanticValidationError,
+    ) -> JSONResponse:
         return _error_response(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="invalid_request",
@@ -639,22 +645,19 @@ def create_app(
     _add_route(app, GET_LIVENESS, get_liveness)
     _add_route(app, GET_READINESS, get_readiness)
     _add_route(app, GET_CAPABILITIES, get_capabilities)
+    _add_route(app, LIST_SCOPES, list_scopes)
+    _add_route(app, CREATE_SCOPE, create_scope)
+    _add_route(app, GET_DEFAULT_SCOPE, get_default_scope)
+    _add_route(app, SET_DEFAULT_SCOPE, set_default_scope)
+    _add_route(app, GET_SCOPE, get_scope)
+    _add_route(app, UPDATE_SCOPE, update_scope)
+    _add_route(app, RESOLVE_SCOPE_SELECTION, resolve_scope_selection)
+    _add_route(app, RESOLVE_SCOPE_BINDING, resolve_scope_binding)
+    _add_route(app, SET_SCOPE_BINDING, set_scope_binding)
+    _add_route(app, CLEAR_SCOPE_BINDING, clear_scope_binding)
+    _add_route(app, PUBLISH_ARTIFACT, publish_artifact)
     _add_route(app, GET_STATS, get_stats)
     if handoff_report_enabled:
-        _add_route(app, CREATE_HANDOFF_REPORT_PROJECT, create_handoff_report_project)
-        _add_route(app, GET_HANDOFF_REPORT_PROJECT, get_handoff_report_project)
-        _add_route(app, UPDATE_HANDOFF_REPORT_PROJECT, update_handoff_report_project)
-        _add_route(app, LIST_HANDOFF_REPORT_PROJECTS, list_handoff_report_projects)
-        _add_route(app, LIST_HANDOFF_REPORT_KNOWN_SCOPES, list_handoff_report_known_scopes)
-        _add_route(app, REGISTER_HANDOFF_REPORT_WORKSTREAM, register_handoff_report_workstream)
-        _add_route(app, LIST_HANDOFF_REPORT_WORKSTREAMS, list_handoff_report_workstreams)
-        _add_route(app, UPDATE_HANDOFF_REPORT_WORKSTREAM, update_handoff_report_workstream)
-        _add_route(app, RECORD_HANDOFF_REPORT_ACTIVITY, record_handoff_report_activity)
-        _add_route(app, LIST_HANDOFF_REPORT_ACTIVITIES, list_handoff_report_activities)
-        _add_route(app, PURGE_HANDOFF_REPORT_ACTIVITIES, purge_handoff_report_activities)
-        _add_route(app, GET_HANDOFF_REPORT_WORKSPACE, get_handoff_report_workspace)
-        _add_route(app, ATTACH_HANDOFF_REPORT_WORKSPACE, attach_handoff_report_workspace)
-        _add_route(app, DETACH_HANDOFF_REPORT_WORKSPACE, detach_handoff_report_workspace)
         _add_route(app, GET_HANDOFF_REPORT, get_handoff_report)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
     _add_route(app, FLUSH_MEMORY, flush_memory)
@@ -748,192 +751,141 @@ async def get_capabilities(request: Request) -> Capabilities:
     return request.app.state.capabilities
 
 
+async def list_scopes(
+    scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
+) -> ScopePage:
+    return ScopePage(items=[_scope_descriptor_response(scope) for scope in await scopes.list()])
+
+
+async def create_scope(
+    request: CreateScopeRequest,
+    scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
+) -> ScopeDescriptor:
+    created = await scopes.create(
+        ScopeDraft(
+            title=request.title,
+            summary=request.summary,
+            parent_scope_id=request.parent_scope_id,
+            context_references=tuple(reference.root for reference in request.context_references),
+            external_references=tuple(
+                DomainScopeExternalReference(kind=reference.kind, value=reference.value)
+                for reference in request.external_references
+            ),
+            idempotency_key=request.idempotency_key,
+        )
+    )
+    return _scope_descriptor_response(created)
+
+
+async def get_scope(
+    scope_id: _ScopePathId,
+    scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
+) -> ScopeDescriptor:
+    return _scope_descriptor_response(await scopes.get(scope_id))
+
+
+async def update_scope(
+    scope_id: _ScopePathId,
+    request: UpdateScopeRequest,
+    scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
+) -> ScopeDescriptor:
+    updated = await scopes.update(
+        scope_id,
+        ScopeMutation(
+            expected_version=request.expected_version,
+            title=request.title,
+            summary=request.summary,
+            parent_scope_id=request.parent_scope_id,
+            context_references=tuple(reference.root for reference in request.context_references),
+            external_references=tuple(
+                DomainScopeExternalReference(kind=reference.kind, value=reference.value)
+                for reference in request.external_references
+            ),
+        ),
+    )
+    return _scope_descriptor_response(updated)
+
+
+async def get_default_scope(
+    scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
+) -> ScopeDescriptor:
+    current = await scopes.default_scope()
+    if current is None:
+        raise ScopeBindingNotFoundError
+    return _scope_descriptor_response(current)
+
+
+async def set_default_scope(
+    request: SetDefaultScopeRequest,
+    scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
+) -> ScopeDescriptor:
+    return _scope_descriptor_response(await scopes.set_default(request.scope_id))
+
+
+async def resolve_scope_selection(
+    request: ResolveScopeSelectionRequest,
+    scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
+) -> ScopePage:
+    selection = _domain_scope_selection(request.selection)
+    return ScopePage(items=[_scope_descriptor_response(scope) for scope in await scopes.resolve_selection(selection)])
+
+
+async def resolve_scope_binding(
+    request: ResolveScopeBindingRequest,
+    scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
+) -> ScopeDescriptor:
+    resolved = await scopes.resolve_binding(
+        explicit_scope_id=request.explicit_scope_id,
+        binding_keys=tuple(_domain_binding_key(key) for key in request.binding_keys),
+    )
+    return _scope_descriptor_response(resolved)
+
+
+async def set_scope_binding(
+    request: SetScopeBindingRequest,
+    scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
+) -> ScopeBinding:
+    binding = await scopes.bind(_domain_binding_key(request.root.key), request.root.scope_id)
+    return ScopeBinding(
+        key=_transport_binding_key(binding.key),
+        scope_id=binding.scope_id,
+    )
+
+
+async def clear_scope_binding(
+    request: ClearScopeBindingRequest,
+    scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
+) -> ClearScopeBindingResponse:
+    return ClearScopeBindingResponse(cleared=await scopes.clear_binding(_domain_binding_key(request.key)))
+
+
+async def publish_artifact(
+    request: PublishArtifactRequest,
+    publications: Annotated[ArtifactPublicationApplication, Depends(_require_publication_application)],
+) -> TransportArtifactPublication:
+    result = await publications.publish(
+        DomainArtifactPublicationRequest(
+            source=ArtifactAddress(
+                scope_id=request.source.scope_id,
+                artifact=ArtifactRef.model_validate(request.source.artifact.model_dump(mode="json")),
+            ),
+            target_scope_id=request.target_scope_id,
+            idempotency_key=request.idempotency_key,
+        )
+    )
+    return TransportArtifactPublication.model_validate(result.model_dump(mode="json"))
+
+
 async def get_stats(
-    request: Annotated[GetStatsRequest, Query()],
+    request: GetStatsRequest,
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ScopedStats:
     response.headers["Cache-Control"] = "no-store"
-    result = await application.statistics.for_scope(request.scope_id).overview(
-        period=RuntimeStatisticsPeriod(request.period.value)
+    result = await application.statistics.overview(
+        _domain_scope_selection(request.selection), period=RuntimeStatisticsPeriod(request.period.value)
     )
     return mapping.statistics_response(result)
-
-
-async def create_handoff_report_project(
-    request: CreateHandoffReportProjectRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> ProjectDescriptor:
-    result = await report.create_project(
-        project_key=request.project_key,
-        title=request.title,
-        description=request.description,
-        default_locale=request.default_locale.value,
-        timezone=request.timezone,
-    )
-    return _project_descriptor_response(result)
-
-
-async def get_handoff_report_project(
-    request: GetHandoffReportProjectRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> ProjectDescriptor:
-    return _project_descriptor_response(await report.get_project(request.project_id))
-
-
-async def update_handoff_report_project(
-    request: UpdateHandoffReportProjectRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> ProjectDescriptor:
-    descriptor = DomainProjectDescriptor.model_validate_json(request.project.model_dump_json(by_alias=True))
-    return _project_descriptor_response(await report.update_project(descriptor, request.expected_version))
-
-
-async def list_handoff_report_projects(
-    request: ListHandoffReportProjectsRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> ProjectPage:
-    result = await report.list_projects(
-        cursor=request.cursor,
-        limit=request.limit,
-        include_archived=request.include_archived,
-    )
-    return ProjectPage(
-        items=[_project_descriptor_response(item) for item in result.items],
-        next_cursor=result.next_cursor,
-    )
-
-
-async def list_handoff_report_known_scopes(
-    request: ListHandoffReportKnownScopesRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> KnownHandoffScopePage:
-    result = await report.list_known_scopes(cursor=request.cursor, limit=request.limit)
-    return KnownHandoffScopePage(
-        items=[KnownHandoffScope(scope_id=scope_id) for scope_id in result.items],
-        next_cursor=result.next_cursor,
-    )
-
-
-async def register_handoff_report_workstream(
-    request: RegisterHandoffReportWorkstreamRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> WorkstreamDescriptor:
-    values = request.model_dump(mode="json")
-    result = await report.register_workstream(
-        project_id=request.project_id,
-        scope_id=request.scope_id,
-        title=request.title,
-        kind=request.kind.value,
-        key=request.key,
-        catalog_state=request.catalog_state.value,
-        external_refs=tuple(ReportExternalReference.model_validate(value) for value in values["external_refs"]),
-        labels=tuple(str(value) for value in values["labels"]),
-    )
-    return _workstream_descriptor_response(result)
-
-
-async def list_handoff_report_workstreams(
-    request: ListHandoffReportWorkstreamsRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> WorkstreamPage:
-    result = await report.list_workstreams(
-        request.project_id,
-        cursor=request.cursor,
-        limit=request.limit,
-        include_archived=request.include_archived,
-    )
-    return WorkstreamPage(
-        items=[_workstream_descriptor_response(item) for item in result.items],
-        next_cursor=result.next_cursor,
-    )
-
-
-async def update_handoff_report_workstream(
-    request: UpdateHandoffReportWorkstreamRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> WorkstreamDescriptor:
-    descriptor = DomainWorkstreamDescriptor.model_validate_json(request.workstream.model_dump_json(by_alias=True))
-    return _workstream_descriptor_response(await report.update_workstream(descriptor, request.expected_version))
-
-
-async def record_handoff_report_activity(
-    request: RecordHandoffReportActivityRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> StoredHandoffReportActivity:
-    values = request.model_dump(mode="json")
-    event = DomainReportActivityEvent.model_validate_json(
-        json.dumps({
-            **values,
-            "event_id": f"evt_{uuid4().hex}",
-            "observed_at": datetime.now(UTC).isoformat(),
-            "trust": "untrusted_observation",
-        })
-    )
-    stored = await report.record_activity(event)
-    return StoredHandoffReportActivity(
-        cursor=stored.cursor,
-        event=HandoffReportActivity.model_validate(stored.payload),
-    )
-
-
-async def list_handoff_report_activities(
-    request: ListHandoffReportActivitiesRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> HandoffReportActivityPage:
-    page = await report.list_activities(
-        request.project_id,
-        period_start=request.period_start,
-        period_end=request.period_end,
-        sources=None if request.sources is None else tuple(value.value for value in request.sources),
-        after_cursor=request.after_cursor,
-        through_cursor=request.through_cursor,
-        limit=request.limit,
-    )
-    return HandoffReportActivityPage(
-        items=[
-            HandoffReportActivity.model_validate(item.model_dump(mode="json", by_alias=True)) for item in page.items
-        ],
-        next_cursor=page.next_cursor,
-        high_watermark=page.high_watermark,
-    )
-
-
-async def purge_handoff_report_activities(
-    request: PurgeHandoffReportActivitiesRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> PurgeHandoffReportActivitiesResponse:
-    deleted = await report.purge_activities(request.project_id, request.observed_before)
-    return PurgeHandoffReportActivitiesResponse(deleted_count=deleted)
-
-
-async def get_handoff_report_workspace(
-    request: GetHandoffReportWorkspaceRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> HandoffReportWorkspaceBinding:
-    binding = await report.get_workspace_binding(request.workspace_instance_id)
-    return HandoffReportWorkspaceBinding.model_validate(binding.model_dump(mode="json", by_alias=True))
-
-
-async def attach_handoff_report_workspace(
-    request: AttachHandoffReportWorkspaceRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> HandoffReportWorkspaceBinding:
-    binding = await report.attach_workspace_binding(
-        workspace_instance_id=request.workspace_instance_id,
-        project_id=request.project_id,
-        repository_ref=DomainRepositoryRef.model_validate(request.repository_ref.model_dump(mode="json")),
-        expected_version=request.expected_version,
-    )
-    return HandoffReportWorkspaceBinding.model_validate(binding.model_dump(mode="json", by_alias=True))
-
-
-async def detach_handoff_report_workspace(
-    request: DetachHandoffReportWorkspaceRequest,
-    report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
-) -> HandoffReportWorkspaceBinding:
-    binding = await report.detach_workspace_binding(request.workspace_instance_id, request.expected_version)
-    return HandoffReportWorkspaceBinding.model_validate(binding.model_dump(mode="json", by_alias=True))
 
 
 async def get_handoff_report(
@@ -941,23 +893,7 @@ async def get_handoff_report(
     response: Response,
     report: Annotated[HandoffReportApplication, Depends(_require_handoff_report_application)],
 ) -> HandoffReportResponse | Response:
-    result = await report.get_report(
-        request.scope_id,
-        locale=None if request.locale is None else request.locale.value,
-        include_evidence_checks=request.include_evidence_checks,
-        report_format=request.format.value,
-        include_archived=request.include_archived,
-        period=(
-            None
-            if request.period is None
-            else ReportPeriodInput(
-                start=request.period.start,
-                end=request.period.end,
-                timezone=request.period.timezone,
-                compare_to_previous_period=request.period.compare_to_previous_period,
-            )
-        ),
-    )
+    result = await report.get_report(_domain_scope_selection(request.selection))
     selection_digest = cast(str, result.selection_digest)
     report_digest = cast(str, result.report_digest)
     response.headers["Cache-Control"] = "no-store"
@@ -1007,8 +943,7 @@ def _require_report_size(estimated_bytes: int, report: Any) -> None:
         return
     raise HandoffReportTooLargeError(
         estimated_bytes=estimated_bytes,
-        selected_workstreams=report.coverage.selected_workstreams,
-        selected_activities=len(report.activity_selection),
+        selected_scopes=len(report.scopes),
     )
 
 
@@ -1352,6 +1287,20 @@ def _require_application(request: Request) -> ServerApplication:
     return application
 
 
+def _require_scope_application(request: Request) -> ScopeApplication:
+    application = _require_application(request)
+    if application.scopes is None:
+        raise _RuntimeNotReadyError
+    return application.scopes
+
+
+def _require_publication_application(request: Request) -> ArtifactPublicationApplication:
+    application = _require_application(request)
+    if application.publications is None:
+        raise _RuntimeNotReadyError
+    return application.publications
+
+
 def _require_handoff_report_application(request: Request) -> HandoffReportApplication:
     application = _require_application(request)
     if application.handoff_report is None:
@@ -1359,12 +1308,28 @@ def _require_handoff_report_application(request: Request) -> HandoffReportApplic
     return application.handoff_report
 
 
-def _project_descriptor_response(value: DomainProjectDescriptor) -> ProjectDescriptor:
-    return ProjectDescriptor.model_validate(value.model_dump(mode="json", by_alias=True))
+def _scope_descriptor_response(value: DomainScopeDescriptor) -> ScopeDescriptor:
+    return ScopeDescriptor.model_validate(value.model_dump(mode="json"))
 
 
-def _workstream_descriptor_response(value: DomainWorkstreamDescriptor) -> WorkstreamDescriptor:
-    return WorkstreamDescriptor.model_validate(value.model_dump(mode="json", by_alias=True))
+def _domain_binding_key(value: ScopeBindingKey) -> DomainScopeBindingKey:
+    return DomainScopeBindingKey(
+        integration=value.integration,
+        kind=value.kind,
+        external_id=value.external_id,
+    )
+
+
+def _domain_scope_selection(value: ScopeSelection) -> DomainScopeSelection:
+    return DomainScopeSelection.model_validate(value.root.model_dump(mode="json"))
+
+
+def _transport_binding_key(value: DomainScopeBindingKey) -> ScopeBindingKey:
+    return ScopeBindingKey(
+        integration=value.integration,
+        kind=value.kind,
+        external_id=value.external_id,
+    )
 
 
 def _add_route(
@@ -1395,6 +1360,7 @@ def _observe_application_operation(
         started_at = perf_counter()
         span = _start_application_span(app, operation)
         try:
+            await _validate_current_scope(app, operation, args, kwargs)
             result = await endpoint(*args, **kwargs)
         except asyncio.CancelledError:
             _observe_application(app, operation, "cancelled", started_at)
@@ -1427,6 +1393,26 @@ def _observe_application_operation(
         return result
 
     return observed_endpoint
+
+
+async def _validate_current_scope(
+    app: FastAPI,
+    operation: Operation[Any, Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> None:
+    if operation.scope_mode != "current" or operation.request_type is None:
+        return
+    scopes = getattr(app.state.application, "scopes", None)
+    if scopes is None:
+        return
+    request = next(
+        (value for value in (*args, *kwargs.values()) if isinstance(value, operation.request_type)),
+        None,
+    )
+    scope_id = getattr(request, "scope_id", None)
+    if isinstance(scope_id, str):
+        await scopes.get(scope_id)
 
 
 def _start_application_span(app: FastAPI, operation: Operation[Any, Any]) -> Any | None:
@@ -1506,11 +1492,11 @@ def _error_response(
     return JSONResponse(status_code=response_status, content=error.model_dump(mode="json"))
 
 
-def _validation_error_details(error: RequestValidationError) -> list[Any]:
+def _validation_error_details(error: RequestValidationError | PydanticValidationError) -> list[Any]:
     details: list[Any] = []
     for item in error.errors():
         if isinstance(item, dict):
-            details.append({key: value for key, value in item.items() if key != "input"})
+            details.append({key: value for key, value in item.items() if key not in {"ctx", "input", "url"}})
         else:
             details.append(item)
     return details
@@ -1542,6 +1528,9 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
             "Artifact generation is not configured.",
             {"family": error.family},
         )
+    scope_error = _map_scope_error(error)
+    if scope_error is not None:
+        return scope_error
     candidate_error = _map_candidate_error(error)
     if candidate_error is not None:
         return candidate_error
@@ -1552,6 +1541,40 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     if report_error is not None:
         return report_error
     return _map_domain_error(error)
+
+
+def _map_scope_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, ArtifactPublicationConflictError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "artifact_publication_conflict",
+            "The publication key identifies a different source Artifact.",
+            None,
+        )
+    if isinstance(error, (ScopeNotFoundError, ScopeBindingNotFoundError)):
+        return status.HTTP_404_NOT_FOUND, "scope_not_found", "The requested Scope was not found.", None
+    if isinstance(error, ScopeVersionConflictError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "scope_version_conflict",
+            "The Scope metadata version is stale.",
+            {"expected_version": error.expected, "current_version": error.actual},
+        )
+    if isinstance(error, ScopeIdempotencyConflictError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "scope_idempotency_conflict",
+            "The Scope creation key identifies different parameters.",
+            None,
+        )
+    if isinstance(error, ScopeRelationshipError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "invalid_scope_relationship",
+            "The Scope relationship is invalid.",
+            {"relationship": error.relationship, "issue": error.issue},
+        )
+    return None
 
 
 def _map_candidate_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
@@ -1584,46 +1607,14 @@ def _map_candidate_error(error: Exception) -> tuple[int, str, str, dict[str, Any
 
 
 def _map_report_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
-    if isinstance(error, (ProjectNotFoundError, WorkstreamNotFoundError, WorkspaceBindingNotFoundError)):
-        return status.HTTP_404_NOT_FOUND, error.code, "The requested Handoff Report catalog value was not found.", None
-    if isinstance(
-        error,
-        (ProjectConflictError, WorkstreamConflictError, ScopeAlreadyGroupedError, WorkspaceBindingConflictError),
-    ):
-        details = {
-            name: getattr(error, name)
-            for name in ("expected_version", "current_version", "project_id", "scope_id", "workspace_instance_id")
-            if hasattr(error, name)
-        }
-        return (
-            status.HTTP_409_CONFLICT,
-            error.code,
-            "The Handoff Report catalog value is stale or conflicting.",
-            details,
-        )
-    if isinstance(error, ActivityEventConflictError):
-        return (
-            status.HTTP_409_CONFLICT,
-            "activity_event_conflict",
-            "The Activity idempotency key already identifies different content.",
-            {"source": error.source, "source_event_id": error.source_event_id},
-        )
-    if isinstance(error, HandoffReportBusyError):
-        return (
-            status.HTTP_409_CONFLICT,
-            "handoff_report_busy",
-            "Handoff heads changed while the report was being assembled.",
-            {"attempts": error.attempts},
-        )
     if isinstance(error, HandoffReportTooLargeError):
         return (
             status.HTTP_413_CONTENT_TOO_LARGE,
             "handoff_report_too_large",
-            "The Handoff Report is too large; narrow the Workstream or Activity selection.",
+            "The Handoff Report is too large; narrow the Scope selection.",
             {
                 "estimated_bytes": error.estimated_bytes,
-                "selected_workstreams": error.selected_workstreams,
-                "selected_activities": error.selected_activities,
+                "selected_scopes": error.selected_scopes,
             },
         )
     if isinstance(error, HandoffReportInconsistentError):
@@ -1633,11 +1624,6 @@ def _map_report_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
             "The frozen Handoff selection could not be read consistently.",
             {"scope_id": error.scope_id},
         )
-    if isinstance(
-        error,
-        (HandoffReportCatalogArgumentError, InvalidActivityEventError, InvalidActivityRepositoryArgumentError),
-    ):
-        return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_request", "The request is invalid.", None
     if isinstance(error, HandoffReportError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "handoff_report_unavailable", "Handoff Report is unavailable.", None
     return None

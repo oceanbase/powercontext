@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 from uuid import uuid4
 
@@ -77,6 +77,7 @@ from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryI
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
     GenerationCapabilityUnavailableError,
@@ -89,6 +90,7 @@ from powercontext.builtin.runtime.prepared_context import PreparedContextBuild
 from powercontext.builtin.runtime.protocols import BuiltinTriggers
 from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
+from powercontext.builtin.scope import ScopeApplication
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_ADAPTER,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
@@ -228,6 +230,18 @@ class _ScopedServices:
         source_resolver: SourceCatalog,
     ) -> HandoffService:
         memory = self.memory(source_resolver)
+
+        def evidence_resolver(scope_id: str) -> RelationalHandoffEvidenceResolver:
+            services = self if scope_id == self.scope_id else replace(self, scope_id=scope_id)
+            _, catalog = services.sources()
+            return RelationalHandoffEvidenceResolver(
+                database=services.database,
+                scope_id=scope_id,
+                sources=services.repositories.sources,
+                artifacts=services.repositories.artifacts,
+                memory=services.memory(catalog),
+            )
+
         return HandoffService(
             scope_id=self.scope_id,
             artifact_id=self.handoff_artifact_id,
@@ -243,6 +257,7 @@ class _ScopedServices:
                 artifacts=self.repositories.artifacts,
                 memory=memory,
             ),
+            evidence_resolver_for_scope=evidence_resolver,
             generation_pipeline=self.handoff_pipeline,
         )
 
@@ -267,9 +282,10 @@ class _ScopedServices:
         if self.token_estimator is None:
             return None
 
-        def memory_service(connection: AsyncConnection) -> MemoryService:
-            _, source_catalog = self.sources(connection)
-            return self.memory(source_catalog, connection)
+        def memory_service(scope_id: str, connection: AsyncConnection) -> MemoryService:
+            services = self if scope_id == self.scope_id else replace(self, scope_id=scope_id)
+            _, source_catalog = services.sources(connection)
+            return services.memory(source_catalog, connection)
 
         return RelationalRecallTokenEstimator(
             database=self.database,
@@ -305,6 +321,7 @@ class RelationalContexts:
         memory_artifact_id: str = "memory",
     ) -> None:
         self.database = database
+        self.scopes = ScopeApplication(database)
         self.index = NoMemoryIndex() if index is None else index
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         self.repositories = _Repositories(
@@ -317,6 +334,11 @@ class RelationalContexts:
             cursors=SourceCursorRepository(),
             external_skills=ExternalSkillRepository(),
             statistics=StatisticsRepository(),
+        )
+        self.publications = ArtifactPublicationApplication(
+            database,
+            self.repositories.artifacts,
+            self.scopes,
         )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None
