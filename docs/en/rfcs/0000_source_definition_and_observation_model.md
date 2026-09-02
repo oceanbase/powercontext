@@ -44,7 +44,7 @@ family, or a Connector implementation.
 # Motivation
 
 `ContentSource` and `POST /v1/sources/content` provide captured-text ingestion. The caller
-chooses one `source_id`; replaying an identical payload is idempotent, while reusing that identity with a different
+chooses one `source_id`; submitting an identical payload is idempotent, while reusing that identity with a different
 payload is a conflict. This gives exact evidence only when the caller treats the identity as immutable.
 
 External systems usually expose a different lifecycle. A wiki page, issue, object, message, or file has one logical
@@ -262,7 +262,7 @@ it does not provide a separate logical Source lifecycle.
 The standard model treats this as a valid single-observation Source implementation:
 
 - the existing identity remains immutable;
-- an identical replay remains idempotent;
+- an identical submission remains idempotent;
 - different content under the same identity remains a conflict;
 - references that resolve ContentSource remain exact and unchanged; and
 - no mutable head or multi-observation behavior is inferred from metadata.
@@ -278,7 +278,7 @@ The two ingestion paths differ at acquisition time but converge on Scope-owned S
 | Typical input | Text already held by the caller | Objects discovered in an external system |
 | Identity | One caller-stable immutable identity | One logical identity with exact observations |
 | Type contract | Built-in captured text and metadata | Definition-owned value, provenance, and projections |
-| Synchronization | One request, with no checkpoint | Discovery, per-item outcomes, replay, and checkpoint comparison |
+| Synchronization | One request, with no checkpoint | Discovery, per-item outcomes, retries, and checkpoint comparison |
 | Downstream use | Built-in text evidence | A named projection understood by the consumer |
 
 `ContentSource` is the shorter path when the caller already has final text and an immutable identity. The remote
@@ -501,19 +501,20 @@ provider capabilities
   = valid Source observation
 ```
 
-A Connector type declares a stable name and version, its configuration schema, the Source Definitions it can submit,
-and the acquisition capabilities it provides. Capabilities are optional and explicit. Typical capabilities include a
-complete snapshot, a change feed, checkpoint resume, and authoritative deletion events. A Connector cannot advertise
-a capability that its provider and acquisition path cannot enforce.
+A Connector type declares a stable name and version, its configuration schema, and the Source Definitions it can
+submit. Additional acquisition guarantees are optional and explicit: for example, complete snapshots, change feeds,
+checkpoint resume, or authoritative deletion events. A Connector cannot claim a guarantee that its provider and
+acquisition path cannot enforce.
 
 A Connector binding activates one Connector configuration for exactly one Scope. The binding has a stable identity
 for checkpoint and provider-namespace continuity, but it does not own Sources and does not replace `scope_id` or
 `source_type`. Credentials are resolved by the hosting environment and do not become Source value or provenance.
 
 A Connector run begins from an opaque binding checkpoint, resolves zero or more definition-native inputs inside the
-worker, and submits their materialized observations. It records an outcome for every item. An accepted or
-idempotently replayed observation returns its exact SourceRef. A rejected or failed item remains visible in the run
-outcome and cannot be hidden by advancing the checkpoint past work that is not safely replayable.
+worker, and submits their materialized observations. It records an outcome for every item. An accepted observation
+returns its exact SourceRef; submitting the same identity and payload again has the same accepted result. A rejected
+or failed item remains visible in the run outcome and cannot be hidden by advancing the checkpoint past work that is
+not safely retriable.
 
 A run finishes as complete or incomplete. A complete snapshot may produce positive deletion evidence for previously
 known provider objects that are absent. An incomplete listing, timeout, permission failure, cancellation, or lost
@@ -549,10 +550,14 @@ moved and the two SourceKeys are not made identical.
 
 ## Conformance
 
-A Source Definition can be supported only after its mandatory contract passes conformance scenarios for:
+Conformance is claim-based. An implementation may deliver these contracts incrementally, but each exposed guarantee
+must pass its applicable scenarios. Missing contracts remain unsupported; they cannot be approximated by metadata or
+provider convention.
+
+Full support for a Source Definition requires conformance scenarios for:
 
 - identity normalization and collision rejection;
-- identical observation replay;
+- identical observation acceptance and idempotency;
 - conflicting payload rejection for one observation ID;
 - several immutable observations under one SourceKey;
 - exact old-observation reads after head advancement and deletion;
@@ -565,10 +570,9 @@ A Source Definition can be supported only after its mandatory contract passes co
 A named projection can be advertised only after conformance verifies deterministic output for exact observations,
 schema and version conflict handling, exact SourceRef lineage, and explicit failure when the capability is absent.
 
-A Connector capability can be advertised only after conformance verifies checkpoint replay, per-item outcome
-visibility, durable checkpoint ordering, complete-versus-incomplete run behavior, and the claimed deletion evidence.
-Provider-specific behavior is established by its implementation evidence rather than generalized into the standard
-contract.
+An acquisition guarantee can be claimed only after conformance verifies its checkpoint retry, per-item outcome
+visibility, durable checkpoint ordering, complete-versus-incomplete run behavior, and deletion evidence. Provider-
+specific behavior is established by its implementation evidence rather than generalized into the standard contract.
 
 A remote worker path additionally verifies manifest fingerprint and conflict handling, rejection of unregistered or
 schema-invalid observations, exact projection-set validation, durable receipt ordering, and stale checkpoint CAS

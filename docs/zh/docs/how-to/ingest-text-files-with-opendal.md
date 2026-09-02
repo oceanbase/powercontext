@@ -9,12 +9,16 @@ description: 用独立 OpenDAL Connector worker 把 UTF-8 文件捕获为类型�
 provider configuration、可执行 Source Definition 和文件读取逻辑。Server 只保存声明式 Definition manifest、
 已经物化的 Source observation、named projection 与 opaque checkpoint。
 
+该集成是 evaluation Connector，只验证 captured immutable snapshot ingestion、Definition manifest registration、
+一个 named projection、durable acceptance receipt 与 checkpoint compare-and-swap。它不实现 Source Definition RFC
+描述的完整 logical Source observation model。
+
 ## 前置条件
 
 该集成要求 Python 3.12 或更高版本。先启动 PowerContext Server，再从 checkout 安装 worker：
 
 ```bash
-uv tool install ./integrations/opendal
+uv tool install --python 3.12 --with-editable ".[client]" ./integrations/opendal
 ```
 
 选择稳定的 `source_namespace` 来区分不同 storage authority。不要把 credential 写进 namespace、Source payload 或
@@ -40,8 +44,8 @@ powercontext-connector-opendal \
 不会通过摄取 API 发送给 Server。
 
 Worker 每次运行都会幂等注册 `text-file-snapshot` Definition manifest，读取 binding checkpoint，提交本轮变化的
-Source observation，并在所有 durable receipt 返回后 compare-and-swap checkpoint。可以由 cron、Kubernetes Job
-或其他外部 scheduler 周期执行该命令。
+snapshot Source，并在所有 accepted submission 都获得 durable receipt 后 compare-and-swap checkpoint。可以由
+cron、Kubernetes Job 或其他外部 scheduler 周期执行该命令。
 
 ## 嵌入自定义 worker
 
@@ -75,19 +79,22 @@ async with PowerContextClient("http://127.0.0.1:8765") as client:
 
 ## 运行语义
 
-每个 item outcome 是 `accepted`、`replayed`、`rejected` 或 `failed`。只有本轮完整结束并且没有 rejected 或 failed
-item 时 checkpoint 才会前移。否则保留旧 checkpoint，下一轮从同一位置安全重试。与已提交 checkpoint 中 digest
-相同的文件会被跳过。
+每个 processed item 是 `accepted`、`rejected` 或 `failed`。再次提交相同 snapshot identity 与 payload 会得到相同的
+accepted 结果。只有本轮完整结束并且没有 rejected 或 failed item 时 checkpoint 才会前移。否则保留旧 checkpoint，
+下一轮从同一位置安全重试。与已提交 checkpoint 中 digest 相同的文件会被跳过。
 
-接受的 Source 进入目标 Scope 的 Source journal。Worker 同时计算标准 `powercontext.text-evidence` projection，
-因此不了解 `text-file-snapshot` native schema 的 Memory consumer 仍可消费文本。Connector run 不直接创建 Memory；
-Memory 仍由常规 source-window flush 或调度任务生成。
+接受的 snapshot Source 进入目标 Scope 的 Source journal。Worker 计算声明的 `powercontext.text-evidence` named
+projection，Server 在接受前验证其 schema。该 evaluation 不构成通用 Memory consumption contract。Connector run
+不直接创建 Memory。
 
 ## 限制
 
 - 默认选择 Markdown、纯文本、reStructuredText 与 AsciiDoc 文件。
 - 默认每轮最多选择 10,000 个文件，每个文件最多读取 2 MiB。
 - 只接受 UTF-8 内容。
-- 内容变化会生成新的精确 snapshot Source，旧 snapshot 继续保留。
+- Snapshot identity 由 `source_namespace`、path 与 content digest 生成。内容变化因此会产生不同的 immutable snapshot
+  identity。该 evaluation identity 不是拥有多个 observation ID 的标准 logical Source identity。
 - 全量扫描会从下一 checkpoint 移除已消失 path，但不会删除 Source，也不声明 authoritative deletion。
 - Connector 不提供 change feed；后续变化依赖外部 scheduler 再次运行 worker。
+- Connector 不实现 current head、logical multi-observation history、deletion semantics、referenced materialization，
+  也不实现从外部不可变 revision 进行 exact read。

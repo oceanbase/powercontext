@@ -39,7 +39,7 @@ ETag 或 provider 当前值读取，并不能满足 referenced 契约。
 # Motivation
 
 `ContentSource` 与 `POST /v1/sources/content` 提供 captured-text ingestion。调用方选择一个
-`source_id`；使用完全相同的 payload 重放具有幂等性，而用不同 payload 复用该身份会产生冲突。只有调用方把
+`source_id`；提交完全相同的 payload 具有幂等性，而用不同 payload 复用该身份会产生冲突。只有调用方把
 这个身份当作不可变身份时，它才能表达精确证据。
 
 外部系统通常具有不同的生命周期。Wiki 页面、issue、object、message 或 file 拥有一个逻辑身份，但会随时间
@@ -245,7 +245,7 @@ logical Source lifecycle。
 标准模型把它视为有效的 single-observation Source：
 
 - 现有 identity 保持不可变；
-- 相同内容重放继续保持幂等；
+- 相同内容提交继续保持幂等；
 - 同一 identity 下的不同内容继续发生冲突；
 - 解析 ContentSource 的 reference 保持精确且不变；
 - 不从 metadata 推导 mutable head 或 multi-observation behavior。
@@ -260,7 +260,7 @@ ContentSource 适合 prompt、显式文本捕获、import record，以及调用�
 | Typical input | 调用方已经持有的文本 | 从外部系统发现的对象 |
 | Identity | 一个由调用方保持稳定的不可变身份 | 一个 logical identity 及其 exact observations |
 | Type contract | 内置 captured text 与 metadata | Definition-owned value、provenance 与 projections |
-| Synchronization | 单次请求，没有 checkpoint | Discovery、per-item outcomes、replay 与 checkpoint comparison |
+| Synchronization | 单次请求，没有 checkpoint | Discovery、per-item outcomes、retry 与 checkpoint comparison |
 | Downstream use | 内置 text evidence | Consumer 能理解的 named projection |
 
 当调用方已经持有最终文本和不可变身份时，`ContentSource` 是更短的路径。Remote ingestion API 不替代它；
@@ -473,17 +473,18 @@ provider capabilities
   = valid Source observation
 ```
 
-Connector type 声明稳定的 name 与 version、configuration schema、可提交的 Source Definition，以及它提供的
-acquisition capability。Capability 是可选且显式的，通常包括 complete snapshot、change feed、checkpoint resume
-和 authoritative deletion event。Connector 不能声明 provider 与 acquisition path 无法兑现的 capability。
+Connector type 声明稳定的 name 与 version、configuration schema，以及可提交的 Source Definition。额外的
+acquisition guarantee 是可选且显式的，例如 complete snapshot、change feed、checkpoint resume 与 authoritative
+deletion event。Connector 不能声明 provider 与 acquisition path 无法兑现的 guarantee。
 
 Connector binding 为一个 Scope 激活一份 Connector configuration。Binding 拥有用于 checkpoint 与 provider
 namespace continuity 的稳定 identity，但不拥有 Source，也不替代 `scope_id` 或 `source_type`。Credential 由
 hosting environment 解析，不会成为 Source value 或 provenance。
 
 Connector run 从 opaque binding checkpoint 开始，在 worker 内解析零个或多个 definition-native input，再提交其
-materialized observation，并记录每个 item 的 outcome。Accepted 或 idempotently replayed observation 返回精确
-SourceRef。Rejected 或 failed item 会保留在 run outcome 中；如果尚不能安全重放，checkpoint 不能越过这些工作。
+materialized observation，并记录每个 item 的 outcome。Accepted observation 返回精确 SourceRef；再次提交相同
+identity 与 payload 会得到相同的 accepted 结果。Rejected 或 failed item 会保留在 run outcome 中；如果尚不能
+安全重试，checkpoint 不能越过这些工作。
 
 Run 以 complete 或 incomplete 结束。Complete snapshot 可以为之前已知但本次缺失的 provider object 产生 positive
 deletion evidence。Incomplete listing、timeout、permission failure、cancellation 或 lost connection 不会产生
@@ -516,10 +517,13 @@ observation。其 provenance 可以引用 origin scoped SourceRef，但原始 So
 
 ## Conformance
 
-Source Definition 只有在以下 mandatory contract 的 conformance scenario 通过后才能被支持：
+Conformance 以声明为边界。实现可以逐步兑现这些契约，但每项对外保证都必须通过对应 scenario；未兑现的契约保持
+unsupported，不能通过 metadata 或 provider convention 近似代替。
+
+Source Definition 的完整支持要求通过以下 conformance scenario：
 
 - identity normalization 与 collision rejection；
-- identical observation replay；
+- identical observation acceptance 与 idempotency；
 - 同一 observation ID 的 conflicting payload rejection；
 - 一个 SourceKey 下的多个 immutable observation；
 - head advancement 与 deletion 后仍能精确读取旧 observation；
@@ -532,9 +536,9 @@ Source Definition 只有在以下 mandatory contract 的 conformance scenario �
 Named projection 只有在 conformance 验证 exact observation 的 deterministic output、schema 与 version conflict
 handling、exact SourceRef lineage，以及 capability 缺失时显式失败之后才能被声明。
 
-Connector capability 只有在 conformance 验证 checkpoint replay、per-item outcome visibility、durable checkpoint
-ordering、complete-versus-incomplete run behavior，以及其声明的 deletion evidence 后才能被声明。Provider-specific
-behavior 由对应实现证据确定，不会被直接推广为标准契约。
+Acquisition guarantee 只有在 conformance 验证其 checkpoint retry、per-item outcome visibility、durable checkpoint
+ordering、complete-versus-incomplete run behavior 与 deletion evidence 后才能被声明。Provider-specific behavior
+由对应实现证据确定，不会被直接推广为标准契约。
 
 Remote worker path 还必须验证 manifest fingerprint 与 conflict handling、拒绝未注册或 schema-invalid observation、
 projection set 精确校验、durable receipt ordering，以及跨 Server restart 的 stale checkpoint CAS rejection。
