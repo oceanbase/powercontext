@@ -19,16 +19,24 @@ from __future__ import annotations
 from collections import defaultdict
 from hashlib import sha256
 
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import delete, insert, select, union, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.tables import (
+    ARTIFACT_CANDIDATE_VERSIONS_TABLE,
+    ARTIFACTS_TABLE,
+    EXTERNAL_SKILL_REGISTRATIONS_TABLE,
+    MODEL_USAGE_DAILY_TABLE,
+    RECALL_TOKEN_DAILY_TABLE,
     SCOPE_BINDINGS_TABLE,
     SCOPE_CONTEXT_REFERENCES_TABLE,
     SCOPE_CREATION_REQUESTS_TABLE,
     SCOPE_EXTERNAL_REFERENCES_TABLE,
     SCOPE_SETTINGS_TABLE,
     SCOPES_TABLE,
+    SOURCE_CURSORS_TABLE,
+    SOURCE_JOURNAL_HEADS_TABLE,
+    SOURCES_TABLE,
 )
 from powercontext.builtin.scope.models import (
     ScopeBinding,
@@ -40,9 +48,49 @@ from powercontext.builtin.scope.models import (
 )
 
 _DEFAULT_SETTING = "default"
+_RUNTIME_SCOPE_TABLES = (
+    SOURCES_TABLE,
+    SOURCE_JOURNAL_HEADS_TABLE,
+    ARTIFACTS_TABLE,
+    ARTIFACT_CANDIDATE_VERSIONS_TABLE,
+    SOURCE_CURSORS_TABLE,
+    EXTERNAL_SKILL_REGISTRATIONS_TABLE,
+    MODEL_USAGE_DAILY_TABLE,
+    RECALL_TOKEN_DAILY_TABLE,
+)
 
 
 class ScopeRepository:
+    async def unregistered_runtime_scope_ids(self, connection: AsyncConnection, /) -> tuple[str, ...]:
+        discovered = union(*(select(table.c.scope_id) for table in _RUNTIME_SCOPE_TABLES)).subquery()
+        values = await connection.execute(
+            select(discovered.c.scope_id)
+            .outerjoin(SCOPES_TABLE, SCOPES_TABLE.c.scope_id == discovered.c.scope_id)
+            .where(SCOPES_TABLE.c.scope_id.is_(None))
+            .order_by(discovered.c.scope_id)
+        )
+        return tuple(str(scope_id) for scope_id in values.scalars())
+
+    async def register_existing(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        /,
+    ) -> ScopeDescriptor:
+        await connection.execute(
+            insert(SCOPES_TABLE).values(
+                scope_id=scope_id,
+                title=scope_id,
+                summary="Registered from existing runtime data.",
+                parent_scope_id=None,
+                version=1,
+            )
+        )
+        registered = await self.get(connection, scope_id)
+        if registered is None:
+            raise AssertionError
+        return registered
+
     async def get(self, connection: AsyncConnection, scope_id: str, /) -> ScopeDescriptor | None:
         scopes = await self.get_many(connection, (scope_id,))
         return None if not scopes else scopes[0]

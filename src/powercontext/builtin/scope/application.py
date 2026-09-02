@@ -62,6 +62,9 @@ class ScopeApplication:
         existing = await self.default_scope()
         if existing is not None:
             return existing
+        scopes = await self.list()
+        if len(scopes) == 1:
+            return await self.set_default(scopes[0].scope_id)
         created = await self.create(
             ScopeDraft(
                 title="Default",
@@ -71,6 +74,16 @@ class ScopeApplication:
         )
         await self.set_default(created.scope_id)
         return created
+
+    async def register_existing(self) -> tuple[ScopeDescriptor, ...]:
+        """Register Scope identities already present in durable runtime data."""
+
+        async with self._write_lock, self._database.transaction() as connection:
+            scope_ids = await self._repository.unregistered_runtime_scope_ids(connection)
+            registered = []
+            for scope_id in scope_ids:
+                registered.append(await self._repository.register_existing(connection, scope_id))
+            return tuple(registered)
 
     async def create(self, draft: ScopeDraft, /) -> ScopeDescriptor:
         async with self._write_lock:
