@@ -30,7 +30,7 @@ from typing_extensions import override
 from powercontext.client import ClientError, ServerResponseError
 from powercontext.http import CaptureContentSourceRequest, PrepareContextRequest, PreparedContextStatus
 
-from .client import ResolvedConfig, open_client, resolve_config
+from .client import open_client, resolve_config, resolve_server_scope
 from .scope import PowerContextScope
 
 _LOGGER = logging.getLogger("powercontext.langchain")
@@ -133,12 +133,13 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
     async def _prepare(self, query: str, scope: PowerContextScope | None) -> str | None:
         try:
             config = resolve_config(scope)
-            request = PrepareContextRequest(
-                scope_id=config.scope_id,
-                query=query[:_MAX_QUERY_CHARS],
-                max_bytes=config.max_bytes,
-            )
             async with open_client(config) as client:
+                scope_id = await resolve_server_scope(client, config)
+                request = PrepareContextRequest(
+                    scope_id=scope_id,
+                    query=query[:_MAX_QUERY_CHARS],
+                    max_bytes=config.max_bytes,
+                )
                 prepared = await client.prepare_context(request)
         except ValidationError:
             _LOGGER.debug("PowerContext LangChain recall skipped: request validation failed.")
@@ -163,13 +164,14 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
         try:
             config = resolve_config(scope)
             content, metadata = _source_content(user_text, assistant_text)
-            request = CaptureContentSourceRequest(
-                scope_id=config.scope_id,
-                source_id=_source_id(config, user_text, assistant_text),
-                content=content,
-                metadata=metadata,
-            )
             async with open_client(config) as client:
+                scope_id = await resolve_server_scope(client, config)
+                request = CaptureContentSourceRequest(
+                    scope_id=scope_id,
+                    source_id=_source_id(scope_id, user_text, assistant_text),
+                    content=content,
+                    metadata=metadata,
+                )
                 await client.capture_content_source(request)
         except ValidationError:
             _LOGGER.debug("PowerContext LangChain capture skipped: request validation failed.")
@@ -279,9 +281,9 @@ def _source_content(user_text: str, assistant_text: str) -> tuple[str, dict[str,
     )
 
 
-def _source_id(config: ResolvedConfig, user_text: str, assistant_text: str) -> str:
+def _source_id(scope_id: str, user_text: str, assistant_text: str) -> str:
     digest = hashlib.sha256()
-    for value in (config.scope_id, user_text, assistant_text):
+    for value in (scope_id, user_text, assistant_text):
         digest.update(value.encode("utf-8"))
         digest.update(b"\x00")
     return f"langchain-agent-turn-{digest.hexdigest()}"

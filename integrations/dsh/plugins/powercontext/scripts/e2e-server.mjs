@@ -20,7 +20,6 @@ import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { resolvePowerContextRoot } from './sync-openapi.mjs'
 
 const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -36,8 +35,8 @@ function walkForPyproject(startDir) {
 }
 
 export function defaultPowerContextRoot() {
-  const fromResolver = resolvePowerContextRoot()
-  if (fromResolver && existsSync(join(fromResolver, 'pyproject.toml'))) return fromResolver
+  const configured = process.env.POWERCONTEXT_ROOT?.trim()
+  if (configured && existsSync(join(configured, 'pyproject.toml'))) return resolve(configured)
   return walkForPyproject(pluginRoot)
 }
 

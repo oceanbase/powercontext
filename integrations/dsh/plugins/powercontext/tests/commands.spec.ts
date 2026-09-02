@@ -20,7 +20,6 @@ import { PowerContextClient } from '../src/client.ts'
 import type { PluginRuntime } from '../src/invoke.ts'
 import { resolveConfig } from '../src/config.ts'
 import { buildSourceId } from '../src/capture.ts'
-import { deriveScopeId } from '../src/scope.ts'
 
 function runtime(fetchImpl: typeof fetch): PluginRuntime {
   const config = resolveConfig({ baseUrl: 'http://127.0.0.1:8000' })
@@ -62,24 +61,24 @@ describe('registerCommands missing session cwd', () => {
     return handler
   }
 
-  it('returns an unscoped error when cwd is missing and scopeId is not configured', async () => {
+  it('uses the Server default when cwd and scopeId are absent', async () => {
     const pluginRuntime = runtime(async () => new Response('{}'))
     pluginRuntime.config = { ...pluginRuntime.config, scopeId: undefined }
-    pluginRuntime.resolveScope = (cwd) => deriveScopeId(cwd)
+    pluginRuntime.resolveScope = async () => 'default-scope'
     const handler = registerHandler(pluginRuntime)
     const result = await handler({
       rawInput: 'search public API',
       signal: AbortSignal.timeout(1000),
       agent: { session: { header: {} } },
     })
-    expect(result.kind).toBe('error')
-    expect(result.text).toContain('scopeId')
+    expect(result.kind).toBe('success')
+    expect(result.text).toContain('"ok": true')
   })
 
   it('uses configured scopeId when cwd is missing', async () => {
     const pluginRuntime = runtime(async () => new Response('{}'))
     pluginRuntime.config = { ...pluginRuntime.config, scopeId: 'project:demo' }
-    pluginRuntime.resolveScope = (cwd) => deriveScopeId(cwd, { configuredScopeId: 'project:demo' })
+    pluginRuntime.resolveScope = async () => 'project:demo'
     const handler = registerHandler(pluginRuntime)
     const result = await handler({
       rawInput: '',

@@ -60,8 +60,19 @@ export async function recallBeforeAgentStart(input: BeforeAgentStartInput): Prom
   const prompt = input.prompt.trim()
   if (!prompt) return undefined
 
+  let scopeId: string
   try {
-    const scopeId = await input.runtime.resolveScope(input.cwd)
+    scopeId = await input.runtime.resolveScope(input.cwd)
+  } catch (error) {
+    try {
+      input.runtime.diagnostic?.('context_prepare', error)
+    } catch {
+      // Diagnostics are best effort and must not affect the turn.
+    }
+    return undefined
+  }
+
+  try {
     const signals = [createTimeoutSignal(input.runtime.config.httpBudgetMs)]
     if (input.signal) signals.push(input.signal)
     const signal = combineSignals(signals)

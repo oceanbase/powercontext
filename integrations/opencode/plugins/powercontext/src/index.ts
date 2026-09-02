@@ -24,7 +24,7 @@ import { invokeOperation, operationMutates } from './invoke.ts'
 import type { JsonObject } from './client.ts'
 import type { OperationId } from './operations.generated.ts'
 import { validatePreparedContext } from './prepared-context.ts'
-import { deriveScopeId } from './scope.ts'
+import { resolveScopeId } from './scope.ts'
 import { containsSecret } from './secrets.ts'
 
 export const GUIDANCE = `PowerContext provides durable project memory shared across agent sessions.
@@ -191,31 +191,50 @@ async function prepareTurn(
   }
 }
 
-async function sessionContextFromDirectory(cwd: string, config: ResolvedConfig): Promise<SessionContext> {
+async function sessionContextFromDirectory(
+  client: PowerContextClient,
+  cwd: string,
+  sessionID: string,
+  config: ResolvedConfig,
+): Promise<SessionContext> {
   const directory = cwd.trim()
   if (!directory) throw new Error('OpenCode session has no directory')
-  return { cwd: directory, scopeId: await deriveScopeId(directory, { configuredScopeId: config.scopeId }) }
+  return {
+    cwd: directory,
+    scopeId: await resolveScopeId(client, {
+      cwd: directory,
+      sessionID,
+      configuredScopeId: config.scopeId,
+      persistSession: true,
+    }),
+  }
 }
 
-async function loadSessionContext(input: PluginInput, config: ResolvedConfig, sessionID: string): Promise<SessionContext> {
+async function loadSessionContext(
+  input: PluginInput,
+  client: PowerContextClient,
+  config: ResolvedConfig,
+  sessionID: string,
+): Promise<SessionContext> {
   const result = await input.client.session.get({ path: { id: sessionID } })
   const cwd = result.data?.directory
   if (!cwd) throw new Error(`OpenCode session ${sessionID} has no directory`)
-  return sessionContextFromDirectory(cwd, config)
+  return sessionContextFromDirectory(client, cwd, sessionID, config)
 }
 
 function createRuntime(input: PluginInput, config: ResolvedConfig): Runtime {
   const sessionContexts = new Map<string, Promise<SessionContext>>()
+  const client = new PowerContextClient({
+    baseUrl: config.baseUrl,
+    authorization: config.authorization,
+    requestTimeoutMs: config.requestTimeoutMs,
+  })
   return {
     config,
-    client: new PowerContextClient({
-      baseUrl: config.baseUrl,
-      authorization: config.authorization,
-      requestTimeoutMs: config.requestTimeoutMs,
-    }),
+    client,
     sessionContexts,
     cacheSessionContext(sessionID, cwd) {
-      const context = sessionContextFromDirectory(cwd, config)
+      const context = sessionContextFromDirectory(client, cwd, sessionID, config)
       sessionContexts.set(sessionID, context)
       void context.catch(() => {
         if (sessionContexts.get(sessionID) === context) sessionContexts.delete(sessionID)
@@ -224,7 +243,7 @@ function createRuntime(input: PluginInput, config: ResolvedConfig): Runtime {
     resolveSessionContext(sessionID) {
       let context = sessionContexts.get(sessionID)
       if (!context) {
-        context = loadSessionContext(input, config, sessionID)
+        context = loadSessionContext(input, client, config, sessionID)
         sessionContexts.set(sessionID, context)
         void context.catch(() => {
           if (sessionContexts.get(sessionID) === context) sessionContexts.delete(sessionID)
@@ -275,9 +294,7 @@ function operationTool(
       }
       let result
       try {
-        const scopeId = await deriveScopeId(context.worktree || context.directory, {
-          configuredScopeId: runtime.config.scopeId,
-        })
+        const scopeId = (await runtime.resolveSessionContext(context.sessionID)).scopeId
         result = await invokeOperation(
           runtime.client,
           definition.operationId,
@@ -312,7 +329,7 @@ function createTools(runtime: Runtime) {
       payload: (args) => ({ kind: args.kind, text: args.text, reason: args.reason }),
     }),
     pc_memory_list: operationTool(runtime, {
-      description: 'List Memory entries in the current project scope.',
+      description: 'List Memory entries in the current Scope.',
       args: { include_inactive: z.boolean().optional() },
       operationId: 'list_memory_entries',
       payload: (args) => ({ include_inactive: args.include_inactive ?? false }),

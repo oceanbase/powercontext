@@ -31,10 +31,7 @@
     }
   },
   "scripts": {
-    "sync:openapi": "node scripts/sync-openapi.mjs",
-    "gen": "node scripts/gen-operations.mjs",
-    "gen:check": "node scripts/gen-operations.mjs --check",
-    "build": "node scripts/gen-operations.mjs && tsdown && node scripts/normalize-build-output.mjs",
+    "build": "tsdown && node scripts/normalize-build-output.mjs",
     "prepare": "node scripts/prepare.mjs",
     "test": "vitest run --exclude=tests/e2e/**",
     "test:e2e": "vitest run tests/e2e",
@@ -86,8 +83,7 @@
     "@types/node": "^24.3.0",
     "tsdown": "^0.16.2",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4",
-    "yaml": "^2.9.0"
+    "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=20"

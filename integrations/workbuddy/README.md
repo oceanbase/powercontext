@@ -72,8 +72,8 @@ cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/workbuddy_settings.py \
    "$PLUGIN"/hooks/prepared_context.py \
    "$WORKBUDDY_HOOKS_DIR"/
-cp "$PLUGIN/scripts/project_scope.py" \
-   "$WORKBUDDY_HOOKS_DIR/powercontext_project_scope.py"
+cp "$PLUGIN/scripts/workspace_scope.py" \
+   "$WORKBUDDY_HOOKS_DIR/powercontext_scope_binding.py"
 ```
 
 The resulting layout is:
@@ -83,7 +83,7 @@ The resulting layout is:
   workbuddy_powercontext_hook.py
   workbuddy_settings.py
   prepared_context.py
-  powercontext_project_scope.py
+  powercontext_scope_binding.py
 ```
 
 #### 2. Register the hook
@@ -150,8 +150,8 @@ EOF
 
 Then open `~/.workbuddy/skills/project-context/SKILL.md`. Replace
 `${POWERCONTEXT_PYTHON}` with a shell-safe Python executable argument and
-`${POWERCONTEXT_PROJECT_SCOPE_SCRIPT}` with a shell-safe complete path to
-`<WORKBUDDY_HOOKS_DIR>/powercontext_project_scope.py`.
+`${POWERCONTEXT_SCOPE_BINDING_SCRIPT}` with a shell-safe complete path to
+`<WORKBUDDY_HOOKS_DIR>/powercontext_scope_binding.py`.
 
 #### 5. Start the Server, restart WorkBuddy, and verify
 
@@ -183,7 +183,7 @@ override the defaults; restart WorkBuddy after changing them.
 | --- | --- |
 | `POWERCONTEXT_WORKBUDDY_SERVER_URL` | PowerContext server URL (default `http://127.0.0.1:8000`). |
 | `POWERCONTEXT_WORKBUDDY_AUTHORIZATION` | Complete authorization header, e.g. `Bearer <token>` |
-| `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit scope or scope template override |
+| `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | Capture user prompts as Sources (default `true`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE` | Flush until the captured Source is processed (testing only, default `false`) |
 | `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `1.0`) |

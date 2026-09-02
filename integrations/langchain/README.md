@@ -39,9 +39,12 @@ agent = create_agent(
 
 result = await agent.ainvoke(
     {"messages": [{"role": "user", "content": "How should we deploy this service?"}]},
-    context=PowerContextScope(scope_id="git:github.com/acme/api"),
+    context=PowerContextScope(scope_id="scp_01H..."),
 )
 ```
+
+If `scope_id` is omitted, the middleware uses the Server's default Scope. An explicit value must name an existing
+Server Scope. The adapter does not derive Scope IDs from the repository, working directory, Agent, or prompt.
 
 The middleware changes only the current model request, so recalled context never enters agent state or a checkpointer.
 Automatic capture is disabled by default. Enable it only when the application's transcript policy permits durable

@@ -16,7 +16,6 @@
 
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -87,319 +86,351 @@ const OPERATIONS = {
 		method: "GET",
 		path: "/health/live",
 		location: null,
-		scope: false
+		scopeMode: "none",
+		pathParameters: []
 	},
 	get_readiness: {
 		method: "GET",
 		path: "/health/ready",
 		location: null,
-		scope: false
+		scopeMode: "none",
+		pathParameters: []
 	},
 	get_capabilities: {
 		method: "GET",
 		path: "/v1/capabilities",
 		location: null,
-		scope: false
+		scopeMode: "none",
+		pathParameters: []
+	},
+	list_scopes: {
+		method: "GET",
+		path: "/v1/scopes",
+		location: null,
+		scopeMode: "none",
+		pathParameters: []
+	},
+	create_scope: {
+		method: "POST",
+		path: "/v1/scopes",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
+	},
+	publish_artifact: {
+		method: "POST",
+		path: "/v1/artifact-publications",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
+	},
+	get_scope: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id"]
+	},
+	update_scope: {
+		method: "PUT",
+		path: "/v1/scopes/{scope_id}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id"]
+	},
+	get_default_scope: {
+		method: "GET",
+		path: "/v1/scopes/default",
+		location: null,
+		scopeMode: "none",
+		pathParameters: []
+	},
+	set_default_scope: {
+		method: "PUT",
+		path: "/v1/scopes/default",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
+	},
+	resolve_scope_selection: {
+		method: "POST",
+		path: "/v1/scopes/selection/resolve",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
+	},
+	resolve_scope_binding: {
+		method: "POST",
+		path: "/v1/scope-bindings/resolve",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
+	},
+	set_scope_binding: {
+		method: "PUT",
+		path: "/v1/scope-bindings",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
+	},
+	clear_scope_binding: {
+		method: "POST",
+		path: "/v1/scope-bindings/clear",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
 	},
 	capture_content_source: {
 		method: "POST",
 		path: "/v1/sources/content",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	prepare_context: {
 		method: "POST",
 		path: "/v1/context/prepare",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	create_work_contract: {
 		method: "POST",
 		path: "/v1/work/contracts/create",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	handoff_current_work: {
 		method: "POST",
 		path: "/v1/work/handoffs/prepare-current",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	acknowledge_handoff: {
 		method: "POST",
 		path: "/v1/work/handoffs/acknowledge",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	record_task_outcome: {
 		method: "POST",
 		path: "/v1/work/outcomes/record",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	activate_handoff: {
 		method: "POST",
 		path: "/v1/handoff/activate",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	prepare_handoff: {
 		method: "POST",
 		path: "/v1/handoff/prepare",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	finalize_handoff: {
 		method: "POST",
 		path: "/v1/handoff/finalize",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	commit_handoff: {
 		method: "POST",
 		path: "/v1/handoff/commit",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	continue_handoff: {
 		method: "POST",
 		path: "/v1/handoff/continue",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	flush_memory: {
 		method: "POST",
 		path: "/v1/memory/flush",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	remember_memory: {
 		method: "POST",
 		path: "/v1/memory/remember",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	search_memory: {
 		method: "POST",
 		path: "/v1/memory/search",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	list_memory_entries: {
 		method: "POST",
 		path: "/v1/memory/entries/list",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	get_memory_entry: {
 		method: "POST",
 		path: "/v1/memory/entries/get",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	revise_memory_entry: {
 		method: "POST",
 		path: "/v1/memory/entries/revise",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	retire_memory_entry: {
 		method: "POST",
 		path: "/v1/memory/entries/retire",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	list_memory_changes: {
 		method: "POST",
 		path: "/v1/memory/changes",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	propose_experience: {
 		method: "POST",
 		path: "/v1/experience/propose",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	generate_experience: {
 		method: "POST",
 		path: "/v1/experience/generate",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	get_experience: {
 		method: "POST",
 		path: "/v1/experience/get",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	propose_skill: {
 		method: "POST",
 		path: "/v1/skill/propose",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	generate_skill: {
 		method: "POST",
 		path: "/v1/skill/generate",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	get_skill: {
 		method: "POST",
 		path: "/v1/skill/get",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	scan_external_skills: {
 		method: "POST",
 		path: "/v1/external-skills/scan",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	list_external_skills: {
 		method: "POST",
 		path: "/v1/external-skills/list",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	resolve_external_skill: {
 		method: "POST",
 		path: "/v1/external-skills/resolve",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	import_external_skill: {
 		method: "POST",
 		path: "/v1/external-skills/import",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	list_artifact_candidates: {
 		method: "POST",
 		path: "/v1/artifact-candidates/list",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	get_artifact_candidate: {
 		method: "POST",
 		path: "/v1/artifact-candidates/get",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	approve_artifact_candidate: {
 		method: "POST",
 		path: "/v1/artifact-candidates/approve",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	reject_artifact_candidate: {
 		method: "POST",
 		path: "/v1/artifact-candidates/reject",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	revise_artifact_candidate: {
 		method: "POST",
 		path: "/v1/artifact-candidates/revise",
 		location: "body",
-		scope: true
+		scopeMode: "current",
+		pathParameters: []
 	},
 	get_stats: {
-		method: "GET",
+		method: "POST",
 		path: "/v1/stats",
-		location: "query",
-		scope: true
-	},
-	create_handoff_report_project: {
-		method: "POST",
-		path: "/v1/handoff-reports/projects/create",
 		location: "body",
-		scope: false
-	},
-	list_handoff_report_projects: {
-		method: "POST",
-		path: "/v1/handoff-reports/projects/list",
-		location: "body",
-		scope: false
-	},
-	list_handoff_report_known_scopes: {
-		method: "POST",
-		path: "/v1/handoff-reports/scopes/list-known",
-		location: "body",
-		scope: false
-	},
-	get_handoff_report_project: {
-		method: "POST",
-		path: "/v1/handoff-reports/projects/get",
-		location: "body",
-		scope: false
-	},
-	update_handoff_report_project: {
-		method: "POST",
-		path: "/v1/handoff-reports/projects/update",
-		location: "body",
-		scope: false
-	},
-	register_handoff_report_workstream: {
-		method: "POST",
-		path: "/v1/handoff-reports/workstreams/register",
-		location: "body",
-		scope: true
-	},
-	list_handoff_report_workstreams: {
-		method: "POST",
-		path: "/v1/handoff-reports/workstreams/list",
-		location: "body",
-		scope: false
-	},
-	update_handoff_report_workstream: {
-		method: "POST",
-		path: "/v1/handoff-reports/workstreams/update",
-		location: "body",
-		scope: false
+		scopeMode: "selection",
+		pathParameters: []
 	},
 	get_handoff_report: {
 		method: "POST",
 		path: "/v1/handoff-reports/get",
 		location: "body",
-		scope: true
-	},
-	record_handoff_report_activity: {
-		method: "POST",
-		path: "/v1/handoff-reports/activities/record",
-		location: "body",
-		scope: true
-	},
-	list_handoff_report_activities: {
-		method: "POST",
-		path: "/v1/handoff-reports/activities/list",
-		location: "body",
-		scope: false
-	},
-	purge_handoff_report_activities: {
-		method: "POST",
-		path: "/v1/handoff-reports/activities/purge",
-		location: "body",
-		scope: false
-	},
-	get_handoff_report_workspace: {
-		method: "POST",
-		path: "/v1/handoff-reports/workspace-bindings/get",
-		location: "body",
-		scope: false
-	},
-	attach_handoff_report_workspace: {
-		method: "POST",
-		path: "/v1/handoff-reports/workspace-bindings/attach",
-		location: "body",
-		scope: false
-	},
-	detach_handoff_report_workspace: {
-		method: "POST",
-		path: "/v1/handoff-reports/workspace-bindings/detach",
-		location: "body",
-		scope: false
+		scopeMode: "selection",
+		pathParameters: []
 	}
 };
 const OPERATION_IDS = Object.keys(OPERATIONS);
@@ -485,6 +516,25 @@ function queryString(payload) {
 function isRedirect(status) {
 	return status >= 300 && status < 400;
 }
+function bindOperationPath(spec, payload) {
+	const pathParameters = spec.pathParameters;
+	if (pathParameters.length === 0) return {
+		path: spec.path,
+		payload
+	};
+	const transportPayload = { ...payload };
+	let path = spec.path;
+	for (const name$1 of pathParameters) {
+		const value = transportPayload[name$1];
+		if (typeof value !== "string" || value.trim().length === 0) throw new TypeError(`operation requires string path parameter ${name$1}`);
+		path = path.replace(`{${name$1}}`, encodeURIComponent(value));
+		delete transportPayload[name$1];
+	}
+	return {
+		path,
+		payload: transportPayload
+	};
+}
 var PowerContextClient = class {
 	baseUrl;
 	authorization;
@@ -499,19 +549,20 @@ var PowerContextClient = class {
 	async request(id, payload, signal) {
 		if (!(id in OPERATIONS)) throw new UnknownOperationError(id);
 		const spec = OPERATIONS[id];
-		const url = this.buildUrl(spec, payload);
+		const bound = bindOperationPath(spec, payload);
+		const url = this.buildUrl(spec, bound.path, bound.payload);
 		try {
-			const response = await this.fetchImpl(url, this.buildInit(spec, payload, signal));
+			const response = await this.fetchImpl(url, this.buildInit(spec, bound.payload, signal));
 			return await this.parseResponse(id, spec, payload, response);
 		} catch (error) {
 			if (error instanceof ServerResponseError || error instanceof InvalidResponseError) throw error;
 			if (error instanceof UnknownOperationError) throw error;
-			throw this.wrapTransport(spec.path, error);
+			throw this.wrapTransport(bound.path, error);
 		}
 	}
-	buildUrl(spec, payload) {
+	buildUrl(spec, path, payload) {
 		const suffix = spec.location === "query" ? queryString(payload) : "";
-		return `${this.baseUrl}${spec.path}${suffix}`;
+		return `${this.baseUrl}${path}${suffix}`;
 	}
 	buildInit(spec, payload, signal) {
 		const headers = {
@@ -525,7 +576,7 @@ var PowerContextClient = class {
 			redirect: "manual",
 			signal: combineSignals([timeoutSignal(this.requestTimeoutMs), ...signal ? [signal] : []])
 		};
-		if (spec.method === "POST" && spec.location === "body") {
+		if (spec.location === "body") {
 			headers["Content-Type"] = "application/json";
 			init.body = JSON.stringify(payload ?? {});
 		}
@@ -696,11 +747,18 @@ function toToolResult(error) {
 	};
 }
 function injectScope(operationId, payload, scopeId) {
-	if (!OPERATIONS[operationId].scope) return payload;
-	return {
+	const mode = OPERATIONS[operationId].scopeMode;
+	if (mode === "selection") return {
+		...payload,
+		selection: {
+			mode: "exact",
+			scope_ids: [scopeId]
+		}
+	};
+	return mode === "current" ? {
 		...payload,
 		scope_id: scopeId
-	};
+	} : payload;
 }
 function encodeSuccess(result) {
 	if (result.kind === "bytes") return {
@@ -737,94 +795,26 @@ async function invokeOperation(client, operationId, payload, scopeId, signal) {
 
 //#endregion
 //#region src/scope.ts
-const MAX_SCOPE_LENGTH = 256;
-const SCP_REMOTE = /^(?:[^@/\s]+@)?(?<host>[^:/\s]+):(?<path>.+)$/;
-const UNSCOPED_MESSAGE = "No project workspace on this session. Set scopeId or open a workspace.";
+const UNSCOPED_MESSAGE = "PowerContext could not resolve the current Scope.";
 function sessionCwd(cwd) {
 	const value = cwd?.trim();
 	return value ? value : void 0;
 }
-function bounded(prefix, value) {
-	const candidate = `${prefix}:${value}`;
-	if (candidate.length <= MAX_SCOPE_LENGTH) return candidate;
-	return `${prefix}:sha256:${createHash("sha256").update(value).digest("hex")}`;
+function workspaceBindingKey(cwd) {
+	return {
+		integration: "dsh",
+		kind: "workspace",
+		external_id: createHash("sha256").update(resolve(cwd)).digest("hex")
+	};
 }
-function boundedExplicit(value) {
-	if (value.length <= MAX_SCOPE_LENGTH) return value;
-	return `sha256:${createHash("sha256").update(value).digest("hex")}`;
-}
-function normalizePath(path) {
-	let normalized = path.replaceAll("\\", "/").split("/").filter(Boolean).join("/");
-	if (normalized.endsWith(".git")) normalized = normalized.slice(0, -4);
-	return normalized.replace(/\/+$/, "");
-}
-function normalizeGitRemote(remote) {
-	const value = remote.trim();
-	if (!value) return void 0;
-	const scpMatch = !value.includes("://") ? value.match(SCP_REMOTE) : null;
-	if (scpMatch?.groups) {
-		const host$1 = scpMatch.groups.host.toLowerCase();
-		const path$1 = normalizePath(scpMatch.groups.path);
-		return path$1 ? `${host$1}/${path$1}` : void 0;
-	}
-	let parsed;
-	try {
-		parsed = new URL(value);
-	} catch {
-		return;
-	}
-	if (![
-		"http:",
-		"https:",
-		"ssh:",
-		"git:"
-	].includes(parsed.protocol) || !parsed.hostname) return;
-	const host = parsed.port ? `${parsed.hostname.toLowerCase()}:${parsed.port}` : parsed.hostname.toLowerCase();
-	const path = normalizePath(parsed.pathname);
-	return path ? `${host}/${path}` : void 0;
-}
-function spawnGit(cwd, args) {
-	return new Promise((resolveResult) => {
-		const child = spawn("git", args, {
-			cwd,
-			windowsHide: true
-		});
-		const chunks = [];
-		const timer = setTimeout(() => {
-			child.kill();
-			resolveResult(void 0);
-		}, 2e3);
-		child.stdout.on("data", (chunk) => chunks.push(chunk));
-		child.on("error", () => {
-			clearTimeout(timer);
-			resolveResult(void 0);
-		});
-		child.on("close", (code) => {
-			clearTimeout(timer);
-			if (code !== 0) {
-				resolveResult(void 0);
-				return;
-			}
-			resolveResult(Buffer.concat(chunks).toString("utf8").trim() || void 0);
-		});
-	});
-}
-async function deriveScopeId(cwd, options = {}) {
-	if (options.configuredScopeId) return boundedExplicit(options.configuredScopeId);
+async function resolveScopeId(client, cwd, configuredScopeId) {
 	const workspace = sessionCwd(cwd);
-	if (!workspace) return void 0;
-	return deriveWorkspaceScope(workspace, options.git ?? spawnGit);
-}
-async function deriveWorkspaceScope(workspace, git) {
-	const projectRoot = resolve(await git(workspace, ["rev-parse", "--show-toplevel"]) || workspace);
-	const remote = await git(projectRoot, [
-		"config",
-		"--get",
-		"remote.origin.url"
-	]);
-	const normalized = remote ? normalizeGitRemote(remote) : void 0;
-	if (normalized) return bounded("git", normalized);
-	return `local:${createHash("sha256").update(projectRoot).digest("hex")}`;
+	const value = (await client.request("resolve_scope_binding", {
+		explicit_scope_id: configuredScopeId,
+		binding_keys: workspace ? [workspaceBindingKey(workspace)] : []
+	})).value;
+	const scopeId = value && typeof value === "object" ? value.scope_id : void 0;
+	return typeof scopeId === "string" && scopeId.trim() ? scopeId : void 0;
 }
 
 //#endregion
@@ -876,8 +866,8 @@ async function handleReview(tokens, runtime, scopeId, signal) {
 	};
 }
 async function handleDoctor(runtime, signal) {
-	const live = await invokeOperation(runtime.client, "get_liveness", {}, runtime.config.scopeId ?? "local:unknown", signal);
-	const ready = await invokeOperation(runtime.client, "get_readiness", {}, runtime.config.scopeId ?? "local:unknown", signal);
+	const live = await invokeOperation(runtime.client, "get_liveness", {}, runtime.config.scopeId ?? "", signal);
+	const ready = await invokeOperation(runtime.client, "get_readiness", {}, runtime.config.scopeId ?? "", signal);
 	return {
 		kind: live.ok && ready.ok ? "success" : "error",
 		text: formatResult({
@@ -1513,7 +1503,7 @@ function memoryTools(runtime, defineTool) {
 		}),
 		pcTool(defineTool, {
 			name: "pc_memory_list",
-			description: "List memory entries in the current project scope.",
+			description: "List memory entries in the current Scope.",
 			kind: "read",
 			parameters: { include_inactive: {
 				type: "boolean",
@@ -1900,7 +1890,7 @@ function createRuntime(ctx, config) {
 	return {
 		client,
 		config: resolved,
-		resolveScope: (cwd) => deriveScopeId(cwd, { configuredScopeId: resolved.scopeId }),
+		resolveScope: (cwd) => resolveScopeId(client, cwd, resolved.scopeId),
 		log: (event) => {
 			const line = JSON.stringify({
 				component: "powercontext.dsh",

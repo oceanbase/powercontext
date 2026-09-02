@@ -51,13 +51,15 @@ The hook runtime is declared by the plugin's `pyproject.toml` and launched with
 `uv`; this keeps its `pydantic-settings` dependency isolated and reproducible.
 The hook uses a small synchronous standard-library HTTP adapter because Codex
 executes it as a short-lived process. It does not expose that adapter as an SDK.
-The `project-context` Skill reuses the installed hook virtual environment when
-deriving project scope, so a read-only Codex turn does not need to mutate the
-`uv` cache.
+`SessionStart` fixes a durable binding from an explicit plugin Scope, an
+existing Session binding, a workspace binding preference, or the Server's
+default Scope. `UserPromptSubmit` uses that binding for recall and capture.
+`PreToolUse` injects the same binding into PowerContext data-plane tools, so an
+Agent-supplied `scope_id` cannot redirect a write. Repository and directory
+identities are binding lookup inputs only; they never generate a Scope ID.
 
-Set `POWERCONTEXT_CODEX_SCOPE_ID` to override automatic project scoping. By
-default, the scope comes from the normalized Git remote, or from the project
-path when no supported remote is available.
+Set `POWERCONTEXT_CODEX_SCOPE_ID` only when the host must explicitly bind every
+request to one known Scope.
 `.mcp.json` is the single Server endpoint configuration consumed by Codex and
 the hook: the hook validates its PowerContext MCP URL and derives the HTTP API
 base by removing the final `/mcp` path segment. Change that file before

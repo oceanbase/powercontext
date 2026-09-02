@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Expose the repository scope resolver under its installed WorkBuddy module name."""
+"""Expose the Server Scope resolver under its installed WorkBuddy module name."""
 
-from scripts.project_scope import resolve_scope_id
+from scripts.workspace_scope import resolve_scope_id
 
 __all__ = ["resolve_scope_id"]

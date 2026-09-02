@@ -1,7 +1,7 @@
 {
   "name": "powercontext-opencode",
   "version": "0.0.1",
-  "description": "OpenCode plugin that connects to a PowerContext Server for project-scoped memory and handoff.",
+  "description": "OpenCode plugin that connects to a PowerContext Server for Scope-bound memory and handoff.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "lib/index.js",

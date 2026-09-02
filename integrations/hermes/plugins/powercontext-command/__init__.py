@@ -49,7 +49,7 @@ _POWERCONTEXT_SUBCOMMANDS = (
     "skill",
     "external-skills",
     "review",
-    "workstream",
+    "scope",
     "trace",
     "call",
 )
@@ -123,7 +123,7 @@ def register(ctx: Any) -> None:
             name,
             handler,
             description="Inspect and manage PowerContext memory, handoffs, artifacts, and traces.",
-            args_hint="status|search|list|changes|get|remember|revise|retire|flush|stats|handoff|experience|skill|external-skills|review|workstream|trace|call ...",
+            args_hint="status|search|list|changes|get|remember|revise|retire|flush|stats|handoff|experience|skill|external-skills|review|scope|trace|call ...",
         )
     _register_subcommands()
 

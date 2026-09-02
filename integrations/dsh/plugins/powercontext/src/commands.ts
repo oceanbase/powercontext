@@ -73,8 +73,8 @@ async function handleReview(
 }
 
 async function handleDoctor(runtime: PluginRuntime, signal?: AbortSignal): Promise<CommandResult> {
-  const live = await invokeOperation(runtime.client, 'get_liveness', {}, runtime.config.scopeId ?? 'local:unknown', signal)
-  const ready = await invokeOperation(runtime.client, 'get_readiness', {}, runtime.config.scopeId ?? 'local:unknown', signal)
+  const live = await invokeOperation(runtime.client, 'get_liveness', {}, runtime.config.scopeId ?? '', signal)
+  const ready = await invokeOperation(runtime.client, 'get_readiness', {}, runtime.config.scopeId ?? '', signal)
   return { kind: live.ok && ready.ok ? 'success' : 'error', text: formatResult({ ok: live.ok && ready.ok, data: { live, ready } }) }
 }
 

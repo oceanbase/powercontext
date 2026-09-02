@@ -23,7 +23,7 @@ import { PLUGIN_NAME } from './errors.ts'
 import type { PluginRuntime } from './invoke.ts'
 import { loadPeer } from './peers.ts'
 import { runRecallPreStep, type PromptMessage } from './recall.ts'
-import { deriveScopeId } from './scope.ts'
+import { resolveScopeId } from './scope.ts'
 import { registerGuidance, registerSkill } from './skill.ts'
 import { registerTools } from './tools.ts'
 
@@ -67,7 +67,7 @@ function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
   return {
     client,
     config: resolved,
-    resolveScope: (cwd) => deriveScopeId(cwd, { configuredScopeId: resolved.scopeId }),
+    resolveScope: (cwd) => resolveScopeId(client, cwd, resolved.scopeId),
     log: (event) => {
       const line = JSON.stringify({ component: 'powercontext.dsh', ...event })
       const quiet = event.outcome === 'ready' || event.outcome === 'ok' || event.outcome === 'empty'

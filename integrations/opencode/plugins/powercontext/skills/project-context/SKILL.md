@@ -17,7 +17,7 @@ Source evidence. Do not call `pc_remember` merely to duplicate the current promp
 ## Read context
 
 - Use `pc_search` with a focused query, `mode: "auto"`, and no more than eight results.
-- Use `pc_memory_list` to inspect active entries in the current project scope.
+- Use `pc_memory_list` to inspect active entries in the current Scope.
 - Use `pc_memory_get` only with an exact citation returned by search or list.
 - Use `pc_prepare_context` when one bounded value is more useful than raw search hits.
 

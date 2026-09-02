@@ -37,7 +37,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
-from scripts.project_scope import resolve_scope_id  # noqa: E402
+from scripts.scope_binding import resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
@@ -157,7 +157,13 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             _emit_context_event("skipped", diagnostic_events=diagnostic_events)
             _write_hook_output(diagnostic_events=diagnostic_events)
             return 0
-        scope_id = resolve_scope_id(cwd, configured_scope_id=settings.scope_id)
+        session_id = _payload_identifier(payload, "session_id", "conversation_id", "thread_id")
+        scope_id = resolve_scope_id(
+            cwd,
+            session_id=session_id,
+            settings=settings,
+            deadline=http_deadline,
+        )
         context = _recall_context(
             prompt,
             scope_id,

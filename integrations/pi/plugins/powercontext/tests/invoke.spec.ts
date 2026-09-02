@@ -34,7 +34,7 @@ describe('secret detection', () => {
 })
 
 describe('Pi native tool invocation', () => {
-  it('uses the derived scope and refuses secret-bearing writes', async () => {
+  it('uses the resolved scope and refuses secret-bearing writes', async () => {
     let body: string | undefined
     const client = new PowerContextClient({
       baseUrl: 'http://127.0.0.1:8000',
@@ -47,16 +47,39 @@ describe('Pi native tool invocation', () => {
 
     await expect(invokeOperation(client, 'search_memory', {
       query: 'prior decision',
-      scope_id: 'project:untrusted',
-    }, 'project:derived')).resolves.toMatchObject({ ok: true })
-    expect(JSON.parse(body ?? '{}')).toMatchObject({ scope_id: 'project:derived' })
+      scope_id: 'scope:untrusted',
+    }, 'scp_resolved')).resolves.toMatchObject({ ok: true })
+    expect(JSON.parse(body ?? '{}')).toMatchObject({ scope_id: 'scp_resolved' })
 
     await expect(invokeOperation(client, 'remember_memory', {
       kind: 'agent-note',
       text: 'api_key=secret',
-    }, 'project:derived')).resolves.toMatchObject({
+    }, 'scp_resolved')).resolves.toMatchObject({
       ok: false,
       code: 'secret_rejected',
     })
+  })
+
+  it('limits observation requests to the derived Scope', async () => {
+    const bodies: unknown[] = []
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000',
+      requestTimeoutMs: 1000,
+      fetch: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)))
+        return new Response(JSON.stringify({}), { status: 200 })
+      },
+    })
+
+    await invokeOperation(client, 'get_stats', { selection: { mode: 'all' } }, 'scp_resolved')
+    await invokeOperation(client, 'get_handoff_report', {
+      selection: { mode: 'subtree', root_scope_id: 'scope:other' },
+      format: 'json',
+    }, 'scp_resolved')
+
+    expect(bodies).toEqual([
+      { selection: { mode: 'exact', scope_ids: ['scp_resolved'] } },
+      { selection: { mode: 'exact', scope_ids: ['scp_resolved'] }, format: 'json' },
+    ])
   })
 })

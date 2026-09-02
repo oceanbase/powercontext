@@ -17,12 +17,11 @@
 from __future__ import annotations
 
 from .recall import PowerContextRecall
-from .scope import MissingScopeError, PowerContextScope, resolve_scope_id
+from .scope import PowerContextScope
 from .settings import PowerContextLangGraphSettings
 from .tools import powercontext_context, powercontext_remember, powercontext_search, powercontext_tools
 
 __all__ = [
-    "MissingScopeError",
     "PowerContextLangGraphSettings",
     "PowerContextRecall",
     "PowerContextScope",
@@ -30,5 +29,4 @@ __all__ = [
     "powercontext_remember",
     "powercontext_search",
     "powercontext_tools",
-    "resolve_scope_id",
 ]

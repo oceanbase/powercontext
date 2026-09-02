@@ -24,14 +24,17 @@ from bub import tool
 from pydantic import BaseModel, Field
 
 from powercontext.client import PowerContextClient
-from powercontext.http import PrepareContextRequest, RememberMemoryRequest, SearchMemoryRequest
+from powercontext.http import PrepareContextRequest, RememberMemoryRequest, ScopeBindingKey, SearchMemoryRequest
 
 from .plugin import STATE_KEY, open_client
+from .scope import resolve_scope_id
 
 
 class ToolSettings(TypedDict):
     base_url: str
-    scope_id: str
+    scope_id: str | None
+    explicit_scope_id: str | None
+    binding_keys: list[ScopeBindingKey]
     timeout: float
     trust_transport_security: bool
 
@@ -52,8 +55,9 @@ async def search_memory(param: SearchInput, *, context: Any) -> str:
     """Search durable PowerContext memory."""
 
     settings = _settings(context)
-    request = SearchMemoryRequest(scope_id=settings["scope_id"], query=param.query, limit=param.limit)
     async with _client(settings) as client:
+        scope_id = await _scope_id(settings, client)
+        request = SearchMemoryRequest(scope_id=scope_id, query=param.query, limit=param.limit)
         response = await client.search_memory(request)
     if not response.hits:
         return "(no matching PowerContext memory)"
@@ -77,13 +81,14 @@ async def remember_memory(param: RememberInput, *, context: Any) -> str:
     """Save one explicit durable memory for later agent sessions."""
 
     settings = _settings(context)
-    request = RememberMemoryRequest(
-        scope_id=settings["scope_id"],
-        kind=param.kind,
-        text=param.text,
-        reason=param.reason,
-    )
     async with _client(settings) as client:
+        scope_id = await _scope_id(settings, client)
+        request = RememberMemoryRequest(
+            scope_id=scope_id,
+            kind=param.kind,
+            text=param.text,
+            reason=param.reason,
+        )
         response = await client.remember_memory(request)
     if response.entry is None:
         return "(PowerContext accepted the memory without an entry receipt)"
@@ -95,8 +100,9 @@ async def prepare_context(query: str, *, context: Any) -> str:
     """Prepare a bounded PowerContext payload for a new question."""
 
     settings = _settings(context)
-    request = PrepareContextRequest(scope_id=settings["scope_id"], query=query)
     async with _client(settings) as client:
+        scope_id = await _scope_id(settings, client)
+        request = PrepareContextRequest(scope_id=scope_id, query=query)
         response = await client.prepare_context(request)
     return response.content or "(no relevant PowerContext context)"
 
@@ -112,3 +118,16 @@ def _client(settings: ToolSettings) -> AbstractAsyncContextManager[PowerContextC
         timeout=settings["timeout"],
         trust_transport_security=settings["trust_transport_security"],
     )
+
+
+async def _scope_id(settings: ToolSettings, client: PowerContextClient) -> str:
+    cached_scope_id = settings["scope_id"]
+    if cached_scope_id is not None:
+        return cached_scope_id
+    resolved_scope_id = await resolve_scope_id(
+        client,
+        explicit_scope_id=settings["explicit_scope_id"],
+        binding_keys=settings["binding_keys"],
+    )
+    settings["scope_id"] = resolved_scope_id
+    return resolved_scope_id

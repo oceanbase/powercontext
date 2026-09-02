@@ -140,7 +140,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
   registerOperationTool(pi, runtime, {
     name: 'pc_memory_list',
     label: 'PowerContext Memory List',
-    description: 'List Memory entries in the current project scope.',
+    description: 'List Memory entries in the current Scope.',
     parameters: Type.Object({
       include_inactive: Type.Optional(Type.Boolean({ description: 'Include retired entries for an explicit audit.' })),
     }),

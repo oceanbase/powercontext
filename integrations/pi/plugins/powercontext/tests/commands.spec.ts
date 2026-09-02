@@ -19,7 +19,7 @@ import { handlePcCommand } from '../src/commands.ts'
 import { PowerContextClient } from '../src/client.ts'
 import type { PluginRuntime } from '../src/recall.ts'
 
-function runtime(fetch: typeof globalThis.fetch, resolveScope = async () => 'project:demo'): PluginRuntime {
+function runtime(fetch: typeof globalThis.fetch, resolveScope = async () => 'scope:demo'): PluginRuntime {
   return {
     client: new PowerContextClient({
       baseUrl: 'http://127.0.0.1:8000',
@@ -46,7 +46,7 @@ afterEach(() => {
 })
 
 describe('/pc command', () => {
-  it('dispatches query commands with the current project scope and reports results', async () => {
+  it('dispatches query commands with the current Scope and reports results', async () => {
     const requests: Array<{ url: URL; body: unknown }> = []
     const notifications: Array<{ message: string; level: 'info' | 'error' }> = []
     const fetch = async (url: string | URL | Request, init?: RequestInit) => {
@@ -76,9 +76,9 @@ describe('/pc command', () => {
     const stats = requests.find(({ url }) => url.pathname === '/v1/stats')
     const live = requests.find(({ url }) => url.pathname === '/health/live')
     const ready = requests.find(({ url }) => url.pathname === '/health/ready')
-    expect(search?.body).toEqual({ query: 'prior decision', limit: 8, mode: 'auto', scope_id: 'project:demo' })
-    expect(flush?.body).toEqual({ scope_id: 'project:demo' })
-    expect(stats?.url.searchParams.get('scope_id')).toBe('project:demo')
+    expect(search?.body).toEqual({ query: 'prior decision', limit: 8, mode: 'auto', scope_id: 'scope:demo' })
+    expect(flush?.body).toEqual({ scope_id: 'scope:demo' })
+    expect(stats?.body).toEqual({ selection: { mode: 'exact', scope_ids: ['scope:demo'] } })
     expect(live).toBeDefined()
     expect(ready).toBeDefined()
     expect(notifications.some(({ message }) => JSON.parse(message).ok === true)).toBe(true)
