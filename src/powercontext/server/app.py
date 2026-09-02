@@ -74,6 +74,7 @@ from powercontext.builtin.inference.errors import InferenceTimeoutError, Inferen
 from powercontext.builtin.publication import (
     ArtifactPublicationApplication,
     ArtifactPublicationConflictError,
+    ArtifactPublicationUnsupportedError,
 )
 from powercontext.builtin.publication import (
     ArtifactPublicationRequest as DomainArtifactPublicationRequest,
@@ -1544,6 +1545,13 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
 
 
 def _map_scope_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, ArtifactPublicationUnsupportedError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "artifact_publication_unsupported",
+            "The Artifact family cannot be published as complete target state.",
+            {"family": error.family},
+        )
     if isinstance(error, ArtifactPublicationConflictError):
         return (
             status.HTTP_409_CONFLICT,

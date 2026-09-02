@@ -98,6 +98,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "post": {
                 "tags": ["scopes"],
                 "summary": "Publish one exact Artifact revision into another Scope",
+                "description": "Memory publication is rejected "
+                "until its complete family-owned "
+                "state can be created atomically "
+                "in the target Scope.",
                 "operationId": "publish_artifact",
                 "requestBody": {
                     "content": {

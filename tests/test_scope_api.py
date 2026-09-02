@@ -131,7 +131,7 @@ def test_scope_http_flow_rejects_stale_metadata_and_invalid_selection(tmp_path) 
         assert invalid.status_code == 422
 
 
-def test_scope_http_flow_publishes_one_exact_artifact(tmp_path) -> None:
+def test_scope_http_flow_rejects_incomplete_memory_publication(tmp_path) -> None:
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
@@ -158,28 +158,17 @@ def test_scope_http_flow_publishes_one_exact_artifact(tmp_path) -> None:
             "idempotency_key": "accepted-decision",
         }
 
-        created = client.post("/v1/artifact-publications", json=request)
+        rejected = client.post("/v1/artifact-publications", json=request)
         repeated = client.post("/v1/artifact-publications", json=request)
 
-        assert created.status_code == 201
-        assert repeated.status_code == 201
-        assert created.json() == repeated.json()
-        assert created.json()["source"] == request["source"]
-        assert created.json()["target"]["scope_id"] == target_scope_id
-        assert created.json()["target"]["artifact"]["revision"] == 1
-
-        conflicting = client.post(
-            "/v1/artifact-publications",
-            json={
-                **request,
-                "source": {
-                    "scope_id": source_scope_id,
-                    "artifact": {**memory, "revision": memory["revision"] + 1},
-                },
-            },
-        )
-        assert conflicting.status_code == 409
-        assert conflicting.json()["error"]["code"] == "artifact_publication_conflict"
+        assert rejected.status_code == 422
+        assert repeated.status_code == 422
+        assert rejected.json() == repeated.json()
+        assert rejected.json()["error"] == {
+            "code": "artifact_publication_unsupported",
+            "message": "The Artifact family cannot be published as complete target state.",
+            "details": {"family": "memory"},
+        }
 
 
 def test_data_plane_rejects_an_unknown_scope(tmp_path) -> None:

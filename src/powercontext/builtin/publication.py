@@ -80,6 +80,14 @@ class ArtifactPublicationConflictError(PowerContextError, RuntimeError):
     """Report reuse of an idempotency key for a different publication."""
 
 
+class ArtifactPublicationUnsupportedError(PowerContextError, RuntimeError):
+    """Report an Artifact family that cannot yet form a complete target revision."""
+
+    def __init__(self, family: str) -> None:
+        self.family = family
+        super().__init__(f"Artifact publication is not supported for family: {family}")
+
+
 class ArtifactPublicationApplication:
     def __init__(
         self,
@@ -103,13 +111,15 @@ class ArtifactPublicationApplication:
         await self._scopes.get(request.source.scope_id)
         await self._scopes.get(request.target_scope_id)
         async with self._database.transaction() as connection:
+            source = await self._artifacts.get(connection, request.source.scope_id, request.source.artifact)
+            if source.family == "memory":
+                raise ArtifactPublicationUnsupportedError(source.family)
             existing = await self._find_request(connection, request.target_scope_id, request.idempotency_key)
             if existing is not None:
                 if existing.source != request.source:
                     raise ArtifactPublicationConflictError(request.idempotency_key)
                 return existing
 
-            source = await self._artifacts.get(connection, request.source.scope_id, request.source.artifact)
             content_digest = hashlib.sha256(dump_model(source.content, kind="artifact", name=source.family)).hexdigest()
             target = await self._artifacts.copy_exact(
                 connection,
@@ -218,4 +228,5 @@ __all__ = [
     "ArtifactPublicationApplication",
     "ArtifactPublicationConflictError",
     "ArtifactPublicationRequest",
+    "ArtifactPublicationUnsupportedError",
 ]
