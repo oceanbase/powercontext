@@ -25,7 +25,7 @@ from powercontext.builtin.runtime.config import InferenceConfig
 
 
 class _SpyEmbedder(Embedder):
-    settings_seen: ClassVar[list[dict[str, int] | None]] = []
+    settings_seen: ClassVar[list[dict[str, object] | None]] = []
 
     def __init__(self, model, *, settings=None, defer_model_check=True, instrument=None):
         super().__init__(model, settings=settings, defer_model_check=defer_model_check, instrument=instrument)
@@ -40,6 +40,7 @@ def test_embedding_models_send_the_configured_dimension_to_the_provider(monkeypa
     async def scenario() -> None:
         config = InferenceConfig(
             embedding_model="openai:text-embedding-3-small",
+            embedding_model_settings={"dimensions": 512, "extra_body": {"route": "embedding"}},
             embedding_profile_id="bailian-1536-v1",
             embedding_dimension=1536,
         )
@@ -47,7 +48,8 @@ def test_embedding_models_send_the_configured_dimension_to_the_provider(monkeypa
             operational, readiness = await _embedding_models(config, resources, None)
         assert operational is not None
         assert readiness is not None
-        assert _SpyEmbedder.settings_seen == [{"dimensions": 1536}, {"dimensions": 1536}]
+        expected_settings = {"dimensions": 1536, "extra_body": {"route": "embedding"}}
+        assert _SpyEmbedder.settings_seen == [expected_settings, expected_settings]
 
     asyncio.run(scenario())
 
