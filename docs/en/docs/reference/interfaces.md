@@ -312,10 +312,12 @@ want the supplied SQLite or OceanBase-backed implementation in the same process.
 ## HTTP and MCP
 
 See [HTTP API](http-api.md) for authentication, curl examples, operation groups, errors, and the complete OpenAPI
-contract. The Server publishes its OpenAPI document at `/openapi.json`, readiness at `/health/ready`, capabilities at
-`/v1/capabilities`, and Streamable HTTP MCP at `/mcp` by default. HTTP is the complete application contract. MCP is a
-curated agent-facing projection of Memory and Candidate Review operations. The five Candidate Review operations use
-the same validation, `expected_version` concurrency checks, and approval transaction over HTTP and MCP.
+contract. The Server publishes a Scalar API reference at `/docs`, its OpenAPI document at `/openapi.json`, readiness at
+`/health/ready`, capabilities at `/v1/capabilities`, and Streamable HTTP MCP at `/mcp` by default. The Scalar reference
+remains public when bearer authentication is enabled, but the operations it describes retain their normal authentication
+requirements. HTTP is the complete application contract. MCP is a curated agent-facing projection of Memory and
+Candidate Review operations. The five Candidate Review operations use the same validation, `expected_version`
+concurrency checks, and approval transaction over HTTP and MCP.
 Readiness is `ready` with HTTP 200 when all checks pass, `degraded` with HTTP 200 when only configured inference checks
 fail, and `not_ready` with HTTP 503 when the Runtime or database fails. Dependency checks use `ready`, `unavailable`,
 `timeout`, or `misconfigured`; an intentionally unbound Runtime reports `not_ready` for the `runtime` check.

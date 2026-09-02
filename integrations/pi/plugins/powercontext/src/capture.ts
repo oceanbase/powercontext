@@ -33,6 +33,7 @@ export interface CaptureInput {
   turnId: string
   signal?: AbortSignal
   onFlushFailure?: (position: number) => void
+  onFailure?: (event: string, error: unknown) => void
 }
 
 export function buildSourceId(scopeId: string, sessionId: string, turnId: string, prompt: string): string {
@@ -55,8 +56,13 @@ async function flushThrough(input: CaptureInput, position: number): Promise<bool
         ? (result.value as { current_cursor?: unknown }).current_cursor
         : undefined
       if (typeof cursor === 'number' && cursor >= position) return true
-    } catch {
+    } catch (error) {
       // A transient flush failure should not discard the captured position.
+      try {
+        input.onFailure?.('flush_memory', error)
+      } catch {
+        // Diagnostics are best effort and must not affect the turn.
+      }
     }
   }
   return false
@@ -92,8 +98,13 @@ export async function captureUserPrompt(input: CaptureInput): Promise<number | u
       }
     }
     return position
-  } catch {
+  } catch (error) {
     // Source persistence is auxiliary; it must not delay or break the Pi turn.
+    try {
+      input.onFailure?.('capture_source', error)
+    } catch {
+      // Diagnostics are best effort and must not affect the turn.
+    }
     return undefined
   }
 }

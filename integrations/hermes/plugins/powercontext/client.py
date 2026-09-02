@@ -86,13 +86,28 @@ class PowerContextError(RuntimeError):
 class PowerContextHTTPError(PowerContextError):
     """A non-successful HTTP response."""
 
-    def __init__(self, status: int) -> None:
-        super().__init__(f"PowerContext returned HTTP {status}")
+    def __init__(
+        self,
+        status: int,
+        *,
+        path: str = "",
+        code: str | None = None,
+        message: str | None = None,
+    ) -> None:
+        suffix = f" ({code})" if code else ""
+        super().__init__(f"PowerContext returned HTTP {status}{suffix}")
         self.status = status
+        self.path = path
+        self.code = code
+        self.server_message = message
 
 
 class PowerContextTransportError(PowerContextError):
-    """A transport, timeout, or response decoding failure."""
+    """A transport or timeout failure before a valid response was received."""
+
+
+class PowerContextInvalidResponseError(PowerContextError):
+    """A successful HTTP response that violates the PowerContext response contract."""
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -102,6 +117,24 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 
 
 Transport = Callable[[Request, float], HTTPResponse]
+
+
+def _decode_error(raw: bytes) -> tuple[str | None, str | None]:
+    try:
+        decoded = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None, None
+    if not isinstance(decoded, dict):
+        return None, None
+    error = decoded.get("error")
+    if not isinstance(error, dict):
+        return None, None
+    code = error.get("code")
+    message = error.get("message")
+    return (
+        code if isinstance(code, str) else None,
+        message if isinstance(message, str) else None,
+    )
 
 
 class PowerContextClient:
@@ -156,20 +189,31 @@ class PowerContextClient:
                     status = int(getattr(response, "status", 200))
                     raw = response.read(MAX_RESPONSE_BYTES + 1)
         except HTTPError as error:
-            raise PowerContextHTTPError(error.code) from error
+            try:
+                error_body = error.read(MAX_RESPONSE_BYTES + 1)
+            except (OSError, TimeoutError):
+                error_body = b""
+            code, message = _decode_error(error_body)
+            raise PowerContextHTTPError(
+                error.code,
+                path=path,
+                code=code,
+                message=message,
+            ) from error
         except (OSError, TimeoutError, URLError) as error:
             raise PowerContextTransportError("PowerContext request failed") from error  # noqa: TRY003
 
         if len(raw) > MAX_RESPONSE_BYTES:
-            raise PowerContextTransportError("PowerContext response exceeded the size limit")  # noqa: TRY003
+            raise PowerContextInvalidResponseError("PowerContext response exceeded the size limit")  # noqa: TRY003
         if status < 200 or status >= 300:
-            raise PowerContextHTTPError(status)
+            code, message = _decode_error(raw)
+            raise PowerContextHTTPError(status, path=path, code=code, message=message)
         try:
             decoded = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise PowerContextTransportError("PowerContext returned invalid JSON") from error  # noqa: TRY003
+            raise PowerContextInvalidResponseError("PowerContext returned invalid JSON") from error  # noqa: TRY003
         if not isinstance(decoded, dict):
-            raise PowerContextTransportError("PowerContext returned a non-object response")  # noqa: TRY003
+            raise PowerContextInvalidResponseError("PowerContext returned a non-object response")  # noqa: TRY003
         return decoded
 
     def request_operation(self, operation: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -27,11 +27,11 @@ import {createPageUi, createRequestGate} from "./page-ui.js?v=locale-complete";
 const translations = {
   en: {
     pageTitle: "PowerContext Review",
-    dashboardTitle: "Dashboard",
+    dashboardTitle: "Overview",
     skillsTitle: "Skills",
     reviewTitle: "Review",
     handoffReportTitle: "Handoff Report",
-    brandHomeLabel: "PowerContext Dashboard",
+    brandHomeLabel: "PowerContext Overview",
     primaryNavigation: "Primary navigation",
     maintainedBy: "Maintained by OceanBase.",
     signOut: "Sign out",
@@ -168,7 +168,7 @@ const translations = {
     serverUnavailable: "The Server is unavailable.",
     authRejected: "The Server rejected this token.",
     retry: "Retry",
-    noScopes: "No Dashboard scopes are configured.",
+    noScopes: "There is no work to show here.",
     scopeUnavailable: "The selected scope is not available.",
     loading: "Loading...",
     loadingMore: "Loading more...",
@@ -179,11 +179,11 @@ const translations = {
   },
   zh: {
     pageTitle: "PowerContext 审核",
-    dashboardTitle: "仪表盘",
+    dashboardTitle: "概览",
     skillsTitle: "技能",
     reviewTitle: "审核",
     handoffReportTitle: "交接报告",
-    brandHomeLabel: "PowerContext 仪表盘",
+    brandHomeLabel: "PowerContext 概览",
     primaryNavigation: "主导航",
     maintainedBy: "由 OceanBase 维护。",
     signOut: "退出",
@@ -320,7 +320,7 @@ const translations = {
     serverUnavailable: "服务器无法访问。",
     authRejected: "服务器拒绝了该访问令牌。",
     retry: "重试",
-    noScopes: "未配置仪表盘作用域。",
+    noScopes: "这里还没有可查看的工作。",
     scopeUnavailable: "选中的作用域不可用。",
     loading: "正在加载……",
     loadingMore: "正在加载更多……",
@@ -628,7 +628,7 @@ async function authenticate(token, preferredScopeId = "") {
       return;
     }
     if (scopes.length === 0) {
-      showPageStatus("noScopes", {}, true);
+      showPageStatus("noScopes");
       return;
     }
     const selectedScopeId = scopes.some((scope) => scope.scope_id === preferredScopeId)

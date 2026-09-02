@@ -15,12 +15,15 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import Any
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
+from prometheus_client.parser import text_string_to_metric_families
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import RuntimeConfig
@@ -89,6 +92,20 @@ def test_metrics_endpoint_is_absent_when_disabled(tmp_path) -> None:
         response = client.get("/metrics")
 
     assert response.status_code == 404
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Prometheus process metrics require Linux procfs")
+def test_metrics_endpoint_exposes_process_cpu_and_memory(tmp_path) -> None:
+    app = create_server_app(settings=_settings(tmp_path / "runtime.db"))
+
+    with TestClient(app) as client:
+        metrics = client.get("/metrics").text
+
+    samples = {
+        sample.name: sample.value for family in text_string_to_metric_families(metrics) for sample in family.samples
+    }
+    assert samples["process_cpu_seconds_total"] >= 0
+    assert samples["process_resident_memory_bytes"] > 0
 
 
 def test_one_off_scope_ids_keep_runtime_scope_cache_bounded(tmp_path) -> None:

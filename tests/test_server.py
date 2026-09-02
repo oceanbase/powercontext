@@ -103,6 +103,10 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT", "40")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS", "45")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL", " test ")
+    monkeypatch.setenv(
+        "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS",
+        '{"extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}',
+    )
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS", "12.5")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS", "4")
     monkeypatch.setenv("POWERCONTEXT_SERVER_MCP_ENABLED", "false")
@@ -131,6 +135,9 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.runtime.memory_rerank_candidate_limit == 40
     assert settings.runtime.experience_schedule_seconds == 45
     assert settings.inference.generation_model == "test"
+    assert settings.inference.generation_model_settings == {
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}
+    }
     assert settings.inference.generation_timeout_seconds == 12.5
     assert settings.inference.generation_max_requests == 4
     assert settings.mcp.enabled is False
@@ -276,6 +283,20 @@ def test_liveness_adds_a_server_owned_request_id() -> None:
     assert "X-Request-ID" not in response.headers
 
 
+def test_scalar_reference_embeds_the_canonical_openapi_contract() -> None:
+    client = TestClient(create_app())
+    response = client.get("/docs")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "PowerContext API Reference" in response.text
+    assert '"openapi": "3.0.3"' in response.text
+    assert '"/v1/context/prepare"' in response.text
+    assert "@scalar/api-reference@1.66.1" in response.text
+    assert "proxyUrl" not in response.text
+    assert client.get("/scalar").status_code == 404
+
+
 def test_server_factory_optionally_requires_bearer_authentication() -> None:
     app = create_server_app(
         settings=ServerSettings(
@@ -291,6 +312,7 @@ def test_server_factory_optionally_requires_bearer_authentication() -> None:
     protected_metrics = client.get("/metrics")
     accepted_metrics = client.get("/metrics", headers={"Authorization": "Bearer server-secret"})
     liveness = client.get("/health/live")
+    scalar_reference = client.get("/docs")
 
     assert missing.status_code == 401
     assert missing.headers["WWW-Authenticate"] == "Bearer"
@@ -307,6 +329,7 @@ def test_server_factory_optionally_requires_bearer_authentication() -> None:
     assert protected_metrics.status_code == 401
     assert accepted_metrics.status_code == 200
     assert liveness.status_code == 200
+    assert scalar_reference.status_code == 200
 
 
 def test_readiness_reports_unavailable_bindings() -> None:
@@ -391,6 +414,39 @@ def test_server_factory_reports_database_and_configured_generation_readiness(tmp
             "inference.generation": "ready",
         },
     }
+
+
+def test_server_factory_applies_generation_model_settings_to_readiness(monkeypatch, tmp_path) -> None:
+    observed_settings: list[dict[str, object] | None] = []
+
+    async def respond(_messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        observed_settings.append(None if info.model_settings is None else dict(info.model_settings))
+        return ModelResponse(parts=[])
+
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name: FunctionModel(respond))
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            inference=InferenceConfig(
+                generation_model="provider:test-model",
+                generation_model_settings={
+                    "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+                },
+            ),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert observed_settings == [
+        {
+            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+            "max_tokens": 1,
+        }
+    ]
 
 
 def test_server_factory_reports_generation_failure_as_degraded(monkeypatch, tmp_path) -> None:

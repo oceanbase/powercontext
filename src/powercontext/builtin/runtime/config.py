@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.artifacts.skill import AgentSkillTarget, CodexSkillRoot
@@ -51,6 +51,7 @@ class InferenceConfig(BaseModel):
     """Optional generation and embedding configuration."""
 
     generation_model: str | None = None
+    generation_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     generation_timeout_seconds: float = Field(default=30.0, gt=0)
     generation_max_requests: int = Field(default=2, ge=1)
     embedding_model: str | None = None
@@ -79,6 +80,19 @@ class InferenceConfig(BaseModel):
         if normalized not in {"none", "unit"}:
             raise ValueError("embedding normalization must be 'none' or 'unit'")  # noqa: TRY003
         return normalized
+
+    @field_validator("generation_model_settings")
+    @classmethod
+    def reserve_generation_headers(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        if "extra_headers" in value:
+            raise ValueError("configure credentials and static headers through the selected inference provider")  # noqa: TRY003
+        return value
+
+    @model_validator(mode="after")
+    def validate_generation_model_settings(self) -> Self:
+        if self.generation_model_settings and self.generation_model is None:
+            raise ValueError("generation_model_settings requires generation_model")  # noqa: TRY003
+        return self
 
     @model_validator(mode="after")
     def validate_embedding_profile(self) -> Self:

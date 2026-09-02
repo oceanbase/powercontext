@@ -118,6 +118,8 @@ an `authentication_failed` diagnostic; MCP tools remain unavailable without bloc
 If the Server is unavailable, hook recall and capture fail open. Codex work continues, and explicit Memory tools
 report that the service is unavailable.
 
-For a normal empty result or recall failure, the Hook writes a content-free JSON diagnostic to stderr. Outcomes include
-`empty`, `authentication_failed`, `version_mismatch`, `server_unavailable`, and `invalid_response`. The event never
-contains the query, scope, prepared content, citation, response body, or authorization value.
+For a normal empty result or recall failure, the Hook emits a content-free JSON diagnostic. Failure outcomes are
+returned through the top-level `systemMessage` in the successful stdout hook response; `empty` remains a local
+diagnostic. Outcomes include `empty`, `authentication_failed`, `version_mismatch`, `server_unavailable`, and
+`invalid_response`. The event never contains the query, scope, prepared content, citation, response body, or
+authorization value.

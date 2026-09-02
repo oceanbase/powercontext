@@ -176,6 +176,7 @@ venv.bak/
 
 # mkdocs/zensical documentation
 /site
+/docs/api/openapi.yaml
 e2e/bub/results/
 
 # mypy

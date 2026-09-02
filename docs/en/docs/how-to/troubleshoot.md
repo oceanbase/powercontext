@@ -178,14 +178,45 @@ powercontext capabilities
 
 `Memory extraction: disabled` means the Server has no generation model.
 
+## Host-visible integration diagnostics
+
+The Codex, Claude Code, DSH, OpenClaw, Pi, and Hermes integrations are fail-open: a PowerContext outage does not
+block the host task. They also expose a bounded, content-free diagnostic through the host's supported channel:
+
+| Host | Diagnostic channel | Component |
+| --- | --- | --- |
+| Codex | Hook stdout `systemMessage` | `powercontext.codex.recall` |
+| Claude Code | Hook stdout `systemMessage` | `powercontext.claude_code.recall` |
+| DSH | Host logger warning | `powercontext.dsh` |
+| OpenClaw | Plugin logger warning | `powercontext.openclaw` |
+| Pi | Host terminal warning | `powercontext.pi` |
+| Hermes | Python host logger warning | `powercontext.hermes` |
+
+For example, a transport failure is returned in the hook's top-level `systemMessage`; its value is a single-line,
+content-free JSON event such as:
+
+```json
+{"systemMessage":"{\"component\":\"powercontext.codex.recall\",\"event\":\"context_prepare\",\"outcome\":\"server_unavailable\",\"recovery\":\"powercontext doctor\"}"}
+```
+
+The stable outcomes remain distinct: `authentication_failed`, `version_mismatch`, `server_unavailable`, and
+`invalid_response`. Diagnostics never include prompts, recalled content, scopes, URLs, credentials, response bodies,
+or exception text. Repeated outcomes are deduplicated within one invocation and throttled for 60 seconds using local
+state shared across hook processes; a diagnostic failure never changes the host task result.
+
+Bub is not included in this first host-diagnostic slice. Its integration will be qualified separately when its host
+diagnostic channel and native lifecycle behavior are specified.
+
 ## The coding agent continues when the Server is down
 
-This is expected. The Codex, Claude Code, and Pi integrations fail open so a Memory outage cannot block ordinary work.
-Restart the Server to restore recall and capture; the existing database is reopened automatically.
+This is expected. The supported integrations fail open so a Memory outage cannot block ordinary work. Inspect the
+host-visible diagnostic and run `powercontext doctor`; restart the Server to restore recall and capture. The existing
+database is reopened automatically.
 
 ## Codex does not inject recalled context
 
-Inspect the Hook's single-line JSON event on stderr. `empty` means the Runtime prepared no context for this turn.
+For failures, inspect the Hook's top-level `systemMessage`; its value is the single-line JSON event. `empty` means the
+Runtime prepared no context for this turn and remains a local diagnostic rather than a host warning.
 `version_mismatch` means the installed plugin expects
 `POST /v1/context/prepare` but the Server does not provide it—reinstall the plugin and tool from the same ref, then
 restart the Server. `server_unavailable` and `invalid_response` distinguish transport and contract failures. These
@@ -204,7 +235,8 @@ powercontext doctor
 ```
 
 The first command checks the Claude CLI and enabled plugin without contacting the Server. The second checks Server
-liveness and readiness. Then inspect the Hook's single-line stderr event. Claude Code uses the same Prepared Context
+liveness and readiness. For failures, inspect the Hook's top-level `systemMessage`; its value is the single-line JSON
+event. Claude Code uses the same Prepared Context
 contract as Codex, with component `powercontext.claude_code.recall`:
 
 | Outcome | Action |
@@ -241,7 +273,7 @@ powercontext doctor
 ```
 
 Restart Pi after installing the package or changing `POWERCONTEXT_PI_*` variables. In a new Pi session, run
-`/pc doctor` to check the configured Server directly. Recall is intentionally silent and fail-open: if the Server is
-unavailable, redirects, times out, or returns an invalid PreparedContext, Pi continues without adding context. Restore
-the Server, then run `powercontext capabilities` and confirm that Context versions lists
+`/pc doctor` to check the configured Server directly. Recall is fail-open and reports a content-free host terminal
+warning when the Server is unavailable, redirects, times out, or returns an invalid PreparedContext; Pi continues
+without adding context. Restore the Server, then run `powercontext capabilities` and confirm that Context versions lists
 `powercontext.prepared-context.v1`.

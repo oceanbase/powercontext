@@ -27,11 +27,11 @@ import {createPageUi, createRequestGate} from "./page-ui.js?v=locale-complete";
 const translations = {
   en: {
     pageTitle: "PowerContext Skills Library",
-    dashboardTitle: "Dashboard",
+    dashboardTitle: "Overview",
     skillsTitle: "Skills",
     reviewTitle: "Review",
     handoffReportTitle: "Handoff Report",
-    brandHomeLabel: "PowerContext Dashboard",
+    brandHomeLabel: "PowerContext Overview",
     primaryNavigation: "Primary navigation",
     maintainedBy: "Maintained by OceanBase.",
     signOut: "Sign out",
@@ -140,16 +140,16 @@ const translations = {
     requestFailed: "The Skills request failed with HTTP {status}.",
     serverUnavailable: "The Server is unavailable.",
     retry: "Retry",
-    noScopes: "No Dashboard scopes are configured.",
+    noScopes: "There is no work to show here.",
     scopeUnavailable: "The selected scope is not available."
   },
   zh: {
     pageTitle: "PowerContext 技能库",
-    dashboardTitle: "仪表盘",
+    dashboardTitle: "概览",
     skillsTitle: "技能",
     reviewTitle: "审核",
     handoffReportTitle: "交接报告",
-    brandHomeLabel: "PowerContext 仪表盘",
+    brandHomeLabel: "PowerContext 概览",
     primaryNavigation: "主导航",
     maintainedBy: "由 OceanBase 维护。",
     signOut: "退出",
@@ -258,7 +258,7 @@ const translations = {
     requestFailed: "技能请求失败（HTTP {status}）。",
     serverUnavailable: "服务器无法访问。",
     retry: "重试",
-    noScopes: "未配置仪表盘作用域。",
+    noScopes: "这里还没有可查看的工作。",
     scopeUnavailable: "选中的作用域不可用。"
   }
 };
@@ -474,7 +474,7 @@ async function authenticate(token, preferred = "") {
       return;
     }
     if (scopes.length === 0) {
-      showPageStatus("noScopes", {}, true);
+      showPageStatus("noScopes");
       return;
     }
     currentScopeId = scopes.some((scope) => scope.scope_id === preferred)

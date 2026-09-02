@@ -1,50 +1,45 @@
 ---
 template: home.html
 title: PowerContext
-description: 让项目决定、约束和下一步在 Codex 与 Claude Code 会话之间继续可用。
+description: 换个会话继续工作，不必重新交代决定、约束和进展。可以使用受支持的 Agent，也可以通过 HTTP 接入自己的 AI。
 hide:
   - navigation
   - toc
   - footer
 home:
   hero:
-    label: 开源 · 项目级 · 默认本地
+    label: 开源，默认使用本地存储
     title:
-      - 换一个会话，
-      - 项目继续向前。
-    lead: PowerContext 把项目里的决定、约束和下一步保存在对话之外。再次打开 Codex 或 Claude Code 时，相关上下文已经准备好。
-    note: Codex、Claude Code、Python、HTTP 和 MCP 连接同一份项目 Memory。
+      - 换个会话，
+      - 接着做。
+    lead: 把需要保留的决定、约束和进展存进 PowerContext。换个会话，也能找回这些信息。
     actions:
-      - label: 从 Codex 开始
-        href: zh/docs/tutorials/codex-quickstart/
+      - label: 从 Agent 开始
+        href: zh/docs/tutorials/agent-quickstart/
         kind: primary
-      - label: 了解上下文如何延续
-        href: zh/docs/explanation/memory-and-handoff/
+      - label: 通过 HTTP 接入 AI
+        href: zh/docs/tutorials/api-quickstart/
         kind: secondary
   continuity:
-    label: 同一项目，两次会话
-    title: 项目背景，不必重讲。
-    lead: 决定只需记录一次。后续会话可以恢复它，并核对来源和精确 Revision。
+    title: 重要信息不必反复交代。
+    lead: 把需要长期保留的信息记下来。后续会话可以继续使用，也能查看修改记录。
     steps:
-      - title: 记录
-        description: 在 Codex 中留下规则：Handoff 默认保持临时，用户明确要求后才提交。
+      - title: 记下
+        description: 记下以后还要用的决定、约束和下一步。
+      - title: 找回
+        description: 换到另一个 Agent 或应用时，找到相关信息，不必重新粘贴已经保存的内容。
       - title: 继续
-        description: 在 Claude Code 中打开同一项目，不必重新解释之前的对话。
-      - title: 核对
-        description: 恢复这条规则，同时查看它的来源和精确 Revision。
+        description: 确认这些信息仍符合当前情况，然后接着做。
   ownership:
-    label: Memory 与 Handoff
     title:
-      - 留下长期信息，
-      - 交接当前工作。
-    lead: Memory 保存决定、约束、约定和下一步，并保留可检索的历史。修订或停用条目，不会丢失记录。
-    handoff: Handoff 记录当前目标、已验证进展、阻塞项和下一步行动。工作形成项目里程碑后再提交。
-    result: "LOCOMO：答对率 90.78% · 搜索 p95 延迟 1.38 秒"
-    command: powercontext server run
+      - 记住以后还要用的，
+      - 交接手头正在做的。
+    lead: 记忆保存以后仍会用到、单独拿出来也能理解的信息。更新或停用其中一条，不会丢失历史版本。
+    handoff: 交接保存当前目标和进度，也说明哪里卡住、下一步做什么。换人、换 Agent 或稍后再做时，可以从这里继续。已经验证的做法可以整理成经验，需要反复执行的工作可以整理成技能。
     primary_action:
-      label: 阅读快速入门
-      href: zh/docs/tutorials/codex-quickstart/
+      label: 阅读 Agent 快速入门
+      href: zh/docs/tutorials/agent-quickstart/
     secondary_action:
-      label: 浏览文档
-      href: zh/docs/
+      label: 通过 HTTP 接入 AI
+      href: zh/docs/tutorials/api-quickstart/
 ---

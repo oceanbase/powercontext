@@ -27,6 +27,17 @@ Source-to-Memory extraction:
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="provider:model-name"
 ```
 
+Additional Pydantic AI model settings can be supplied as JSON. Provider-specific request fields belong under
+`extra_body`; for example, a compatible OpenAI-style endpoint can disable Qwen thinking with:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS='{"extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}'
+```
+
+These settings are shared by the generation-backed pipelines, the optional LLM reranker, and the readiness probe.
+PowerContext retains its own request bounds: readiness uses `max_tokens=1`, and reranking uses `temperature=0`.
+Keep credentials and static headers in provider configuration rather than model settings.
+
 Vector search needs the embedding model and its complete deployment profile:
 
 ```bash

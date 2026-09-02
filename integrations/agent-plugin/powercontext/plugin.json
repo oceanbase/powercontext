@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "powercontext",
+  "version": "0.1.0",
+  "description": "Reusable PowerContext skills and MCP configuration for agent integrations.",
+  "author": {
+    "name": "PowerContext Team",
+    "email": "open_oceanbase@oceanbase.com",
+    "url": "https://github.com/oceanbase"
+  },
+  "homepage": "https://github.com/oceanbase/powercontext",
+  "repository": "https://github.com/oceanbase/powercontext",
+  "license": "Apache-2.0",
+  "keywords": [
+    "agent-plugin",
+    "context",
+    "handoff",
+    "mcp",
+    "memory"
+  ]
+}
