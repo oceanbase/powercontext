@@ -254,6 +254,7 @@ jobs:
 
           root = Path(os.environ["PLUGIN_ROOT"])
           python_executable = f"python{os.environ['PYTHON_VERSION']}"
+          plugin_root = "$" + "{PLUGIN_ROOT}"
           hooks_path = root / "hooks/hooks.json"
           hooks = json.loads(hooks_path.read_text())
           hook_scripts = {
@@ -264,15 +265,15 @@ jobs:
           for event, script in hook_scripts.items():
               hook = hooks["hooks"][event][0]["hooks"][0]
               expected = (
-                  'uv run --frozen --quiet --project "${PLUGIN_ROOT}" '
-                  f'python "${{PLUGIN_ROOT}}/hooks/{script}"'
+                  f'uv run --frozen --quiet --project "{plugin_root}" '
+                  f'python "{plugin_root}/hooks/{script}"'
               )
               if hook["command"] != expected:
                   raise SystemExit(f"unexpected Codex {event} command")
               hook["command"] = (
                   'PYTHONPATH="${PLUGIN_ROOT}/vendor" '
                   + python_executable
-                  + f' "${{PLUGIN_ROOT}}/hooks/{script}"'
+                  + f' "{plugin_root}/hooks/{script}"'
               )
           hooks_path.write_text(json.dumps(hooks, indent=2) + "\n")
 

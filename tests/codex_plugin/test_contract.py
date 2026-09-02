@@ -23,6 +23,7 @@ import pytest
 from pydantic import ValidationError
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2] / "integrations" / "codex" / "plugins" / "powercontext"
+REPOSITORY_ROOT = PLUGIN_ROOT.parents[3]
 
 
 def test_scope_resolver_uses_server_binding_and_fixes_new_session(
@@ -160,6 +161,12 @@ def test_codex_hooks_fix_session_and_data_plane_bindings() -> None:
     pre_tool_use = configuration["hooks"]["PreToolUse"][0]
     assert pre_tool_use["matcher"] == "mcp__powercontext__.*"
     assert "bind_tools.py" in pre_tool_use["hooks"][0]["command"]
+
+
+def test_customer_artifact_workflow_does_not_parse_plugin_root_as_an_actions_expression() -> None:
+    workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "build-artifacts.yml").read_text()
+
+    assert "${{PLUGIN_ROOT}}" not in workflow
 
 
 def test_powercontext_plugin_advertises_the_one_turn_handoff() -> None:
