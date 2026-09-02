@@ -47,6 +47,7 @@ nav = [
             ] },
             { "Reference" = [
                 { "Interfaces" = "en/docs/reference/interfaces.md" },
+                { "Integration capability manifest" = "en/docs/reference/integration-capabilities.md" },
                 { "HTTP API" = "en/docs/reference/http-api.md" },
                 { "Configuration" = "en/docs/reference/configuration.md" },
                 { "HTTP API Reference" = "api/index.html" },
@@ -134,6 +135,7 @@ nav = [
             ] },
             { "参考" = [
                 { "接口" = "zh/docs/reference/interfaces.md" },
+                { "集成能力清单" = "zh/docs/reference/integration-capabilities.md" },
                 { "HTTP API" = "zh/docs/reference/http-api.md" },
                 { "配置" = "zh/docs/reference/configuration.md" },
                 { "HTTP API 参考" = "api/index.html" },
