@@ -1,50 +1,44 @@
 ---
 template: home.html
 title: PowerContext
-description: Add Memory to your own AI over HTTP, or choose a supported agent for cross-session recovery and Handoff.
+description: Continue work in a new session without restating decisions, constraints, and progress. Use a supported Agent or connect your own AI over HTTP.
 hide:
   - navigation
   - toc
   - footer
 home:
   hero:
-    label: Open source · Project scoped · Local by default
+    label: Open source. Local storage by default.
     title:
-      - Start a new session.
-      - Keep moving.
-    lead: PowerContext keeps decisions, constraints, next steps, and work boundaries outside the chat. Existing AI applications can call HTTP directly; Codex, Claude Code, DSH, OpenCode, and other agents can connect to the same Server.
-    note: You control the model, identity, and write authorization; PowerContext provides cited Memory, request-time context, and history-preserving revisions.
+      - Pick up where you left off.
+    lead: Save the decisions, constraints, and progress you will need later in PowerContext. Find them again in another session.
     actions:
-      - label: Choose your agent
+      - label: Start with an Agent
         href: en/docs/tutorials/agent-quickstart/
         kind: primary
-      - label: Add the API to your AI
+      - label: Connect your AI over HTTP
         href: en/docs/tutorials/api-quickstart/
         kind: secondary
   continuity:
-    label: One project, multiple sessions
-    title: One agent stops. Work continues.
-    lead: Different agents can implement, review, and validate compatibility. Handoff transfers an inspected boundary; a human decides whether to continue.
+    title: No need to repeat yourself.
+    lead: Save information that needs to last. Later sessions can use it and see how it changed.
     steps:
-      - title: Agent A implements
-        description: Record decisions, constraints, and next steps, then assemble the objective, changes, checks, and omissions as a Handoff.
-      - title: Agent B checks independently
-        description: Receive the exact Revision in another host and verify its evidence and risks against the current repository.
-      - title: A human decides
-        description: Confirm scope, capability, and authorization, then continue, request clarification, or decline. Receipt is not completion.
+      - title: Save
+        description: Record the decisions, constraints, and next steps you will need later.
+      - title: Find
+        description: Find the relevant information in another Agent or application without pasting content you already saved.
+      - title: Continue
+        description: Check that the information still fits the current situation, then continue the work.
   ownership:
-    label: Memory and Handoff
     title:
-      - Keep what lasts.
+      - Save what matters.
       - Hand off the work.
-    lead: Memory keeps decisions, constraints, conventions, and next steps in a searchable history. Revise or retire an entry without losing the record.
-    handoff: A Handoff captures the current objective, verified progress, blockers, and next action. Commit it when the work becomes a project milestone.
-    result: "LOCOMO: 90.78% correct · 1.38 s p95 search latency"
-    command: powercontext server run
+    lead: Memory keeps information that stands on its own and will matter later. You can revise or retire an entry while preserving its history.
+    handoff: A Handoff saves the current objective and progress. It also records blockers and the next action so another person, Agent, or later session can continue. A proven approach can become an Experience. Recurring work can become a Skill.
     primary_action:
-      label: Open the Agent quickstart
+      label: Read the Agent quickstart
       href: en/docs/tutorials/agent-quickstart/
     secondary_action:
-      label: Open the API lifecycle tutorial
+      label: Connect your AI over HTTP
       href: en/docs/tutorials/api-quickstart/
 ---

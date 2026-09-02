@@ -18,7 +18,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { describe, expect, it } from "vitest";
 import { resolvePowerContextConfig, resolvePowerContextScope } from "./config.js";
-import type { PowerContextClient } from "./http.js";
+import { PowerContextRequestError, type PowerContextClient } from "./http.js";
 import { registerPowerContextLifecycle } from "./lifecycle.js";
 
 type Hook = (event: unknown, context: unknown) => unknown;
@@ -31,6 +31,9 @@ function createLifecycleHarness() {
   const capturedScopes: string[] = [];
   const contextQueries: string[] = [];
   let memoryExtraction = true;
+  let contextPrepareError: unknown;
+  let captureError: unknown;
+  let flushError: unknown;
   const config = resolvePowerContextConfig(undefined, {
     endpoint: "http://powercontext.test",
     scopeMode: "project",
@@ -45,12 +48,21 @@ function createLifecycleHarness() {
     async post<T>(path: string, body: Record<string, unknown>): Promise<T> {
       if (path === "/v1/memory/flush") {
         flushScopes.push(String(body.scope_id));
+        if (flushError !== undefined) {
+          throw flushError;
+        }
       }
       if (path === "/v1/sources/content") {
         capturedScopes.push(String(body.scope_id));
+        if (captureError !== undefined) {
+          throw captureError;
+        }
       }
       if (path === "/v1/context/prepare") {
         contextQueries.push(String(body.query));
+        if (contextPrepareError) {
+          throw contextPrepareError;
+        }
       }
       return {
         schema: "powercontext.prepared-context.v1",
@@ -88,6 +100,15 @@ function createLifecycleHarness() {
     setMemoryExtraction(value: boolean) {
       memoryExtraction = value;
     },
+    setContextPrepareError(error: unknown) {
+      contextPrepareError = error;
+    },
+    setCaptureError(error: unknown) {
+      captureError = error;
+    },
+    setFlushError(error: unknown) {
+      flushError = error;
+    },
     warnings,
   };
 }
@@ -123,6 +144,122 @@ describe("PowerContext lifecycle", () => {
       resolvePowerContextScope("main", harness.config, ["/workspace/project-b"]),
     ]);
     expect(harness.warnings).toEqual([]);
+  });
+
+  it("surfaces a bounded, content-free unavailable diagnostic", async () => {
+    const harness = createLifecycleHarness();
+    harness.setContextPrepareError(
+      new PowerContextRequestError("/v1/context/prepare", "do not expose this detail"),
+    );
+    const beforePromptBuild = harness.hooks.get("before_prompt_build");
+    const context = {
+      agentId: "main",
+      sessionId: "session-diagnostic",
+      sessionKey: "agent:main:telegram:direct:user-1",
+    };
+
+    await beforePromptBuild!(
+      { messages: [{ role: "user", content: "first request" }], prompt: "" },
+      context,
+    );
+    await beforePromptBuild!(
+      { messages: [{ role: "user", content: "second request" }], prompt: "" },
+      context,
+    );
+
+    expect(harness.warnings).toHaveLength(1);
+    expect(harness.warnings[0]).toBe(
+      '{"component":"powercontext.openclaw","event":"context_prepare","outcome":"server_unavailable","recovery":"powercontext doctor"}',
+    );
+    expect(harness.warnings[0]).not.toContain("do not expose this detail");
+  });
+
+  it("reports a prepare domain failure from the actual endpoint", async () => {
+    const harness = createLifecycleHarness();
+    harness.setContextPrepareError(
+      new PowerContextRequestError(
+        "/v1/context/prepare",
+        "invalid request",
+        422,
+        "invalid_request",
+      ),
+    );
+    const beforePromptBuild = harness.hooks.get("before_prompt_build");
+
+    await beforePromptBuild!(
+      { messages: [{ role: "user", content: "prepare this" }], prompt: "" },
+      {
+        agentId: "main",
+        sessionId: "session-prepare-domain-error",
+        sessionKey: "agent:main:telegram:direct:user-1",
+      },
+    );
+
+    expect(harness.warnings).toEqual([
+      '{"component":"powercontext.openclaw","event":"context_prepare","outcome":"invalid_response","http_status":422,"error_code":"invalid_request"}',
+    ]);
+  });
+
+  it("reports a capture domain failure from the actual endpoint", async () => {
+    const harness = createLifecycleHarness();
+    harness.setCaptureError(
+      new PowerContextRequestError(
+        "/v1/sources/content",
+        "invalid request",
+        422,
+        "invalid_request",
+      ),
+    );
+    const agentEnd = harness.hooks.get("agent_end");
+
+    await agentEnd!(
+      {
+        success: true,
+        messages: [{ role: "user", content: "capture this" }],
+      },
+      {
+        agentId: "main",
+        sessionId: "session-capture-domain-error",
+        sessionKey: "agent:main:telegram:direct:user-1",
+      },
+    );
+
+    expect(harness.warnings).toEqual([
+      '{"component":"powercontext.openclaw","event":"capture_source","outcome":"invalid_response","http_status":422,"error_code":"invalid_request"}',
+    ]);
+  });
+
+  it("reports a flush domain failure from the actual endpoint", async () => {
+    const harness = createLifecycleHarness();
+    harness.setFlushError(
+      new PowerContextRequestError(
+        "/v1/memory/flush",
+        "conflict",
+        409,
+        "conflict",
+      ),
+    );
+    const beforePromptBuild = harness.hooks.get("before_prompt_build");
+    const sessionEnd = harness.hooks.get("session_end");
+    const context = {
+      agentId: "main",
+      sessionId: "session-flush-domain-error",
+      sessionKey: "agent:main:telegram:direct:user-1",
+      activeProjectKeys: ["/workspace/project"],
+    };
+
+    await beforePromptBuild!(
+      { messages: [{ role: "user", content: "remember this" }], prompt: "" },
+      context,
+    );
+    await sessionEnd!(
+      { sessionId: context.sessionId, messageCount: 1 },
+      context,
+    );
+
+    expect(harness.warnings).toEqual([
+      '{"component":"powercontext.openclaw","event":"session_end_flush","outcome":"invalid_response","http_status":409,"error_code":"conflict","failed_scopes":1,"total_scopes":1}',
+    ]);
   });
 
   it("bounds context queries by UTF-8 bytes", async () => {

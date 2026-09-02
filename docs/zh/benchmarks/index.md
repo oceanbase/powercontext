@@ -10,8 +10,7 @@ benchmark:
   hero:
     label: 评估测试证据
     title:
-      - 把上下文能力，
-      - 交给评估测试。
+      - 上下文压力测试
     lead: 两项公开评测，分别检验长程记忆与真实仓库软件工程，并给出可核对的结果。
     actions_label: 跳转到具体评测
     actions:
@@ -36,7 +35,7 @@ benchmark:
         accessible: 任务解决率 86.73%
         metric: 开启 PowerContext 后的任务解决率
   orientation:
-    title: 两项评估测试，回答两个不同问题。
+    title: 两项评测，两个问题。
     lead: Agent 先要找回发生过什么，再要把上下文用于真实工作。两项评测分别检验这两层能力。
     tests:
       - name: LoCoMo
@@ -128,7 +127,7 @@ benchmark:
     scope_title: 结果覆盖范围
     scope: 90.78% 来自类别 1-4 的 1,540 个问题，其中答对 1,398 个。该结果不代表 LoCoMo 的事件总结或多模态对话生成任务。
   swe:
-    title: SWE-bench Pro 检验上下文是否改变补丁结果。
+    title: 上下文能改善补丁结果吗？
     lead: 每个任务都从真实代码库与 Issue 开始。Codex 修改仓库，再由任务自带的正式测试判断补丁是否解决问题。
     method:
       - title: 相同任务集
@@ -422,8 +421,10 @@ benchmark:
           score: 1.51%
           ci: ±1.51
   reading:
-    title: 用每项结果回答它真正评测的问题。
+    title: 先看清每项结果测什么。
     lead: 两项评测都与上下文有关，但输入、输出与评分方式不同，不能把两个分数直接横向比较。
+    scroll_hint: 左右滑动，比较两项评测。
+    table_label: LoCoMo 与 SWE-bench Pro 评测对比
     columns:
       dimension: 评测维度
     rows:

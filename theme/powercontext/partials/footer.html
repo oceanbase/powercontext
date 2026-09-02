@@ -70,13 +70,15 @@
       </a>
       <nav class="pc-footer__nav" aria-label="{{ '页脚导航' if is_zh else 'Footer navigation' }}">
         <a href="{{ ('zh/docs/' if is_zh else 'en/docs/') | url }}">{{ "文档" if is_zh else "Docs" }}</a>
-        <a href="{{ ('zh/benchmarks/' if is_zh else 'en/benchmarks/') | url }}">{{ "评估测试" if is_zh else "Benchmarks" }}</a>
+        <a href="{{ ('zh/benchmarks/' if is_zh else 'en/benchmarks/') | url }}">{{ "评测" if is_zh else "Benchmarks" }}</a>
         <a href="{{ ('zh/blog/' if is_zh else 'en/blog/') | url }}">{{ "博客" if is_zh else "Blog" }}</a>
         <a href="{{ ('zh/changelog/' if is_zh else 'en/changelog/') | url }}">{{ "更新日志" if is_zh else "Changelog" }}</a>
         <a href="{{ ('zh/rfcs/' if is_zh else 'en/rfcs/') | url }}">{{ "RFC 与会议纪要" if is_zh else "RFCs & Meetings" }}</a>
       </nav>
       <div class="pc-footer__end">
-        <div class="pc-footer__copyright">{{ config.copyright }}</div>
+        <div class="pc-footer__copyright">
+          {% if is_zh %}由 <a href="https://oceanbase.com">OceanBase</a> 维护。{% else %}{{ config.copyright }}{% endif %}
+        </div>
         {% if config.extra.social %}{% include "partials/social.html" %}{% endif %}
       </div>
     </div>

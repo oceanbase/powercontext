@@ -51,14 +51,15 @@
               <canvas data-pc-spiral-canvas></canvas>
             </div>
           </div>
-          <p class="hero-note">{{ page.meta["home"]["hero"]["note"] }}</p>
+          {% if "note" in page.meta["home"]["hero"] %}
+            <p class="hero-note">{{ page.meta["home"]["hero"]["note"] }}</p>
+          {% endif %}
         </div>
       </section>
 
       <section class="continuity-section" aria-labelledby="continuity-title">
         <div class="shell">
           <div class="continuity-intro">
-            <p class="section-label">{{ page.meta["home"]["continuity"]["label"] }}</p>
             <h2 id="continuity-title">{{ page.meta["home"]["continuity"]["title"] }}</h2>
             <p>{{ page.meta["home"]["continuity"]["lead"] }}</p>
           </div>
@@ -73,7 +74,6 @@
       <section class="ownership-section" aria-labelledby="ownership-title">
         <div class="ownership-grid shell">
           <div>
-            <p class="section-label">{{ page.meta["home"]["ownership"]["label"] }}</p>
             <h2 id="ownership-title">{% for line in page.meta["home"]["ownership"]["title"] %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h2>
           </div>
           <div class="ownership-copy">
@@ -81,8 +81,12 @@
               <p>{{ page.meta["home"]["ownership"]["lead"] }}</p>
               <p>{{ page.meta["home"]["ownership"]["handoff"] }}</p>
             </div>
-            <p class="ownership-result">{{ page.meta["home"]["ownership"]["result"] }}</p>
-            <div class="command-block"><code><span>$</span> {{ page.meta["home"]["ownership"]["command"] }}</code></div>
+            {% if "result" in page.meta["home"]["ownership"] %}
+              <p class="ownership-result">{{ page.meta["home"]["ownership"]["result"] }}</p>
+            {% endif %}
+            {% if "command" in page.meta["home"]["ownership"] %}
+              <div class="command-block"><code><span>$</span> {{ page.meta["home"]["ownership"]["command"] }}</code></div>
+            {% endif %}
             <div class="ownership-actions">
               <a class="primary-button large" href="{{ page.meta['home']['ownership']['primary_action']['href'] | url }}">{{ page.meta["home"]["ownership"]["primary_action"]["label"] }}</a>
               <a class="text-link" href="{{ page.meta['home']['ownership']['secondary_action']['href'] | url }}">{{ page.meta["home"]["ownership"]["secondary_action"]["label"] }} <span aria-hidden="true">→</span></a>

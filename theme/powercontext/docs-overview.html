@@ -22,14 +22,30 @@
   {% for section in page.meta["overview"]["sections"] %}
     <h2>{{ section["title"] }}</h2>
     <p>{{ section["description"] }}</p>
-    <div class="pc-card-grid">
-      {% for card in section["cards"] %}
+    {% set featured_cards = section["cards"] | selectattr("featured") | list %}
+    {% if featured_cards %}
+      <div class="pc-card-grid">
+      {% for card in featured_cards %}
         <a class="pc-card" href="{{ card['href'] | url }}">
           <strong>{{ card["title"] }}</strong>
           <span>{{ card["description"] }}</span>
           <i aria-hidden="true">→</i>
         </a>
       {% endfor %}
-    </div>
+      </div>
+    {% endif %}
+    <ul class="pc-link-list">
+      {% for card in section["cards"] %}
+        {% if "featured" not in card or not card["featured"] %}
+          <li>
+            <a href="{{ card['href'] | url }}">
+              <strong>{{ card["title"] }}</strong>
+              <span>{{ card["description"] }}</span>
+              <i aria-hidden="true">→</i>
+            </a>
+          </li>
+        {% endif %}
+      {% endfor %}
+    </ul>
   {% endfor %}
 {% endblock %}

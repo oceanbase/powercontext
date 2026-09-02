@@ -25,6 +25,7 @@ export interface PluginRuntime {
   resolveScope: (cwd: string) => Promise<string>
   recordCapture?: (scopeId: string, position: number) => void
   flushPending?: (signal?: AbortSignal) => Promise<void>
+  diagnostic?: (event: string, error: unknown) => void
 }
 
 export interface BeforeAgentStartInput {
@@ -76,8 +77,13 @@ export async function recallBeforeAgentStart(input: BeforeAgentStartInput): Prom
         input.runtime.config.maxBytes,
       )
       content = prepared.status === 'ready' && typeof prepared.content === 'string' ? prepared.content : undefined
-    } catch {
+    } catch (error) {
       // Recall is an optional augmentation and must not block Pi.
+      try {
+        input.runtime.diagnostic?.('context_prepare', error)
+      } catch {
+        // Diagnostics are best effort and must not affect the turn.
+      }
     }
 
     const position = await captureUserPrompt({
@@ -90,6 +96,7 @@ export async function recallBeforeAgentStart(input: BeforeAgentStartInput): Prom
       turnId: nextTurnId(input.branch),
       signal,
       onFlushFailure: (position) => input.runtime.recordCapture?.(scopeId, position),
+      onFailure: (event, error) => input.runtime.diagnostic?.(event, error),
     })
     if (position !== undefined && !input.runtime.config.flushOnCapture) {
       input.runtime.recordCapture?.(scopeId, position)
