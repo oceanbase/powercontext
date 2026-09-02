@@ -20,7 +20,6 @@ from collections import defaultdict
 from hashlib import sha256
 
 from sqlalchemy import delete, insert, select, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.tables import (
@@ -196,22 +195,13 @@ class ScopeRepository:
         return None if value is None else str(value)
 
     async def set_default(self, connection: AsyncConnection, scope_id: str, /) -> None:
-        statement = (
+        result = await connection.execute(
             update(SCOPE_SETTINGS_TABLE)
             .where(SCOPE_SETTINGS_TABLE.c.name == _DEFAULT_SETTING)
             .values(scope_id=scope_id)
         )
-        result = await connection.execute(statement)
         if result.rowcount == 0:
-            try:
-                async with connection.begin_nested():
-                    await connection.execute(
-                        insert(SCOPE_SETTINGS_TABLE).values(name=_DEFAULT_SETTING, scope_id=scope_id)
-                    )
-            except IntegrityError:
-                await connection.execute(statement)
-                if await self.default_scope_id(connection) != scope_id:
-                    raise
+            await connection.execute(insert(SCOPE_SETTINGS_TABLE).values(name=_DEFAULT_SETTING, scope_id=scope_id))
 
     async def binding(self, connection: AsyncConnection, key: ScopeBindingKey, /) -> ScopeBinding | None:
         value = (
@@ -232,7 +222,7 @@ class ScopeRepository:
         scope_id: str,
         /,
     ) -> ScopeBinding:
-        statement = (
+        result = await connection.execute(
             update(SCOPE_BINDINGS_TABLE)
             .where(
                 SCOPE_BINDINGS_TABLE.c.integration == key.integration,
@@ -241,22 +231,15 @@ class ScopeRepository:
             )
             .values(scope_id=scope_id)
         )
-        result = await connection.execute(statement)
         if result.rowcount == 0:
-            try:
-                async with connection.begin_nested():
-                    await connection.execute(
-                        insert(SCOPE_BINDINGS_TABLE).values(
-                            integration=key.integration,
-                            kind=key.kind,
-                            external_id=key.external_id,
-                            scope_id=scope_id,
-                        )
-                    )
-            except IntegrityError:
-                await connection.execute(statement)
-                if await self.binding(connection, key) != ScopeBinding(key=key, scope_id=scope_id):
-                    raise
+            await connection.execute(
+                insert(SCOPE_BINDINGS_TABLE).values(
+                    integration=key.integration,
+                    kind=key.kind,
+                    external_id=key.external_id,
+                    scope_id=scope_id,
+                )
+            )
         return ScopeBinding(key=key, scope_id=scope_id)
 
     async def clear_binding(self, connection: AsyncConnection, key: ScopeBindingKey, /) -> bool:

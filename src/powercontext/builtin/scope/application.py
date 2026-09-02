@@ -149,13 +149,36 @@ class ScopeApplication:
             return None if scope_id is None else await self._required(connection, scope_id)
 
     async def set_default(self, scope_id: str, /) -> ScopeDescriptor:
-        async with self._write_lock, self._database.transaction() as connection:
+        async with self._write_lock:
+            try:
+                return await self._set_default(scope_id)
+            except IntegrityError:
+                async with self._database.transaction() as connection:
+                    if await self._repository.default_scope_id(connection) is None:
+                        raise
+                    scope = await self._required(connection, scope_id)
+                    await self._repository.set_default(connection, scope_id)
+                    return scope
+
+    async def _set_default(self, scope_id: str) -> ScopeDescriptor:
+        async with self._database.transaction() as connection:
             scope = await self._required(connection, scope_id)
             await self._repository.set_default(connection, scope_id)
             return scope
 
     async def bind(self, key: ScopeBindingKey, scope_id: str, /) -> ScopeBinding:
-        async with self._write_lock, self._database.transaction() as connection:
+        async with self._write_lock:
+            try:
+                return await self._bind(key, scope_id)
+            except IntegrityError:
+                async with self._database.transaction() as connection:
+                    if await self._repository.binding(connection, key) is None:
+                        raise
+                    await self._required(connection, scope_id)
+                    return await self._repository.set_binding(connection, key, scope_id)
+
+    async def _bind(self, key: ScopeBindingKey, scope_id: str) -> ScopeBinding:
+        async with self._database.transaction() as connection:
             await self._required(connection, scope_id)
             return await self._repository.set_binding(connection, key, scope_id)
 
