@@ -30,9 +30,12 @@ export interface PendingSourceFlusher {
   flush(signal?: AbortSignal): Promise<void>
 }
 
+export type DiagnosticFailure = (event: string, error: unknown) => void
+
 export function createPendingSourceFlusher(
   client: PowerContextClient,
   config: ResolvedConfig,
+  onFailure?: DiagnosticFailure,
 ): PendingSourceFlusher {
   const pending = new Map<string, number>()
   let inFlight: Promise<void> | undefined
@@ -51,7 +54,12 @@ export function createPendingSourceFlusher(
             if (pending.get(scopeId) === position) pending.delete(scopeId)
             break
           }
-        } catch {
+        } catch (error) {
+          try {
+            onFailure?.('flush_memory', error)
+          } catch {
+            // Diagnostics are best effort and must not affect shutdown.
+          }
           break
         }
       }

@@ -18,6 +18,7 @@ import argparse
 import importlib
 import importlib.util
 import json
+import logging
 import sys
 import threading
 import types
@@ -971,7 +972,7 @@ def test_workstream_bind_isolates_queued_background_work(tmp_path, hermes_module
         provider.shutdown()
 
 
-def test_backend_failure_fails_open(provider_and_client):
+def test_backend_failure_fails_open(provider_and_client, caplog):
     provider, client = provider_and_client
 
     def failed_prepare(*args, **kwargs):
@@ -981,7 +982,192 @@ def test_backend_failure_fails_open(provider_and_client):
 
     client.prepare_context = failed_prepare
 
-    assert provider.prefetch("query") == ""
+    with caplog.at_level(logging.WARNING, logger="plugins.powercontext.provider"):
+        assert provider.prefetch("query") == ""
+        assert provider.prefetch("query") == ""
+
+    diagnostics = [
+        json.loads(record.message) for record in caplog.records if record.name == "plugins.powercontext.provider"
+    ]
+    assert diagnostics == [
+        {
+            "component": "powercontext.hermes",
+            "event": "context_prepare",
+            "outcome": "server_unavailable",
+            "recovery": "powercontext doctor",
+        }
+    ]
+
+
+def test_tool_failure_fails_open_and_emits_diagnostic(provider_and_client, caplog):
+    provider, client = provider_and_client
+
+    def failed_search(*args, **kwargs):
+        from plugins.powercontext.client import PowerContextTransportError  # ty: ignore[unresolved-import]
+
+        raise PowerContextTransportError("offline")
+
+    client.search_memory = failed_search
+
+    with caplog.at_level(logging.WARNING, logger="plugins.powercontext.provider"):
+        first = json.loads(provider.handle_tool_call("powercontext_search_memory", {"query": "deployment"}))
+        second = json.loads(provider.handle_tool_call("powercontext_search_memory", {"query": "deployment"}))
+
+    assert first == second == {"error": "PowerContext operation failed: offline"}
+    diagnostics = [
+        json.loads(record.message) for record in caplog.records if record.name == "plugins.powercontext.provider"
+    ]
+    assert diagnostics == [
+        {
+            "component": "powercontext.hermes",
+            "event": "tool_call",
+            "outcome": "server_unavailable",
+            "recovery": "powercontext doctor",
+        }
+    ]
+
+
+def test_invalid_response_failure_emits_an_invalid_response_diagnostic(provider_and_client, caplog):
+    provider, client = provider_and_client
+
+    def failed_search(*args, **kwargs):
+        from plugins.powercontext.client import PowerContextInvalidResponseError  # ty: ignore[unresolved-import]
+
+        raise PowerContextInvalidResponseError("invalid JSON")  # noqa: TRY003
+
+    client.search_memory = failed_search
+
+    with caplog.at_level(logging.WARNING, logger="plugins.powercontext.provider"):
+        result = json.loads(provider.handle_tool_call("powercontext_search_memory", {"query": "deployment"}))
+
+    assert result == {"error": "PowerContext operation failed: invalid JSON"}
+    diagnostics = [
+        json.loads(record.message) for record in caplog.records if record.name == "plugins.powercontext.provider"
+    ]
+    assert diagnostics == [
+        {
+            "component": "powercontext.hermes",
+            "event": "tool_call",
+            "outcome": "invalid_response",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(404, "not_found"), (409, "conflict"), (422, "invalid_request")],
+)
+def test_direct_tool_domain_errors_are_preserved_without_availability_diagnostics(
+    provider_and_client,
+    caplog,
+    status,
+    code,
+):
+    provider, client = provider_and_client
+
+    def failed_search(*args, **kwargs):
+        from plugins.powercontext.client import PowerContextHTTPError  # ty: ignore[unresolved-import]
+
+        raise PowerContextHTTPError(status, path="/v1/memory/search")
+
+    client.search_memory = failed_search
+
+    with caplog.at_level(logging.WARNING, logger="plugins.powercontext.provider"):
+        result = json.loads(provider.handle_tool_call("powercontext_search_memory", {"query": "deployment"}))
+
+    assert result["code"] == code
+    assert result["status"] == status
+    assert [record for record in caplog.records if record.name == "plugins.powercontext.provider"] == []
+
+
+def test_missing_prepare_endpoint_remains_a_version_mismatch_diagnostic(provider_and_client, caplog):
+    provider, _client = provider_and_client
+    from plugins.powercontext.client import PowerContextHTTPError  # ty: ignore[unresolved-import]
+
+    with caplog.at_level(logging.WARNING, logger="plugins.powercontext.provider"):
+        provider._emit_failure_diagnostic(
+            "context_prepare",
+            PowerContextHTTPError(404, path="/v1/context/prepare"),
+        )
+
+    diagnostics = [
+        json.loads(record.message) for record in caplog.records if record.name == "plugins.powercontext.provider"
+    ]
+    assert diagnostics == [
+        {
+            "component": "powercontext.hermes",
+            "event": "context_prepare",
+            "outcome": "version_mismatch",
+            "http_status": 404,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("event", "path"),
+    [
+        ("context_prepare", "/v1/context/prepare"),
+        ("capture_source", "/v1/sources/content"),
+        ("session_end_flush", "/v1/memory/flush"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(404, "not_found"), (409, "conflict"), (422, "invalid_request")],
+)
+def test_automatic_domain_errors_remain_visible_at_their_real_endpoints(
+    provider_and_client,
+    caplog,
+    event,
+    path,
+    status,
+    code,
+):
+    provider, _client = provider_and_client
+    from plugins.powercontext.client import PowerContextHTTPError  # ty: ignore[unresolved-import]
+
+    with caplog.at_level(logging.WARNING, logger="plugins.powercontext.provider"):
+        provider._emit_failure_diagnostic(
+            event,
+            PowerContextHTTPError(status, path=path, code=code),
+        )
+
+    diagnostics = [
+        json.loads(record.message) for record in caplog.records if record.name == "plugins.powercontext.provider"
+    ]
+    assert diagnostics == [
+        {
+            "component": "powercontext.hermes",
+            "event": event,
+            "outcome": "invalid_response",
+            "http_status": status,
+            "error_code": code,
+        }
+    ]
+
+
+def test_coded_prepare_domain_error_is_not_a_version_mismatch(provider_and_client, caplog):
+    provider, _client = provider_and_client
+    from plugins.powercontext.client import PowerContextHTTPError  # ty: ignore[unresolved-import]
+
+    with caplog.at_level(logging.WARNING, logger="plugins.powercontext.provider"):
+        provider._emit_failure_diagnostic(
+            "context_prepare",
+            PowerContextHTTPError(404, path="/v1/context/prepare", code="invalid_request"),
+        )
+
+    diagnostics = [
+        json.loads(record.message) for record in caplog.records if record.name == "plugins.powercontext.provider"
+    ]
+    assert diagnostics == [
+        {
+            "component": "powercontext.hermes",
+            "event": "context_prepare",
+            "outcome": "invalid_response",
+            "http_status": 404,
+            "error_code": "invalid_request",
+        }
+    ]
 
 
 def test_cli_registers_provider_commands(hermes_modules):
@@ -1022,3 +1208,46 @@ def test_http_client_dispatches_operation_paths_and_get_query(hermes_modules):
     assert result == {"ok": True}
     assert requests[0].full_url == "http://powercontext.test:8000/v1/stats?scope_id=hermes%3Atest&period=7d"
     assert requests[0].method == "GET"
+
+
+def test_http_client_classifies_malformed_success_response_separately(hermes_modules):
+    provider_module, _cli_module = hermes_modules
+    from plugins.powercontext.client import PowerContextInvalidResponseError  # ty: ignore[unresolved-import]
+
+    class Response:
+        status = 200
+
+        def read(self, _limit):
+            return b"not-json"
+
+    client = provider_module.PowerContextClient(
+        "http://powercontext.test:8000",
+        transport=lambda _request, _timeout: Response(),
+    )
+
+    with pytest.raises(PowerContextInvalidResponseError, match="invalid JSON"):
+        client.get_liveness()
+
+
+def test_http_client_preserves_domain_error_details(hermes_modules):
+    provider_module, _cli_module = hermes_modules
+    client_module = importlib.import_module("plugins.powercontext.client")
+
+    class Response:
+        status = 404
+
+        def read(self, _limit):
+            return b'{"error":{"code":"memory_not_found","message":"entry missing"}}'
+
+    client = provider_module.PowerContextClient(
+        "http://powercontext.test:8000",
+        transport=lambda _request, _timeout: Response(),
+    )
+
+    with pytest.raises(client_module.PowerContextHTTPError) as caught:
+        client.get_memory_entry("project:test", {"entry_id": "missing"})
+
+    assert caught.value.status == 404
+    assert caught.value.path == "/v1/memory/entries/get"
+    assert caught.value.code == "memory_not_found"
+    assert caught.value.server_message == "entry missing"

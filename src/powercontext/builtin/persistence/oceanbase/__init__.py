@@ -15,12 +15,14 @@
 """OceanBase async relational profile."""
 
 from powercontext.builtin.persistence.oceanbase.profile import (
+    IncompatibleOceanBaseSchemaError,
     OceanBaseConfig,
     OceanBaseProfile,
     UnsupportedOceanBaseTenantError,
 )
 
 __all__ = (
+    "IncompatibleOceanBaseSchemaError",
     "OceanBaseConfig",
     "OceanBaseProfile",
     "UnsupportedOceanBaseTenantError",

@@ -154,6 +154,74 @@ powercontext server run
 Use the same environment variable whenever you start or diagnose that instance. PowerContext creates missing parent
 directories for a file-backed SQLite database.
 
+## OceanBase startup rejects an incompatible schema
+
+Current PowerContext releases compare opaque identity columns byte-for-byte with `utf8mb4_bin`. A database created by
+an older release may still use a case-insensitive collation such as `utf8mb4_general_ci`. The Server checks existing
+identity columns before creating any missing tables and refuses to start when it finds a mismatch. The startup error
+lists each affected `table.column`, its actual collation, and the required collation; it never includes the database
+URL or credentials.
+
+Do not alter these columns in place. They participate in primary keys, foreign keys, and indexes, and an earlier
+case-insensitive deployment may already have treated distinct identities as the same value. Use a new empty database
+so the previous database remains available for recovery:
+
+1. Stop the Server and every process that writes to the database.
+2. Take and verify a full recoverable backup using your normal OceanBase backup procedure.
+3. Export the PowerContext table data with OceanBase `obdumper` in CSV or SQL data mode **without `--ddl`**. Keep the
+   export and the original database unchanged until the migration is verified. Supply credentials through your
+   approved secret-handling process rather than placing them in logs or documentation.
+4. Create a new empty OceanBase MySQL-mode database and point `POWERCONTEXT_SERVER_DATABASE_URL` at it. Start the
+   current PowerContext version once to create tables with `utf8mb4_bin`, then stop it before restoring data.
+5. Import only the exported row data into the existing new tables with OceanBase `obloader`, again **without
+   `--ddl`**. Keep foreign-key enforcement enabled and run these three layers separately. The examples use CSV; if
+   you exported SQL data, replace `--csv` with `--sql` in all three commands. Fill in `<connection-options>` through
+   your approved secret-handling process and make `<new-database>` select the database created in step 4.
+
+   Before running the commands, compare the exported table files with `SHOW TABLES` in the target database. Every
+   exported table named below must exist in the target; if one is missing, stop and create it with the current
+   PowerContext configuration before importing. Remove a name only when the source export does not contain that table.
+   If the source predates the seven `pc_handoff_report_*` tables, remove them from Layer 1. If the export contains them
+   but Handoff Report is disabled, temporarily enable it in step 4 to create the current tables, restore their data,
+   and return the setting to its intended value only after verification.
+
+   Layer 1 contains parents and tables without foreign keys:
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_external_skill_registrations,pc_model_usage_daily,pc_recall_token_daily,pc_handoff_report_projects,pc_handoff_report_project_revisions,pc_handoff_report_workstreams,pc_handoff_report_workstream_revisions,pc_handoff_report_workspace_bindings,pc_handoff_report_activity_heads,pc_handoff_report_activities' \
+     -f <export-directory>
+   ```
+
+   After Layer 1 completes successfully, import its children in Layer 2:
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_candidate_versions,pc_memory_entry_versions' \
+     -f <export-directory>
+   ```
+
+   After Layer 2 completes successfully, import the remaining children in Layer 3:
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_artifact_candidate_heads,pc_memory_entry_heads' \
+     -f <export-directory>
+   ```
+
+   Wait for each invocation to complete successfully before starting the next. Treat any OBLoader error, bad record,
+   or conflict record as a failed restore. Order within a layer is irrelevant because no table in a layer references
+   another table in the same layer.
+6. If the installation has additional PowerContext-managed tables not listed above, these tested layers do not
+   classify them. Inspect their foreign-key constraints and place each table after all of its parents; do not add
+   them to an all-table invocation.
+7. Compare source and target row counts for every restored table, inspect the identity-column collations, and test
+   identities that differ only by case or accent. Start normal traffic only after every check passes. Retain the
+   source database, verified backup, and export through the rollback window.
+
+If records were previously merged because the old collation considered their identities equal, changing the schema
+cannot reconstruct them. Resolve those records from an authoritative source before accepting writes.
+
 ## An inference readiness check fails
 
 When generation or embedding is configured, Server readiness makes one minimal real provider request. This catches
@@ -178,14 +246,45 @@ powercontext capabilities
 
 `Memory extraction: disabled` means the Server has no generation model.
 
+## Host-visible integration diagnostics
+
+The Codex, Claude Code, DSH, OpenClaw, Pi, and Hermes integrations are fail-open: a PowerContext outage does not
+block the host task. They also expose a bounded, content-free diagnostic through the host's supported channel:
+
+| Host | Diagnostic channel | Component |
+| --- | --- | --- |
+| Codex | Hook stdout `systemMessage` | `powercontext.codex.recall` |
+| Claude Code | Hook stdout `systemMessage` | `powercontext.claude_code.recall` |
+| DSH | Host logger warning | `powercontext.dsh` |
+| OpenClaw | Plugin logger warning | `powercontext.openclaw` |
+| Pi | Host terminal warning | `powercontext.pi` |
+| Hermes | Python host logger warning | `powercontext.hermes` |
+
+For example, a transport failure is returned in the hook's top-level `systemMessage`; its value is a single-line,
+content-free JSON event such as:
+
+```json
+{"systemMessage":"{\"component\":\"powercontext.codex.recall\",\"event\":\"context_prepare\",\"outcome\":\"server_unavailable\",\"recovery\":\"powercontext doctor\"}"}
+```
+
+The stable outcomes remain distinct: `authentication_failed`, `version_mismatch`, `server_unavailable`, and
+`invalid_response`. Diagnostics never include prompts, recalled content, scopes, URLs, credentials, response bodies,
+or exception text. Repeated outcomes are deduplicated within one invocation and throttled for 60 seconds using local
+state shared across hook processes; a diagnostic failure never changes the host task result.
+
+Bub is not included in this first host-diagnostic slice. Its integration will be qualified separately when its host
+diagnostic channel and native lifecycle behavior are specified.
+
 ## The coding agent continues when the Server is down
 
-This is expected. The Codex, Claude Code, and Pi integrations fail open so a Memory outage cannot block ordinary work.
-Restart the Server to restore recall and capture; the existing database is reopened automatically.
+This is expected. The supported integrations fail open so a Memory outage cannot block ordinary work. Inspect the
+host-visible diagnostic and run `powercontext doctor`; restart the Server to restore recall and capture. The existing
+database is reopened automatically.
 
 ## Codex does not inject recalled context
 
-Inspect the Hook's single-line JSON event on stderr. `empty` means the Runtime prepared no context for this turn.
+For failures, inspect the Hook's top-level `systemMessage`; its value is the single-line JSON event. `empty` means the
+Runtime prepared no context for this turn and remains a local diagnostic rather than a host warning.
 `version_mismatch` means the installed plugin expects
 `POST /v1/context/prepare` but the Server does not provide it—reinstall the plugin and tool from the same ref, then
 restart the Server. `server_unavailable` and `invalid_response` distinguish transport and contract failures. These
@@ -204,7 +303,8 @@ powercontext doctor
 ```
 
 The first command checks the Claude CLI and enabled plugin without contacting the Server. The second checks Server
-liveness and readiness. Then inspect the Hook's single-line stderr event. Claude Code uses the same Prepared Context
+liveness and readiness. For failures, inspect the Hook's top-level `systemMessage`; its value is the single-line JSON
+event. Claude Code uses the same Prepared Context
 contract as Codex, with component `powercontext.claude_code.recall`:
 
 | Outcome | Action |
@@ -241,7 +341,7 @@ powercontext doctor
 ```
 
 Restart Pi after installing the package or changing `POWERCONTEXT_PI_*` variables. In a new Pi session, run
-`/pc doctor` to check the configured Server directly. Recall is intentionally silent and fail-open: if the Server is
-unavailable, redirects, times out, or returns an invalid PreparedContext, Pi continues without adding context. Restore
-the Server, then run `powercontext capabilities` and confirm that Context versions lists
+`/pc doctor` to check the configured Server directly. Recall is fail-open and reports a content-free host terminal
+warning when the Server is unavailable, redirects, times out, or returns an invalid PreparedContext; Pi continues
+without adding context. Restore the Server, then run `powercontext capabilities` and confirm that Context versions lists
 `powercontext.prepared-context.v1`.

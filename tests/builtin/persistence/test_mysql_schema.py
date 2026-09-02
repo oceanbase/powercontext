@@ -12,12 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from sqlalchemy import BigInteger, Date, Integer, String
+import re
+from pathlib import Path
+
+from sqlalchemy import BigInteger, Date, Integer, String, Table
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
+from powercontext.builtin.handoff_report.sqlite import HANDOFF_REPORT_TABLES
 from powercontext.builtin.persistence.tables import (
     ARTIFACTS_TABLE,
+    BUILTIN_TABLES,
     SHARED_METADATA,
     SOURCE_CURSORS_TABLE,
     SOURCES_TABLE,
@@ -64,6 +69,58 @@ def test_mysql_ddl_uses_mediumblob_for_every_canonical_payload() -> None:
     for table, column_name in expected.items():
         ddl = str(CreateTable(table).compile(dialect=dialect))
         assert f"{column_name} MEDIUMBLOB NOT NULL" in ddl
+
+
+def _assert_restore_layers_are_parent_first(
+    restore_layers: tuple[tuple[str, ...], ...],
+    tables: tuple[Table, ...],
+) -> None:
+    restored_tables = tuple(table_name for layer in restore_layers for table_name in layer)
+    table_names = {table.name for table in tables}
+
+    assert len(restored_tables) == len(set(restored_tables)) == len(tables)
+    assert set(restored_tables) == table_names
+
+    foreign_keys = tuple(
+        (table, constraint)
+        for table in tables
+        for constraint in table.constraints
+        if isinstance(constraint, ForeignKeyConstraint)
+    )
+
+    layer_by_table = {
+        table_name: layer_index for layer_index, layer in enumerate(restore_layers) for table_name in layer
+    }
+    for table, foreign_key in foreign_keys:
+        parent_table_name = foreign_key.referred_table.name
+        assert layer_by_table[parent_table_name] < layer_by_table[table.name]
+
+
+def test_documented_obloader_restore_layers_are_parent_first() -> None:
+    restore_guides = (
+        Path("docs/en/docs/how-to/troubleshoot.md"),
+        Path("docs/zh/docs/how-to/troubleshoot.md"),
+    )
+    restore_plans = tuple(
+        tuple(
+            tuple(table_names.split(","))
+            for table_names in re.findall(r"--table '([^']+)'", guide.read_text(encoding="utf-8"))
+        )
+        for guide in restore_guides
+    )
+    assert all(len(restore_layers) == 3 for restore_layers in restore_plans)
+    assert len(set(restore_plans)) == 1
+
+    restore_layers = restore_plans[0]
+    _assert_restore_layers_are_parent_first(restore_layers, BUILTIN_TABLES + HANDOFF_REPORT_TABLES)
+
+    handoff_report_table_names = {table.name for table in HANDOFF_REPORT_TABLES}
+    assert handoff_report_table_names <= set(restore_layers[0])
+    core_only_layers = tuple(
+        tuple(table_name for table_name in layer if table_name not in handoff_report_table_names)
+        for layer in restore_layers
+    )
+    _assert_restore_layers_are_parent_first(core_only_layers, BUILTIN_TABLES)
 
 
 def test_every_mysql_utf8mb4_key_stays_below_the_innodb_limit() -> None:

@@ -36,7 +36,7 @@ benchmark:
         accessible: 86.73 percent task resolution
         metric: tasks resolved with PowerContext on
   orientation:
-    title: Two benchmarks. Two different questions.
+    title: Two benchmarks, two questions.
     lead: "Memory quality matters twice: first when an agent must recover what happened, then when it must use context to finish real work."
     tests:
       - name: LoCoMo
@@ -128,7 +128,7 @@ benchmark:
     scope_title: What this result covers
     scope: The 90.78% result is 1,398 correct answers from 1,540 questions in categories 1-4. It does not claim results for LoCoMo event summarization or multimodal dialogue generation.
   swe:
-    title: SWE-bench Pro tests whether context changes the patch.
+    title: Does context improve the patch?
     lead: Each task starts from a real codebase and issue. Codex edits the repository, and the official task tests decide whether the patch resolves the problem.
     method:
       - title: Same task set
@@ -422,8 +422,10 @@ benchmark:
           score: 1.51%
           ci: ±1.51
   reading:
-    title: Read each result for the question it answers.
+    title: Compare what each result measures.
     lead: The two evaluations share a context theme, but their inputs, outputs, and graders are intentionally different.
+    scroll_hint: Swipe sideways to compare both evaluations.
+    table_label: Comparison of the LoCoMo and SWE-bench Pro evaluations
     columns:
       dimension: Evaluation dimension
     rows:

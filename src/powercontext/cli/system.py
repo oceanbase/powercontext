@@ -34,6 +34,7 @@ from urllib.request import Request, urlopen
 import typer
 from pydantic import ValidationError
 
+from powercontext.client.settings import normalize_server_url
 from powercontext.http import HealthResponse, ReadinessResponse, ReadinessStatus
 from powercontext.paths import powercontext_data_dir
 from powercontext.transport import is_loopback_host
@@ -770,7 +771,10 @@ def doctor(
     context: typer.Context,
     server_url: Annotated[
         str,
-        typer.Option(help="PowerContext Server base URL."),
+        typer.Option(
+            envvar="POWERCONTEXT_CLIENT_SERVER_URL",
+            help="PowerContext Server base URL.",
+        ),
     ] = "http://127.0.0.1:8000",
     json_output: Annotated[
         bool,
@@ -1043,7 +1047,12 @@ def run_diagnostics(*, server_url: str) -> dict[str, Diagnostic]:
     """Collect installed-environment diagnostics without changing state."""
 
     package = Diagnostic(status=DiagnosticStatus.OK, detail=f"powercontext {version('powercontext')}")
-    liveness = _server_liveness_diagnostic(server_url)
+    try:
+        server_url = normalize_server_url(server_url)
+    except ValueError as error:
+        liveness = Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error))
+    else:
+        liveness = _server_liveness_diagnostic(server_url)
     readiness = (
         _server_readiness_diagnostic(server_url)
         if liveness.ok
@@ -1146,9 +1155,6 @@ def run_claude_code_diagnostics() -> dict[str, Diagnostic]:
 
 
 def _server_liveness_diagnostic(server_url: str) -> Diagnostic:
-    error = _server_url_error(server_url)
-    if error is not None:
-        return Diagnostic(status=DiagnosticStatus.FAILED, detail=error)
     try:
         status_code, payload = _request_json(server_url, "/health/live")
     except OSError:
@@ -1187,20 +1193,6 @@ def _server_readiness_diagnostic(server_url: str) -> Diagnostic:
         detail=f"{server_url} status={readiness.status.value}",
         checks=readiness.checks,
     )
-
-
-def _server_url_error(server_url: str) -> str | None:
-    parsed = urlsplit(server_url)
-    if (
-        parsed.scheme not in {"http", "https"}
-        or parsed.hostname is None
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-    ):
-        return "Server URL must be an HTTP base URL without credentials or query data"
-    return None
 
 
 def _request_json(server_url: str, path: str) -> tuple[int, object]:

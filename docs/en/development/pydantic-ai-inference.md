@@ -46,8 +46,49 @@ export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID="project-embedding-v1"
 export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION="1536"
 ```
 
-Provider credentials remain in the environment variables understood by the selected Pydantic AI provider. They are
-not fields on PowerContext models.
+Each workload can target a different model service. Custom base URLs use the provider interface named by the model
+identifier; use `openai-chat:<model>` for an OpenAI-compatible Chat Completions service, `openai:<model>` for an
+OpenAI-compatible Responses or embeddings service, and `anthropic:<model>` for an Anthropic-compatible generation
+service. The built-in reranker is an LLM listwise reranker, so its independent endpoint is also a Pydantic AI generation
+endpoint rather than a cross-encoder `/rerank` API:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="openai-chat:generator"
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL="http://127.0.0.1:8080/v1"
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS='{"Authorization":"Bearer generation-secret"}'
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS='{"max_tokens":4096}'
+
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL="openai:embedding"
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL="http://127.0.0.1:8081/v1"
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS='{"Authorization":"Bearer embedding-secret"}'
+export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL_SETTINGS='{"dimensions":1536}'
+
+export POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL="openai-chat:reranker"
+export POWERCONTEXT_SERVER_INFERENCE_RERANK_BASE_URL="http://127.0.0.1:8082/v1"
+export POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS='{"Authorization":"Bearer rerank-secret"}'
+export POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL_SETTINGS='{"max_tokens":256}'
+```
+
+The header and model-settings values are JSON objects. Header values are treated as secrets by settings models and are
+installed as static headers on the workload's provider client. They are not included in Pydantic AI request settings.
+Do not put `extra_headers` inside a model-settings object; use the dedicated headers variable so configuration and log
+redaction remain effective. Pydantic AI passes the remaining model settings through to the selected provider. The
+reranker always fixes `temperature` to zero. A custom embedding base URL currently requires the OpenAI-compatible
+embeddings interface.
+
+A base URL may contain a gateway path prefix. The selected Pydantic AI provider still owns the operation suffix, such
+as `/chat/completions`, `/responses`, or `/embeddings`; arbitrary operation-path rewriting is not supported.
+Custom base URLs and static headers require an explicit OpenAI- or Anthropic-compatible model identifier so
+PowerContext can construct the corresponding provider client.
+
+When `RERANK_MODEL` is unset, LLM reranking reuses the generation model and base URL. Reranker headers and model
+settings can still extend or override the generation configuration. A header override creates a separate provider
+client for the rerank workload while retaining the generation model identifier and base URL. A separate reranker base
+URL requires an explicit reranker model. The reranker timeout and request limit inherit their generation counterparts
+unless they are set explicitly.
+
+When no custom base URL or headers are needed, provider credentials remain in the environment variables understood by
+the selected Pydantic AI provider.
 
 The Server rejects a partial embedding profile. `embedding_model`, `embedding_profile_id`, and `embedding_dimension`
 must be configured together. SQLite vector search uses that embedding configuration because the index dimension and

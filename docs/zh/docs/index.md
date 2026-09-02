@@ -1,20 +1,22 @@
 ---
 template: docs-overview.html
-title: 选择 Agent 或 API，跑通第一个闭环
+title: 选择 Agent 或 API
 description: 为现有 AI 应用接入 HTTP Memory API，或为选定 Agent 配置集成并验证 Memory 与 Handoff。
 page_type: docs-overview
 overview:
   intro: 第一次使用时，先选择自己的入口。已有 AI 应用可以直接使用 HTTP API；使用 Codex、Claude Code、OpenCode 等 Host 时，从 Agent 分步入门开始。
   sections:
-    - title: 推荐学习路径
-      description: 先通过 API 或 Agent 跑通本地闭环，再按需要接入其他 Host 或更完整的工作流程。
+    - title: 从这里开始
+      description: 先通过 API 或 Agent 跑通一次。其余说明帮助你在所用 Agent 中继续工作。
       cards:
         - title: HTTP API 生命周期教程
           description: 用一个小型 Python 流程接入上下文、Experience、Skill 与 Review；接口参考统一使用 Scalar。
           href: zh/docs/tutorials/api-quickstart/
+          featured: true
         - title: Agent 分步入门
           description: 选择 Host，安装并诊断集成，跑通 Memory，再按一句话、pc_* 或 /pc 路径完成 Handoff。
           href: zh/docs/tutorials/agent-quickstart/
+          featured: true
         - title: Codex 完整教程
           description: 深入 Codex Hook、MCP Skill、Memory 生命周期与一句话 durable Handoff。
           href: zh/docs/tutorials/codex-quickstart/

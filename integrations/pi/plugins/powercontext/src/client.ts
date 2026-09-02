@@ -191,7 +191,7 @@ export class PowerContextClient {
     const bytes = await readLimitedBody(response)
     const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined
     if (response.status < 200 || response.status >= 300) {
-      throw this.httpError(response.status, requestId, bytes)
+      throw this.httpError(response.status, spec.path, requestId, bytes)
     }
     try {
       return { kind: 'json', value: JSON.parse(Buffer.from(bytes).toString('utf8')), status: response.status, requestId }
@@ -200,10 +200,16 @@ export class PowerContextClient {
     }
   }
 
-  private httpError(status: number, requestId: string | undefined, bytes: Uint8Array): ServerResponseError {
+  private httpError(
+    status: number,
+    path: string,
+    requestId: string | undefined,
+    bytes: Uint8Array,
+  ): ServerResponseError {
     const decoded = decodeError(bytes)
     return new ServerResponseError({
       statusCode: status,
+      path,
       requestId,
       code: decoded.code,
       message: decoded.message,

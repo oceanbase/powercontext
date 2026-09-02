@@ -16,12 +16,31 @@
 
 from __future__ import annotations
 
-from pydantic import Field, HttpUrl, SecretStr, TypeAdapter, field_validator
+from urllib.parse import urlsplit
+
+from pydantic import Field, HttpUrl, SecretStr, TypeAdapter, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from powercontext.transport import is_plaintext_non_loopback
 
 _HTTP_URL = TypeAdapter(HttpUrl)
+
+
+def normalize_server_url(value: str) -> str:
+    """Validate and normalize a Server URL for outbound Client and CLI requests."""
+
+    try:
+        normalized = str(_HTTP_URL.validate_python(value)).rstrip("/")
+    except ValidationError as error:
+        raise ValueError("PowerContext Server URL must be a valid HTTP or HTTPS URL") from error  # noqa: TRY003
+    parsed = urlsplit(normalized)
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("PowerContext Server URL must not contain credentials")  # noqa: TRY003
+    if parsed.query or parsed.fragment:
+        raise ValueError("PowerContext Server URL must not contain a query or fragment")  # noqa: TRY003
+    if is_plaintext_non_loopback(normalized):
+        raise ValueError("Unencrypted PowerContext Server URLs must be loopback addresses")  # noqa: TRY003
+    return normalized
 
 
 class ClientSettings(BaseSettings):
@@ -40,17 +59,7 @@ class ClientSettings(BaseSettings):
     @field_validator("server_url")
     @classmethod
     def validate_server_url(cls, value: str) -> str:
-        from urllib.parse import urlsplit
-
-        normalized = str(_HTTP_URL.validate_python(value)).rstrip("/")
-        parsed = urlsplit(normalized)
-        if parsed.username is not None or parsed.password is not None:
-            raise ValueError("PowerContext Server URL must not contain credentials")  # noqa: TRY003
-        if parsed.query or parsed.fragment:
-            raise ValueError("PowerContext Server URL must not contain a query or fragment")  # noqa: TRY003
-        if is_plaintext_non_loopback(normalized):
-            raise ValueError("Unencrypted PowerContext Server URLs must be loopback addresses")  # noqa: TRY003
-        return normalized
+        return normalize_server_url(value)
 
 
-__all__ = ["ClientSettings"]
+__all__ = ["ClientSettings", "normalize_server_url"]
