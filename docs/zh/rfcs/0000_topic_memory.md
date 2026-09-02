@@ -1,6 +1,6 @@
 - Proposal Name: `topic_memory`
 - Start Date: 2026-09-01
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#1417](https://github.com/oceanbase/powercontext/pull/1417)
 - Related RFCs: [RFC 0014](0014_memory_layer_design.md)、[RFC 0019](0019_local_source_memory_runtime.md)、
   [RFC 0051](0051_experience_skill_artifact_families.md)、[RFC 0080](0080_memory_search_reranking.md) 和
   [RFC 0081](0081_end_to_end_evaluation_architecture.md)
