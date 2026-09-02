@@ -270,6 +270,43 @@ ARTIFACT_LINEAGE_ARTIFACTS_TABLE = Table(
     ),
 )
 
+ARTIFACT_PUBLICATIONS_TABLE = Table(
+    "pc_artifact_publications",
+    SHARED_METADATA,
+    Column("target_scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("target_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("target_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("target_revision", Integer, primary_key=True),
+    Column("source_scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    Column("source_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("source_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), nullable=False),
+    Column("source_revision", Integer, nullable=False),
+    Column("content_digest", identity_string(64), nullable=False),
+    Column("idempotency_key", identity_string(MAX_SCOPE_IDEMPOTENCY_KEY_LENGTH), nullable=False),
+    ForeignKeyConstraint(
+        ("target_scope_id", "target_family", "target_artifact_id", "target_revision"),
+        (
+            "pc_artifacts.scope_id",
+            "pc_artifacts.family",
+            "pc_artifacts.artifact_id",
+            "pc_artifacts.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    ForeignKeyConstraint(
+        ("source_scope_id", "source_family", "source_artifact_id", "source_revision"),
+        (
+            "pc_artifacts.scope_id",
+            "pc_artifacts.family",
+            "pc_artifacts.artifact_id",
+            "pc_artifacts.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    UniqueConstraint("target_scope_id", "idempotency_key", name="uq_pc_artifact_publications_request"),
+)
+
+
 ARTIFACT_CANDIDATE_VERSIONS_TABLE = Table(
     "pc_artifact_candidate_versions",
     SHARED_METADATA,
@@ -438,6 +475,7 @@ SHARED_TABLES = (
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
+    ARTIFACT_PUBLICATIONS_TABLE,
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     SOURCE_CURSORS_TABLE,

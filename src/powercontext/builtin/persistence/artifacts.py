@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import (
     Artifact,
+    ArtifactAddress,
     ArtifactDraft,
     ArtifactLineage,
     ArtifactRef,
@@ -33,6 +34,7 @@ from powercontext.artifacts import (
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
 from powercontext.builtin.persistence.errors import (
     IdentityMismatchError,
+    InvalidPublicationLineageError,
     InvalidRepositoryArgumentError,
     RepositoryNotFoundError,
 )
@@ -40,6 +42,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
+    ARTIFACT_PUBLICATIONS_TABLE,
     ARTIFACTS_TABLE,
 )
 from powercontext.errors import (
@@ -240,6 +243,42 @@ class ArtifactRepository:
             revisions.append(await self._decode_row(connection, row))
         return tuple(revisions)
 
+    async def copy_exact(
+        self,
+        connection: AsyncConnection,
+        target_scope_id: str,
+        target_artifact_id: str,
+        source_address: ArtifactAddress,
+        source: Artifact[Any],
+        content_digest: str,
+        /,
+    ) -> Artifact[Any]:
+        """Create an independent target lifecycle from one exact source revision."""
+
+        _require_scope(target_scope_id)
+        artifact_type = self._artifact_type(source.family)
+        ref = ArtifactRef(family=source.family, artifact_id=target_artifact_id, revision=1)
+        copied = await self._insert_revision(
+            connection,
+            target_scope_id,
+            artifact_type,
+            ref,
+            source.content,
+            ArtifactLineage(
+                publication_source=source.lineage.publication_source or source_address,
+                publication_digest=source.lineage.publication_digest or content_digest,
+            ),
+        )
+        await connection.execute(
+            insert(ARTIFACT_HEADS_TABLE).values(
+                scope_id=target_scope_id,
+                family=ref.family,
+                artifact_id=ref.artifact_id,
+                revision=ref.revision,
+            )
+        )
+        return copied
+
     async def _insert_revision(
         self,
         connection: AsyncConnection,
@@ -370,6 +409,10 @@ class ArtifactRepository:
                 .order_by(ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.ordinal)
             )
         ).all()
+        publication_source, publication_digest = await self._load_publication_provenance(
+            connection,
+            ArtifactAddress(scope_id=scope_id, artifact=ref),
+        )
         return ArtifactLineage(
             sources=tuple(SourceRef(source_type=str(row.source_type), source_id=str(row.source_id)) for row in sources),
             artifacts=tuple(
@@ -380,7 +423,61 @@ class ArtifactRepository:
                 )
                 for row in artifacts
             ),
+            publication_source=publication_source,
+            publication_digest=publication_digest,
         )
+
+    async def _load_publication_provenance(
+        self,
+        connection: AsyncConnection,
+        target: ArtifactAddress,
+    ) -> tuple[ArtifactAddress | None, str | None]:
+        """Resolve a publication chain to the Scope that owns the original revision."""
+
+        current = target
+        digest: str | None = None
+        visited: set[tuple[str, str, str, int]] = set()
+        while True:
+            key = (
+                current.scope_id,
+                current.artifact.family,
+                current.artifact.artifact_id,
+                current.artifact.revision,
+            )
+            if key in visited:
+                raise InvalidPublicationLineageError("cycle")
+            visited.add(key)
+
+            publication = (
+                (
+                    await connection.execute(
+                        select(ARTIFACT_PUBLICATIONS_TABLE).where(
+                            ARTIFACT_PUBLICATIONS_TABLE.c.target_scope_id == current.scope_id,
+                            ARTIFACT_PUBLICATIONS_TABLE.c.target_family == current.artifact.family,
+                            ARTIFACT_PUBLICATIONS_TABLE.c.target_artifact_id == current.artifact.artifact_id,
+                            ARTIFACT_PUBLICATIONS_TABLE.c.target_revision == current.artifact.revision,
+                        )
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if publication is None:
+                return (None, None) if digest is None else (current, digest)
+
+            current_digest = str(publication["content_digest"])
+            if digest is None:
+                digest = current_digest
+            elif digest != current_digest:
+                raise InvalidPublicationLineageError("digest")
+            current = ArtifactAddress(
+                scope_id=str(publication["source_scope_id"]),
+                artifact=ArtifactRef(
+                    family=str(publication["source_family"]),
+                    artifact_id=str(publication["source_artifact_id"]),
+                    revision=int(publication["source_revision"]),
+                ),
+            )
 
     async def _head_conflict(
         self,
