@@ -1,6 +1,6 @@
 - Proposal Name: `explainable_prepared_context_receipts`
 - Start Date: 2026-09-02
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#1435](https://github.com/oceanbase/powercontext/pull/1435)
 - Tracking Issue: [oceanbase/powercontext#1356](https://github.com/oceanbase/powercontext/issues/1356)
 - Related RFCs: [RFC 0014](0014_memory_layer_design.md)、[RFC 0028](0028_context_pack.md)、
   [RFC 0046](0046_observability_foundations.md)、[RFC 0080](0080_memory_search_reranking.md)
