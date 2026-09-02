@@ -348,6 +348,48 @@ def test_remote_enroll_requires_and_persists_explicit_cleartext_http_permission(
     assert "WARNING" in accepted.output
 
 
+def test_remote_enroll_does_not_consume_code_when_credential_destination_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enrollment_calls = 0
+
+    class EnrollmentClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def enroll_remote_skill_target(self, _request: object) -> None:
+            nonlocal enrollment_calls
+            enrollment_calls += 1
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: EnrollmentClient())
+    workspace = tmp_path / "project"
+    destination = workspace / ".powercontext/remote-skill-target.json"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("existing credential\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        create_cli([]),
+        [
+            "--server-url",
+            "http://127.0.0.1:8765",
+            "skill",
+            "remote-enroll",
+            "--workspace",
+            str(workspace),
+            "--enrollment-code",
+            "e" * 32,
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert enrollment_calls == 0
+    assert destination.read_text(encoding="utf-8") == "existing credential\n"
+
+
 @pytest.mark.parametrize(
     ("arguments", "sync_result", "expected_output"),
     (
@@ -360,6 +402,11 @@ def test_remote_enroll_requires_and_persists_explicit_cleartext_http_permission(
             ["--json", "skill", "remote-sync"],
             ReceiverSyncResult(requested=1, succeeded=1, failed=0, receipt_pending=1),
             '"receipt_pending": 1',
+        ),
+        (
+            ["skill", "remote-sync"],
+            ReceiverSyncResult(requested=0, succeeded=0, failed=0, receipt_pending=1),
+            "1 Receipts pending (0 actions)",
         ),
     ),
 )

@@ -1831,17 +1831,15 @@ def _target_credential(request: Request) -> str:
 def _require_secure_remote_transport(request: Request) -> None:
     if request.url.scheme.casefold() == "https":
         return
-    host = request.url.hostname
-    if host is not None and _loopback_host(host):
+    peer = request.client
+    if peer is not None and _loopback_peer(peer.host):
         return
     if request.app.state.allow_insecure_remote_http:
         return
     raise InvalidRuntimeRequestError("remote-skill-https")
 
 
-def _loopback_host(host: str) -> bool:
-    if host.casefold() == "localhost":
-        return True
+def _loopback_peer(host: str) -> bool:
     try:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:

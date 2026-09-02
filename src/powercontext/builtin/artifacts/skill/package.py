@@ -23,7 +23,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import mimetypes
 import os
 import re
 import stat
@@ -49,6 +48,30 @@ _CANONICAL_TREE_DOMAIN = b"powercontext.skill-package-tree.v1\0"
 _FORBIDDEN_COMPONENTS = frozenset({".env", ".git", "node_modules"})
 _SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+# This mapping is part of the stored manifest contract. Keep it host-independent and append-only.
+_MEDIA_TYPES_BY_SUFFIX = {
+    ".css": "text/css",
+    ".csv": "text/csv",
+    ".gif": "image/gif",
+    ".htm": "text/html",
+    ".html": "text/html",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".js": "text/javascript",
+    ".json": "application/json",
+    ".md": "text/markdown",
+    ".mjs": "text/javascript",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".py": "text/x-python",
+    ".sh": "application/x-sh",
+    ".svg": "image/svg+xml",
+    ".txt": "text/plain",
+    ".wasm": "application/wasm",
+    ".xml": "text/xml",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+}
 
 
 class SkillPackageError(ValueError):
@@ -207,12 +230,16 @@ def build_instruction_skill_package(content: SkillContent, /) -> SkillPackageSna
     return _canonical_snapshot((_PackageFile(SKILL_ENTRYPOINT, skill_markdown, 0o644),), expected_name=content.name)
 
 
-def _directory_files(root: Path) -> tuple[_PackageFile, ...]:
+def _directory_files(root: Path) -> tuple[_PackageFile, ...]:  # noqa: C901
     files: list[_PackageFile] = []
     seen_inodes: set[tuple[int, int]] = set()
+    total_bytes = 0
     for path in sorted(root.rglob("*"), key=lambda value: value.relative_to(root).as_posix()):
         relative = _validate_relative_path(path.relative_to(root).as_posix())
-        file_stat = path.lstat()
+        try:
+            file_stat = path.lstat()
+        except OSError as error:
+            raise SkillPackageError(f"Agent Skill package file is unreadable: {relative}") from error
         if stat.S_ISLNK(file_stat.st_mode):
             raise SkillPackageError(f"Agent Skill package contains a symbolic link: {relative}")
         if stat.S_ISDIR(file_stat.st_mode):
@@ -222,24 +249,36 @@ def _directory_files(root: Path) -> tuple[_PackageFile, ...]:
         inode = (file_stat.st_dev, file_stat.st_ino)
         if file_stat.st_nlink > 1 or inode in seen_inodes:
             raise SkillPackageError(f"Agent Skill package contains a hard link: {relative}")
-        seen_inodes.add(inode)
+        if len(files) >= MAX_SKILL_PACKAGE_FILES:
+            raise SkillPackageError("Agent Skill package has an unsupported file count")
+        remaining = MAX_SKILL_PACKAGE_BYTES - total_bytes
         try:
-            with path.open("rb") as stream:
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(path, flags)
+            with os.fdopen(descriptor, "rb") as stream:
                 before = os.fstat(stream.fileno())
-                content = stream.read(MAX_SKILL_PACKAGE_BYTES + 1)
+                if not _same_file(file_stat, before) or not stat.S_ISREG(before.st_mode) or before.st_nlink > 1:
+                    raise SkillPackageError(f"Agent Skill package changed during capture: {relative}")
+                content = stream.read(remaining + 1)
                 after = os.fstat(stream.fileno())
         except OSError as error:
             raise SkillPackageError(f"Agent Skill package file is unreadable: {relative}") from error
         if _changed_during_read(before, after):
             raise SkillPackageError(f"Agent Skill package changed during capture: {relative}")
-        files.append(_PackageFile(relative, content, _normalized_mode(file_stat.st_mode)))
+        if len(content) > remaining:
+            raise SkillPackageError("Agent Skill package exceeds the supported uncompressed size")
+        seen_inodes.add((before.st_dev, before.st_ino))
+        total_bytes += len(content)
+        files.append(_PackageFile(relative, content, _normalized_mode(before.st_mode)))
     return tuple(files)
 
 
-def _archive_files(archive_bytes: bytes) -> tuple[_PackageFile, ...]:
+def _archive_files(archive_bytes: bytes) -> tuple[_PackageFile, ...]:  # noqa: C901
     files: list[_PackageFile] = []
     seen_paths: set[str] = set()
     with zipfile.ZipFile(io.BytesIO(archive_bytes), "r") as archive:
+        entries: list[tuple[zipfile.ZipInfo, str, int]] = []
+        total_bytes = 0
         for info in archive.infolist():
             path = _validate_relative_path(info.filename.rstrip("/") if info.is_dir() else info.filename)
             collision_key = _path_collision_key(path)
@@ -256,8 +295,15 @@ def _archive_files(archive_bytes: bytes) -> tuple[_PackageFile, ...]:
                 raise SkillPackageError(f"Agent Skill archive contains a non-regular entry: {path}")
             if info.file_size > MAX_SKILL_PACKAGE_BYTES:
                 raise SkillPackageError(f"Agent Skill archive entry exceeds the supported size: {path}")
+            if len(entries) >= MAX_SKILL_PACKAGE_FILES:
+                raise SkillPackageError("Agent Skill package has an unsupported file count")
+            total_bytes += info.file_size
+            if total_bytes > MAX_SKILL_PACKAGE_BYTES:
+                raise SkillPackageError("Agent Skill package exceeds the supported uncompressed size")
+            entries.append((info, path, mode))
+        for info, path, mode in entries:
             with archive.open(info, "r") as stream:
-                content = stream.read(MAX_SKILL_PACKAGE_BYTES + 1)
+                content = stream.read(info.file_size + 1)
             if len(content) != info.file_size:
                 raise SkillPackageError(f"Agent Skill archive entry size does not match: {path}")
             files.append(_PackageFile(path, content, _normalized_mode(mode)))
@@ -289,7 +335,7 @@ def _canonical_snapshot(
                 path=path,
                 digest=hashlib.sha256(value.content).hexdigest(),
                 size=len(value.content),
-                media_type=mimetypes.guess_type(path)[0] or "application/octet-stream",
+                media_type=_media_type(path),
                 mode=value.mode,
             )
         )
@@ -466,6 +512,14 @@ def _changed_during_read(before: os.stat_result, after: os.stat_result) -> bool:
         after.st_mtime_ns,
         after.st_ctime_ns,
     )
+
+
+def _same_file(checked: os.stat_result, opened: os.stat_result) -> bool:
+    return (checked.st_dev, checked.st_ino) == (opened.st_dev, opened.st_ino)
+
+
+def _media_type(path: str) -> str:
+    return _MEDIA_TYPES_BY_SUFFIX.get(PurePosixPath(path).suffix.casefold(), "application/octet-stream")
 
 
 def _remove_partial_tree(path: Path) -> None:

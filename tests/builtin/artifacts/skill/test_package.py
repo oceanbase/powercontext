@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import io
+import os
 import stat
 import zipfile
 from pathlib import Path
 
 import pytest
 
+import powercontext.builtin.artifacts.skill.package as package_module
 from powercontext.builtin.artifacts.skill import (
     MAX_SKILL_PACKAGE_BYTES,
     MAX_SKILL_PACKAGE_FILES,
@@ -164,6 +166,51 @@ def test_archive_rejects_decompression_and_file_count_bounds() -> None:
     entries.extend((f"references/{index}.txt", b"x") for index in range(MAX_SKILL_PACKAGE_FILES))
     with pytest.raises(SkillPackageError, match="file count"):
         capture_skill_archive(_zip_entries(entries))
+
+
+def test_archive_rejects_aggregate_size_before_decompressing_entries(monkeypatch: pytest.MonkeyPatch) -> None:
+    oversized = _zip_entries((
+        ("SKILL.md", b"---\nname: safe-skill\ndescription: Safe.\n---\n"),
+        ("assets/first.bin", b"x" * (MAX_SKILL_PACKAGE_BYTES // 2)),
+        ("assets/second.bin", b"y" * (MAX_SKILL_PACKAGE_BYTES // 2)),
+    ))
+    opened = 0
+    original_open = zipfile.ZipFile.open
+
+    def observe_open(self, *args, **kwargs):
+        nonlocal opened
+        opened += 1
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", observe_open)
+
+    with pytest.raises(SkillPackageError, match="uncompressed size"):
+        capture_skill_archive(oversized)
+
+    assert opened == 0
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the deterministic symlink swap requires Unix symlink semantics")
+def test_directory_capture_rejects_a_file_replaced_by_a_symlink_before_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = _write_package(tmp_path)
+    victim = package / "references/policy.md"
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("must not be captured\n", encoding="utf-8")
+    original_open = package_module.os.open
+
+    def replace_before_open(path, flags, *args, **kwargs):
+        if Path(path) == victim:
+            victim.unlink()
+            victim.symlink_to(outside)
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(package_module.os, "open", replace_before_open)
+
+    with pytest.raises(SkillPackageError, match=r"unreadable|changed during capture"):
+        capture_skill_directory(package)
 
 
 def test_directory_requires_standard_name_to_match_package_root(tmp_path: Path) -> None:

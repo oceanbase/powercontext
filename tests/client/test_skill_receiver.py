@@ -24,7 +24,12 @@ import pytest
 from pydantic import SecretStr
 
 import powercontext.client.skill_receiver as receiver_module
-from powercontext.builtin.artifacts.skill import SkillContent, build_instruction_skill_package
+from powercontext.builtin.artifacts.skill import (
+    AgentEnvironmentProfile,
+    SkillContent,
+    build_instruction_skill_package,
+    capture_skill_directory,
+)
 from powercontext.client.errors import ServerResponseError, TransportError
 from powercontext.client.skill_receiver import ReceiverSyncResult, RemoteSkillReceiver, RemoteSkillReceiverConfig
 from powercontext.http import (
@@ -44,8 +49,10 @@ class _FakeRemoteClient:
         self.packages: dict[str, SkillPackageDownload] = {}
         self.receipts = []
         self.fail_receipts = 0
+        self.reconcile_requests = []
 
     async def reconcile_remote_skills(self, request):
+        self.reconcile_requests.append(request)
         actions = self.actions.pop(0)
         return ReconcileRemoteSkillsResponse(scope_id="project:one", target_id="codex-a", actions=actions)
 
@@ -185,7 +192,7 @@ def test_receiver_installs_to_agent_owned_project_root_and_recovers_a_lost_recei
         package = _package("Run the release checks.")
         client = _FakeRemoteClient()
         action = _install_action(package)
-        client.actions = [[action], [action]]
+        client.actions = [[action], []]
         client.packages[package.reference.tree_digest] = _download(package)
         client.fail_receipts = 1
         receiver = _receiver(tmp_path, client, agent_kind=agent_kind)
@@ -197,7 +204,7 @@ def test_receiver_installs_to_agent_owned_project_root_and_recovers_a_lost_recei
         inode = destination.stat().st_ino
 
         second = await receiver.sync()
-        assert second.succeeded == 1
+        assert second.requested == 0
         assert destination.stat().st_ino == inode
         assert client.receipts[-1].observed_tree_digest == package.reference.tree_digest
         assert not list((tmp_path / ".powercontext/skill-receiver/codex-a/journals").glob("*.json"))
@@ -252,8 +259,7 @@ def test_receiver_keeps_unpublish_quarantine_until_receipt_and_finishes_after_re
             expected_local=observation,
             blocked_error_code=None,
         )
-        retry = remove.model_copy(update={"expected_local": None})
-        client.actions = [[remove], [retry]]
+        client.actions = [[remove], []]
         client.fail_receipts = 1
 
         first = await receiver.sync()
@@ -262,9 +268,15 @@ def test_receiver_keeps_unpublish_quarantine_until_receipt_and_finishes_after_re
         assert list(tmp_path.glob(".agents/.powercontext-quarantine-*"))
 
         second = await receiver.sync()
-        assert second.succeeded == 1
+        assert second.requested == 0
         assert not list(tmp_path.glob(".agents/.powercontext-quarantine-*"))
         assert not list((tmp_path / ".powercontext/skill-receiver/codex-a/journals").glob("*.json"))
+
+        republish = _install_action(package, generation=2)
+        client.actions = [[republish]]
+        republished = await receiver.sync()
+        assert republished.succeeded == 1
+        assert (tmp_path / ".agents/skills/release-check").is_dir()
 
     asyncio.run(exercise())
 
@@ -315,7 +327,7 @@ def test_receiver_recovers_an_interrupted_atomic_update_from_its_signed_journal(
             applied_generation=first.generation,
         )
         update = _install_action(second_package, revision=2, generation=1, expected=observed)
-        client.actions = [[update], [update]]
+        client.actions = [[update], []]
         original_replace = receiver_module.os.replace
 
         def interrupt_new_package(source, destination) -> None:
@@ -338,10 +350,115 @@ def test_receiver_recovers_an_interrupted_atomic_update_from_its_signed_journal(
 
         monkeypatch.setattr(receiver_module.os, "replace", original_replace)
         recovered = await receiver.sync()
-        assert recovered.succeeded == 1
+        assert recovered.requested == 0
         assert "stricter" in (tmp_path / ".agents/skills/release-check/SKILL.md").read_text(encoding="utf-8")
+        assert client.reconcile_requests[-1].observations[0].actual_tree_digest == second_package.reference.tree_digest
         assert not list(tmp_path.glob(".agents/.powercontext-stage-*"))
         assert not list(tmp_path.glob(".agents/.powercontext-quarantine-*"))
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    ("agent_kind", "expected_state"),
+    (("codex", RemoteSkillFailureState.INCOMPATIBLE), ("claude_code", None)),
+)
+def test_receiver_validates_agent_specific_package_rules_before_installing(
+    tmp_path: Path,
+    agent_kind: Literal["codex", "claude_code"],
+    expected_state: RemoteSkillFailureState | None,
+) -> None:
+    async def exercise() -> None:
+        package = build_instruction_skill_package(
+            SkillContent(
+                name="release-check",
+                description="Review <untrusted> release input.",
+                instructions="Run the release checks.",
+                validation=("The report passes.",),
+            )
+        )
+        client = _FakeRemoteClient()
+        action = _install_action(package)
+        client.actions = [[action]]
+        client.packages[package.reference.tree_digest] = _download(package)
+        workspace = tmp_path / agent_kind
+
+        result = await _receiver(workspace, client, agent_kind=agent_kind).sync()
+
+        destination_root = ".agents/skills" if agent_kind == "codex" else ".claude/skills"
+        if expected_state is None:
+            assert result.succeeded == 1
+            assert (workspace / destination_root / "release-check").is_dir()
+        else:
+            assert result.failed == 1
+            assert client.receipts[-1].failure_state is expected_state
+            assert not (workspace / destination_root / "release-check").exists()
+
+    asyncio.run(exercise())
+
+
+def test_receiver_rejects_package_name_mismatch_before_installing(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        package = _package("Run the release checks.")
+        client = _FakeRemoteClient()
+        action = _install_action(package).model_copy(update={"skill_name": "different-name"})
+        client.actions = [[action]]
+        client.packages[package.reference.tree_digest] = _download(package)
+
+        result = await _receiver(tmp_path, client).sync()
+
+        assert result.failed == 1
+        assert client.receipts[-1].failure_state is RemoteSkillFailureState.INCOMPATIBLE
+        assert not (tmp_path / ".agents/skills/different-name").exists()
+
+    asyncio.run(exercise())
+
+
+def test_receiver_requires_a_compatible_observed_runtime_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def exercise() -> None:
+        source = tmp_path / "source/release-check"
+        (source / "scripts").mkdir(parents=True)
+        (source / "SKILL.md").write_text(
+            "---\nname: release-check\ndescription: Verify the release.\n---\n\nRun the check.\n",
+            encoding="utf-8",
+        )
+        (source / "scripts/check.py").write_text("print('ok')\n", encoding="utf-8")
+        (source / "powercontext.runtime.yaml").write_text(
+            "schema: powercontext.skill-runtime.v1\n"
+            "variants:\n"
+            "  - id: python-check\n"
+            "    entrypoint: scripts/check.py\n"
+            "    interpreter: python\n"
+            "    requirements:\n"
+            "      operating_systems: [linux]\n"
+            "      commands:\n"
+            "        unavailable-command: '>=1'\n",
+            encoding="utf-8",
+        )
+        package = capture_skill_directory(source)
+        monkeypatch.setattr(
+            receiver_module,
+            "observe_receiver_environment",
+            lambda _workspace: AgentEnvironmentProfile(
+                operating_system="linux",
+                architecture="x86_64",
+                commands={"python": "3.11.0"},
+                writable_roots=("workspace",),
+            ),
+        )
+        client = _FakeRemoteClient()
+        action = _install_action(package)
+        client.actions = [[action]]
+        client.packages[package.reference.tree_digest] = _download(package)
+
+        result = await _receiver(tmp_path / "target", client).sync()
+
+        assert result.failed == 1
+        assert client.receipts[-1].failure_state is RemoteSkillFailureState.INCOMPATIBLE
+        assert not (tmp_path / "target/.agents/skills/release-check").exists()
 
     asyncio.run(exercise())
 

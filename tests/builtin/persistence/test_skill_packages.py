@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import mimetypes
 
 import pytest
 from sqlalchemy import update
@@ -34,7 +35,7 @@ def _snapshot():
     )
 
 
-def test_sqlite_skill_package_round_trip_is_idempotent_and_scope_isolated() -> None:
+def test_sqlite_skill_package_round_trip_is_idempotent_and_scope_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     async def exercise() -> None:
         repository = SkillPackageRepository()
         snapshot = _snapshot()
@@ -44,6 +45,7 @@ def test_sqlite_skill_package_round_trip_is_idempotent_and_scope_isolated() -> N
         ):
             assert await repository.add(connection, "project:one", snapshot) == snapshot.reference
             assert await repository.add(connection, "project:one", snapshot) == snapshot.reference
+            monkeypatch.setattr(mimetypes, "guess_type", lambda *_args, **_kwargs: ("application/x-host-local", None))
             restored = await repository.get(connection, "project:one", snapshot.reference)
             assert restored == snapshot
             with pytest.raises(RepositoryNotFoundError):

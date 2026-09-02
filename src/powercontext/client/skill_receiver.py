@@ -28,6 +28,7 @@ import hmac
 import ipaddress
 import json
 import os
+import platform
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -38,6 +39,12 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from powercontext.builtin.artifacts.skill.compatibility import (
+    SkillCompatibilityState,
+    assess_skill_compatibility,
+    target_environment_fingerprint,
+)
+from powercontext.builtin.artifacts.skill.external import AgentEnvironmentProfile, AgentSkillTarget
 from powercontext.builtin.artifacts.skill.package import (
     SkillPackageError,
     capture_skill_archive,
@@ -62,6 +69,7 @@ from powercontext.http import (
 RECEIVER_VERSION = "0.1.0"
 _CHECKPOINT_SCHEMA = "powercontext.remote-skill-checkpoint.v1"
 _JOURNAL_SCHEMA = "powercontext.remote-skill-pending-action.v1"
+_OBSERVED_COMMANDS = ("bash", "node", "pwsh", "ruby")
 
 
 class SkillReceiverError(RuntimeError):
@@ -151,6 +159,7 @@ class _AppliedAction:
     receipt: RecordRemoteSkillReceiptRequest
     journal_path: Path | None = None
     quarantine: Path | None = None
+    staging: Path | None = None
 
 
 class RemoteSkillReceiver:
@@ -179,6 +188,8 @@ class RemoteSkillReceiver:
             raise ValueError("Receiver state root must remain outside the Agent Skill package root")
         self._credential = config.credential.get_secret_value()
         self._mac_key = hashlib.sha256(f"powercontext.receiver.v1\0{self._credential}".encode()).digest()
+        self._environment = observe_receiver_environment(self.workspace)
+        self._environment_fingerprint = target_environment_fingerprint(self._compatibility_target())
         self._owned_client = client is None
         self._client = (
             PowerContextClient(
@@ -201,12 +212,15 @@ class RemoteSkillReceiver:
         """Reconcile, apply safe local actions, and report exact bounded Receipts."""
 
         self._prepare_private_roots()
+        receipt_pending = await self._replay_pending_receipts()
+        if receipt_pending:
+            return ReceiverSyncResult(requested=0, succeeded=0, failed=0, receipt_pending=receipt_pending)
         observations = self._observations()
         response = await self._client.reconcile_remote_skills(
             ReconcileRemoteSkillsRequest(
                 observations=observations,
                 receiver_version=self.config.receiver_version,
-                environment_fingerprint=self.config.environment_fingerprint,
+                environment_fingerprint=self._environment_fingerprint,
             )
         )
         if response.target_id != self.config.target_id:
@@ -232,7 +246,7 @@ class RemoteSkillReceiver:
                 applied = self._apply(action, download)
             except Exception as error:
                 failed += 1
-                failure = _failure_receipt(action, error, self.config)
+                failure = _failure_receipt(action, error, self.config, self._environment_fingerprint)
                 try:
                     await self._client.record_remote_skill_receipt(failure)
                 except (
@@ -253,6 +267,28 @@ class RemoteSkillReceiver:
             failed=failed,
             receipt_pending=receipt_pending,
         )
+
+    async def _replay_pending_receipts(self) -> int:
+        pending_receipts = 0
+        for journal_path in sorted(self._journals_root.glob("*.json")):
+            journal = self._read_signed(journal_path, ReceiverJournal)
+            self._require_target(journal.target_id)
+            action = RemoteSkillAction.model_validate(journal.action)
+            checkpoint_path = self._checkpoint_path(action.artifact.artifact_id)
+            applied = (
+                self._resume_install(action, journal, checkpoint_path, journal_path)
+                if action.operation is RemoteSkillOperation.INSTALL
+                else self._resume_unpublish(action, journal, checkpoint_path, journal_path)
+            )
+            if applied is None:
+                continue
+            try:
+                await self._client.record_remote_skill_receipt(applied.receipt)
+            except Exception:
+                pending_receipts += 1
+                continue
+            self._finish(applied)
+        return pending_receipts
 
     async def watch(
         self,
@@ -366,7 +402,7 @@ class RemoteSkillReceiver:
             ):
                 revised = _checkpoint(self.config.target_id, action)
                 self._write_signed(checkpoint_path, revised)
-                return _success_receipt(action, self.config)
+                return _success_receipt(action, self.config, self._environment_fingerprint)
             if action.expected_local is None or not _checkpoint_matches_observation(current, action.expected_local):
                 raise SkillReceiverConflictError("the install action does not authorize replacing the local checkpoint")
             if destination != current_path and (destination.exists() or destination.is_symlink()):
@@ -383,6 +419,12 @@ class RemoteSkillReceiver:
             raise SkillReceiverStateError("downloaded Skill package reference does not match the action")
         if package.reference.tree_digest != action.tree_digest:
             raise SkillReceiverStateError("downloaded Skill package tree digest does not match the action")
+        if package.metadata.name != action.skill_name:
+            raise SkillPackageError("downloaded Skill package name does not match the action")
+        compatibility = assess_skill_compatibility(package.as_skill_content(), package, self._compatibility_target())
+        if compatibility.state is not SkillCompatibilityState.COMPATIBLE:
+            reason = compatibility.reasons[0] if compatibility.reasons else compatibility.state.value
+            raise SkillPackageError(f"downloaded Skill package is incompatible with this Agent target: {reason}")
 
         staging = Path(tempfile.mkdtemp(prefix=".powercontext-stage-", dir=self.skill_root.parent))
         staged_package = staging / action.skill_name
@@ -409,13 +451,15 @@ class RemoteSkillReceiver:
                 raise SkillReceiverStateError("installed Skill package tree digest changed during rename")
             self._write_signed(checkpoint_path, _checkpoint(self.config.target_id, action))
             self._require_quarantine_owned(quarantine, current)
-            journal_path.unlink(missing_ok=True)
-            shutil.rmtree(quarantine, ignore_errors=True)
-            shutil.rmtree(staging, ignore_errors=True)
         except BaseException:
             # Signed journal plus exact staging/quarantine state is intentionally retained for inspection/recovery.
             raise
-        return _success_receipt(action, self.config)
+        return _AppliedAction(
+            receipt=_success_receipt(action, self.config, self._environment_fingerprint).receipt,
+            journal_path=journal_path,
+            quarantine=quarantine,
+            staging=staging,
+        )
 
     def _resume_install(
         self,
@@ -440,19 +484,23 @@ class RemoteSkillReceiver:
         if _directory_digest(destination) == action.tree_digest:
             self._write_signed(checkpoint_path, _checkpoint(self.config.target_id, action))
             self._require_quarantine_owned(quarantine, journal.previous)
-            journal_path.unlink(missing_ok=True)
-            shutil.rmtree(quarantine, ignore_errors=True)
-            shutil.rmtree(staging, ignore_errors=True)
-            return _success_receipt(action, self.config)
+            return _AppliedAction(
+                receipt=_success_receipt(action, self.config, self._environment_fingerprint).receipt,
+                journal_path=journal_path,
+                quarantine=quarantine,
+                staging=staging,
+            )
         if not destination.exists() and _directory_digest(staged_package) == action.tree_digest:
             self.skill_root.mkdir(parents=True, exist_ok=True)
             os.replace(staged_package, destination)
             self._write_signed(checkpoint_path, _checkpoint(self.config.target_id, action))
             self._require_quarantine_owned(quarantine, journal.previous)
-            journal_path.unlink(missing_ok=True)
-            shutil.rmtree(quarantine, ignore_errors=True)
-            shutil.rmtree(staging, ignore_errors=True)
-            return _success_receipt(action, self.config)
+            return _AppliedAction(
+                receipt=_success_receipt(action, self.config, self._environment_fingerprint).receipt,
+                journal_path=journal_path,
+                quarantine=quarantine,
+                staging=staging,
+            )
         previous = journal.previous
         if previous is not None and _directory_digest(self._destination(previous.skill_name)) == previous.tree_digest:
             shutil.rmtree(staging, ignore_errors=True)
@@ -477,7 +525,7 @@ class RemoteSkillReceiver:
             destination = self._destination(action.skill_name)
             if destination.exists() or destination.is_symlink():
                 raise SkillReceiverConflictError("foreign content occupies the desired Skill directory")
-            return _success_receipt(action, self.config)
+            return _success_receipt(action, self.config, self._environment_fingerprint)
         if current is None or not _checkpoint_matches_observation(current, action.expected_local):
             raise SkillReceiverConflictError("unpublish action does not match the Receiver-owned checkpoint")
         destination = self._destination(current.skill_name)
@@ -496,7 +544,7 @@ class RemoteSkillReceiver:
         os.replace(destination, quarantine)
         checkpoint_path.unlink()
         return _AppliedAction(
-            receipt=_success_receipt(action, self.config).receipt,
+            receipt=_success_receipt(action, self.config, self._environment_fingerprint).receipt,
             journal_path=journal_path,
             quarantine=quarantine,
         )
@@ -526,7 +574,7 @@ class RemoteSkillReceiver:
         ):
             raise SkillReceiverConflictError("pending unpublish quarantine no longer matches the authorized package")
         return _AppliedAction(
-            receipt=_success_receipt(action, self.config).receipt,
+            receipt=_success_receipt(action, self.config, self._environment_fingerprint).receipt,
             journal_path=journal_path,
             quarantine=quarantine,
         )
@@ -536,12 +584,24 @@ class RemoteSkillReceiver:
             applied.journal_path.unlink(missing_ok=True)
         if applied.quarantine is not None:
             shutil.rmtree(applied.quarantine, ignore_errors=True)
+        if applied.staging is not None:
+            shutil.rmtree(applied.staging, ignore_errors=True)
 
     def _destination(self, skill_name: str) -> Path:
         destination = (self.skill_root / skill_name).resolve(strict=False)
         if destination.parent != self.skill_root.resolve(strict=False):
             raise SkillReceiverStateError("Skill name escapes the Agent package root")
         return destination
+
+    def _compatibility_target(self) -> AgentSkillTarget:
+        return AgentSkillTarget(
+            target_id=self.config.target_id,
+            agent_kind=self.config.agent_kind,
+            installation_scope="project",
+            path=self.skill_root,
+            allow_managed_publish=True,
+            environment=self._environment,
+        )
 
     def _private_sibling(self, name: str) -> Path:
         if not name.startswith(".powercontext-") or Path(name).name != name:
@@ -651,7 +711,11 @@ def _same_action_intent(left: RemoteSkillAction, right: RemoteSkillAction) -> bo
     )
 
 
-def _success_receipt(action: RemoteSkillAction, config: RemoteSkillReceiverConfig) -> _AppliedAction:
+def _success_receipt(
+    action: RemoteSkillAction,
+    config: RemoteSkillReceiverConfig,
+    environment_fingerprint: str,
+) -> _AppliedAction:
     observed = action.tree_digest if action.operation is RemoteSkillOperation.INSTALL else None
     return _AppliedAction(
         receipt=RecordRemoteSkillReceiptRequest(
@@ -664,7 +728,7 @@ def _success_receipt(action: RemoteSkillAction, config: RemoteSkillReceiverConfi
             failure_state=None,
             error_code=None,
             receiver_version=config.receiver_version,
-            environment_fingerprint=config.environment_fingerprint,
+            environment_fingerprint=environment_fingerprint,
         )
     )
 
@@ -673,6 +737,7 @@ def _failure_receipt(
     action: RemoteSkillAction,
     error: Exception,
     config: RemoteSkillReceiverConfig,
+    environment_fingerprint: str,
 ) -> RecordRemoteSkillReceiptRequest:
     if isinstance(error, SkillReceiverConflictError):
         state = (
@@ -692,7 +757,7 @@ def _failure_receipt(
         failure_state=state,
         error_code=_error_code(error),
         receiver_version=config.receiver_version,
-        environment_fingerprint=config.environment_fingerprint,
+        environment_fingerprint=environment_fingerprint,
     )
 
 
@@ -702,6 +767,59 @@ def _error_code(error: Exception) -> str:
     if isinstance(error, SkillPackageError | ValueError):
         return "incompatible_package"
     return "local_delivery_failed"
+
+
+def observe_receiver_environment(workspace: Path, /) -> AgentEnvironmentProfile:
+    """Observe bounded, secret-free compatibility facts on the Receiver host."""
+
+    system = platform.system().casefold()
+    if system == "darwin":
+        operating_system: Literal["linux", "macos", "windows", "other"] = "macos"
+    elif system == "linux":
+        operating_system = "linux"
+    elif system == "windows":
+        operating_system = "windows"
+    else:
+        operating_system = "other"
+    commands = {"python": platform.python_version()}
+    for name in _OBSERVED_COMMANDS:
+        if shutil.which(name) is not None:
+            commands[name] = "unknown"
+    writable_roots = ("workspace",) if _workspace_is_writable(workspace) else ()
+    return AgentEnvironmentProfile(
+        operating_system=operating_system,
+        architecture=platform.machine().strip() or "unknown",
+        commands=commands,
+        network_policy="unknown",
+        writable_roots=writable_roots,
+        dependency_install_policy="unknown",
+    )
+
+
+def receiver_environment_fingerprint(
+    workspace: Path,
+    agent_kind: Literal["codex", "claude_code"],
+    /,
+) -> str:
+    """Return the fingerprint for facts observed on one Receiver host."""
+
+    skill_root = workspace / (".agents/skills" if agent_kind == "codex" else ".claude/skills")
+    return target_environment_fingerprint(
+        AgentSkillTarget(
+            target_id="receiver-environment",
+            agent_kind=agent_kind,
+            installation_scope="project",
+            path=skill_root,
+            environment=observe_receiver_environment(workspace),
+        )
+    )
+
+
+def _workspace_is_writable(workspace: Path) -> bool:
+    candidate = workspace.expanduser().resolve(strict=False)
+    while not candidate.exists() and candidate != candidate.parent:
+        candidate = candidate.parent
+    return candidate.is_dir() and os.access(candidate, os.W_OK)
 
 
 def _directory_digest(path: Path, *, expected_name: str | None = None) -> str | None:
@@ -764,4 +882,6 @@ __all__ = [
     "SkillReceiverConflictError",
     "SkillReceiverError",
     "SkillReceiverStateError",
+    "observe_receiver_environment",
+    "receiver_environment_fingerprint",
 ]

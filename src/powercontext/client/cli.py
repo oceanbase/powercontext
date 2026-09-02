@@ -55,6 +55,7 @@ from powercontext.client.skill_receiver import (
     ReceiverSyncResult,
     RemoteSkillReceiver,
     RemoteSkillReceiverConfig,
+    receiver_environment_fingerprint,
     require_remote_skill_server_url,
 )
 from powercontext.http import (
@@ -979,13 +980,22 @@ async def _enroll_remote_skill_target(
     )
     credential_saved = False
     installation: ReceiverServiceInstallation | None = None
+    reservation: int | None = None
     try:
+        reservation = _reserve_receiver_config(destination)
+        observed_environment_fingerprints = {
+            agent_kind: receiver_environment_fingerprint(resolved_workspace, agent_kind)
+            for agent_kind in ("codex", "claude_code")
+        }
         async with PowerContextClient(
             options.server_url,
             timeout=options.timeout,
             allow_insecure_http=insecure_http,
         ) as client:
             enrolled = await client.enroll_remote_skill_target(request)
+        observed_environment_fingerprint = observed_environment_fingerprints[enrolled.agent_kind.value]
+        descriptor = reservation
+        reservation = None
         _write_receiver_config(
             destination,
             {
@@ -997,9 +1007,10 @@ async def _enroll_remote_skill_target(
                 "workspace": str(resolved_workspace),
                 "state_root": None,
                 "receiver_version": RECEIVER_VERSION,
-                "environment_fingerprint": environment_fingerprint,
+                "environment_fingerprint": observed_environment_fingerprint,
                 "allow_insecure_http": insecure_http,
             },
+            descriptor=descriptor,
         )
         credential_saved = True
         if install_service:
@@ -1019,6 +1030,10 @@ async def _enroll_remote_skill_target(
         else:
             typer.echo(f"Cannot save Receiver credential: {error}", err=True)
         raise typer.Exit(code=2) from error
+    finally:
+        if reservation is not None:
+            os.close(reservation)
+            destination.unlink(missing_ok=True)
     if options.json_output:
         typer.echo(
             json.dumps(
@@ -1087,7 +1102,7 @@ async def _sync_remote_skills(context: typer.Context, config_file: Path) -> None
                 sort_keys=True,
             )
         )
-    elif result.requested == 0:
+    elif result.requested == 0 and result.receipt_pending == 0:
         typer.echo("Remote Skills are already current; no actions were needed.")
     else:
         typer.echo(
@@ -1135,7 +1150,7 @@ async def _watch_remote_skills(
 
 
 def _print_receiver_watch_result(result: ReceiverSyncResult) -> None:
-    if result.requested == 0:
+    if result.requested == 0 and result.receipt_pending == 0:
         return
     typer.echo(
         f"Remote Skill sync: {result.succeeded} succeeded, {result.failed} failed, "
@@ -1170,14 +1185,19 @@ def _uninstall_remote_skill_service(config_file: Path) -> ReceiverServiceInstall
     return installation
 
 
-def _write_receiver_config(path: Path, value: dict[str, object]) -> None:
-    if path.exists() or path.is_symlink():
-        raise FileExistsError(path)
+def _reserve_receiver_config(path: Path) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(temporary_name)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    return os.open(path, flags, 0o600)
+
+
+def _write_receiver_config(path: Path, value: dict[str, object], *, descriptor: int) -> None:
+    temporary: Path | None = None
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        os.close(descriptor)
+        temporary_descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        temporary = Path(temporary_name)
+        with os.fdopen(temporary_descriptor, "w", encoding="utf-8") as stream:
             json.dump(value, stream, ensure_ascii=False, indent=2, sort_keys=True)
             stream.write("\n")
             stream.flush()
@@ -1185,7 +1205,9 @@ def _write_receiver_config(path: Path, value: dict[str, object]) -> None:
         temporary.chmod(0o600)
         os.replace(temporary, path)
     except BaseException:
-        temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)
         raise
 
 
