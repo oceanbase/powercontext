@@ -197,15 +197,17 @@ def test_parent_organizes_without_sharing_and_cannot_form_a_cycle() -> None:
     asyncio.run(scenario())
 
 
-def test_concurrent_parent_updates_cannot_form_a_cycle() -> None:
+def test_concurrent_parent_updates_cannot_form_a_cycle(tmp_path) -> None:
     async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            scopes = ScopeApplication(profile.database)
-            left = await scopes.create(ScopeDraft(title="Left", summary="Left", idempotency_key="left"))
-            right = await scopes.create(ScopeDraft(title="Right", summary="Right", idempotency_key="right"))
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES) as profile:
+            left_application = ScopeApplication(profile.database)
+            right_application = ScopeApplication(profile.database)
+            left = await left_application.create(ScopeDraft(title="Left", summary="Left", idempotency_key="left"))
+            right = await left_application.create(ScopeDraft(title="Right", summary="Right", idempotency_key="right"))
 
             updates = await asyncio.gather(
-                scopes.update(
+                left_application.update(
                     left.scope_id,
                     ScopeMutation(
                         expected_version=left.version,
@@ -214,7 +216,7 @@ def test_concurrent_parent_updates_cannot_form_a_cycle() -> None:
                         parent_scope_id=right.scope_id,
                     ),
                 ),
-                scopes.update(
+                right_application.update(
                     right.scope_id,
                     ScopeMutation(
                         expected_version=right.version,
@@ -227,6 +229,12 @@ def test_concurrent_parent_updates_cannot_form_a_cycle() -> None:
             )
 
             assert sum(isinstance(result, ScopeRelationshipError) for result in updates) == 1
+            assert sum(not isinstance(result, BaseException) for result in updates) == 1
+            persisted = {scope.scope_id: scope for scope in await left_application.list()}
+            assert not (
+                persisted[left.scope_id].parent_scope_id == right.scope_id
+                and persisted[right.scope_id].parent_scope_id == left.scope_id
+            )
 
     asyncio.run(scenario())
 

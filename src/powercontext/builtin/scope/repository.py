@@ -63,6 +63,13 @@ class ScopeRepository:
     async def list(self, connection: AsyncConnection, /) -> tuple[ScopeDescriptor, ...]:
         return await self._load(connection, select(SCOPES_TABLE).order_by(SCOPES_TABLE.c.scope_id))
 
+    async def lock_hierarchy(self, connection: AsyncConnection, /) -> None:
+        """Serialize Parent validation and mutation across Runtime instances."""
+
+        # A no-op write acquires the same graph-wide boundary on SQLite and
+        # row-locking databases without relying on dialect-specific locks.
+        await connection.execute(update(SCOPES_TABLE).values(version=SCOPES_TABLE.c.version))
+
     async def _load(self, connection: AsyncConnection, statement, /) -> tuple[ScopeDescriptor, ...]:
         rows = tuple((await connection.execute(statement)).mappings())
         scope_ids = tuple(str(row["scope_id"]) for row in rows)

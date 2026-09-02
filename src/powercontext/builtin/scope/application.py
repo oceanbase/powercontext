@@ -129,6 +129,7 @@ class ScopeApplication:
 
     async def _update(self, scope_id: str, mutation: ScopeMutation) -> ScopeDescriptor:
         async with self._database.transaction() as connection:
+            await self._repository.lock_hierarchy(connection)
             current = await self._required(connection, scope_id)
             if current.version != mutation.expected_version:
                 raise ScopeVersionConflictError(scope_id, mutation.expected_version, current.version)
