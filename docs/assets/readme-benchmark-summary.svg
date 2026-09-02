@@ -1,55 +1,43 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="272" viewBox="0 0 960 272" role="img" aria-labelledby="title description">
-  <title id="title">PowerContext benchmark snapshot</title>
-  <desc id="description">LoCoMo accuracy compares PowerContext at 90.78 percent, PowerMem at 87.79 percent, and full context at 52.9 percent. SWE-bench Pro task resolution compares PowerContext off at 82.35 percent and on at 86.73 percent.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="246" viewBox="0 0 960 246" role="img" aria-labelledby="title description">
+  <title id="title">How PowerContext compares on LoCoMo and SWE-bench Pro</title>
+  <desc id="description">On a shared zero to one hundred percent scale, LoCoMo accuracy compares full context at 52.9 percent with PowerContext at 90.78 percent. SWE-bench Pro task resolution compares PowerContext off at 82.35 percent with PowerContext on at 86.73 percent, a difference of 32 resolved tasks.</desc>
   <style>
-    .background { fill: #ffffff; }
-    .frame { fill: none; stroke: #d0d7de; }
     .heading { fill: #1f2328; }
     .secondary { fill: #59636e; }
-    .track { fill: #eaeef2; }
-    .primary { fill: #0969da; }
-    .comparison { fill: #398c8c; }
-    .baseline { fill: #8c959f; }
+    .track { stroke: #d0d7de; }
+    .range { stroke: #0969da; }
+    .start { fill: #8c959f; }
+    .end { fill: #0969da; }
+    .separator { stroke: #d8dee4; }
     @media (prefers-color-scheme: dark) {
-      .background { fill: #0d1117; }
-      .frame { stroke: #30363d; }
       .heading { fill: #f0f6fc; }
       .secondary { fill: #8b949e; }
-      .track { fill: #21262d; }
-      .primary { fill: #58a6ff; }
-      .comparison { fill: #56b6b6; }
-      .baseline { fill: #6e7681; }
+      .track { stroke: #30363d; }
+      .range { stroke: #58a6ff; }
+      .start { fill: #6e7681; }
+      .end { fill: #58a6ff; }
+      .separator { stroke: #30363d; }
     }
   </style>
-  <rect class="background" width="960" height="272" rx="12" />
-  <rect class="frame" x="0.5" y="0.5" width="959" height="271" rx="11.5" />
   <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
-    <text class="heading" x="28" y="30" font-size="17" font-weight="500">LoCoMo accuracy</text>
-    <text class="secondary" x="932" y="30" font-size="14" text-anchor="end">Higher is better</text>
-    <text class="secondary" x="28" y="61" font-size="14">PowerContext</text>
-    <rect class="track" x="178" y="46" width="650" height="18" rx="3" />
-    <rect class="primary" x="178" y="46" width="590" height="18" rx="3" />
-    <text class="heading" x="932" y="61" font-size="14" font-weight="500" text-anchor="end">90.78%</text>
-    <text class="secondary" x="28" y="95" font-size="14">PowerMem</text>
-    <rect class="track" x="178" y="80" width="650" height="18" rx="3" />
-    <rect class="comparison" x="178" y="80" width="571" height="18" rx="3" />
-    <text class="heading" x="932" y="95" font-size="14" font-weight="500" text-anchor="end">87.79%</text>
-    <text class="secondary" x="28" y="129" font-size="14">Full context</text>
-    <rect class="track" x="178" y="114" width="650" height="18" rx="3" />
-    <rect class="baseline" x="178" y="114" width="344" height="18" rx="3" />
-    <text class="heading" x="932" y="129" font-size="14" font-weight="500" text-anchor="end">52.9%</text>
+    <text class="heading" x="20" y="28" font-size="17" font-weight="500">LoCoMo accuracy</text>
+    <text class="secondary" x="940" y="28" font-size="14" text-anchor="end">+37.88 percentage points</text>
+    <line class="track" x1="180" y1="78" x2="820" y2="78" stroke-width="6" stroke-linecap="round" />
+    <line class="range" x1="519" y1="78" x2="761" y2="78" stroke-width="6" stroke-linecap="round" />
+    <circle class="start" cx="519" cy="78" r="8" />
+    <circle class="end" cx="761" cy="78" r="8" />
+    <text class="heading" x="761" y="58" font-size="14" font-weight="500" text-anchor="middle">PowerContext 90.78%</text>
+    <text class="secondary" x="519" y="106" font-size="14" text-anchor="middle">Full context 52.9%</text>
 
-    <line class="frame" x1="28" y1="155" x2="932" y2="155" />
+    <line class="separator" x1="20" y1="126" x2="940" y2="126" />
 
-    <text class="heading" x="28" y="184" font-size="17" font-weight="500">SWE-bench Pro task resolution</text>
-    <text class="secondary" x="932" y="184" font-size="14" text-anchor="end">731-task paired run</text>
-    <text class="secondary" x="28" y="215" font-size="14">PowerContext off</text>
-    <rect class="track" x="178" y="200" width="650" height="18" rx="3" />
-    <rect class="baseline" x="178" y="200" width="535" height="18" rx="3" />
-    <text class="heading" x="932" y="215" font-size="14" font-weight="500" text-anchor="end">82.35%</text>
-    <text class="secondary" x="28" y="249" font-size="14">PowerContext on</text>
-    <rect class="track" x="178" y="234" width="650" height="18" rx="3" />
-    <rect class="primary" x="178" y="234" width="564" height="18" rx="3" />
-    <text class="heading" x="932" y="249" font-size="14" font-weight="500" text-anchor="end">86.73% · +32 tasks</text>
+    <text class="heading" x="20" y="156" font-size="17" font-weight="500">SWE-bench Pro task resolution</text>
+    <text class="secondary" x="940" y="156" font-size="14" text-anchor="end">+4.38 percentage points · +32 tasks</text>
+    <line class="track" x1="180" y1="206" x2="820" y2="206" stroke-width="6" stroke-linecap="round" />
+    <line class="range" x1="707" y1="206" x2="735" y2="206" stroke-width="6" stroke-linecap="round" />
+    <circle class="start" cx="707" cy="206" r="8" />
+    <circle class="end" cx="735" cy="206" r="8" />
+    <text class="secondary" x="697" y="189" font-size="14" text-anchor="end">Off 82.35%</text>
+    <text class="heading" x="745" y="233" font-size="14" font-weight="500">On 86.73%</text>
   </g>
 </svg>

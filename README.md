@@ -72,13 +72,13 @@ Read the [documentation](docs/en/docs/index.md) for agent-specific setup and oth
 
 Applications can use PowerContext through the async Python client, HTTP API, MCP, or the in-process Core SDK. See the [interface reference](docs/en/docs/reference/interfaces.md) to choose an entry point.
 
-## Benchmarks
+## What changes with PowerContext
 
 ![Compact comparison of PowerContext results on LoCoMo and SWE-bench Pro](docs/assets/readme-benchmark-summary.svg)
 
-The chart summarizes two published evaluations. See the [full results](https://powercontext.oceanbase.io/en/benchmarks/) for datasets, methodology, and limitations.
+See the [methods, full results, and limitations](https://powercontext.oceanbase.io/en/benchmarks/) behind these comparisons.
 
-## Development
+## Build PowerContext
 
 ```bash
 make install

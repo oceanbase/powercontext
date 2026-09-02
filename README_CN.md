@@ -72,13 +72,13 @@ powercontext setup codex --ref v0.1.0  # --ref also accepts a Git commit, such a
 
 应用还可以通过异步 Python Client、HTTP API、MCP 或进程内 Core SDK 使用 PowerContext。请参考[接口说明](docs/zh/docs/reference/interfaces.md)选择入口。
 
-## 评测
+## 使用 PowerContext 后有什么变化
 
 ![PowerContext 在 LoCoMo 和 SWE-bench Pro 上的紧凑对比图](docs/assets/readme-benchmark-summary.svg)
 
-图中汇总了两项已发布评测。数据集、评测方法和结果边界请查看[完整结果](https://powercontext.oceanbase.io/zh/benchmarks/)。
+这些对比的评测方法、完整结果和适用边界请见[官网评测页](https://powercontext.oceanbase.io/zh/benchmarks/)。
 
-## 开发
+## 参与构建 PowerContext
 
 ```bash
 make install

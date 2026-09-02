@@ -72,13 +72,13 @@ Agent ごとの設定方法とその他の導入方法は、[ドキュメント]
 
 アプリケーションは、非同期 Python クライアント、HTTP API、MCP、または同一プロセス内の Core SDK から PowerContext を利用できます。入口を選ぶには[インターフェースリファレンス](docs/en/docs/reference/interfaces.md)を参照してください。
 
-## ベンチマーク
+## PowerContext で何が変わるか
 
 ![LoCoMo と SWE-bench Pro における PowerContext の結果をまとめた比較図](docs/assets/readme-benchmark-summary.svg)
 
-この図は、公開済みの 2 つの評価結果をまとめたものです。データセット、評価方法、結果の適用範囲は[詳細な結果](https://powercontext.oceanbase.io/en/benchmarks/)を参照してください。
+比較に用いた評価方法、詳細な結果、適用範囲は[公式ベンチマークページ](https://powercontext.oceanbase.io/en/benchmarks/)を参照してください。
 
-## 開発
+## PowerContext を開発する
 
 ```bash
 make install
