@@ -34,6 +34,7 @@ from powercontext.http import (
     ApproveArtifactCandidateRequest,
     CandidateFamily,
     CaptureContentSourceRequest,
+    CreateScopeRequest,
     ExperienceProposal,
     GetArtifactCandidateRequest,
     GetExperienceRequest,
@@ -94,7 +95,6 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
     else:
         settings = _settings(tmp_path / "review.db")
     app = create_server_app(settings=settings)
-    scope_id = f"candidate-review-{uuid4()}"
 
     async def scenario() -> None:
         async with (
@@ -106,6 +106,14 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             capabilities = await client.get_capabilities()
+            scope = await client.create_scope(
+                CreateScopeRequest(
+                    title="Candidate review",
+                    summary="Isolated candidate review acceptance workflow.",
+                    idempotency_key=f"candidate-review-{uuid4()}",
+                )
+            )
+            scope_id = scope.scope_id
             captured = await client.capture_content_source(
                 CaptureContentSourceRequest(
                     scope_id=scope_id,
@@ -298,15 +306,18 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
     cli = create_cli([])
     runner = CliRunner()
     with TestClient(app) as transport:
+        default_scope = transport.get("/v1/scopes/default")
+        default_scope.raise_for_status()
+        scope_id = default_scope.json()["scope_id"]
         captured = transport.post(
             "/v1/sources/content",
-            json={"scope_id": "project", "source_id": "task-1", "content": "bounded evidence"},
+            json={"scope_id": scope_id, "source_id": "task-1", "content": "bounded evidence"},
         ).json()
         proposal = _proposal("Initial lesson.").model_dump(mode="json")
         first = transport.post(
             "/v1/experience/propose",
             json={
-                "scope_id": "project",
+                "scope_id": scope_id,
                 "proposal": proposal,
                 "source_refs": [captured["source"]],
                 "artifact_refs": [],
@@ -315,16 +326,16 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
         second = transport.post(
             "/v1/experience/propose",
             json={
-                "scope_id": "project",
+                "scope_id": scope_id,
                 "proposal": proposal,
                 "source_refs": [captured["source"]],
                 "artifact_refs": [],
             },
         ).json()
-        listed = runner.invoke(cli, ["candidate", "list", "--scope-id", "project"])
+        listed = runner.invoke(cli, ["candidate", "list", "--scope-id", scope_id])
         shown = runner.invoke(
             cli,
-            ["candidate", "show", "--scope-id", "project", first["candidate_id"]],
+            ["candidate", "show", "--scope-id", scope_id, first["candidate_id"]],
         )
         revised = runner.invoke(
             cli,
@@ -333,7 +344,7 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
                 "revise",
                 "experience",
                 "--scope-id",
-                "project",
+                scope_id,
                 "--expected-version",
                 "1",
                 "--situation",
@@ -355,7 +366,7 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
                 "candidate",
                 "approve",
                 "--scope-id",
-                "project",
+                scope_id,
                 "--expected-version",
                 "2",
                 first["candidate_id"],
@@ -367,7 +378,7 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
                 "candidate",
                 "reject",
                 "--scope-id",
-                "project",
+                scope_id,
                 "--expected-version",
                 "1",
                 "--reason",
@@ -377,13 +388,13 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
         )
         approved_head = transport.post(
             "/v1/artifact-candidates/get",
-            json={"scope_id": "project", "candidate_id": first["candidate_id"]},
+            json={"scope_id": scope_id, "candidate_id": first["candidate_id"]},
         ).json()
         experience_ref = approved_head["result_artifact"]
         skill_candidate = transport.post(
             "/v1/skill/propose",
             json={
-                "scope_id": "project",
+                "scope_id": scope_id,
                 "proposal": _skill_proposal().model_dump(mode="json"),
                 "source_refs": [],
                 "artifact_refs": [experience_ref],
@@ -392,7 +403,7 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
         skill_approved = transport.post(
             "/v1/artifact-candidates/approve",
             json={
-                "scope_id": "project",
+                "scope_id": scope_id,
                 "candidate_id": skill_candidate["candidate_id"],
                 "expected_version": 1,
             },
@@ -405,7 +416,7 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
                 "skill",
                 "show",
                 "--scope-id",
-                "project",
+                scope_id,
                 "--revision",
                 str(skill_ref["revision"]),
                 skill_ref["artifact_id"],
@@ -419,7 +430,7 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
                 "--target",
                 "codex",
                 "--scope-id",
-                "project",
+                scope_id,
                 "--revision",
                 str(skill_ref["revision"]),
                 "--destination",

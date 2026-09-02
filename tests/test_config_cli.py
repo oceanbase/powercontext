@@ -120,18 +120,18 @@ def test_init_validate_and_show_round_trip_managed_environment(
     assert "initial-secret" not in shown.output
 
 
-def test_init_rejects_configuration_that_server_settings_reject(
+def test_init_rejects_configuration_that_validation_rejects(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     environment = tmp_path / ".env"
-    invalid = _configuration(scope_id="p" * 256)
+    invalid = _configuration(embedding_dimension=0)
     monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: invalid)
 
     result = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)])
 
     assert result.exit_code == 2
-    assert "at most 255 characters" in result.output
+    assert "Embedding dimension and Source interval must be positive" in result.output
     assert not environment.exists()
 
 
@@ -200,7 +200,7 @@ def test_custom_connection_is_not_reclassified_from_its_model_prefix(monkeypatch
     )
     connections = iter(((generation, ("CUSTOM_CREDENTIAL",)), (embedding, ("VOYAGE_API_KEY",))))
     monkeypatch.setattr(config_cli, "_collect_connection", lambda _role: next(connections))
-    prompts = iter(("project:test", "Test", 3))
+    prompts = iter((3,))
     monkeypatch.setattr(config_cli.typer, "prompt", lambda *_args, **_kwargs: next(prompts))
 
     with patch.object(
@@ -381,7 +381,7 @@ def test_init_hides_and_redacts_marked_additional_credentials(
     result = CliRunner().invoke(
         config_cli.app,
         ["init", "--output", str(environment)],
-        input="\n\n\n-\n-\nMYTOKEN\ny\nextra-secret\n\n\n-\n-\n\n1536\ny\n",
+        input="\n-\n-\nMYTOKEN\ny\nextra-secret\n\n\n-\n-\n\n1536\ny\n",
     )
     text = environment.read_text(encoding="utf-8")
 
@@ -448,7 +448,7 @@ def _configuration(
     generation: config_cli.ModelSelection | None = None,
     embedding: config_cli.ModelSelection | None = None,
     credentials: tuple[str, ...] = ("OPENAI_API_KEY",),
-    scope_id: str = "project:quickstart",
+    embedding_dimension: int = 1536,
     database_kind: str = "sqlite",
     database_url: str | None = None,
     database_path: str | None = None,
@@ -456,12 +456,10 @@ def _configuration(
     shared = (config_cli.ProviderVariable("OPENAI_API_KEY", "initial-secret"),)
     return config_cli.GeneratedConfiguration(
         config_version=1,
-        scope_id=scope_id,
-        display_name="Quick Start",
         generation=generation or config_cli.ModelSelection("openai:gpt-4.1-mini", shared),
         embedding=embedding or config_cli.ModelSelection("openai:text-embedding-3-small", shared),
         embedding_profile_id="openai-text-embedding-3-small-1536-unit-v1",
-        embedding_dimension=1536,
+        embedding_dimension=embedding_dimension,
         database_kind=database_kind,
         database_url=database_url,
         database_path=database_path,

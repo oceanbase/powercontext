@@ -84,7 +84,6 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(tmp_p
     async def scenario() -> None:
         database = tmp_path / "powercontext.db"
         scheduler = tmp_path / "scheduler.db"
-        scope_id = "scheduled-experience-e2e"
         app = _app(database, scheduler)
         async with (
             app.router.lifespan_context(app),
@@ -94,6 +93,7 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(tmp_p
             ) as transport,
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            scope_id = (await client.get_default_scope()).scope_id
             captured = await client.capture_content_source(
                 CaptureContentSourceRequest(
                     scope_id=scope_id,

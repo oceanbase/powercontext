@@ -38,16 +38,15 @@ from pydantic import Field
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
 from powercontext.client import PowerContextClient
-from powercontext.http import RememberMemoryRequest
+from powercontext.http import CreateScopeRequest, RememberMemoryRequest, ResolveScopeBindingRequest
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
 pytest.importorskip("powercontext_langgraph")
 
-from powercontext_langgraph import MissingScopeError, PowerContextRecall, PowerContextScope
+from powercontext_langgraph import PowerContextRecall, PowerContextScope
 
 UNTRUSTED_LABEL = "untrusted historical evidence"
-SCOPE = "project:langgraph-adapter-test"
 DEPLOY_MEMORY = "Deploy database migrations before rollout."
 
 
@@ -112,9 +111,18 @@ def _system_positions(messages: list[BaseMessage]) -> list[int]:
     return [index for index, message in enumerate(messages) if getattr(message, "type", None) == "system"]
 
 
-async def _seed(client: PowerContextClient) -> None:
+async def _default_scope_id(client: PowerContextClient) -> str:
+    return (await client.resolve_scope_binding(ResolveScopeBindingRequest())).scope_id
+
+
+async def _seed(client: PowerContextClient, scope_id: str) -> None:
     await client.remember_memory(
-        RememberMemoryRequest(scope_id=SCOPE, kind="decision", text=DEPLOY_MEMORY, reason="seeded for the recall test")
+        RememberMemoryRequest(
+            scope_id=scope_id,
+            kind="decision",
+            text=DEPLOY_MEMORY,
+            reason="seeded for the recall test",
+        )
     )
 
 
@@ -126,7 +134,7 @@ def test_recall_supplies_no_prefix_when_context_is_empty(tmp_path: Path) -> None
     async def scenario(_: PowerContextClient) -> None:
         await agent.ainvoke(
             {"messages": [HumanMessage(content="How do we deploy the database?")]},
-            context=PowerContextScope(scope_id=SCOPE),
+            context=PowerContextScope(),
         )
         assert model.inputs, "the model was invoked"
         assert _system_texts(model.inputs[-1]) == []
@@ -140,10 +148,10 @@ def test_recall_injects_context_labelled_untrusted(tmp_path: Path) -> None:
     app = _server_app(tmp_path)
 
     async def scenario(client: PowerContextClient) -> None:
-        await _seed(client)
+        await _seed(client, await _default_scope_id(client))
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content="How do we deploy the database migrations?")]},
-            context=PowerContextScope(scope_id=SCOPE),
+            context=PowerContextScope(),
         )
         model_input = model.inputs[-1]
         system_texts = _system_texts(model_input)
@@ -166,16 +174,16 @@ def test_recall_does_not_accumulate_across_turns(tmp_path: Path) -> None:
     app = _server_app(tmp_path)
 
     async def scenario(client: PowerContextClient) -> None:
-        await _seed(client)
+        await _seed(client, await _default_scope_id(client))
         config = {"configurable": {"thread_id": "regression"}}
         await agent.ainvoke(
             {"messages": [HumanMessage(content="How do we deploy the database migrations?")]},
-            context=PowerContextScope(scope_id=SCOPE),
+            context=PowerContextScope(),
             config=config,
         )
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content="And what should we double-check about the migrations first?")]},
-            context=PowerContextScope(scope_id=SCOPE),
+            context=PowerContextScope(),
             config=config,
         )
 
@@ -206,10 +214,10 @@ def test_recall_completes_graph_for_over_limit_prompt(tmp_path: Path) -> None:
     assert len(long_prompt) > 8192
 
     async def scenario(client: PowerContextClient) -> None:
-        await _seed(client)
+        await _seed(client, await _default_scope_id(client))
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content=long_prompt)]},
-            context=PowerContextScope(scope_id=SCOPE),
+            context=PowerContextScope(),
         )
         # The graph completed: the model ran and produced an answer despite the over-limit prompt.
         assert model.inputs
@@ -226,8 +234,6 @@ def test_recall_isolates_cached_context_across_scopes(tmp_path: Path) -> None:
     # Regression for the multi-tenant case: one shared PowerContextRecall serves many runs. Two runs carrying the same
     # human turn (identical id and text) but different scopes must each receive only their own scope's context. If the
     # per-turn cache keyed on the turn alone, the first scope's prepared content would be replayed to the second.
-    scope_alpha = "project:tenant-alpha"
-    scope_bravo = "project:tenant-bravo"
     marker_alpha = "ALPHA_SECRET_RUNBOOK"
     marker_bravo = "BRAVO_SECRET_RUNBOOK"
     turn = HumanMessage(content="How do we deploy the database migrations?", id="shared-turn")
@@ -243,6 +249,24 @@ def test_recall_isolates_cached_context_across_scopes(tmp_path: Path) -> None:
     app = _server_app(tmp_path)
 
     async def scenario(client: PowerContextClient) -> None:
+        scope_alpha = (
+            await client.create_scope(
+                CreateScopeRequest(
+                    title="Tenant alpha",
+                    summary="LangGraph cache-isolation test Scope",
+                    idempotency_key="langgraph-cache-isolation-alpha",
+                )
+            )
+        ).scope_id
+        scope_bravo = (
+            await client.create_scope(
+                CreateScopeRequest(
+                    title="Tenant bravo",
+                    summary="LangGraph cache-isolation test Scope",
+                    idempotency_key="langgraph-cache-isolation-bravo",
+                )
+            )
+        ).scope_id
         await client.remember_memory(
             RememberMemoryRequest(
                 scope_id=scope_alpha,
@@ -283,16 +307,9 @@ def test_agent_reaches_end_when_server_unreachable() -> None:
         # No shared client is installed, so the recall hook opens a real client against a closed port.
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content="anything at all")]},
-            context=PowerContextScope(scope_id=SCOPE, base_url="http://127.0.0.1:9", timeout=2.0),
+            context=PowerContextScope(base_url="http://127.0.0.1:9", timeout=2.0),
         )
         assert model.inputs and _system_texts(model.inputs[-1]) == []
         assert any(message.type == "ai" for message in result["messages"])
 
     asyncio.run(driver())
-
-
-def test_missing_scope_outside_repository_raises(tmp_path: Path) -> None:
-    from powercontext_langgraph import resolve_scope_id
-
-    with pytest.raises(MissingScopeError):
-        resolve_scope_id(None, cwd=str(tmp_path))

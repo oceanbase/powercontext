@@ -51,16 +51,18 @@ def test_js_operations_record_method_path_location_and_scope() -> None:
     generator = _load_generator()
     doc = yaml.safe_load(generator.CONTRACT_PATH.read_text(encoding="utf-8"))
     by_id = {row["operationId"]: row for row in generator.parse_operations(doc)}
-    assert by_id["get_liveness"] == {
+    assert {key: by_id["get_liveness"][key] for key in ("operationId", "method", "path", "location", "scopeMode")} == {
         "operationId": "get_liveness",
         "method": "GET",
         "path": "/health/live",
         "location": None,
-        "scope": False,
+        "scopeMode": "none",
     }
-    assert by_id["get_stats"]["location"] == "query"
+    assert by_id["get_stats"]["location"] == "body"
+    assert by_id["get_stats"]["scopeMode"] == "selection"
     assert by_id["remember_memory"]["location"] == "body"
-    assert by_id["remember_memory"]["scope"] is True
+    assert by_id["remember_memory"]["scopeMode"] == "current"
+    assert by_id["set_scope_binding"]["scopeMode"] == "none"
 
 
 def test_committed_js_operations_match_openapi() -> None:

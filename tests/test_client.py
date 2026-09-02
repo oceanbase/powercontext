@@ -23,7 +23,12 @@ from powercontext.client import InvalidResponseError, PowerContextClient, Server
 from powercontext.client.settings import ClientSettings
 from powercontext.http import (
     CaptureContentSourceRequest,
+    ExactScopeSelection,
     GetHandoffReportRequest,
+    ReportFormat,
+    ScopeId,
+    ScopeSelection,
+    UpdateScopeRequest,
 )
 
 
@@ -100,6 +105,48 @@ def test_client_sends_an_explicit_bearer_token() -> None:
     asyncio.run(scenario())
 
 
+def test_client_uses_scope_resource_paths_without_repeating_the_id_in_the_body() -> None:
+    async def scenario() -> None:
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(
+                200,
+                json={
+                    "scope_id": "scope:feature",
+                    "title": "Feature",
+                    "summary": "Current work",
+                    "parent_scope_id": None,
+                    "context_references": [],
+                    "external_references": [],
+                    "version": 1,
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            await client.get_scope("scope:feature")
+            await client.update_scope(
+                "scope:feature",
+                UpdateScopeRequest(
+                    expected_version=1,
+                    title="Feature",
+                    summary="Current work",
+                ),
+            )
+
+        assert [request.method for request in requests] == ["GET", "PUT"]
+        assert [request.url.raw_path for request in requests] == [
+            b"/v1/scopes/scope%3Afeature",
+            b"/v1/scopes/scope%3Afeature",
+        ]
+        assert requests[0].content == b""
+        assert "scope_id" not in json.loads(requests[1].content)
+
+    asyncio.run(scenario())
+
+
 def test_client_keeps_a_generic_server_error_when_the_error_body_is_invalid() -> None:
     async def scenario() -> None:
         response = httpx.Response(500, text="Internal Server Error")
@@ -161,7 +208,10 @@ def test_client_downloads_handoff_report_bytes_and_sets_download_flag() -> None:
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
             client = PowerContextClient("https://memory.example", http_client=http_client)
-            request = GetHandoffReportRequest(scope_id="scope-1")
+            request = GetHandoffReportRequest(
+                selection=ScopeSelection(root=ExactScopeSelection(mode="exact", scope_ids=[ScopeId("scope-1")])),
+                format=ReportFormat.MARKDOWN,
+            )
             rendered = await client.get_handoff_report(request)
             content = await client.download_handoff_report(request)
 
@@ -169,7 +219,10 @@ def test_client_downloads_handoff_report_bytes_and_sets_download_flag() -> None:
         assert content == b"# Handoff Report\n"
         assert len(requests) == 2
         assert json.loads(requests[0].content)["download"] is False
-        assert json.loads(requests[0].content)["scope_id"] == "scope-1"
+        assert json.loads(requests[0].content)["selection"] == {
+            "mode": "exact",
+            "scope_ids": ["scope-1"],
+        }
         assert json.loads(requests[1].content)["download"] is True
 
     asyncio.run(scenario())

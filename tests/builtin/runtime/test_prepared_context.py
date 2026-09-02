@@ -25,13 +25,20 @@ from powercontext.builtin.artifacts.experience import ExperienceContent, Experie
 from powercontext.builtin.artifacts.memory import MemoryHit
 from powercontext.builtin.runtime import PrepareContextRequest
 from powercontext.builtin.runtime.errors import PreparedContextInvariantError
-from powercontext.builtin.runtime.prepared_context import PreparedContextBuilder
+from powercontext.builtin.runtime.prepared_context import (
+    PreparedContextBuilder,
+    PreparedExperienceCandidates,
+    PreparedMemoryCandidates,
+)
 
 MEMORY_REF = ArtifactRef(family="memory", artifact_id="memory", revision=3)
 
 
-class _PreparedCitation(TypedDict):
+class _PreparedCitation(TypedDict, total=False):
     entry_id: str
+    memory_ref: object
+    memory: object
+    artifact: object
 
 
 class _PreparedItem(TypedDict):
@@ -171,6 +178,34 @@ def test_builder_prepares_experience_without_a_memory_head_and_keeps_v1_envelope
         }
     }
     assert item["content"].endswith("Lesson: Regenerate and inspect the client before contract tests.")
+
+
+def test_builder_qualifies_only_cross_scope_citations() -> None:
+    builder = PreparedContextBuilder()
+    prepared = builder.build_scopes_result(
+        request=PrepareContextRequest(query="shared evidence"),
+        current_scope_id="current",
+        memory_candidates=(
+            PreparedMemoryCandidates(scope_id="current", memory_ref=MEMORY_REF, hits=(_hit("local", "Local"),)),
+            PreparedMemoryCandidates(scope_id="shared", memory_ref=MEMORY_REF, hits=(_hit("shared", "Shared"),)),
+        ),
+        experience_candidates=(PreparedExperienceCandidates(scope_id="shared", hits=(_experience_hit(),)),),
+    ).context
+
+    local, experience, shared = _items(prepared.content)
+    assert local["citation"]["memory_ref"] == MEMORY_REF.model_dump(mode="json")
+    assert shared["citation"]["memory"] == {
+        "scope_id": "shared",
+        "artifact": MEMORY_REF.model_dump(mode="json"),
+    }
+    assert experience["citation"]["artifact"] == {
+        "scope_id": "shared",
+        "artifact": {
+            "family": "experience",
+            "artifact_id": "experience-1",
+            "revision": 1,
+        },
+    }
 
 
 def test_builder_keeps_memory_primary_and_bounds_experience_share() -> None:

@@ -29,6 +29,7 @@ from powercontext.http import (
     MemoryMutationResponse,
     MemoryUsedSearchMode,
     PreparedContext,
+    ScopeDescriptor,
     SearchMemoryHit,
     SearchMemoryResponse,
     SourceReference,
@@ -89,6 +90,17 @@ def prepared_response(content: str | None = "Prepared memory evidence.") -> Prep
     })
 
 
+def scope_descriptor(scope_id: str) -> ScopeDescriptor:
+    return ScopeDescriptor(
+        scope_id=scope_id,
+        title="Test Scope",
+        summary="Scope returned by the recording client.",
+        context_references=[],
+        external_references=[],
+        version=1,
+    )
+
+
 class RecordingClient:
     """Configurable async client double that records the adapter boundary."""
 
@@ -100,6 +112,7 @@ class RecordingClient:
     flush_error: ClassVar[Exception | None] = None
     capture_position_offset: ClassVar[int] = 0
     flush_cursors: ClassVar[tuple[int, ...] | None] = None
+    default_scope_id: ClassVar[str] = "server:default"
 
     def __init__(
         self,
@@ -112,6 +125,7 @@ class RecordingClient:
         self.token = token
         self.timeout = timeout
         self.closed = False
+        self.resolve_scope_requests: list[Any] = []
         self.search_requests: list[Any] = []
         self.remember_requests: list[Any] = []
         self.prepare_requests: list[Any] = []
@@ -130,6 +144,7 @@ class RecordingClient:
         cls.flush_error = None
         cls.capture_position_offset = 0
         cls.flush_cursors = None
+        cls.default_scope_id = "server:default"
 
     async def __aenter__(self) -> RecordingClient:
         return self
@@ -137,6 +152,10 @@ class RecordingClient:
     async def __aexit__(self, *exc_info: object) -> None:
         del exc_info
         self.closed = True
+
+    async def resolve_scope_binding(self, request: Any) -> ScopeDescriptor:
+        self.resolve_scope_requests.append(request)
+        return scope_descriptor(request.explicit_scope_id or type(self).default_scope_id)
 
     async def search_memory(self, request: Any) -> Any:
         self.search_requests.append(request)

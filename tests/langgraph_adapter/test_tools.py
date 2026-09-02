@@ -12,11 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Behavior tests for the PowerContext Memory tools exposed to LangGraph agents.
-
-The tools resolve their scope and connection from environment settings when invoked outside a graph run, so these
-tests set ``POWERCONTEXT_LANGGRAPH_*`` and route the shared HTTP client at an in-process server.
-"""
+"""Behavior tests for the PowerContext Memory tools exposed to LangGraph agents."""
 
 from __future__ import annotations
 
@@ -45,8 +41,6 @@ from powercontext_langgraph import (
 )
 from powercontext_langgraph.client import shared_http_client
 
-SCOPE = "project:langgraph-tools-test"
-
 
 def _server_app(tmp_path: Path) -> FastAPI:
     return create_server_app(
@@ -72,8 +66,8 @@ def _run(app: FastAPI, scenario: Callable[[], Awaitable[None]]) -> None:
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("POWERCONTEXT_LANGGRAPH_SCOPE_ID", SCOPE)
     monkeypatch.setenv("POWERCONTEXT_LANGGRAPH_BASE_URL", "http://testserver")
+    monkeypatch.delenv("POWERCONTEXT_LANGGRAPH_SCOPE_ID", raising=False)
     monkeypatch.delenv("POWERCONTEXT_LANGGRAPH_TOKEN", raising=False)
 
 
@@ -88,7 +82,7 @@ def test_powercontext_tools_returns_three_base_tools() -> None:
     }
 
 
-def test_remember_then_search_roundtrips_through_the_server(tmp_path: Path) -> None:
+def test_remember_then_search_roundtrips_through_server_default_scope(tmp_path: Path) -> None:
     app = _server_app(tmp_path)
 
     async def scenario() -> None:
@@ -147,11 +141,15 @@ def test_context_tool_completes_for_over_limit_query(tmp_path: Path) -> None:
         (powercontext_remember, {"text": "note", "kind": "k" * 200}),  # kind above the max length
     ],
 )
-def test_tools_reject_out_of_range_arguments_without_raising(tool, arguments) -> None:  # type: ignore[no-untyped-def]
+def test_tools_reject_out_of_range_arguments_without_raising(  # type: ignore[no-untyped-def]
+    tool,
+    arguments,
+    tmp_path: Path,
+) -> None:
     # Request construction is inside the fail-open boundary: a model-supplied argument outside the public contract
     # returns a tool result instead of raising and aborting the graph.
     async def scenario() -> None:
         result = await tool.ainvoke(arguments)
         assert result.startswith("(PowerContext rejected the request:")
 
-    asyncio.run(scenario())
+    _run(_server_app(tmp_path), scenario)

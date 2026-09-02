@@ -30,6 +30,7 @@ from powercontext.builtin.runtime import (
     StatisticsPeriod,
     open_builtin_runtime,
 )
+from powercontext.builtin.scope import ScopeDraft, ScopeSelection
 from powercontext.builtin.sources import ContentSource
 
 
@@ -147,5 +148,53 @@ def test_recall_estimates_each_source_as_complete_text() -> None:
         assert prepared.status == "ready"
         assert result.recall.totals.comparable_preparations == 1
         assert result.recall.totals.baseline_tokens == estimator.estimate("a") + estimator.estimate("b") == 2
+
+    asyncio.run(scenario())
+
+
+def test_statistics_uses_the_same_all_exact_and_subtree_selection() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            assert runtime.scopes is not None
+            root = await runtime.scopes.create(ScopeDraft(title="Root", summary="Root result", idempotency_key="root"))
+            child = await runtime.scopes.create(
+                ScopeDraft(
+                    title="Child",
+                    summary="Child result",
+                    parent_scope_id=root.scope_id,
+                    idempotency_key="child",
+                )
+            )
+            other = await runtime.scopes.create(
+                ScopeDraft(title="Other", summary="Other result", idempotency_key="other")
+            )
+            for scope_id in (root.scope_id, child.scope_id, other.scope_id):
+                await runtime.memory.for_scope(scope_id).remember(
+                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text=f"Fact for {scope_id}."),))
+                )
+
+            all_statistics = await runtime.statistics.overview(
+                ScopeSelection(mode="all"),
+                period=StatisticsPeriod.TODAY,
+            )
+            subtree = await runtime.statistics.overview(
+                ScopeSelection(mode="subtree", root_scope_id=root.scope_id),
+                period=StatisticsPeriod.TODAY,
+            )
+            exact = await runtime.statistics.overview(
+                ScopeSelection(mode="exact", scope_ids=(child.scope_id,)),
+                period=StatisticsPeriod.TODAY,
+            )
+
+        assert set(all_statistics.scope_ids) >= {root.scope_id, child.scope_id, other.scope_id}
+        assert all_statistics.inventory.memory.entries.total == 3
+        assert subtree.scope_ids == (root.scope_id, child.scope_id)
+        assert subtree.inventory.memory.entries.total == 2
+        assert tuple(item.scope_id for item in subtree.by_scope) == (root.scope_id, child.scope_id)
+        assert [item.inventory.memory.entries.total for item in subtree.by_scope] == [1, 1]
+        assert exact.scope_ids == (child.scope_id,)
+        assert exact.inventory.memory.entries.total == 1
+        assert exact.by_scope[0].scope_id == child.scope_id
+        assert exact.by_scope[0].inventory == exact.inventory
 
     asyncio.run(scenario())

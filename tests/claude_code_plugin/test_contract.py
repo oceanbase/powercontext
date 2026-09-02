@@ -21,8 +21,8 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
-from shutil import which
 from types import ModuleType
+from typing import Any, cast
 
 import pytest
 
@@ -135,33 +135,42 @@ def test_header_helper_emits_configured_authorization_without_logging_it() -> No
     assert completed.stderr == ""
 
 
-@pytest.mark.parametrize(
-    ("remote", "expected"),
-    [
-        ("https://github.com/OceanBase/powercontext.git", "github.com/OceanBase/powercontext"),
-        ("ssh://git@github.com/OceanBase/powercontext.git", "github.com/OceanBase/powercontext"),
-        ("git@github.com:OceanBase/powercontext.git", "github.com/OceanBase/powercontext"),
-    ],
-)
-def test_scope_matches_codex_remote_normalization(
+def test_scope_resolver_and_workspace_binding_use_the_server(
     scope_module: ModuleType,
-    remote: str,
-    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    assert scope_module.normalize_git_remote(remote) == expected
+    requests: list[tuple[str, dict[str, object], str]] = []
 
+    def request(path, payload, *, settings, deadline, method="POST"):
+        requests.append((path, payload, method))
+        return {"scope_id": "scp_00000000000000000000000000"}
 
-def test_scope_override_wins(scope_module: ModuleType, tmp_path: Path) -> None:
-    assert scope_module.resolve_scope_id(str(tmp_path), configured_scope_id="project:explicit") == "project:explicit"
+    monkeypatch.setattr(scope_module, "_request_json", request)
+    settings = scope_module.ClaudeCodePluginSettings(scope_id="scp_00000000000000000000000000")
 
+    resolved = scope_module.resolve_scope_id(
+        str(tmp_path),
+        session_id="session-1",
+        settings=settings,
+        deadline=float("inf"),
+    )
+    bound = scope_module.bind_scope(
+        str(tmp_path),
+        resolved,
+        settings=settings,
+        deadline=float("inf"),
+    )
 
-def test_scope_reads_the_shared_git_private_workstream_binding(scope_module: ModuleType, tmp_path: Path) -> None:
-    git = which("git")
-    assert git is not None
-    subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
-
-    assert scope_module.bind_workstream_scope(str(tmp_path), "handoff-ui-review") == "handoff-ui-review"
-    assert scope_module.resolve_scope_id(str(tmp_path)) == "handoff-ui-review"
+    assert bound == resolved
+    assert requests[0][0] == "/v1/scope-bindings/resolve"
+    assert requests[0][1]["explicit_scope_id"] == resolved
+    binding_keys = cast(list[dict[str, Any]], requests[0][1]["binding_keys"])
+    assert [key["kind"] for key in binding_keys] == ["session", "workspace"]
+    assert binding_keys[0]["external_id"] == "session-1"
+    assert binding_keys[1]["external_id"] != str(tmp_path)
+    assert requests[1][0] == "/v1/scope-bindings"
+    assert requests[1][2] == "PUT"
 
 
 @pytest.mark.parametrize(
@@ -187,20 +196,6 @@ def test_environment_override_controls_prompt_capture(
     monkeypatch.setenv("POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS", "false")
 
     assert settings_module.ClaudeCodePluginSettings.from_environment().capture_prompts is False
-
-
-def test_project_context_skill_preserves_explicit_memory_and_handoff_boundaries() -> None:
-    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text()
-
-    assert "Do not call `remember_memory` merely" in content
-    assert "Ordinary prompt Sources are not task outcomes" in content
-    assert "`select_handoff_workstream`" in content
-    assert "structured choices" in content
-    assert "`handoff_current_work`" in content
-    assert "returned `handoff` member unchanged" in content
-    assert "`continue_handoff`" in content
-    assert "`acknowledge_handoff`" in content
-    assert "`record_task_outcome`" in content
 
 
 def test_claude_integration_does_not_embed_machine_specific_windows_paths() -> None:

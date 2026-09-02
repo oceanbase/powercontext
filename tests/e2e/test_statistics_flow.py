@@ -98,6 +98,13 @@ def _client(app) -> tuple[httpx.AsyncClient, PowerContextClient]:
     )
 
 
+def _stats_request(scope_id: str, period: StatsPeriod) -> GetStatsRequest:
+    return GetStatsRequest.model_validate({
+        "selection": {"mode": "exact", "scope_ids": [scope_id]},
+        "period": period,
+    })
+
+
 @pytest.mark.parametrize("database_kind", ["sqlite", "oceanbase"])
 def test_statistics_survive_the_authenticated_http_business_flow_and_restart(
     database_kind: str,
@@ -125,9 +132,17 @@ def test_statistics_survive_the_authenticated_http_business_flow_and_restart(
     first_app = create_server_app(settings=settings)
 
     async def scenario() -> None:
+        nonlocal scope_id
         async with first_app.router.lifespan_context(first_app):
             transport, client = _client(first_app)
             async with transport:
+                created_scope = await transport.post(
+                    "/v1/scopes",
+                    json={"title": "Statistics", "summary": "Statistics flow", "idempotency_key": scope_id},
+                    headers={"Authorization": f"Bearer {_AUTH_TOKEN}"},
+                )
+                assert created_scope.status_code == 201
+                scope_id = created_scope.json()["scope_id"]
                 source = await client.capture_content_source(
                     CaptureContentSourceRequest(
                         scope_id=scope_id,
@@ -201,12 +216,15 @@ def test_statistics_survive_the_authenticated_http_business_flow_and_restart(
                 empty = await client.prepare_context(
                     PrepareContextRequest(scope_id=scope_id, query="unrelated-zebra-phrase")
                 )
-                first = await client.get_stats(GetStatsRequest(scope_id=scope_id, period=StatsPeriod.TODAY))
+                first = await client.get_stats(_stats_request(scope_id, StatsPeriod.TODAY))
 
-                unauthorized = await transport.get("/v1/stats", params={"scope_id": scope_id})
-                raw = await transport.get(
+                unauthorized = await transport.post(
                     "/v1/stats",
-                    params={"scope_id": scope_id, "period": "today"},
+                    json={"selection": {"mode": "exact", "scope_ids": [scope_id]}},
+                )
+                raw = await transport.post(
+                    "/v1/stats",
+                    json={"selection": {"mode": "exact", "scope_ids": [scope_id]}, "period": "today"},
                     headers={"Authorization": f"Bearer {_AUTH_TOKEN}"},
                 )
 
@@ -233,11 +251,11 @@ def test_statistics_survive_the_authenticated_http_business_flow_and_restart(
         async with second_app.router.lifespan_context(second_app):
             transport, client = _client(second_app)
             async with transport:
-                restored = await client.get_stats(GetStatsRequest(scope_id=scope_id, period=StatsPeriod.FIELD_7D))
+                restored = await client.get_stats(_stats_request(scope_id, StatsPeriod.FIELD_7D))
                 prepared_again = await client.prepare_context(
                     PrepareContextRequest(scope_id=scope_id, query="statistics contract")
                 )
-                updated = await client.get_stats(GetStatsRequest(scope_id=scope_id, period=StatsPeriod.FIELD_7D))
+                updated = await client.get_stats(_stats_request(scope_id, StatsPeriod.FIELD_7D))
 
         assert restored.inventory == first.inventory
         assert restored.usage.totals == first.usage.totals

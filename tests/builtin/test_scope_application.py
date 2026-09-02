@@ -18,6 +18,7 @@ import asyncio
 import re
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES, SOURCES_TABLE
@@ -96,12 +97,100 @@ def test_concurrent_scope_creation_returns_one_scope(tmp_path) -> None:
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
         async with SQLiteProfile.open(config, tables=BUILTIN_TABLES) as profile:
-            scopes = ScopeApplication(profile.database)
+            scopes = tuple(ScopeApplication(profile.database) for _ in range(8))
             draft = ScopeDraft(title="Feature", summary="Concurrent creation", idempotency_key="concurrent")
 
-            created = await asyncio.gather(*(scopes.create(draft) for _ in range(8)))
+            created = await asyncio.gather(*(application.create(draft) for application in scopes))
 
             assert len({scope.scope_id for scope in created}) == 1
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_scope_creation_rejects_a_different_request(tmp_path) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES) as profile:
+            left = ScopeApplication(profile.database)
+            right = ScopeApplication(profile.database)
+
+            results = await asyncio.gather(
+                left.create(ScopeDraft(title="Feature", summary="Left", idempotency_key="concurrent")),
+                right.create(ScopeDraft(title="Feature", summary="Right", idempotency_key="concurrent")),
+                return_exceptions=True,
+            )
+
+            assert sum(isinstance(result, ScopeIdempotencyConflictError) for result in results) == 1
+            assert sum(not isinstance(result, BaseException) for result in results) == 1
+
+    asyncio.run(scenario())
+
+
+def test_scope_creation_does_not_hide_an_unrelated_integrity_error() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            scope_id = "scp_00000000000000000000000000"
+            left = ScopeApplication(profile.database, id_factory=lambda: scope_id)
+            right = ScopeApplication(profile.database, id_factory=lambda: scope_id)
+            await left.create(ScopeDraft(title="Left", summary="Left", idempotency_key="left"))
+
+            with pytest.raises(IntegrityError):
+                await right.create(ScopeDraft(title="Right", summary="Right", idempotency_key="right"))
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_default_bootstrap_returns_one_scope(tmp_path) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES) as profile:
+            scopes = tuple(ScopeApplication(profile.database) for _ in range(8))
+
+            defaults = await asyncio.gather(*(application.bootstrap_default() for application in scopes))
+
+            assert len({scope.scope_id for scope in defaults}) == 1
+            assert await scopes[0].default_scope() == defaults[0]
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_default_and_binding_writes_remain_valid(tmp_path) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES) as profile:
+            applications = tuple(ScopeApplication(profile.database) for _ in range(8))
+            targets = []
+            for index in range(len(applications)):
+                targets.append(
+                    await applications[0].create(
+                        ScopeDraft(title=f"Target {index}", summary="Target", idempotency_key=f"target-{index}")
+                    )
+                )
+            target_scopes = tuple(targets)
+            key = ScopeBindingKey(integration="codex", kind="workspace", external_id="shared")
+
+            defaults = await asyncio.gather(
+                *(
+                    application.set_default(target.scope_id)
+                    for application, target in zip(applications, target_scopes, strict=True)
+                )
+            )
+            bindings = await asyncio.gather(
+                *(
+                    application.bind(key, target.scope_id)
+                    for application, target in zip(applications, target_scopes, strict=True)
+                )
+            )
+
+            target_ids = {target.scope_id for target in target_scopes}
+            persisted_default = await applications[0].default_scope()
+            persisted_binding = await applications[0].binding(key)
+            assert tuple(defaults) == target_scopes
+            assert {binding.scope_id for binding in bindings} == target_ids
+            assert persisted_default is not None
+            assert persisted_default.scope_id in target_ids
+            assert persisted_binding is not None
+            assert persisted_binding.scope_id in target_ids
 
     asyncio.run(scenario())
 
