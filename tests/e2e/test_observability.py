@@ -51,6 +51,7 @@ from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, RememberMemoryRequest, open_builtin_runtime
 from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.errors import RevisionConflictError
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import OperationalContextFilter
@@ -614,14 +615,20 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
     exporter = InMemorySpanExporter()
     provider = TracerProvider(sampler=ALWAYS_ON, shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    scope_id = "project:private-lock-scope"
+    scope_id = ""
     memory_content = "Private lock sentinel evidence."
 
     async def scenario() -> None:
+        nonlocal scope_id
         async with open_builtin_runtime(
             BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scope-lock.db'}")),
             tracing=ServerTracing(provider),
         ) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Private lock", summary="Lock observability", idempotency_key="private-lock")
+            )
+            scope_id = scope.scope_id
             memory = runtime.memory.for_scope(scope_id)
             first = await memory.remember(
                 RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text=memory_content),))
@@ -669,22 +676,23 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
 
 
 def test_scope_lock_is_released_when_stage_teardown_fails(tmp_path) -> None:
-    scope_id = "project:private-broken-tracing"
-
     async def scenario() -> bool:
-        async with (
-            open_builtin_runtime(
-                BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'broken-tracing.db'}")),
-                tracing=_ScopeLockTeardownFailingTracing(),
-            ) as runtime,
-            runtime._scope_operation(scope_id),
-        ):
-            lock = runtime._lock(scope_id)
-            with pytest.raises(_StageTeardownError):
-                await runtime.memory.for_scope(scope_id).remember(
-                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Guarded fact."),))
-                )
-            return lock.locked()
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'broken-tracing.db'}")),
+            tracing=_ScopeLockTeardownFailingTracing(),
+        ) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Broken tracing", summary="Lock teardown", idempotency_key="broken-tracing")
+            )
+            scope_id = scope.scope_id
+            async with runtime._scope_operation(scope_id):
+                lock = runtime._lock(scope_id)
+                with pytest.raises(_StageTeardownError):
+                    await runtime.memory.for_scope(scope_id).remember(
+                        RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Guarded fact."),))
+                    )
+                return lock.locked()
 
     assert asyncio.run(scenario()) is False
 

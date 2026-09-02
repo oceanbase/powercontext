@@ -25,12 +25,14 @@ from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest,
     BuiltinConfig,
     BuiltinConfigurationError,
+    BuiltinRuntime,
     CaptureSource,
     GetExperienceRequest,
     ListArtifactCandidatesRequest,
     RuntimeConfig,
     open_builtin_runtime,
 )
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import ContentSource
 from powercontext.sources import Source, SourceRef
 
@@ -64,6 +66,14 @@ class _TaskOutcomePipeline:
         )
 
 
+async def _create_scope(runtime: BuiltinRuntime, idempotency_key: str) -> str:
+    assert runtime.scopes is not None
+    scope = await runtime.scopes.create(
+        ScopeDraft(title="Experience Test", summary="Experience incubation test", idempotency_key=idempotency_key)
+    )
+    return scope.scope_id
+
+
 def test_incubation_uses_an_independent_cursor_and_keeps_candidates_gated() -> None:
     async def scenario() -> None:
         pipeline = _TaskOutcomePipeline()
@@ -71,7 +81,7 @@ def test_incubation_uses_an_independent_cursor_and_keeps_candidates_gated() -> N
             BuiltinConfig(database=SQLiteConfig()),
             experience_pipeline=pipeline,
         ) as runtime:
-            scope = "scheduled-experience"
+            scope = await _create_scope(runtime, "scheduled-experience")
             await runtime.sources.for_scope(scope).capture(
                 CaptureSource(
                     source_id="prompt",
@@ -127,7 +137,7 @@ def test_incubation_retries_the_same_window_after_generation_failure() -> None:
             BuiltinConfig(database=SQLiteConfig()),
             experience_pipeline=pipeline,
         ) as runtime:
-            scope = "retry-experience"
+            scope = await _create_scope(runtime, "retry-experience")
             await runtime.sources.for_scope(scope).capture(
                 CaptureSource(
                     source_id="task-1",
@@ -157,7 +167,7 @@ def test_incubation_uses_the_fixed_source_window_budget() -> None:
             BuiltinConfig(database=SQLiteConfig()),
             experience_pipeline=pipeline,
         ) as runtime:
-            scope = "bounded-experience"
+            scope = await _create_scope(runtime, "bounded-experience")
             for index in range(33):
                 await runtime.sources.for_scope(scope).capture(
                     CaptureSource(

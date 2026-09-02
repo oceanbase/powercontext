@@ -139,7 +139,7 @@ from powercontext.builtin.runtime.readiness import (
     RuntimeReadinessChecks,
 )
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
-from powercontext.builtin.scope import ScopeApplication, ScopeNotFoundError, ScopeSelection
+from powercontext.builtin.scope import ScopeApplication, ScopeDescriptor, ScopeSelection
 from powercontext.builtin.sources import (
     ContentCapture,
     ContentSource,
@@ -224,6 +224,7 @@ class _RuntimeStateError(RuntimeError):
             "external-skill-registry": "External Skill Registry is not configured",
             "review": "Candidate Review services are not configured",
             "scheduler": "Built-in Runtime scheduler is already started",
+            "scope": "Scope services are not configured",
             "statistics": "Statistics services are not configured",
         }
         super().__init__(messages[code])
@@ -360,19 +361,12 @@ class ScopedContextApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def prepare(self, request: PrepareContextRequest, /) -> PreparedContext:
-        async with self._runtime._scope_operation(self.scope_id):
-            return await self._prepare(request)
+        async with self._runtime._scope_operation(self.scope_id) as scope:
+            return await self._prepare(request, scope)
 
-    async def _prepare(self, request: PrepareContextRequest, /) -> PreparedContext:
+    async def _prepare(self, request: PrepareContextRequest, scope: ScopeDescriptor, /) -> PreparedContext:
         builder = PreparedContextBuilder()
-        scope_ids = [self.scope_id]
-        if self._runtime.scopes is not None:
-            try:
-                scope = await self._runtime.scopes.get(self.scope_id)
-            except ScopeNotFoundError:
-                pass
-            else:
-                scope_ids.extend(scope.context_references)
+        scope_ids = [self.scope_id, *scope.context_references]
 
         memory_candidates: list[PreparedMemoryCandidates] = []
         experience_candidates: list[PreparedExperienceCandidates] = []
@@ -1496,11 +1490,14 @@ class BuiltinRuntime:
                         self._lifecycle.notify_all()
 
     @asynccontextmanager
-    async def _scope_operation(self, scope_id: str) -> AsyncIterator[None]:
+    async def _scope_operation(self, scope_id: str) -> AsyncIterator[ScopeDescriptor]:
         scope = validate_scope_id(scope_id)
         async with self._operation():
+            if self.scopes is None:
+                raise _RuntimeStateError("scope")
+            registered = await self.scopes.get(scope)
             with self._scope_cache.lease(scope):
-                yield
+                yield registered
 
     @asynccontextmanager
     async def _scoped_operation(

@@ -23,6 +23,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest,
     BuiltinConfig,
+    BuiltinRuntime,
     CaptureSource,
     PrepareContextRequest,
     ProposeExperienceRequest,
@@ -43,20 +44,29 @@ class _ContentCandidatePipeline:
         )
 
 
+async def _create_scope(runtime: BuiltinRuntime, idempotency_key: str) -> str:
+    assert runtime.scopes is not None
+    scope = await runtime.scopes.create(
+        ScopeDraft(title="Statistics Test", summary="Runtime statistics test", idempotency_key=idempotency_key)
+    )
+    return scope.scope_id
+
+
 def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(
             BuiltinConfig(database=SQLiteConfig()),
             candidate_pipeline=_ContentCandidatePipeline(),
         ) as runtime:
-            captured = await runtime.sources.for_scope("project").capture(
+            scope_id = await _create_scope(runtime, "statistics-inventory")
+            captured = await runtime.sources.for_scope(scope_id).capture(
                 CaptureSource(source_id="task-1", content="Remember the contract.", metadata={})
             )
-            await runtime.memory.for_scope("project").flush()
-            await runtime.memory.for_scope("project").remember(
+            await runtime.memory.for_scope(scope_id).flush()
+            await runtime.memory.for_scope(scope_id).remember(
                 RememberMemoryRequest(entries=(MemoryEntryInput(kind="project_note", text="Keep kinds open."),))
             )
-            candidate = await runtime.experience.for_scope("project").propose(
+            candidate = await runtime.experience.for_scope(scope_id).propose(
                 ProposeExperienceRequest(
                     proposal=ExperienceContent(
                         situation="A statistics contract was needed.",
@@ -67,14 +77,14 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
                     sources=(captured.source_ref,),
                 )
             )
-            await runtime.review.for_scope("project").approve(
+            await runtime.review.for_scope(scope_id).approve(
                 ApproveArtifactCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                 )
             )
-            statistics = runtime.statistics.for_scope("project")
-            prepared = await runtime.context.for_scope("project").prepare(PrepareContextRequest(query="contract"))
+            statistics = runtime.statistics.for_scope(scope_id)
+            prepared = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="contract"))
 
             result = await statistics.overview(period=StatisticsPeriod.TODAY)
 
@@ -119,10 +129,11 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
 def test_recall_estimates_each_source_as_complete_text() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            sources = runtime.sources.for_scope("project")
+            scope_id = await _create_scope(runtime, "statistics-recall")
+            sources = runtime.sources.for_scope(scope_id)
             first = await sources.capture(CaptureSource(source_id="short-a", content="a", metadata={}))
             second = await sources.capture(CaptureSource(source_id="short-b", content="b", metadata={}))
-            candidate = await runtime.experience.for_scope("project").propose(
+            candidate = await runtime.experience.for_scope(scope_id).propose(
                 ProposeExperienceRequest(
                     proposal=ExperienceContent(
                         situation="A short Source recall baseline was needed.",
@@ -133,16 +144,16 @@ def test_recall_estimates_each_source_as_complete_text() -> None:
                     sources=(first.source_ref, second.source_ref),
                 )
             )
-            await runtime.review.for_scope("project").approve(
+            await runtime.review.for_scope(scope_id).approve(
                 ApproveArtifactCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                 )
             )
-            prepared = await runtime.context.for_scope("project").prepare(
+            prepared = await runtime.context.for_scope(scope_id).prepare(
                 PrepareContextRequest(query="estimate each complete Source separately")
             )
-            result = await runtime.statistics.for_scope("project").overview(period=StatisticsPeriod.TODAY)
+            result = await runtime.statistics.for_scope(scope_id).overview(period=StatisticsPeriod.TODAY)
 
         estimator = character_token_estimator()
         assert prepared.status == "ready"

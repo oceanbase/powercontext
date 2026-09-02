@@ -23,6 +23,7 @@ from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
+    BuiltinRuntime,
     CaptureSource,
     HandoffContent,
     HandoffSourceCitation,
@@ -31,6 +32,7 @@ from powercontext.builtin.runtime import (
     PreparedHandoff,
     open_builtin_runtime,
 )
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.work import (
     AcknowledgeHandoff,
     CreateWorkContract,
@@ -54,6 +56,14 @@ UNCHECKED_RECEIVER_CHECKS = ReceiverChecks(
     capability="not_checked",
     authorization="not_checked",
 )
+
+
+async def _create_scope(runtime: BuiltinRuntime, idempotency_key: str) -> str:
+    assert runtime.scopes is not None
+    scope = await runtime.scopes.create(
+        ScopeDraft(title="Work Test", summary="Work continuity test", idempotency_key=idempotency_key)
+    )
+    return scope.scope_id
 
 
 def test_verified_work_claims_require_exact_evidence() -> None:
@@ -89,17 +99,18 @@ def test_acknowledgement_cannot_accept_unavailable_handoff_evidence() -> None:
         missing = HandoffSourceCitation(
             source_ref=SourceRef(source_type="content", source_id="missing-output"),
         )
-        prepared = PreparedHandoff(
-            scope_id="project",
-            base=None,
-            content=HandoffContent(
-                objective="Continue a partially verified change.",
-                state=(HandoffStatement(text="The change was reported as implemented.", citations=(missing,)),),
-                disposition="continuable",
-            ),
-        )
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            work = runtime.work.for_scope("project")
+            scope_id = await _create_scope(runtime, "unavailable-handoff-evidence")
+            prepared = PreparedHandoff(
+                scope_id=scope_id,
+                base=None,
+                content=HandoffContent(
+                    objective="Continue a partially verified change.",
+                    state=(HandoffStatement(text="The change was reported as implemented.", citations=(missing,)),),
+                    disposition="continuable",
+                ),
+            )
+            work = runtime.work.for_scope(scope_id)
 
             with pytest.raises(InvalidRuntimeRequestError, match="handoff-evidence-unavailable"):
                 await work.acknowledge(
@@ -182,8 +193,9 @@ def test_work_contract_rejects_a_verified_cross_record_claim_when_evidence_is_mi
             completion_criteria=("Reject unavailable verified evidence.",),
         )
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            scope_id = await _create_scope(runtime, "missing-contract-evidence")
             with pytest.raises(LookupError):
-                await runtime.work.for_scope("project").create_contract(
+                await runtime.work.for_scope(scope_id).create_contract(
                     CreateWorkContract(source_id="contract-1", contract=contract)
                 )
 
@@ -193,7 +205,8 @@ def test_work_contract_rejects_a_verified_cross_record_claim_when_evidence_is_mi
 def test_continuity_projects_the_result_loop_in_stable_journal_order() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            work = runtime.work.for_scope("project")
+            scope_id = await _create_scope(runtime, "continuity-result-loop")
+            work = runtime.work.for_scope(scope_id)
             await work.create_contract(
                 CreateWorkContract(
                     source_id="contract-1",
@@ -215,7 +228,7 @@ def test_continuity_projects_the_result_loop_in_stable_journal_order() -> None:
                     ),
                 )
             )
-            committed = await runtime.handoff.for_scope("project").commit(prepared.handoff)
+            committed = await runtime.handoff.for_scope(scope_id).commit(prepared.handoff)
             before_acceptance = await work.continuity()
             acknowledgement = await work.acknowledge(
                 AcknowledgeHandoff(
@@ -269,7 +282,8 @@ def test_continuity_projects_the_result_loop_in_stable_journal_order() -> None:
 def test_continuity_does_not_cover_an_acceptance_with_an_unlinked_outcome() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            work = runtime.work.for_scope("project")
+            scope_id = await _create_scope(runtime, "continuity-unlinked-outcome")
+            work = runtime.work.for_scope(scope_id)
             prepared = await work.handoff_current(
                 HandoffCurrentWork(
                     source_id="handoff-1",
@@ -280,7 +294,7 @@ def test_continuity_does_not_cover_an_acceptance_with_an_unlinked_outcome() -> N
                     ),
                 )
             )
-            committed = await runtime.handoff.for_scope("project").commit(prepared.handoff)
+            committed = await runtime.handoff.for_scope(scope_id).commit(prepared.handoff)
             await work.acknowledge(
                 AcknowledgeHandoff(
                     source_id="receipt-1",
@@ -315,8 +329,9 @@ def test_continuity_does_not_cover_an_acceptance_with_an_unlinked_outcome() -> N
 def test_task_outcome_rejects_a_non_receipt_result_link() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            scope_id = await _create_scope(runtime, "non-receipt-result-link")
             with pytest.raises(InvalidRuntimeRequestError, match="task-outcome-handoff-receipt"):
-                await runtime.work.for_scope("project").record_outcome(
+                await runtime.work.for_scope(scope_id).record_outcome(
                     RecordTaskOutcome(
                         source_id="outcome-1",
                         outcome=TaskOutcome(
@@ -338,13 +353,14 @@ def test_task_outcome_rejects_a_non_receipt_result_link() -> None:
 def test_continuity_excludes_malformed_work_records_without_failing_the_report() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            sources = runtime.sources.for_scope("project")
+            scope_id = await _create_scope(runtime, "malformed-work-records")
+            sources = runtime.sources.for_scope(scope_id)
             await sources.capture(CaptureSource(source_id="ordinary-1", content="ordinary", metadata={"kind": []}))
             await sources.capture(
                 CaptureSource(source_id="malformed-1", content="{}", metadata={"kind": "task-outcome"})
             )
 
-            continuity = await runtime.work.for_scope("project").continuity()
+            continuity = await runtime.work.for_scope(scope_id).continuity()
 
         assert continuity.total_event_count == 0
         assert continuity.invalid_record_count == 1

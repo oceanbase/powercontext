@@ -17,6 +17,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput, MemoryRerankDecision
 from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -26,9 +28,10 @@ from powercontext.builtin.runtime import (
     PrepareContextRequest,
     RememberMemoryRequest,
     SearchMemoryRequest,
+    open_builtin_contexts,
     open_builtin_runtime,
 )
-from powercontext.builtin.scope import ScopeDraft, ScopeMutation
+from powercontext.builtin.scope import ScopeDraft, ScopeMutation, ScopeNotFoundError
 from powercontext.builtin.sources import ContentSource
 
 
@@ -43,6 +46,41 @@ class _ContentCandidatePipeline:
             for source in request.sources
             if isinstance(source, ContentSource)
         )
+
+
+def test_builtin_runtime_rejects_unregistered_scope_without_persisting_data(tmp_path) -> None:
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
+        config = BuiltinConfig(database=database)
+        orphan_scope_id = "project:orphan"
+
+        async with open_builtin_runtime(config) as runtime:
+            assert runtime.scopes is not None
+            registered = await runtime.scopes.create(
+                ScopeDraft(title="Registered", summary="Registered scope", idempotency_key="registered")
+            )
+
+            captured = await runtime.sources.for_scope(registered.scope_id).capture(
+                CaptureSource(source_id="registered-turn", content="registered content", metadata={})
+            )
+            prepared = await runtime.context.for_scope(registered.scope_id).prepare(
+                PrepareContextRequest(query="registered")
+            )
+
+            assert captured.sequence == 1
+            assert prepared.status == "empty"
+            with pytest.raises(ScopeNotFoundError):
+                await runtime.sources.for_scope(orphan_scope_id).capture(
+                    CaptureSource(source_id="orphan-turn", content="orphan content", metadata={})
+                )
+            with pytest.raises(ScopeNotFoundError):
+                await runtime.context.for_scope(orphan_scope_id).prepare(PrepareContextRequest(query="orphan"))
+
+        async with open_builtin_contexts(config) as contexts:
+            orphan = await contexts.get(orphan_scope_id)
+            assert await orphan.sources.journal.entries() == ()
+
+    asyncio.run(scenario())
 
 
 def test_builtin_runtime_uses_sqlite_fts_without_vector_extension(tmp_path, monkeypatch) -> None:

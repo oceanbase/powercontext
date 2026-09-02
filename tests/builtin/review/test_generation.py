@@ -27,6 +27,7 @@ from powercontext.builtin.review.generation import GenerationCapabilityUnavailab
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest,
     BuiltinConfig,
+    BuiltinRuntime,
     CaptureSource,
     GenerateExperienceRequest,
     GenerateSkillRequest,
@@ -34,6 +35,15 @@ from powercontext.builtin.runtime import (
     SkillGenerationOrigin,
     open_builtin_runtime,
 )
+from powercontext.builtin.scope import ScopeDraft
+
+
+async def _create_scope(runtime: BuiltinRuntime, idempotency_key: str = "project") -> str:
+    assert runtime.scopes is not None
+    scope = await runtime.scopes.create(
+        ScopeDraft(title="Project", summary="Review generation tests", idempotency_key=idempotency_key)
+    )
+    return scope.scope_id
 
 
 def _experience() -> ExperienceContent:
@@ -77,16 +87,17 @@ class _SkillGenerator:
 def test_generation_without_model_fails_before_candidate_persistence() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            captured = await runtime.sources.for_scope("project").capture(
+            scope_id = await _create_scope(runtime)
+            captured = await runtime.sources.for_scope(scope_id).capture(
                 CaptureSource(source_id="task-1", content="bounded evidence", metadata={})
             )
 
             with pytest.raises(GenerationCapabilityUnavailableError):
-                await runtime.experience.for_scope("project").generate(
+                await runtime.experience.for_scope(scope_id).generate(
                     GenerateExperienceRequest(sources=(captured.source_ref,))
                 )
 
-            inbox = await runtime.review.for_scope("project").list(ListArtifactCandidatesRequest())
+            inbox = await runtime.review.for_scope(scope_id).list(ListArtifactCandidatesRequest())
             capabilities = await runtime.capabilities()
             assert inbox.candidates == ()
             assert capabilities.experience_generation is False
@@ -102,11 +113,12 @@ def test_experience_generation_uses_exact_source_and_supports_no_op() -> None:
             BuiltinConfig(database=SQLiteConfig()),
             experience_generator=generator,
         ) as runtime:
-            captured = await runtime.sources.for_scope("project").capture(
+            scope_id = await _create_scope(runtime)
+            captured = await runtime.sources.for_scope(scope_id).capture(
                 CaptureSource(source_id="task-1", content="contract validation passed", metadata={})
             )
 
-            result = await runtime.experience.for_scope("project").generate(
+            result = await runtime.experience.for_scope(scope_id).generate(
                 GenerateExperienceRequest(
                     sources=(captured.source_ref,),
                     reason="Generate from a selected successful task.",
@@ -123,13 +135,14 @@ def test_experience_generation_uses_exact_source_and_supports_no_op() -> None:
             BuiltinConfig(database=SQLiteConfig()),
             experience_generator=no_op,
         ) as runtime:
-            captured = await runtime.sources.for_scope("project").capture(
+            scope_id = await _create_scope(runtime)
+            captured = await runtime.sources.for_scope(scope_id).capture(
                 CaptureSource(source_id="task-2", content="nothing reusable", metadata={})
             )
-            result = await runtime.experience.for_scope("project").generate(
+            result = await runtime.experience.for_scope(scope_id).generate(
                 GenerateExperienceRequest(sources=(captured.source_ref,))
             )
-            inbox = await runtime.review.for_scope("project").list(ListArtifactCandidatesRequest())
+            inbox = await runtime.review.for_scope(scope_id).list(ListArtifactCandidatesRequest())
 
             assert result.generated is False
             assert inbox.candidates == ()
@@ -144,25 +157,26 @@ def test_experience_generation_targets_an_exact_approved_revision() -> None:
             BuiltinConfig(database=SQLiteConfig()),
             experience_generator=generator,
         ) as runtime:
-            first_source = await runtime.sources.for_scope("project").capture(
+            scope_id = await _create_scope(runtime)
+            first_source = await runtime.sources.for_scope(scope_id).capture(
                 CaptureSource(source_id="task-1", content="contract validation passed", metadata={})
             )
-            first_candidate = await runtime.experience.for_scope("project").generate(
+            first_candidate = await runtime.experience.for_scope(scope_id).generate(
                 GenerateExperienceRequest(sources=(first_source.source_ref,))
             )
             assert first_candidate.candidate is not None
-            first_approval = await runtime.review.for_scope("project").approve(
+            first_approval = await runtime.review.for_scope(scope_id).approve(
                 ApproveArtifactCandidateRequest(
                     candidate_id=first_candidate.candidate.candidate_id,
                     expected_version=1,
                 )
             )
             assert first_approval.result_artifact is not None
-            later_source = await runtime.sources.for_scope("project").capture(
+            later_source = await runtime.sources.for_scope(scope_id).capture(
                 CaptureSource(source_id="task-2", content="generation also had to run first", metadata={})
             )
 
-            replacement = await runtime.experience.for_scope("project").generate(
+            replacement = await runtime.experience.for_scope(scope_id).generate(
                 GenerateExperienceRequest(
                     sources=(later_source.source_ref,),
                     artifacts=(first_approval.result_artifact,),
@@ -174,7 +188,7 @@ def test_experience_generation_targets_an_exact_approved_revision() -> None:
             assert replacement.candidate.target == first_approval.result_artifact
             assert generator.inputs[-1].target_evidence_id is not None
             with pytest.raises(InvalidCandidateError):
-                await runtime.experience.for_scope("project").generate(
+                await runtime.experience.for_scope(scope_id).generate(
                     GenerateExperienceRequest(
                         sources=(later_source.source_ref,),
                         target=first_approval.result_artifact,
@@ -194,14 +208,15 @@ def test_managed_skill_generation_enforces_origin_specific_lineage() -> None:
             experience_generator=experience_generator,
             skill_generator=skill_generator,
         ) as runtime:
-            captured = await runtime.sources.for_scope("project").capture(
+            scope_id = await _create_scope(runtime)
+            captured = await runtime.sources.for_scope(scope_id).capture(
                 CaptureSource(source_id="task-1", content="contract validation passed", metadata={})
             )
-            experience_candidate = await runtime.experience.for_scope("project").generate(
+            experience_candidate = await runtime.experience.for_scope(scope_id).generate(
                 GenerateExperienceRequest(sources=(captured.source_ref,))
             )
             assert experience_candidate.candidate is not None
-            approved = await runtime.review.for_scope("project").approve(
+            approved = await runtime.review.for_scope(scope_id).approve(
                 ApproveArtifactCandidateRequest(
                     candidate_id=experience_candidate.candidate.candidate_id,
                     expected_version=1,
@@ -209,7 +224,7 @@ def test_managed_skill_generation_enforces_origin_specific_lineage() -> None:
             )
             assert approved.result_artifact is not None
 
-            generated = await runtime.skill.for_scope("project").generate(
+            generated = await runtime.skill.for_scope(scope_id).generate(
                 GenerateSkillRequest(
                     origin=SkillGenerationOrigin.EXPERIENCE,
                     sources=(captured.source_ref,),
@@ -223,17 +238,17 @@ def test_managed_skill_generation_enforces_origin_specific_lineage() -> None:
                 evidence.evidence_id.startswith("artifact:experience/")
                 for evidence in skill_generator.inputs[0].evidence
             )
-            skill_approval = await runtime.review.for_scope("project").approve(
+            skill_approval = await runtime.review.for_scope(scope_id).approve(
                 ApproveArtifactCandidateRequest(
                     candidate_id=generated.candidate.candidate_id,
                     expected_version=1,
                 )
             )
             assert skill_approval.result_artifact is not None
-            usage = await runtime.sources.for_scope("project").capture(
+            usage = await runtime.sources.for_scope(scope_id).capture(
                 CaptureSource(source_id="task-2", content="Skill validation passed.", metadata={})
             )
-            replacement = await runtime.skill.for_scope("project").generate(
+            replacement = await runtime.skill.for_scope(scope_id).generate(
                 GenerateSkillRequest(
                     origin=SkillGenerationOrigin.USAGE,
                     sources=(usage.source_ref,),
@@ -245,7 +260,7 @@ def test_managed_skill_generation_enforces_origin_specific_lineage() -> None:
             assert replacement.candidate.target == skill_approval.result_artifact
 
             with pytest.raises(InvalidCandidateError):
-                await runtime.skill.for_scope("project").generate(
+                await runtime.skill.for_scope(scope_id).generate(
                     GenerateSkillRequest(
                         origin=SkillGenerationOrigin.EXPERIENCE,
                         sources=(captured.source_ref,),
