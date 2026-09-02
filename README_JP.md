@@ -8,19 +8,15 @@
 
 *[English](README.md) · [中文](README_CN.md) · [日本語](README_JP.md)*
 
-作業を始めた人や Agent が、その作業を最後まで単独で完了するとは限りません。人が Agent にタスクを渡し、Agent が途中まで進め、その後を別の誰かが引き継ぎます。そのとき、判断の理由や現在の状態は、前の会話に置き去りになりがちです。
+作業を始めた人や Agent が、そのまま最後まで終えるとは限りません。あなたが Agent にタスクを渡し、Agent が途中まで進めた後、あなたや別の誰かが引き継ぐことがあります。そのとき、判断の理由や現在の状態は、その会話に置き去りになりがちです。
 
-PowerContext は、そのコンテキストを作業とともに保持します。何が起きたか、どのような判断が行われたか、現在どこまで進んでいるか、次に何をするかを保存します。作業が引き継がれるとき、次の人や Agent は状況を理解し、そのまま続きを進められます。
+PowerContext は、そのコンテキストをあなたの作業とともに保持します。何が起きたか、なぜその判断をしたか、現在どこまで進んでいるか、次に何をするかを保存します。作業が引き継がれるとき、あなたや次の Agent は状況を理解し、そのまま続きを進められます。
+
+![あなたと Agent が作業を引き継ぎ、保存されたコンテキストから継続する流れ](docs/assets/readme-workflow.svg)
+
+[公式サイト](https://powercontext.oceanbase.io/en/) · [ドキュメントを読む](https://powercontext.oceanbase.io/en/docs/)
 
 ## 作業とともに引き継がれるもの
-
-```text
-human or agent advances work
-  -> PowerContext stores and maintains context
-  -> work is handed off
-  -> the next human or agent continues
-  -> context changes with the work
-```
 
 コンテキストは、1 回の会話や 1 つの Agent を越えて残ります。対象となる作業の範囲と情報源とのつながりを保ち、作業の変化に合わせて内容を改訂または廃止しても履歴は失われません。PowerContext は、このコンテキストを Memory、Experience、Skills、Handoffs として管理します。
 
@@ -49,7 +45,7 @@ Server はデフォルトで、コンテキストをローカルの SQLite デ�
 powercontext setup codex --ref v0.1.0  # --ref also accepts a Git commit, such as 55616dca.
 ```
 
-Agent ごとの設定方法とその他の導入方法は、[ドキュメント](docs/en/docs/index.md)を参照してください。対応する Agent クライアントと IDE は MCP または専用の連携機能で接続できます。
+その他の Agent の設定方法と導入方法は、[Agent セットアップガイド](https://powercontext.oceanbase.io/en/docs/tutorials/agent-quickstart/)を参照してください。対応する Agent クライアントと IDE は MCP または専用の連携機能で接続できます。
 
 <table>
 <tr>
@@ -70,7 +66,7 @@ Agent ごとの設定方法とその他の導入方法は、[ドキュメント]
 </tr>
 </table>
 
-アプリケーションは、非同期 Python クライアント、HTTP API、MCP、または同一プロセス内の Core SDK から PowerContext を利用できます。入口を選ぶには[インターフェースリファレンス](docs/en/docs/reference/interfaces.md)を参照してください。
+アプリケーションは、非同期 Python クライアント、HTTP API、MCP、または同一プロセス内の Core SDK から PowerContext を利用できます。入口を選ぶには[インターフェースリファレンス](https://powercontext.oceanbase.io/en/docs/reference/interfaces/)を参照してください。
 
 ## PowerContext で何が変わるか
 
@@ -90,11 +86,11 @@ make test
 
 ## さらに詳しく
 
-- [公式サイト](https://powercontext.oceanbase.io/en/)
-- [ブログ](https://powercontext.oceanbase.io/en/blog/)
-- [更新履歴](https://powercontext.oceanbase.io/en/changelog/)
+- [コアコンセプト](https://powercontext.oceanbase.io/en/docs/explanation/core-concepts/)
+- [Memory と Handoff](https://powercontext.oceanbase.io/en/docs/explanation/memory-and-handoff/)
+- [Experience と Skill のライフサイクル](https://powercontext.oceanbase.io/en/docs/explanation/experience-and-skill-lifecycle/)
 
-PowerContext は [PowerMem](https://www.powermem.ai/) から始まった取り組みを引き継ぎ、Agent Memory から、人と Agent が引き継いで継続できるコンテキストへと対象を広げています。
+PowerContext は [PowerMem](https://www.powermem.ai/) の後継プロジェクトです。
 
 ## ライセンス
 

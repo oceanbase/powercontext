@@ -8,19 +8,15 @@
 
 *[English](README.md) · [中文](README_CN.md) · [日本語](README_JP.md)*
 
-工作很少由最初接手它的人或 Agent 独自完成。一个人把任务交给 Agent，Agent 推进了一部分，之后再由其他人接手。此前的推理和当前状态却常常留在上一段对话里。
+工作很少会由开始它的人或 Agent 独自完成。你把任务交给 Agent，Agent 推进一部分，之后可能由你或其他人接手。推理过程和当前状态却常常留在那段对话里。
 
-PowerContext 让上下文始终跟随工作。它保存已经发生的事情、做出的判断、当前状态和下一步。当工作发生交接时，下一个人或 Agent 可以理解现状并继续推进。
+PowerContext 让上下文始终跟随你的工作。它保存发生了什么、为什么这样判断、现在进展到哪里，以及下一步是什么。工作交接时，你或下一个 Agent 可以理解现状并继续推进。
+
+![你和 Agent 交接工作，并基于已存储的上下文继续推进](docs/assets/readme-workflow.svg)
+
+[官方网站](https://powercontext.oceanbase.io/zh/) · [阅读文档](https://powercontext.oceanbase.io/zh/docs/)
 
 ## 随工作流转的上下文
-
-```text
-human or agent advances work
-  -> PowerContext stores and maintains context
-  -> work is handed off
-  -> the next human or agent continues
-  -> context changes with the work
-```
 
 上下文不会随某次对话或某个 Agent 消失。它始终限定在对应工作范围内，并与来源保持关联。条目可以随着工作变化而修订或停用，同时保留历史。PowerContext 通过 Memory、Experience、Skills 和 Handoffs 维护这些上下文。
 
@@ -49,7 +45,7 @@ Server 默认将上下文保存到本地 SQLite 数据库。
 powercontext setup codex --ref v0.1.0  # --ref also accepts a Git commit, such as 55616dca.
 ```
 
-请阅读[文档](docs/zh/docs/index.md)，了解不同 Agent 的配置方式和其他部署选项。支持的 Agent Client 和 IDE 可通过 MCP 或专用集成连接。
+其他 Agent 的配置方式和部署选项请继续阅读 [Agent 配置指南](https://powercontext.oceanbase.io/zh/docs/tutorials/agent-quickstart/)。支持的 Agent Client 和 IDE 可通过 MCP 或专用集成连接。
 
 <table>
 <tr>
@@ -70,7 +66,7 @@ powercontext setup codex --ref v0.1.0  # --ref also accepts a Git commit, such a
 </tr>
 </table>
 
-应用还可以通过异步 Python Client、HTTP API、MCP 或进程内 Core SDK 使用 PowerContext。请参考[接口说明](docs/zh/docs/reference/interfaces.md)选择入口。
+应用还可以通过异步 Python Client、HTTP API、MCP 或进程内 Core SDK 使用 PowerContext。请参考[接口说明](https://powercontext.oceanbase.io/zh/docs/reference/interfaces/)选择入口。
 
 ## 使用 PowerContext 后有什么变化
 
@@ -90,11 +86,11 @@ make test
 
 ## 进一步了解
 
-- [官方网站](https://powercontext.oceanbase.io/zh/)
-- [博客](https://powercontext.oceanbase.io/zh/blog/)
-- [更新日志](https://powercontext.oceanbase.io/zh/changelog/)
+- [核心概念](https://powercontext.oceanbase.io/zh/docs/explanation/core-concepts/)
+- [理解 Memory 和 Handoff](https://powercontext.oceanbase.io/zh/docs/explanation/memory-and-handoff/)
+- [理解 Experience 与 Skill 生命周期](https://powercontext.oceanbase.io/zh/docs/explanation/experience-and-skill-lifecycle/)
 
-PowerContext 延续了 [PowerMem](https://www.powermem.ai/) 的工作，产品重心从 Agent Memory 扩展到可以在人和 Agent 之间交接并继续使用的上下文。
+PowerContext 是 [PowerMem](https://www.powermem.ai/) 的后续项目。
 
 ## 许可证
 

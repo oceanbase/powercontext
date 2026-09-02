@@ -8,19 +8,15 @@ Context for work that humans and agents hand off and continue.
 
 *[English](README.md) · [中文](README_CN.md) · [日本語](README_JP.md)*
 
-Work rarely ends with whoever starts it. A person hands a task to an agent, the agent gets part of the way, and later someone else takes over. The reasoning and current state are often left behind in the earlier conversation.
+Work rarely ends with whoever starts it. You hand a task to an agent, the agent gets part of the way, and later you or someone else takes over. The reasoning and current state often stay behind in that conversation.
 
-PowerContext keeps that context with the work. It stores what happened, the decisions made, the current state, and what comes next. When the work changes hands, the next person or agent can understand it and continue.
+PowerContext keeps that context with your work. It stores what happened, why decisions were made, where things stand, and what comes next. When the work changes hands, you or the next agent can understand it and continue.
+
+![You and agents hand work off and continue with stored context](docs/assets/readme-workflow.svg)
+
+[Website](https://powercontext.oceanbase.io/en/) · [Read the documentation](https://powercontext.oceanbase.io/en/docs/)
 
 ## What moves with the work
-
-```text
-human or agent advances work
-  -> PowerContext stores and maintains context
-  -> work is handed off
-  -> the next human or agent continues
-  -> context changes with the work
-```
 
 Context remains available beyond any one conversation or agent. It stays scoped to the work and connected to its sources. Entries can be revised or retired without erasing their history. PowerContext maintains this context as Memory, Experience, Skills, and Handoffs.
 
@@ -49,7 +45,7 @@ Then set up an agent integration. For example:
 powercontext setup codex --ref v0.1.0  # --ref also accepts a Git commit, such as 55616dca.
 ```
 
-Read the [documentation](docs/en/docs/index.md) for agent-specific setup and other deployment options. Supported agent clients and IDEs connect through MCP or a dedicated integration.
+For other agents and deployment options, continue with the [agent setup guide](https://powercontext.oceanbase.io/en/docs/tutorials/agent-quickstart/). Supported agent clients and IDEs connect through MCP or a dedicated integration.
 
 <table>
 <tr>
@@ -70,7 +66,7 @@ Read the [documentation](docs/en/docs/index.md) for agent-specific setup and oth
 </tr>
 </table>
 
-Applications can use PowerContext through the async Python client, HTTP API, MCP, or the in-process Core SDK. See the [interface reference](docs/en/docs/reference/interfaces.md) to choose an entry point.
+Applications can use PowerContext through the async Python client, HTTP API, MCP, or the in-process Core SDK. See the [interface reference](https://powercontext.oceanbase.io/en/docs/reference/interfaces/) to choose an entry point.
 
 ## What changes with PowerContext
 
@@ -90,11 +86,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow.
 
 ## Learn more
 
-- [Website](https://powercontext.oceanbase.io/en/)
-- [Blog](https://powercontext.oceanbase.io/en/blog/)
-- [Changelog](https://powercontext.oceanbase.io/en/changelog/)
+- [Core concepts](https://powercontext.oceanbase.io/en/docs/explanation/core-concepts/)
+- [Memory and Handoff](https://powercontext.oceanbase.io/en/docs/explanation/memory-and-handoff/)
+- [Experience and Skill lifecycle](https://powercontext.oceanbase.io/en/docs/explanation/experience-and-skill-lifecycle/)
 
-PowerContext continues the work started in [PowerMem](https://www.powermem.ai/), with its focus expanded from agent memory to context that humans and agents can hand off and continue.
+PowerContext is the successor to [PowerMem](https://www.powermem.ai/).
 
 ## License
 
