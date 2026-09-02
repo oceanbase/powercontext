@@ -181,6 +181,7 @@ def test_project_context_skill_uses_the_high_level_work_continuity_loop() -> Non
     content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
 
     assert 'description: Create and commit a current-work Handoff when the user says "交接"' in content
+    assert "including explicit requests to save or search durable Memory." in content
     assert '"$PLUGIN_ROOT/.venv/bin/python" "$PLUGIN_ROOT/scripts/project_scope.py"' in content
     assert "uv run --frozen" not in content
     assert "create_work_contract" in content
@@ -197,6 +198,32 @@ def test_project_context_skill_uses_the_high_level_work_continuity_loop() -> Non
     assert 'selection: "prepared"' in content
     assert "call `commit_handoff` only when" in content
     assert "Do not treat every session stop as task completion" in content
+
+
+def test_project_context_skill_requires_explicit_memory_routing_and_failure_reporting() -> None:
+    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
+
+    for required in (
+        "## Explicit Memory Requests",
+        "The examples below are illustrative, not an exhaustive keyword allowlist.",
+        "remember I prefer uv for Python",
+        "记住我偏好使用 uv",
+        "search my memories",
+        "搜索我的记忆",
+        "call `remember_memory`",
+        "call `search_memory`",
+        'mode: "auto"',
+        "eight results",
+        "Report that Memory was saved only after the tool",
+        "Do not claim that Memory was saved or searched",
+        "the Memory was not saved or searched",
+        "A prompt Source captured by the Hook is not a Memory",
+        "Do not call `select_handoff_workstream` for this flow",
+        "Draft a preference entry, but do not save it",
+    ):
+        assert required in content
+
+    assert "From now on, use\npytest" in content
 
 
 def test_powercontext_plugin_advertises_the_one_turn_handoff() -> None:
