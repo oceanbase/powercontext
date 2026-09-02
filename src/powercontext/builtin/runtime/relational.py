@@ -59,6 +59,7 @@ from powercontext.builtin.artifacts.skill import (
     SkillGenerator,
 )
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
+from powercontext.builtin.artifacts.topic_memory import TopicMemory
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError, TokenEstimator
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
@@ -309,7 +310,7 @@ class RelationalContexts:
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         self.repositories = _Repositories(
             sources=SourceRepository(_SOURCE_ADAPTERS),
-            artifacts=ArtifactRepository((Handoff, Memory, Experience, Skill)),
+            artifacts=ArtifactRepository((Handoff, Memory, Experience, Skill, TopicMemory)),
             candidates=CandidateRepository({
                 Experience.family: ExperienceContent,
                 Skill.family: SkillContent,

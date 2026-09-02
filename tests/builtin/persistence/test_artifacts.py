@@ -22,10 +22,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.topic_memory import TopicMemory, TopicMemoryContent, TopicMemoryDraft
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
 )
+from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import SourceMaterialization, SourceRef
 from tests.builtin.persistence.contract import (
@@ -94,6 +96,60 @@ def test_two_artifact_families_share_revisions_and_ordered_direct_lineage() -> N
                     "handoff",
                     "handoff-1",
                 ) == (handoff, revised)
+
+    asyncio.run(scenario())
+
+
+def test_relational_contexts_persist_topic_memory_revisions_and_exact_lineage() -> None:
+    async def scenario() -> None:
+        async with repository_profile() as (profile, repositories):
+            contexts = RelationalContexts(database=profile.database)
+            source = NoteSource(
+                name="note-1",
+                materialization=SourceMaterialization.CAPTURED,
+                body="Supervisor recovery evidence",
+            )
+            async with profile.database.transaction() as connection:
+                stored_source = await repositories.sources.add(connection, "scope-a", source)
+                original = await contexts.repositories.artifacts.create(
+                    connection,
+                    "scope-a",
+                    "topic-1",
+                    TopicMemoryDraft(
+                        content=TopicMemoryContent(
+                            title="Supervisor recovery",
+                            summary="The new leader resumes persisted pending work.",
+                            detail="The lease generation fences stale workers.",
+                        ),
+                        sources=(stored_source.ref,),
+                    ),
+                )
+                revised = await contexts.repositories.artifacts.revise(
+                    connection,
+                    "scope-a",
+                    original,
+                    TopicMemoryDraft(
+                        content=TopicMemoryContent(
+                            title="Supervisor recovery",
+                            summary="The new leader restores each binding's deadline.",
+                            detail="Persisted completion time prevents an early automatic wave.",
+                        ),
+                        sources=(stored_source.ref,),
+                        artifacts=(original.as_ref(),),
+                    ),
+                )
+
+                assert type(original) is TopicMemory
+                assert type(revised) is TopicMemory
+                assert revised.revision == 2
+                assert revised.lineage.sources == (stored_source.ref,)
+                assert revised.lineage.artifacts == (original.as_ref(),)
+                assert await contexts.repositories.artifacts.revisions(
+                    connection,
+                    "scope-a",
+                    "topic-memory",
+                    "topic-1",
+                ) == (original, revised)
 
     asyncio.run(scenario())
 

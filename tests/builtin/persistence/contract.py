@@ -21,6 +21,7 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict
 
 from powercontext.artifacts import Artifact, ArtifactDraft
+from powercontext.builtin.artifacts.topic_memory import TopicMemory
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.sources import SourceRepository
@@ -106,7 +107,7 @@ class ReportDraft(ArtifactDraft[ReportContent]):
 
 
 SOURCE_ADAPTERS = (CommitAdapter(), NoteAdapter())
-ARTIFACT_TYPES = (Handoff, Report)
+ARTIFACT_TYPES = (Handoff, Report, TopicMemory)
 
 
 class RepositoryBundle(BaseModel):
