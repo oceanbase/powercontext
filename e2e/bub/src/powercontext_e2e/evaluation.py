@@ -141,16 +141,17 @@ class MemoryEvaluator:
             and _probe_matches_forbidden_context(probe, probe_spec.forbidden_context)
         ]
         forbidden_context_match_ids = set(forbidden_context_matches)
+        positive_probes = [probe_spec for probe_spec in evaluation.probes if probe_spec.expected_context]
         supported_probes = [
             probe_spec
-            for probe_spec in evaluation.probes
+            for probe_spec in positive_probes
             if (probe := probes_by_id.get(probe_spec.id)) is not None
             and probe.prepared_context.status == "ready"
             and bool(probe.prepared_context.content.strip())
             and _contains_fragments(probe.prepared_context.content, probe_spec.expected_context)
             and probe_spec.id not in forbidden_context_match_ids
         ]
-        probe_coverage = len(supported_probes) / len(evaluation.probes)
+        probe_coverage = len(supported_probes) / len(positive_probes) if positive_probes else 1.0
         in_run_contexts = sum(
             record.event == "context"
             and record.status == "ready"

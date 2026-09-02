@@ -89,9 +89,11 @@ evaluation:
 `dataset` may identify a repository-maintained Harbor task or a versioned registry task. Repository tasks and
 registry tasks use the same execution and evidence path.
 
-Recall probe matching is case-insensitive and Unicode-normalized. A prepared context supports a probe only when it
-contains every `expected_context` fragment and none of the `forbidden_context` fragments. Any forbidden match fails
-acceptance independently of the `probe_coverage` threshold.
+Recall probe matching is case-insensitive and Unicode-normalized. Probes with `expected_context` contribute to
+`probe_coverage` and require every expected fragment. Probes with only `forbidden_context` express abstention and do
+not contribute to that coverage. If there are no positive probes, `probe_coverage` is `1`. Every probe rejects
+prepared context containing a forbidden fragment, and any forbidden match fails acceptance independently of the
+`probe_coverage` threshold.
 
 `execution.type` selects the adapter. The current contract implements `bub`. `execution.model` only declares whether
 the workload needs a model:

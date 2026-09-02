@@ -67,9 +67,11 @@ evaluation:
 The dataset can be a local Harbor dataset path or a registry dataset name and version. `execution` selects the
 adapter and its budget. `model` declares only whether the workload requires a model. The runtime selects the model,
 provider, endpoint, and credentials. `evaluation` declares only externally observable Memory behavior.
-Every recall probe requires all `expected_context` fragments and rejects prepared context containing any
-`forbidden_context` fragment. Fragment matching is case-insensitive and Unicode-normalized. Any forbidden match
-fails acceptance independently of the `probe_coverage` threshold.
+Recall probes with `expected_context` contribute to `probe_coverage` and require every expected fragment. Probes
+with only `forbidden_context` express abstention and do not contribute to that coverage. If there are no positive
+probes, `probe_coverage` is `1`. Every probe rejects prepared context containing a forbidden fragment. Fragment
+matching is case-insensitive and Unicode-normalized. Any forbidden match fails acceptance independently of the
+`probe_coverage` threshold.
 Two or more compatible selected tasks with the same `batch:<name>` category share one run-local Harbor task and
 container. Their scopes, evidence, and evaluation remain independent; selecting one task uses the normal path.
 

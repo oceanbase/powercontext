@@ -83,9 +83,11 @@ evaluation:
 `dataset` 可以指向仓库自行维护的 Harbor task，也可以指向带版本的 registry task。两者使用相同的 execution 与 evidence
 路径。
 
-Recall probe 的匹配不区分大小写，并进行 Unicode 归一化。Prepared context 只有在包含全部 `expected_context`
-片段，且不包含任何 `forbidden_context` 片段时，才支持该 probe。任何 forbidden match 都会直接令 acceptance
-失败，不受 `probe_coverage` 阈值影响。
+Recall probe 的匹配不区分大小写，并进行 Unicode 归一化。包含 `expected_context` 的正向 probe 参与
+`probe_coverage` 计算，并要求 prepared context 包含全部 expected fragment。仅包含 `forbidden_context` 的纯负向
+probe 表达 abstention，不参与 coverage；没有正向 probe 时，`probe_coverage` 为 `1`。每个 probe 都会拒绝包含
+forbidden fragment 的 prepared context；任何 forbidden match 都会直接令 acceptance 失败，不受
+`probe_coverage` 阈值影响。
 
 `execution.type` 选择 adapter，当前 contract 实现 `bub`。`execution.model` 只声明 workload 是否需要 model：
 

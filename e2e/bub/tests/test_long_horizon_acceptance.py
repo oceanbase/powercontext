@@ -107,6 +107,58 @@ def test_memory_acceptance_normalizes_required_recall_context() -> None:
     assert report.cases[0].metrics["recall_probes_supported"] == 1
 
 
+def test_memory_acceptance_supports_empty_purely_negative_probe() -> None:
+    task = _task_with_recall_contract(forbidden_context=("obsolete guidance",))
+    observation = _observation(
+        task,
+        prepared_context="",
+        prepared_context_status="empty",
+    )
+
+    report = MemoryEvaluator.evaluate(observation, experiment="negative-abstention-test")
+
+    assert report.accepted
+    case = report.cases[0]
+    assert case.assertions["forbidden_context_absent"].value
+    assert case.scores["probe_coverage"].value == 1
+    assert case.metrics["recall_probes_supported"] == 0
+
+
+def test_memory_acceptance_excludes_purely_negative_probes_from_coverage() -> None:
+    task = _task_with_recall_contract(
+        expected_context=("grounded task evidence",),
+        forbidden_context=(),
+    )
+    evaluation = task.evaluation
+    assert isinstance(evaluation, MemoryEvaluationSpec)
+    positive_probe = evaluation.probes[0]
+    negative_probe = positive_probe.model_copy(
+        update={
+            "id": "no-obsolete-guidance",
+            "expected_context": (),
+            "forbidden_context": ("obsolete guidance",),
+        }
+    )
+    task = task.model_copy(
+        update={"evaluation": evaluation.model_copy(update={"probes": (positive_probe, negative_probe)})}
+    )
+    observation = _observation(
+        task,
+        prepared_context="",
+        prepared_context_by_probe={
+            positive_probe.id: PreparedContextSnapshot(status="ready", content="Grounded task evidence."),
+            negative_probe.id: PreparedContextSnapshot(status="empty"),
+        },
+    )
+
+    report = MemoryEvaluator.evaluate(observation, experiment="mixed-probe-coverage-test")
+
+    assert report.accepted
+    case = report.cases[0]
+    assert case.scores["probe_coverage"].value == 1
+    assert case.metrics["recall_probes_supported"] == 1
+
+
 def test_prepared_probes_discard_forbidden_context_after_recording_verdict() -> None:
     task = _task_with_recall_contract(forbidden_context=("SECRET",))
     probes = _prepared_probe_observations(task, "prefix-SECRET-suffix")
@@ -212,6 +264,8 @@ def _observation(
     task: E2ETask,
     *,
     prepared_context: str,
+    prepared_context_status: str = "ready",
+    prepared_context_by_probe: dict[str, PreparedContextSnapshot] | None = None,
     forbidden_context_matched: bool | None = None,
 ) -> TaskObservation:
     recorded_at = datetime(2026, 8, 13, tzinfo=UTC)
@@ -293,7 +347,11 @@ def _observation(
             RecallProbeObservation(
                 id=probe.id,
                 query=probe.query,
-                prepared_context=PreparedContextSnapshot(status="ready", content=prepared_context),
+                prepared_context=(
+                    prepared_context_by_probe[probe.id]
+                    if prepared_context_by_probe is not None
+                    else PreparedContextSnapshot(status=prepared_context_status, content=prepared_context)
+                ),
                 forbidden_context_matched=forbidden_context_matched,
             )
             for probe in task.evaluation.probes
