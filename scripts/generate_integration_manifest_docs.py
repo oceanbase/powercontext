@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from powercontext.integration_manifest import (
+from integration_manifest import (
     DOCUMENTATION_PATHS,
     evidence_path_errors,
     load_integration_manifest,

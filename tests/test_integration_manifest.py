@@ -14,14 +14,18 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from powercontext.cli.system import setup_app
-from powercontext.integration_manifest import (
+from scripts.integration_manifest import (
     DOCUMENTATION_PATHS,
+    MANIFEST_PATH,
     IntegrationAvailability,
     IntegrationManifest,
     evidence_path_errors,
@@ -70,6 +74,78 @@ def test_tool_surface_probe_rejects_renamed_or_added_tools() -> None:
     assert "server-mcp: tool surface drift" in errors[0]
     assert "renamed_memory_search" in errors[0]
     assert "search_memory" in errors[0]
+
+
+@pytest.mark.parametrize(
+    ("integration_id", "config_name", "command", "arguments"),
+    [
+        ("codex", "hooks.json", "/bin/true", None),
+        (
+            "claude-code",
+            "hooks.json",
+            "/bin/true",
+            ["${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py"],
+        ),
+        (
+            "claude-code",
+            "hooks.json",
+            "python3",
+            [
+                "${CLAUDE_PLUGIN_ROOT}/hooks/missing.py",
+                "${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py",
+            ],
+        ),
+        (
+            "codex",
+            "hooks.json",
+            "uv run --frozen /bin/true python ${PLUGIN_ROOT}/hooks/recall.py",
+            None,
+        ),
+    ],
+)
+def test_prompt_hook_probe_follows_registered_command(
+    tmp_path: Path,
+    integration_id: str,
+    config_name: str,
+    command: str,
+    arguments: list[str] | None,
+) -> None:
+    for target_id in ("codex", "claude-code", "workbuddy"):
+        relative_path = Path(target_id, "plugins", "powercontext", "hooks")
+        shutil.copytree(MANIFEST_PATH.parent / relative_path, tmp_path / "integrations" / relative_path)
+
+    config_path = tmp_path / "integrations" / integration_id / "plugins/powercontext/hooks" / config_name
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    command_hook = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    command_hook["command"] = command
+    if arguments is None:
+        command_hook.pop("args", None)
+    else:
+        command_hook["args"] = arguments
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    payload = load_integration_manifest().model_dump(mode="json")
+    payload["toolsets"] = [toolset for toolset in payload["toolsets"] if toolset["id"] == "prompt-hooks"]
+    payload["integrations"] = [
+        {
+            "id": "codex",
+            "kind": "agent_host",
+            "availability": "master_only",
+            "capabilities": ["source_capture", "context_injection", "flush_or_checkpoint"],
+            "toolsets": ["prompt-hooks"],
+            "evidence": {
+                "implementation": ["integrations/codex/plugins/powercontext/hooks/recall.py"],
+                "documentation": ["integrations/codex/README.md"],
+                "tests": ["tests/test_integration_manifest.py"],
+            },
+        }
+    ]
+    manifest = IntegrationManifest.model_validate(payload)
+
+    assert tool_surface_errors(manifest, tmp_path) == (
+        f"prompt-hooks: tool surface drift (missing ['{integration_id}:UserPromptSubmit']; "
+        f"unexpected ['{integration_id}:UserPromptSubmit:incomplete'])",
+    )
 
 
 @pytest.mark.parametrize(

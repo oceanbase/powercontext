@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 import tomllib
 from collections.abc import Iterable
@@ -313,7 +314,7 @@ def derived_profiles(capabilities: Iterable[IntegrationCapability]) -> frozenset
     return frozenset(profiles)
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPOSITORY_ROOT / "integrations" / "capabilities.toml"
 DOCUMENTATION_PATHS = {
     "en": REPOSITORY_ROOT / "docs" / "en" / "docs" / "reference" / "integration-capabilities.md",
@@ -538,31 +539,152 @@ def _hermes_command_ids(root: Path) -> set[str]:
 
 def _prompt_hook_ids(root: Path) -> set[str]:
     hooks = {
-        "codex": ("integrations/codex/plugins/powercontext/hooks/hooks.json", "hooks/recall.py"),
+        "codex": (
+            "integrations/codex/plugins/powercontext/hooks/hooks.json",
+            {"${PLUGIN_ROOT}": Path("..")},
+        ),
         "claude-code": (
             "integrations/claude-code/plugins/powercontext/hooks/hooks.json",
-            "hooks/user_prompt_submit.py",
+            {"${CLAUDE_PLUGIN_ROOT}": Path("..")},
         ),
         "workbuddy": (
             "integrations/workbuddy/plugins/powercontext/hooks/hooks.workbuddy.json",
-            "hooks/workbuddy_powercontext_hook.py",
+            {"<WORKBUDDY_HOOKS_DIR>": Path(".")},
         ),
     }
     result: set[str] = set()
-    for integration_id, (json_path, script_name) in hooks.items():
+    for integration_id, (json_path, placeholder_roots) in hooks.items():
         payload = json.loads(_read(root, json_path))
         events = payload.get("hooks")
         if not isinstance(events, dict):
             raise ValueError(f"{integration_id} hook config has no hooks map")
-        source = _read(root, str(Path(json_path).parent / Path(script_name).name))
-        for event in events:
-            if event == "UserPromptSubmit" and all(
-                marker in source for marker in ("/v1/context/prepare", "/v1/sources/content", "/v1/memory/flush")
-            ):
+        config_path = root / json_path
+        for event, registrations in events.items():
+            scripts = _registered_hook_scripts(
+                integration_id,
+                event,
+                registrations,
+                config_path,
+                placeholder_roots,
+            )
+            if event == "UserPromptSubmit" and any(_is_complete_prompt_hook(script) for script in scripts):
                 result.add(f"{integration_id}:{event}")
             else:
                 result.add(f"{integration_id}:{event}:incomplete")
     return result
+
+
+def _registered_hook_scripts(
+    integration_id: str,
+    event: str,
+    registrations: object,
+    config_path: Path,
+    placeholder_roots: dict[str, Path],
+) -> set[Path]:
+    if not isinstance(registrations, list):
+        raise ValueError(f"{integration_id} {event} hook registrations must be a list")
+    scripts: set[Path] = set()
+    for registration in registrations:
+        if not isinstance(registration, dict):
+            raise ValueError(f"{integration_id} {event} hook registration must be an object")
+        commands = registration.get("hooks")
+        if not isinstance(commands, list):
+            raise ValueError(f"{integration_id} {event} hook registration has no hooks list")
+        for command in commands:
+            script = _python_script_from_hook_command(
+                integration_id,
+                event,
+                command,
+                config_path,
+                placeholder_roots,
+            )
+            if script is not None:
+                scripts.add(script)
+    return scripts
+
+
+def _python_script_from_hook_command(
+    integration_id: str,
+    event: str,
+    command: object,
+    config_path: Path,
+    placeholder_roots: dict[str, Path],
+) -> Path | None:
+    if not isinstance(command, dict) or command.get("type") != "command":
+        return None
+    executable = command.get("command")
+    if not isinstance(executable, str):
+        raise ValueError(f"{integration_id} {event} command hook has no command")
+    try:
+        tokens = shlex.split(executable)
+    except ValueError as error:
+        raise ValueError(f"{integration_id} {event} command hook cannot be parsed") from error
+    arguments = command.get("args", [])
+    if not isinstance(arguments, list):
+        raise ValueError(f"{integration_id} {event} command hook args must be a string list")
+    for argument in arguments:
+        if not isinstance(argument, str):
+            raise ValueError(f"{integration_id} {event} command hook args must be a string list")
+        tokens.append(argument)
+    invocation = _unwrap_uv_run(tokens)
+    if len(invocation) < 2 or not _is_python_executable(invocation[0]):
+        return None
+    script = invocation[1]
+    if not script.endswith(".py"):
+        return None
+    return _resolve_registered_hook_script(script, config_path, placeholder_roots)
+
+
+def _unwrap_uv_run(tokens: list[str]) -> list[str]:
+    if not tokens or Path(tokens[0]).name != "uv":
+        return tokens
+    if len(tokens) < 2 or tokens[1] != "run":
+        return []
+    index = 2
+    while index < len(tokens):
+        option = tokens[index]
+        if option in {"--frozen", "--quiet"}:
+            index += 1
+        elif option == "--project" and index + 1 < len(tokens):
+            index += 2
+        else:
+            break
+    return tokens[index:]
+
+
+def _is_python_executable(executable: str) -> bool:
+    return (
+        executable == "<POWERCONTEXT_PYTHON>"
+        or re.fullmatch(r"python(?:3(?:\.\d+)*)?(?:\.exe)?", Path(executable).name) is not None
+    )
+
+
+def _resolve_registered_hook_script(
+    token: str,
+    config_path: Path,
+    placeholder_roots: dict[str, Path],
+) -> Path:
+    for placeholder, relative_root in placeholder_roots.items():
+        if token == placeholder or token.startswith(f"{placeholder}/"):
+            relative_path = token.removeprefix(placeholder).lstrip("/")
+            candidate = config_path.parent / relative_root / relative_path
+            break
+    else:
+        candidate = Path(token)
+        if not candidate.is_absolute():
+            candidate = config_path.parent / candidate
+    resolved = candidate.resolve()
+    plugin_root = config_path.parent.parent.resolve()
+    if not resolved.is_relative_to(plugin_root):
+        raise ValueError(f"registered hook script escapes the plugin root: {token}")
+    return resolved
+
+
+def _is_complete_prompt_hook(script: Path) -> bool:
+    if not script.is_file():
+        return False
+    source = script.read_text(encoding="utf-8")
+    return all(marker in source for marker in ("/v1/context/prepare", "/v1/sources/content", "/v1/memory/flush"))
 
 
 def _python_method_markers(path: Path, markers: dict[str, tuple[str, str]]) -> set[str]:
