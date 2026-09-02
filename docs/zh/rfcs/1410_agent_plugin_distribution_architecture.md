@@ -5,510 +5,389 @@
 
 # Summary
 
-PowerContext 将使用现有的 `integrations/agent-plugin/powercontext/` [Agent Plugins](https://agent-plugins.org/)
-package 作为可移植集成内容唯一的手工维护来源，并通过确定性投影生成宿主原生 distribution。Agent Skills、可移植 MCP
-配置、插件元数据和共享命名只维护一次。Target adapter 根据经过校验的 target descriptor，把该来源转换为宿主打包方言。
-依赖宿主生命周期的行为继续由手写 native runtime 实现。生成的 distribution 会提交到仓库用于评审和发布，但永远不是
-权威来源。
+PowerContext 使用一个符合 [Agent Plugins](https://agent-plugins.org/) 规范的插件，作为可移植集成内容的来源。Agent Skills、可移植 MCP 配置、插件元数据和共享名称都在这里维护。
+
+每个 maintained Agent integration 都使用同一个 Agent Integration Core，复用 PowerContext client 和标准集成逻辑。手写 Target Hook 把宿主生命周期事件和 API 连接到 Core Operation。Target Profile 描述该映射、支持的 capability、packaging rule 和 target-owned extension。
+
+Target Distribution 根据这些输入确定性构建。它是可安装制品，不是另一份 source of truth。
+
+本 RFC 定义这套模型的所有权规则和符合性要求。它不规定仓库布局、实现语言、命令行接口、模板引擎或 Agent Integration Core 的交付形态。
 
 # Motivation
 
-PowerContext 当前为多个 Agent 宿主提供集成。这些宿主在扩展目录、MCP 配置、安装方式、生命周期 hook 和 runtime API
-方面确实不同。我们不应该用一个虚构的通用宿主 API 掩盖这些差异。
+PowerContext 的多个集成重复维护了并非宿主特有的内容：
 
-但是，各个 distribution 也在独立维护本质上与宿主无关的内容：
-
-- `powercontext-project-context` Skill 及其使用指导；
-- MCP Server 的标识和连接意图；
+- Skill guidance 和安全规则；
+- MCP Server identity 和连接意图；
 - 插件名称、版本、描述和仓库元数据；
-- operation 和 tool 的命名规范；
-- 多个 distribution 共用的辅助资源。
+- scope 解析、context 准备、Source capture、budget、diagnostic 和错误处理；
+- operation 和 tool 命名。
 
-这些副本已经出现名称、tool prefix、MCP 结构、版本和 Skill 行为不一致的问题。每项修正都必须在每个宿主中重新发现和
-应用。增加新宿主会成倍增加维护成本，也使评审者把精力用于核对复制文本，而非判断有意的宿主差异。
+这些副本已经在名称、MCP 结构、tool prefix、Skill 行为和 hook 行为上出现差异。修复一个集成不会修复其他集成。
 
-目标不是让所有集成完全相同，而是建立一条唯一的所有权规则：
+当前大多数 maintained Agent plugin 已经执行相同的 scope resolution、context preparation、Source capture、request budget、diagnostic 和 fail-open flow。这些是 PowerContext integration rule，不是宿主功能。公共逻辑已经足够明确，没有分别维护的理由。
 
-> 可移植行为只编写一次，宿主打包差异必须显式描述，只有依赖宿主 runtime 的行为才单独手写。
+宿主之间也确实存在差异。它们使用不同的 package layout、生命周期事件、payload、安装 API 和用户界面。Agent Plugins 统一了 Skills 和 MCP Server，但有意把 hook 和其他 client extension 留给宿主定义。因此，PowerContext 需要共享行为的公共来源和显式宿主映射，而不是一套通用宿主 API。
 
-本 RFC 确立该规则，并定义执行它所需的生成边界。
+所有权规则如下：
+
+> 可移植内容和共享行为只维护一次。宿主差异必须显式描述。只有依赖宿主的行为才保留手写 target code。
+
+## 目标与非目标
+
+本 RFC 要求维护中的 Agent distribution：
+
+- 在宿主支持时，从 Canonical Agent Plugin 使用公共 Skills 和 MCP 配置；
+- 对自身支持的 PowerContext lifecycle operation 使用项目维护的 Agent Integration Core；
+- 在经过校验的 Target Profile 中记录 component merge rule 和 hook mapping；
+- 根据已声明来源确定性构建完整 target artifact；
+- 如实报告能力差异，不伪造对等能力。
+
+本 RFC 不做以下事情：
+
+- 统一宿主生命周期 API，或要求宿主使用相同事件名称；
+- 要求所有宿主公开相同能力或 tool；
+- 选择实现语言、package manager、process model 或 build command；
+- 要求从模板生成手写 hook logic；
+- 定义自动安装或公共 plugin compiler API；
+- 管理由其他来源维护并独立发布的 reviewed Skill。
+
+## 相关工作
+
+本 RFC 规定 distribution ownership 和 projection rule。相邻契约由以下工作负责：
+
+| Work item | 职责 |
+| --- | --- |
+| [#1244](https://github.com/oceanbase/powercontext/issues/1244) | 提供现有的 reusable Agent Plugin。 |
+| [#1301](https://github.com/oceanbase/powercontext/issues/1301) | 负责 multi-host installation 和用户配置。 |
+| [#1357](https://github.com/oceanbase/powercontext/issues/1357) | 负责带版本的 integration capability contract 和 evidence。 |
+| [#1362](https://github.com/oceanbase/powercontext/issues/1362) | 负责 lifecycle behavior 和公共 integration operation 语义。 |
+| [#1378](https://github.com/oceanbase/powercontext/issues/1378) | 负责 canonical Skill 中的 explicit memory routing。 |
+| [#1397](https://github.com/oceanbase/powercontext/issues/1397) | 负责 separately managed Skill package 的发布和安装。 |
 
 # Guide-level explanation
 
-## Mental model
+## 心智模型
 
-Distribution 系统由四个具名部分组成：
+这套模型有四类权威输入：
 
-| 部分 | 含义 |
+| 概念 | 职责 |
 | --- | --- |
-| **Canonical Plugin** | 包含可移植元数据、Skills 和 MCP 配置，可直接安装的 Agent Plugins package。 |
-| **Target Adapter** | 面向某一种宿主打包格式的确定性投影逻辑。 |
-| **Native Runtime** | 使用宿主特有 hook、API 或生命周期语义的手写代码。 |
-| **Target Distribution** | 用户针对某个宿主实际安装、并提交到仓库的文件。 |
+| **Canonical Agent Plugin** | 可移植元数据、Skills、MCP 配置和共享名称。 |
+| **Agent Integration Core** | 所有 maintained Agent plugin 共用的 PowerContext client 和标准集成逻辑。 |
+| **Target Profile** | 声明式 packaging、merge、hook、capability、compatibility 和 output ownership 规则。 |
+| **Target Hook** | 连接特定宿主生命周期事件、payload、result、API 和 Core Operation 的手写代码。 |
 
-它们之间的关系是：
-
-```text
-Canonical Plugin + Target Adapter + Native Runtime = Target Distribution
-```
-
-Distribution 的有效能力受以下交集约束：
+输出是 **Target Distribution**。它由普通的可安装文件组成，由 portable content、Agent Integration Core、Target Profile 和手写 Target Hook 组装而成。
 
 ```text
-effective capabilities = canonical capabilities ∩ host capabilities ∩ adapter support
+Target Distribution = Project(
+    Canonical Agent Plugin,
+    Agent Integration Core,
+    Target Profile,
+    Target Hook,
+    Release Metadata,
+)
 ```
 
-因此，生成机制不承诺不同宿主具备相同功能。它承诺每项可移植能力只有一个来源，任何遗漏都必须显式记录。
+投影保证每个共享 component 只有一个来源，并显式记录 target 之间的功能差异。
 
-## Ownership rule
+## 判断修改来源
 
-贡献者通过判断差异产生的原因，决定应该修改哪里：
+选择能保持复用的最小来源：
 
-| 变更 | 权威位置 |
+| 修改 | 来源 |
 | --- | --- |
-| 多个宿主共享的 Skill instructions | Canonical Plugin |
-| MCP Server 标识和可移植连接配置 | Canonical Plugin |
-| 宿主 manifest 结构或配置字段映射 | Target Adapter |
-| 无可移植表达的 provider-only manifest 字段 | 由 Target Adapter 消费、经过校验的 target descriptor |
-| Session hook、tool 注册、事件处理或宿主 API | Native Runtime |
-| 宿主目录中的生成副本 | 不在这里修改；修改来源并重新生成 |
+| Portable Skill instruction 或 asset | Canonical Agent Plugin |
+| MCP Server identity 或可移植连接设置 | Canonical Agent Plugin |
+| PowerContext client、scope、prepare、capture、checkpoint、budget、diagnostic 或 fail-open 行为 | Agent Integration Core |
+| 宿主事件名称、payload mapping、output mapping、package field、alias 或 generated path | Target Profile |
+| 宿主事件注册、payload decoding、lifecycle timing、state、result injection 或宿主 API 调用 | Target Hook |
+| Target Distribution 中的 generated file | 无；修改其来源并重新构建 |
 
-例如，project memory recall 指导的修正只在
-`integrations/agent-plugin/powercontext/skills/powercontext-project-context/SKILL.md` 中进行一次。Claude Code 专属
-生命周期 hook 仍然在 Claude Code runtime 中修改。某个宿主采用不同的 MCP header 语法时，差异属于对应 target
-descriptor 和 adapter，而不是另一份 MCP Server 定义。
+Agent Integration Core 是 PowerContext 集成行为的默认所有者。当前大多数 maintained plugin 已经重复实现了相同流程，没有分别维护的实际理由。Target Hook 只负责宿主边界并依赖 Core；Core 不依赖 Target Hook。如果宿主无法保留 Core Operation 的语义，Target Profile 必须记录该约束及其 capability difference，而不是增加另一套实现。
 
-## Contributor workflow
+## 映射生命周期 hook
 
-生成器提供三个稳定工作流：
+PowerContext 为自身负责的行为定义带版本的 Core Operation。Target Profile 把宿主事件映射到这些 operation，并记录手写 Target Hook 的调用方式。
 
 ```text
-uv run python -m scripts.agent_plugins build
-uv run python -m scripts.agent_plugins build --target codex
-uv run python -m scripts.agent_plugins check
+Host Event
+  -> Handwritten Target Hook
+  -> Agent Integration Core Operation
+  -> PowerContext Server
+  -> Core Result
+  -> Target Hook
+  -> Host Result
 ```
 
-第一个命令重新生成所有 target distribution；第二个命令把本地迭代限制到一个 target；第三个命令执行校验，并在提交的
-生成文件与全新投影不一致时失败。
+依赖关系是单向的：`Target Hook -> Agent Integration Core -> PowerContext Server`。Core 负责 scope 解析、request budget、Server 调用、response validation、diagnostic、idempotency 和 fail-open 行为，不依赖任何 Target Hook code。
 
-常规变更按以下顺序进行：
+Target Hook 负责 event registration、宿主可用字段、output shape、lifecycle ordering、invocation multiplicity、宿主 state 和 result injection。Target Profile 记录这些选择，以便校验 hook 行为和 capability claim。这是 PowerContext 内部契约，并不表示不同宿主的生命周期模型可以互换。
 
-1. 根据 ownership rule 修改 Canonical Plugin、Target Adapter 或 Native Runtime。
-2. 重新生成受影响的 distribution。
-3. 把 source diff 和 generated diff 放在一起评审。
-4. 执行 conformance 和 drift 检查。
-5. 同时提交 source 和 generated artifact。
+## 组合插件 component
 
-生成结果必须是普通文件。安装包和源码归档不能依赖仓库 symlink、submodule 或用户本地执行构建步骤。
+组合过程遵循所有权，不采用通用 deep merge：
 
-## Examples
+1. Canonical plugin field 和 portable component 保持 canonical identity。
+2. Target data 只能增加 Target Profile 允许的 namespaced client extension 和 provider field。
+3. Agent Integration Core asset 来自已声明的 Core source。
+4. 手写 Target Hook file 只占用分配给该 hook 的路径。
+5. Generated path 只能按照已记录的 output ownership 替换或删除。
+6. 未声明的 collision 或 override 属于错误。
+
+如果多个输入共同组成一个 target artifact，Target Profile 必须记录对应规则。Build 必须拒绝有歧义的 precedence。任意 text patch 和无边界 overlay 不是有效的 merge rule。
+
+安装到现有用户环境属于另一个 merge boundary。Installer 必须保留 user-owned data，只修改 distribution 已声明拥有的 key 或 path。
+
+## 示例
 
 ### 修改共享 Skill 行为
 
-Issue [#1378](https://github.com/oceanbase/powercontext/issues/1378) 要求 `powercontext-project-context` Skill 识别显式
-memory 请求。接受后的 trigger contract 应在该 canonical Skill 中修改。Adapter 原样复制 Skill，不能重命名、替换正文、
-追加任意 provider instruction 或覆盖 frontmatter。
+Project memory routing 的修正属于 canonical `powercontext-project-context` Skill。每个支持该 Skill 的 target 都会在下一次 projection 中获得相同内容。Host-specific invocation hint 保留在已声明的 client extension 中，不能替换 canonical safety 或 routing rule。
 
-### 修改 MCP 配置
+### 转换 MCP 配置
 
-规范的 `mcp.json` 使用 `powercontext` 作为 Server 标识，并表达 Agent Plugins 支持的连接设置。如果某个宿主以不同语法
-引用环境变量中的 HTTP headers，对应 adapter 从 target descriptor 的 allowlist 数据中完成翻译。Target descriptor
-不能用无关定义替换规范的 Server 标识、URL 或 transport。
+Canonical Agent Plugin 使用 `powercontext` 标识 MCP Server，并声明 portable connection intent。如果宿主使用不同字段引用环境提供的 authorization header，由 Target Profile 声明该映射。Target 保持 canonical server identity，且不会把 resolved credential 写入 source 或 generated file。
 
-### 修改生命周期行为
+### 复用 prompt hook
 
-如果 Pi 需要通过 runtime event flush 或 restore context，该实现继续位于 Pi 的 TypeScript runtime。生成器可以打包
-该 runtime 并校验其声明的能力，但不生成事件处理的业务逻辑。
+Codex、Claude Code 和 WorkBuddy 可以为 prompt event 使用不同 payload 或 command form。它们的手写 Target Hook 把宿主事件映射到同一个 Core Operation。Agent Integration Core 负责 context preparation、Source capture、request budget、diagnostic 和 fail-open behavior。各 Target Hook 处理宿主 input 和 output shape，Target Profile 负责记录并校验映射。
 
-## Migration
+## 修改共享内容
 
-迁移采用增量方式：
+修改 Skill、MCP 配置、Core Operation、Target Hook 或 Target Profile 时：
 
-1. 盘点现有 distribution，把每个文件分类为 portable source、adapter policy、native runtime 或 generated output。
-2. 采用现有 Canonical Plugin，同时保持现有安装行为不变。
-3. 每次为一个宿主添加 adapter，并把输出与现有 distribution 比较。
-4. 将已迁移的 portable file 切换为生成所有权，并对该 target 启用 drift check。
-5. 规范化名称，原子迁移 legacy `project-context` installation，并在有限 release window 内保留有文档的 tool alias。
-6. 所有受支持的安装路径都消费 generated distribution 后，移除废弃副本和 alias。
+1. 修改 authoritative source。
+2. 构建所有受影响的 Target Distribution。
+3. 一起评审 source change 和 projected difference。
+4. 执行 conformance、contract 和 drift check。
+5. 按仓库正常流程发布 source 和 derived artifact。
 
-Target 完成第 4 步之前，其当前目录仍是权威来源。迁移期间，一个文件不能同时声明两个来源。
+项目可以提供全量 target 和单一 target 的命令，但命令名称不属于本 RFC。
+
+## 新增或迁移 target
+
+迁移按 target 逐步进行：
+
+1. 盘点当前 target，把每个文件归入 Canonical Agent Plugin、Agent Integration Core、Target Profile、Target Hook 或 generated output。
+2. 增加 Target Profile，描述当前已支持行为，不要消除有意保留的差异。
+3. 使用 Canonical Agent Plugin 的投影替换 portable content 副本，并把重复的公共行为替换为对 Agent Integration Core 的调用。
+4. 对比构建后的 distribution 与原可安装制品，并测试可观察行为。
+5. 启用 drift check，再删除旧的维护副本。
+
+迁移期间，每个 path 只能有一个 source of truth。尚未迁移某个 component 的 target 可以继续拥有它，但 profile 必须记录这个状态。同一 component 不能同时归 canonical source 和 target 所有。
 
 # Reference-level explanation
 
-## Scope and responsibility boundaries
+`MUST`、`MUST NOT`、`SHOULD`、`SHOULD NOT` 和 `MAY` 表示规范性要求。
 
-本 RFC 负责打包内容的 source of truth、投影机制、generated artifact 策略和共享命名。它与现有工作组合，但不取代这些
-工作：
+## 术语
 
-| 工作项 | 职责 |
+| 术语 | 定义 |
 | --- | --- |
-| [#1244](https://github.com/oceanbase/powercontext/issues/1244) | 提供现有 reusable Agent Plugin，作为 canonical source。 |
-| [#1301](https://github.com/oceanbase/powercontext/issues/1301) | 负责 multi-host 安装和用户配置。 |
-| [#1338](https://github.com/oceanbase/powercontext/issues/1338) | 定义 coding agent access 的预期能力和面向用户的一致性。 |
-| [#1352](https://github.com/oceanbase/powercontext/issues/1352) | 负责更广泛的 Agent integration roadmap。 |
-| [#1357](https://github.com/oceanbase/powercontext/issues/1357) | 定义带版本的 integration capability 词汇、状态和证据。 |
-| [#1362](https://github.com/oceanbase/powercontext/issues/1362) | 定义 lifecycle-aware integration 行为和 host-neutral lifecycle contract。 |
-| [#1378](https://github.com/oceanbase/powercontext/issues/1378) | 负责 canonical Skill 中的显式 memory routing 行为。 |
-| [#1397](https://github.com/oceanbase/powercontext/issues/1397) | 定义独立 managed Skill package 的发布和安装生命周期。 |
-
-本 RFC 明确不处理以下事项：
-
-- 定义通用 lifecycle-hook API；
-- 强制所有宿主暴露相同的能力或 tool；
-- 从模板生成宿主原生业务逻辑；
-- 发布或安装独立 managed Skill package；
-- 在第一阶段构建面向整个生态的通用 compiler；
-- 重写拥有独立发布生命周期、已经过评审的 managed Skill。
-
-## Repository model
-
-Source layout 在现有 canonical package 上扩展：
-
-```text
-integrations/
-├── agent-plugin/
-│   ├── powercontext/
-│   │   ├── plugin.json
-│   │   ├── mcp.json
-│   │   └── skills/
-│   │       └── powercontext-project-context/
-│   │           ├── SKILL.md
-│   │           ├── references/
-│   │           └── scripts/
-│   └── targets/
-│       ├── target.schema.json
-│       ├── claude-code.json
-│       ├── codex.json
-│       └── ...
-├── claude-code/
-├── codex/
-└── ...
-scripts/
-└── agent_plugins/
-    ├── __main__.py
-    ├── model.py
-    └── targets/
-```
-
-`integrations/agent-plugin/powercontext/` 仍可直接安装，并作为可移植内容的来源。
-`integrations/agent-plugin/targets/` 保存经过 schema 校验的 target descriptor，而不是文本 patch 或 replacement template。
-`scripts/agent_plugins/targets/` 保存 adapter 实现。
-
-现有宿主目录仍然是安装和发布边界，其中同时包含 Native Runtime 文件和生成的投影。Target definition 记录准确的生成
-路径，从而无需根据目录名称推断所有权。
-
-## Artifact classes
-
-每个 integration path 只能属于一个类别：
-
-| 类别 | 手工修改 | 提交到仓库 | Drift check |
-| --- | --- | --- | --- |
-| Canonical source | 是 | 是 | 校验 conformance |
-| Target descriptor 或 adapter | 是 | 是 | 根据 schema 和 contract 校验 |
-| Native Runtime | 是 | 是 | 由宿主 integration 测试 |
-| Generated distribution artifact | 否 | 是 | normalization 后逐字节比较 |
-
-Target 格式允许注释时，生成文件包含 source marker。不允许注释的格式由 target definition 和 generator output manifest
-跟踪。Marker 只用于提示，声明的 output ownership 才是权威依据。
-
-## Canonical plugin contract
-
-Canonical Plugin 遵循 Agent Plugins specification：
-
-- `plugin.json` 是 portable manifest，并声明 specification schema version；
-- `skills/` 的直接子目录遵循 Agent Skills；
-- `mcp.json` 包含 portable MCP Server 配置，并使用相同的 specification version；
-- 规范 Skill 的目录名和 frontmatter name 都是 `powercontext-project-context`；
-- 所有引用路径都解析在 plugin root 内；
-- 打包的 Skill 使用真实文件，不使用指向外部的 symlink。
-
-规范 package 可以由兼容宿主直接安装。因此，这类宿主的 adapter 可以只是 identity projection 加 release metadata，而不是
-维护第二套 manifest 方言。
-
-## Target adapter contract
+| **Canonical Agent Plugin** | 拥有 PowerContext 可移植集成内容并符合 Agent Plugins 规范的插件。 |
+| **Agent Integration Core** | 所有 maintained Agent plugin 共享的、由项目维护的 PowerContext client 和标准集成逻辑。 |
+| **Core Operation** | Agent Integration Core 公开的带版本 PowerContext integration operation。 |
+| **Target Profile** | 一个 maintained target 的经过校验的 machine-readable contract。 |
+| **Target Hook** | 把宿主特有生命周期事件、payload、result 和 API 转换为 Core Operation 调用的手写 target code。 |
+| **Projection** | 根据已声明输入组装 Target Distribution 的确定性过程。 |
+| **Target Distribution** | 一个 target 的完整可安装制品。 |
+| **Output Ownership Record** | 记录 generated path 及其 source owner 的 machine-readable list。 |
 
-每个 Target Adapter 接收经过校验的 typed model，而不是未经处理的 source text。输入包括：
+## Source ownership
 
-- Canonical Plugin model；
-- target identifier 和 target capability record；
-- 经过 schema 校验的 target descriptor；
-- version 和 repository release metadata；
-- repository root 和 allowlist output root。
+每个维护中的 integration component 必须有且只有一个 authoritative source。Generated artifact 不得成为 authoritative source，也不得独立编辑。
 
-输出包括：
+项目必须能够直接识别每个 generated path 的 source owner，不能依靠文件名或目录约定推断所有权。
 
-- 从规范化相对路径到 bytes 的映射；
-- structured diagnostics；
-- projected、omitted 和 unsupported capability 的 machine-readable record。
+## Canonical Agent Plugin
 
-Adapter 必须把每个 canonical component 分类为 `projected`、`unsupported` 或 `not_applicable`。静默遗漏属于错误。
-不支持的 required capability 会使生成失败；不支持的 optional capability 必须产生显式 diagnostic 和 capability record。
+Canonical Agent Plugin 必须符合 Agent Plugins 规范。Skills 和 MCP 配置必须符合各自引用的规范。
 
-Adapter 只包含结构转换，不包含内容分叉。它可以映射 provider field key、包裹 document、选择受支持的 component，以及
-生成 provider metadata；不能重命名 canonical identity，也不能包含另一份 Skill 正文、portable MCP Server 定义或宿主
-runtime 业务逻辑。
+Portable component 必须使用稳定的 PowerContext identity。Target Profile 或 Target Hook 不得静默重命名或替换 canonical Skill、MCP Server 或 operation。
 
-## Target descriptors
+Canonical Skill body 不得插入 host-specific instruction。宿主可以通过已声明的 client extension 或其他 target-owned surface 提供附加 guidance。Target Profile 必须说明该 guidance 如何加载，以及它与 canonical guidance 冲突时如何处理。
 
-每个 maintained distribution 对应一个由 `target.schema.json` 校验的 descriptor。Descriptor 声明 target ID、output root、
-adapter kind、capability-manifest entry、provider-only manifest field、native runtime root、compatibility alias 和
-generated-output manifest 路径。
+如果宿主无法保留 required portable component，target 必须把它报告为 unsupported。它不得以 canonical identity 发布不完整的 component。
 
-Target descriptor 必须满足：
+## Agent Integration Core
 
-- 只能填充 adapter schema 明确允许的 provider field；
-- 可以引用 canonical component 和 OpenAPI operation identifier；
-- 不能包含 Skill 正文、MCP document、可执行代码或任意文本 patch；
-- 不能覆盖 canonical plugin version、Skill frontmatter 或 MCP Server 标识；
-- 不能包含 secret 或环境专属 credential value。
+Agent Integration Core 是所有 maintained Agent plugin 共用的 PowerContext client 和标准集成逻辑的权威实现。它必须公开带版本的 Core Operation，并负责 operation 可观察的 input、output、idempotency、budget、diagnostic 和 failure semantics。
 
-有条件的结构转换属于经过评审的 Target Adapter，宿主行为属于 Native Runtime。这个边界刻意不引入通用 overlay language。
+Core 的交付形态属于实现决定。项目可以通过 library、executable、service boundary、target-compatible client binding 或其他带版本机制公开同一个实现。本 RFC 不要求所有 Target Hook 使用相同语言或 process model。
 
-## Target set and capability manifest
+Core 必须负责公共 client transport、error normalization、prepared-context validation、scope resolution、context preparation、Source capture、checkpoint 和 flush sequencing、request budget、diagnostic、idempotency，以及适用时的 fail-open policy。它必须复用 Server 已有的 domain operation，不得重复 Memory、Handoff、persistence、ranking 或 rendering policy。
 
-`integrations/agent-plugin/targets/` 中通过校验的 descriptor 集合就是 normative target set。`integrations/`
-其他位置存在目录，不代表它自动成为 generator target。每个 descriptor 必须解析到
-[#1357](https://github.com/oceanbase/powercontext/issues/1357) versioned manifest 中的 `agent_host` entry，且不能引用
-`unsupported` 或 `proposed` integration。
+Core 不得负责 host event registration、host lifecycle timing、host payload 或 result shape、host session state、host user interface，以及 host privacy 和 consent control。Core 不得 import 或依赖 Target Hook code。
 
-Generator 消费 target integration ID、availability 和声明的 capability set，以计算 effective intersection；并校验
-projected 和 unsupported capability record 与 manifest 一致。Evidence path 只校验是否存在，其行为声明仍由专门的
-integration test 负责。Generator 不从文件、tool 数量或 runtime introspection 推断 capability。
+每个 maintained Agent plugin 都必须使用同一个由项目维护的 Core implementation。项目可以为不同 target 提供不同 packaging form，但这些形态必须来自同一个已声明的 Core release，且不得形成独立的 behavior owner。Target Hook 不得重新实现 Core Operation。如果宿主无法以 operation 要求的数据或生命周期语义调用它，target 必须把该 capability 报告为 unsupported 或 not applicable。
 
-## Projection algorithm
+## Target Profile
 
-生成是 repository input 的纯函数，按以下步骤执行：
+每个 maintained target 必须有一个经过校验的 Target Profile。它的序列化格式和仓库位置属于实现决定。
 
-1. 加载 Canonical Plugin 并进行 schema validation。
-2. 校验 Agent Skills 和 MCP 配置，包括 path containment。
-3. 加载并校验 target descriptor 及其引用的 capability record。
-4. 计算 effective capability intersection。
-5. 请求 Target Adapter 生成完整 output map 和 diagnostics。
-6. 拒绝重复、绝对、越界、symlink 或未声明的 output path。
-7. 将 UTF-8 文本规范化为 LF line ending、稳定 key ordering 和一个 trailing newline。
-8. 生成普通文件，并移除先前由 generator 所有的 stale file。
-9. 在 check mode 中不写文件，只比较规范化 output map 和已提交文件。
-10. 输出可执行的错误，其中包含 source component、target 和违反的 contract。
+Profile 必须声明：
 
-生成不得依赖网络、wall-clock time、locale、用户配置或 secret。相同输入必须产生逐字节相同的输出。
+- target identity 及引用的 capability record；
+- projected canonical component 和显式 omission；
+- target 使用的 Core Operation；
+- lifecycle hook mapping；
+- component merge 和 conflict rule；
+- target-owned extension data 和 Target Hook input；
+- compatibility alias 及其生命周期；
+- generated output ownership；
+- 独立所有的 release metadata，如存在。
 
-删除 stale file 时，只能处理上一个 generated-output manifest 记录、并重新验证位于 target output root 下的路径。生成器
-绝不能递归清理整个 integration directory。
+Profile 不得包含 secret、resolved credential、executable business logic、Skill body、完整 MCP document 或任意 text patch。
 
-## Skill projection
+## Target Hook
 
-规范 built-in Skill 只有一个名称：`powercontext-project-context`。其目录名和 `SKILL.md` frontmatter 必须与该值完全一致。
-所有 target distribution 使用同一个名称；adapter 不能缩短、限定或以其他方式编码该名称。无法保留名称的宿主将该 Skill
-报告为 unsupported。
+Target Hook 必须在宿主边界手写。它负责 host event registration、payload decoding、lifecycle timing 和 multiplicity、host state、result injection、host API 调用，以及 host-specific privacy 或 consent behavior。它必须调用 Core Operation 实现 PowerContext 集成行为，不得分叉 portable content 或 Core behavior。
 
-完整 canonical Skill 按字节原样复制。Version 1 不定义自由文本 extension slot，也不允许改写 Skill 正文。Skill 通过
-canonical OpenAPI operation ID 指代 PowerContext operation，不嵌入宿主专属 callable spelling。Provider-specific
-guidance 保持为单独的 Native Runtime asset。
+Target Hook 依赖 Agent Integration Core，Core 不得依赖 Target Hook。Target Hook 必须具备聚焦于宿主边界的 test。Hook 的存在不代表某项 capability 已经成立；已声明的 hook mapping 和 behavioral evidence 仍然是判断依据。
 
-Adapter 必须保留：
+## Hook mapping
 
-- canonical Skill name 和语义目的；
-- 所有 portable trigger 和 safety instruction；
-- 引用的 asset、script 和 reference；
-- relative internal link structure。
+对于 capability contract 涵盖的每个 Core Operation，Target Profile 必须声明：
 
-无法保留这些属性的宿主应将该 Skill 报告为 unsupported，而不是发布具有误导性的残缺副本。
+- host event 或 invocation surface；
+- Target Hook entry point 和 input mapping；
+- result mapping 和 injection surface；
+- 会影响行为的 timing、ordering 和 multiplicity constraint；
+- failure 和 diagnostic behavior；
+- operation 属于 supported、unsupported 还是 not applicable。
 
-## MCP projection
+不允许静默遗漏。如果 host event 缺少 Core Operation 所需的数据或时机，hook mapping 不得声称两者语义等价。如果一个 supported capability 没有同时具备 Core Operation、hook mapping 和相互一致的宿主边界 behavioral evidence，hook conformance validation 必须失败。
 
-规范 MCP Server identifier 为 `powercontext`。Portable transport、command、argument、URL、environment 和 header intent
-在 Agent Plugins schema 支持时通过 `mcp.json` 表示。
+## Merge rule
 
-Target adapter 可以转换配置语法，例如包裹 `mcpServers`、映射来自环境变量的 HTTP header，或者替换 provider 的
-plugin-root placeholder。Provider-only 配置必须来自 allowlist 中的 target-descriptor field。Adapter 不改变 MCP wire
-behavior，也不复制 OpenAPI operation contract。
+Merge behavior 必须显式且有边界。Canonical core field 保持 canonical。Target-specific manifest data 和 file 必须使用宿主定义并记录在 profile 中的 namespace 或 ownership boundary。
 
-Credential 只能引用 runtime environment variable 或 provider secret store。Canonical source、target descriptor、
-generated artifact 和 diagnostic 都不能包含解析后的 credential。
+如果两个输入声明同一 field 或 output path，build 必须应用已声明规则，否则失败。它不得根据 file order、directory order、discovery order 或 adapter implementation detail 选择结果。
 
-## Native Runtime boundary
+删除 stale generated file 时，只能处理上一个 Output Ownership Record 记录的路径，并重新校验这些路径位于 target output root 内。Build 不得递归清理混合所有权的 integration directory。
 
-Native Runtime 继续负责：
+## Capability
 
-- provider lifecycle hook 和 event ordering；
-- native tool registration 和 invocation；
-- session state 和 host storage API；
-- provider-specific authentication 或 consent flow；
-- host UI、command 和 error presentation。
+Target Profile 必须引用 [#1357](https://github.com/oceanbase/powercontext/issues/1357) 维护的带版本 integration capability contract，不得创建第二套 capability vocabulary。
 
-生成器可以复制、打包或校验已声明的 Native Runtime entry point，但不生成其业务逻辑。当实际重复足以证明抽取价值时，
-可以引入 shared runtime library；它不是本 RFC 的前提，也不意味着需要通用 lifecycle abstraction。
+Projected capability 需要同时满足：
 
-## Implementation language boundary
+- canonical component 或 Core Operation 提供该行为；
+- Target Hook mapping 保留所需语义；
+- target capability record 声明支持；
+- focused test 提供 behavioral evidence。
 
-确定性 compiler 使用 Python 3.11+ 实现，因为 PowerContext 本身是 Python 项目，并且已经使用 Python 完成 repository
-generator 和 validation。实现复用项目现有 schema tooling，并遵循 `scripts/generate_js_operations.py` 已有的 write/check
-模式。
+File、tool count 或 adapter branch 不能作为 capability evidence。
 
-这一选择不限制 runtime language：
+## 确定性投影
 
-- TypeScript integration 保留 TypeScript Native Runtime；
-- Python hook 和 integration 保留 Python Native Runtime；
-- JSON、YAML、Markdown、OpenAPI 和 JSON Schema 继续作为 language-neutral contract。
+Projection 必须是 versioned repository input 或 release input 的纯函数。它不得依赖 network access、wall-clock time、locale、ambient user configuration、resolved secret 或未声明的 environment state。
 
-Compiler 在渲染期间不执行任何 Node 或 Python provider runtime。Target-specific runtime build 继续由现有 package workflow
-负责。
+相同输入必须产生逐字节相同的规范化输出。Build 必须使用 stable serialization，并拒绝 absolute、escaping、duplicate、symlinked 或 undeclared output path。
 
-## Central naming contract
+确定性适用于完整 Target Distribution，包括打包的 Agent Integration Core asset、手写 Target Hook source 或 built output、provider manifest 和任何 target-specific build step 的输出。Target 可以使用宿主 build tool，但必须声明并固定它的 input、version 和 output。
 
-规范名称如下：
+Projection 应生成 portable plugin content、provider manifest、operation map、能够声明式表达的 hook registration、capability matrix 和 output ownership record 等结构性制品。它不得生成手写 Target Hook 的 business logic。确定性要求完整 distribution 能够由已声明输入复现，不要求每个输入本身都由生成器产生。
 
-| Entity | Canonical form |
-| --- | --- |
-| Plugin | `powercontext` |
-| Project context Skill | `powercontext-project-context` |
-| MCP Server | `powercontext` |
-| API operation | OpenAPI `<operation_id>` |
-| MCP tool | `powercontext` Server 内的 `<operation_id>` |
-| Native global tool | `powercontext_<operation_id>` |
-| Transitional compatibility alias | 显式 target mapping，包括现有 `pc_*` 名称 |
+项目必须提供 write mode 和 non-writing check mode。Check mode 必须报告 drift、stale owned file、undeclared omission、invalid mapping 和 nondeterministic output。具体命令属于实现细节。
 
-该表是唯一的 naming contract。Generator 根据 Canonical Plugin 和 OpenAPI 校验这些值；Target descriptor 可以引用，
-但不能重命名、限定、缩短或覆盖。宿主无法表示 canonical name 时，该 component 对此宿主属于 unsupported，而不是获得
-另一个 identity。
+## 命名与兼容性
 
-现有 `pc_*` 名称并不总是 operation-ID 的机械前缀，因此 compatibility alias 必须逐项列出。它们是迁移辅助，不是
-canonical name。新增 alias 必须记录引入和移除 release，在宿主支持时携带 deprecation metadata，并至少保留两个
-minor release 和 90 天。
+Canonical name 如下：
 
-## Generated-artifact and release policy
+| Entity                | Canonical form                                    |
+| --------------------- | ------------------------------------------------- |
+| Plugin                | `powercontext`                                    |
+| Project context Skill | `powercontext-project-context`                    |
+| MCP server            | `powercontext`                                    |
+| API operation         | OpenAPI `<operation_id>`                          |
+| MCP tool              | `<operation_id>` within the `powercontext` server |
+| Native global tool    | `powercontext_<operation_id>`                     |
 
-Generated distribution 会提交到仓库，因为它们是用户可安装的 release artifact，这能使 adapter 影响可评审，也使使用者
-无需安装 generator dependency 即可从 source archive 安装。修改 canonical input 或 adapter logic 的 pull request 必须
-包含对应 generated diff。
+宿主能够表示这些名称时，target 必须保持 canonical name。Compatibility alias 必须在 Target Profile 中显式声明，具有已记录的引入和移除策略，并与 canonical identity 分开。
 
-CI 以 check mode 执行生成，并在以下情况失败：
+## Generated artifact 与 release
 
-- schema 或 Agent Plugins conformance error；
-- generated drift 或 stale owned file；
-- 未声明的 component omission；
-- output path 越过 target root；
-- portable packaged content 中存在 symlink；
-- naming 或 capability manifest 不一致；
-- 两次 clean render 检测到 non-deterministic output。
+项目可以把 generated distribution 提交到仓库，也可以在 release 时生成，或者同时采用两种方式。无论选择哪一种，发布制品都必须能够根据已声明输入复现，并通过 check mode。
 
-Generator version 不以 timestamp 形式写入产物。Distribution version 来自 canonical manifest 的单一值，并投影到代表
-该 distribution 的所有 provider manifest 或 marketplace entry。独立发布的 Native Runtime package 只有在 target
-descriptor 将对应字段标记为独立所有时才能保留自身版本，也不能把该版本表示为 canonical plugin version。
+Generated artifact 必须由普通文件组成。安装过程不得依赖 repository symlink、submodule 或未声明的 local build。
 
-## Compatibility and rollout
+Canonical plugin version 和独立发布的 Agent Integration Core version 可以不同。Target Profile 必须声明每个 version field 的所有者，避免把一个来源的版本表述成另一个来源的版本。
 
-第一次 rollout 保持现有安装路径和 runtime 行为。投影期间发现的差异必须先分类，再做规范化：
+## 安全
 
-- accidental divergence 在 canonical source 中修复；
-- provider constraint 编码在 target descriptor 或 adapter 中；
-- 真实 capability difference 记录到 capability manifest；
-- lifecycle difference 继续保留在 Native Runtime code 中。
+Projection 是 packaging，不是 authorization。Generated declaration 不会授予 runtime 和用户配置没有提供的权限或访问能力。
 
-第一次 source migration 将现有 `project-context` 目录和 frontmatter 原子重命名为
-`powercontext-project-context`。Generated distribution 不会同时生成两个 Skill name。Installer 可以在兼容窗口内识别并
-替换 legacy directory，但 documentation、manifest 和 generated Skill 只使用 canonical name。
+Build 必须校验 source 和 output path containment。Source、profile、generated artifact 和 diagnostic 不得包含 resolved credential、access token、prompt body、stored memory 或其他 user content。
 
-修改 native tool prefix 可能影响 prompt 和保存的配置。Generated distribution 至少保留 tool alias 两个 minor release
-和 90 天；移除 alias 必须包含 release note 和 target descriptor 变更。无法安全暴露 alias 的宿主继续保留 legacy tool
-name，直到单独评审 breaking change。本 RFC 不改变持久化 PowerContext memory format 或 HTTP API。
+Profile 可以引用 environment variable name 或 provider secret store，但不得包含 credential value。
 
-## Security and authority
+## 符合性
 
-投影属于打包过程，不属于授权过程。Generated declaration 不会授予宿主 runtime 和用户配置本身不具备的 capability、
-permission 或 access。
+Maintained target 满足以下条件时，符合本 RFC：
 
-生成器对 source reference 和 output 执行 path containment，只报告 structural diagnostic；diagnostic 不能包含解析后的
-secret、prompt body、stored memory 或 access token。Target descriptor 是经过评审的 source file，可以引用 environment
-variable name，但不能包含 credential value。
+- portable Skill 和 MCP 配置来自 Canonical Agent Plugin；
+- 每项已声明 lifecycle capability 都使用共享 Agent Integration Core 中对应的 Core Operation；
+- hook、capability 和 merge mapping 已显式声明、相互一致并经过校验；
+- 每个 generated path 只有一个 source owner；
+- 完整 distribution 可以复现；
+- check mode 可以发现 drift 和 invalid ownership；
+- focused test 验证已声明的宿主行为和 failure semantics。
 
 # Drawbacks
 
-- 仓库仍会保存生成副本，从而增加 diff 和 checkout 体积。
-- Generator 和 adapter schema 会成为需要持续维护、具有自身兼容性负担的基础设施。
-- 贡献者必须理解 canonical source、adapter policy、Native Runtime 和 generated output 的区别。
-- 即使 PowerContext 行为不变，provider format 变化也可能要求紧急更新 adapter。
-- 现有 distribution 迁移及 alias 并存期间，部分变更会暂时产生更大的 diff。
-- Target descriptor 的严格限制可能迫使一些原本可由宽松模板快速表达的场景新增小型 adapter module。
+这套模型增加了 profile schema、build check、共享 Agent Integration Core 和宿主边界测试。Provider format 变化时，即使 PowerContext 行为没有变化，也可能需要更新 Target Profile 或 Target Hook。迁移复制文件到 generated ownership 的过程中也会产生较大的 diff。
+
+这些成本可以直接评审和测试。独立副本的工具成本更低，但会让行为 drift 成为日常维护的一部分。
 
 # Rationale and alternatives
 
-## Why this design
+这套设计让 Agent Plugins package 本身保持可用，让公共 client 和 integration behavior 只有一个实现，并把宿主差异保留在经过校验的 Target Profile 和手写 Target Hook 中。单向依赖形成清晰边界，同时不假设不同宿主的生命周期模型可以互换。
 
-Agent Plugins 为 Skill 和 MCP Server 定义了可信的可移植最小集合，同时没有声称要标准化所有 Agent runtime。将它作为
-Canonical Plugin 后，中心副本本身有效，并可被兼容宿主直接消费。确定性 adapter 隔离无法避免的打包差异；Native
-Runtime 边界则避免生成过程掩盖生命周期语义。
+如果不采用这套设计，portable file 和 hook behavior 仍然是彼此独立的维护面。Drift check 可以发现复制文件的差异，但不能建立公共所有权，也不能阻止语义等价的 integration behavior 分化。
 
-提交 generated output 是用仓库体积换取可评审性、离线安装和发布确定性。选择 Python compiler 与仓库现有 toolchain
-一致，也能使生成器不依附任何一个 TypeScript 宿主。
+## 独立维护所有 distribution
 
-## Alternatives considered
+这种方式不需要 projection system，但会保留现有 drift，并重复处理每次共享修正。
 
-**继续独立维护。** 该方案没有迁移成本，但每增加一个宿主或修正一项共享内容都会放大 drift，无法满足所有权目标。
+## 只共享 Skills 和 MCP 配置
 
-**只支持直接消费 Agent Plugins 的宿主。** 这是最简单的架构，但会因为原生打包或生命周期 surface 不同而放弃已有的
-有效集成。Agent Plugins 是 portable core，不是完整的 PowerContext integration contract。
+这种方式使用 Agent Plugins 的 portable 部分，但 client orchestration、diagnostic、scope 和 failure behavior 仍由多个实现分别维护，无法满足公共实现规则。
 
-**选择某个现有 provider distribution 作为来源。** Claude Code 或 Codex manifest 包含 provider assumption，会使其他
-provider 看起来像有损派生。Vendor-neutral canonical package 的边界更清晰。
+## 定义通用宿主生命周期 API
 
-**采用通用第三方 plugin compiler。** 目前没有成熟工具覆盖 PowerContext 所需的 Agent Plugins、committed provider
-package、capability evidence 和 handwritten runtime 组合。在 target semantics 稳定前依赖外部 compiler 只会转移维护
-成本。未来可以让 adapter contract 成为成熟外部 compiler 的 backend。
+宿主事件的时机、payload 和 guarantee 不同。PowerContext 需要由 hook 调用自身的 Core Operation，不需要再定义一套宿主 runtime 标准。
 
-**使用 multi-agent Skill installer 作为 distribution system。** `npx skills` 等工具可以把一份 Skill 复制到多个宿主
-位置，但不投影 MCP 配置、plugin manifest、marketplace metadata、capability degradation 或 Native Runtime packaging。
-它们仍可作为安装消费方使用，但不能充当 source compiler。
+## 从模板生成 Target Hook business logic
 
-**从模板生成 Native Runtime code。** 这能减少表面重复，却会把行为隐藏在模板中、耦合无关宿主 API，并使 lifecycle
-变更更难评审。语义确实一致时，后续抽取 shared runtime library 更安全。
+模板可以隐藏重复，却会使宿主生命周期代码更难评审。本标准通过 Core 共享公共行为，在宿主边界保留手写 hook，并只对结构性制品和校验数据使用生成。
 
-**从 distribution symlink 到共享目录。** Symlink 在 archive、package manager、Windows 和 plugin containment check 中
-都比较脆弱。生成普通文件具有更好的可移植性。
+## 使用不受限 overlay 或 deep merge
 
-**不提交 generated artifact。** 这会缩小仓库，但把 generator 和 toolchain 要求转嫁给安装者，也使 release content
-在评审中不够直观。
-
-**使用 TypeScript 实现 compiler。** TypeScript 与多个 Native Runtime 一致，但 compiler 是 repository build tool，
-不是 runtime code。Python 能减少新 toolchain coupling，并与已有 generator 对齐。
+Overlay 的 precedence 难以审计，也允许 target configuration 在内部形成 canonical content fork。本 RFC 使用显式 ownership 和有边界的 merge rule。
 
 # Prior art
 
-[Agent Plugins specification](https://agent-plugins.org/specification) 定义了 canonical package model、Skill 和 MCP 配置
-的固定位置、client extension namespace、schema versioning 和 path-containment rule。本 RFC 直接采用它作为 portable
-source，而不是另行发明 plugin format。
+[Agent Plugins specification](https://agent-plugins.org/specification) 定义了 portable package，以及 Agent Skills 和 MCP 配置的固定位置。它也定义了 namespaced client extension，但没有为其分配 portable lifecycle semantics。本 RFC 沿用这个边界，不把 PowerContext hook behavior 加入 portable core。
 
-[Agent Skills specification](https://agentskills.io/) 定义了 Skill directory 和 `SKILL.md` contract。它支持 portable
-Skill content，但有意不处理 provider packaging、MCP projection 和 native lifecycle integration。
+[Agent Skills specification](https://agentskills.io/) 定义 Skill directory 和 `SKILL.md` contract，不定义 MCP projection、hook behavior 或 host package assembly。
 
-[Dodo Payments agent plugin](https://github.com/dodopayments/dodo-agent-plugin) 是相近的工程先例。它维护 Agent Plugins
-source、provider metadata，以及一个带 drift checking、为多个宿主生成 package 的统一 generator。该项目放弃
-symlinked Skill content 的实践也支持本 RFC 要求生成真实文件。PowerContext 采用其 build/check 模式，但不引入不受限的
-overlay mechanism。
-
-[wshobson/agents](https://github.com/wshobson/agents) 展示了更大 catalog 规模下的生成方式。其 adapter 和 capability-oriented
-tooling 把大量 plugin 投影到多个 Agent harness。对本 RFC 有价值的经验是：target support 应显式且可测试，而不是把
-target condition 分散到内容各处。
-
-PowerContext 已在 `scripts/generate_js_operations.py` 中使用相同的 source/generate/check 模式，把 OpenAPI operation
-投影到多个 TypeScript integration。本 RFC 将这一已经验证的仓库惯例推广到 plugin packaging，同时继续让 OpenAPI
-contract 作为 operation identifier 的权威来源。
+PowerContext 已经把 OpenAPI operation metadata 投影到 integration code，并对结果执行 drift check。本 RFC 采用相同的 source、projection 和 check 模式，并增加所有权与 lifecycle mapping 规则。
 
 # Unresolved questions
 
-没有阻碍本 RFC 接受的架构问题。Target descriptor 定义 normative target set；generated artifact 随各 target 迁移逐步
-提交并启用 drift check；version 1 不提供自由文本 Skill extension slot；compatibility alias 至少保留两个 minor release
-和 90 天；capability-manifest 边界已在上文定义。
+Ownership 和 projection model 没有阻碍接受本 RFC 的未决问题。以下实现选择不属于本 RFC：
 
-Shared TypeScript 或 Python runtime library、公开第三方 adapter API 和自动宿主安装属于独立决策，需要各自的证据，
-不阻碍本 distribution model。
+- Agent Integration Core 的交付形态和 language binding；
+- Target Profile 的序列化格式和 schema 位置；
+- build command 名称和 projection 的内部架构；
+- 首批迁移的 target 和 Core Operation；
+- generated distribution 是提交到仓库、在 release 时生成，还是两者兼有。
+
+这些选择必须满足本 RFC 的 ownership、mapping、determinism 和 conformance 规则，不改变这里定义的架构。
 
 # Future possibilities
 
-相同 compiler model 可支持多个 PowerContext plugin、公开的第三方 adapter、manifest-driven support matrix、marketplace
-metadata、provenance attestation 和 reproducible release bundle。如果其他项目收敛到相同需求，成熟的 adapter interface
-可以被抽取为通用 Agent Plugins distribution tool。
-
-当迁移数据证明 runtime 存在稳定重叠后，TypeScript 和 Python integration 可以共享小型 native library，而无需改变
-canonical packaging model。Compatibility window 结束后，可以移除 generated alias 和 legacy provider shim，并在宿主
-支持时优先直接消费 Agent Plugins。
+同一模型可以支持更多 PowerContext plugin、更多 Core Operation、公共 Target Profile 和可复现的 release attestation。如果其他项目采用相同的 ownership 和 mapping rule，projection tool 也可以独立为 reusable package。
