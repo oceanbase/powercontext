@@ -22,11 +22,11 @@ from pydantic import ValidationError
 from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION, ContentCapture
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
-    ProjectedSource,
     Source,
     SourceCatalog,
     SourceDefinitionManifest,
     SourceDefinitionRegistry,
+    SourceObservation,
     TextEvidence,
     manifest_for_definition,
     project_source_for_transport,
@@ -51,7 +51,7 @@ def test_definition_manifest_has_a_stable_content_addressed_identity() -> None:
         SourceDefinitionManifest.model_validate(first.model_dump(mode="json", by_alias=True) | {"version": "2"})
 
 
-def test_projected_source_remains_usable_without_worker_definition_code() -> None:
+def test_source_observation_remains_usable_without_worker_definition_code() -> None:
     async def scenario() -> None:
         registry = SourceDefinitionRegistry((CONTENT_SOURCE_DEFINITION,))
         source = await registry.resolve(
@@ -62,10 +62,23 @@ def test_projected_source_remains_usable_without_worker_definition_code() -> Non
         payload = await catalog.read(projected)
         projection = catalog.project(projected, TEXT_EVIDENCE_PROJECTION_KEY)
 
-        assert isinstance(projected, ProjectedSource)
+        assert isinstance(projected, SourceObservation)
         assert catalog.as_ref(projected).model_dump() == {"source_type": "content", "source_id": "turn-1"}
         assert payload == projected.payload
         assert catalog.projection_keys(projected) == (TEXT_EVIDENCE_PROJECTION_KEY,)
+        assert registry.project(projected, TEXT_EVIDENCE_PROJECTION_KEY) == projection
         assert TextEvidence.model_validate(projection).content == "Keep the remote contract declarative."
+
+    asyncio.run(scenario())
+
+
+def test_remote_source_observation_requires_captured_materialization() -> None:
+    async def scenario() -> None:
+        registry = SourceDefinitionRegistry((CONTENT_SOURCE_DEFINITION,))
+        source = await registry.resolve(ContentCapture(source_id="turn-1", content="Retain this value."))
+        observation = project_source_for_transport(registry, source)
+
+        with pytest.raises(ValidationError):
+            SourceObservation.model_validate(observation.model_dump(mode="json") | {"materialization": "referenced"})
 
     asyncio.run(scenario())

@@ -19,7 +19,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy import insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -34,14 +33,6 @@ from powercontext.builtin.persistence.tables import SOURCE_DEFINITION_MANIFESTS_
 from powercontext.sources import SourceDefinitionManifest
 
 
-class StoredSourceDefinitionManifest(BaseModel):
-    """One exact declarative Source Definition registration."""
-
-    model_config = ConfigDict(frozen=True)
-
-    manifest: SourceDefinitionManifest
-
-
 class SourceDefinitionManifestRepository:
     """Register immutable worker-owned Definition manifests by name and version."""
 
@@ -50,11 +41,11 @@ class SourceDefinitionManifestRepository:
         connection: AsyncConnection,
         manifest: SourceDefinitionManifest,
         /,
-    ) -> StoredSourceDefinitionManifest:
+    ) -> SourceDefinitionManifest:
         payload = dump_model(manifest, kind="source-definition-manifest", name=manifest.name)
         existing = await self.find(connection, manifest.name, manifest.version)
         if existing is not None:
-            if existing.manifest != manifest:
+            if existing != manifest:
                 raise StoredPayloadConflictError("source-definition-manifest", (manifest.name, manifest.version))
             return existing
         try:
@@ -68,13 +59,13 @@ class SourceDefinitionManifestRepository:
             )
         except IntegrityError:
             existing = await self.find(connection, manifest.name, manifest.version)
-            if existing is None or existing.manifest != manifest:
+            if existing is None or existing != manifest:
                 raise StoredPayloadConflictError(
                     "source-definition-manifest",
                     (manifest.name, manifest.version),
                 ) from None
             return existing
-        return StoredSourceDefinitionManifest(manifest=manifest)
+        return manifest
 
     async def get(
         self,
@@ -82,7 +73,7 @@ class SourceDefinitionManifestRepository:
         name: str,
         version: str,
         /,
-    ) -> StoredSourceDefinitionManifest:
+    ) -> SourceDefinitionManifest:
         stored = await self.find(connection, name, version)
         if stored is None:
             raise RepositoryNotFoundError("source-definition-manifest", (name, version))
@@ -94,7 +85,7 @@ class SourceDefinitionManifestRepository:
         name: str,
         version: str,
         /,
-    ) -> StoredSourceDefinitionManifest | None:
+    ) -> SourceDefinitionManifest | None:
         row = (
             (
                 await connection.execute(
@@ -110,7 +101,7 @@ class SourceDefinitionManifestRepository:
         return None if row is None else _decode_row(row)
 
 
-def _decode_row(row: Mapping[Any, Any]) -> StoredSourceDefinitionManifest:
+def _decode_row(row: Mapping[Any, Any]) -> SourceDefinitionManifest:
     name = str(row["definition_name"])
     version = str(row["definition_version"])
     fingerprint = str(row["fingerprint"])
@@ -124,7 +115,7 @@ def _decode_row(row: Mapping[Any, Any]) -> StoredSourceDefinitionManifest:
     decoded = (manifest.name, manifest.version, manifest.fingerprint)
     if indexed != decoded:
         raise IdentityMismatchError("source-definition-manifest", indexed, decoded)
-    return StoredSourceDefinitionManifest(manifest=manifest)
+    return manifest
 
 
-__all__ = ["SourceDefinitionManifestRepository", "StoredSourceDefinitionManifest"]
+__all__ = ["SourceDefinitionManifestRepository"]

@@ -163,6 +163,19 @@ def test_capture_operation_declares_its_typed_accepted_exchange() -> None:
     assert CAPTURE_CONTENT_SOURCE.success_status == 202
 
 
+def test_source_observation_contract_is_scope_bound_and_captured() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schemas = contract["components"]["schemas"]
+
+    request = schemas["SubmitSourceObservationRequest"]
+    observation = schemas["SourceObservation"]
+
+    assert set(request["properties"]) == {"scope_id", "observation"}
+    assert request["properties"]["observation"] == {"$ref": "#/components/schemas/SourceObservation"}
+    assert observation["properties"]["materialization"]["enum"] == ["captured"]
+    assert "ProjectedSource" not in schemas
+
+
 def test_stats_operation_exposes_dashboard_ready_scoped_values() -> None:
     assert GET_STATS.method == "GET"
     assert GET_STATS.path == "/v1/stats"

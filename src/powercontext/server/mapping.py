@@ -298,10 +298,10 @@ from powercontext.sources import (
     ConnectorBinding as RuntimeConnectorBinding,
 )
 from powercontext.sources import (
-    ProjectedSource as RuntimeProjectedSource,
+    SourceDefinitionManifest as RuntimeSourceDefinitionManifest,
 )
 from powercontext.sources import (
-    SourceDefinitionManifest as RuntimeSourceDefinitionManifest,
+    SourceObservation as RuntimeSourceObservation,
 )
 from powercontext.sources import SourceRef
 
@@ -471,8 +471,8 @@ def connector_checkpoint_request(value: GetConnectorCheckpointRequest) -> Runtim
 def submit_source_observation_request(value: SubmitSourceObservationRequest) -> RuntimeSubmitSourceObservation:
     try:
         return RuntimeSubmitSourceObservation(
-            binding=runtime_connector_binding(value.binding),
-            source=RuntimeProjectedSource.model_validate(value.source.model_dump(mode="json")),
+            scope_id=value.scope_id,
+            observation=RuntimeSourceObservation.model_validate(value.observation.model_dump(mode="json")),
         )
     except ValidationError as error:
         raise InvalidRuntimeRequestError("source-observation") from error

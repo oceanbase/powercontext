@@ -15,59 +15,39 @@
 from __future__ import annotations
 
 import asyncio
-import builtins
 from copy import deepcopy
 
 import pytest
 from pydantic import JsonValue
 
-from powercontext import (
-    CatalogConnectorSourceSink,
+from powercontext import InvalidConnectorError, InvalidConnectorRunError
+from powercontext.builtin.sources import CONTENT_SOURCE_NAME, ContentCapture
+from powercontext.sources import (
     ConnectorBinding,
-    ConnectorCapability,
-    ConnectorLifecycle,
     ConnectorRunCompletion,
     ConnectorRunSession,
     ConnectorRunStatus,
-    ConnectorSubmissionResult,
     ConnectorSubmissionStatus,
-    InvalidConnectorError,
-    InvalidConnectorRunError,
-    Source,
-    SourceCatalog,
-    SourceConflictError,
     SourceRef,
 )
-from powercontext.builtin.sources import (
-    BUILTIN_SOURCE_REGISTRY,
-    CONTENT_SOURCE_NAME,
-    TEXT_EVIDENCE_PROJECTION_KEY,
-    ContentCapture,
-)
+from powercontext.sources.connectors import ConnectorLifecycle
 
 
-class IdempotentSourceStore:
-    def __init__(self, events: builtins.list[str]) -> None:
+class AcceptingSourceSink:
+    def __init__(self, events: list[str]) -> None:
         self.events = events
-        self.sources: dict[tuple[str, str], Source] = {}
 
-    async def add(self, source: Source, /) -> Source:
-        definition = BUILTIN_SOURCE_REGISTRY.definition_for_source(source)
-        ref = SourceRef(source_type=definition.name, source_id=source.name)
-        key = (ref.source_type, ref.source_id)
-        existing = self.sources.get(key)
-        if existing is not None and existing != source:
-            raise SourceConflictError("identity", ref)
-        self.events.append(f"source:{ref.source_id}")
-        self.sources.setdefault(key, deepcopy(source))
-        return self.sources[key]
-
-    async def get(self, source: Source, /) -> Source:
-        definition = BUILTIN_SOURCE_REGISTRY.definition_for_source(source)
-        return self.sources[(definition.name, source.name)]
-
-    async def list(self) -> tuple[Source, ...]:
-        return tuple(self.sources.values())
+    async def submit(
+        self,
+        binding: ConnectorBinding,
+        item_id: str,
+        definition_name: str,
+        value: object,
+        /,
+    ) -> SourceRef:
+        del binding, value
+        self.events.append(f"source:{item_id}")
+        return SourceRef(source_type=definition_name, source_id=item_id)
 
 
 class MemoryCheckpointStore:
@@ -95,7 +75,6 @@ class ContentConnector:
     name = "test-content"
     version = "1"
     source_definitions = frozenset({CONTENT_SOURCE_NAME})
-    capabilities = frozenset({ConnectorCapability.CHECKPOINT_RESUME})
 
     def __init__(self, capture: ContentCapture) -> None:
         self.capture = capture
@@ -117,11 +96,9 @@ def _binding() -> ConnectorBinding:
 def test_connector_commits_checkpoint_after_durable_source_acceptance() -> None:
     async def scenario() -> None:
         events: list[str] = []
-        store = IdempotentSourceStore(events)
-        catalog = SourceCatalog(backend=store, registry=BUILTIN_SOURCE_REGISTRY)
         checkpoints = MemoryCheckpointStore(events)
         lifecycle = ConnectorLifecycle(
-            sink=CatalogConnectorSourceSink(scope_id="scope-a", catalog=catalog, store=store),
+            sink=AcceptingSourceSink(events),
             checkpoints=checkpoints,
         )
         connector = ContentConnector(ContentCapture(source_id="note-1", content="Remember this."))
@@ -134,39 +111,27 @@ def test_connector_commits_checkpoint_after_durable_source_acceptance() -> None:
         assert result.committed_checkpoint == {"cursor": 1}
         assert result.items[0].status is ConnectorSubmissionStatus.ACCEPTED
         assert result.items[0].source_ref == SourceRef(source_type=CONTENT_SOURCE_NAME, source_id="note-1")
-        assert len(store.sources) == 1
-        stored = next(iter(store.sources.values()))
-        assert catalog.project(stored, TEXT_EVIDENCE_PROJECTION_KEY) == {
-            "source_type": CONTENT_SOURCE_NAME,
-            "source_id": "note-1",
-            "content": "Remember this.",
-            "metadata": {},
-        }
-        assert catalog.project(stored, TEXT_EVIDENCE_PROJECTION_KEY) == catalog.project(
-            stored,
-            TEXT_EVIDENCE_PROJECTION_KEY,
-        )
 
         replay = await lifecycle.run(connector, _binding())
         assert replay.previous_checkpoint == {"cursor": 1}
-        assert len(store.sources) == 1
         assert events == ["source:note-1", "checkpoint", "source:note-1"]
 
     asyncio.run(scenario())
 
 
 def test_connector_exposes_failed_items_and_does_not_advance_checkpoint() -> None:
-    class RejectingSink:
-        async def submit(self, binding, item_id, definition_name, value, /) -> ConnectorSubmissionResult:
-            return ConnectorSubmissionResult(status=ConnectorSubmissionStatus.REJECTED, detail="unsupported value")
+    class RejectingConnector(ContentConnector):
+        async def run(self, session: ConnectorRunSession, /) -> ConnectorRunCompletion:
+            session.reject(self.capture.source_id, CONTENT_SOURCE_NAME, "unsupported value")
+            return ConnectorRunCompletion(status=ConnectorRunStatus.COMPLETE, checkpoint={"cursor": 1})
 
     async def scenario() -> None:
         events: list[str] = []
         checkpoints = MemoryCheckpointStore(events)
-        lifecycle = ConnectorLifecycle(sink=RejectingSink(), checkpoints=checkpoints)
+        lifecycle = ConnectorLifecycle(sink=AcceptingSourceSink(events), checkpoints=checkpoints)
 
         result = await lifecycle.run(
-            ContentConnector(ContentCapture(source_id="note-1", content="Remember this.")),
+            RejectingConnector(ContentCapture(source_id="note-1", content="Remember this.")),
             _binding(),
         )
 
@@ -174,6 +139,7 @@ def test_connector_exposes_failed_items_and_does_not_advance_checkpoint() -> Non
         assert result.proposed_checkpoint == {"cursor": 1}
         assert result.committed_checkpoint is None
         assert result.items[0].status is ConnectorSubmissionStatus.REJECTED
+        assert result.items[0].detail == "unsupported value"
         assert events == []
 
     asyncio.run(scenario())
@@ -190,13 +156,8 @@ def test_connector_does_not_advance_an_incomplete_run_checkpoint() -> None:
 
     async def scenario() -> None:
         events: list[str] = []
-        store = IdempotentSourceStore(events)
         lifecycle = ConnectorLifecycle(
-            sink=CatalogConnectorSourceSink(
-                scope_id="scope-a",
-                catalog=SourceCatalog(backend=store, registry=BUILTIN_SOURCE_REGISTRY),
-                store=store,
-            ),
+            sink=AcceptingSourceSink(events),
             checkpoints=MemoryCheckpointStore(events),
         )
 
@@ -222,13 +183,8 @@ def test_connector_rejects_duplicate_items_and_binding_mismatches() -> None:
 
     async def scenario() -> None:
         events: list[str] = []
-        store = IdempotentSourceStore(events)
         lifecycle = ConnectorLifecycle(
-            sink=CatalogConnectorSourceSink(
-                scope_id="scope-a",
-                catalog=SourceCatalog(backend=store, registry=BUILTIN_SOURCE_REGISTRY),
-                store=store,
-            ),
+            sink=AcceptingSourceSink(events),
             checkpoints=MemoryCheckpointStore(events),
         )
         capture = ContentCapture(source_id="note-1", content="Remember this.")
@@ -245,28 +201,34 @@ def test_connector_rejects_duplicate_items_and_binding_mismatches() -> None:
     asyncio.run(scenario())
 
 
-def test_catalog_connector_sink_rejects_a_different_scope_before_storage() -> None:
+def test_connector_propagates_sink_failures_without_committing_a_checkpoint() -> None:
+    class SinkFailure(RuntimeError):
+        pass
+
+    class FailingSink:
+        async def submit(
+            self,
+            binding: ConnectorBinding,
+            item_id: str,
+            definition_name: str,
+            value: object,
+            /,
+        ) -> SourceRef:
+            del binding, item_id, definition_name, value
+            raise SinkFailure
+
     async def scenario() -> None:
         events: list[str] = []
-        store = IdempotentSourceStore(events)
         lifecycle = ConnectorLifecycle(
-            sink=CatalogConnectorSourceSink(
-                scope_id="scope-b",
-                catalog=SourceCatalog(backend=store, registry=BUILTIN_SOURCE_REGISTRY),
-                store=store,
-            ),
+            sink=FailingSink(),
             checkpoints=MemoryCheckpointStore(events),
         )
 
-        result = await lifecycle.run(
-            ContentConnector(ContentCapture(source_id="note-1", content="Remember this.")),
-            _binding(),
-        )
-
-        assert result.status is ConnectorRunStatus.INCOMPLETE
-        assert result.items[0].status is ConnectorSubmissionStatus.FAILED
-        assert result.items[0].detail == "InvalidConnectorRunError"
-        assert store.sources == {}
+        with pytest.raises(SinkFailure):
+            await lifecycle.run(
+                ContentConnector(ContentCapture(source_id="note-1", content="Remember this.")),
+                _binding(),
+            )
         assert events == []
 
     asyncio.run(scenario())

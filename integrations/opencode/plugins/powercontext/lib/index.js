@@ -92,6 +92,30 @@ const OPERATIONS = {
 		location: "body",
 		scope: true
 	},
+	register_source_definition: {
+		method: "POST",
+		path: "/v1/source-definitions/register",
+		location: "body",
+		scope: false
+	},
+	get_connector_checkpoint: {
+		method: "POST",
+		path: "/v1/connector-checkpoints/get",
+		location: "body",
+		scope: false
+	},
+	submit_source_observation: {
+		method: "POST",
+		path: "/v1/source-observations",
+		location: "body",
+		scope: true
+	},
+	commit_connector_checkpoint: {
+		method: "POST",
+		path: "/v1/connector-checkpoints/commit",
+		location: "body",
+		scope: false
+	},
 	prepare_context: {
 		method: "POST",
 		path: "/v1/context/prepare",
@@ -308,6 +332,12 @@ const OPERATIONS = {
 		location: "body",
 		scope: false
 	},
+	list_handoff_report_known_scopes: {
+		method: "POST",
+		path: "/v1/handoff-reports/scopes/list-known",
+		location: "body",
+		scope: false
+	},
 	get_handoff_report_project: {
 		method: "POST",
 		path: "/v1/handoff-reports/projects/get",
@@ -342,7 +372,7 @@ const OPERATIONS = {
 		method: "POST",
 		path: "/v1/handoff-reports/get",
 		location: "body",
-		scope: false
+		scope: true
 	},
 	record_handoff_report_activity: {
 		method: "POST",

@@ -25,7 +25,7 @@ from powercontext.errors import (
 from powercontext.sources.adapters import SourceAdapter
 from powercontext.sources.definitions import SourceDefinitionRegistry
 from powercontext.sources.models import Source, SourceProjectionKey, SourceRef
-from powercontext.sources.observations import ProjectedSource
+from powercontext.sources.observations import SourceObservation
 from powercontext.sources.protocols import SourceCatalogBackend
 
 _AnySourceAdapter = SourceAdapter[Any, Any, Any]
@@ -62,7 +62,7 @@ class SourceCatalog:
         return stored
 
     def as_ref(self, source: Source, /) -> SourceRef:
-        if isinstance(source, ProjectedSource):
+        if isinstance(source, SourceObservation):
             return SourceRef(source_type=source.source_type, source_id=source.name)
         definition = self._registry.definition_for_source(source)
         return SourceRef(source_type=definition.name, source_id=source.name)
@@ -71,20 +71,16 @@ class SourceCatalog:
         return await self._registry.resolve(value)
 
     async def read(self, source: Source, /) -> object:
-        if isinstance(source, ProjectedSource):
+        if isinstance(source, SourceObservation):
             return source.payload
         return await self._registry.read(source)
 
     def projection_keys(self, source: Source, /) -> tuple[SourceProjectionKey, ...]:
         """Return the exact named projection capabilities advertised for ``source``."""
 
-        if isinstance(source, ProjectedSource):
-            return tuple(projection.key for projection in source.projections)
         return self._registry.projection_keys(source)
 
     def project(self, source: Source, key: SourceProjectionKey, /) -> JsonValue:
         """Evaluate one named projection against an exact Source value."""
 
-        if isinstance(source, ProjectedSource):
-            return source.projection(key)
         return self._registry.project(source, key)

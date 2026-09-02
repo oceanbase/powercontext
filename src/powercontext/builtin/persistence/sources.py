@@ -36,7 +36,7 @@ from powercontext.builtin.persistence.errors import (
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, SOURCES_TABLE
 from powercontext.errors import SourceDefinitionNotFoundError
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
-from powercontext.sources import ProjectedSource, Source, SourceAdapter, SourceDefinitionRegistry, SourceRef
+from powercontext.sources import Source, SourceAdapter, SourceDefinitionRegistry, SourceObservation, SourceRef
 
 _AnySourceAdapter = SourceAdapter[Any, Any, Any]
 
@@ -73,7 +73,7 @@ class SourceRepository:
         """Add one stable Source or return an identical existing capture."""
 
         _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
-        if isinstance(source, ProjectedSource):
+        if isinstance(source, SourceObservation):
             ref = SourceRef(source_type=source.source_type, source_id=source.name)
         else:
             definition = self._registry.definition_for_source(source)
@@ -199,7 +199,7 @@ class SourceRepository:
             definition = self._definition_by_name(source_type)
         except RepositoryNotFoundError:
             source = load_model(
-                ProjectedSource,
+                SourceObservation,
                 stored_bytes(row["payload"], column="payload"),
                 kind="projected-source",
                 name=source_type,

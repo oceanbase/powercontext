@@ -18,18 +18,19 @@ import asyncio
 from pathlib import Path
 
 import httpx
+import opendalfs
 import pytest
 from fastapi import FastAPI
-from powercontext_connector_opendal import (
-    OPENDAL_TEXT_FILE_CONNECTOR_NAME,
-    TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION,
-    OpenDALTextFileConnector,
-    TextFileSnapshotCapture,
+from powercontext.builtin.artifacts.memory import (
+    MemoryCandidateRequest,
+    MemoryEntryInput,
 )
-
-from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.client import PowerContextClient, RemoteConnectorWorker, ServerResponseError
+from powercontext.client import (
+    PowerContextClient,
+    RemoteConnectorWorker,
+    ServerResponseError,
+)
 from powercontext.http import (
     CommitConnectorCheckpointRequest,
     FlushMemoryRequest,
@@ -42,25 +43,31 @@ from powercontext.http import (
     ConnectorBinding as HttpConnectorBinding,
 )
 from powercontext.http import (
-    ProjectedSource as HttpProjectedSource,
+    SourceDefinitionManifest as HttpSourceDefinitionManifest,
 )
 from powercontext.http import (
-    SourceDefinitionManifest as HttpSourceDefinitionManifest,
+    SourceObservation as HttpSourceObservation,
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     ConnectorBinding,
-    ConnectorCapability,
     ConnectorRunResult,
     ConnectorRunStatus,
     ConnectorSubmissionStatus,
-    ProjectedSource,
     SourceDefinitionRegistry,
+    SourceObservation,
     TextEvidence,
     manifest_for_definition,
     project_source_for_transport,
+)
+
+from powercontext_connector_opendal import (
+    OPENDAL_TEXT_FILE_CONNECTOR_NAME,
+    TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION,
+    OpenDALTextFileConnector,
+    TextFileSnapshotCapture,
 )
 
 
@@ -88,7 +95,7 @@ class TextEvidenceCandidatePipeline:
     async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
         entries: list[MemoryEntryInput] = []
         for source in request.sources:
-            if not isinstance(source, ProjectedSource):
+            if not isinstance(source, SourceObservation):
                 continue
             evidence = TextEvidence.model_validate(source.projection(TEXT_EVIDENCE_PROJECTION_KEY))
             entries.append(MemoryEntryInput(kind="document", text=evidence.content, sources=(source,)))
@@ -191,6 +198,15 @@ def test_remote_opendal_worker_keeps_checkpoint_before_a_rejected_item(tmp_path:
     asyncio.run(scenario())
 
 
+def test_text_file_definition_declares_its_executable_contract() -> None:
+    definition = TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION
+
+    assert definition.name == "text-file-snapshot"
+    assert definition.version == "1"
+    assert definition.input_class is TextFileSnapshotCapture
+    assert len(definition.projections) == 1
+
+
 def test_remote_opendal_worker_completes_the_source_to_memory_loop(tmp_path: Path) -> None:
     async def scenario() -> None:
         filesystem = MemoryFileSystem()
@@ -207,17 +223,7 @@ def test_remote_opendal_worker_completes_the_source_to_memory_loop(tmp_path: Pat
     asyncio.run(scenario())
 
 
-def test_opendal_connector_declares_only_enforced_capabilities() -> None:
-    connector = OpenDALTextFileConnector(MemoryFileSystem(), source_namespace="workspace-a")
-
-    assert ConnectorCapability.CHECKPOINT_RESUME in connector.capabilities
-    assert ConnectorCapability.AUTHORITATIVE_DELETION not in connector.capabilities
-    assert ConnectorCapability.CHANGE_FEED not in connector.capabilities
-
-
 def test_opendal_connector_reads_the_real_opendalfs_memory_backend(tmp_path: Path) -> None:
-    opendalfs = pytest.importorskip("opendalfs")
-
     async def scenario() -> None:
         filesystem = opendalfs.OpendalFileSystem(
             scheme="memory",
@@ -248,8 +254,8 @@ def test_remote_ingestion_rejects_invalid_projection_and_stale_checkpoint(tmp_pa
         source = await registry.resolve(
             TextFileSnapshotCapture(namespace="workspace-a", path="decision.md", content="Keep worker authority.")
         )
-        projected = project_source_for_transport(registry, source)
-        malformed = projected.model_copy(update={"projections": ()})
+        observation = project_source_for_transport(registry, source)
+        malformed = observation.model_copy(update={"projections": ()})
         binding = HttpConnectorBinding.model_validate(_binding().model_dump(mode="json"))
 
         async with (
@@ -263,8 +269,8 @@ def test_remote_ingestion_rejects_invalid_projection_and_stale_checkpoint(tmp_pa
             with pytest.raises(ServerResponseError) as missing:
                 await client.submit_source_observation(
                     SubmitSourceObservationRequest(
-                        binding=binding,
-                        source=HttpProjectedSource.model_validate(projected.model_dump(mode="json")),
+                        scope_id=binding.scope_id,
+                        observation=HttpSourceObservation.model_validate(observation.model_dump(mode="json")),
                     )
                 )
             await client.register_source_definition(
@@ -277,8 +283,8 @@ def test_remote_ingestion_rejects_invalid_projection_and_stale_checkpoint(tmp_pa
             with pytest.raises(ServerResponseError) as invalid:
                 await client.submit_source_observation(
                     SubmitSourceObservationRequest(
-                        binding=binding,
-                        source=HttpProjectedSource.model_validate(malformed.model_dump(mode="json")),
+                        scope_id=binding.scope_id,
+                        observation=HttpSourceObservation.model_validate(malformed.model_dump(mode="json")),
                     )
                 )
             await client.commit_connector_checkpoint(

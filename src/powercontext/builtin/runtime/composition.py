@@ -73,7 +73,7 @@ from powercontext.builtin.runtime.readiness import (
 )
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, TEXT_EVIDENCE_PROJECTION_KEY
-from powercontext.errors import SourceProjectionNotFoundError
+from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
 from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
 
 if TYPE_CHECKING:
@@ -106,7 +106,7 @@ class _DefinitionEvidenceProjector(DefaultMemoryEvidenceProjector):
     def project_source(self, source: Source, /) -> JsonValue:
         try:
             return self._definitions.project(source, self._projection)
-        except SourceProjectionNotFoundError:
+        except (InvalidSourceProjectionError, SourceProjectionNotFoundError):
             return super().project_source(source)
 
 
@@ -119,7 +119,7 @@ class _DefinitionHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
     def project_source(self, source: Source, /) -> JsonValue:
         try:
             return self._definitions.project(source, self._projection)
-        except SourceProjectionNotFoundError:
+        except (InvalidSourceProjectionError, SourceProjectionNotFoundError):
             return super().project_source(source)
 
 

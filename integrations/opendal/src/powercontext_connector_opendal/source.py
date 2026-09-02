@@ -19,17 +19,16 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Literal
-
-from pydantic import BaseModel, JsonValue, field_validator
+from typing import Literal, cast
 
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
-    AdapterSourceDefinition,
     Source,
     SourceMaterialization,
+    SourceProjection,
     TextEvidence,
 )
+from pydantic import BaseModel, JsonValue, field_validator
 
 TEXT_FILE_SNAPSHOT_SOURCE_NAME = "text-file-snapshot"
 
@@ -86,12 +85,17 @@ class TextFileSnapshotSource(Source):
     modified_at: datetime | None = None
 
 
-class TextFileSnapshotSourceAdapter:
-    """Canonicalize UTF-8 file captures into immutable snapshot Sources."""
+class TextFileSnapshotSourceDefinition:
+    """Define canonical captured text-file snapshots and their projections."""
 
     input_class = TextFileSnapshotCapture
     name = TEXT_FILE_SNAPSHOT_SOURCE_NAME
+    version = "1"
     source_class = TextFileSnapshotSource
+
+    def __init__(self) -> None:
+        projection = cast(SourceProjection[TextFileSnapshotSource], TextFileEvidenceProjection())
+        self.projections: tuple[SourceProjection[TextFileSnapshotSource], ...] = (projection,)
 
     async def resolve(self, value: TextFileSnapshotCapture, /) -> TextFileSnapshotSource:
         content_bytes = value.content.encode(value.encoding)
@@ -158,22 +162,17 @@ class TextFileEvidenceProjection:
 
 
 def _snapshot_id(namespace: str, path: str, content_digest: str) -> str:
-    identity = "\0".join((namespace, path, content_digest))
+    identity = f"{namespace}\0{path}\0{content_digest}"
     return f"text_file_{hashlib.sha256(identity.encode()).hexdigest()}"
 
 
-TEXT_FILE_SNAPSHOT_SOURCE_ADAPTER = TextFileSnapshotSourceAdapter()
-TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION = AdapterSourceDefinition(
-    TEXT_FILE_SNAPSHOT_SOURCE_ADAPTER,
-    projections=(TextFileEvidenceProjection(),),
-)
+TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION = TextFileSnapshotSourceDefinition()
 
 __all__ = [
-    "TEXT_FILE_SNAPSHOT_SOURCE_ADAPTER",
     "TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION",
     "TEXT_FILE_SNAPSHOT_SOURCE_NAME",
     "TextFileEvidenceProjection",
     "TextFileSnapshotCapture",
     "TextFileSnapshotSource",
-    "TextFileSnapshotSourceAdapter",
+    "TextFileSnapshotSourceDefinition",
 ]

@@ -31,29 +31,30 @@ from powercontext.http import (
     ConnectorBinding as HttpConnectorBinding,
 )
 from powercontext.http import (
-    ProjectedSource as HttpProjectedSource,
+    SourceDefinitionManifest as HttpSourceDefinitionManifest,
 )
 from powercontext.http import (
-    SourceDefinitionManifest as HttpSourceDefinitionManifest,
+    SourceObservation as HttpSourceObservation,
 )
 from powercontext.sources import (
     Connector,
     ConnectorBinding,
-    ConnectorCheckpointStore,
-    ConnectorLifecycle,
     ConnectorRunResult,
-    ConnectorSourceSink,
-    ConnectorSubmissionResult,
-    ConnectorSubmissionStatus,
     SourceDefinitionRegistry,
+    SourceObservation,
     SourceRef,
     manifest_for_definition,
     project_source_for_transport,
+)
+from powercontext.sources.connectors import (
+    ConnectorCheckpointStore,
+    ConnectorLifecycle,
+    ConnectorSourceSink,
     validate_connector,
 )
 
 
-class RemoteConnectorSourceSink(ConnectorSourceSink):
+class _RemoteConnectorSourceSink(ConnectorSourceSink):
     """Resolve and project Definition-native values inside the worker."""
 
     def __init__(self, *, client: PowerContextClient, registry: SourceDefinitionRegistry) -> None:
@@ -68,30 +69,30 @@ class RemoteConnectorSourceSink(ConnectorSourceSink):
         definition_name: str,
         value: object,
         /,
-    ) -> ConnectorSubmissionResult:
+    ) -> SourceRef:
         del item_id
         self._registry.definition_for_name(definition_name)
         source = await self._registry.resolve(value)
-        projected = project_source_for_transport(self._registry, source)
-        if projected.source_type != definition_name:
+        observation: SourceObservation = project_source_for_transport(self._registry, source)
+        if observation.source_type != definition_name:
             raise InvalidConnectorRunError(
                 "definition-mismatch",
-                f"input resolved as {projected.source_type!r}, expected {definition_name!r}",
+                f"input resolved as {observation.source_type!r}, expected {definition_name!r}",
             )
         receipt = await self._client.submit_source_observation(
             SubmitSourceObservationRequest(
-                binding=_http_binding(binding),
-                source=HttpProjectedSource.model_validate(projected.model_dump(mode="json")),
+                scope_id=binding.scope_id,
+                observation=HttpSourceObservation.model_validate(observation.model_dump(mode="json")),
             )
         )
         source_ref = SourceRef(source_type=receipt.source.name, source_id=receipt.source.source_id)
-        expected_ref = SourceRef(source_type=projected.source_type, source_id=projected.name)
+        expected_ref = SourceRef(source_type=observation.source_type, source_id=observation.name)
         if source_ref != expected_ref:
             raise InvalidConnectorRunError("identity-mismatch", "Server receipt changed the accepted Source identity")
-        return ConnectorSubmissionResult(status=ConnectorSubmissionStatus.ACCEPTED, source_ref=source_ref)
+        return source_ref
 
 
-class RemoteConnectorCheckpointStore(ConnectorCheckpointStore):
+class _RemoteConnectorCheckpointStore(ConnectorCheckpointStore):
     """Load and compare-and-swap opaque checkpoints through the Server API."""
 
     def __init__(self, client: PowerContextClient) -> None:
@@ -133,12 +134,12 @@ class RemoteConnectorWorker:
         self._client = client
         self._registry = registry
         self._lifecycle = ConnectorLifecycle(
-            sink=RemoteConnectorSourceSink(client=client, registry=registry),
-            checkpoints=RemoteConnectorCheckpointStore(client),
+            sink=_RemoteConnectorSourceSink(client=client, registry=registry),
+            checkpoints=_RemoteConnectorCheckpointStore(client),
         )
 
     async def run(self, connector: Connector, binding: ConnectorBinding, /) -> ConnectorRunResult:
-        source_definitions, _ = validate_connector(connector, binding)
+        source_definitions = validate_connector(connector, binding)
         for definition_name in sorted(source_definitions):
             definition = self._registry.definition_for_name(definition_name)
             manifest = manifest_for_definition(definition)
@@ -169,8 +170,4 @@ def _validate_checkpoint_binding(
         raise InvalidConnectorRunError("binding-mismatch", "Server returned a different Connector binding")
 
 
-__all__ = [
-    "RemoteConnectorCheckpointStore",
-    "RemoteConnectorSourceSink",
-    "RemoteConnectorWorker",
-]
+__all__ = ["RemoteConnectorWorker"]

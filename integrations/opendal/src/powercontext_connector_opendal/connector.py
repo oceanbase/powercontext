@@ -26,15 +26,21 @@ from datetime import UTC, datetime
 from importlib import import_module
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
-
 from powercontext.errors import InvalidConnectorRunError
 from powercontext.sources import (
-    ConnectorCapability,
     ConnectorRunCompletion,
     ConnectorRunSession,
     ConnectorRunStatus,
 )
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    ValidationError,
+    field_validator,
+)
+
 from powercontext_connector_opendal.source import (
     TEXT_FILE_SNAPSHOT_SOURCE_NAME,
     TextFileSnapshotCapture,
@@ -80,7 +86,6 @@ class OpenDALTextFileConnector:
     name = OPENDAL_TEXT_FILE_CONNECTOR_NAME
     version = "1"
     source_definitions = frozenset({TEXT_FILE_SNAPSHOT_SOURCE_NAME})
-    capabilities = frozenset({ConnectorCapability.CHECKPOINT_RESUME})
 
     def __init__(
         self,
@@ -284,7 +289,7 @@ def _optional_datetime(value: object) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(value)
     except ValueError:
         return None
 

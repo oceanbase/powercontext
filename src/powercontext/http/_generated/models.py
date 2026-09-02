@@ -354,10 +354,9 @@ class SourceProjectionValue(BaseModel):
 
 class Materialization(StrEnum):
     CAPTURED = "captured"
-    REFERENCED = "referenced"
 
 
-class ProjectedSource(BaseModel):
+class SourceObservation(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -375,8 +374,8 @@ class SubmitSourceObservationRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    binding: ConnectorBinding
-    source: ProjectedSource
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    observation: SourceObservation
 
 
 class CommitConnectorCheckpointRequest(BaseModel):

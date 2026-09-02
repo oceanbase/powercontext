@@ -67,10 +67,7 @@ from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError, TokenEstimator
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
-from powercontext.builtin.persistence.connectors import (
-    ConnectorCheckpointRepository,
-    RelationalConnectorCheckpointStore,
-)
+from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
@@ -136,11 +133,11 @@ from powercontext.errors import (
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     ConnectorBinding,
-    ProjectedSource,
     Source,
     SourceCatalog,
     SourceDefinitionManifest,
     SourceDefinitionRegistry,
+    SourceObservation,
     SourceRef,
     TextEvidence,
 )
@@ -413,15 +410,13 @@ class RelationalContexts:
                 stored = await self.repositories.source_definitions.register(connection, manifest)
         except StoredPayloadConflictError as error:
             raise SourceConflictError("definition-manifest", error.identity) from None
-        return stored.manifest
+        return stored
 
     async def connector_checkpoint(self, binding: ConnectorBinding, /) -> ConnectorCheckpointState:
         """Read the checkpoint owned by one remote Connector binding."""
 
-        checkpoint = await RelationalConnectorCheckpointStore(
-            self.database,
-            self.repositories.connector_checkpoints,
-        ).load(binding)
+        async with self.database.transaction() as connection:
+            checkpoint = await self.repositories.connector_checkpoints.load(connection, binding)
         return ConnectorCheckpointState(binding=binding, checkpoint=checkpoint)
 
     async def submit_source_observation(
@@ -431,20 +426,20 @@ class RelationalContexts:
     ) -> SourceReceipt:
         """Validate and durably append one worker-materialized Source observation."""
 
-        source = request.source
+        observation = request.observation
         try:
             async with self.database.transaction() as connection:
-                stored_manifest = await self.repositories.source_definitions.get(
+                manifest = await self.repositories.source_definitions.get(
                     connection,
-                    source.source_type,
-                    source.definition_version,
+                    observation.source_type,
+                    observation.definition_version,
                 )
         except RepositoryNotFoundError:
-            raise SourceDefinitionNotFoundError(source.source_type, source.definition_version) from None
-        _validate_projected_source(source, stored_manifest.manifest)
-        services = self._services_for(request.binding.scope_id)
+            raise SourceDefinitionNotFoundError(observation.source_type, observation.definition_version) from None
+        _validate_source_observation(observation, manifest)
+        services = self._services_for(request.scope_id)
         source_store, source_catalog = services.sources()
-        stored = await source_store.add(source)
+        stored = await source_store.add(observation)
         return SourceReceipt(
             source_ref=source_catalog.as_ref(stored),
             sequence=await source_store.position(stored),
@@ -457,11 +452,13 @@ class RelationalContexts:
     ) -> ConnectorCheckpointState:
         """Commit one worker checkpoint only when its starting value still matches."""
 
-        store = RelationalConnectorCheckpointStore(
-            self.database,
-            self.repositories.connector_checkpoints,
-        )
-        await store.save(request.binding, request.checkpoint, expected=request.expected)
+        async with self.database.transaction() as connection:
+            await self.repositories.connector_checkpoints.save(
+                connection,
+                request.binding,
+                request.checkpoint,
+                expected=request.expected,
+            )
         return ConnectorCheckpointState(binding=request.binding, checkpoint=request.checkpoint)
 
     async def estimate_recall_tokens(
@@ -681,7 +678,7 @@ class _RelationalSources:
         )
 
     def _as_ref(self, source: Source) -> SourceRef:
-        if isinstance(source, ProjectedSource):
+        if isinstance(source, SourceObservation):
             return SourceRef(source_type=source.source_type, source_id=source.name)
         definition = self._registry.definition_for_source(source)
         return SourceRef(source_type=definition.name, source_id=source.name)
@@ -970,7 +967,7 @@ def _validate_source_definition_manifest(manifest: SourceDefinitionManifest) -> 
             )
 
 
-def _validate_projected_source(source: ProjectedSource, manifest: SourceDefinitionManifest) -> None:
+def _validate_source_observation(source: SourceObservation, manifest: SourceDefinitionManifest) -> None:
     if source.source_type != manifest.name or source.definition_version != manifest.version:
         raise InvalidSourceObservationError("definition", "does not match the registered manifest identity")
     if source.definition_fingerprint != manifest.fingerprint:

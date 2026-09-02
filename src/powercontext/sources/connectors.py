@@ -19,22 +19,11 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 from powercontext.errors import InvalidConnectorError, InvalidConnectorRunError
 from powercontext.limits import MAX_SCOPE_ID_LENGTH, MAX_SOURCE_ID_LENGTH, MAX_SOURCE_TYPE_LENGTH
-from powercontext.sources.catalog import SourceCatalog
-from powercontext.sources.models import Source, SourceRef
-from powercontext.sources.protocols import SourceStore
-
-
-class ConnectorCapability(StrEnum):
-    """Acquisition guarantees a Connector can actually enforce."""
-
-    COMPLETE_SNAPSHOT = "complete_snapshot"
-    CHANGE_FEED = "change_feed"
-    CHECKPOINT_RESUME = "checkpoint_resume"
-    AUTHORITATIVE_DELETION = "authoritative_deletion"
+from powercontext.sources.models import SourceRef
 
 
 class ConnectorRunStatus(StrEnum):
@@ -48,7 +37,6 @@ class ConnectorSubmissionStatus(StrEnum):
     """Durable outcome for one definition-native item submission."""
 
     ACCEPTED = "accepted"
-    REPLAYED = "replayed"
     REJECTED = "rejected"
     FAILED = "failed"
 
@@ -71,23 +59,6 @@ class ConnectorBinding(BaseModel):
         if value != value.strip():
             raise ValueError("Connector identity must be trimmed")  # noqa: TRY003
         return value
-
-
-class ConnectorSubmissionResult(BaseModel):
-    """Sink result after one item has reached a durable acceptance boundary."""
-
-    model_config = ConfigDict(frozen=True)
-
-    status: ConnectorSubmissionStatus
-    source_ref: SourceRef | None = None
-    detail: str | None = None
-
-    @model_validator(mode="after")
-    def validate_source_ref(self) -> ConnectorSubmissionResult:
-        accepted = self.status in {ConnectorSubmissionStatus.ACCEPTED, ConnectorSubmissionStatus.REPLAYED}
-        if accepted != (self.source_ref is not None):
-            raise ValueError("accepted and replayed submissions require exactly one SourceRef")  # noqa: TRY003
-        return self
 
 
 class ConnectorItemOutcome(BaseModel):
@@ -134,7 +105,7 @@ class ConnectorSourceSink(Protocol):
         definition_name: str,
         value: object,
         /,
-    ) -> ConnectorSubmissionResult: ...
+    ) -> SourceRef: ...
 
 
 class ConnectorCheckpointStore(Protocol):
@@ -158,7 +129,6 @@ class Connector(Protocol):
     name: str
     version: str
     source_definitions: frozenset[str]
-    capabilities: frozenset[ConnectorCapability]
 
     async def run(self, session: ConnectorRunSession, /) -> ConnectorRunCompletion: ...
 
@@ -191,34 +161,26 @@ class ConnectorRunSession:
         definition_name: str,
         value: object,
         /,
-    ) -> ConnectorSubmissionResult:
-        """Submit one item and record success, rejection, or sink failure exactly once."""
+    ) -> ConnectorItemOutcome:
+        """Submit one item and record its durable Source reference exactly once."""
 
         self._claim_item(item_id, definition_name)
-        try:
-            result = await self._sink.submit(self.binding, item_id, definition_name, value)
-        except Exception as error:
-            result = ConnectorSubmissionResult(
-                status=ConnectorSubmissionStatus.FAILED,
-                detail=type(error).__name__,
-            )
-        if result.source_ref is not None and result.source_ref.source_type != definition_name:
+        source_ref = await self._sink.submit(self.binding, item_id, definition_name, value)
+        if source_ref.source_type != definition_name:
             raise InvalidConnectorRunError(
                 "definition-mismatch",
-                f"sink returned {result.source_ref.source_type!r} for {definition_name!r}",
+                f"sink returned {source_ref.source_type!r} for {definition_name!r}",
             )
-        self._outcomes.append(
-            ConnectorItemOutcome(
-                item_id=item_id,
-                definition_name=definition_name,
-                status=result.status,
-                source_ref=result.source_ref,
-                detail=result.detail,
-            )
+        outcome = ConnectorItemOutcome(
+            item_id=item_id,
+            definition_name=definition_name,
+            status=ConnectorSubmissionStatus.ACCEPTED,
+            source_ref=source_ref,
         )
-        return result
+        self._outcomes.append(outcome)
+        return outcome
 
-    def reject(self, item_id: str, definition_name: str, detail: str, /) -> ConnectorSubmissionResult:
+    def reject(self, item_id: str, definition_name: str, detail: str, /) -> ConnectorItemOutcome:
         """Record one provider item that cannot satisfy its Source Definition."""
 
         return self._record_provider_outcome(
@@ -228,7 +190,7 @@ class ConnectorRunSession:
             detail,
         )
 
-    def fail(self, item_id: str, definition_name: str, detail: str, /) -> ConnectorSubmissionResult:
+    def fail(self, item_id: str, definition_name: str, detail: str, /) -> ConnectorItemOutcome:
         """Record one provider item that could not be acquired safely."""
 
         return self._record_provider_outcome(
@@ -244,21 +206,19 @@ class ConnectorRunSession:
         definition_name: str,
         status: ConnectorSubmissionStatus,
         detail: str,
-    ) -> ConnectorSubmissionResult:
+    ) -> ConnectorItemOutcome:
         _require_trimmed("detail", detail)
         if status not in {ConnectorSubmissionStatus.REJECTED, ConnectorSubmissionStatus.FAILED}:
             raise InvalidConnectorRunError("provider-outcome", "must be rejected or failed")
         self._claim_item(item_id, definition_name)
-        result = ConnectorSubmissionResult(status=status, detail=detail)
-        self._outcomes.append(
-            ConnectorItemOutcome(
-                item_id=item_id,
-                definition_name=definition_name,
-                status=status,
-                detail=detail,
-            )
+        outcome = ConnectorItemOutcome(
+            item_id=item_id,
+            definition_name=definition_name,
+            status=status,
+            detail=detail,
         )
-        return result
+        self._outcomes.append(outcome)
+        return outcome
 
     def _claim_item(self, item_id: str, definition_name: str) -> None:
         _require_trimmed("item_id", item_id)
@@ -280,13 +240,8 @@ class ConnectorLifecycle:
         self._checkpoints = checkpoints
 
     async def run(self, connector: Connector, binding: ConnectorBinding, /) -> ConnectorRunResult:
-        source_definitions, capabilities = validate_connector(connector, binding)
+        source_definitions = validate_connector(connector, binding)
         previous = await self._checkpoints.load(binding)
-        if previous is not None and ConnectorCapability.CHECKPOINT_RESUME not in capabilities:
-            raise InvalidConnectorRunError(
-                "unsupported-resume",
-                "binding has a checkpoint but Connector does not advertise checkpoint resume",
-            )
         session = ConnectorRunSession(
             binding=binding,
             checkpoint=previous,
@@ -316,47 +271,10 @@ class ConnectorLifecycle:
         )
 
 
-class CatalogConnectorSourceSink:
-    """Bridge lifecycle submissions to one scope-bound catalog and Source store."""
-
-    def __init__(self, *, scope_id: str, catalog: SourceCatalog, store: SourceStore[Source]) -> None:
-        _require_trimmed("scope_id", scope_id)
-        self._scope_id = scope_id
-        self._catalog = catalog
-        self._store = store
-
-    async def submit(
-        self,
-        binding: ConnectorBinding,
-        item_id: str,
-        definition_name: str,
-        value: object,
-        /,
-    ) -> ConnectorSubmissionResult:
-        del item_id
-        if binding.scope_id != self._scope_id:
-            raise InvalidConnectorRunError(
-                "scope-mismatch",
-                f"sink is bound to {self._scope_id!r}, got {binding.scope_id!r}",
-            )
-        source = await self._catalog.resolve(value)
-        source_ref = self._catalog.as_ref(source)
-        if source_ref.source_type != definition_name:
-            raise InvalidConnectorRunError(
-                "definition-mismatch",
-                f"input resolved as {source_ref.source_type!r}, expected {definition_name!r}",
-            )
-        stored = await self._store.add(source)
-        stored_ref = self._catalog.as_ref(stored)
-        if stored_ref != source_ref:
-            raise InvalidConnectorRunError("identity-mismatch", "Source store changed the accepted identity")
-        return ConnectorSubmissionResult(status=ConnectorSubmissionStatus.ACCEPTED, source_ref=stored_ref)
-
-
 def validate_connector(
     connector: Connector,
     binding: ConnectorBinding,
-) -> tuple[frozenset[str], frozenset[ConnectorCapability]]:
+) -> frozenset[str]:
     """Validate one Connector declaration against the binding it will execute."""
 
     name = getattr(connector, "name", None)
@@ -370,14 +288,9 @@ def validate_connector(
         raise InvalidConnectorError("source_definitions", "must be a non-empty frozenset")
     if not all(isinstance(value, str) and value.strip() == value and value for value in source_definitions):
         raise InvalidConnectorError("source_definitions", "must contain non-empty trimmed names")
-    capabilities = getattr(connector, "capabilities", None)
-    if not isinstance(capabilities, frozenset) or not all(
-        isinstance(value, ConnectorCapability) for value in capabilities
-    ):
-        raise InvalidConnectorError("capabilities", "must be a frozenset of ConnectorCapability values")
     if not callable(getattr(connector, "run", None)):
         raise InvalidConnectorError("run", "must be callable")
-    return source_definitions, capabilities
+    return source_definitions
 
 
 def _require_trimmed(field: str, value: object) -> None:

@@ -2386,11 +2386,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["key", "value"],
             },
-            "ProjectedSource": {
+            "SourceObservation": {
                 "properties": {
                     "name": {"type": "string", "maxLength": 256, "minLength": 1},
                     "definition_version": {"type": "string", "maxLength": 128, "minLength": 1},
-                    "materialization": {"type": "string", "enum": ["captured", "referenced"]},
+                    "materialization": {"type": "string", "enum": ["captured"]},
                     "description": {"type": "string", "nullable": True},
                     "source_type": {"type": "string", "maxLength": 128, "minLength": 1},
                     "definition_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
@@ -2415,12 +2415,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "SubmitSourceObservationRequest": {
                 "properties": {
-                    "binding": {"$ref": "#/components/schemas/ConnectorBinding"},
-                    "source": {"$ref": "#/components/schemas/ProjectedSource"},
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "observation": {"$ref": "#/components/schemas/SourceObservation"},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["binding", "source"],
+                "required": ["scope_id", "observation"],
             },
             "SourceObservationReceipt": {
                 "properties": {

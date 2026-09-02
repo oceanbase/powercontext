@@ -33,3 +33,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/powercontext_connector_opendal"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]

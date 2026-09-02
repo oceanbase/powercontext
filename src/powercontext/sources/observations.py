@@ -17,15 +17,19 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+from typing import Any, Literal
 
 import rfc8785
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, field_validator, model_validator
 
-from powercontext.errors import InvalidSourceDefinitionError, InvalidSourceProjectionError
+from powercontext.errors import (
+    InvalidSourceDefinitionError,
+    InvalidSourceObservationError,
+    InvalidSourceProjectionError,
+)
 from powercontext.limits import MAX_SOURCE_TYPE_LENGTH
 from powercontext.sources.definitions import SourceDefinition, SourceDefinitionRegistry
-from powercontext.sources.models import Source, SourceProjectionKey
+from powercontext.sources.models import Source, SourceMaterialization, SourceProjectionKey
 
 _JSON_VALUE = TypeAdapter(JsonValue)
 
@@ -85,7 +89,7 @@ class SourceDefinitionManifest(BaseModel):
         keys = tuple(projection.key for projection in self.projections)
         if len(set(keys)) != len(keys):
             raise ValueError("manifest projection keys must be unique")  # noqa: TRY003
-        expected = source_definition_fingerprint(
+        expected = _source_definition_fingerprint(
             name=self.name,
             version=self.version,
             source_schema=self.source_schema,
@@ -105,9 +109,10 @@ class SourceProjectionValue(BaseModel):
     value: JsonValue
 
 
-class ProjectedSource(Source):
-    """Canonical worker-materialized Source stored without loading plugin code."""
+class SourceObservation(Source):
+    """Canonical captured observation stored without loading worker plugin code."""
 
+    materialization: Literal[SourceMaterialization.CAPTURED] = SourceMaterialization.CAPTURED
     source_type: str
     definition_fingerprint: str
     payload: dict[str, JsonValue]
@@ -121,7 +126,7 @@ class ProjectedSource(Source):
         return value
 
     @model_validator(mode="after")
-    def validate_envelope_identity(self) -> ProjectedSource:
+    def validate_envelope_identity(self) -> SourceObservation:
         expected = {
             "name": self.name,
             "definition_version": self.definition_version,
@@ -157,7 +162,7 @@ def manifest_for_definition(definition: SourceDefinition[Any, Any, Any], /) -> S
     return SourceDefinitionManifest(
         name=definition.name,
         version=definition.version,
-        fingerprint=source_definition_fingerprint(
+        fingerprint=_source_definition_fingerprint(
             name=definition.name,
             version=definition.version,
             source_schema=source_schema,
@@ -172,19 +177,24 @@ def project_source_for_transport(
     registry: SourceDefinitionRegistry,
     source: Source,
     /,
-) -> ProjectedSource:
+) -> SourceObservation:
     """Execute one worker-owned Definition and serialize its durable result."""
 
     definition = registry.definition_for_source(source)
+    if source.materialization is not SourceMaterialization.CAPTURED:
+        raise InvalidSourceObservationError(
+            "materialization",
+            "remote Source observations must retain their canonical value",
+        )
     manifest = manifest_for_definition(definition)
     payload = _json_object(source.model_dump(mode="json"))
     projections = tuple(
         SourceProjectionValue(key=key, value=registry.project(source, key)) for key in registry.projection_keys(source)
     )
-    return ProjectedSource(
+    return SourceObservation(
         name=source.name,
         definition_version=source.definition_version,
-        materialization=source.materialization,
+        materialization=SourceMaterialization.CAPTURED,
         description=source.description,
         source_type=definition.name,
         definition_fingerprint=manifest.fingerprint,
@@ -193,7 +203,7 @@ def project_source_for_transport(
     )
 
 
-def source_definition_fingerprint(
+def _source_definition_fingerprint(
     *,
     name: str,
     version: str,
@@ -218,11 +228,10 @@ def _json_object(value: object) -> dict[str, JsonValue]:
 
 
 __all__ = [
-    "ProjectedSource",
     "SourceDefinitionManifest",
+    "SourceObservation",
     "SourceProjectionManifest",
     "SourceProjectionValue",
     "manifest_for_definition",
     "project_source_for_transport",
-    "source_definition_fingerprint",
 ]

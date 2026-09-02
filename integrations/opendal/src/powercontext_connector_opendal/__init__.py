@@ -20,18 +20,16 @@ from powercontext_connector_opendal.connector import (
     OpenDALTextFileConnector,
 )
 from powercontext_connector_opendal.source import (
-    TEXT_FILE_SNAPSHOT_SOURCE_ADAPTER,
     TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION,
     TEXT_FILE_SNAPSHOT_SOURCE_NAME,
     TextFileEvidenceProjection,
     TextFileSnapshotCapture,
     TextFileSnapshotSource,
-    TextFileSnapshotSourceAdapter,
+    TextFileSnapshotSourceDefinition,
 )
 
 __all__ = [
     "OPENDAL_TEXT_FILE_CONNECTOR_NAME",
-    "TEXT_FILE_SNAPSHOT_SOURCE_ADAPTER",
     "TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION",
     "TEXT_FILE_SNAPSHOT_SOURCE_NAME",
     "OpenDALTextFileCheckpoint",
@@ -39,5 +37,5 @@ __all__ = [
     "TextFileEvidenceProjection",
     "TextFileSnapshotCapture",
     "TextFileSnapshotSource",
-    "TextFileSnapshotSourceAdapter",
+    "TextFileSnapshotSourceDefinition",
 ]

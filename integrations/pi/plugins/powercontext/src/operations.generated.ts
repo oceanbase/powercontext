@@ -23,7 +23,7 @@ export const OPERATIONS = {
   capture_content_source: { method: 'POST', path: '/v1/sources/content', location: "body", scope: true },
   register_source_definition: { method: 'POST', path: '/v1/source-definitions/register', location: "body", scope: false },
   get_connector_checkpoint: { method: 'POST', path: '/v1/connector-checkpoints/get', location: "body", scope: false },
-  submit_source_observation: { method: 'POST', path: '/v1/source-observations', location: "body", scope: false },
+  submit_source_observation: { method: 'POST', path: '/v1/source-observations', location: "body", scope: true },
   commit_connector_checkpoint: { method: 'POST', path: '/v1/connector-checkpoints/commit', location: "body", scope: false },
   prepare_context: { method: 'POST', path: '/v1/context/prepare', location: "body", scope: true },
   create_work_contract: { method: 'POST', path: '/v1/work/contracts/create', location: "body", scope: true },

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Durable Connector checkpoints and their runtime store adapter."""
+"""Durable Connector checkpoints with optimistic comparison."""
 
 from __future__ import annotations
 
@@ -25,7 +25,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
-from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.tables import CONNECTOR_CHECKPOINTS_TABLE
 from powercontext.errors import InvalidConnectorRunError
 from powercontext.sources import ConnectorBinding
@@ -35,15 +34,6 @@ class _CheckpointPayload(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     value: JsonValue | None
-
-
-class StoredConnectorCheckpoint(BaseModel):
-    """One decoded checkpoint bound to an exact Connector identity."""
-
-    model_config = ConfigDict(frozen=True)
-
-    binding: ConnectorBinding
-    checkpoint: JsonValue | None
 
 
 class ConnectorCheckpointRepository:
@@ -56,23 +46,36 @@ class ConnectorCheckpointRepository:
         /,
         *,
         for_update: bool = False,
-    ) -> StoredConnectorCheckpoint | None:
+    ) -> JsonValue | None:
+        row = await self._find_row(connection, binding, for_update=for_update)
+        if row is None:
+            return None
+        stored_binding, checkpoint = _decode_row(row)
+        self._validate_binding(binding, stored_binding)
+        return checkpoint
+
+    async def _find_row(
+        self,
+        connection: AsyncConnection,
+        binding: ConnectorBinding,
+        *,
+        for_update: bool,
+    ) -> Mapping[Any, Any] | None:
         statement = select(CONNECTOR_CHECKPOINTS_TABLE).where(
             CONNECTOR_CHECKPOINTS_TABLE.c.scope_id == binding.scope_id,
             CONNECTOR_CHECKPOINTS_TABLE.c.binding_id == binding.binding_id,
         )
         if for_update:
             statement = statement.with_for_update()
-        row = (await connection.execute(statement)).mappings().one_or_none()
-        if row is None:
-            return None
-        stored = _decode_row(row)
-        if stored.binding != binding:
+        return (await connection.execute(statement)).mappings().one_or_none()
+
+    @staticmethod
+    def _validate_binding(binding: ConnectorBinding, stored_binding: ConnectorBinding) -> None:
+        if stored_binding != binding:
             raise InvalidConnectorRunError(
                 "binding-conflict",
                 f"checkpoint {binding.binding_id!r} belongs to a different Connector identity",
             )
-        return stored
 
     async def save(
         self,
@@ -82,14 +85,18 @@ class ConnectorCheckpointRepository:
         /,
         *,
         expected: JsonValue | None,
-    ) -> StoredConnectorCheckpoint:
-        existing = await self.load(connection, binding, for_update=True)
-        actual = None if existing is None else existing.checkpoint
+    ) -> None:
+        existing_row = await self._find_row(connection, binding, for_update=True)
+        if existing_row is None:
+            actual = None
+        else:
+            stored_binding, actual = _decode_row(existing_row)
+            self._validate_binding(binding, stored_binding)
         if actual != expected:
             raise _checkpoint_conflict(binding)
 
         payload = _dump_checkpoint(binding, checkpoint)
-        if existing is None:
+        if existing_row is None:
             try:
                 async with connection.begin_nested():
                     await connection.execute(
@@ -115,31 +122,6 @@ class ConnectorCheckpointRepository:
             )
             if result.rowcount != 1:
                 raise _checkpoint_conflict(binding)
-        return StoredConnectorCheckpoint(binding=binding, checkpoint=checkpoint)
-
-
-class RelationalConnectorCheckpointStore:
-    """Adapt the Connector checkpoint protocol to an ``AsyncDatabase``."""
-
-    def __init__(self, database: AsyncDatabase, repository: ConnectorCheckpointRepository, /) -> None:
-        self._database = database
-        self._repository = repository
-
-    async def load(self, binding: ConnectorBinding, /) -> JsonValue | None:
-        async with self._database.transaction() as connection:
-            stored = await self._repository.load(connection, binding)
-        return None if stored is None else stored.checkpoint
-
-    async def save(
-        self,
-        binding: ConnectorBinding,
-        checkpoint: JsonValue | None,
-        /,
-        *,
-        expected: JsonValue | None,
-    ) -> None:
-        async with self._database.transaction() as connection:
-            await self._repository.save(connection, binding, checkpoint, expected=expected)
 
 
 def _dump_checkpoint(binding: ConnectorBinding, checkpoint: JsonValue | None) -> bytes:
@@ -157,7 +139,7 @@ def _checkpoint_conflict(binding: ConnectorBinding) -> InvalidConnectorRunError:
     )
 
 
-def _decode_row(row: Mapping[Any, Any]) -> StoredConnectorCheckpoint:
+def _decode_row(row: Mapping[Any, Any]) -> tuple[ConnectorBinding, JsonValue | None]:
     binding = ConnectorBinding(
         scope_id=str(row["scope_id"]),
         binding_id=str(row["binding_id"]),
@@ -170,11 +152,9 @@ def _decode_row(row: Mapping[Any, Any]) -> StoredConnectorCheckpoint:
         kind="connector-checkpoint",
         name=binding.binding_id,
     )
-    return StoredConnectorCheckpoint(binding=binding, checkpoint=payload.value)
+    return binding, payload.value
 
 
 __all__ = [
     "ConnectorCheckpointRepository",
-    "RelationalConnectorCheckpointStore",
-    "StoredConnectorCheckpoint",
 ]

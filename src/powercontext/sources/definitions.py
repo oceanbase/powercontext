@@ -178,10 +178,18 @@ class SourceDefinitionRegistry:
         return await definition.read(source)
 
     def projection_keys(self, source: Source, /) -> tuple[SourceProjectionKey, ...]:
+        from powercontext.sources.observations import SourceObservation
+
+        if isinstance(source, SourceObservation):
+            return tuple(projection.key for projection in source.projections)
         self.definition_for_source(source)
         return tuple(self._projections[type(source)])
 
     def project(self, source: Source, key: SourceProjectionKey, /) -> JsonValue:
+        from powercontext.sources.observations import SourceObservation
+
+        if isinstance(source, SourceObservation):
+            return source.projection(key)
         definition = self.definition_for_source(source)
         try:
             projection = self._projections[type(source)][key]

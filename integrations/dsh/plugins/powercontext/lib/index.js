@@ -123,7 +123,7 @@ const OPERATIONS = {
 		method: "POST",
 		path: "/v1/source-observations",
 		location: "body",
-		scope: false
+		scope: true
 	},
 	commit_connector_checkpoint: {
 		method: "POST",

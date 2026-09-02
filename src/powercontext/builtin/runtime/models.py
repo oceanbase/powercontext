@@ -49,7 +49,7 @@ from powercontext.builtin.review import (
 )
 from powercontext.builtin.review.generation import SkillGenerationOrigin
 from powercontext.builtin.sources import ExternalSkillImportMode
-from powercontext.sources import ConnectorBinding, ProjectedSource, SourceDefinitionManifest, SourceRef
+from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
 
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
 PreparedContextStatus: TypeAlias = Literal["ready", "empty"]
@@ -77,17 +77,11 @@ class SourceReceipt(BaseModel):
     sequence: int
 
 
-class RegisterSourceDefinition(BaseModel):
-    """Register one immutable worker-owned Source Definition manifest."""
-
-    manifest: SourceDefinitionManifest
-
-
 class SubmitSourceObservation(BaseModel):
     """Submit one worker-materialized observation for durable acceptance."""
 
-    binding: ConnectorBinding
-    source: ProjectedSource
+    scope_id: str
+    observation: SourceObservation
 
 
 class ConnectorCheckpointState(BaseModel):

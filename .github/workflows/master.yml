@@ -79,6 +79,20 @@ jobs:
       - name: Test Pi package
         run: make pi-test
 
+  opendal-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Test OpenDAL package
+        run: make opendal-test
+
 
   check-docs:
     runs-on: ubuntu-latest

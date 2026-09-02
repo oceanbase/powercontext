@@ -45,6 +45,20 @@ real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE de
 harness-sync: ## Install the Bub replay harness environment.
 	@uv sync --project e2e/bub --locked
 
+OPENDAL_TEST_RUN = uv run --isolated --no-project --python 3.12 \
+	--with-editable ".[server]" \
+	--with-editable ./integrations/opendal \
+	--with pytest --with ruff --with ty
+
+.PHONY: opendal-test
+opendal-test: ## Validate the standalone OpenDAL Connector against this checkout.
+	@$(OPENDAL_TEST_RUN) ruff check --no-fix integrations/opendal
+	@$(OPENDAL_TEST_RUN) ruff format --check integrations/opendal
+	@$(OPENDAL_TEST_RUN) ty check --python .venv --python-version 3.12 \
+		--extra-search-path integrations/opendal/src integrations/opendal/src
+	@$(OPENDAL_TEST_RUN) python -m pytest integrations/opendal/tests
+	@$(OPENDAL_TEST_RUN) powercontext-connector-opendal --help >/dev/null
+
 .PHONY: harness-check
 harness-check: ## Validate the Bub replay harness and committed scenarios.
 	@uv run ruff check e2e/bub

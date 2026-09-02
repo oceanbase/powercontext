@@ -22,8 +22,16 @@ import os
 from collections.abc import Sequence
 
 from powercontext.client import PowerContextClient, RemoteConnectorWorker
-from powercontext.sources import ConnectorBinding, ConnectorRunStatus, SourceDefinitionRegistry
-from powercontext_connector_opendal.connector import OPENDAL_TEXT_FILE_CONNECTOR_NAME, OpenDALTextFileConnector
+from powercontext.sources import (
+    ConnectorBinding,
+    ConnectorRunStatus,
+    SourceDefinitionRegistry,
+)
+
+from powercontext_connector_opendal.connector import (
+    OPENDAL_TEXT_FILE_CONNECTOR_NAME,
+    OpenDALTextFileConnector,
+)
 from powercontext_connector_opendal.source import TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION
 
 

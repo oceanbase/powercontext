@@ -15,21 +15,14 @@
 from powercontext.sources.adapters import SourceAdapter
 from powercontext.sources.catalog import SourceCatalog
 from powercontext.sources.connectors import (
-    CatalogConnectorSourceSink,
     Connector,
     ConnectorBinding,
-    ConnectorCapability,
-    ConnectorCheckpointStore,
     ConnectorItemOutcome,
-    ConnectorLifecycle,
     ConnectorRunCompletion,
     ConnectorRunResult,
     ConnectorRunSession,
     ConnectorRunStatus,
-    ConnectorSourceSink,
-    ConnectorSubmissionResult,
     ConnectorSubmissionStatus,
-    validate_connector,
 )
 from powercontext.sources.definitions import (
     AdapterSourceDefinition,
@@ -39,8 +32,8 @@ from powercontext.sources.definitions import (
 )
 from powercontext.sources.models import Source, SourceMaterialization, SourceProjectionKey, SourceRef
 from powercontext.sources.observations import (
-    ProjectedSource,
     SourceDefinitionManifest,
+    SourceObservation,
     SourceProjectionManifest,
     SourceProjectionValue,
     manifest_for_definition,
@@ -52,21 +45,14 @@ from powercontext.sources.protocols import SourceCatalogBackend, SourceStore
 __all__ = [
     "TEXT_EVIDENCE_PROJECTION_KEY",
     "AdapterSourceDefinition",
-    "CatalogConnectorSourceSink",
     "Connector",
     "ConnectorBinding",
-    "ConnectorCapability",
-    "ConnectorCheckpointStore",
     "ConnectorItemOutcome",
-    "ConnectorLifecycle",
     "ConnectorRunCompletion",
     "ConnectorRunResult",
     "ConnectorRunSession",
     "ConnectorRunStatus",
-    "ConnectorSourceSink",
-    "ConnectorSubmissionResult",
     "ConnectorSubmissionStatus",
-    "ProjectedSource",
     "Source",
     "SourceAdapter",
     "SourceCatalog",
@@ -75,6 +61,7 @@ __all__ = [
     "SourceDefinitionManifest",
     "SourceDefinitionRegistry",
     "SourceMaterialization",
+    "SourceObservation",
     "SourceProjection",
     "SourceProjectionKey",
     "SourceProjectionManifest",
@@ -84,5 +71,4 @@ __all__ = [
     "TextEvidence",
     "manifest_for_definition",
     "project_source_for_transport",
-    "validate_connector",
 ]

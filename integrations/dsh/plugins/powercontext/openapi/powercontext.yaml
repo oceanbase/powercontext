@@ -2871,7 +2871,7 @@ components:
         key:
           $ref: "#/components/schemas/SourceProjectionKey"
         value: {}
-    ProjectedSource:
+    SourceObservation:
       type: object
       additionalProperties: false
       required:
@@ -2887,7 +2887,7 @@ components:
           maxLength: 128
         materialization:
           type: string
-          enum: [captured, referenced]
+          enum: [captured]
         description:
           type: string
           nullable: true
@@ -2909,12 +2909,15 @@ components:
     SubmitSourceObservationRequest:
       type: object
       additionalProperties: false
-      required: [binding, source]
+      required: [scope_id, observation]
       properties:
-        binding:
-          $ref: "#/components/schemas/ConnectorBinding"
-        source:
-          $ref: "#/components/schemas/ProjectedSource"
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        observation:
+          $ref: "#/components/schemas/SourceObservation"
     SourceObservationReceipt:
       type: object
       additionalProperties: false
