@@ -770,7 +770,10 @@ def doctor(
     context: typer.Context,
     server_url: Annotated[
         str,
-        typer.Option(help="PowerContext Server base URL."),
+        typer.Option(
+            envvar="POWERCONTEXT_CLIENT_SERVER_URL",
+            help="PowerContext Server base URL.",
+        ),
     ] = "http://127.0.0.1:8000",
     json_output: Annotated[
         bool,
