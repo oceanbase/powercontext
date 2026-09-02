@@ -585,7 +585,7 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
 
 
 def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> None:
-    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "http://127.0.0.1:8888")
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "http://127.0.0.1:8888/")
     urlopen = Mock(
         side_effect=[
             _Response(200, {"status": "ok"}),
@@ -603,6 +603,18 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
         "http://127.0.0.1:8888/health/live",
         "http://127.0.0.1:8888/health/ready",
     ]
+
+
+def test_default_doctor_rejects_non_loopback_plaintext_environment_url_without_request(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "http://memory.example")
+    urlopen = Mock()
+    monkeypatch.setattr(system_cli, "urlopen", urlopen)
+
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
+
+    assert result.exit_code == 1
+    assert "Unencrypted PowerContext Server URLs must be loopback addresses" in result.output
+    urlopen.assert_not_called()
 
 
 def test_default_doctor_skips_readiness_when_liveness_is_unreachable(monkeypatch) -> None:
