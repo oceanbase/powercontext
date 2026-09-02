@@ -16,10 +16,11 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, JsonValue, SecretStr, field_validator, model_validator
 
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.artifacts.skill import AgentSkillTarget, CodexSkillRoot
@@ -27,6 +28,8 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime._scope_cache import DEFAULT_SCOPE_CACHE_SIZE
+
+_HTTP_FIELD_NAME_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
 
 class RuntimeConfig(BaseModel):
@@ -48,20 +51,33 @@ class HandoffReportConfig(BaseModel):
 
 
 class InferenceConfig(BaseModel):
-    """Optional generation and embedding configuration."""
+    """Optional generation, embedding, and LLM reranking configuration."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     generation_model: str | None = None
+    generation_base_url: AnyHttpUrl | None = None
+    generation_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
     generation_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     generation_timeout_seconds: float = Field(default=30.0, gt=0)
     generation_max_requests: int = Field(default=2, ge=1)
     embedding_model: str | None = None
+    embedding_base_url: AnyHttpUrl | None = None
+    embedding_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
+    embedding_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     embedding_profile_id: str | None = None
     embedding_dimension: int | None = Field(default=None, ge=1)
     embedding_normalization: Literal["none", "unit"] = "unit"
     embedding_timeout_seconds: float = Field(default=30.0, gt=0)
     embedding_batch_size: int = Field(default=10, ge=1)
+    rerank_model: str | None = None
+    rerank_base_url: AnyHttpUrl | None = None
+    rerank_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
+    rerank_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
+    rerank_timeout_seconds: float | None = Field(default=None, gt=0)
+    rerank_max_requests: int | None = Field(default=None, ge=1)
 
-    @field_validator("generation_model", "embedding_model", "embedding_profile_id")
+    @field_validator("generation_model", "embedding_model", "embedding_profile_id", "rerank_model")
     @classmethod
     def validate_optional_identifier(cls, value: str | None) -> str | None:
         if value is None:
@@ -81,18 +97,29 @@ class InferenceConfig(BaseModel):
             raise ValueError("embedding normalization must be 'none' or 'unit'")  # noqa: TRY003
         return normalized
 
-    @field_validator("generation_model_settings")
+    @field_validator("generation_headers", "embedding_headers", "rerank_headers")
     @classmethod
-    def reserve_generation_headers(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
-        if "extra_headers" in value:
-            raise ValueError("configure credentials and static headers through the selected inference provider")  # noqa: TRY003
+    def validate_headers(cls, value: dict[str, SecretStr]) -> dict[str, SecretStr]:
+        normalized_names: set[str] = set()
+        for name, secret in value.items():
+            normalized_name = name.casefold()
+            if _HTTP_FIELD_NAME_PATTERN.fullmatch(name) is None:
+                raise ValueError("inference header names must be non-empty HTTP field names")  # noqa: TRY003
+            if normalized_name in normalized_names:
+                raise ValueError("inference header names must be unique ignoring case")  # noqa: TRY003
+            if not secret.get_secret_value():
+                raise ValueError("inference header values must not be empty")  # noqa: TRY003
+            normalized_names.add(normalized_name)
         return value
 
-    @model_validator(mode="after")
-    def validate_generation_model_settings(self) -> Self:
-        if self.generation_model_settings and self.generation_model is None:
-            raise ValueError("generation_model_settings requires generation_model")  # noqa: TRY003
-        return self
+    @field_validator("generation_model_settings", "embedding_model_settings", "rerank_model_settings")
+    @classmethod
+    def reserve_headers_field(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        if "extra_headers" in value:
+            raise ValueError(  # noqa: TRY003
+                "configure credentials and static headers through the dedicated headers field"
+            )
+        return value
 
     @model_validator(mode="after")
     def validate_embedding_profile(self) -> Self:
@@ -101,6 +128,26 @@ class InferenceConfig(BaseModel):
             raise ValueError(  # noqa: TRY003
                 "embedding_model, embedding_profile_id, and embedding_dimension must be configured together"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_workload_overrides(self) -> Self:
+        if self.generation_model is None and self.generation_model_settings:
+            raise ValueError("generation_model_settings requires generation_model")  # noqa: TRY003
+        if self.generation_model is None and (self.generation_base_url is not None or self.generation_headers):
+            raise ValueError("generation overrides require generation_model")  # noqa: TRY003
+        if self.embedding_model is None and (
+            self.embedding_base_url is not None or self.embedding_headers or self.embedding_model_settings
+        ):
+            raise ValueError("embedding overrides require a complete embedding profile")  # noqa: TRY003
+        if self.rerank_base_url is not None and self.rerank_model is None:
+            raise ValueError("rerank_base_url requires rerank_model")  # noqa: TRY003
+        if (
+            self.rerank_model is None
+            and self.generation_model is None
+            and (self.rerank_headers or self.rerank_model_settings)
+        ):
+            raise ValueError("rerank overrides require rerank_model or generation_model")  # noqa: TRY003
         return self
 
 
