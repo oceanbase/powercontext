@@ -50,7 +50,7 @@ agent = create_agent(
 
 result = await agent.ainvoke(
     {"messages": [{"role": "user", "content": "How should we deploy this service?"}]},
-    context=PowerContextScope(scope_id="git:github.com/acme/api"),
+    context=PowerContextScope(),
 )
 ```
 
@@ -99,13 +99,13 @@ LangGraph adapter's scope or environment prefix:
 | --- | --- | --- |
 | `POWERCONTEXT_LANGCHAIN_BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server URL |
 | `POWERCONTEXT_LANGCHAIN_TOKEN` | unset | Bare bearer token passed to the Client |
-| `POWERCONTEXT_LANGCHAIN_SCOPE_ID` | derived | Durable scope shared across runs |
+| `POWERCONTEXT_LANGCHAIN_SCOPE_ID` | unset | Existing Server Scope to use instead of the Server default |
 | `POWERCONTEXT_LANGCHAIN_TIMEOUT` | `10` | Client timeout in seconds |
 | `POWERCONTEXT_LANGCHAIN_MAX_BYTES` | `8000` | Prepared-context size limit |
 
-An explicit `PowerContextScope` value wins over environment configuration. If no explicit scope exists, PowerContext
-derives one from the current Git remote; if neither is available, recall and capture fail open without interrupting the
-agent. The token remains in Client configuration and never enters agent state or message content.
+An explicit `PowerContextScope` value wins over environment configuration and must identify an existing Server Scope.
+If neither is set, the Server default Scope is used. The adapter never derives a Scope ID from Git, a path, the Agent,
+or the prompt. The token remains in Client configuration and never enters agent state or message content.
 
 ## Failure behavior
 

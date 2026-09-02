@@ -1,90 +1,52 @@
 ---
 title: Full-capability Quick Start
-description: Start all PowerContext capabilities in five minutes.
+description: Configure models, start the Server, and verify the complete Memory loop.
 ---
 
 # Full-capability Quick Start
 
-## Minimal versus full capability
+`powercontext server run` works without model configuration, but model-backed extraction and vector search stay off.
+The guided configuration enables generation, embeddings, scheduled Source processing, metrics, and tracing settings.
 
-`powercontext server run` starts a minimal Server without any configuration. It stays up and accepts Sources, but the
-capabilities that need models stay off. The guided `config init` flow writes one `.env` that turns everything on:
-
-| Capability | Default minimal server | Full-capability runtime |
+| Capability | Minimal Server | Full-capability runtime |
 | --- | --- | --- |
 | Source capture | Enabled | Enabled |
-| Memory extraction | Disabled; Sources stay pending | Enabled; Scheduler processes Sources every 60 s |
-| Search modes | `auto, fts` only | `auto, fts, vector, hybrid` |
-| Dashboard Scopes | None configured | `project:quickstart` visible |
-| MCP endpoint | `/mcp` enabled | `/mcp` enabled |
+| Memory extraction | Disabled | Enabled |
+| Search modes | `auto, fts` | `auto, fts, vector, hybrid` |
+| Dashboard | Default Scope | Default Scope and every created Scope |
+| MCP endpoint | `/mcp` | `/mcp` |
 
-Both modes use SQLite by default. Vector search additionally uses the bundled `sqlite-vec` extension; when the
-Embedding model or its profile is not configured, the Server falls back to SQLite FTS and reports
-`Search modes: auto, fts`. Recall still works through FTS, but semantic and hybrid search need the Embedding model.
+The Server creates one opaque default Scope on first startup. The Dashboard discovers Scope descriptors from the
+Server; it does not use a configured list. Integrations may bind a Session or workspace to that default or to another
+existing Scope.
 
-## Choose the Scope ID first
-
-The Scope ID is PowerContext's data namespace. Think of it as the project ID. Sources, Memories, and Handoffs belong to
-a Scope; the Dashboard and Coding Agent must use the same Scope ID for Agent-written data to appear in the web UI.
-
-A Server can store multiple Scopes. The Server configuration determines which Scopes the Dashboard can display, while
-the Coding Agent configuration determines which Scope the current session reads and writes:
-
-```text
-Coding Agent ── read/write ──> project:quickstart <── display ── Dashboard
-```
-
-Use any short, stable, non-empty string. Do not include keys or other secrets. For example:
-
-```text
-project:quickstart
-git:github.com/oceanbase/powercontext
-team:payment-service
-```
-
-This Quick Start uses:
-
-```text
-project:quickstart
-```
-
-## Quick Start
-
-### Part 1: Start the Server
-
-#### 1. Install
+## 1. Install and configure
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-```
-
-#### 2. Generate the configuration
-
-```bash
 powercontext config init --output .env
 ```
 
-Enter a provider credential when prompted. Pydantic AI providers require a credential during construction; for a
-local service that ignores authentication, use a non-secret placeholder accepted by that service.
+Enter the provider connection and credential when prompted. For a local provider that ignores authentication, use a
+non-secret placeholder accepted by that provider.
 
-When finished, the command prints setup and launch commands for Codex, Claude Code, DeepSeek Harness, OpenCode, and Pi.
-The generated `.env` groups every setting you would otherwise assemble by hand: Server HTTP, Dashboard, Scope,
-Generation model, Embedding model with profile ID and dimension, database kind and location, scheduler interval, and
-per-host integration URLs. Inspect it any time with `powercontext config show --env-file .env`; credentials print as
-`<redacted>`, and `powercontext config validate --env-file .env` checks the syntax and model settings.
+Inspect and validate the generated file without printing credentials:
 
-#### 3. Start the Server
+```bash
+powercontext config show --env-file .env
+powercontext config validate --env-file .env
+```
+
+The generated file contains Server, model, database, scheduler, and integration transport settings. Scope identity is
+owned by the running Server and is not invented by the Config Generator.
+
+## 2. Start and verify the Server
 
 ```bash
 powercontext server run --env-file .env
 ```
 
-With `--env-file`, assignments in the file override same-named shell values, and stale `POWERCONTEXT_SERVER_*`
-variables missing from the file are ignored. This makes `config validate` and `server run` use the same Server config.
-
-#### 4. Verify the Server
-
-Run this in a second terminal:
+In another terminal:
 
 ```bash
 set -a
@@ -95,126 +57,89 @@ powercontext ready
 powercontext capabilities
 ```
 
-Confirm these results:
+The full runtime is ready when readiness is `ready`, Memory extraction is enabled, and search modes include `vector`
+and `hybrid`. If only `auto, fts` appear, check the Embedding model, profile ID, dimension, credential, and Base URL.
 
-```text
-package: ok - powercontext <version>
-server liveness: ok - http://127.0.0.1:8000 status=ok
-server readiness: ok - http://127.0.0.1:8000 status=ready
-Status: ready
-Memory extraction: enabled
-Search modes: auto, fts, vector, hybrid
+Open <http://127.0.0.1:8000/> and confirm that the default Scope is available. Retrieve its opaque ID for the following
+API checks:
+
+```bash
+SCOPE_ID="$(curl -fsS http://127.0.0.1:8000/v1/scopes/default \
+  | python -c 'import json, sys; print(json.load(sys.stdin)["scope_id"])')"
+export SCOPE_ID
 ```
 
-The full-capability runtime is ready when `doctor` reports all checks as `ok`, `Status: ready`,
-`Memory extraction: enabled`, all four search modes are listed, and the Dashboard at
-<http://127.0.0.1:8000/> contains `Quick Start`.
+## 3. Verify the Memory loop
 
-If `powercontext capabilities` lists only `auto, fts`, the Server is running in FTS-only fallback mode. Vector and
-hybrid search are unavailable, so the runtime does not meet the full-capability check above.
-
-### Part 2: Verify the Memory loop
-
-Extraction runs when Sources are flushed, so verify one full round trip before starting a Coding Agent. Use a unique
-Source ID so this check remains valid when the guide is run again. With the same environment loaded:
+Capture a Source with a unique ID:
 
 ```bash
 SOURCE_ID="quickstart-$(date +%s)-$$"
 curl -fsS -X POST http://127.0.0.1:8000/v1/sources/content \
   -H 'content-type: application/json' \
-  -d "{\"scope_id\":\"project:quickstart\",\"source_id\":\"${SOURCE_ID}\",\"content\":\"PowerContext quick start check: prefer small, verifiable steps.\"}"
+  -d "{\"scope_id\":\"${SCOPE_ID}\",\"source_id\":\"${SOURCE_ID}\",\"content\":\"PowerContext quick start check: prefer small, verifiable steps.\"}"
 ```
 
-The Server replies `202` with `"status":"accepted"` and a numeric `position`; keep both the Source ID and position.
-Then flush the Scope, which runs Memory extraction:
+Keep the returned `position`, then flush the same Scope:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/v1/memory/flush \
+curl -fsS -X POST http://127.0.0.1:8000/v1/memory/flush \
   -H 'content-type: application/json' \
-  -d '{"scope_id":"project:quickstart"}'
+  -d "{\"scope_id\":\"${SCOPE_ID}\"}"
 ```
 
-The flush response contains `current_cursor`. It must be greater than or equal to the capture response's `position`.
-The Scheduler may process the Source before this request, so `status:"idle"` is valid when the cursor has already
-reached that position. If it has not, flush again.
+The returned `current_cursor` must be at least the capture `position`. `status: "idle"` is valid when the Scheduler
+already processed the Source.
 
-Now list the current Memory entries:
+List Memory entries:
 
 ```bash
 curl -fsS -X POST http://127.0.0.1:8000/v1/memory/entries/list \
   -H 'content-type: application/json' \
-  -d '{"scope_id":"project:quickstart"}'
+  -d "{\"scope_id\":\"${SCOPE_ID}\"}"
 ```
 
-Find an entry whose `source_refs` contains the capture response's `source_id`, and record that entry's
-`citation.entry_id`. This proves the captured Source produced Memory. If no entry cites this Source, extraction ran but
-produced no candidate; use a new Source ID with a clearer durable fact or preference and repeat the check.
-
-Confirm the inventory and verify Embedding by searching with vector mode:
+Find an entry whose `source_refs` contains the captured Source and record its `citation.entry_id`. Then verify vector
+retrieval:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/v1/memory/search \
+curl -fsS -X POST http://127.0.0.1:8000/v1/memory/search \
   -H 'content-type: application/json' \
-  -d '{"scope_id":"project:quickstart","query":"verifiable steps","mode":"vector","limit":50}'
+  -d "{\"scope_id\":\"${SCOPE_ID}\",\"query\":\"verifiable steps\",\"mode\":\"vector\",\"limit\":50}"
 ```
 
-Embedding is verified only when the response contains `"mode":"vector"` and a hit whose `citation.entry_id` equals
-the source-linked entry recorded above and whose `matched_by` contains `"vector"`. A hit for another entry, an empty
-`hits` list, or `"mode":null` does not verify this round trip. Check
-`powercontext capabilities`: if `vector` is absent from `Search modes`, the Server is in FTS-only fallback mode; if it
-is present, the source-linked entry has not been confirmed through vector search yet. An explicit vector request against
-existing Memory returns HTTP 422 when vector capability is unavailable.
-
-Finally, check the stats for model usage:
+The round trip is verified when the response has `mode: "vector"`, the recorded `entry_id`, and `vector` in
+`matched_by`. Confirm model usage with:
 
 ```bash
-powercontext stats --scope-id project:quickstart
+powercontext stats --scope-id "$SCOPE_ID"
 ```
 
-```text
-Embedding: 1 requests, ...
-```
+## 4. Start Codex
 
-The Embedding request count is cumulative. A non-zero value corroborates model use, but only the source-linked vector
-hit above proves this round trip.
+Install the plugin using the command printed by Config Generator, load `.env`, and start Codex. Do not set
+`POWERCONTEXT_CODEX_SCOPE_ID` for the normal Session flow: the plugin resolves the Session binding, then the workspace
+binding, then the Server default Scope. Set it only when the host must select a known existing Scope explicitly.
 
-### Part 3: Start a Coding Agent
+After Codex starts, send an ordinary prompt. The plugin recalls from the bound Scope and captures the prompt as Source
+evidence. Scheduled processing handles new Sources within the configured interval.
 
-The Config Generator prints setup and launch commands for every supported Coding Agent. Open a new terminal, choose an
-Agent, and copy the two commands under it. The first installs the PowerContext integration; the second loads the
-generated `.env` and starts the Agent, so you do not need to enter the Scope ID again.
+## Data and restart behavior
 
-After the Coding Agent starts, send an ordinary prompt in the project. The integration first recalls relevant Memory
-from `project:quickstart`, then saves the prompt as a Source. The Scheduler extracts Memory from new Sources within
-about 60 seconds, so the flush from Part 2 is only needed once to prove the loop.
+With no database override, SQLite stores `powercontext.db` and `scheduler.db` under the user data directory:
 
-## Where data lives
+- Linux: `$XDG_DATA_HOME/powercontext`, or `~/.local/share/powercontext`;
+- macOS: `~/Library/Application Support/powercontext`.
 
-The generated configuration leaves the database unset, so the Server stores data in the user data directory instead of
-a project-local file. With `POWERCONTEXT_HOME` unset, SQLite keeps `powercontext.db` and the scheduler state in
-`scheduler.db` under:
-
-- macOS: `~/Library/Application Support/powercontext/`
-- Linux: `~/.local/share/powercontext/`
-
-Set `POWERCONTEXT_HOME` before starting the Server to relocate all of this. Changing the database URL later points the
-Server at a different (possibly empty) database; keep the previous value if you need the old data.
-
-## Stop and restart
-
-Press `Ctrl+C` in the Server terminal to stop it. Data persists in SQLite across restarts. To resume, load the same
-`.env` and run `powercontext server run --env-file .env` again; pending Sources are processed on the next Scheduler run
-or flush.
-
-## Quick troubleshooting
+Press `Ctrl+C` to stop the Server. Restart it with the same `.env` and data directory. The default Scope and its opaque
+ID remain stable because they are persisted in the database.
 
 | Symptom | Action |
 | --- | --- |
-| Dashboard is empty | Compare the complete Dashboard and Agent Scope strings |
-| `ready` is `degraded` | Check the Generation and Embedding models, keys, and Base URLs |
-| No `vector` or `hybrid` search | Configure the Embedding model, profile ID, and dimension together; without them recall stays on FTS (`auto, fts`) |
+| A Scope is missing from Dashboard | Confirm it was created through the Scope API and refresh the page |
+| Readiness is `degraded` | Check model identifiers, credentials, and Base URLs |
+| No `vector` or `hybrid` mode | Configure Embedding model, profile ID, and dimension together |
 | Sources remain pending | Enable the Scheduler or call `/v1/memory/flush` |
 | Existing data is missing | Restore the previous database URL or `POWERCONTEXT_HOME` |
 
-See [Troubleshooting](troubleshoot.md) for error states and [Configuration](../reference/configuration.md) for all
-variables.
+See [Troubleshooting](troubleshoot.md) and [Configuration](../reference/configuration.md) for details.

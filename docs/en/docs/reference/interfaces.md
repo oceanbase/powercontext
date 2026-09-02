@@ -68,19 +68,10 @@ and authorization still take precedence over all Work and Handoff records.
 For the complete Codex transfer and acknowledgement workflow, see
 [Hand off work in Codex](../how-to/handoff-with-codex.md).
 
-Handoff Report lists scopes that contain a committed Handoff, and `get_handoff_report` requires `scope_id`.
-`project_id` remains deprecated wire-compatibility input and is ignored during report generation. Each returned
-Workstream projection includes `handoff_revision_count`, `handoff_history_truncated`, and `handoff_history`, with at
-most the latest 20 Revision summaries through the frozen selection. For the web workflow, see
-[Use Handoff Report](../how-to/use-handoff-report.md).
-
-The current scope report returns no Activity events, reports `activity_coverage=not_configured`, and has no period
-comparison. Period input is normalized but does not filter Activity. The HTTP and Python Client Markdown operations
-remain available without a token when Server authentication is disabled; the current browser download and background
-refresh controls require a stored bearer token.
-
-The Codex scope resolver can bind the current Git workspace once to a fixed Workstream scope. That binding takes
-precedence over Git remote and path derivation, but remains below explicit scope configuration.
+Handoff Report is a read-only projection over a Scope selection. `all` includes every Scope, `exact` includes only the
+listed Scope IDs, and `subtree` includes an organization root and all descendants. Each included Scope contributes its
+latest exact Handoff address or an explicit `no_handoff` result; Parent does not imply Context visibility. Codex fixes
+ordinary Agent report reads to the current Session Scope. Broader selections belong to host and Dashboard views.
 
 ## DeepSeek Harness plugin
 
@@ -105,12 +96,12 @@ labelled untrusted historical evidence; and `PowerContextScope` is a dataclass f
 carries the scope and per-run connection overrides. The recall node and tools read the active scope from the LangGraph
 runtime and otherwise fall back to `POWERCONTEXT_LANGGRAPH_*` environment settings.
 
-Scope resolution prefers an explicit `scope_id`, then a Git-remote-derived scope, and otherwise raises. This is the
-inverse of the Codex resolver because a deployed graph's working directory rarely identifies the project. `TOKEN` is
-a bare token that the Client composes into `Authorization: Bearer`, unlike the `POWERCONTEXT_*_AUTHORIZATION` header used by the
-Codex, Claude Code, and DeepSeek Harness plugins. Recall and the tools fail open: on Server unavailability the graph
-still reaches its end and the tools return a short unavailable string. The adapter covers Memory read and write and
-bounded recall only; automatic capture, checkpointing, and Handoff are out of scope. The adapter deliberately does not
+Scope resolution sends an explicit `scope_id`, when configured, to the Server for validation and otherwise uses the
+Server default Scope. The adapter does not derive Scope IDs from Git or process paths. `TOKEN` is a bare token that the
+Client composes into `Authorization: Bearer`, unlike the `POWERCONTEXT_*_AUTHORIZATION` header used by the Codex,
+Claude Code, and DeepSeek Harness plugins. Recall and the tools fail open: on Server unavailability the graph still
+reaches its end and the tools return a short unavailable string. The adapter covers Memory read and write and bounded
+recall only; automatic capture, checkpointing, and Handoff are out of scope. The adapter deliberately does not
 implement `BaseStore`, whose get, upsert-by-key, and delete operations the Memory model does not provide. It never
 starts or embeds the Server.
 

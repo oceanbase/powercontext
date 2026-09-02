@@ -37,8 +37,9 @@ Eligible user prompts are captured separately as Content Sources. The package ne
 transcript. Recall, capture, and boundary flushing fail open: an unavailable Server, timeout, redirect, or invalid
 response leaves Pi's prompt unchanged and never blocks ordinary work.
 
-The package derives scope from the normalized Git remote, falling back to the project path. Set an explicit scope only
-when it must be independent of both.
+The package resolves one Server-owned Scope in this order: `POWERCONTEXT_PI_SCOPE_ID`, a durable binding for the
+workspace, then the Server default. The workspace path is hashed only as an external binding key; it never becomes a
+Scope ID. Keep the explicit variable unset unless the host must force one existing Scope.
 
 ## Control prompt capture
 

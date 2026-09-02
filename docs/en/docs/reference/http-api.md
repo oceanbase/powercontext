@@ -106,7 +106,7 @@ curl --fail \
 | Experience and Skill | `/v1/experience/*`, `/v1/skill/*` | Propose, generate, and read Artifact revisions |
 | Review | `/v1/artifact-candidates/*` | List, inspect, revise, approve, or reject pending Candidates |
 | External Skills | `/v1/external-skills/*` | Scan configured targets and resolve or import packages |
-| Handoff Reports | `/v1/handoff-reports/*` | Manage Projects, Workstreams, activities, reports, and workspace bindings |
+| Handoff Reports | `/v1/handoff-reports/*` | Generate a read-only report for a Scope selection |
 | Statistics | `/v1/stats` | Read scoped usage statistics |
 
 The OpenAPI contract defines the complete path list, schemas, limits, and status codes. The higher-level workflow and

@@ -36,7 +36,9 @@ Pi 开始 agent turn 前，package 会以默认 8000-byte 预算调用一次 `PO
 符合条件的用户提示词会被独立采集为 Content Source。package 不会同步完整 Pi transcript。Server 不可用、超时、
 重定向或响应不符合契约时，召回、采集和边界 flush 都会正常降级：Pi 的 prompt 不变，普通工作不会被阻塞。
 
-scope 优先由规范化 Git remote 推导，无法取得时才根据项目路径推导。只有 scope 必须独立于两者时才设置显式值。
+package 按 `POWERCONTEXT_PI_SCOPE_ID`、workspace 持久 binding、Server 默认 Scope 的顺序解析一个由 Server
+管理的 Scope。workspace 路径只会哈希为外部 binding key，不会成为 Scope ID。仅在宿主必须固定到某个已有
+Scope 时设置显式变量。
 
 ## 控制提示词采集
 

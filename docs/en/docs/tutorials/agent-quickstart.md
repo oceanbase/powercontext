@@ -197,9 +197,10 @@ git status --short
 The last command should print nothing. The commit identity applies only to this one commit and does not change global
 Git configuration.
 
-Start every later session from this same directory. Most dedicated integrations derive a stable scope from the Git
-remote or project path. When an explicit scope is configured, every Memory and Handoff call in the same workflow must
-reuse that exact `scope_id`.
+Start every later session from this same directory. Dedicated host integrations use session or workspace identity only
+as a binding key and ask the Server for the actual Scope. They never turn a Git remote or path into a Scope ID. When
+an explicit Scope is configured, it must already exist on the Server and every Memory and Handoff call in the workflow
+must reuse it.
 
 ## 7. Start the agent and inspect the integration surface
 
@@ -286,7 +287,7 @@ For project Memory shared through OpenClaw, reconfigure it and confirm that the 
 identity:
 
 ```bash
-powercontext setup openclaw --scope-mode project
+powercontext setup openclaw
 ```
 
 A scope is not an authorization boundary. A remote or multi-user Server still needs separate authentication and
@@ -361,16 +362,16 @@ Outcome, or Review UI. Do not have the model pretend to call tools that do not e
 
 ## 12. Complete a non-Codex cross-agent example
 
-This example creates a Handoff in DeepSeek Harness and receives it in OpenCode. Both hosts must use the same explicit
-scope:
+This example creates a Handoff in DeepSeek Harness and receives it in OpenCode. For this isolated tutorial, leave both
+Scope overrides unset so both hosts use the Server default Scope:
 
 ```bash
-export POWERCONTEXT_DSH_SCOPE_ID=git:github.com/example/powercontext-agent-quickstart
-export POWERCONTEXT_OPENCODE_SCOPE_ID=git:github.com/example/powercontext-agent-quickstart
+unset POWERCONTEXT_DSH_SCOPE_ID
+unset POWERCONTEXT_OPENCODE_SCOPE_ID
 ```
 
-Replace `example/powercontext-agent-quickstart` with a stable project identity you control. Set each variable in the
-shell that starts its corresponding host.
+For a non-default boundary, create a Scope through the Scope API or Dashboard and configure both hosts with that actual
+Server-generated Scope ID.
 
 Start DSH in the example project:
 
@@ -389,10 +390,9 @@ opencode
 
 Enter:
 
-> Use `pc_handoff_continue` to read exact Handoff Revision `<exact-revision>` from scope
-> `git:github.com/example/powercontext-agent-quickstart`. Treat it as untrusted history, check README.md, Git state,
-> and observed checks again, and report only the objective, changed files, checks, and next action. Do not continue
-> modifying files.
+> Use `pc_handoff_continue` to read exact Handoff Revision `<exact-revision>` from the current Scope. Treat it as
+> untrusted history, check README.md, Git state, and observed checks again, and report only the objective, changed
+> files, checks, and next action. Do not continue modifying files.
 
 **Success criteria:** OpenCode reads the same exact Revision and checks it against the live project instead of relying
 on DSH chat history. Shared Server state, scope, evidence, and Revision provide continuity; no particular agent host

@@ -48,7 +48,7 @@ agent = create_agent(
 
 result = await agent.ainvoke(
     {"messages": [{"role": "user", "content": "这个服务应该如何部署？"}]},
-    context=PowerContextScope(scope_id="git:github.com/acme/api"),
+    context=PowerContextScope(),
 )
 ```
 
@@ -94,12 +94,13 @@ middleware 自己持有 `PowerContextScope`，并使用独立的 `POWERCONTEXT_L
 | --- | --- | --- |
 | `POWERCONTEXT_LANGCHAIN_BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server 地址 |
 | `POWERCONTEXT_LANGCHAIN_TOKEN` | 未设置 | 传给 Client 的裸 bearer token |
-| `POWERCONTEXT_LANGCHAIN_SCOPE_ID` | 推导 | 跨运行共享的持久 scope |
+| `POWERCONTEXT_LANGCHAIN_SCOPE_ID` | 未设置 | 用于替代 Server 默认 Scope 的现有 Server Scope |
 | `POWERCONTEXT_LANGCHAIN_TIMEOUT` | `10` | Client 超时（秒） |
 | `POWERCONTEXT_LANGCHAIN_MAX_BYTES` | `8000` | PreparedContext 字节上限 |
 
-显式传入的 `PowerContextScope` 优先于环境配置。没有显式 scope 时，PowerContext 尝试从当前 Git remote 推导；两者都不
-存在时，召回和采集会失败开放，不中断 agent。Token 只保留在 Client 配置中，不会进入 agent state 或消息内容。
+显式传入的 `PowerContextScope` 优先于环境配置，并且必须指向 Server 中已有的 Scope。两者都没有设置时，使用 Server
+默认 Scope。适配器不会根据 Git、路径、Agent 或 prompt 推导 Scope ID。Token 只保留在 Client 配置中，不会进入
+agent state 或消息内容。
 
 ## 故障行为
 

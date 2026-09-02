@@ -17,8 +17,8 @@ state, the receiver records whether it can continue, and a Task Outcome preserve
 ## Before you start
 
 Complete [Install and run](install-and-run.md), keep the Server running, and start a Codex session with the
-PowerContext plugin configured in the current project. Work records belong to the selected scope. If the Report catalog
-contains more than one Workstream, let Codex show the picker and choose the intended one.
+PowerContext plugin configured in the current project. The integration binds the Session to a Scope before reading or
+writing work records. Start independent work in a new Scope only when it needs its own isolation and continuation.
 
 Do not put secrets, access tokens, or other sensitive information in Work Contracts, Handoffs, acknowledgements, or
 outcomes.
@@ -42,9 +42,9 @@ For a durable milestone, use a direct imperative:
 > Hand off this work with PowerContext. Inspect the current objective, branch, worktree, changed files, checks,
 > blockers, omissions, and next action. Commit the completed Handoff and give me its exact Revision.
 
-The Codex Skill selects the Workstream, inspects live state, calls `handoff_current_work`, and commits the returned
-Prepared Handoff in the same turn. Success includes the scope and exact Handoff Revision. If preparation succeeds but
-commit fails, the boundary Source exists but no durable milestone was created.
+The Codex Skill uses the current Session Scope, inspects live state, calls `handoff_current_work`, and commits the
+returned Prepared Handoff in the same turn. Success includes the Scope and exact Handoff Revision. If preparation
+succeeds but commit fails, the boundary Source exists but no durable milestone was created.
 
 For a read-only preview, say `Preview a PowerContext Handoff and make no writes.` For temporary transfer without a
 milestone, ask Codex to prepare a Handoff without committing it. That operation records the boundary Source and returns

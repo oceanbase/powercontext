@@ -62,17 +62,10 @@ Claim 和 check 要么是没有 evidence 的 `declared`，要么是拥有同 sco
 
 完整 Codex 转交和接收确认流程见[在 Codex 中交接工作](../how-to/handoff-with-codex.md)。
 
-Handoff Report 会列出包含 committed Handoff 的 scope，`get_handoff_report` 要求提供 `scope_id`。`project_id` 仅作为
-deprecated wire-compatibility input 保留，生成报告时会被忽略。每个返回的 Workstream projection 包含
-`handoff_revision_count`、`handoff_history_truncated` 和 `handoff_history`，最多返回 frozen selection 之前最近 20 个
-Revision 摘要。Web 操作见[使用 Handoff Report](../how-to/use-handoff-report.md)。
-
-当前 scope report 不返回 Activity event，`activity_coverage=not_configured`，并且没有 period comparison。Period
-输入只会被规范化，不会筛选 Activity。Server 未启用鉴权时，HTTP 和 Python Client 的 Markdown operation 仍可不带
-token 使用；当前浏览器下载和后台刷新控件要求已保存的 Bearer token。
-
-Codex scope resolver 支持把当前 Git 工作区一次绑定到固定 Workstream scope，绑定优先于 Git remote 和路径推导，但低于
-显式 scope 配置。
+Handoff Report 是 Scope selection 上的只读投影。`all` 包含全部 Scope，`exact` 只包含列出的 Scope ID，`subtree`
+包含一个组织根及其全部后代。每个选中 Scope 提供 latest exact Handoff address，或者明确的 `no_handoff`；Parent 不会
+隐式授予 Context 可见性。Codex 会把普通 Agent 的报告读取固定为当前 Session Scope；更宽的 selection 由 host 和
+Dashboard 使用。
 
 ## DeepSeek Harness 插件
 
@@ -94,8 +87,8 @@ Capture 或 Flush。参见 [Pydantic AI 适配器预览](../how-to/configure-pyd
 `PowerContextScope` 是用于图 `context_schema` 的 dataclass，承载 scope 和单次运行的连接覆盖项。召回节点和工具
 从 LangGraph runtime 读取当前 scope，否则回退到 `POWERCONTEXT_LANGGRAPH_*` 环境配置。
 
-Scope 解析优先取显式 `scope_id`，其次取由 Git remote 推导的 scope，都没有时报错。这与 Codex resolver 相反，
-因为已部署的图其工作目录通常无法标识项目。`TOKEN` 是裸 token，由 Client 组装为 `Authorization: Bearer`，不同于
+Scope 解析会把已配置的显式 `scope_id` 交给 Server 校验，否则使用 Server 默认 Scope。适配器不会根据 Git 或进程路径
+推导 Scope ID。`TOKEN` 是裸 token，由 Client 组装为 `Authorization: Bearer`，不同于
 Codex、Claude Code 和 DeepSeek Harness 插件使用的 `POWERCONTEXT_*_AUTHORIZATION` header。召回和工具都会失败开放：
 Server 不可用时图仍能到达终点，工具返回一段简短的不可用字符串。适配器只覆盖 Memory 读写和有界召回；自动采集、
 checkpointing 和 Handoff 不在范围内。适配器有意不实现 `BaseStore`——Memory 模型不提供其所需的按 key 读取、upsert

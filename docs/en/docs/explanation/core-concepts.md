@@ -11,11 +11,12 @@ Agent turn. Every value belongs to a scope.
 
 ## Scope is the isolation boundary
 
-Every content operation uses a `scope_id`. The scope selects an isolated Source journal, Memory lifecycle, Candidate
-inbox, Handoff history, and related runtime state. Integrations can derive a scope from a repository or path, while
-public interfaces also allow callers to supply one explicitly.
+Every content operation uses a `scope_id`. The Scope selects an isolated Source journal, Memory lifecycle, Candidate
+inbox, Handoff history, and related runtime state. Scope IDs are opaque Server identifiers. Integrations resolve an
+explicit Scope, a durable binding, or the Server default; repository, path, session, and Agent identities are binding
+inputs rather than Scope IDs.
 
-A scope ID selects data. It does not prove user identity, grant tool access, or authorize execution.
+A Scope ID selects data. It does not prove user identity, grant tool access, or authorize execution.
 
 ## Sources preserve evidence
 
@@ -89,9 +90,8 @@ inspected boundary and returns a temporary Prepared Handoff. Committing a Handof
 the user wants a milestone. The receiver resolves the Handoff and records an Acknowledgement; a Task Outcome preserves
 the final status and checks as Source evidence.
 
-The [Handoff Report](../how-to/use-handoff-report.md) projects current Handoff Revisions for inspection and export. The
-current scope report does not yet include Activity events or period comparison, and it does not rewrite Memory or the
-underlying Handoff history.
+The [Handoff Report](../how-to/use-handoff-report.md) projects the latest Handoff Revision in each selected Scope for
+inspection and export. It is read-only and does not rewrite Memory or the underlying Handoff history.
 
 ## Interfaces expose different parts of the same Server
 

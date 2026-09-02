@@ -52,14 +52,13 @@ hermes powercontext search "Python package manager"
 ```
 
 Inside an interactive Hermes session, `/pc status` should reach the same active provider. Use `/pc ` followed by
-Tab/Down to inspect the available Memory, Handoff, Experience, Skill, review, statistics, trace, and Workstream
+Tab/Down to inspect the available Memory, Handoff, Experience, Skill, review, statistics, trace, and Scope
 commands. Hermes 0.20.4 does not provide enough invocation context to route gateway slash commands safely, so the
 companion rejects gateway invocations; use the provider's Hermes tools in gateway sessions.
 
-The provider uses `http://127.0.0.1:8000` by default. In a Git workspace, Workstream persistence first reads the
-shared `.git/powercontext/codex-workspace.json` scope binding. An explicit scope configuration takes precedence.
-Without either value, the provider derives a scope from the active Hermes profile and gateway user identifier; for a
-local CLI session without a user identifier, it derives a stable value from `HERMES_HOME`.
+The provider uses `http://127.0.0.1:8000` by default. The Server resolves an explicit Scope first, then durable session
+and workspace bindings, and finally its default Scope. Hermes hashes the workspace path only as an external binding
+key; it does not generate Scope IDs from profiles, users, repositories, or directories.
 
 ## Configure the connection
 
@@ -72,7 +71,7 @@ the file:
 | `POWERCONTEXT_HERMES_BASE_URL` | PowerContext Server URL |
 | `POWERCONTEXT_HERMES_AUTHORIZATION` | Complete authorization header, such as `Bearer <token>` |
 | `POWERCONTEXT_HERMES_TOKEN` | Bare-token shorthand used when `AUTHORIZATION` is absent |
-| `POWERCONTEXT_HERMES_SCOPE_ID` | Explicit scope or scope template |
+| `POWERCONTEXT_HERMES_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_HERMES_MAX_BYTES` | Maximum prepared-context size, from 512 to 32768 bytes |
 | `POWERCONTEXT_HERMES_TIMEOUT` | HTTP request timeout in seconds |
 | `POWERCONTEXT_HERMES_CAPTURE_TURNS` | Capture completed turns as Sources |
@@ -80,7 +79,6 @@ the file:
 | `POWERCONTEXT_HERMES_CAPTURE_PRE_COMPRESS` | Capture filtered new turns before compression; disabled by default |
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE` | Record recalled context in sensitive local JSONL traces; disabled by default |
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE_PATH` | Override the evaluation trace directory |
-| `POWERCONTEXT_HERMES_WORKSTREAM` | Read the shared Git-private Workstream binding; enabled by default |
 
 Let the Hermes wizard store authorization in its protected `.env` secret store; do not put the token in
 `config.json`. Use plain HTTP only for a loopback Server. See [Deploy the Server](deploy-server.md) before connecting

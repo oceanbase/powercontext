@@ -38,7 +38,7 @@ powercontext setup select --host codex --host dsh --source oceanbase/powercontex
 ```
 
 Without `--server-url`, Claude Code and OpenClaw keep their `http://127.0.0.1:8000` defaults. An explicit
-`--server-url` overrides both selected hosts. OpenClaw's `--scope-mode` defaults to `agent`. Selected Codex, DSH,
+`--server-url` overrides both selected hosts. Selected Codex, DSH,
 OpenCode, Pi, and Hermes integrations pass their existing post-install diagnostics before they are reported as
 installed. After installing Hermes, run `hermes memory setup` and select PowerContext before starting Hermes.
 
@@ -55,7 +55,7 @@ With no environment variables, the Server:
 
 - binds to `127.0.0.1:8000`;
 - enables Streamable HTTP MCP at `/mcp`;
-- enables the Dashboard at `/`; when no scopes are configured, the page shows an explicit empty state;
+- creates a default Scope and enables the Dashboard at `/`;
 - creates a persistent SQLite database in the operating system's user data directory;
 - supports explicit Memory operations without an inference provider.
 
