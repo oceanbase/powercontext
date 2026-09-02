@@ -21,7 +21,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.persistence.tables import BUILTIN_TABLES, SOURCES_TABLE
+from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.scope import (
     ScopeApplication,
     ScopeBindingKey,
@@ -47,33 +47,6 @@ def test_scope_bootstrap_creates_one_ordinary_default() -> None:
             assert first.parent_scope_id is None
             assert first.context_references == ()
             assert await scopes.list() == (first,)
-
-    asyncio.run(scenario())
-
-
-def test_existing_runtime_scope_is_registered_and_reused_as_default() -> None:
-    async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            async with profile.database.transaction() as connection:
-                await connection.execute(
-                    SOURCES_TABLE.insert().values(
-                        scope_id="legacy-scope",
-                        source_type="text",
-                        source_id="source-1",
-                        payload=b"existing",
-                        journal_position=1,
-                    )
-                )
-            scopes = ScopeApplication(profile.database)
-
-            registered = await scopes.register_existing()
-            default = await scopes.bootstrap_default()
-
-            assert tuple(scope.scope_id for scope in registered) == ("legacy-scope",)
-            assert await scopes.register_existing() == ()
-            assert default.scope_id == "legacy-scope"
-            assert default.title == "legacy-scope"
-            assert default.summary == "Registered from existing runtime data."
 
     asyncio.run(scenario())
 

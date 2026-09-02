@@ -351,7 +351,6 @@ async def open_builtin_contexts(
                 memory_reranker=memory_reranker,
                 memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
             )
-            await contexts.scopes.register_existing()
             await contexts.scopes.bootstrap_default()
             yield contexts
         return
@@ -386,7 +385,6 @@ async def open_builtin_contexts(
             memory_reranker=memory_reranker,
             memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
         )
-        await contexts.scopes.register_existing()
         await contexts.scopes.bootstrap_default()
         yield contexts
 
