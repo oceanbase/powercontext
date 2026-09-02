@@ -1,6 +1,7 @@
 - Proposal Name: `source_definition_and_observation_model`
 - Start Date: 2026-08-27
-- Related Discussion: [oceanbase/powercontext#1240](https://github.com/oceanbase/powercontext/issues/1240), [oceanbase/powercontext#1363](https://github.com/oceanbase/powercontext/issues/1363)
+- Related Discussion: [oceanbase/powercontext#1240](https://github.com/oceanbase/powercontext/issues/1240)
+- Tracking Issue: [oceanbase/powercontext#1363](https://github.com/oceanbase/powercontext/issues/1363)
 - Related Design: [oceanbase/powercontext#1345](https://github.com/oceanbase/powercontext/pull/1345)
 - Related RFCs: [RFC 0002](0002_core_sdk_product_model.md), [RFC 0014](0014_memory_layer_design.md), [RFC 0019](0019_local_source_memory_runtime.md), [RFC 0048](0048_handoff_artifact.md)
 
