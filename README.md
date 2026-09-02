@@ -72,12 +72,27 @@ Read the [documentation](docs/en/docs/index.md) for agent-specific setup and oth
 
 Applications can use PowerContext through the async Python client, HTTP API, MCP, or the in-process Core SDK. See the [interface reference](docs/en/docs/reference/interfaces.md) to choose an entry point.
 
+## Benchmarks
+
+![Compact comparison of PowerContext results on LoCoMo and SWE-bench Pro](docs/assets/readme-benchmark-summary.svg)
+
+The chart summarizes two published evaluations. See the [full results](https://powercontext.oceanbase.io/en/benchmarks/) for datasets, methodology, and limitations.
+
+## Development
+
+```bash
+make install
+make check
+make test
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow.
+
 ## Learn more
 
-- [Product definition](docs/en/rfcs/0001_product_definition_and_vision.md)
-- [Interfaces](docs/en/docs/reference/interfaces.md)
-- [Benchmarks](benchmark/README.md)
-- [Contributing](CONTRIBUTING.md)
+- [Website](https://powercontext.oceanbase.io/en/)
+- [Blog](https://powercontext.oceanbase.io/en/blog/)
+- [Changelog](https://powercontext.oceanbase.io/en/changelog/)
 
 PowerContext continues the work started in [PowerMem](https://www.powermem.ai/), with its focus expanded from agent memory to context that humans and agents can hand off and continue.
 

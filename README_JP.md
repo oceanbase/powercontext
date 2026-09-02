@@ -72,12 +72,27 @@ Agent ごとの設定方法とその他の導入方法は、[ドキュメント]
 
 アプリケーションは、非同期 Python クライアント、HTTP API、MCP、または同一プロセス内の Core SDK から PowerContext を利用できます。入口を選ぶには[インターフェースリファレンス](docs/en/docs/reference/interfaces.md)を参照してください。
 
-## 詳細
+## ベンチマーク
 
-- [製品定義](docs/en/rfcs/0001_product_definition_and_vision.md)
-- [インターフェース](docs/en/docs/reference/interfaces.md)
-- [ベンチマーク](benchmark/README.md)
-- [コントリビューション](CONTRIBUTING.md)
+![LoCoMo と SWE-bench Pro における PowerContext の結果をまとめた比較図](docs/assets/readme-benchmark-summary.svg)
+
+この図は、公開済みの 2 つの評価結果をまとめたものです。データセット、評価方法、結果の適用範囲は[詳細な結果](https://powercontext.oceanbase.io/en/benchmarks/)を参照してください。
+
+## 開発
+
+```bash
+make install
+make check
+make test
+```
+
+開発ワークフロー全体については [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
+
+## さらに詳しく
+
+- [公式サイト](https://powercontext.oceanbase.io/en/)
+- [ブログ](https://powercontext.oceanbase.io/en/blog/)
+- [更新履歴](https://powercontext.oceanbase.io/en/changelog/)
 
 PowerContext は [PowerMem](https://www.powermem.ai/) から始まった取り組みを引き継ぎ、Agent Memory から、人と Agent が引き継いで継続できるコンテキストへと対象を広げています。
 

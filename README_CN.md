@@ -72,12 +72,27 @@ powercontext setup codex --ref v0.1.0  # --ref also accepts a Git commit, such a
 
 应用还可以通过异步 Python Client、HTTP API、MCP 或进程内 Core SDK 使用 PowerContext。请参考[接口说明](docs/zh/docs/reference/interfaces.md)选择入口。
 
+## 评测
+
+![PowerContext 在 LoCoMo 和 SWE-bench Pro 上的紧凑对比图](docs/assets/readme-benchmark-summary.svg)
+
+图中汇总了两项已发布评测。数据集、评测方法和结果边界请查看[完整结果](https://powercontext.oceanbase.io/zh/benchmarks/)。
+
+## 开发
+
+```bash
+make install
+make check
+make test
+```
+
+完整开发流程请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
 ## 进一步了解
 
-- [产品定义](docs/zh/rfcs/0001_product_definition_and_vision.md)
-- [接口说明](docs/zh/docs/reference/interfaces.md)
-- [性能测试](benchmark/README.md)
-- [参与贡献](CONTRIBUTING.md)
+- [官方网站](https://powercontext.oceanbase.io/zh/)
+- [博客](https://powercontext.oceanbase.io/zh/blog/)
+- [更新日志](https://powercontext.oceanbase.io/zh/changelog/)
 
 PowerContext 延续了 [PowerMem](https://www.powermem.ai/) 的工作，产品重心从 Agent Memory 扩展到可以在人和 Agent 之间交接并继续使用的上下文。
 
