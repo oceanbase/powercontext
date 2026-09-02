@@ -76,10 +76,18 @@ evaluation:
       query: Which project decision selected multi-node persistent storage?
       expected_context:
         - OceanBase
+      forbidden_context:
+        - SQLite
 ```
 
 `dataset` 可以指向仓库自行维护的 Harbor task，也可以指向带版本的 registry task。两者使用相同的 execution 与 evidence
 路径。
+
+Recall probe 的匹配不区分大小写，并进行 Unicode 归一化。包含 `expected_context` 的正向 probe 参与
+`probe_coverage` 计算，并要求 prepared context 包含全部 expected fragment。仅包含 `forbidden_context` 的纯负向
+probe 表达 abstention，不参与 coverage；没有正向 probe 时，`probe_coverage` 为 `1`。每个 probe 都会拒绝包含
+forbidden fragment 的 prepared context；任何 forbidden match 都会直接令 acceptance 失败，不受
+`probe_coverage` 阈值影响。
 
 `execution.type` 选择 adapter，当前 contract 实现 `bub`。`execution.model` 只声明 workload 是否需要 model：
 
@@ -164,7 +172,7 @@ Memory acceptance 使用可观察的 evidence：
 - 要求 capture 时采集了符合条件的 event；
 - 本次运行创建了 Memory，并完成要求的 checkpoint 或 flush；
 - 新建 Memory 引用了 execution 期间采集的 Source；
-- 声明的 recall probe 能获得可用的 prepared context。
+- 声明的 recall probe 能获得满足必需片段与禁用片段约束的 prepared context。
 
 确定性 workload 可以要求固定的 Memory 片段。长程任务通常评估 capture coverage、grounding 与 recall，不要求固定的任务答案。
 
@@ -203,6 +211,9 @@ Evaluator 只读取 replay evidence，不能控制 adapter。Report renderer 只
 Replay 记录 dataset checksum、workload 唯一的 `execution.type`、存在时最终解析出的 model identity、database identity、最终 instruction 与
 PowerContext scope state。公共 envelope 支持离线重新评分。Adapter 原生 evidence 在 envelope 中保留类型信息；当前 Bub
 adapter 记录 ACP summary、captured event、checkpoint、tool observation 与 trajectory artifact。
+
+对于负向 recall contract，replay 记录脱敏前的匹配结论，而不是被匹配的文本。这样既能让离线重新评分与实时结果保持一致，
+也不会通过 replay 暴露已配置的 secret。
 
 最终 artifact sink 会移除已配置的 secret。原生 task artifact 可能包含任务内容，发布前需要检查。
 

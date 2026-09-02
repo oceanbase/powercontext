@@ -584,6 +584,58 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
     assert list(payload["checks"]) == ["package", "server_liveness", "server_readiness"]
 
 
+def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "http://127.0.0.1:8888/")
+    urlopen = Mock(
+        side_effect=[
+            _Response(200, {"status": "ok"}),
+            _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+        ]
+    )
+    monkeypatch.setattr(system_cli, "urlopen", urlopen)
+
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
+
+    assert result.exit_code == 0
+    assert "server liveness: ok - http://127.0.0.1:8888 status=ok" in result.output
+    assert "server readiness: ok - http://127.0.0.1:8888 status=ready" in result.output
+    assert [call.args[0].full_url for call in urlopen.call_args_list] == [
+        "http://127.0.0.1:8888/health/live",
+        "http://127.0.0.1:8888/health/ready",
+    ]
+
+    # Explicit CLI argument should override the environment variable.
+    urlopen.reset_mock()
+    urlopen.side_effect = [
+        _Response(200, {"status": "ok"}),
+        _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+    ]
+    override = CliRunner().invoke(
+        create_cli([doctor_app]),
+        ["doctor", "--server-url", "http://127.0.0.1:9999"],
+    )
+
+    assert override.exit_code == 0
+    assert "server liveness: ok - http://127.0.0.1:9999 status=ok" in override.output
+    assert "server readiness: ok - http://127.0.0.1:9999 status=ready" in override.output
+    assert [call.args[0].full_url for call in urlopen.call_args_list] == [
+        "http://127.0.0.1:9999/health/live",
+        "http://127.0.0.1:9999/health/ready",
+    ]
+
+
+def test_default_doctor_rejects_non_loopback_plaintext_environment_url_without_request(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "http://memory.example")
+    urlopen = Mock()
+    monkeypatch.setattr(system_cli, "urlopen", urlopen)
+
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
+
+    assert result.exit_code == 1
+    assert "Unencrypted PowerContext Server URLs must be loopback addresses" in result.output
+    urlopen.assert_not_called()
+
+
 def test_default_doctor_skips_readiness_when_liveness_is_unreachable(monkeypatch) -> None:
     urlopen = Mock(side_effect=OSError("connection refused"))
     monkeypatch.setattr(system_cli, "urlopen", urlopen)

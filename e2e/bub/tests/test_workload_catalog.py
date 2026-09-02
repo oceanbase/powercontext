@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from powercontext_e2e.catalog import load_tasks, select_tasks
+from powercontext_e2e.catalog import RecallProbeSpec, load_tasks, select_tasks
 from powercontext_e2e.runner import group_tasks
 
 
@@ -71,3 +71,36 @@ def test_batch_category_cannot_escape_the_runtime_dataset() -> None:
 
     with pytest.raises(ValueError, match="valid batch category"):
         group_tasks((task,))
+
+
+def test_recall_probe_manifest_accepts_forbidden_context() -> None:
+    probe = RecallProbeSpec.model_validate({
+        "id": "database-decision",
+        "query": "Which database decision is current?",
+        "expected_context": ["OceanBase"],
+        "forbidden_context": ["SQLite"],
+    })
+
+    assert probe.forbidden_context == ("SQLite",)
+
+
+@pytest.mark.parametrize("field_name", ["expected_context", "forbidden_context"])
+def test_recall_probe_manifest_rejects_blank_context_fragments(field_name: str) -> None:
+    payload = {
+        "id": "database-decision",
+        "query": "Which database decision is current?",
+        field_name: ["  "],
+    }
+
+    with pytest.raises(ValueError, match=f"{field_name} fragments must be nonblank"):
+        RecallProbeSpec.model_validate(payload)
+
+
+def test_recall_probe_manifest_rejects_impossible_context_contract() -> None:
+    with pytest.raises(ValueError, match="forbidden_context cannot be contained in expected_context"):
+        RecallProbeSpec.model_validate({
+            "id": "database-decision",
+            "query": "Which database decision is current?",
+            "expected_context": ["SQLite"],
+            "forbidden_context": ["sql"],
+        })

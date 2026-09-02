@@ -60,11 +60,18 @@ evaluation:
       query: What database did this project select, and why?
       expected_context:
         - OceanBase
+      forbidden_context:
+        - SQLite
 ```
 
 The dataset can be a local Harbor dataset path or a registry dataset name and version. `execution` selects the
 adapter and its budget. `model` declares only whether the workload requires a model. The runtime selects the model,
 provider, endpoint, and credentials. `evaluation` declares only externally observable Memory behavior.
+Recall probes with `expected_context` contribute to `probe_coverage` and require every expected fragment. Probes
+with only `forbidden_context` express abstention and do not contribute to that coverage. If there are no positive
+probes, `probe_coverage` is `1`. Every probe rejects prepared context containing a forbidden fragment. Fragment
+matching is case-insensitive and Unicode-normalized. Any forbidden match fails acceptance independently of the
+`probe_coverage` threshold.
 Two or more compatible selected tasks with the same `batch:<name>` category share one run-local Harbor task and
 container. Their scopes, evidence, and evaluation remain independent; selecting one task uses the normal path.
 
@@ -182,7 +189,7 @@ Long-horizon acceptance requires observable Memory behavior:
 - completed Bub events were captured at the configured coverage;
 - a checkpoint created Memory in an initially empty scope;
 - new Memory cites sources captured during the run;
-- recall probes return prepared context.
+- recall probes return prepared context that satisfies their required and forbidden fragment contracts.
 
 In-run context injections remain a reported metric, but they do not gate this single-session task because extraction
 may complete only at the final checkpoint. Harbor rewards are diagnostic scores and do not gate Memory acceptance.
@@ -195,6 +202,9 @@ Every workload uses the same offline command:
 REPLAY=.powercontext-e2e/bub/sqlite/acceptance/terminal-bench-db-wal-recovery/replay.json \
 make harness-rescore
 ```
+
+For negative recall contracts, replay evidence stores the pre-redaction match verdict rather than the matched text.
+Offline rescoring therefore preserves the live outcome without exposing a configured secret through the replay.
 
 The harness does not mirror PowerContext Server, PowerContext Client, Bub, Harbor, or any-llm settings. Each component
 loads its native parameters, and the adapter only forwards the native values needed across the nested-container

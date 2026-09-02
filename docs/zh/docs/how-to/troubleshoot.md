@@ -150,6 +150,67 @@ powercontext server run
 每次启动或诊断该实例时都应使用同一个环境变量。对于文件型 SQLite 数据库，PowerContext 会创建缺失的父
 目录。
 
+## OceanBase 因 schema 不兼容而拒绝启动
+
+当前 PowerContext 使用 `utf8mb4_bin` 对不透明 identity column 进行逐字节比较。旧版本创建的数据库可能仍然
+使用 `utf8mb4_general_ci` 等不区分大小写的 collation。Server 会在创建任何缺失表之前检查已有 identity
+column；发现不兼容时拒绝启动。启动错误会列出每个受影响的 `table.column`、实际 collation 和要求的
+collation，但不会包含数据库 URL 或凭据。
+
+不要直接修改这些 column。它们参与主键、外键和索引，而且旧部署可能已经把本应不同的 identity 当作同一个值。
+请使用新的空数据库，使旧数据库可以继续用于恢复：
+
+1. 停止 Server 以及所有会写入该数据库的进程。
+2. 按现有 OceanBase 备份流程创建并验证一份可恢复的完整备份。
+3. 使用 OceanBase `obdumper` 的 CSV 或 SQL 数据模式导出 PowerContext 表数据，且**不要使用 `--ddl`**。
+   在迁移验证完成之前，保持导出文件和原数据库不变。请通过获批的 secret 管理流程提供凭据，不要把凭据写入日志
+   或文档。
+4. 新建一个空的 OceanBase MySQL-mode 数据库，将 `POWERCONTEXT_SERVER_DATABASE_URL` 指向它。启动一次当前
+   PowerContext，使其创建使用 `utf8mb4_bin` 的表；恢复数据前再次停止 Server。
+5. 使用 OceanBase `obloader` 只把导出的数据导入已经存在的新表，同样**不要使用 `--ddl`**。保持外键检查开启，
+   并分别运行下面三层命令。示例使用 CSV；如果导出的是 SQL 数据，请把三个命令中的 `--csv` 全部替换为
+   `--sql`。通过获批的 secret 管理流程填写 `<connection-options>`，并让 `<new-database>` 指向第 4 步创建的
+   数据库。
+
+   运行命令前，对照导出的表文件和目标数据库中的 `SHOW TABLES`。下面列出的每张已导出表都必须存在于目标数据库；
+   如果目标表缺失，请停止恢复，并先使用当前 PowerContext 配置创建该表。只有源导出不包含某张表时，才能从命令中
+   删除它。源数据库早于七张 `pc_handoff_report_*` 表时，应从第 1 层删除这些表；如果导出包含这些表但 Handoff
+   Report 已关闭，请在第 4 步临时启用该功能以创建当前表并恢复其数据，验证完成后再恢复预期配置。
+
+   第 1 层包含父表和无外键的表：
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_external_skill_registrations,pc_model_usage_daily,pc_recall_token_daily,pc_handoff_report_projects,pc_handoff_report_project_revisions,pc_handoff_report_workstreams,pc_handoff_report_workstream_revisions,pc_handoff_report_workspace_bindings,pc_handoff_report_activity_heads,pc_handoff_report_activities' \
+     -f <export-directory>
+   ```
+
+   第 1 层成功完成后，导入第 2 层中的子表：
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_candidate_versions,pc_memory_entry_versions' \
+     -f <export-directory>
+   ```
+
+   第 2 层成功完成后，导入第 3 层中剩余的子表：
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_artifact_candidate_heads,pc_memory_entry_heads' \
+     -f <export-directory>
+   ```
+
+   每个命令成功完成后才能开始下一层。OBLoader 出现任何错误、bad record 或 conflict record 时，都应判定恢复
+   失败。同一层内的表互不引用，因此层内顺序无关。
+6. 如果安装中还存在上面未列出的 PowerContext 管理表，则这些已测试的层并未对它们分类。检查其外键约束，将每张
+   表放在其所有父表之后；不要把它们加入全表导入命令。
+7. 逐表比较源数据库和目标数据库的记录数，检查 identity column collation，并测试仅大小写或重音不同的
+   identity。所有检查通过后才能恢复正常流量。在整个回滚窗口内，保留源数据库、已验证的备份和导出文件。
+
+如果旧 collation 曾因 identity 相等而合并记录，重建 schema 无法恢复这些记录。接受新的写入之前，请从权威数据源
+修复它们。
+
 ## 推理服务 readiness 检查失败
 
 配置 generation 或 embedding 后，Server readiness 会向 provider 发起一次最小化真实请求。这样可以发现只有

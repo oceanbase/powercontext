@@ -154,6 +154,74 @@ powercontext server run
 Use the same environment variable whenever you start or diagnose that instance. PowerContext creates missing parent
 directories for a file-backed SQLite database.
 
+## OceanBase startup rejects an incompatible schema
+
+Current PowerContext releases compare opaque identity columns byte-for-byte with `utf8mb4_bin`. A database created by
+an older release may still use a case-insensitive collation such as `utf8mb4_general_ci`. The Server checks existing
+identity columns before creating any missing tables and refuses to start when it finds a mismatch. The startup error
+lists each affected `table.column`, its actual collation, and the required collation; it never includes the database
+URL or credentials.
+
+Do not alter these columns in place. They participate in primary keys, foreign keys, and indexes, and an earlier
+case-insensitive deployment may already have treated distinct identities as the same value. Use a new empty database
+so the previous database remains available for recovery:
+
+1. Stop the Server and every process that writes to the database.
+2. Take and verify a full recoverable backup using your normal OceanBase backup procedure.
+3. Export the PowerContext table data with OceanBase `obdumper` in CSV or SQL data mode **without `--ddl`**. Keep the
+   export and the original database unchanged until the migration is verified. Supply credentials through your
+   approved secret-handling process rather than placing them in logs or documentation.
+4. Create a new empty OceanBase MySQL-mode database and point `POWERCONTEXT_SERVER_DATABASE_URL` at it. Start the
+   current PowerContext version once to create tables with `utf8mb4_bin`, then stop it before restoring data.
+5. Import only the exported row data into the existing new tables with OceanBase `obloader`, again **without
+   `--ddl`**. Keep foreign-key enforcement enabled and run these three layers separately. The examples use CSV; if
+   you exported SQL data, replace `--csv` with `--sql` in all three commands. Fill in `<connection-options>` through
+   your approved secret-handling process and make `<new-database>` select the database created in step 4.
+
+   Before running the commands, compare the exported table files with `SHOW TABLES` in the target database. Every
+   exported table named below must exist in the target; if one is missing, stop and create it with the current
+   PowerContext configuration before importing. Remove a name only when the source export does not contain that table.
+   If the source predates the seven `pc_handoff_report_*` tables, remove them from Layer 1. If the export contains them
+   but Handoff Report is disabled, temporarily enable it in step 4 to create the current tables, restore their data,
+   and return the setting to its intended value only after verification.
+
+   Layer 1 contains parents and tables without foreign keys:
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_external_skill_registrations,pc_model_usage_daily,pc_recall_token_daily,pc_handoff_report_projects,pc_handoff_report_project_revisions,pc_handoff_report_workstreams,pc_handoff_report_workstream_revisions,pc_handoff_report_workspace_bindings,pc_handoff_report_activity_heads,pc_handoff_report_activities' \
+     -f <export-directory>
+   ```
+
+   After Layer 1 completes successfully, import its children in Layer 2:
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_candidate_versions,pc_memory_entry_versions' \
+     -f <export-directory>
+   ```
+
+   After Layer 2 completes successfully, import the remaining children in Layer 3:
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_artifact_candidate_heads,pc_memory_entry_heads' \
+     -f <export-directory>
+   ```
+
+   Wait for each invocation to complete successfully before starting the next. Treat any OBLoader error, bad record,
+   or conflict record as a failed restore. Order within a layer is irrelevant because no table in a layer references
+   another table in the same layer.
+6. If the installation has additional PowerContext-managed tables not listed above, these tested layers do not
+   classify them. Inspect their foreign-key constraints and place each table after all of its parents; do not add
+   them to an all-table invocation.
+7. Compare source and target row counts for every restored table, inspect the identity-column collations, and test
+   identities that differ only by case or accent. Start normal traffic only after every check passes. Retain the
+   source database, verified backup, and export through the rollback window.
+
+If records were previously merged because the old collation considered their identities equal, changing the schema
+cannot reconstruct them. Resolve those records from an authoritative source before accepting writes.
+
 ## An inference readiness check fails
 
 When generation or embedding is configured, Server readiness makes one minimal real provider request. This catches
