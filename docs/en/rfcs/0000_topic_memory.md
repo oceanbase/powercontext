@@ -19,11 +19,12 @@ a second historical retrieval and related-group reconciliation before publicatio
 CREATE, UPDATE, and NOOP. The model supplies only `title`, `summary`, `detail`, and `evidence_ids`; the server controls
 the target Revision, Artifact identity, operation type, and publication state.
 
-Generation, retrieval, reconciliation, chunking, and Embedding run in background Workers. A general-purpose
+Generation, retrieval, reconciliation, chunking, and, in vector-enabled deployments, Embedding run in background
+Workers. A general-purpose
 `ArtifactProcessingSupervisor` uses a persistent Pending dirty set to discover Scopes that require processing and an
 independent Source Cursor to record completed progress. Supervisor fencing, Cursor CAS, and Artifact Head CAS prevent
 multiple replicas, duplicate Workers, or late Workers from committing stale results. A new Revision replaces the old
-searchable Revision in one short transaction only after all four retrieval channels are ready.
+searchable Revision in one short transaction only after every retrieval channel enabled for the deployment is ready.
 
 # Motivation
 
@@ -56,8 +57,9 @@ historical Revisions to decide whether to create, update, or do nothing.
 
 ## Long-running work must not block interactive requests
 
-A Topic Window may require multiple generation calls, four-way retrieval, detail chunking, batch Embedding, and an
-atomic index switch. Neither the Source write transaction nor an explicit flush should wait for the entire pipeline.
+A Topic Window may require multiple generation calls, multi-channel retrieval, detail chunking, batch Embedding in a
+vector-enabled deployment, and an atomic index switch. Neither the Source write transaction nor an explicit flush
+should wait for the entire pipeline.
 Background execution must preserve the same business semantics for a single-node SQLite deployment and a
 multi-replica OceanBase deployment, and it must recover from process crashes, timeouts, duplicate dispatch, and leader
 failover.
@@ -214,7 +216,8 @@ The Worker first reads the current Source Window and generates zero or more ligh
 query sentence or set of keywords with evidence IDs. It contains no Topic body and does not decide CREATE, UPDATE, or
 NOOP.
 
-Each Probe recalls the currently searchable Revisions from the current Scope through all four Topic retrieval channels.
+Each Probe recalls the currently searchable Revisions from the current Scope through the Topic retrieval channels
+enabled for the current deployment.
 Channel results are first collapsed by Topic and then fused with RRF. Historical candidate selection uses three
 deployment settings:
 
@@ -343,12 +346,13 @@ The server holds the target ArtifactRef for an UpdateWorkItem and generates the 
 The server also determines the operation type, Revision, lineage, and publication state. NOOP stores neither an entity
 nor a reason; logs may record only the code-known `no_change` and processing context.
 
-## Detail chunks and four-way retrieval
+## Detail chunks and deployment-enabled retrieval channels
 
 Public TopicMemoryContent stores only `title`, `summary`, and `detail`. A Detail chunk is a rebuildable internal
 retrieval projection. It has no business identity, is not part of the public data model, and cannot be an UPDATE unit.
 
-The first release maintains four logical channels:
+The first release supports two deployment shapes. An FTS-only deployment maintains two full-text channels. A deployment
+that starts with a matching Embedding model and vector infrastructure also maintains two vector channels:
 
 ~~~text
 full-text(title + summary)
@@ -358,7 +362,8 @@ embed(detail chunk)
 ~~~
 
 A Detail embedding does not prepend the global Topic title, preventing the title from dominating a short chunk. Local
-Markdown headings within the Detail may remain part of the body.
+Markdown headings within the Detail may remain part of the body. An FTS-only deployment does not generate either
+embedding projection and does not advertise vector or hybrid capability.
 
 Chunk policy:
 
@@ -373,9 +378,9 @@ The concrete chunk length, tail threshold, and overlap ratio are internal consta
 not public configuration. Changing the Chunk policy requires rebuilding the corresponding retrieval projections.
 
 Each retrieval channel first collapses by Topic. When multiple Detail chunks from one Topic match, only the best
-position is retained for the snippet. The four channels are fused by RRF rather than by comparing raw full-text scores
-with raw vector distances. A Topic occupies at most one final result position, and `matched_by` records which channels
-matched it.
+position is retained for the snippet. The two or four channels enabled for the current deployment are fused by RRF
+rather than by comparing raw full-text scores with raw vector distances. A Topic occupies at most one final result
+position, and `matched_by` records which channels matched it.
 
 ## Storage, Head, and atomic activation
 
@@ -388,17 +393,19 @@ Topic content, identity, Revision, Head, and lineage reuse the shared Artifact s
 
 Topic-specific retrieval storage maintains two kinds of active projection records:
 
-- Topic-level active record: exact ArtifactRef, title, summary, full-text field, and title/summary vector;
+- Topic-level active record: exact ArtifactRef, title, summary, full-text field, and, in a vector-enabled deployment,
+  title/summary vector;
 - Detail-chunk active records: exact ArtifactRef, chunk ordinal, body position, snippet text, full-text field, and detail
-  vector.
+  vector in a vector-enabled deployment.
 
 Database adapters may implement these logical records with the existing SQLite FTS/vector virtual table or OceanBase
 full-text/vector index patterns. Search, however, may query only the currently complete and searchable active records;
 it must not first read every Revision and construct a large `IN` query.
 
-Topic Content, chunks, full-text fields, and all Embeddings are prepared outside the transaction. When an existing
-Topic is updated, the old active Revision continues serving requests; a new Topic remains unsearchable until its first
-Revision is complete. Only after all four channels are ready does the Worker execute one short transaction:
+Topic Content, chunks, full-text fields, and all Embeddings required by a vector-enabled deployment are prepared outside
+the transaction. When an existing Topic is updated, the old active Revision continues serving requests; a new Topic
+remains unsearchable until its first Revision is complete. Only after all channels enabled for the deployment are ready
+does the Worker execute one short transaction:
 
 ~~~text
 validate the Supervisor term
@@ -412,8 +419,9 @@ validate the Supervisor term
 ~~~
 
 All CREATEs and UPDATEs for one Window commit atomically with the Cursor. Any validation or CAS failure rolls the whole
-batch back and causes reprocessing against the latest state. The system never exposes a Revision with full-text but no
-vector, or with only some searchable Detail chunks.
+batch back and causes reprocessing against the latest state. The system never exposes a Revision with only some
+searchable Detail chunks. A vector-enabled deployment also never exposes a Revision with missing or incomplete vectors;
+a complete Revision in an FTS-only deployment requires no vector projection.
 
 ## Pending dirty set
 
@@ -468,6 +476,11 @@ cursor >= source_through
 and handled_flush_generation == flush_generation
 ~~~
 
+Ordinary explicit processing may delete one Pending row under those conditions in the same transaction that advances
+its Cursor. A Worker in an automatic wave advances its Cursor but leaves Pending in place. After every frozen target in
+that wave completes, the binding's automatic-wave completion transaction performs cleanup so Pending deletion and
+`last_auto_wave_completed_at` commit atomically.
+
 A Worker failure does not advance the handled generation. After restart, the Supervisor can recover from Cursor and
 Pending without Job history or stage checkpoints.
 
@@ -479,6 +492,7 @@ The group uses one set of:
 - `pc_artifact_processing_pending`;
 - `pc_source_cursors`;
 - `pc_artifact_processing_leases`;
+- `pc_artifact_processing_binding_states`;
 - an in-memory fair queue and global Worker pool.
 
 This RFC does not add `pc_artifact_processing_routes`. Persistent routing and a routing generation become necessary
@@ -519,6 +533,26 @@ generation, and sets `lease_expires_at = NULL`; that term lasts until the next l
 the same business flow as OceanBase but validates only the holder and generation. Even if an old Supervisor crashes and
 leaves an orphan Worker alive, the generation produced by the new startup rejects the stale commit.
 
+### Supervisor failover and recovery
+
+When an OceanBase Leader fails to renew, it immediately stops dispatching and makes a best effort to terminate local
+Workers. Other candidate Supervisors periodically try to acquire the Lease. After the Lease expires, the candidate that
+takes over through an atomic update increments `supervisor_generation` and becomes the new Leader.
+
+The new Leader receives no in-memory queue, wave target, or retry state from the old Leader. It rediscovers work from
+persistent Pending, flush generations, Cursors, and binding scheduling state. An unfinished explicit flush resumes
+immediately. Whether ordinary Pending immediately forms an automatic recovery wave is determined by the binding's
+`last_auto_wave_completed_at` and automatic processing interval. If the old Leader exits before an automatic wave
+completes, it does not advance that time, so the new Leader immediately resumes a wave that is due but unfinished. A
+recently completed automatic wave waits only its remaining interval and does not run early merely because leadership
+changed. In-memory backoff resets on takeover, so a failed Scope may receive one immediate extra retry. Even if an old
+Leader or orphan Worker keeps running, its final transaction rolls back on holder, generation, or Lease validation and
+cannot change Artifacts, projections, Cursors, Pending, or binding scheduling state.
+
+SQLite provides no automatic multi-replica failover; process restart is its recovery path. A new Supervisor increments
+the generation at startup, removing publication authority from old orphan Workers, then recovers work through the same
+Pending, flush-generation, and Cursor rules.
+
 ### In-memory queue and Workers
 
 The Leader maintains an in-memory fair queue keyed by `(binding_name, scope_id)`. At most one Worker runs concurrently
@@ -533,18 +567,49 @@ Cursor CAS, and Head CAS. `deadline_at` is not a database correctness condition 
 
 ### Automatic scheduling
 
-The automatic processing interval is calculated per binding rather than from global Supervisor activity. When an
-automatic wave starts, it freezes the current `source_through` and uses multiple Windows to process through that
-target. Sources added during the wave remain for the next wave. The next automatic interval starts when the current
-wave ends.
+The automatic processing interval is calculated per binding rather than from global Supervisor activity. Scheduling
+progress is persisted in:
+
+~~~text
+pc_artifact_processing_binding_states
+
+binding_name                    PRIMARY KEY
+last_auto_wave_completed_at     TIMESTAMP NULL
+~~~
+
+This table stores only the minimum state needed to recover automatic scheduling across Supervisor terms. The binding's
+family, automatic processing interval, and Window limit remain startup registration configuration; this is neither a
+routing table nor a task table. Bindings update their completion times independently, so activity in one Artifact
+Family cannot reset or postpone another binding's automatic wave.
+
+When a binding has automatic scheduling enabled and ordinary Pending exists, the Leader may start an automatic wave if
+`last_auto_wave_completed_at` is `NULL` or database time has reached
+`last_auto_wave_completed_at + automatic_processing_interval`. At wave start it freezes the current `source_through`
+for every Pending Scope in that binding and uses multiple Windows to process through those targets. Sources added during
+the wave remain for the next wave.
+
+Workers in an automatic wave commit only Artifacts, projections, and Cursors; they do not delete Pending. Only after
+every frozen target completes does the Supervisor execute one short transaction with the same backend-specific
+fencing: OceanBase validates the holder, generation, and unexpired Lease, while SQLite validates the holder and
+generation. The transaction reconfirms that every frozen target is covered by its Cursor, updates the binding's
+`last_auto_wave_completed_at` from database time, and then deletes Pending rows that satisfy the existing Cursor and
+flush-generation conditions and have not been raised by newer Sources. The completion time and Pending cleanup commit
+atomically.
+
+Failure, timeout, leadership loss, or partial completion neither updates the time nor cleans up automatic-wave Pending.
+An explicit flush does not update the time either. If the Supervisor exits after all Workers complete but before the
+completion transaction, the replacement still sees Pending and recovers the due work as a new wave; Cursors prevent it
+from publishing already committed Windows twice. The binding state row remains when no Pending exists so leadership
+changes do not lose the automatic scheduling baseline.
 
 SQLite uses an in-process flush signal and automatic timer to wake the in-process Supervisor. The OceanBase Leader
 uses a short-period event loop for Lease renewal, discovery of persisted flush generations, and automatic deadlines.
 An in-process signal only reduces latency; database state provides correctness.
 
-When automatic scheduling is disabled, ordinary Pending records wait for an explicit flush. An unhandled flush
-generation must still recover after restart. When automatic scheduling is enabled, the Supervisor immediately starts
-a recovery wave for existing Pending records after restart.
+When automatic scheduling is disabled, ordinary Pending records wait for an explicit flush and
+`last_auto_wave_completed_at` does not participate in scheduling. An unhandled flush generation must still recover
+after restart. When automatic scheduling is enabled, a restarted or replacement Supervisor restores each binding's
+deadline from its persistent completion time.
 
 ### Retry and observability
 
@@ -562,7 +627,7 @@ Retries use jittered exponential backoff at approximately 30 seconds, 1 minute, 
 minutes. There is no maximum retry count, and the system never skips a Source automatically. Leader failover or process
 restart loses the backoff state and permits one immediate extra retry.
 
-Actual errors—including model calls, output validation, retrieval, Embedding, database commit, Worker crash, and
+Actual errors—including model calls, output validation, retrieval, enabled Embedding, database commit, Worker crash, and
 timeout—use the same backoff strategy but must produce structured logs by `stage` and `error_code`. Cursor/Head CAS
 conflicts and leadership loss are control signals and do not increase the ordinary failure count.
 
@@ -668,16 +733,33 @@ The first release adds or uses these deployment-level settings:
 The Source Window token limit is fixed at 80% of the generation context window; the total Topic request budget is
 100%. Neither ratio is public configuration in the first release.
 
-Topic Memory reuses the existing generation model, generation timeout, generation max requests, Embedding model,
-Embedding profile, dimension, normalization, timeout, and batch size. Probe, Planner, Evolver, and Reconciler use the
-same generation model. Per-stage model selection is deferred to a later RFC.
+Topic Memory reuses the existing generation model, generation timeout, and generation max requests. A vector-enabled
+deployment also reuses the existing Embedding model, Embedding profile, dimension, normalization, timeout, and batch
+size. Probe, Planner, Evolver, and Reconciler use the same generation model. Per-stage model selection is deferred to a
+later RFC.
+
+The retrieval shape is fixed when a deployment is initialized. A new deployment may select FTS-only, or it may enable
+FTS, vector, and hybrid by starting with complete and matching Embedding and vector infrastructure. The first release
+does not support converting an existing FTS-only deployment with Topic Heads in place. Adding Embedding configuration
+later neither backfills existing Heads nor permits the deployment to advertise vector or hybrid. That conversion
+requires a separately designed procedure for quiescing writes, creating projections, backfilling every current Head,
+validating completeness, and restoring capabilities. Until that procedure exists, an operator must retain the original
+FTS-only configuration or create a new vector-enabled deployment.
+
+When the Runtime opens existing Topic data with vector configuration, it must verify before readiness that every current
+Head already has complete Topic-level and Detail-chunk vector projections matching the configured profile. If any Head
+has only full-text projections, lacks any vector, or uses a different profile, initialization fails with a typed
+configuration error. The Runtime neither creates nor backfills those historical vectors and does not continue in a
+degraded state while advertising vector or hybrid. Removing the newly added vector configuration still allows the
+original deployment to open as FTS-only. A new deployment with no existing Topic Head may initialize directly with
+vector support.
 
 Configuration is read at process startup. The `all/background` candidates in a multi-replica OceanBase deployment
 should use consistent settings and record effective values in startup logs.
 
 # Drawbacks
 
-- Topic Memory adds multiple generation calls, four logical retrieval channels, background processes, and index
+- Topic Memory adds multiple generation calls, two or four logical retrieval channels, background processes, and index
   storage, making it substantially more expensive than existing Memory.
 - Automatic evolution may create or update a topic incorrectly. Immutable Revisions and lineage support auditability
   but cannot guarantee semantic quality automatically.
@@ -723,11 +805,13 @@ Only Topic Memory uses the new substrate in the first release. One global Leader
 concurrency without prematurely introducing a routing system. Future group separation can reuse the same Pending,
 Cursor, Lease, and Worker protocols.
 
-## Activate after complete indexing rather than fuse incomplete Revisions
+## Activate after the current deployment's indexes are complete rather than fuse incomplete Revisions
 
-Allowing a new Revision without vectors to participate in full-text retrieval would give different Revisions different
-channel counts and make fused rankings incomparable. Keeping the old active Revision until all four channels of the new
-Revision are ready avoids large Revision `IN` filters and temporary score compensation.
+An FTS-only deployment activates a Revision after both full-text channels are complete. In a vector-enabled deployment,
+allowing a new Revision without vectors to participate in full-text retrieval would give different Revisions different
+channel counts and make fused rankings incomparable, so the old active Revision remains until all four channels of the
+new Revision are ready. Both deployment shapes query only complete active projections, avoiding large Revision `IN`
+filters and temporary score compensation.
 
 # Prior art
 
@@ -758,6 +842,8 @@ The following boundaries are explicitly excluded rather than left as open choice
 - cross-Scope Topic retrieval;
 - user-facing APIs to create, update, delete, or retire Topics manually;
 - queryable background tasks, cancellation, checkpoints, or persistent retry state;
+- in-place conversion of existing FTS-only Topic Heads to a vector-enabled deployment and offline backfill of their
+  vector projections;
 - an independent Topic Supervisor group and online routing migration.
 
 # Future possibilities
@@ -771,5 +857,7 @@ The following boundaries are explicitly excluded rather than left as open choice
 - Design dedicated lossy or lossless fallbacks for one oversized Source, an oversized historical Topic, and recursive
   reconciliation.
 - Add manual Topic correction, rollback, retire, history visualization, and evaluation annotation.
+- Add an offline migration procedure that quiesces writes, backfills vector projections for existing FTS-only Topic
+  Heads, validates completeness, and restores capabilities.
 - Design and run LoCoMo comparison evaluation and tuning only after Topic Memory development passes functional
   acceptance; do not make that evaluation an implementation acceptance condition for this RFC.
