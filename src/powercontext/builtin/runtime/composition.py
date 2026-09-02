@@ -278,6 +278,7 @@ async def open_builtin_runtime(
                 external_skill_registry=contexts.external_skills if contexts.external_skill_registry else None,
                 external_skill_importer=contexts.import_external_skill if contexts.external_skill_registry else None,
                 statistics_service=contexts.statistics,
+                record_service=contexts.records,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 readiness=RuntimeReadinessChecks(readiness_probes),
                 tracing=tracing,

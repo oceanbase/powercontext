@@ -74,6 +74,7 @@ from powercontext.builtin.persistence.handoff import (
 )
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
+from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
@@ -318,6 +319,7 @@ class RelationalContexts:
             external_skills=ExternalSkillRepository(),
             statistics=StatisticsRepository(),
         )
+        self.records = RelationalRecordService(database, self.repositories.sources)
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None
         self._experience_pipeline = experience_pipeline

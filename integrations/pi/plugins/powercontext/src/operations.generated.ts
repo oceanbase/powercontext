@@ -70,6 +70,17 @@ export const OPERATIONS = {
   get_handoff_report_workspace: { method: 'POST', path: '/v1/handoff-reports/workspace-bindings/get', location: "body", scope: false },
   attach_handoff_report_workspace: { method: 'POST', path: '/v1/handoff-reports/workspace-bindings/attach', location: "body", scope: false },
   detach_handoff_report_workspace: { method: 'POST', path: '/v1/handoff-reports/workspace-bindings/detach', location: "body", scope: false },
+  search_sources: { method: 'GET', path: '/v1/sources', location: "query", scope: true },
+  create_source: { method: 'POST', path: '/v1/sources', location: "body", scope: true },
+  get_source: { method: 'GET', path: '/v1/sources/{source_id}', location: "query", scope: true },
+  list_artifacts: { method: 'GET', path: '/v1/artifacts', location: "query", scope: true },
+  create_artifact: { method: 'POST', path: '/v1/artifacts', location: "body", scope: true },
+  get_artifact: { method: 'GET', path: '/v1/artifacts/{artifact_id}', location: "query", scope: true },
+  replace_artifact: { method: 'PUT', path: '/v1/artifacts/{artifact_id}', location: "body", scope: true },
+  delete_artifact: { method: 'DELETE', path: '/v1/artifacts/{artifact_id}', location: "query", scope: true },
+  get_artifact_revision: { method: 'GET', path: '/v1/artifacts/{artifact_id}/revisions/{revision}', location: "query", scope: true },
+  search_artifacts: { method: 'GET', path: '/v1/artifact-search-results', location: "query", scope: true },
+  list_scopes: { method: 'GET', path: '/v1/scopes', location: "query", scope: false },
 } as const
 
 export type OperationId = keyof typeof OPERATIONS

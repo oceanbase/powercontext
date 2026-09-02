@@ -481,6 +481,42 @@ def test_generated_transport_rejects_values_outside_openapi(
         model.model_validate(value)
 
 
+def test_base_access_contract_uses_fixed_source_artifact_and_scope_paths() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    paths = contract["paths"]
+
+    expected_operations = {
+        ("/v1/sources", "post"): "create_source",
+        ("/v1/sources", "get"): "search_sources",
+        ("/v1/sources/{source_id}", "get"): "get_source",
+        ("/v1/artifacts", "post"): "create_artifact",
+        ("/v1/artifacts", "get"): "list_artifacts",
+        ("/v1/artifacts/{artifact_id}", "get"): "get_artifact",
+        ("/v1/artifacts/{artifact_id}", "put"): "replace_artifact",
+        ("/v1/artifacts/{artifact_id}", "delete"): "delete_artifact",
+        ("/v1/artifacts/{artifact_id}/revisions/{revision}", "get"): "get_artifact_revision",
+        ("/v1/artifact-search-results", "get"): "search_artifacts",
+        ("/v1/scopes", "get"): "list_scopes",
+    }
+    assert {
+        (path, method): paths[path][method]["operationId"] for path, method in expected_operations
+    } == expected_operations
+    assert not any(path.startswith("/v1/resources") or "derivation" in path for path in paths)
+
+    source_query = contract["components"]["schemas"]["SourceQueryType"]
+    assert source_query == {"type": "string", "enum": ["list", "search"]}
+    source_parameters = {item["name"]: item for item in paths["/v1/sources"]["get"]["parameters"]}
+    assert source_parameters["type"]["schema"] == {
+        "$ref": "#/components/schemas/SourceQueryType",
+        "default": "list",
+    }
+
+    for method in ("put", "delete"):
+        parameters = {item["name"]: item for item in paths["/v1/artifacts/{artifact_id}"][method]["parameters"]}
+        assert parameters["If-Match"]["required"] is True
+        assert set(paths["/v1/artifacts/{artifact_id}"][method]["responses"]) >= {"200", "412", "428"}
+
+
 def test_server_publishes_the_canonical_openapi_schema() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
 

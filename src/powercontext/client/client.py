@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from types import TracebackType
-from typing import Self, TypeVar
+from typing import Any, Self, TypeVar
+from urllib.parse import quote
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
@@ -31,6 +33,10 @@ from powercontext.http import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
+    ArtifactDeletionStatus,
+    ArtifactPage,
+    ArtifactRevision,
+    ArtifactSearchResultPage,
     AttachHandoffReportWorkspaceRequest,
     Capabilities,
     CaptureContentSourceRequest,
@@ -38,8 +44,11 @@ from powercontext.http import (
     CommitHandoffRequest,
     CommittedHandoff,
     ContinueHandoffRequest,
+    CreateArtifactRequest,
     CreateHandoffReportProjectRequest,
+    CreateSourceRequest,
     CreateWorkContractRequest,
+    DeleteArtifactRequest,
     DetachHandoffReportWorkspaceRequest,
     ErrorResponse,
     ExperienceArtifact,
@@ -51,12 +60,15 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetArtifactRequest,
+    GetArtifactRevisionRequest,
     GetExperienceRequest,
     GetHandoffReportProjectRequest,
     GetHandoffReportRequest,
     GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
+    GetSourceRequest,
     GetStatsRequest,
     HandoffAcknowledgement,
     HandoffActivation,
@@ -70,6 +82,7 @@ from powercontext.http import (
     ImportExternalSkillRequest,
     KnownHandoffScopePage,
     ListArtifactCandidatesRequest,
+    ListArtifactsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListHandoffReportActivitiesRequest,
@@ -80,6 +93,7 @@ from powercontext.http import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
+    ListScopesRequest,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -99,6 +113,7 @@ from powercontext.http import (
     RegisterHandoffReportWorkstreamRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
+    ReplaceArtifactRequest,
     ResolveExternalSkillRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
@@ -106,9 +121,14 @@ from powercontext.http import (
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
     ScopedStats,
+    ScopePage,
+    SearchArtifactsRequest,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SearchSourcesRequest,
     SkillArtifact,
+    SourcePage,
+    SourceRecord,
     StoredHandoffReportActivity,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
@@ -124,14 +144,19 @@ from powercontext.http._generated.operations import (
     CAPTURE_CONTENT_SOURCE,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_ARTIFACT,
     CREATE_HANDOFF_REPORT_PROJECT,
+    CREATE_SOURCE,
     CREATE_WORK_CONTRACT,
+    DELETE_ARTIFACT,
     DETACH_HANDOFF_REPORT_WORKSPACE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
     GENERATE_SKILL,
+    GET_ARTIFACT,
     GET_ARTIFACT_CANDIDATE,
+    GET_ARTIFACT_REVISION,
     GET_CAPABILITIES,
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
@@ -141,10 +166,12 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
+    GET_SOURCE,
     GET_STATS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_ARTIFACTS,
     LIST_EXTERNAL_SKILLS,
     LIST_HANDOFF_REPORT_ACTIVITIES,
     LIST_HANDOFF_REPORT_KNOWN_SCOPES,
@@ -152,6 +179,7 @@ from powercontext.http._generated.operations import (
     LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    LIST_SCOPES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
@@ -162,12 +190,15 @@ from powercontext.http._generated.operations import (
     REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
+    REPLACE_ARTIFACT,
     RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SCAN_EXTERNAL_SKILLS,
+    SEARCH_ARTIFACTS,
     SEARCH_MEMORY,
+    SEARCH_SOURCES,
     UPDATE_HANDOFF_REPORT_PROJECT,
     UPDATE_HANDOFF_REPORT_WORKSTREAM,
     Operation,
@@ -423,6 +454,94 @@ class PowerContextClient:
 
         return await self._request(CAPTURE_CONTENT_SOURCE, request)
 
+    async def create_source(self, request: CreateSourceRequest) -> SourceRecord:
+        """Create one durable Source without invoking generation."""
+
+        return await self._request(CREATE_SOURCE, request)
+
+    async def get_source(self, source_id: str, request: GetSourceRequest) -> SourceRecord:
+        """Read one exact Source in a Scope and Source type."""
+
+        return await self._request(GET_SOURCE, request, path_parameters={"source_id": source_id})
+
+    async def search_sources(self, request: SearchSourcesRequest) -> SourcePage:
+        """List Sources or search them according to request.type."""
+
+        return await self._request(SEARCH_SOURCES, request)
+
+    async def create_artifact(self, request: CreateArtifactRequest) -> ArtifactRevision:
+        """Commit revision one for a direct Artifact family."""
+
+        return await self._request(CREATE_ARTIFACT, request)
+
+    async def get_artifact(self, artifact_id: str, request: GetArtifactRequest) -> ArtifactRevision:
+        """Read the current visible Artifact head."""
+
+        return await self._request(GET_ARTIFACT, request, path_parameters={"artifact_id": artifact_id})
+
+    async def get_artifact_revision(
+        self,
+        artifact_id: str,
+        revision: int,
+        request: GetArtifactRevisionRequest,
+    ) -> ArtifactRevision:
+        """Read one exact immutable Artifact revision."""
+
+        return await self._request(
+            GET_ARTIFACT_REVISION,
+            request,
+            path_parameters={"artifact_id": artifact_id, "revision": revision},
+        )
+
+    async def list_artifacts(self, request: ListArtifactsRequest) -> ArtifactPage:
+        """List current visible Artifact heads in one family."""
+
+        return await self._request(LIST_ARTIFACTS, request)
+
+    async def search_artifacts(self, request: SearchArtifactsRequest) -> ArtifactSearchResultPage:
+        """Search current visible Artifact heads in one family."""
+
+        return await self._request(SEARCH_ARTIFACTS, request)
+
+    async def replace_artifact(
+        self,
+        artifact_id: str,
+        selector: GetArtifactRequest,
+        request: ReplaceArtifactRequest,
+        *,
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Commit a complete next revision using optimistic concurrency."""
+
+        return await self._request(
+            REPLACE_ARTIFACT,
+            request,
+            path_parameters={"artifact_id": artifact_id},
+            query_parameters=_query_parameters(selector),
+            extra_headers={"If-Match": _artifact_etag(expected_revision)},
+        )
+
+    async def delete_artifact(
+        self,
+        artifact_id: str,
+        request: DeleteArtifactRequest,
+        *,
+        expected_revision: int,
+    ) -> ArtifactDeletionStatus:
+        """Delete an Artifact head while preserving immutable revisions."""
+
+        return await self._request(
+            DELETE_ARTIFACT,
+            request,
+            path_parameters={"artifact_id": artifact_id},
+            extra_headers={"If-Match": _artifact_etag(expected_revision)},
+        )
+
+    async def list_scopes(self, request: ListScopesRequest) -> ScopePage:
+        """List Scopes observable by the current Server identity."""
+
+        return await self._request(LIST_SCOPES, request)
+
     async def create_work_contract(self, request: CreateWorkContractRequest) -> WorkSourceReceipt:
         """Create one grounded delegation baseline as durable Source evidence."""
 
@@ -592,40 +711,37 @@ class PowerContextClient:
         self,
         operation: Operation[_RequestT, _ResponseT],
         request: _RequestT | None = None,
+        *,
+        path_parameters: Mapping[str, str | int] | None = None,
+        query_parameters: Mapping[str, Any] | None = None,
+        extra_headers: Mapping[str, str] | None = None,
     ) -> _ResponseT:
-        json_payload = None
-        query_parameters = None
-        if request is not None:
-            if operation.request_type is None:
-                message = f"{operation.operation_id} does not accept a request"
-                raise TypeError(message)
-            payload = TypeAdapter(operation.request_type).dump_python(
-                request,
-                mode="json",
-                by_alias=True,
-            )
-            if operation.request_location == "query":
-                query_parameters = {key: value for key, value in payload.items() if value is not None}
-            else:
-                json_payload = payload
+        path, json_payload, request_query = _prepare_request(
+            operation,
+            request,
+            path_parameters=path_parameters,
+            query_parameters=query_parameters,
+        )
 
         span = ClientSpan.start(operation.operation_id)
         try:
             headers = {} if self._headers is None else dict(self._headers)
+            if extra_headers is not None:
+                headers.update(extra_headers)
             span.inject(headers)
             response = await self._http_client.request(
                 operation.method,
-                f"{self._base_url}{operation.path}",
+                f"{self._base_url}{path}",
                 json=json_payload,
                 headers=headers,
-                params=query_parameters,
+                params=request_query or None,
             )
         except asyncio.CancelledError as error:
             span.finish("cancelled", error=error)
             raise
         except httpx.HTTPError as exc:
             span.finish("failure", error=exc)
-            raise TransportError(operation.path) from exc
+            raise TransportError(path) from exc
         except BaseException as error:
             span.finish("failure", error=error)
             raise
@@ -652,6 +768,58 @@ class PowerContextClient:
                 operation.path,
                 request_id=request_id,
             ) from exc
+
+
+def _query_parameters(value: GetArtifactRequest) -> dict[str, Any]:
+    return value.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+
+def _prepare_request(
+    operation: Operation[Any, Any],
+    request: object | None,
+    *,
+    path_parameters: Mapping[str, str | int] | None,
+    query_parameters: Mapping[str, Any] | None,
+) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
+    json_payload: dict[str, Any] | None = None
+    request_query: dict[str, Any] = {}
+    if request is not None:
+        if operation.request_type is None:
+            message = f"{operation.operation_id} does not accept a request"
+            raise TypeError(message)
+        payload = TypeAdapter(operation.request_type).dump_python(request, mode="json", by_alias=True)
+        if not isinstance(payload, dict):
+            message = "Request must serialize to an object."
+            raise TypeError(message)
+        if operation.request_location == "query":
+            request_query.update({key: value for key, value in payload.items() if value is not None})
+        else:
+            json_payload = payload
+    if query_parameters is not None:
+        request_query.update({key: value for key, value in query_parameters.items() if value is not None})
+    path = _operation_path(operation, path_parameters)
+    return path, json_payload, request_query or None
+
+
+def _operation_path(
+    operation: Operation[Any, Any],
+    path_parameters: Mapping[str, str | int] | None,
+) -> str:
+    path = operation.path
+    for name, value in (path_parameters or {}).items():
+        placeholder = f"{{{name}}}"
+        if placeholder not in path:
+            raise ValueError(f"{operation.operation_id} has no {name} path parameter")  # noqa: TRY003
+        path = path.replace(placeholder, quote(str(value), safe=""))
+    if "{" in path or "}" in path:
+        raise ValueError(f"{operation.operation_id} requires path parameters")  # noqa: TRY003
+    return path
+
+
+def _artifact_etag(revision: int) -> str:
+    if isinstance(revision, bool) or revision < 1:
+        raise ValueError("expected_revision must be positive")  # noqa: TRY003
+    return f'"revision:{revision}"'
 
 
 def _decode_error(content: bytes) -> ErrorResponse | None:
