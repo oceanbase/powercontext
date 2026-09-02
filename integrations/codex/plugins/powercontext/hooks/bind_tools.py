@@ -36,9 +36,9 @@ from settings import CodexPluginSettings  # noqa: E402
 
 _PREFIX = "mcp__powercontext__"
 _CONTROL_OPERATIONS = frozenset({"set_scope_binding", "clear_scope_binding"})
-_CURRENT_SCOPE_OPERATIONS = frozenset({"resolve_scope_binding"})
+_RESOLVE_OPERATIONS = frozenset({"resolve_scope_binding"})
 _HOST_OPERATIONS = frozenset({"create_scope", "get_scope", "list_scopes", "publish_artifact"})
-_SCOPE_BOUND_OPERATIONS = frozenset({
+_CURRENT_OPERATIONS = frozenset({
     "acknowledge_handoff",
     "activate_handoff",
     "approve_artifact_candidate",
@@ -47,20 +47,34 @@ _SCOPE_BOUND_OPERATIONS = frozenset({
     "continue_handoff",
     "create_work_contract",
     "finalize_handoff",
+    "flush_memory",
+    "generate_experience",
+    "generate_skill",
     "get_artifact_candidate",
-    "get_handoff_report",
+    "get_experience",
     "get_memory_entry",
+    "get_skill",
     "handoff_current_work",
+    "import_external_skill",
     "list_artifact_candidates",
+    "list_external_skills",
+    "list_memory_changes",
     "list_memory_entries",
+    "prepare_context",
+    "prepare_handoff",
+    "propose_experience",
+    "propose_skill",
     "record_task_outcome",
     "reject_artifact_candidate",
     "remember_memory",
+    "resolve_external_skill",
     "retire_memory_entry",
     "revise_artifact_candidate",
     "revise_memory_entry",
+    "scan_external_skills",
     "search_memory",
 })
+_SELECTION_OPERATIONS = frozenset({"get_handoff_report", "get_stats"})
 
 
 def main(settings: CodexPluginSettings | None = None) -> int:
@@ -84,7 +98,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             updated["key"] = session_binding_key(session_id)
             _allow(updated)
             return 0
-        if operation in _CURRENT_SCOPE_OPERATIONS:
+        if operation in _RESOLVE_OPERATIONS:
             settings = CodexPluginSettings() if settings is None else settings
             _allow({
                 "explicit_scope_id": settings.scope_id,
@@ -94,7 +108,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         if operation in _HOST_OPERATIONS:
             _allow(dict(tool_input))
             return 0
-        if operation not in _SCOPE_BOUND_OPERATIONS:
+        if operation not in _CURRENT_OPERATIONS and operation not in _SELECTION_OPERATIONS:
             return 0
         settings = CodexPluginSettings() if settings is None else settings
         scope_id = resolve_scope_id(
@@ -104,7 +118,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             deadline=monotonic() + settings.http_budget_seconds,
         )
         updated = dict(tool_input)
-        if operation == "get_handoff_report":
+        if operation in _SELECTION_OPERATIONS:
             updated["selection"] = {"mode": "exact", "scope_ids": [scope_id]}
         else:
             updated["scope_id"] = scope_id

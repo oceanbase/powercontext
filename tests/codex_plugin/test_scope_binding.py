@@ -21,6 +21,20 @@ from types import ModuleType
 
 import pytest
 
+from powercontext.http._generated import operations as generated_operations
+
+
+def _operations_with_scope_mode(scope_mode: str) -> frozenset[str]:
+    return frozenset(
+        value.operation_id
+        for value in vars(generated_operations).values()
+        if isinstance(value, generated_operations.Operation) and value.scope_mode == scope_mode
+    )
+
+
+CURRENT_OPERATIONS = _operations_with_scope_mode("current")
+SELECTION_OPERATIONS = _operations_with_scope_mode("selection")
+
 
 def test_pre_tool_hook_overwrites_agent_scope_with_session_binding(
     bind_tools_module: ModuleType,
@@ -52,6 +66,65 @@ def test_pre_tool_hook_overwrites_agent_scope_with_session_binding(
     assert result["permissionDecision"] == "allow"
     assert result["updatedInput"]["scope_id"] == "scope-for-session-a"
     assert result["updatedInput"]["text"] == "Use Scope binding."
+
+
+def test_pre_tool_hook_scope_modes_match_generated_openapi_metadata(bind_tools_module: ModuleType) -> None:
+    assert bind_tools_module._CURRENT_OPERATIONS == CURRENT_OPERATIONS
+    assert bind_tools_module._SELECTION_OPERATIONS == SELECTION_OPERATIONS
+
+
+@pytest.mark.parametrize("operation", sorted(CURRENT_OPERATIONS))
+def test_pre_tool_hook_binds_every_current_scope_operation(
+    operation: str,
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(bind_tools_module, "resolve_scope_id", lambda *_args, **_kwargs: "bound-scope")
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps({
+                "session_id": "session-a",
+                "cwd": "/workspace",
+                "tool_name": f"mcp__powercontext__{operation}",
+                "tool_input": {"scope_id": "agent-selected"},
+            })
+        ),
+    )
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert bind_tools_module.main() == 0
+    updated = json.loads(output.getvalue())["hookSpecificOutput"]["updatedInput"]
+    assert updated["scope_id"] == "bound-scope"
+
+
+@pytest.mark.parametrize("operation", sorted(SELECTION_OPERATIONS))
+def test_pre_tool_hook_binds_every_selection_scope_operation(
+    operation: str,
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(bind_tools_module, "resolve_scope_id", lambda *_args, **_kwargs: "bound-scope")
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps({
+                "session_id": "session-a",
+                "cwd": "/workspace",
+                "tool_name": f"mcp__powercontext__{operation}",
+                "tool_input": {"selection": {"mode": "all"}},
+            })
+        ),
+    )
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert bind_tools_module.main() == 0
+    updated = json.loads(output.getvalue())["hookSpecificOutput"]["updatedInput"]
+    assert updated["selection"] == {"mode": "exact", "scope_ids": ["bound-scope"]}
 
 
 def test_pre_tool_hook_fixes_control_binding_to_current_session(
