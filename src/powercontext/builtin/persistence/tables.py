@@ -39,7 +39,15 @@ from powercontext.limits import (
     MAX_EXTERNAL_SKILL_HOST_ID_LENGTH,
     MAX_EXTERNAL_SKILL_LOCATOR_LENGTH,
     MAX_EXTERNAL_SKILL_NAME_LENGTH,
+    MAX_SCOPE_BINDING_EXTERNAL_ID_LENGTH,
+    MAX_SCOPE_BINDING_INTEGRATION_LENGTH,
+    MAX_SCOPE_BINDING_KIND_LENGTH,
+    MAX_SCOPE_EXTERNAL_REFERENCE_KIND_LENGTH,
+    MAX_SCOPE_EXTERNAL_REFERENCE_VALUE_LENGTH,
     MAX_SCOPE_ID_LENGTH,
+    MAX_SCOPE_IDEMPOTENCY_KEY_LENGTH,
+    MAX_SCOPE_SUMMARY_LENGTH,
+    MAX_SCOPE_TITLE_LENGTH,
     MAX_SOURCE_ID_LENGTH,
     MAX_SOURCE_TYPE_LENGTH,
 )
@@ -73,6 +81,82 @@ def _canonical_payload_type():
 
 def _entry_text_type():
     return Text().with_variant(MEDIUMTEXT(), "mysql")
+
+
+SCOPES_TABLE = Table(
+    "pc_scopes",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("title", String(MAX_SCOPE_TITLE_LENGTH), nullable=False),
+    Column("summary", String(MAX_SCOPE_SUMMARY_LENGTH), nullable=False),
+    Column("parent_scope_id", identity_string(MAX_SCOPE_ID_LENGTH)),
+    Column("version", Integer, nullable=False),
+    ForeignKeyConstraint(
+        ("parent_scope_id",),
+        ("pc_scopes.scope_id",),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("version > 0", name="ck_pc_scopes_version_positive"),
+)
+
+SCOPE_CONTEXT_REFERENCES_TABLE = Table(
+    "pc_scope_context_references",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("referenced_scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
+    ForeignKeyConstraint(("referenced_scope_id",), ("pc_scopes.scope_id",), ondelete="RESTRICT"),
+    CheckConstraint("scope_id <> referenced_scope_id", name="ck_pc_scope_context_references_not_self"),
+)
+
+SCOPE_EXTERNAL_REFERENCES_TABLE = Table(
+    "pc_scope_external_references",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("ordinal", Integer, primary_key=True),
+    Column("kind", identity_string(MAX_SCOPE_EXTERNAL_REFERENCE_KIND_LENGTH), nullable=False),
+    Column("value", String(MAX_SCOPE_EXTERNAL_REFERENCE_VALUE_LENGTH), nullable=False),
+    Column("value_digest", identity_string(64), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
+    UniqueConstraint("scope_id", "kind", "value_digest", name="uq_pc_scope_external_references_value"),
+    CheckConstraint("ordinal >= 0", name="ck_pc_scope_external_references_ordinal_nonnegative"),
+)
+
+SCOPE_CREATION_REQUESTS_TABLE = Table(
+    "pc_scope_creation_requests",
+    SHARED_METADATA,
+    Column("idempotency_key", identity_string(MAX_SCOPE_IDEMPOTENCY_KEY_LENGTH), primary_key=True),
+    Column("request_digest", identity_string(64), nullable=False),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="RESTRICT"),
+)
+
+SCOPE_SETTINGS_TABLE = Table(
+    "pc_scope_settings",
+    SHARED_METADATA,
+    Column("name", identity_string(64), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="RESTRICT"),
+)
+
+SCOPE_BINDINGS_TABLE = Table(
+    "pc_scope_bindings",
+    SHARED_METADATA,
+    Column("integration", identity_string(MAX_SCOPE_BINDING_INTEGRATION_LENGTH), primary_key=True),
+    Column("kind", identity_string(MAX_SCOPE_BINDING_KIND_LENGTH), primary_key=True),
+    Column("external_id", identity_string(MAX_SCOPE_BINDING_EXTERNAL_ID_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="RESTRICT"),
+)
+
+SCOPE_TABLES = (
+    SCOPES_TABLE,
+    SCOPE_CONTEXT_REFERENCES_TABLE,
+    SCOPE_EXTERNAL_REFERENCES_TABLE,
+    SCOPE_CREATION_REQUESTS_TABLE,
+    SCOPE_SETTINGS_TABLE,
+    SCOPE_BINDINGS_TABLE,
+)
 
 
 SOURCES_TABLE = Table(
@@ -452,4 +536,4 @@ MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
 
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
-BUILTIN_TABLES = SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES
+BUILTIN_TABLES = SCOPE_TABLES + SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES
