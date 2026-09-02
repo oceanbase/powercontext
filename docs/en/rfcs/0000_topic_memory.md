@@ -27,7 +27,7 @@ searchable Revision in one short transaction only after all four retrieval chann
 
 # Motivation
 
-## A Memory Entry is not a long-lived topic document
+## Organizing long-lived topics
 
 Existing Memory is well suited to independently retrievable facts, preferences, decisions, constraints, and work
 notes. A long-lived topic, however, needs to organize evidence from multiple sessions and tasks into one continuously
@@ -102,7 +102,7 @@ ID, and does not create a new Source. Pending identifies which `(binding_name, s
 Cursor identifies how far that binding has published atomically; and the Window identifies the contiguous Sources
 processed in the current run.
 
-## Exact evidence, not the whole Window
+## Topic evidence and Source lineage
 
 The Source Window only bounds the input that the model may read; it is not the evidence for every Topic. The server
 creates operation-local evidence IDs for Sources in the Window. For each CREATE or UPDATE, the model returns the

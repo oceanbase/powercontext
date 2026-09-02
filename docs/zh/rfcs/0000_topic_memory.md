@@ -24,7 +24,7 @@ Probe，检索当前 Topic Heads，再根据上下文大小选择全局直接演
 
 # Motivation
 
-## Memory Entry 不是长期主题文档
+## 长期主题的内容组织
 
 现有 Memory 适合保存可独立检索的事实、偏好、决定、约束和工作笔记。一个长期主题却需要把跨会话、跨任务的
 多条证据整理成一个持续演进的整体，例如：
@@ -91,7 +91,7 @@ Source Window 是运行时选择的连续区间 `(after, through]`，不是持�
 Pending 说明哪些 `(binding_name, scope_id)` 可能落后；Cursor 说明该 binding 已经原子发布到哪里；Window
 说明本轮实际处理哪些连续 Source。
 
-## 精确证据，而不是整个 Window
+## Topic 与 Source 的证据关联
 
 Source Window 只是允许模型读取的输入边界，不等于每个 Topic 的证据。服务端为 Window 中的 Source 建立
 operation-local evidence ID。模型为每个 CREATE 或 UPDATE 返回实际使用的 `evidence_ids`，服务端将其映射回
