@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -62,6 +63,12 @@ class ArtifactRepository:
                 raise TypeError(f"{artifact_type.__name__}.content must be a BaseModel")  # noqa: TRY003
             self._content_types[family] = content_type
 
+    @property
+    def families(self) -> frozenset[str]:
+        """Return the registered domain Families whose writes require their owning service."""
+
+        return frozenset(self._by_family)
+
     async def create(
         self,
         connection: AsyncConnection,
@@ -94,6 +101,7 @@ class ArtifactRepository:
                     family=ref.family,
                     artifact_id=ref.artifact_id,
                     revision=ref.revision,
+                    deleted_at=None,
                 )
             )
         except IntegrityError:
@@ -129,6 +137,7 @@ class ArtifactRepository:
                 ARTIFACT_HEADS_TABLE.c.family == artifact.family,
                 ARTIFACT_HEADS_TABLE.c.artifact_id == artifact.artifact_id,
                 ARTIFACT_HEADS_TABLE.c.revision == artifact.revision,
+                ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
             )
             .values(revision=ARTIFACT_HEADS_TABLE.c.revision)
         )
@@ -156,6 +165,7 @@ class ArtifactRepository:
                 ARTIFACT_HEADS_TABLE.c.family == artifact.family,
                 ARTIFACT_HEADS_TABLE.c.artifact_id == artifact.artifact_id,
                 ARTIFACT_HEADS_TABLE.c.revision == artifact.revision,
+                ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
             )
             .values(revision=ref.revision)
         )
@@ -259,6 +269,7 @@ class ArtifactRepository:
                 artifact_id=ref.artifact_id,
                 revision=ref.revision,
                 content=payload,
+                created_at=datetime.now(UTC),
             )
         )
         if lineage.sources:
@@ -393,6 +404,8 @@ class ArtifactRepository:
 
         head = await self._find_head(connection, scope_id, ref.family, ref.artifact_id)
         if head is None:
+            head = await self._find_deleted_head(connection, scope_id, ref.family, ref.artifact_id)
+        if head is None:
             return None
         current = await self.get(
             connection,
@@ -408,11 +421,28 @@ class ArtifactRepository:
         family: str,
         artifact_id: str,
     ) -> int | None:
+        statement = select(ARTIFACT_HEADS_TABLE.c.revision).where(
+            ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+            ARTIFACT_HEADS_TABLE.c.family == family,
+            ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
+            ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
+        )
+        value = await connection.scalar(statement)
+        return None if value is None else int(value)
+
+    async def _find_deleted_head(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+    ) -> int | None:
         value = await connection.scalar(
             select(ARTIFACT_HEADS_TABLE.c.revision).where(
                 ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
                 ARTIFACT_HEADS_TABLE.c.family == family,
                 ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
+                ARTIFACT_HEADS_TABLE.c.deleted_at.is_not(None),
             )
         )
         return None if value is None else int(value)

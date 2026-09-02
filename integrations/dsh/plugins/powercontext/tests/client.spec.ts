@@ -77,6 +77,69 @@ describe('PowerContextClient', () => {
     expect(fetchImpl).toHaveBeenCalledOnce()
   })
 
+  it('encodes scoped paths and separates path, query, header, and PUT body fields', async () => {
+    let call = 0
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      call += 1
+      const headers = new Headers(init?.headers)
+      if (call === 1) {
+        expect(url).toBe(
+          'http://127.0.0.1:8000/v1/scopes/scope%2Fteam/artifacts/decision%20records?query=recent+work&limit=5',
+        )
+        expect(init?.method).toBe('GET')
+        expect(init?.body).toBeUndefined()
+        return jsonResponse(200, { items: [] })
+      }
+      if (call === 2) {
+        expect(url).toBe(
+          'http://127.0.0.1:8000/v1/scopes/scope%2Fteam/artifacts/decision%20records/artifact%2F1',
+        )
+        expect(init?.method).toBe('PUT')
+        expect(headers.get('If-Match')).toBe('"revision:1"')
+        expect(JSON.parse(String(init?.body))).toEqual({ content: { title: 'kept' } })
+        return jsonResponse(200, { revision: 2 })
+      }
+      if (call === 3) {
+        expect(init?.method).toBe('GET')
+        expect(headers.get('If-None-Match')).toBe('"revision:2"')
+        expect(init?.body).toBeUndefined()
+        return new Response(null, { status: 304 })
+      }
+      expect(init?.method).toBe('DELETE')
+      expect(headers.get('If-Match')).toBe('"revision:2"')
+      expect(init?.body).toBeUndefined()
+      return new Response(null, { status: 204 })
+    })
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000/',
+      requestTimeoutMs: 1000,
+      fetch: fetchImpl,
+    })
+    const path = {
+      scope_id: 'scope/team',
+      family: 'decision records',
+    }
+
+    await client.request('list_artifacts', { ...path, query: 'recent work', limit: 5, ignored: 'value' })
+    await client.request('replace_artifact', {
+      ...path,
+      artifact_id: 'artifact/1',
+      if_match: '"revision:1"',
+      content: { title: 'kept' },
+    })
+    await expect(client.request('get_artifact', {
+      ...path,
+      artifact_id: 'artifact/1',
+      if_none_match: '"revision:2"',
+    })).resolves.toMatchObject({ kind: 'json', value: null, status: 304 })
+    await expect(client.request('delete_artifact', {
+      ...path,
+      artifact_id: 'artifact/1',
+      if_match: '"revision:2"',
+    })).resolves.toMatchObject({ kind: 'json', value: null, status: 204 })
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
+  })
+
   it('returns markdown text and raw bytes for get_handoff_report', async () => {
     const markdownClient = new PowerContextClient({
       baseUrl: 'http://127.0.0.1:8000',
@@ -135,24 +198,38 @@ describe('PowerContextClient', () => {
   it('emits the generated method and path for every operationId', async () => {
     const { OPERATION_IDS, OPERATIONS } = await import('../src/operations.generated.ts')
     const seen: Array<{ method: string; url: string; hasBody: boolean }> = []
+    let operationIndex = 0
     const client = new PowerContextClient({
       baseUrl: 'http://example.test',
       requestTimeoutMs: 1000,
       fetch: async (url, init) => {
+        const spec = OPERATIONS[OPERATION_IDS[operationIndex++]!]
         seen.push({ method: String(init?.method), url, hasBody: Boolean(init?.body) })
-        return jsonResponse(200, { ok: true })
+        const status = spec.successStatuses[0] ?? 200
+        return (spec.emptyStatuses as readonly number[]).includes(status)
+          ? new Response(null, { status })
+          : jsonResponse(status, { ok: true })
       },
     })
     for (const id of OPERATION_IDS) {
       const spec = OPERATIONS[id]
-      await client.request(id, spec.location === 'query' ? { scope_id: 's' } : { marker: id })
+      const payload: Record<string, unknown> = { marker: id }
+      for (const name of spec.pathParams) payload[name] = `value/${name}`
+      for (const name of spec.queryParams) payload[name] = `value-${name}`
+      for (const name of spec.headerParams) payload[name] = `value-${name}`
+      await client.request(id, payload)
     }
     expect(seen).toHaveLength(OPERATION_IDS.length)
     OPERATION_IDS.forEach((id, index) => {
       const spec = OPERATIONS[id]
+      let expectedPath = spec.path as string
+      for (const name of spec.pathParams) {
+        expectedPath = expectedPath.replace(`{${name}}`, encodeURIComponent(`value/${name}`))
+      }
       expect(seen[index].method).toBe(spec.method)
-      expect(seen[index].url.startsWith(`http://example.test${spec.path}`)).toBe(true)
-      expect(seen[index].hasBody).toBe(spec.method === 'POST' && spec.location === 'body')
+      expect(seen[index].url.startsWith(`http://example.test${expectedPath}`)).toBe(true)
+      expect(seen[index].url).not.toContain('{')
+      expect(seen[index].hasBody).toBe(spec.location === 'body')
     })
   })
 })

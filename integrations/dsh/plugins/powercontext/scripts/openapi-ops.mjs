@@ -66,7 +66,27 @@ function requestLocation(bodySchema, parameters) {
 
 function operationHasScope(doc, bodySchema, parameters) {
   if (bodySchema && schemaHasScope(doc, bodySchema)) return true
-  return parameters.some((parameter) => parameter.in === 'query' && parameter.name === 'scope_id')
+  return parameters.some((parameter) => ['path', 'query'].includes(parameter.in) && parameter.name === 'scope_id')
+}
+
+function parameterNames(parameters, location) {
+  return parameters
+    .filter((parameter) => parameter.in === location && typeof parameter.name === 'string')
+    .map((parameter) => parameter.name)
+}
+
+function responseStatuses(doc, operation) {
+  const successStatuses = []
+  const emptyStatuses = []
+  for (const [rawStatus, response] of Object.entries(operation.responses ?? {})) {
+    if (!/^\d+$/.test(rawStatus)) continue
+    const status = Number(rawStatus)
+    if (!((status >= 200 && status < 300) || status === 304)) continue
+    successStatuses.push(status)
+    const resolved = deref(doc, response)
+    if (!resolved?.content || Object.keys(resolved.content).length === 0) emptyStatuses.push(status)
+  }
+  return { successStatuses, emptyStatuses }
 }
 
 export function parseOperations(doc) {
@@ -78,12 +98,17 @@ export function parseOperations(doc) {
       if (!operation?.operationId) continue
       const parameters = operationParameters(doc, pathItem, operation)
       const bodySchema = jsonBodySchema(doc, operation)
+      const statuses = responseStatuses(doc, operation)
       rows.push({
         operationId: operation.operationId,
         method: method.toUpperCase(),
         path,
         location: requestLocation(bodySchema, parameters),
         scope: operationHasScope(doc, bodySchema, parameters),
+        pathParams: parameterNames(parameters, 'path'),
+        queryParams: parameterNames(parameters, 'query'),
+        headerParams: parameterNames(parameters, 'header'),
+        ...statuses,
       })
     }
   }
@@ -94,7 +119,10 @@ export function renderOperationsSource(rows) {
   const body = rows
     .map((row) => {
       const location = row.location === null ? 'null' : `"${row.location}"`
-      return `  ${row.operationId}: { method: '${row.method}', path: '${row.path}', location: ${location}, scope: ${row.scope} },`
+      const pathParams = JSON.stringify(row.pathParams).replaceAll('"', "'")
+      const queryParams = JSON.stringify(row.queryParams).replaceAll('"', "'")
+      const headerParams = JSON.stringify(row.headerParams).replaceAll('"', "'")
+      return `  ${row.operationId}: { method: '${row.method}', path: '${row.path}', location: ${location}, scope: ${row.scope}, pathParams: ${pathParams}, queryParams: ${queryParams}, headerParams: ${headerParams}, successStatuses: ${JSON.stringify(row.successStatuses)}, emptyStatuses: ${JSON.stringify(row.emptyStatuses)} },`
     })
     .join('\n')
   return `/*

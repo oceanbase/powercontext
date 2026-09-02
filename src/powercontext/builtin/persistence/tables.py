@@ -85,6 +85,7 @@ SOURCES_TABLE = Table(
     Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
     Column("payload", _canonical_payload_type(), nullable=False),
     Column("journal_position", BigInteger, nullable=False),
+    Column("created_at", DateTime(timezone=True)),
     UniqueConstraint("scope_id", "journal_position", name="uq_pc_sources_scope_journal_position"),
 )
 
@@ -96,21 +97,6 @@ SOURCE_JOURNAL_HEADS_TABLE = Table(
     CheckConstraint("position >= 0", name="ck_pc_source_journal_heads_position_nonnegative"),
 )
 
-SOURCE_RECORDS_TABLE = Table(
-    "pc_source_records",
-    SHARED_METADATA,
-    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("source_type", identity_string(MAX_SOURCE_TYPE_LENGTH), primary_key=True),
-    Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    Column("content_digest", identity_string(71), nullable=False),
-    ForeignKeyConstraint(
-        ("scope_id", "source_type", "source_id"),
-        ("pc_sources.scope_id", "pc_sources.source_type", "pc_sources.source_id"),
-        ondelete="CASCADE",
-    ),
-)
-
 ARTIFACTS_TABLE = Table(
     "pc_artifacts",
     SHARED_METADATA,
@@ -119,6 +105,7 @@ ARTIFACTS_TABLE = Table(
     Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, primary_key=True),
     Column("content", _canonical_payload_type(), nullable=False),
+    Column("created_at", DateTime(timezone=True)),
 )
 
 ARTIFACT_HEADS_TABLE = Table(
@@ -129,6 +116,7 @@ ARTIFACT_HEADS_TABLE = Table(
     Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, nullable=False),
     Column("searchable_text", _entry_text_type()),
+    Column("deleted_at", DateTime(timezone=True)),
     ForeignKeyConstraint(
         ("scope_id", "family", "artifact_id", "revision"),
         (
@@ -141,52 +129,6 @@ ARTIFACT_HEADS_TABLE = Table(
     ),
     CheckConstraint("revision > 0", name="ck_pc_artifact_heads_revision_positive"),
 )
-
-ARTIFACT_REVISION_RECORDS_TABLE = Table(
-    "pc_artifact_revision_records",
-    SHARED_METADATA,
-    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
-    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
-    Column("revision", Integer, primary_key=True),
-    Column("schema_version", Integer, nullable=False),
-    Column("metadata", _canonical_payload_type(), nullable=False),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    Column("content_digest", identity_string(71), nullable=False),
-    ForeignKeyConstraint(
-        ("scope_id", "family", "artifact_id", "revision"),
-        (
-            "pc_artifacts.scope_id",
-            "pc_artifacts.family",
-            "pc_artifacts.artifact_id",
-            "pc_artifacts.revision",
-        ),
-        ondelete="CASCADE",
-    ),
-    CheckConstraint("schema_version > 0", name="ck_pc_artifact_revision_records_schema_version_positive"),
-)
-
-ARTIFACT_TOMBSTONES_TABLE = Table(
-    "pc_artifact_tombstones",
-    SHARED_METADATA,
-    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
-    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
-    Column("revision", Integer, nullable=False),
-    Column("deleted_at", DateTime(timezone=True), nullable=False),
-    ForeignKeyConstraint(
-        ("scope_id", "family", "artifact_id", "revision"),
-        (
-            "pc_artifacts.scope_id",
-            "pc_artifacts.family",
-            "pc_artifacts.artifact_id",
-            "pc_artifacts.revision",
-        ),
-        ondelete="RESTRICT",
-    ),
-    CheckConstraint("revision > 0", name="ck_pc_artifact_tombstones_revision_positive"),
-)
-
 
 ARTIFACT_LINEAGE_SOURCES_TABLE = Table(
     "pc_artifact_lineage_sources",
@@ -412,11 +354,8 @@ RECALL_TOKEN_DAILY_TABLE = Table(
 SHARED_TABLES = (
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
-    SOURCE_RECORDS_TABLE,
     ARTIFACTS_TABLE,
     ARTIFACT_HEADS_TABLE,
-    ARTIFACT_REVISION_RECORDS_TABLE,
-    ARTIFACT_TOMBSTONES_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,

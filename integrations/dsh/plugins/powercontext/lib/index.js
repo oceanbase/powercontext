@@ -87,319 +87,714 @@ const OPERATIONS = {
 		method: "GET",
 		path: "/health/live",
 		location: null,
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	get_readiness: {
 		method: "GET",
 		path: "/health/ready",
 		location: null,
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	get_capabilities: {
 		method: "GET",
 		path: "/v1/capabilities",
 		location: null,
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	capture_content_source: {
 		method: "POST",
 		path: "/v1/sources/content",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
 	},
 	prepare_context: {
 		method: "POST",
 		path: "/v1/context/prepare",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	create_work_contract: {
 		method: "POST",
 		path: "/v1/work/contracts/create",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
 	},
 	handoff_current_work: {
 		method: "POST",
 		path: "/v1/work/handoffs/prepare-current",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	acknowledge_handoff: {
 		method: "POST",
 		path: "/v1/work/handoffs/acknowledge",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	record_task_outcome: {
 		method: "POST",
 		path: "/v1/work/outcomes/record",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
 	},
 	activate_handoff: {
 		method: "POST",
 		path: "/v1/handoff/activate",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	prepare_handoff: {
 		method: "POST",
 		path: "/v1/handoff/prepare",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	finalize_handoff: {
 		method: "POST",
 		path: "/v1/handoff/finalize",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	commit_handoff: {
 		method: "POST",
 		path: "/v1/handoff/commit",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	continue_handoff: {
 		method: "POST",
 		path: "/v1/handoff/continue",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	flush_memory: {
 		method: "POST",
 		path: "/v1/memory/flush",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	remember_memory: {
 		method: "POST",
 		path: "/v1/memory/remember",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	search_memory: {
 		method: "POST",
 		path: "/v1/memory/search",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	list_memory_entries: {
 		method: "POST",
 		path: "/v1/memory/entries/list",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	get_memory_entry: {
 		method: "POST",
 		path: "/v1/memory/entries/get",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	revise_memory_entry: {
 		method: "POST",
 		path: "/v1/memory/entries/revise",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	retire_memory_entry: {
 		method: "POST",
 		path: "/v1/memory/entries/retire",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	list_memory_changes: {
 		method: "POST",
 		path: "/v1/memory/changes",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	propose_experience: {
 		method: "POST",
 		path: "/v1/experience/propose",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201],
+		emptyStatuses: []
 	},
 	generate_experience: {
 		method: "POST",
 		path: "/v1/experience/generate",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	get_experience: {
 		method: "POST",
 		path: "/v1/experience/get",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	propose_skill: {
 		method: "POST",
 		path: "/v1/skill/propose",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201],
+		emptyStatuses: []
 	},
 	generate_skill: {
 		method: "POST",
 		path: "/v1/skill/generate",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	get_skill: {
 		method: "POST",
 		path: "/v1/skill/get",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	scan_external_skills: {
 		method: "POST",
 		path: "/v1/external-skills/scan",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	list_external_skills: {
 		method: "POST",
 		path: "/v1/external-skills/list",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	resolve_external_skill: {
 		method: "POST",
 		path: "/v1/external-skills/resolve",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	import_external_skill: {
 		method: "POST",
 		path: "/v1/external-skills/import",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	list_artifact_candidates: {
 		method: "POST",
 		path: "/v1/artifact-candidates/list",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	get_artifact_candidate: {
 		method: "POST",
 		path: "/v1/artifact-candidates/get",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	approve_artifact_candidate: {
 		method: "POST",
 		path: "/v1/artifact-candidates/approve",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	reject_artifact_candidate: {
 		method: "POST",
 		path: "/v1/artifact-candidates/reject",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	revise_artifact_candidate: {
 		method: "POST",
 		path: "/v1/artifact-candidates/revise",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	get_stats: {
 		method: "GET",
 		path: "/v1/stats",
 		location: "query",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: ["scope_id", "period"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	create_handoff_report_project: {
 		method: "POST",
 		path: "/v1/handoff-reports/projects/create",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201],
+		emptyStatuses: []
 	},
 	list_handoff_report_projects: {
 		method: "POST",
 		path: "/v1/handoff-reports/projects/list",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	list_handoff_report_known_scopes: {
 		method: "POST",
 		path: "/v1/handoff-reports/scopes/list-known",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	get_handoff_report_project: {
 		method: "POST",
 		path: "/v1/handoff-reports/projects/get",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	update_handoff_report_project: {
 		method: "POST",
 		path: "/v1/handoff-reports/projects/update",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	register_handoff_report_workstream: {
 		method: "POST",
 		path: "/v1/handoff-reports/workstreams/register",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201],
+		emptyStatuses: []
 	},
 	list_handoff_report_workstreams: {
 		method: "POST",
 		path: "/v1/handoff-reports/workstreams/list",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	update_handoff_report_workstream: {
 		method: "POST",
 		path: "/v1/handoff-reports/workstreams/update",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	get_handoff_report: {
 		method: "POST",
 		path: "/v1/handoff-reports/get",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	record_handoff_report_activity: {
 		method: "POST",
 		path: "/v1/handoff-reports/activities/record",
 		location: "body",
-		scope: true
+		scope: true,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201],
+		emptyStatuses: []
 	},
 	list_handoff_report_activities: {
 		method: "POST",
 		path: "/v1/handoff-reports/activities/list",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	purge_handoff_report_activities: {
 		method: "POST",
 		path: "/v1/handoff-reports/activities/purge",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	get_handoff_report_workspace: {
 		method: "POST",
 		path: "/v1/handoff-reports/workspace-bindings/get",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	attach_handoff_report_workspace: {
 		method: "POST",
 		path: "/v1/handoff-reports/workspace-bindings/attach",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	},
 	detach_handoff_report_workspace: {
 		method: "POST",
 		path: "/v1/handoff-reports/workspace-bindings/detach",
 		location: "body",
-		scope: false
+		scope: false,
+		pathParams: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	create_source: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/sources",
+		location: "body",
+		scope: true,
+		pathParams: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201],
+		emptyStatuses: []
+	},
+	list_sources: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/sources/{source_type}",
+		location: "query",
+		scope: true,
+		pathParams: ["scope_id", "source_type"],
+		queryParams: [
+			"query",
+			"mode",
+			"limit",
+			"cursor"
+		],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_source: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/sources/{source_type}/{source_id}",
+		location: null,
+		scope: true,
+		pathParams: [
+			"scope_id",
+			"source_type",
+			"source_id"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	create_artifact: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/artifacts",
+		location: "body",
+		scope: true,
+		pathParams: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201],
+		emptyStatuses: []
+	},
+	list_artifacts: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}",
+		location: "query",
+		scope: true,
+		pathParams: ["scope_id", "family"],
+		queryParams: [
+			"query",
+			"mode",
+			"limit",
+			"cursor"
+		],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
+		location: null,
+		scope: true,
+		pathParams: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: ["If-None-Match"],
+		successStatuses: [200, 304],
+		emptyStatuses: [304]
+	},
+	replace_artifact: {
+		method: "PUT",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
+		location: "body",
+		scope: true,
+		pathParams: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: ["If-Match"],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	delete_artifact: {
+		method: "DELETE",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
+		location: null,
+		scope: true,
+		pathParams: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: [],
+		headerParams: ["If-Match"],
+		successStatuses: [204],
+		emptyStatuses: [204]
+	},
+	get_artifact_revision: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
+		location: null,
+		scope: true,
+		pathParams: [
+			"scope_id",
+			"family",
+			"artifact_id",
+			"revision"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	}
 };
 const OPERATION_IDS = Object.keys(OPERATIONS);
@@ -482,6 +877,45 @@ function queryString(payload) {
 	const encoded = params.toString();
 	return encoded ? `?${encoded}` : "";
 }
+function encodePathSegment(value) {
+	return encodeURIComponent(String(value)).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+function headerPayloadKey(name$1) {
+	return name$1.toLowerCase().replaceAll("-", "_");
+}
+function prepareRequest(spec, payload) {
+	const remaining = { ...payload ?? {} };
+	let path = spec.path;
+	for (const name$1 of spec.pathParams) {
+		const value = remaining[name$1];
+		if (value === void 0 || value === null) throw new TypeError(`${spec.method} ${spec.path} requires ${name$1}`);
+		path = path.replace(`{${name$1}}`, encodePathSegment(value));
+		delete remaining[name$1];
+	}
+	const headers = {};
+	for (const name$1 of spec.headerParams) {
+		const alias = headerPayloadKey(name$1);
+		const value = remaining[name$1] ?? remaining[alias];
+		delete remaining[name$1];
+		delete remaining[alias];
+		if (value !== void 0 && value !== null) headers[name$1] = String(value);
+	}
+	const queryPayload = {};
+	for (const name$1 of spec.queryParams) {
+		const value = remaining[name$1];
+		delete remaining[name$1];
+		if (value !== void 0 && value !== null) queryPayload[name$1] = value;
+	}
+	return {
+		path,
+		query: queryString(queryPayload),
+		headers,
+		body: spec.location === "body" ? remaining : void 0
+	};
+}
+function hasStatus(statuses, status) {
+	return statuses.includes(status);
+}
 function isRedirect(status) {
 	return status >= 300 && status < 400;
 }
@@ -499,9 +933,10 @@ var PowerContextClient = class {
 	async request(id, payload, signal) {
 		if (!(id in OPERATIONS)) throw new UnknownOperationError(id);
 		const spec = OPERATIONS[id];
-		const url = this.buildUrl(spec, payload);
+		const prepared = prepareRequest(spec, payload);
+		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
 		try {
-			const response = await this.fetchImpl(url, this.buildInit(spec, payload, signal));
+			const response = await this.fetchImpl(url, this.buildInit(spec, prepared, signal));
 			return await this.parseResponse(id, spec, payload, response);
 		} catch (error) {
 			if (error instanceof ServerResponseError || error instanceof InvalidResponseError) throw error;
@@ -509,14 +944,11 @@ var PowerContextClient = class {
 			throw this.wrapTransport(spec.path, error);
 		}
 	}
-	buildUrl(spec, payload) {
-		const suffix = spec.location === "query" ? queryString(payload) : "";
-		return `${this.baseUrl}${spec.path}${suffix}`;
-	}
-	buildInit(spec, payload, signal) {
+	buildInit(spec, request, signal) {
 		const headers = {
 			Accept: "application/json",
-			"User-Agent": PLUGIN_USER_AGENT
+			"User-Agent": PLUGIN_USER_AGENT,
+			...request.headers
 		};
 		if (this.authorization) headers.Authorization = this.authorization;
 		const init = {
@@ -525,9 +957,9 @@ var PowerContextClient = class {
 			redirect: "manual",
 			signal: combineSignals([timeoutSignal(this.requestTimeoutMs), ...signal ? [signal] : []])
 		};
-		if (spec.method === "POST" && spec.location === "body") {
+		if (spec.location === "body") {
 			headers["Content-Type"] = "application/json";
-			init.body = JSON.stringify(payload ?? {});
+			init.body = JSON.stringify(request.body ?? {});
 		}
 		return init;
 	}
@@ -537,10 +969,20 @@ var PowerContextClient = class {
 		return new UnavailableError(path, error);
 	}
 	async parseResponse(id, spec, payload, response) {
-		if (isRedirect(response.status)) throw new InvalidResponseError(spec.path);
+		const success = response.status >= 200 && response.status < 300 || hasStatus(spec.successStatuses, response.status);
+		if (isRedirect(response.status) && !success) throw new InvalidResponseError(spec.path);
 		const bytes = await readLimitedBody(response);
 		const requestId = response.headers.get(REQUEST_ID_HEADER) ?? void 0;
-		if (response.status < 200 || response.status >= 300) throw this.httpError(response.status, spec.path, requestId, bytes);
+		if (!success) throw this.httpError(response.status, spec.path, requestId, bytes);
+		if (hasStatus(spec.emptyStatuses, response.status)) {
+			if (bytes.byteLength !== 0) throw new InvalidResponseError(spec.path, requestId);
+			return {
+				kind: "json",
+				value: null,
+				status: response.status,
+				requestId
+			};
+		}
 		if (id === "get_handoff_report" && payload?.download === true) return {
 			kind: "bytes",
 			value: bytes,

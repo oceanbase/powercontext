@@ -32,36 +32,67 @@ describe('operations coverage', () => {
     expect(generated).toEqual(fromYaml)
   })
 
-  it('records method, path, and location for each operation', () => {
+  it('records request and response metadata for each operation', () => {
     expect(OPERATIONS.get_liveness).toEqual({
       method: 'GET',
       path: '/health/live',
       location: null,
       scope: false,
+      pathParams: [],
+      queryParams: [],
+      headerParams: [],
+      successStatuses: [200],
+      emptyStatuses: [],
     })
     expect(OPERATIONS.get_stats).toEqual({
       method: 'GET',
       path: '/v1/stats',
       location: 'query',
       scope: true,
+      pathParams: [],
+      queryParams: ['scope_id', 'period'],
+      headerParams: [],
+      successStatuses: [200],
+      emptyStatuses: [],
     })
     expect(OPERATIONS.remember_memory).toEqual({
       method: 'POST',
       path: '/v1/memory/remember',
       location: 'body',
       scope: true,
+      pathParams: [],
+      queryParams: [],
+      headerParams: [],
+      successStatuses: [200],
+      emptyStatuses: [],
     })
     expect(OPERATIONS.get_handoff_report.scope).toBe(true)
     expect(OPERATIONS.get_capabilities.location).toBeNull()
+    expect(OPERATIONS.get_artifact).toMatchObject({
+      pathParams: ['scope_id', 'family', 'artifact_id'],
+      headerParams: ['If-None-Match'],
+      successStatuses: [200, 304],
+      emptyStatuses: [304],
+    })
+    expect(OPERATIONS.delete_artifact).toMatchObject({
+      headerParams: ['If-Match'],
+      successStatuses: [204],
+      emptyStatuses: [204],
+    })
   })
 
-  it('matches generated method, path, location, and scope for every operation', () => {
+  it('matches every generated operation field', () => {
     for (const row of parseOperations(loadYamlDoc())) {
       expect(OPERATIONS[row.operationId]).toEqual({
         method: row.method,
         path: row.path,
         location: row.location,
         scope: row.scope,
+        pathParams: row.pathParams,
+        queryParams: row.queryParams,
+        headerParams: row.headerParams,
+        successStatuses: row.successStatuses,
+        emptyStatuses: row.emptyStatuses,
       })
     }
   })

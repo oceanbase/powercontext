@@ -25,7 +25,6 @@ from pydantic import BaseModel, ConfigDict, JsonValue
 from powercontext.artifacts import ArtifactRef
 from powercontext.sources import SourceRef
 
-SourceQueryType = Literal["list", "search"]
 TextSearchMode = Literal["auto", "keyword"]
 
 
@@ -34,11 +33,24 @@ class _RecordModel(BaseModel):
 
 
 class SourceRecord(_RecordModel):
-    """One durable captured-text Source and its journal position."""
+    """One durable Source and its journal position."""
 
     scope_id: str
-    source_ref: SourceRef
-    content: str
+    source_type: str
+    source_id: str
+    content: JsonValue
+    metadata: dict[str, JsonValue]
+    created_at: datetime | None
+    position: int
+    content_digest: str
+
+
+class SourceCollectionItem(_RecordModel):
+    """One Source collection projection without its potentially large content."""
+
+    scope_id: str
+    source_type: str
+    source_id: str
     metadata: dict[str, JsonValue]
     created_at: datetime | None
     position: int
@@ -52,15 +64,13 @@ class SourceRecordPage(_RecordModel):
 
     query: str | None
     mode: Literal["keyword"] | None
-    items: tuple[SourceRecord, ...]
+    items: tuple[SourceCollectionItem, ...]
     next_cursor: str | None
 
 
 class ArtifactWrite(_RecordModel):
     """Complete content and direct lineage for one Artifact revision."""
 
-    schema_version: int
-    metadata: dict[str, JsonValue]
     content: dict[str, JsonValue]
     source_refs: tuple[SourceRef, ...] = ()
     artifact_refs: tuple[ArtifactRef, ...] = ()
@@ -71,8 +81,6 @@ class ArtifactRecord(_RecordModel):
 
     scope_id: str
     artifact_ref: ArtifactRef
-    schema_version: int
-    metadata: dict[str, JsonValue]
     content: dict[str, JsonValue]
     source_refs: tuple[SourceRef, ...]
     artifact_refs: tuple[ArtifactRef, ...]
@@ -80,27 +88,23 @@ class ArtifactRecord(_RecordModel):
     content_digest: str
 
 
+class ArtifactCollectionItem(_RecordModel):
+    """One active Artifact head without content or lineage."""
+
+    scope_id: str
+    artifact_ref: ArtifactRef
+    created_at: datetime | None
+    content_digest: str
+    score: float | None = None
+    snippets: tuple[str, ...] = ()
+
+
 class ArtifactRecordPage(_RecordModel):
-    """One stable page of current Artifact heads."""
+    """One stable page for Artifact listing or keyword search."""
 
-    items: tuple[ArtifactRecord, ...]
-    next_cursor: str | None
-
-
-class ArtifactSearchHit(_RecordModel):
-    """One matching current Artifact head."""
-
-    artifact: ArtifactRecord
-    score: float
-    snippets: tuple[str, ...]
-
-
-class ArtifactSearchPage(_RecordModel):
-    """One stable page of current Artifact-head search results."""
-
-    query: str
-    mode: Literal["keyword"]
-    hits: tuple[ArtifactSearchHit, ...]
+    query: str | None
+    mode: Literal["keyword"] | None
+    items: tuple[ArtifactCollectionItem, ...]
     next_cursor: str | None
 
 
@@ -173,6 +177,17 @@ class InvalidBaseAccessRequestError(BaseAccessError, ValueError):
         super().__init__(f"{field} {reason}")
 
 
+class InvalidCursorError(InvalidBaseAccessRequestError):
+    """Report a malformed, tampered, or context-mismatched pagination cursor."""
+
+    def __init__(self, reason: str = "is invalid") -> None:
+        super().__init__("cursor", reason)
+
+
+class CursorExpiredError(BaseAccessError):
+    """Report a valid pagination cursor whose bounded lifetime elapsed."""
+
+
 class ArtifactRevisionPreconditionError(BaseAccessError):
     """Report an Artifact ETag that no longer identifies the current head."""
 
@@ -189,8 +204,17 @@ class RecordService(Protocol):
         self,
         scope_id: str,
         source_type: str,
+        content: JsonValue,
+        metadata: Mapping[str, JsonValue],
+        /,
+    ) -> SourceRecord: ...
+
+    async def capture_source(
+        self,
+        scope_id: str,
+        source_type: str,
         source_id: str,
-        content: str,
+        content: JsonValue,
         metadata: Mapping[str, JsonValue],
         /,
     ) -> SourceRecord: ...
@@ -201,7 +225,6 @@ class RecordService(Protocol):
         self,
         scope_id: str,
         source_type: str,
-        query_type: SourceQueryType,
         /,
         *,
         query: str | None,
@@ -214,7 +237,6 @@ class RecordService(Protocol):
         self,
         scope_id: str,
         family: str,
-        artifact_id: str | None,
         write: ArtifactWrite,
         /,
     ) -> ArtifactRecord: ...
@@ -230,27 +252,17 @@ class RecordService(Protocol):
         /,
     ) -> ArtifactRecord: ...
 
-    async def list_artifacts(
+    async def query_artifacts(
         self,
         scope_id: str,
         family: str,
         /,
         *,
+        query: str | None,
+        mode: TextSearchMode | None,
         limit: int,
         cursor: str | None,
     ) -> ArtifactRecordPage: ...
-
-    async def search_artifacts(
-        self,
-        scope_id: str,
-        family: str,
-        query: str,
-        /,
-        *,
-        mode: TextSearchMode,
-        limit: int,
-        cursor: str | None,
-    ) -> ArtifactSearchPage: ...
 
     async def replace_artifact(
         self,

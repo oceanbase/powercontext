@@ -27,17 +27,21 @@ from datetime import UTC, datetime
 from functools import wraps
 from time import perf_counter
 from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypeVar, cast
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, Path, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from opentelemetry.trace import SpanKind
+from pydantic import JsonValue
 from scalar_fastapi import AgentScalarConfig, get_scalar_api_reference
 from starlette.middleware import Middleware
 from starlette.middleware.base import RequestResponseEndpoint
-from starlette.types import Lifespan
+from starlette.routing import Match
+from starlette.types import Lifespan, Scope
+from typing_extensions import override
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
@@ -100,6 +104,9 @@ from powercontext.builtin.handoff_report.repository import (
 )
 from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
 from powercontext.builtin.records import (
+    ArtifactCollectionItem as RuntimeArtifactCollectionItem,
+)
+from powercontext.builtin.records import (
     ArtifactDeletion as RuntimeArtifactDeletion,
 )
 from powercontext.builtin.records import (
@@ -114,20 +121,14 @@ from powercontext.builtin.records import (
     BaseOperationNotSupportedError,
     BaseValueConflictError,
     BaseValueNotFoundError,
+    CursorExpiredError,
     InvalidBaseAccessRequestError,
-)
-from powercontext.builtin.records import (
-    ArtifactSearchPage as RuntimeArtifactSearchPage,
+    InvalidCursorError,
 )
 from powercontext.builtin.records import (
     ArtifactWrite as RuntimeArtifactWrite,
 )
-from powercontext.builtin.records import (
-    ScopeSummaryPage as RuntimeScopeSummaryPage,
-)
-from powercontext.builtin.records import (
-    SourceQueryType as RuntimeSourceQueryType,
-)
+from powercontext.builtin.records import SourceCollectionItem as RuntimeSourceCollectionItem
 from powercontext.builtin.records import (
     SourceRecord as RuntimeSourceRecord,
 )
@@ -260,12 +261,9 @@ from powercontext.http import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
-    ArtifactDeletionState,
-    ArtifactDeletionStatus,
+    ArtifactCollectionItem,
     ArtifactPage,
     ArtifactRevision,
-    ArtifactSearchHit,
-    ArtifactSearchResultPage,
     AttachHandoffReportWorkspaceRequest,
     Capabilities,
     CaptureContentSourceRequest,
@@ -277,7 +275,6 @@ from powercontext.http import (
     CreateHandoffReportProjectRequest,
     CreateSourceRequest,
     CreateWorkContractRequest,
-    DeleteArtifactRequest,
     DetachHandoffReportWorkspaceRequest,
     ErrorDetail,
     ErrorResponse,
@@ -290,15 +287,12 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
-    GetArtifactRequest,
-    GetArtifactRevisionRequest,
     GetExperienceRequest,
     GetHandoffReportProjectRequest,
     GetHandoffReportRequest,
     GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
-    GetSourceRequest,
     GetStatsRequest,
     HandoffAcknowledgement,
     HandoffCurrentWorkRequest,
@@ -323,7 +317,7 @@ from powercontext.http import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
-    ListScopesRequest,
+    ListSourcesRequest,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -351,15 +345,11 @@ from powercontext.http import (
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
     ScopedStats,
-    ScopePage,
-    ScopeSummary,
-    SearchArtifactsRequest,
     SearchMemoryRequest,
     SearchMemoryResponse,
-    SearchSourcesRequest,
     SkillArtifact,
+    SourceCollectionItem,
     SourcePage,
-    SourceQueryType,
     SourceRecord,
     StoredHandoffReportActivity,
     TextSearchMode,
@@ -428,7 +418,7 @@ from powercontext.http._generated.operations import (
     LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
-    LIST_SCOPES,
+    LIST_SOURCES,
     OPENAPI_VERSION,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
@@ -446,9 +436,7 @@ from powercontext.http._generated.operations import (
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SCAN_EXTERNAL_SKILLS,
-    SEARCH_ARTIFACTS,
     SEARCH_MEMORY,
-    SEARCH_SOURCES,
     UPDATE_HANDOFF_REPORT_PROJECT,
     UPDATE_HANDOFF_REPORT_WORKSTREAM,
     Operation,
@@ -491,9 +479,8 @@ class _ScopedRecordApplication(Protocol):
     async def create_source(
         self,
         source_type: str,
-        source_id: str,
-        content: str,
-        metadata: dict[str, Any],
+        content: JsonValue,
+        metadata: dict[str, JsonValue],
         /,
     ) -> RuntimeSourceRecord: ...
 
@@ -502,7 +489,6 @@ class _ScopedRecordApplication(Protocol):
     async def query_sources(
         self,
         source_type: str,
-        query_type: RuntimeSourceQueryType,
         /,
         *,
         query: str | None,
@@ -514,7 +500,6 @@ class _ScopedRecordApplication(Protocol):
     async def create_artifact(
         self,
         family: str,
-        artifact_id: str | None,
         write: RuntimeArtifactWrite,
         /,
     ) -> RuntimeArtifactRecord: ...
@@ -529,25 +514,16 @@ class _ScopedRecordApplication(Protocol):
         /,
     ) -> RuntimeArtifactRecord: ...
 
-    async def list_artifacts(
+    async def query_artifacts(
         self,
         family: str,
         /,
         *,
+        query: str | None,
+        mode: RuntimeTextSearchMode | None,
         limit: int,
         cursor: str | None,
     ) -> RuntimeArtifactRecordPage: ...
-
-    async def search_artifacts(
-        self,
-        family: str,
-        query: str,
-        /,
-        *,
-        mode: RuntimeTextSearchMode,
-        limit: int,
-        cursor: str | None,
-    ) -> RuntimeArtifactSearchPage: ...
 
     async def replace_artifact(
         self,
@@ -569,8 +545,6 @@ class _ScopedRecordApplication(Protocol):
 
 class _RecordApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedRecordApplication: ...
-
-    async def list_scopes(self, *, limit: int, cursor: str | None) -> RuntimeScopeSummaryPage: ...
 
 
 class _ScopedContextApplication(Protocol):
@@ -777,11 +751,19 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
+        errors = _validation_error_details(error)
+        scoped_resource_syntax_error = request.url.path.startswith("/v1/scopes/") and not any(
+            isinstance(item, dict)
+            and isinstance(item.get("loc"), (list, tuple))
+            and item["loc"]
+            and item["loc"][0] == "body"
+            for item in errors
+        )
         return _error_response(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status.HTTP_400_BAD_REQUEST if scoped_resource_syntax_error else status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="invalid_request",
             message="The request violates the API contract.",
-            details={"errors": _validation_error_details(error)},
+            details={"errors": errors},
         )
 
     @app.exception_handler(_RuntimeNotReadyError)
@@ -790,7 +772,8 @@ def create_app(
     @app.exception_handler(PowerContextError)
     async def application_error(request: Request, error: Exception) -> JSONResponse:
         response_status, code, message, details = _map_error(error)
-        return _error_response(response_status, code=code, message=message, details=details)
+        headers = {"Allow": "GET"} if isinstance(error, BaseOperationNotSupportedError) else None
+        return _error_response(response_status, code=code, message=message, details=details, headers=headers)
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
@@ -825,16 +808,14 @@ def create_app(
         _add_route(app, DETACH_HANDOFF_REPORT_WORKSPACE, detach_handoff_report_workspace)
         _add_route(app, GET_HANDOFF_REPORT, get_handoff_report)
     _add_route(app, CREATE_SOURCE, create_source)
-    _add_route(app, SEARCH_SOURCES, search_sources)
     _add_route(app, GET_SOURCE, get_source)
+    _add_route(app, LIST_SOURCES, list_sources)
     _add_route(app, CREATE_ARTIFACT, create_artifact)
-    _add_route(app, LIST_ARTIFACTS, list_artifacts)
+    _add_route(app, GET_ARTIFACT_REVISION, get_artifact_revision)
     _add_route(app, GET_ARTIFACT, get_artifact)
+    _add_route(app, LIST_ARTIFACTS, list_artifacts)
     _add_route(app, REPLACE_ARTIFACT, replace_artifact)
     _add_route(app, DELETE_ARTIFACT, delete_artifact)
-    _add_route(app, GET_ARTIFACT_REVISION, get_artifact_revision)
-    _add_route(app, SEARCH_ARTIFACTS, search_artifacts)
-    _add_route(app, LIST_SCOPES, list_scopes)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
     _add_route(app, FLUSH_MEMORY, flush_memory)
     _add_route(app, REMEMBER_MEMORY, remember_memory)
@@ -1182,13 +1163,13 @@ async def get_handoff_report(
 
 
 async def create_source(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
     request: CreateSourceRequest,
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> SourceRecord:
-    result = await application.records.for_scope(request.scope_id).create_source(
+    result = await application.records.for_scope(scope_id).create_source(
         request.source_type,
-        request.source_id,
         request.content,
         request.metadata,
     )
@@ -1196,34 +1177,24 @@ async def create_source(
     return _source_record_response(result)
 
 
-def _search_sources_query(
-    scope_id: Annotated[str, Query(min_length=1, max_length=256, pattern=r".*\S.*")],
-    source_type: Annotated[str, Query(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
-    query_type: Annotated[SourceQueryType, Query(alias="type")] = SourceQueryType.LIST,
-    q: Annotated[str | None, Query(min_length=1, max_length=8192)] = None,
+def _list_sources_query(
+    query: Annotated[str | None, Query(max_length=8192)] = None,
     mode: Annotated[TextSearchMode | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
-) -> SearchSourcesRequest:
-    return SearchSourcesRequest(
-        scope_id=scope_id,
-        source_type=source_type,
-        type=query_type,
-        q=q,
-        mode=mode,
-        limit=limit,
-        cursor=cursor,
-    )
+) -> ListSourcesRequest:
+    return ListSourcesRequest(query=query, mode=mode, limit=limit, cursor=cursor)
 
 
-async def search_sources(
-    request: Annotated[SearchSourcesRequest, Depends(_search_sources_query)],
+async def list_sources(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    source_type: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
+    request: Annotated[ListSourcesRequest, Depends(_list_sources_query)],
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> SourcePage:
-    result = await application.records.for_scope(request.scope_id).query_sources(
-        request.source_type,
-        request.type.value,
-        query=request.q,
+    result = await application.records.for_scope(scope_id).query_sources(
+        source_type,
+        query=request.query,
         mode=None if request.mode is None else request.mode.value,
         limit=request.limit,
         cursor=request.cursor,
@@ -1231,28 +1202,29 @@ async def search_sources(
     return SourcePage(
         query=result.query,
         mode=None if result.mode is None else TextSearchUsedMode(result.mode),
-        items=[_source_record_response(item) for item in result.items],
+        items=[_source_collection_item_response(item) for item in result.items],
         next_cursor=result.next_cursor,
     )
 
 
 async def get_source(
-    source_id: Annotated[str, Path(min_length=1, max_length=256)],
-    request: Annotated[GetSourceRequest, Query()],
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    source_type: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
+    source_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r"^[\x21-\x7E]+$")],
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> SourceRecord:
-    result = await application.records.for_scope(request.scope_id).get_source(request.source_type, source_id)
+    result = await application.records.for_scope(scope_id).get_source(source_type, source_id)
     return _source_record_response(result)
 
 
 async def create_artifact(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
     request: CreateArtifactRequest,
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ArtifactRevision:
-    result = await application.records.for_scope(request.scope_id).create_artifact(
+    result = await application.records.for_scope(scope_id).create_artifact(
         request.family,
-        request.artifact_id,
         _artifact_write(request),
     )
     response.headers["Location"] = _artifact_location(result)
@@ -1261,51 +1233,66 @@ async def create_artifact(
 
 
 def _list_artifacts_query(
-    scope_id: Annotated[str, Query(min_length=1, max_length=256, pattern=r".*\S.*")],
-    family: Annotated[str, Query(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
+    query: Annotated[str | None, Query(max_length=8192)] = None,
+    mode: Annotated[TextSearchMode | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
 ) -> ListArtifactsRequest:
-    return ListArtifactsRequest(scope_id=scope_id, family=family, limit=limit, cursor=cursor)
+    return ListArtifactsRequest(query=query, mode=mode, limit=limit, cursor=cursor)
 
 
 async def list_artifacts(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    family: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
     request: Annotated[ListArtifactsRequest, Depends(_list_artifacts_query)],
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ArtifactPage:
-    result = await application.records.for_scope(request.scope_id).list_artifacts(
-        request.family,
+    result = await application.records.for_scope(scope_id).query_artifacts(
+        family,
+        query=request.query,
+        mode=None if request.mode is None else request.mode.value,
         limit=request.limit,
         cursor=request.cursor,
     )
     return ArtifactPage(
-        items=[_artifact_revision_response(item) for item in result.items],
+        query=result.query,
+        mode=None if result.mode is None else TextSearchUsedMode(result.mode),
+        items=[_artifact_collection_item_response(item) for item in result.items],
         next_cursor=result.next_cursor,
     )
 
 
 async def get_artifact(
-    artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
-    request: Annotated[GetArtifactRequest, Query()],
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    family: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
+    artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
-) -> ArtifactRevision:
-    result = await application.records.for_scope(request.scope_id).get_artifact(request.family, artifact_id)
-    response.headers["ETag"] = _artifact_etag(result.artifact_ref.revision)
+    if_none_match: Annotated[
+        str | None,
+        Header(alias="If-None-Match", pattern=r'^"revision:[1-9][0-9]*"$'),
+    ] = None,
+) -> ArtifactRevision | Response:
+    result = await application.records.for_scope(scope_id).get_artifact(family, artifact_id)
+    etag = _artifact_etag(result.artifact_ref.revision)
+    if if_none_match == etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
+    response.headers["ETag"] = etag
     return _artifact_revision_response(result)
 
 
 async def replace_artifact(
-    artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    family: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
+    artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
     request: ReplaceArtifactRequest,
-    selector: Annotated[GetArtifactRequest, Query()],
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> ArtifactRevision:
     expected_revision = _require_artifact_etag(if_match)
-    result = await application.records.for_scope(selector.scope_id).replace_artifact(
-        selector.family,
+    result = await application.records.for_scope(scope_id).replace_artifact(
+        family,
         artifact_id,
         expected_revision,
         _artifact_write(request),
@@ -1315,118 +1302,54 @@ async def replace_artifact(
 
 
 async def delete_artifact(
-    artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
-    request: Annotated[DeleteArtifactRequest, Query()],
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    family: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
+    artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
     application: Annotated[ServerApplication, Depends(_require_application)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
-) -> ArtifactDeletionStatus:
+) -> Response:
     expected_revision = _require_artifact_etag(if_match)
-    result = await application.records.for_scope(request.scope_id).delete_artifact(
-        request.family,
+    await application.records.for_scope(scope_id).delete_artifact(
+        family,
         artifact_id,
         expected_revision,
     )
-    return ArtifactDeletionStatus(
-        artifact_ref=mapping.artifact_reference(result.artifact_ref),
-        status=ArtifactDeletionState.DELETED,
-        deleted_at=result.deleted_at,
-    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 async def get_artifact_revision(
-    artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    family: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
+    artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
     revision: Annotated[int, Path(ge=1)],
-    request: Annotated[GetArtifactRevisionRequest, Query()],
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ArtifactRevision:
-    result = await application.records.for_scope(request.scope_id).get_artifact_revision(
-        request.family,
+    result = await application.records.for_scope(scope_id).get_artifact_revision(
+        family,
         artifact_id,
         revision,
     )
     return _artifact_revision_response(result)
 
 
-def _search_artifacts_query(
-    scope_id: Annotated[str, Query(min_length=1, max_length=256, pattern=r".*\S.*")],
-    family: Annotated[str, Query(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
-    q: Annotated[str, Query(min_length=1, max_length=8192, pattern=r".*\S.*")],
-    mode: Annotated[TextSearchMode, Query()] = TextSearchMode.AUTO,
-    limit: Annotated[int, Query(ge=1, le=100)] = 50,
-    cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
-) -> SearchArtifactsRequest:
-    return SearchArtifactsRequest(
-        scope_id=scope_id,
-        family=family,
-        q=q,
-        mode=mode,
-        limit=limit,
-        cursor=cursor,
-    )
-
-
-async def search_artifacts(
-    request: Annotated[SearchArtifactsRequest, Depends(_search_artifacts_query)],
-    application: Annotated[ServerApplication, Depends(_require_application)],
-) -> ArtifactSearchResultPage:
-    result = await application.records.for_scope(request.scope_id).search_artifacts(
-        request.family,
-        request.q,
-        mode=request.mode.value,
-        limit=request.limit,
-        cursor=request.cursor,
-    )
-    return ArtifactSearchResultPage(
-        query=result.query,
-        mode=TextSearchUsedMode(result.mode),
-        hits=[
-            ArtifactSearchHit(
-                artifact=_artifact_revision_response(hit.artifact),
-                score=hit.score,
-                snippets=list(hit.snippets),
-            )
-            for hit in result.hits
-        ],
-        next_cursor=result.next_cursor,
-    )
-
-
-async def list_scopes(
-    request: Annotated[ListScopesRequest, Depends(_list_scopes_query)],
-    application: Annotated[ServerApplication, Depends(_require_application)],
-) -> ScopePage:
-    result = await application.records.list_scopes(limit=request.limit, cursor=request.cursor)
-    return ScopePage(
-        items=[
-            ScopeSummary(
-                scope_id=item.scope_id,
-                title=item.title,
-                summary=item.summary,
-                parent_scope_id=item.parent_scope_id,
-                version=item.version,
-                source_types=list(item.source_types),
-                artifact_families=list(item.artifact_families),
-                source_count=item.source_count,
-                artifact_count=item.artifact_count,
-            )
-            for item in result.items
-        ],
-        next_cursor=result.next_cursor,
-    )
-
-
-def _list_scopes_query(
-    limit: Annotated[int, Query(ge=1, le=100)] = 50,
-    cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
-) -> ListScopesRequest:
-    return ListScopesRequest(limit=limit, cursor=cursor)
-
-
 def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
     return SourceRecord(
         scope_id=value.scope_id,
-        source_ref=mapping.source_reference(value.source_ref),
+        source_type=value.source_type,
+        source_id=value.source_id,
         content=value.content,
+        metadata=value.metadata,
+        created_at=value.created_at,
+        position=value.position,
+        content_digest=value.content_digest,
+    )
+
+
+def _source_collection_item_response(value: RuntimeSourceCollectionItem) -> SourceCollectionItem:
+    return SourceCollectionItem(
+        scope_id=value.scope_id,
+        source_type=value.source_type,
+        source_id=value.source_id,
         metadata=value.metadata,
         created_at=value.created_at,
         position=value.position,
@@ -1440,38 +1363,45 @@ def _artifact_revision_response(value: RuntimeArtifactRecord) -> ArtifactRevisio
     return ArtifactRevision(
         scope_id=value.scope_id,
         artifact_ref=mapping.artifact_reference(value.artifact_ref),
-        schema_version=value.schema_version,
-        metadata=value.metadata,
         content=value.content,
-        source_refs=[mapping.source_reference(ref) for ref in value.source_refs],
+        source_refs=[mapping.source_type_reference(ref) for ref in value.source_refs],
         artifact_refs=[mapping.artifact_reference(ref) for ref in value.artifact_refs],
         created_at=value.created_at,
         content_digest=value.content_digest,
     )
 
 
+def _artifact_collection_item_response(value: RuntimeArtifactCollectionItem) -> ArtifactCollectionItem:
+    return ArtifactCollectionItem(
+        scope_id=value.scope_id,
+        artifact_ref=mapping.artifact_reference(value.artifact_ref),
+        created_at=value.created_at,
+        content_digest=value.content_digest,
+        score=value.score,
+        snippets=list(value.snippets),
+    )
+
+
 def _artifact_write(value: CreateArtifactRequest | ReplaceArtifactRequest) -> RuntimeArtifactWrite:
     return RuntimeArtifactWrite(
-        schema_version=value.schema_version,
-        metadata=value.metadata,
         content=value.content,
-        source_refs=tuple(mapping.runtime_source_reference(ref) for ref in value.source_refs),
+        source_refs=tuple(mapping.runtime_source_type_reference(ref) for ref in value.source_refs),
         artifact_refs=tuple(mapping.runtime_artifact_reference(ref) for ref in value.artifact_refs),
     )
 
 
 def _source_location(value: RuntimeSourceRecord) -> str:
-    source_id = quote(value.source_ref.source_id, safe="")
+    source_id = quote(value.source_id, safe="")
     scope_id = quote(value.scope_id, safe="")
-    source_type = quote(value.source_ref.source_type, safe="")
-    return f"/v1/sources/{source_id}?scope_id={scope_id}&source_type={source_type}"
+    source_type = quote(value.source_type, safe="")
+    return f"/v1/scopes/{scope_id}/sources/{source_type}/{source_id}"
 
 
 def _artifact_location(value: RuntimeArtifactRecord) -> str:
     artifact_id = quote(value.artifact_ref.artifact_id, safe="")
     scope_id = quote(value.scope_id, safe="")
     family = quote(value.artifact_ref.family, safe="")
-    return f"/v1/artifacts/{artifact_id}?scope_id={scope_id}&family={family}"
+    return f"/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}"
 
 
 def _artifact_etag(revision: int) -> str:
@@ -1857,7 +1787,7 @@ def _add_route(
     operation: Operation[_RequestT, _ResponseT],
     endpoint: Callable[..., Awaitable[_ResponseT | Response]],
 ) -> None:
-    app.add_api_route(
+    app.router.add_api_route(
         operation.path,
         _observe_application_operation(app, operation, endpoint),
         methods=[operation.method],
@@ -1867,7 +1797,34 @@ def _add_route(
         responses=operation.responses,
         summary=operation.summary,
         tags=list(operation.tags),
+        route_class_override=_EncodedPathAPIRoute if operation.path.startswith("/v1/scopes/") else None,
     )
+
+
+class _EncodedPathAPIRoute(APIRoute):
+    """Match scoped resources against raw paths and decode each identity exactly once."""
+
+    @override
+    def matches(self, scope: Scope) -> tuple[Match, Scope]:
+        raw_path = scope.get("raw_path")
+        if scope["type"] != "http" or not isinstance(raw_path, bytes):
+            return super().matches(scope)
+        try:
+            encoded_path = raw_path.decode("ascii")
+        except UnicodeDecodeError:
+            return super().matches(scope)
+        encoded_scope = dict(scope)
+        encoded_scope["path"] = encoded_path
+        root_path = scope.get("root_path", "")
+        if root_path:
+            encoded_scope["root_path"] = quote(str(root_path), safe="/")
+        match, child_scope = super().matches(cast(Scope, encoded_scope))
+        if match is not Match.NONE:
+            child_scope["path_params"] = {
+                key: unquote(value) if isinstance(value, str) else value
+                for key, value in child_scope.get("path_params", {}).items()
+            }
+        return match, child_scope
 
 
 def _observe_application_operation(
@@ -1986,9 +1943,10 @@ def _error_response(
     code: str,
     message: str,
     details: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     error = ErrorResponse(error=ErrorDetail(code=code, message=message, details=details))
-    return JSONResponse(status_code=response_status, content=error.model_dump(mode="json"))
+    return JSONResponse(status_code=response_status, content=error.model_dump(mode="json"), headers=headers)
 
 
 def _validation_error_details(error: RequestValidationError) -> list[Any]:
@@ -2081,9 +2039,28 @@ def _map_base_access_error(error: Exception) -> tuple[int, str, str, dict[str, A
             "The stable identity already names different durable state.",
             {"kind": error.kind},
         )
-    if isinstance(error, InvalidBaseAccessRequestError):
+    if isinstance(error, CursorExpiredError):
         return (
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status.HTTP_410_GONE,
+            "cursor_expired",
+            "The pagination cursor has expired.",
+            None,
+        )
+    if isinstance(error, InvalidCursorError):
+        return (
+            status.HTTP_400_BAD_REQUEST,
+            "invalid_cursor",
+            "The pagination cursor is invalid or does not match this request.",
+            {"field": error.field, "reason": error.reason},
+        )
+    if isinstance(error, InvalidBaseAccessRequestError):
+        response_status = (
+            status.HTTP_400_BAD_REQUEST
+            if error.field in {"If-Match", "limit", "mode"}
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        return (
+            response_status,
             "invalid_request",
             "The request is invalid.",
             {"field": error.field, "reason": error.reason},

@@ -84,12 +84,18 @@ def parse_operations(doc: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             parameters = _operation_parameters(doc, path_item, operation)
             body_schema = _json_body_schema(doc, operation)
+            success_statuses, empty_statuses = _response_statuses(doc, operation)
             rows.append({
                 "operationId": operation["operationId"],
                 "method": method.upper(),
                 "path": path,
                 "location": _request_location(body_schema, parameters),
                 "scope": _operation_has_scope(doc, body_schema, parameters),
+                "pathParams": _parameter_names(parameters, "path"),
+                "queryParams": _parameter_names(parameters, "query"),
+                "headerParams": _parameter_names(parameters, "header"),
+                "successStatuses": success_statuses,
+                "emptyStatuses": empty_statuses,
             })
     return rows
 
@@ -115,8 +121,15 @@ def _render_row(row: dict[str, Any]) -> str:
     scope = "true" if row["scope"] else "false"
     return (
         f"  {row['operationId']}: {{ method: '{row['method']}', path: '{row['path']}', "
-        f"location: {location}, scope: {scope} }},"
+        f"location: {location}, scope: {scope}, pathParams: {_render_array(row['pathParams'])}, "
+        f"queryParams: {_render_array(row['queryParams'])}, headerParams: {_render_array(row['headerParams'])}, "
+        f"successStatuses: {_render_array(row['successStatuses'])}, "
+        f"emptyStatuses: {_render_array(row['emptyStatuses'])} }},"
     )
+
+
+def _render_array(values: list[str] | list[int]) -> str:
+    return f"[{','.join(repr(value) for value in values)}]"
 
 
 def _resolve_ref(doc: dict[str, Any], ref: str, seen: set[str]) -> Any:
@@ -190,7 +203,33 @@ def _request_location(body_schema: Any, parameters: list[dict[str, Any]]) -> str
 def _operation_has_scope(doc: dict[str, Any], body_schema: Any, parameters: list[dict[str, Any]]) -> bool:
     if body_schema and _schema_has_scope(doc, body_schema):
         return True
-    return any(parameter.get("in") == "query" and parameter.get("name") == "scope_id" for parameter in parameters)
+    return any(
+        parameter.get("in") in {"path", "query"} and parameter.get("name") == "scope_id" for parameter in parameters
+    )
+
+
+def _parameter_names(parameters: list[dict[str, Any]], location: str) -> list[str]:
+    return [
+        str(parameter["name"])
+        for parameter in parameters
+        if parameter.get("in") == location and isinstance(parameter.get("name"), str)
+    ]
+
+
+def _response_statuses(doc: dict[str, Any], operation: dict[str, Any]) -> tuple[list[int], list[int]]:
+    success: list[int] = []
+    empty: list[int] = []
+    for raw_status, response in (operation.get("responses") or {}).items():
+        if not isinstance(raw_status, str) or not raw_status.isdecimal():
+            continue
+        status = int(raw_status)
+        if not (200 <= status < 300 or status == 304):
+            continue
+        success.append(status)
+        resolved = _deref(doc, response)
+        if not isinstance(resolved, dict) or not resolved.get("content"):
+            empty.append(status)
+    return success, empty
 
 
 if __name__ == "__main__":

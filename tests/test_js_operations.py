@@ -57,10 +57,26 @@ def test_js_operations_record_method_path_location_and_scope() -> None:
         "path": "/health/live",
         "location": None,
         "scope": False,
+        "pathParams": [],
+        "queryParams": [],
+        "headerParams": [],
+        "successStatuses": [200],
+        "emptyStatuses": [],
     }
     assert by_id["get_stats"]["location"] == "query"
     assert by_id["remember_memory"]["location"] == "body"
     assert by_id["remember_memory"]["scope"] is True
+    assert by_id["create_source"]["location"] == "body"
+    assert by_id["create_source"]["scope"] is True
+    assert by_id["get_artifact"]["location"] is None
+    assert by_id["get_artifact"]["scope"] is True
+    assert by_id["get_artifact"]["pathParams"] == ["scope_id", "family", "artifact_id"]
+    assert by_id["get_artifact"]["headerParams"] == ["If-None-Match"]
+    assert by_id["get_artifact"]["successStatuses"] == [200, 304]
+    assert by_id["get_artifact"]["emptyStatuses"] == [304]
+    assert by_id["replace_artifact"]["headerParams"] == ["If-Match"]
+    assert by_id["delete_artifact"]["successStatuses"] == [204]
+    assert by_id["delete_artifact"]["emptyStatuses"] == [204]
 
 
 def test_committed_js_operations_match_openapi() -> None:

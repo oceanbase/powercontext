@@ -24,6 +24,8 @@ from powercontext.client.settings import ClientSettings
 from powercontext.http import (
     CaptureContentSourceRequest,
     GetHandoffReportRequest,
+    ListSourcesRequest,
+    TextSearchMode,
 )
 
 
@@ -171,6 +173,111 @@ def test_client_downloads_handoff_report_bytes_and_sets_download_flag() -> None:
         assert json.loads(requests[0].content)["download"] is False
         assert json.loads(requests[0].content)["scope_id"] == "scope-1"
         assert json.loads(requests[1].content)["download"] is True
+
+    asyncio.run(scenario())
+
+
+def test_client_serializes_scoped_source_paths_and_combined_list_query() -> None:
+    async def scenario() -> None:
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(
+                200,
+                json={
+                    "query": "durable source",
+                    "mode": "keyword",
+                    "items": [
+                        {
+                            "scope_id": "scope one",
+                            "source_type": "content",
+                            "source_id": "source-1",
+                            "metadata": {},
+                            "created_at": None,
+                            "position": 1,
+                            "content_digest": f"sha256:{'0' * 64}",
+                            "score": 1.0,
+                            "snippets": ["durable source"],
+                        }
+                    ],
+                    "next_cursor": None,
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            page = await client.list_sources(
+                "scope one",
+                "content",
+                ListSourcesRequest(
+                    query="durable source",
+                    mode=TextSearchMode.KEYWORD,
+                    limit=7,
+                    cursor="cursor-1",
+                ),
+            )
+
+        assert [item.source_id for item in page.items] == ["source-1"]
+        assert len(requests) == 1
+        assert requests[0].url.path == "/v1/scopes/scope one/sources/content"
+        assert dict(requests[0].url.params) == {
+            "query": "durable source",
+            "mode": "keyword",
+            "limit": "7",
+            "cursor": "cursor-1",
+        }
+
+    asyncio.run(scenario())
+
+
+def test_client_decodes_declared_not_modified_without_a_body() -> None:
+    async def scenario() -> None:
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(304, headers={"ETag": '"revision:2"'})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            artifact = await client.get_artifact(
+                "scope-a",
+                "document",
+                "artifact-1",
+                if_none_match='"revision:2"',
+            )
+
+        assert artifact is None
+        assert len(requests) == 1
+        assert requests[0].url.path == "/v1/scopes/scope-a/artifacts/document/artifact-1"
+        assert requests[0].headers["If-None-Match"] == '"revision:2"'
+
+    asyncio.run(scenario())
+
+
+def test_client_decodes_delete_no_content_and_sends_precondition() -> None:
+    async def scenario() -> None:
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(204)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            result = await client.delete_artifact(
+                "scope-a",
+                "document",
+                "artifact-1",
+                expected_revision=3,
+            )
+
+        assert result is None
+        assert len(requests) == 1
+        assert requests[0].method == "DELETE"
+        assert requests[0].url.path == "/v1/scopes/scope-a/artifacts/document/artifact-1"
+        assert requests[0].headers["If-Match"] == '"revision:3"'
 
     asyncio.run(scenario())
 

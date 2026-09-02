@@ -319,7 +319,12 @@ class RelationalContexts:
             external_skills=ExternalSkillRepository(),
             statistics=StatisticsRepository(),
         )
-        self.records = RelationalRecordService(database, self.repositories.sources)
+        self.records = RelationalRecordService(
+            database,
+            self.repositories.sources,
+            id_factory=id_factory,
+            protected_artifact_families=self.repositories.artifacts.families,
+        )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None
         self._experience_pipeline = experience_pipeline

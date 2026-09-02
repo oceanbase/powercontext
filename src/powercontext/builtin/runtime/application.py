@@ -75,12 +75,10 @@ from powercontext.builtin.records import (
     ArtifactDeletion,
     ArtifactRecord,
     ArtifactRecordPage,
-    ArtifactSearchPage,
     ArtifactWrite,
     BaseValueConflictError,
     RecordService,
     ScopeSummaryPage,
-    SourceQueryType,
     SourceRecord,
     SourceRecordPage,
     TextSearchMode,
@@ -247,15 +245,20 @@ class ScopedSourceApplication:
     async def capture(self, value: CaptureSource, /) -> SourceReceipt:
         if self._runtime._record_service is not None:
             try:
-                record = await self._runtime.records.for_scope(self.scope_id).create_source(
-                    CONTENT_SOURCE_NAME,
-                    value.source_id,
-                    value.content,
-                    value.metadata,
-                )
+                async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
+                    record = await self._runtime._records().capture_source(
+                        self.scope_id,
+                        CONTENT_SOURCE_NAME,
+                        value.source_id,
+                        value.content,
+                        value.metadata,
+                    )
             except BaseValueConflictError as error:
                 raise SourceConflictError("identity", error.identity) from None
-            return SourceReceipt(source_ref=record.source_ref, sequence=record.position)
+            return SourceReceipt(
+                source_ref=SourceRef(source_type=record.source_type, source_id=record.source_id),
+                sequence=record.position,
+            )
         async with self._runtime._context(self.scope_id) as context:
             source, sequence = await context.sources.capture(
                 ContentCapture(
@@ -287,8 +290,7 @@ class ScopedRecordApplication:
     async def create_source(
         self,
         source_type: str,
-        source_id: str,
-        content: str,
+        content: JsonValue,
         metadata: Mapping[str, JsonValue],
         /,
     ) -> SourceRecord:
@@ -296,7 +298,6 @@ class ScopedRecordApplication:
             return await self._runtime._records().create_source(
                 self.scope_id,
                 source_type,
-                source_id,
                 content,
                 metadata,
             )
@@ -308,7 +309,6 @@ class ScopedRecordApplication:
     async def query_sources(
         self,
         source_type: str,
-        query_type: SourceQueryType,
         /,
         *,
         query: str | None,
@@ -320,7 +320,6 @@ class ScopedRecordApplication:
             return await self._runtime._records().query_sources(
                 self.scope_id,
                 source_type,
-                query_type,
                 query=query,
                 mode=mode,
                 limit=limit,
@@ -330,12 +329,11 @@ class ScopedRecordApplication:
     async def create_artifact(
         self,
         family: str,
-        artifact_id: str | None,
         write: ArtifactWrite,
         /,
     ) -> ArtifactRecord:
         async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
-            return await self._runtime._records().create_artifact(self.scope_id, family, artifact_id, write)
+            return await self._runtime._records().create_artifact(self.scope_id, family, write)
 
     async def get_artifact(self, family: str, artifact_id: str, /) -> ArtifactRecord:
         async with self._runtime._scope_operation(self.scope_id):
@@ -356,37 +354,21 @@ class ScopedRecordApplication:
                 revision,
             )
 
-    async def list_artifacts(
+    async def query_artifacts(
         self,
         family: str,
         /,
         *,
+        query: str | None,
+        mode: TextSearchMode | None,
         limit: int,
         cursor: str | None,
     ) -> ArtifactRecordPage:
         async with self._runtime._scope_operation(self.scope_id):
-            return await self._runtime._records().list_artifacts(
+            return await self._runtime._records().query_artifacts(
                 self.scope_id,
                 family,
-                limit=limit,
-                cursor=cursor,
-            )
-
-    async def search_artifacts(
-        self,
-        family: str,
-        query: str,
-        /,
-        *,
-        mode: TextSearchMode,
-        limit: int,
-        cursor: str | None,
-    ) -> ArtifactSearchPage:
-        async with self._runtime._scope_operation(self.scope_id):
-            return await self._runtime._records().search_artifacts(
-                self.scope_id,
-                family,
-                query,
+                query=query,
                 mode=mode,
                 limit=limit,
                 cursor=cursor,

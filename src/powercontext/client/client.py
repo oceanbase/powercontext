@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 from types import TracebackType
-from typing import Any, Self, TypeVar
+from typing import Any, Self, TypeVar, cast
 from urllib.parse import quote
 
 import httpx
@@ -33,10 +33,8 @@ from powercontext.http import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
-    ArtifactDeletionStatus,
     ArtifactPage,
     ArtifactRevision,
-    ArtifactSearchResultPage,
     AttachHandoffReportWorkspaceRequest,
     Capabilities,
     CaptureContentSourceRequest,
@@ -48,7 +46,6 @@ from powercontext.http import (
     CreateHandoffReportProjectRequest,
     CreateSourceRequest,
     CreateWorkContractRequest,
-    DeleteArtifactRequest,
     DetachHandoffReportWorkspaceRequest,
     ErrorResponse,
     ExperienceArtifact,
@@ -60,15 +57,12 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
-    GetArtifactRequest,
-    GetArtifactRevisionRequest,
     GetExperienceRequest,
     GetHandoffReportProjectRequest,
     GetHandoffReportRequest,
     GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
-    GetSourceRequest,
     GetStatsRequest,
     HandoffAcknowledgement,
     HandoffActivation,
@@ -93,7 +87,7 @@ from powercontext.http import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
-    ListScopesRequest,
+    ListSourcesRequest,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -121,11 +115,8 @@ from powercontext.http import (
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
     ScopedStats,
-    ScopePage,
-    SearchArtifactsRequest,
     SearchMemoryRequest,
     SearchMemoryResponse,
-    SearchSourcesRequest,
     SkillArtifact,
     SourcePage,
     SourceRecord,
@@ -179,7 +170,7 @@ from powercontext.http._generated.operations import (
     LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
-    LIST_SCOPES,
+    LIST_SOURCES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
@@ -196,9 +187,7 @@ from powercontext.http._generated.operations import (
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SCAN_EXTERNAL_SKILLS,
-    SEARCH_ARTIFACTS,
     SEARCH_MEMORY,
-    SEARCH_SOURCES,
     UPDATE_HANDOFF_REPORT_PROJECT,
     UPDATE_HANDOFF_REPORT_WORKSTREAM,
     Operation,
@@ -454,59 +443,82 @@ class PowerContextClient:
 
         return await self._request(CAPTURE_CONTENT_SOURCE, request)
 
-    async def create_source(self, request: CreateSourceRequest) -> SourceRecord:
+    async def create_source(self, scope_id: str, request: CreateSourceRequest) -> SourceRecord:
         """Create one durable Source without invoking generation."""
 
-        return await self._request(CREATE_SOURCE, request)
+        return await self._request(CREATE_SOURCE, request, path_parameters={"scope_id": scope_id})
 
-    async def get_source(self, source_id: str, request: GetSourceRequest) -> SourceRecord:
+    async def get_source(self, scope_id: str, source_type: str, source_id: str) -> SourceRecord:
         """Read one exact Source in a Scope and Source type."""
 
-        return await self._request(GET_SOURCE, request, path_parameters={"source_id": source_id})
+        return await self._request(
+            GET_SOURCE,
+            path_parameters={"scope_id": scope_id, "source_type": source_type, "source_id": source_id},
+        )
 
-    async def search_sources(self, request: SearchSourcesRequest) -> SourcePage:
-        """List Sources or search them according to request.type."""
+    async def list_sources(self, scope_id: str, source_type: str, request: ListSourcesRequest) -> SourcePage:
+        """List Sources or search them when the request includes a query."""
 
-        return await self._request(SEARCH_SOURCES, request)
+        return await self._request(
+            LIST_SOURCES,
+            request,
+            path_parameters={"scope_id": scope_id, "source_type": source_type},
+        )
 
-    async def create_artifact(self, request: CreateArtifactRequest) -> ArtifactRevision:
+    async def create_artifact(self, scope_id: str, request: CreateArtifactRequest) -> ArtifactRevision:
         """Commit revision one for a direct Artifact family."""
 
-        return await self._request(CREATE_ARTIFACT, request)
+        return await self._request(CREATE_ARTIFACT, request, path_parameters={"scope_id": scope_id})
 
-    async def get_artifact(self, artifact_id: str, request: GetArtifactRequest) -> ArtifactRevision:
+    async def get_artifact(
+        self,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+        *,
+        if_none_match: str | None = None,
+    ) -> ArtifactRevision | None:
         """Read the current visible Artifact head."""
 
-        return await self._request(GET_ARTIFACT, request, path_parameters={"artifact_id": artifact_id})
+        return await self._request(
+            GET_ARTIFACT,
+            path_parameters={"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
+            extra_headers=None if if_none_match is None else {"If-None-Match": if_none_match},
+        )
 
     async def get_artifact_revision(
         self,
+        scope_id: str,
+        family: str,
         artifact_id: str,
         revision: int,
-        request: GetArtifactRevisionRequest,
     ) -> ArtifactRevision:
         """Read one exact immutable Artifact revision."""
 
         return await self._request(
             GET_ARTIFACT_REVISION,
-            request,
-            path_parameters={"artifact_id": artifact_id, "revision": revision},
+            path_parameters={
+                "scope_id": scope_id,
+                "family": family,
+                "artifact_id": artifact_id,
+                "revision": revision,
+            },
         )
 
-    async def list_artifacts(self, request: ListArtifactsRequest) -> ArtifactPage:
-        """List current visible Artifact heads in one family."""
+    async def list_artifacts(self, scope_id: str, family: str, request: ListArtifactsRequest) -> ArtifactPage:
+        """List Artifact heads or search them when the request includes a query."""
 
-        return await self._request(LIST_ARTIFACTS, request)
-
-    async def search_artifacts(self, request: SearchArtifactsRequest) -> ArtifactSearchResultPage:
-        """Search current visible Artifact heads in one family."""
-
-        return await self._request(SEARCH_ARTIFACTS, request)
+        return await self._request(
+            LIST_ARTIFACTS,
+            request,
+            path_parameters={"scope_id": scope_id, "family": family},
+        )
 
     async def replace_artifact(
         self,
+        scope_id: str,
+        family: str,
         artifact_id: str,
-        selector: GetArtifactRequest,
         request: ReplaceArtifactRequest,
         *,
         expected_revision: int,
@@ -516,31 +528,25 @@ class PowerContextClient:
         return await self._request(
             REPLACE_ARTIFACT,
             request,
-            path_parameters={"artifact_id": artifact_id},
-            query_parameters=_query_parameters(selector),
+            path_parameters={"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
             extra_headers={"If-Match": _artifact_etag(expected_revision)},
         )
 
     async def delete_artifact(
         self,
+        scope_id: str,
+        family: str,
         artifact_id: str,
-        request: DeleteArtifactRequest,
         *,
         expected_revision: int,
-    ) -> ArtifactDeletionStatus:
+    ) -> None:
         """Delete an Artifact head while preserving immutable revisions."""
 
-        return await self._request(
+        await self._request(
             DELETE_ARTIFACT,
-            request,
-            path_parameters={"artifact_id": artifact_id},
+            path_parameters={"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
             extra_headers={"If-Match": _artifact_etag(expected_revision)},
         )
-
-    async def list_scopes(self, request: ListScopesRequest) -> ScopePage:
-        """List Scopes observable by the current Server identity."""
-
-        return await self._request(LIST_SCOPES, request)
 
     async def create_work_contract(self, request: CreateWorkContractRequest) -> WorkSourceReceipt:
         """Create one grounded delegation baseline as durable Source evidence."""
@@ -745,13 +751,12 @@ class PowerContextClient:
         except BaseException as error:
             span.finish("failure", error=error)
             raise
-        span.finish(
-            "success" if response.status_code == operation.success_status else "failure",
-            status_code=response.status_code,
-        )
+        declared_not_modified = response.status_code == 304 and 304 in operation.responses
+        succeeded = response.status_code == operation.success_status or declared_not_modified
+        span.finish("success" if succeeded else "failure", status_code=response.status_code)
 
         request_id = response.headers.get(REQUEST_ID_HEADER)
-        if response.status_code != operation.success_status:
+        if not succeeded:
             error = _decode_error(response.content)
             raise ServerResponseError(
                 status_code=response.status_code,
@@ -761,6 +766,9 @@ class PowerContextClient:
                 details=None if error is None else error.error.details,
             )
 
+        if response.status_code in {204, 304} or operation.response_type is None:
+            return cast(_ResponseT, None)
+
         try:
             return TypeAdapter(operation.response_type).validate_json(response.content)
         except ValidationError as exc:
@@ -768,10 +776,6 @@ class PowerContextClient:
                 operation.path,
                 request_id=request_id,
             ) from exc
-
-
-def _query_parameters(value: GetArtifactRequest) -> dict[str, Any]:
-    return value.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 def _prepare_request(

@@ -24,11 +24,14 @@ from powercontext.http import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactReference,
+    ArtifactRevision,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CommitHandoffRequest,
     CommittedHandoff,
     ContinueHandoffRequest,
+    CreateArtifactRequest,
+    CreateSourceRequest,
     CreateWorkContractRequest,
     ExternalSkillResolution,
     FinalizeHandoffRequest,
@@ -43,9 +46,11 @@ from powercontext.http import (
     HandoffDraft,
     HandoffResolution,
     ImportExternalSkillRequest,
+    ListArtifactsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListMemoryEntriesRequest,
+    ListSourcesRequest,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
@@ -62,6 +67,8 @@ from powercontext.http import (
     SearchMemoryRequest,
     SkillProposal,
     SkillValidationItem,
+    SourceRecord,
+    SourceTypeReference,
     StatsPeriod,
     WorkSourceReceipt,
 )
@@ -72,23 +79,31 @@ from powercontext.http._generated.operations import (
     CAPTURE_CONTENT_SOURCE,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_ARTIFACT,
+    CREATE_SOURCE,
     CREATE_WORK_CONTRACT,
+    DELETE_ARTIFACT,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
     GENERATE_SKILL,
+    GET_ARTIFACT,
     GET_ARTIFACT_CANDIDATE,
+    GET_ARTIFACT_REVISION,
     GET_EXPERIENCE,
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
+    GET_SOURCE,
     GET_STATS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_ARTIFACTS,
     LIST_EXTERNAL_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    LIST_SOURCES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
@@ -96,6 +111,7 @@ from powercontext.http._generated.operations import (
     RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
+    REPLACE_ARTIFACT,
     RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
@@ -481,40 +497,141 @@ def test_generated_transport_rejects_values_outside_openapi(
         model.model_validate(value)
 
 
-def test_base_access_contract_uses_fixed_source_artifact_and_scope_paths() -> None:
+def test_base_access_contract_uses_only_the_nine_scoped_operations() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     paths = contract["paths"]
 
     expected_operations = {
-        ("/v1/sources", "post"): "create_source",
-        ("/v1/sources", "get"): "search_sources",
-        ("/v1/sources/{source_id}", "get"): "get_source",
-        ("/v1/artifacts", "post"): "create_artifact",
-        ("/v1/artifacts", "get"): "list_artifacts",
-        ("/v1/artifacts/{artifact_id}", "get"): "get_artifact",
-        ("/v1/artifacts/{artifact_id}", "put"): "replace_artifact",
-        ("/v1/artifacts/{artifact_id}", "delete"): "delete_artifact",
-        ("/v1/artifacts/{artifact_id}/revisions/{revision}", "get"): "get_artifact_revision",
-        ("/v1/artifact-search-results", "get"): "search_artifacts",
-        ("/v1/scopes", "get"): "list_scopes",
+        ("/v1/scopes/{scope_id}/sources", "post"): "create_source",
+        ("/v1/scopes/{scope_id}/sources/{source_type}", "get"): "list_sources",
+        ("/v1/scopes/{scope_id}/sources/{source_type}/{source_id}", "get"): "get_source",
+        ("/v1/scopes/{scope_id}/artifacts", "post"): "create_artifact",
+        ("/v1/scopes/{scope_id}/artifacts/{family}", "get"): "list_artifacts",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "get"): "get_artifact",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "put"): "replace_artifact",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "delete"): "delete_artifact",
+        (
+            "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
+            "get",
+        ): "get_artifact_revision",
     }
-    assert {
-        (path, method): paths[path][method]["operationId"] for path, method in expected_operations
-    } == expected_operations
-    assert not any(path.startswith("/v1/resources") or "derivation" in path for path in paths)
+    actual_operations = {
+        (path, method): operation["operationId"]
+        for path, path_item in paths.items()
+        if path.startswith("/v1/scopes/{scope_id}/sources") or path.startswith("/v1/scopes/{scope_id}/artifacts")
+        for method, operation in path_item.items()
+    }
+    assert actual_operations == expected_operations
+    assert not any(
+        operation_id in {"search_sources", "search_artifacts", "list_scopes"}
+        for operation_id in actual_operations.values()
+    )
+    assert not any("search-results" in path or path == "/v1/scopes" for path in paths)
 
-    source_query = contract["components"]["schemas"]["SourceQueryType"]
-    assert source_query == {"type": "string", "enum": ["list", "search"]}
-    source_parameters = {item["name"]: item for item in paths["/v1/sources"]["get"]["parameters"]}
-    assert source_parameters["type"]["schema"] == {
-        "$ref": "#/components/schemas/SourceQueryType",
-        "default": "list",
-    }
+
+def test_base_access_create_requests_leave_identity_generation_to_the_server() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schemas = contract["components"]["schemas"]
+
+    source = schemas["CreateSourceRequest"]
+    assert source["required"] == ["content"]
+    assert set(source["properties"]) == {"source_type", "content", "metadata"}
+    assert source["properties"]["source_type"]["default"] == "content"
+
+    artifact = schemas["CreateArtifactRequest"]
+    assert artifact["required"] == ["family", "content"]
+    assert set(artifact["properties"]) == {"family", "content", "source_refs", "artifact_refs"}
+    assert not {"scope_id", "source_id", "artifact_id"} & set(source["properties"] | artifact["properties"])
+
+    assert CreateSourceRequest(content="evidence").source_type == "content"
+    assert CreateArtifactRequest(family="decision", content={"value": 1}).source_refs == []
+    for model, payload in (
+        (CreateSourceRequest, {"scope_id": "scope", "content": "evidence"}),
+        (CreateSourceRequest, {"source_id": "source", "content": "evidence"}),
+        (CreateArtifactRequest, {"artifact_id": "artifact", "family": "decision", "content": {}}),
+    ):
+        with pytest.raises(ValidationError):
+            model.model_validate(payload)
+
+
+def test_source_artifact_collections_combine_list_and_search_queries() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    paths = contract["paths"]
+
+    for path in (
+        "/v1/scopes/{scope_id}/sources/{source_type}",
+        "/v1/scopes/{scope_id}/artifacts/{family}",
+    ):
+        parameters = paths[path]["get"]["parameters"]
+        assert [parameter["name"] for parameter in parameters if parameter["in"] == "query"] == [
+            "query",
+            "mode",
+            "limit",
+            "cursor",
+        ]
+        assert "type" not in {parameter["name"] for parameter in parameters}
+
+    assert ListSourcesRequest().model_dump() == {"query": None, "mode": None, "limit": 50, "cursor": None}
+    assert ListArtifactsRequest(query="refund").query == "refund"
+
+
+def test_base_access_uses_a_dedicated_source_type_reference() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schemas = contract["components"]["schemas"]
+
+    assert set(schemas["SourceReference"]["properties"]) == {"name", "source_id"}
+    assert set(schemas["SourceTypeReference"]["properties"]) == {"source_type", "source_id"}
+    for schema_name in ("CreateArtifactRequest", "ReplaceArtifactRequest", "ArtifactRevision"):
+        assert schemas[schema_name]["properties"]["source_refs"]["items"] == {
+            "$ref": "#/components/schemas/SourceTypeReference"
+        }
+    assert SourceTypeReference(source_type="content", source_id="source").source_type == "content"
+
+
+def test_base_access_operations_describe_no_content_and_conditional_get() -> None:
+    assert CREATE_SOURCE.request_type is CreateSourceRequest
+    assert CREATE_ARTIFACT.request_type is CreateArtifactRequest
+    assert LIST_SOURCES.request_type is ListSourcesRequest
+    assert LIST_ARTIFACTS.request_type is ListArtifactsRequest
+    assert GET_SOURCE.request_type is None
+    assert GET_ARTIFACT.request_type is None
+    assert GET_ARTIFACT_REVISION.request_type is None
+    assert REPLACE_ARTIFACT.response_type is ArtifactRevision
+    assert DELETE_ARTIFACT.request_type is None
+    assert DELETE_ARTIFACT.response_type is None
+    assert DELETE_ARTIFACT.success_status == 204
+    assert 304 in GET_ARTIFACT.responses
+
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    item_path = contract["paths"]["/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}"]
+    allow_header = contract["components"]["responses"]["OperationNotSupported"]["headers"]["Allow"]
+    assert allow_header["required"] is True
+    assert allow_header["schema"] == {"type": "string"}
+    get_parameters = {parameter["name"]: parameter for parameter in item_path["get"]["parameters"]}
+    assert get_parameters["If-None-Match"]["required"] is False
+    assert "content" not in item_path["get"]["responses"]["304"]
 
     for method in ("put", "delete"):
-        parameters = {item["name"]: item for item in paths["/v1/artifacts/{artifact_id}"][method]["parameters"]}
+        parameters = {item["name"]: item for item in item_path[method]["parameters"]}
         assert parameters["If-Match"]["required"] is True
-        assert set(paths["/v1/artifacts/{artifact_id}"][method]["responses"]) >= {"200", "412", "428"}
+        assert set(item_path[method]["responses"]) >= {"412", "428"}
+    assert "content" not in item_path["delete"]["responses"]["204"]
+
+
+def test_generated_response_models_ignore_unknown_fields() -> None:
+    response = SourceRecord.model_validate({
+        "scope_id": "scope",
+        "source_type": "content",
+        "source_id": "source",
+        "content": "evidence",
+        "metadata": {},
+        "created_at": "2026-09-02T12:00:00Z",
+        "position": 1,
+        "content_digest": f"sha256:{'0' * 64}",
+        "future_optional_field": "ignored",
+    })
+
+    assert "future_optional_field" not in response.model_dump()
 
 
 def test_server_publishes_the_canonical_openapi_schema() -> None:

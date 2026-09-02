@@ -17,17 +17,19 @@
 from __future__ import annotations
 
 import base64
+import binascii
+import hmac
 import json
-from collections.abc import Callable, Mapping
-from contextlib import suppress
-from datetime import UTC, datetime
+import secrets
+from collections.abc import Callable, Iterable, Mapping
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any, cast
 from uuid import uuid4
 
 import rfc8785
 from pydantic import JsonValue, TypeAdapter, ValidationError
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -40,28 +42,26 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
-    ARTIFACT_REVISION_RECORDS_TABLE,
-    ARTIFACT_TOMBSTONES_TABLE,
     ARTIFACTS_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
-    SOURCE_RECORDS_TABLE,
     SOURCES_TABLE,
 )
 from powercontext.builtin.records import (
+    ArtifactCollectionItem,
     ArtifactDeletion,
     ArtifactRecord,
     ArtifactRecordPage,
     ArtifactRevisionPreconditionError,
-    ArtifactSearchHit,
-    ArtifactSearchPage,
     ArtifactWrite,
     BaseOperationNotSupportedError,
     BaseValueConflictError,
     BaseValueNotFoundError,
+    CursorExpiredError,
     InvalidBaseAccessRequestError,
+    InvalidCursorError,
     ScopeSummary,
     ScopeSummaryPage,
-    SourceQueryType,
+    SourceCollectionItem,
     SourceRecord,
     SourceRecordPage,
     TextSearchMode,
@@ -70,9 +70,12 @@ from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, CONTENT_SOURCE_
 from powercontext.sources import SourceRef
 
 Clock = Callable[[], datetime]
+IdFactory = Callable[[str], str]
 
 _JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
+_JSON_VALUE = TypeAdapter(JsonValue)
 _PROTECTED_ARTIFACT_FAMILIES = frozenset({"experience", "handoff", "memory", "skill"})
+_DEFAULT_CURSOR_TTL_SECONDS = 3_600
 
 
 class RelationalRecordService:
@@ -85,70 +88,93 @@ class RelationalRecordService:
         /,
         *,
         clock: Clock | None = None,
+        id_factory: IdFactory | None = None,
+        cursor_secret: bytes | None = None,
+        cursor_ttl_seconds: int = _DEFAULT_CURSOR_TTL_SECONDS,
+        protected_artifact_families: Iterable[str] | None = None,
     ) -> None:
+        if isinstance(cursor_ttl_seconds, bool) or cursor_ttl_seconds < 1:
+            raise ValueError("cursor_ttl_seconds must be a positive integer")  # noqa: TRY003
+        if cursor_secret is not None and not cursor_secret:
+            raise ValueError("cursor_secret must not be empty")  # noqa: TRY003
         self._database = database
         self._sources = sources
         self._clock = _utc_now if clock is None else clock
+        self._id_factory = _resource_id if id_factory is None else id_factory
+        self._cursor_secret = secrets.token_bytes(32) if cursor_secret is None else cursor_secret
+        self._cursor_ttl = timedelta(seconds=cursor_ttl_seconds)
+        self._protected_artifact_families = frozenset(
+            _PROTECTED_ARTIFACT_FAMILIES if protected_artifact_families is None else protected_artifact_families
+        )
 
     async def create_source(
         self,
         scope_id: str,
         source_type: str,
-        source_id: str,
-        content: str,
+        content: JsonValue,
         metadata: Mapping[str, JsonValue],
         /,
     ) -> SourceRecord:
+        return await self._store_source(
+            scope_id,
+            source_type,
+            self._id_factory("source"),
+            content,
+            metadata,
+        )
+
+    async def capture_source(
+        self,
+        scope_id: str,
+        source_type: str,
+        source_id: str,
+        content: JsonValue,
+        metadata: Mapping[str, JsonValue],
+        /,
+    ) -> SourceRecord:
+        """Preserve the caller-stable identity used by the existing capture API."""
+
+        return await self._store_source(scope_id, source_type, source_id, content, metadata)
+
+    async def _store_source(
+        self,
+        scope_id: str,
+        source_type: str,
+        source_id: str,
+        content: JsonValue,
+        metadata: Mapping[str, JsonValue],
+    ) -> SourceRecord:
         self._require_content_source(source_type, "create")
-        capture = ContentCapture(source_id=source_id, content=content, metadata=dict(metadata))
+        try:
+            capture = ContentCapture.model_validate(
+                {"source_id": source_id, "content": content, "metadata": dict(metadata)},
+                strict=True,
+            )
+        except ValidationError as error:
+            raise InvalidBaseAccessRequestError("content", "does not match the Source adapter") from error
         source = await CONTENT_SOURCE_ADAPTER.resolve(capture)
-        digest = _content_digest({"content": source.content, "metadata": source.metadata})
-        created_at = _aware_datetime(self._clock())
         try:
             async with self._database.transaction() as connection:
-                stored = await self._sources.add(connection, scope_id, source)
-                record = await _source_projection(connection, scope_id, stored.ref)
-                if record is None:
-                    with suppress(IntegrityError):
-                        await connection.execute(
-                            insert(SOURCE_RECORDS_TABLE).values(
-                                scope_id=scope_id,
-                                source_type=stored.ref.source_type,
-                                source_id=stored.ref.source_id,
-                                created_at=created_at,
-                                content_digest=digest,
-                            )
-                        )
-                    record = await _source_projection(connection, scope_id, stored.ref)
-                projected_at = created_at if record is None else _aware_datetime(record.created_at)
-                projected_digest = digest if record is None else str(record.content_digest)
-                return _source_record(
+                stored = await self._sources.add(
+                    connection,
                     scope_id,
-                    stored,
-                    created_at=projected_at,
-                    content_digest=projected_digest,
+                    source,
+                    created_at=_aware_datetime(self._clock()),
                 )
         except StoredPayloadConflictError as error:
             raise BaseValueConflictError("source", (scope_id, source_type, source_id)) from error
+        return _source_record(scope_id, stored)
 
     async def get_source(self, scope_id: str, source_type: str, source_id: str, /) -> SourceRecord:
         self._require_content_source(source_type, "get")
         ref = SourceRef(source_type=source_type, source_id=source_id)
         async with self._database.transaction() as connection:
-            stored = await self._get_source(connection, scope_id, ref)
-            projection = await _source_projection(connection, scope_id, ref)
-            return _source_record(
-                scope_id,
-                stored,
-                created_at=None if projection is None else _aware_datetime(projection.created_at),
-                content_digest=(_source_digest(stored) if projection is None else str(projection.content_digest)),
-            )
+            return _source_record(scope_id, await self._get_source(connection, scope_id, ref))
 
     async def query_sources(
         self,
         scope_id: str,
         source_type: str,
-        query_type: SourceQueryType,
         /,
         *,
         query: str | None,
@@ -156,17 +182,20 @@ class RelationalRecordService:
         limit: int,
         cursor: str | None,
     ) -> SourceRecordPage:
-        self._require_content_source(source_type, query_type)
-        normalized_query = _validate_source_query(query_type, query, mode)
+        normalized_query = _normalize_query(query, mode)
+        self._require_content_source(source_type, "list" if normalized_query is None else "search")
+        _require_limit(limit)
+        actual_mode = None if normalized_query is None else "keyword"
         expected_cursor = {
-            "kind": "source",
+            "version": 1,
+            "endpoint": "list_sources",
             "scope_id": scope_id,
             "source_type": source_type,
-            "type": query_type,
-            "q": normalized_query,
-            "mode": None if mode is None else str(mode),
+            "query": normalized_query,
+            "mode": actual_mode,
+            "order": "journal_position:asc",
         }
-        after = _cursor_after_int(cursor, expected_cursor)
+        after = self._cursor_after_int(cursor, expected_cursor)
         async with self._database.transaction() as connection:
             statement = (
                 select(SOURCES_TABLE.c.source_id, SOURCES_TABLE.c.journal_position)
@@ -177,39 +206,33 @@ class RelationalRecordService:
                 )
                 .order_by(SOURCES_TABLE.c.journal_position)
             )
-            if query_type == "list":
+            if normalized_query is None:
                 statement = statement.limit(limit + 1)
             rows = (await connection.execute(statement)).all()
-            matches: list[tuple[int, SourceRecord]] = []
+            matches: list[tuple[int, SourceCollectionItem]] = []
             for row in rows:
                 ref = SourceRef(source_type=source_type, source_id=str(row.source_id))
-                stored = await self._get_source(connection, scope_id, ref)
-                projection = await _source_projection(connection, scope_id, ref)
-                record = _source_record(
-                    scope_id,
-                    stored,
-                    created_at=None if projection is None else _aware_datetime(projection.created_at),
-                    content_digest=(_source_digest(stored) if projection is None else str(projection.content_digest)),
-                )
+                record = _source_record(scope_id, await self._get_source(connection, scope_id, ref))
+                score: float | None = None
+                snippets: tuple[str, ...] = ()
                 if normalized_query is not None:
-                    if not _matches(record.content, record.metadata, normalized_query):
+                    text = _searchable_text(record.content)
+                    if not _matches_text(text, normalized_query):
                         continue
-                    record = record.model_copy(
-                        update={"score": 1.0, "snippets": (_snippet(record.content, normalized_query),)}
-                    )
-                matches.append((int(row.journal_position), record))
+                    score = 1.0
+                    snippets = (_snippet(text, normalized_query),)
+                matches.append((int(row.journal_position), _source_collection_item(record, score, snippets)))
                 if len(matches) > limit:
                     break
 
-        has_more = len(matches) > limit
         selected = matches[:limit]
         next_cursor = None
-        if has_more and selected:
-            next_cursor = _encode_cursor(expected_cursor, selected[-1][0])
+        if len(matches) > limit and selected:
+            next_cursor = self._encode_cursor(expected_cursor, selected[-1][0])
         return SourceRecordPage(
             query=normalized_query,
-            mode=None if normalized_query is None else "keyword",
-            items=tuple(record for _, record in selected),
+            mode=actual_mode,
+            items=tuple(item for _, item in selected),
             next_cursor=next_cursor,
         )
 
@@ -217,12 +240,11 @@ class RelationalRecordService:
         self,
         scope_id: str,
         family: str,
-        artifact_id: str | None,
         write: ArtifactWrite,
         /,
     ) -> ArtifactRecord:
         self._require_direct_family(family, "create")
-        identity = f"art_{uuid4().hex}" if artifact_id is None else artifact_id
+        identity = self._id_factory("artifact")
         ref = ArtifactRef(family=family, artifact_id=identity, revision=1)
         now = _aware_datetime(self._clock())
         try:
@@ -236,7 +258,8 @@ class RelationalRecordService:
                         family=family,
                         artifact_id=identity,
                         revision=1,
-                        searchable_text=_searchable_text(write.content, write.metadata),
+                        searchable_text=_searchable_text(write.content),
+                        deleted_at=None,
                     )
                 )
         except IntegrityError as error:
@@ -246,16 +269,10 @@ class RelationalRecordService:
     async def get_artifact(self, scope_id: str, family: str, artifact_id: str, /) -> ArtifactRecord:
         ArtifactRef(family=family, artifact_id=artifact_id, revision=1)
         async with self._database.transaction() as connection:
-            revision = await connection.scalar(
-                select(ARTIFACT_HEADS_TABLE.c.revision).where(
-                    ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                    ARTIFACT_HEADS_TABLE.c.family == family,
-                    ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
-                )
-            )
+            revision = await _head_revision(connection, scope_id, family, artifact_id)
             if revision is None:
                 raise BaseValueNotFoundError("artifact", (scope_id, family, artifact_id))
-            return await _load_artifact(connection, scope_id, family, artifact_id, int(revision))
+            return await _load_artifact(connection, scope_id, family, artifact_id, revision)
 
     async def get_artifact_revision(
         self,
@@ -269,114 +286,95 @@ class RelationalRecordService:
         async with self._database.transaction() as connection:
             return await _load_artifact(connection, scope_id, family, artifact_id, revision)
 
-    async def list_artifacts(
+    async def query_artifacts(
         self,
         scope_id: str,
         family: str,
         /,
         *,
+        query: str | None,
+        mode: TextSearchMode | None,
         limit: int,
         cursor: str | None,
     ) -> ArtifactRecordPage:
         ArtifactRef(family=family, artifact_id="validation", revision=1)
-        expected_cursor = {"kind": "artifact-list", "scope_id": scope_id, "family": family}
-        after = _cursor_after_text(cursor, expected_cursor)
-        async with self._database.transaction() as connection:
-            rows = (
-                await connection.execute(
-                    select(ARTIFACT_HEADS_TABLE.c.artifact_id, ARTIFACT_HEADS_TABLE.c.revision)
-                    .where(
-                        ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                        ARTIFACT_HEADS_TABLE.c.family == family,
-                        ARTIFACT_HEADS_TABLE.c.artifact_id > after,
-                    )
-                    .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id)
-                    .limit(limit + 1)
-                )
-            ).all()
-            selected = rows[:limit]
-            items = tuple([
-                await _load_artifact(
-                    connection,
-                    scope_id,
-                    family,
-                    str(row.artifact_id),
-                    int(row.revision),
-                )
-                for row in selected
-            ])
-        next_cursor = None
-        if len(rows) > limit and selected:
-            next_cursor = _encode_cursor(expected_cursor, str(selected[-1].artifact_id))
-        return ArtifactRecordPage(items=items, next_cursor=next_cursor)
-
-    async def search_artifacts(
-        self,
-        scope_id: str,
-        family: str,
-        query: str,
-        /,
-        *,
-        mode: TextSearchMode,
-        limit: int,
-        cursor: str | None,
-    ) -> ArtifactSearchPage:
-        ArtifactRef(family=family, artifact_id="validation", revision=1)
-        normalized_query = _require_query(query)
-        if mode not in {"auto", "keyword"}:
-            raise InvalidBaseAccessRequestError("mode", "must be auto or keyword")
+        normalized_query = _normalize_query(query, mode)
+        _require_limit(limit)
+        actual_mode = None if normalized_query is None else "keyword"
         expected_cursor = {
-            "kind": "artifact-search",
+            "version": 1,
+            "endpoint": "list_artifacts",
             "scope_id": scope_id,
             "family": family,
-            "q": normalized_query,
-            "mode": mode,
+            "query": normalized_query,
+            "mode": actual_mode,
+            "order": "artifact_id:asc",
         }
-        after = _cursor_after_text(cursor, expected_cursor)
+        after = self._cursor_after_text(cursor, expected_cursor)
+        head_matches_revision = (
+            (ARTIFACTS_TABLE.c.scope_id == ARTIFACT_HEADS_TABLE.c.scope_id)
+            & (ARTIFACTS_TABLE.c.family == ARTIFACT_HEADS_TABLE.c.family)
+            & (ARTIFACTS_TABLE.c.artifact_id == ARTIFACT_HEADS_TABLE.c.artifact_id)
+            & (ARTIFACTS_TABLE.c.revision == ARTIFACT_HEADS_TABLE.c.revision)
+        )
         async with self._database.transaction() as connection:
-            rows = (
-                await connection.execute(
-                    select(ARTIFACT_HEADS_TABLE.c.artifact_id, ARTIFACT_HEADS_TABLE.c.revision)
-                    .where(
-                        ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                        ARTIFACT_HEADS_TABLE.c.family == family,
-                        ARTIFACT_HEADS_TABLE.c.artifact_id > after,
-                    )
-                    .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id)
+            statement = (
+                select(
+                    ARTIFACT_HEADS_TABLE.c.artifact_id,
+                    ARTIFACT_HEADS_TABLE.c.revision,
+                    ARTIFACTS_TABLE.c.content,
+                    ARTIFACTS_TABLE.c.created_at,
                 )
-            ).all()
-            matches: list[tuple[str, ArtifactSearchHit]] = []
+                .join(ARTIFACTS_TABLE, head_matches_revision)
+                .where(
+                    ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                    ARTIFACT_HEADS_TABLE.c.family == family,
+                    ARTIFACT_HEADS_TABLE.c.artifact_id > after,
+                    ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
+                )
+                .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id)
+            )
+            if normalized_query is None:
+                statement = statement.limit(limit + 1)
+            rows = (await connection.execute(statement)).all()
+            matches: list[tuple[str, ArtifactCollectionItem]] = []
             for row in rows:
-                artifact = await _load_artifact(
-                    connection,
-                    scope_id,
-                    family,
-                    str(row.artifact_id),
-                    int(row.revision),
-                )
-                text = _searchable_text(artifact.content, artifact.metadata)
-                if not _matches_text(text, normalized_query):
-                    continue
+                content = _decode_object(row.content, "content")
+                text = _searchable_text(content)
+                score: float | None = None
+                snippets: tuple[str, ...] = ()
+                if normalized_query is not None:
+                    if not _matches_text(text, normalized_query):
+                        continue
+                    score = 1.0
+                    snippets = (_snippet(text, normalized_query),)
+                artifact_id = str(row.artifact_id)
                 matches.append((
-                    artifact.artifact_ref.artifact_id,
-                    ArtifactSearchHit(
-                        artifact=artifact,
-                        score=1.0,
-                        snippets=(_snippet(text, normalized_query),),
+                    artifact_id,
+                    ArtifactCollectionItem(
+                        scope_id=scope_id,
+                        artifact_ref=ArtifactRef(
+                            family=family,
+                            artifact_id=artifact_id,
+                            revision=int(row.revision),
+                        ),
+                        created_at=None if row.created_at is None else _aware_datetime(row.created_at),
+                        content_digest=_content_digest(content),
+                        score=score,
+                        snippets=snippets,
                     ),
                 ))
                 if len(matches) > limit:
                     break
 
-        has_more = len(matches) > limit
-        selected_hits = matches[:limit]
+        selected = matches[:limit]
         next_cursor = None
-        if has_more and selected_hits:
-            next_cursor = _encode_cursor(expected_cursor, selected_hits[-1][0])
-        return ArtifactSearchPage(
+        if len(matches) > limit and selected:
+            next_cursor = self._encode_cursor(expected_cursor, selected[-1][0])
+        return ArtifactRecordPage(
             query=normalized_query,
-            mode="keyword",
-            hits=tuple(hit for _, hit in selected_hits),
+            mode=actual_mode,
+            items=tuple(item for _, item in selected),
             next_cursor=next_cursor,
         )
 
@@ -406,12 +404,15 @@ class RelationalRecordService:
                         ARTIFACT_HEADS_TABLE.c.family == family,
                         ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
                         ARTIFACT_HEADS_TABLE.c.revision == expected_revision,
+                        ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
                     )
                     .values(revision=ARTIFACT_HEADS_TABLE.c.revision)
                 )
                 if locked.rowcount != 1:
                     latest = await _head_revision(connection, scope_id, family, artifact_id)
-                    raise ArtifactRevisionPreconditionError(expected_revision, latest or expected_revision)
+                    if latest is None:
+                        raise BaseValueNotFoundError("artifact", (scope_id, family, artifact_id))
+                    raise ArtifactRevisionPreconditionError(expected_revision, latest)
                 await self._validate_lineage(connection, scope_id, write)
                 ref = ArtifactRef(family=family, artifact_id=artifact_id, revision=expected_revision + 1)
                 await _insert_artifact_revision(connection, scope_id, ref, write, now)
@@ -422,10 +423,11 @@ class RelationalRecordService:
                         ARTIFACT_HEADS_TABLE.c.family == family,
                         ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
                         ARTIFACT_HEADS_TABLE.c.revision == expected_revision,
+                        ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
                     )
                     .values(
                         revision=ref.revision,
-                        searchable_text=_searchable_text(write.content, write.metadata),
+                        searchable_text=_searchable_text(write.content),
                     )
                 )
                 if advanced.rowcount != 1:
@@ -446,61 +448,42 @@ class RelationalRecordService:
         self._require_direct_family(family, "delete")
         ArtifactRef(family=family, artifact_id=artifact_id, revision=expected_revision)
         async with self._database.transaction() as connection:
-            tombstone = (
-                await connection.execute(
-                    select(
-                        ARTIFACT_TOMBSTONES_TABLE.c.revision,
-                        ARTIFACT_TOMBSTONES_TABLE.c.deleted_at,
-                    ).where(
-                        ARTIFACT_TOMBSTONES_TABLE.c.scope_id == scope_id,
-                        ARTIFACT_TOMBSTONES_TABLE.c.family == family,
-                        ARTIFACT_TOMBSTONES_TABLE.c.artifact_id == artifact_id,
-                    )
-                )
-            ).one_or_none()
-            if tombstone is not None:
-                revision = int(tombstone.revision)
-                if revision != expected_revision:
-                    raise ArtifactRevisionPreconditionError(expected_revision, revision)
-                return ArtifactDeletion(
-                    artifact_ref=ArtifactRef(family=family, artifact_id=artifact_id, revision=revision),
-                    deleted_at=_aware_datetime(tombstone.deleted_at),
-                )
-
-            current = await _head_revision(connection, scope_id, family, artifact_id)
-            if current is None:
+            state = await _head_state(connection, scope_id, family, artifact_id)
+            if state is None:
                 raise BaseValueNotFoundError("artifact", (scope_id, family, artifact_id))
-            if current != expected_revision:
-                raise ArtifactRevisionPreconditionError(expected_revision, current)
+            revision, existing_deletion = state
+            if existing_deletion is not None:
+                if revision != expected_revision:
+                    raise BaseValueNotFoundError("artifact", (scope_id, family, artifact_id))
+                return _artifact_deletion(family, artifact_id, revision, existing_deletion)
+            if revision != expected_revision:
+                raise ArtifactRevisionPreconditionError(expected_revision, revision)
+
+            deleted_at = _aware_datetime(self._clock())
             removed = await connection.execute(
-                delete(ARTIFACT_HEADS_TABLE).where(
+                update(ARTIFACT_HEADS_TABLE)
+                .where(
                     ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
                     ARTIFACT_HEADS_TABLE.c.family == family,
                     ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
                     ARTIFACT_HEADS_TABLE.c.revision == expected_revision,
+                    ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
                 )
+                .values(deleted_at=deleted_at)
             )
             if removed.rowcount != 1:
-                latest = await _head_revision(connection, scope_id, family, artifact_id)
-                raise ArtifactRevisionPreconditionError(expected_revision, latest or expected_revision)
-            deleted_at = _aware_datetime(self._clock())
-            await connection.execute(
-                insert(ARTIFACT_TOMBSTONES_TABLE).values(
-                    scope_id=scope_id,
-                    family=family,
-                    artifact_id=artifact_id,
-                    revision=expected_revision,
-                    deleted_at=deleted_at,
-                )
-            )
-        return ArtifactDeletion(
-            artifact_ref=ArtifactRef(family=family, artifact_id=artifact_id, revision=expected_revision),
-            deleted_at=deleted_at,
-        )
+                latest = await _head_state(connection, scope_id, family, artifact_id)
+                if latest is not None and latest[0] == expected_revision and latest[1] is not None:
+                    return _artifact_deletion(family, artifact_id, latest[0], latest[1])
+                if latest is None or latest[1] is not None:
+                    raise BaseValueNotFoundError("artifact", (scope_id, family, artifact_id))
+                raise ArtifactRevisionPreconditionError(expected_revision, latest[0])
+        return _artifact_deletion(family, artifact_id, expected_revision, deleted_at)
 
     async def list_scopes(self, *, limit: int, cursor: str | None) -> ScopeSummaryPage:
-        expected_cursor = {"kind": "scope-list"}
-        after = _cursor_after_text(cursor, expected_cursor)
+        _require_limit(limit)
+        expected_cursor = {"version": 1, "endpoint": "list_scopes", "order": "scope_id:asc"}
+        after = self._cursor_after_text(cursor, expected_cursor)
         async with self._database.transaction() as connection:
             source_scopes = (await connection.execute(select(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id))).scalars()
             artifact_scopes = (await connection.execute(select(ARTIFACTS_TABLE.c.scope_id).distinct())).scalars()
@@ -509,15 +492,26 @@ class RelationalRecordService:
             summaries = tuple([await _scope_summary(connection, scope_id) for scope_id in selected])
         next_cursor = None
         if len(scope_ids) > limit and selected:
-            next_cursor = _encode_cursor(expected_cursor, selected[-1])
+            next_cursor = self._encode_cursor(expected_cursor, selected[-1])
         return ScopeSummaryPage(items=summaries, next_cursor=next_cursor)
+
+    def _encode_cursor(self, expected: Mapping[str, JsonValue], after: int | str) -> str:
+        expires_at = _aware_datetime(self._clock()) + self._cursor_ttl
+        return _encode_cursor(expected, after, secret=self._cursor_secret, expires_at=expires_at)
+
+    def _cursor_after_int(self, cursor: str | None, expected: Mapping[str, JsonValue]) -> int:
+        return _cursor_after_int(cursor, expected, secret=self._cursor_secret, now=_aware_datetime(self._clock()))
+
+    def _cursor_after_text(self, cursor: str | None, expected: Mapping[str, JsonValue]) -> str:
+        return _cursor_after_text(cursor, expected, secret=self._cursor_secret, now=_aware_datetime(self._clock()))
 
     def _require_content_source(self, source_type: str, operation: str) -> None:
         if source_type != CONTENT_SOURCE_NAME:
             raise BaseOperationNotSupportedError("source_type", source_type, operation)
 
     def _require_direct_family(self, family: str, operation: str) -> None:
-        if family in _PROTECTED_ARTIFACT_FAMILIES:
+        ArtifactRef(family=family, artifact_id="validation", revision=1)
+        if family in self._protected_artifact_families:
             raise BaseOperationNotSupportedError("artifact_family", family, operation)
 
     async def _get_source(
@@ -592,27 +586,14 @@ async def _insert_artifact_revision(
     write: ArtifactWrite,
     created_at: datetime,
 ) -> None:
-    content = _canonical_object(write.content)
-    metadata = _canonical_object(write.metadata)
     await connection.execute(
         insert(ARTIFACTS_TABLE).values(
             scope_id=scope_id,
             family=ref.family,
             artifact_id=ref.artifact_id,
             revision=ref.revision,
-            content=content,
-        )
-    )
-    await connection.execute(
-        insert(ARTIFACT_REVISION_RECORDS_TABLE).values(
-            scope_id=scope_id,
-            family=ref.family,
-            artifact_id=ref.artifact_id,
-            revision=ref.revision,
-            schema_version=write.schema_version,
-            metadata=metadata,
+            content=_canonical_object(write.content),
             created_at=created_at,
-            content_digest=_content_digest(write.content),
         )
     )
     if write.source_refs:
@@ -659,7 +640,7 @@ async def _load_artifact(
 ) -> ArtifactRecord:
     row = (
         await connection.execute(
-            select(ARTIFACTS_TABLE.c.content).where(
+            select(ARTIFACTS_TABLE.c.content, ARTIFACTS_TABLE.c.created_at).where(
                 ARTIFACTS_TABLE.c.scope_id == scope_id,
                 ARTIFACTS_TABLE.c.family == family,
                 ARTIFACTS_TABLE.c.artifact_id == artifact_id,
@@ -670,21 +651,6 @@ async def _load_artifact(
     if row is None:
         raise BaseValueNotFoundError("artifact", (scope_id, family, artifact_id, revision))
     content = _decode_object(row.content, "content")
-    projection = (
-        await connection.execute(
-            select(
-                ARTIFACT_REVISION_RECORDS_TABLE.c.schema_version,
-                ARTIFACT_REVISION_RECORDS_TABLE.c.metadata,
-                ARTIFACT_REVISION_RECORDS_TABLE.c.created_at,
-                ARTIFACT_REVISION_RECORDS_TABLE.c.content_digest,
-            ).where(
-                ARTIFACT_REVISION_RECORDS_TABLE.c.scope_id == scope_id,
-                ARTIFACT_REVISION_RECORDS_TABLE.c.family == family,
-                ARTIFACT_REVISION_RECORDS_TABLE.c.artifact_id == artifact_id,
-                ARTIFACT_REVISION_RECORDS_TABLE.c.revision == revision,
-            )
-        )
-    ).one_or_none()
     sources = (
         await connection.execute(
             select(
@@ -717,8 +683,6 @@ async def _load_artifact(
         )
     ).all()
     write = ArtifactWrite(
-        schema_version=1 if projection is None else int(projection.schema_version),
-        metadata={} if projection is None else _decode_object(projection.metadata, "metadata"),
         content=content,
         source_refs=tuple(
             SourceRef(source_type=str(source.source_type), source_id=str(source.source_id)) for source in sources
@@ -736,17 +700,16 @@ async def _load_artifact(
     return ArtifactRecord(
         scope_id=scope_id,
         artifact_ref=ref,
-        schema_version=write.schema_version,
-        metadata=write.metadata,
         content=write.content,
         source_refs=write.source_refs,
         artifact_refs=write.artifact_refs,
-        created_at=None if projection is None else _aware_datetime(projection.created_at),
-        content_digest=(_content_digest(content) if projection is None else str(projection.content_digest)),
+        created_at=None if row.created_at is None else _aware_datetime(row.created_at),
+        content_digest=_content_digest(content),
     )
 
 
 async def _scope_summary(connection: AsyncConnection, scope_id: str) -> ScopeSummary:
+    active = ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None)
     source_types = (
         await connection.execute(
             select(SOURCES_TABLE.c.source_type)
@@ -758,7 +721,7 @@ async def _scope_summary(connection: AsyncConnection, scope_id: str) -> ScopeSum
     artifact_families = (
         await connection.execute(
             select(ARTIFACT_HEADS_TABLE.c.family)
-            .where(ARTIFACT_HEADS_TABLE.c.scope_id == scope_id)
+            .where(ARTIFACT_HEADS_TABLE.c.scope_id == scope_id, active)
             .distinct()
             .order_by(ARTIFACT_HEADS_TABLE.c.family)
         )
@@ -767,7 +730,9 @@ async def _scope_summary(connection: AsyncConnection, scope_id: str) -> ScopeSum
         select(func.count()).select_from(SOURCES_TABLE).where(SOURCES_TABLE.c.scope_id == scope_id)
     )
     artifact_count = await connection.scalar(
-        select(func.count()).select_from(ARTIFACT_HEADS_TABLE).where(ARTIFACT_HEADS_TABLE.c.scope_id == scope_id)
+        select(func.count())
+        .select_from(ARTIFACT_HEADS_TABLE)
+        .where(ARTIFACT_HEADS_TABLE.c.scope_id == scope_id, active)
     )
     return ScopeSummary(
         scope_id=scope_id,
@@ -778,19 +743,24 @@ async def _scope_summary(connection: AsyncConnection, scope_id: str) -> ScopeSum
     )
 
 
-async def _source_projection(connection: AsyncConnection, scope_id: str, ref: SourceRef):
-    return (
+async def _head_state(
+    connection: AsyncConnection,
+    scope_id: str,
+    family: str,
+    artifact_id: str,
+) -> tuple[int, datetime | None] | None:
+    row = (
         await connection.execute(
-            select(
-                SOURCE_RECORDS_TABLE.c.created_at,
-                SOURCE_RECORDS_TABLE.c.content_digest,
-            ).where(
-                SOURCE_RECORDS_TABLE.c.scope_id == scope_id,
-                SOURCE_RECORDS_TABLE.c.source_type == ref.source_type,
-                SOURCE_RECORDS_TABLE.c.source_id == ref.source_id,
+            select(ARTIFACT_HEADS_TABLE.c.revision, ARTIFACT_HEADS_TABLE.c.deleted_at).where(
+                ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                ARTIFACT_HEADS_TABLE.c.family == family,
+                ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
             )
         )
     ).one_or_none()
+    if row is None:
+        return None
+    return int(row.revision), None if row.deleted_at is None else _aware_datetime(row.deleted_at)
 
 
 async def _head_revision(
@@ -804,6 +774,7 @@ async def _head_revision(
             ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
             ARTIFACT_HEADS_TABLE.c.family == family,
             ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
+            ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
         )
     )
     return None if value is None else int(value)
@@ -812,27 +783,37 @@ async def _head_revision(
 def _source_record(
     scope_id: str,
     stored: StoredSource,
-    *,
-    created_at: datetime | None,
-    content_digest: str,
 ) -> SourceRecord:
     if not isinstance(stored.value, ContentSource):
         raise BaseOperationNotSupportedError("source_type", stored.ref.source_type, "read")
     return SourceRecord(
         scope_id=scope_id,
-        source_ref=stored.ref,
+        source_type=stored.ref.source_type,
+        source_id=stored.ref.source_id,
         content=stored.value.content,
         metadata=stored.value.metadata,
-        created_at=created_at,
+        created_at=stored.created_at,
         position=stored.journal_position,
-        content_digest=content_digest,
+        content_digest=_content_digest(stored.value.content),
     )
 
 
-def _source_digest(stored: StoredSource) -> str:
-    if not isinstance(stored.value, ContentSource):
-        raise BaseOperationNotSupportedError("source_type", stored.ref.source_type, "read")
-    return _content_digest({"content": stored.value.content, "metadata": stored.value.metadata})
+def _source_collection_item(
+    record: SourceRecord,
+    score: float | None,
+    snippets: tuple[str, ...],
+) -> SourceCollectionItem:
+    return SourceCollectionItem(
+        scope_id=record.scope_id,
+        source_type=record.source_type,
+        source_id=record.source_id,
+        metadata=record.metadata,
+        created_at=record.created_at,
+        position=record.position,
+        content_digest=record.content_digest,
+        score=score,
+        snippets=snippets,
+    )
 
 
 def _artifact_record(
@@ -844,13 +825,23 @@ def _artifact_record(
     return ArtifactRecord(
         scope_id=scope_id,
         artifact_ref=ref,
-        schema_version=write.schema_version,
-        metadata=write.metadata,
         content=write.content,
         source_refs=write.source_refs,
         artifact_refs=write.artifact_refs,
         created_at=created_at,
         content_digest=_content_digest(write.content),
+    )
+
+
+def _artifact_deletion(
+    family: str,
+    artifact_id: str,
+    revision: int,
+    deleted_at: datetime,
+) -> ArtifactDeletion:
+    return ArtifactDeletion(
+        artifact_ref=ArtifactRef(family=family, artifact_id=artifact_id, revision=revision),
+        deleted_at=_aware_datetime(deleted_at),
     )
 
 
@@ -867,16 +858,13 @@ def _decode_object(value: object, column: str) -> dict[str, JsonValue]:
         raise InvalidBaseAccessRequestError(column, "contains invalid stored JSON") from error
 
 
-def _content_digest(value: Mapping[str, JsonValue]) -> str:
-    return f"sha256:{sha256(_canonical_object(value)).hexdigest()}"
+def _content_digest(value: JsonValue) -> str:
+    validated = _JSON_VALUE.validate_python(value, strict=True)
+    return f"sha256:{sha256(rfc8785.dumps(cast(Any, validated))).hexdigest()}"
 
 
-def _searchable_text(content: Mapping[str, JsonValue], metadata: Mapping[str, JsonValue]) -> str:
-    return json.dumps({"content": content, "metadata": metadata}, ensure_ascii=False, sort_keys=True)
-
-
-def _matches(content: str, metadata: Mapping[str, JsonValue], query: str) -> bool:
-    return _matches_text(f"{content}\n{json.dumps(metadata, ensure_ascii=False, sort_keys=True)}", query)
+def _searchable_text(value: JsonValue) -> str:
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
 def _matches_text(text: str, query: str) -> bool:
@@ -894,74 +882,115 @@ def _snippet(text: str, query: str, *, maximum: int = 240) -> str:
     return text[start : start + maximum]
 
 
-def _validate_source_query(
-    query_type: SourceQueryType,
-    query: str | None,
-    mode: TextSearchMode | None,
-) -> str | None:
-    if query_type == "list":
-        if query is not None or mode is not None:
-            raise InvalidBaseAccessRequestError("type", "list cannot include q or mode")
-        return None
-    if query_type != "search":
-        raise InvalidBaseAccessRequestError("type", "must be list or search")
+def _normalize_query(query: str | None, mode: TextSearchMode | None) -> str | None:
     if mode not in {None, "auto", "keyword"}:
         raise InvalidBaseAccessRequestError("mode", "must be auto or keyword")
-    return _require_query(query)
+    normalized = None if query is None else query.strip()
+    if not normalized:
+        if mode is not None:
+            raise InvalidBaseAccessRequestError("mode", "is only valid with a non-empty query")
+        return None
+    return normalized
 
 
-def _require_query(query: str | None) -> str:
-    if query is None or not query.strip():
-        raise InvalidBaseAccessRequestError("q", "must contain non-whitespace text")
-    return query.strip()
+def _require_limit(limit: int) -> None:
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+        raise InvalidBaseAccessRequestError("limit", "must be between 1 and 100")
 
 
-def _encode_cursor(expected: Mapping[str, JsonValue], after: int | str) -> str:
-    payload = {**expected, "after": after}
+def _encode_cursor(
+    expected: Mapping[str, JsonValue],
+    after: int | str,
+    *,
+    secret: bytes,
+    expires_at: datetime,
+) -> str:
+    payload = {**expected, "after": after, "expires_at": int(expires_at.timestamp())}
     encoded = rfc8785.dumps(cast(Any, payload))
-    return base64.urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+    signature = hmac.digest(secret, encoded, "sha256")
+    return f"{_encode_token_part(encoded)}.{_encode_token_part(signature)}"
 
 
-def _cursor_payload(cursor: str | None, expected: Mapping[str, JsonValue]) -> dict[str, JsonValue] | None:
+def _cursor_payload(
+    cursor: str | None,
+    expected: Mapping[str, JsonValue],
+    *,
+    secret: bytes,
+    now: datetime,
+) -> dict[str, JsonValue] | None:
     if cursor is None:
         return None
     try:
-        padding = "=" * (-len(cursor) % 4)
-        decoded = base64.urlsafe_b64decode(f"{cursor}{padding}")
+        encoded_payload, encoded_signature = cursor.split(".")
+        decoded = _decode_token_part(encoded_payload)
+        signature = _decode_token_part(encoded_signature)
         payload = _JSON_OBJECT.validate_json(decoded, strict=True)
-    except (ValueError, ValidationError) as error:
-        raise InvalidBaseAccessRequestError("cursor", "is invalid") from error
+    except (binascii.Error, UnicodeEncodeError, ValueError, ValidationError) as error:
+        raise InvalidCursorError from error
+    if not hmac.compare_digest(signature, hmac.digest(secret, decoded, "sha256")):
+        raise InvalidCursorError
+    expires_at = payload.get("expires_at")
+    if not isinstance(expires_at, int) or isinstance(expires_at, bool):
+        raise InvalidCursorError
     if any(payload.get(key) != value for key, value in expected.items()):
-        raise InvalidBaseAccessRequestError("cursor", "does not match the query")
-    if set(payload) != {*expected, "after"}:
-        raise InvalidBaseAccessRequestError("cursor", "is invalid")
+        raise InvalidCursorError
+    if set(payload) != {*expected, "after", "expires_at"}:
+        raise InvalidCursorError
+    if int(now.timestamp()) >= expires_at:
+        raise CursorExpiredError
     return payload
 
 
-def _cursor_after_int(cursor: str | None, expected: Mapping[str, JsonValue]) -> int:
-    payload = _cursor_payload(cursor, expected)
+def _cursor_after_int(
+    cursor: str | None,
+    expected: Mapping[str, JsonValue],
+    *,
+    secret: bytes,
+    now: datetime,
+) -> int:
+    payload = _cursor_payload(cursor, expected, secret=secret, now=now)
     if payload is None:
         return 0
     after = payload["after"]
     if not isinstance(after, int) or isinstance(after, bool) or after < 0:
-        raise InvalidBaseAccessRequestError("cursor", "contains an invalid position")
+        raise InvalidCursorError
     return after
 
 
-def _cursor_after_text(cursor: str | None, expected: Mapping[str, JsonValue]) -> str:
-    payload = _cursor_payload(cursor, expected)
+def _cursor_after_text(
+    cursor: str | None,
+    expected: Mapping[str, JsonValue],
+    *,
+    secret: bytes,
+    now: datetime,
+) -> str:
+    payload = _cursor_payload(cursor, expected, secret=secret, now=now)
     if payload is None:
         return ""
     after = payload["after"]
     if not isinstance(after, str):
-        raise InvalidBaseAccessRequestError("cursor", "contains an invalid identity")
+        raise InvalidCursorError
     return after
+
+
+def _encode_token_part(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _decode_token_part(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.b64decode(f"{value}{padding}".encode("ascii"), altchars=b"-_", validate=True)
 
 
 def _aware_datetime(value: object) -> datetime:
     if not isinstance(value, datetime):
         raise InvalidBaseAccessRequestError("timestamp", "must be a datetime")
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _resource_id(kind: str) -> str:
+    prefix = "src" if kind == "source" else "art"
+    return f"{prefix}_{uuid4().hex}"
 
 
 def _utc_now() -> datetime:

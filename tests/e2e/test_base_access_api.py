@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 import pytest
@@ -25,22 +26,17 @@ from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
     CreateArtifactRequest,
     CreateSourceRequest,
-    DeleteArtifactRequest,
-    GetArtifactRequest,
-    GetArtifactRevisionRequest,
-    GetSourceRequest,
     ListArtifactsRequest,
-    ListScopesRequest,
+    ListSourcesRequest,
     ReplaceArtifactRequest,
-    SearchArtifactsRequest,
-    SearchSourcesRequest,
-    SourceQueryType,
+    SourceTypeReference,
+    TextSearchMode,
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
 
 
-def test_source_artifact_and_scope_api_round_trip(tmp_path: Path) -> None:
+def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'base-access.db'}"),
@@ -50,6 +46,8 @@ def test_source_artifact_and_scope_api_round_trip(tmp_path: Path) -> None:
     )
 
     async def scenario() -> None:
+        scope_id = "git:github.com/oceanbase/powercontext"
+        family = "company.example/decision"
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(
@@ -58,97 +56,141 @@ def test_source_artifact_and_scope_api_round_trip(tmp_path: Path) -> None:
             ) as transport,
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            unsupported = await transport.post(
+                f"/v1/scopes/{quote(scope_id, safe='')}/artifacts",
+                json={"family": "memory", "content": {}},
+            )
+            assert unsupported.status_code == 405
+            assert unsupported.headers["Allow"] == "GET"
             source = await client.create_source(
+                scope_id,
                 CreateSourceRequest(
-                    scope_id="scope-a",
-                    source_type="content",
-                    source_id="source-1",
                     content="Keep Source writes separate from Memory generation.",
                     metadata={"channel": "e2e"},
+                ),
+            )
+            loaded_source = await client.get_source(scope_id, "content", source.source_id)
+            listed_sources = await client.list_sources(
+                scope_id,
+                "content",
+                ListSourcesRequest(),
+            )
+            found_sources = await client.list_sources(
+                scope_id,
+                "content",
+                ListSourcesRequest(query="Memory generation"),
+            )
+            with pytest.raises(ServerResponseError) as invalid_query:
+                await client.list_sources(
+                    scope_id,
+                    "content",
+                    ListSourcesRequest(mode=TextSearchMode.AUTO),
                 )
-            )
-            loaded_source = await client.get_source(
-                "source-1",
-                GetSourceRequest(scope_id="scope-a", source_type="content"),
-            )
-            listed_sources = await client.search_sources(
-                SearchSourcesRequest(scope_id="scope-a", source_type="content")
-            )
-            found_sources = await client.search_sources(
-                SearchSourcesRequest(
-                    scope_id="scope-a",
-                    source_type="content",
-                    type=SourceQueryType.SEARCH,
-                    q="Memory generation",
+            assert invalid_query.value.status_code == 400
+            assert invalid_query.value.code == "invalid_request"
+            with pytest.raises(ServerResponseError) as invalid_cursor:
+                await client.list_sources(
+                    scope_id,
+                    "content",
+                    ListSourcesRequest(cursor="not-a-valid-cursor"),
                 )
-            )
+            assert invalid_cursor.value.status_code == 400
+            assert invalid_cursor.value.code == "invalid_cursor"
 
             first = await client.create_artifact(
+                scope_id,
                 CreateArtifactRequest(
-                    scope_id="scope-a",
-                    family="document",
-                    artifact_id="guide-1",
-                    schema_version=1,
-                    metadata={"title": "Base API"},
+                    family=family,
                     content={"body": "Use full replacement updates."},
-                    source_refs=[source.source_ref],
-                )
+                    source_refs=[SourceTypeReference(source_type=source.source_type, source_id=source.source_id)],
+                ),
             )
-            selector = GetArtifactRequest(scope_id="scope-a", family="document")
-            listed_artifacts = await client.list_artifacts(ListArtifactsRequest(scope_id="scope-a", family="document"))
-            found_artifacts = await client.search_artifacts(
-                SearchArtifactsRequest(scope_id="scope-a", family="document", q="replacement updates")
+            artifact_id = first.artifact_ref.artifact_id
+            loaded_first = await client.get_artifact(scope_id, family, artifact_id)
+            not_modified = await client.get_artifact(
+                scope_id,
+                family,
+                artifact_id,
+                if_none_match='"revision:1"',
+            )
+            listed_artifacts = await client.list_artifacts(
+                scope_id,
+                family,
+                ListArtifactsRequest(),
+            )
+            found_artifacts = await client.list_artifacts(
+                scope_id,
+                family,
+                ListArtifactsRequest(query="replacement updates"),
             )
             second = await client.replace_artifact(
-                "guide-1",
-                selector,
+                scope_id,
+                family,
+                artifact_id,
                 ReplaceArtifactRequest(
-                    schema_version=2,
-                    metadata={"title": "Base API"},
                     content={"body": "Use If-Match with full replacement updates."},
-                    source_refs=[source.source_ref],
+                    source_refs=[SourceTypeReference(source_type=source.source_type, source_id=source.source_id)],
                     artifact_refs=[first.artifact_ref],
                 ),
                 expected_revision=1,
             )
             exact_first = await client.get_artifact_revision(
-                "guide-1",
+                scope_id,
+                family,
+                artifact_id,
                 1,
-                GetArtifactRevisionRequest(scope_id="scope-a", family="document"),
             )
-            scopes = await client.list_scopes(ListScopesRequest())
 
             with pytest.raises(ServerResponseError) as stale:
                 await client.replace_artifact(
-                    "guide-1",
-                    selector,
-                    ReplaceArtifactRequest(schema_version=2, content={"body": "stale"}),
+                    scope_id,
+                    family,
+                    artifact_id,
+                    ReplaceArtifactRequest(content={"body": "stale"}),
                     expected_revision=1,
                 )
             assert stale.value.status_code == 412
             assert stale.value.code == "revision_conflict"
 
             deleted = await client.delete_artifact(
-                "guide-1",
-                DeleteArtifactRequest(scope_id="scope-a", family="document"),
+                scope_id,
+                family,
+                artifact_id,
                 expected_revision=2,
             )
             with pytest.raises(ServerResponseError) as missing:
-                await client.get_artifact("guide-1", selector)
+                await client.get_artifact(scope_id, family, artifact_id)
             assert missing.value.status_code == 404
+            exact_second = await client.get_artifact_revision(
+                scope_id,
+                family,
+                artifact_id,
+                2,
+            )
 
         assert source == loaded_source
-        assert [item.source_ref.source_id for item in listed_sources.items] == ["source-1"]
-        assert [item.source_ref.source_id for item in found_sources.items] == ["source-1"]
+        assert source.scope_id == scope_id
+        assert source.source_type == "content"
+        assert source.source_id
+        assert source.created_at is not None
+        assert [item.source_id for item in listed_sources.items] == [source.source_id]
+        assert [item.source_id for item in found_sources.items] == [source.source_id]
+        assert "content" not in listed_sources.items[0].model_dump()
         assert listed_sources.query is None
         assert found_sources.query == "Memory generation"
         assert found_sources.mode == "keyword"
-        assert [item.artifact_ref.artifact_id for item in listed_artifacts.items] == ["guide-1"]
-        assert [hit.artifact.artifact_ref.artifact_id for hit in found_artifacts.hits] == ["guide-1"]
+        assert loaded_first == first
+        assert not_modified is None
+        assert first.created_at is not None
+        assert [item.artifact_ref.artifact_id for item in listed_artifacts.items] == [artifact_id]
+        assert [item.artifact_ref.artifact_id for item in found_artifacts.items] == [artifact_id]
+        assert "content" not in listed_artifacts.items[0].model_dump()
+        assert found_artifacts.query == "replacement updates"
+        assert found_artifacts.mode == "keyword"
         assert second.artifact_ref.revision == 2
+        assert second.created_at is not None
         assert exact_first == first
-        assert [(item.scope_id, item.source_count, item.artifact_count) for item in scopes.items] == [("scope-a", 1, 1)]
-        assert deleted.status == "deleted"
-        assert deleted.artifact_ref == second.artifact_ref
+        assert exact_second == second
+        assert deleted is None
 
     asyncio.run(scenario())

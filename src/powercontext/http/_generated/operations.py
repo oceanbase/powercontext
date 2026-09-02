@@ -12,10 +12,8 @@ from powercontext.http._generated.models import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
-    ArtifactDeletionStatus,
     ArtifactPage,
     ArtifactRevision,
-    ArtifactSearchResultPage,
     AttachHandoffReportWorkspaceRequest,
     Capabilities,
     CaptureContentSourceRequest,
@@ -27,7 +25,6 @@ from powercontext.http._generated.models import (
     CreateHandoffReportProjectRequest,
     CreateSourceRequest,
     CreateWorkContractRequest,
-    DeleteArtifactRequest,
     DetachHandoffReportWorkspaceRequest,
     ExperienceArtifact,
     ExternalSkillResolution,
@@ -38,15 +35,12 @@ from powercontext.http._generated.models import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
-    GetArtifactRequest,
-    GetArtifactRevisionRequest,
     GetExperienceRequest,
     GetHandoffReportProjectRequest,
     GetHandoffReportRequest,
     GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
-    GetSourceRequest,
     GetStatsRequest,
     HandoffAcknowledgement,
     HandoffActivation,
@@ -71,7 +65,7 @@ from powercontext.http._generated.models import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
-    ListScopesRequest,
+    ListSourcesRequest,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -99,11 +93,8 @@ from powercontext.http._generated.models import (
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
     ScopedStats,
-    ScopePage,
-    SearchArtifactsRequest,
     SearchMemoryRequest,
     SearchMemoryResponse,
-    SearchSourcesRequest,
     SkillArtifact,
     SourcePage,
     SourceRecord,
@@ -130,7 +121,7 @@ class Operation(BaseModel, Generic[RequestT, ResponseT]):
     operation_id: str
     request_type: type[RequestT] | None
     request_location: Literal["body", "query"] | None
-    response_type: type[ResponseT]
+    response_type: type[ResponseT] | None
     success_status: int
     summary: str
     tags: tuple[str, ...]
@@ -1367,32 +1358,9 @@ DETACH_HANDOFF_REPORT_WORKSPACE = Operation[DetachHandoffReportWorkspaceRequest,
     },
 )
 
-SEARCH_SOURCES = Operation[SearchSourcesRequest, SourcePage](
-    method="GET",
-    path="/v1/sources",
-    operation_id="search_sources",
-    request_type=SearchSourcesRequest,
-    request_location="query",
-    response_type=SourcePage,
-    success_status=200,
-    summary="List or search Sources",
-    tags=("sources",),
-    responses={
-        200: {
-            "description": "One stable page of Sources or Source search results.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        405: {"$ref": "#/components/responses/OperationNotSupported"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
 CREATE_SOURCE = Operation[CreateSourceRequest, SourceRecord](
     method="POST",
-    path="/v1/sources",
+    path="/v1/scopes/{scope_id}/sources",
     operation_id="create_source",
     request_type=CreateSourceRequest,
     request_location="body",
@@ -1417,12 +1385,37 @@ CREATE_SOURCE = Operation[CreateSourceRequest, SourceRecord](
     },
 )
 
-GET_SOURCE = Operation[GetSourceRequest, SourceRecord](
+LIST_SOURCES = Operation[ListSourcesRequest, SourcePage](
     method="GET",
-    path="/v1/sources/{source_id}",
-    operation_id="get_source",
-    request_type=GetSourceRequest,
+    path="/v1/scopes/{scope_id}/sources/{source_type}",
+    operation_id="list_sources",
+    request_type=ListSourcesRequest,
     request_location="query",
+    response_type=SourcePage,
+    success_status=200,
+    summary="List or search Sources",
+    tags=("sources",),
+    responses={
+        200: {
+            "description": "One stable page of Sources or Source search results.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        405: {"$ref": "#/components/responses/OperationNotSupported"},
+        410: {"$ref": "#/components/responses/CursorExpired"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_SOURCE = Operation[None, SourceRecord](
+    method="GET",
+    path="/v1/scopes/{scope_id}/sources/{source_type}/{source_id}",
+    operation_id="get_source",
+    request_type=None,
+    request_location=None,
     response_type=SourceRecord,
     success_status=200,
     summary="Get one exact Source",
@@ -1441,31 +1434,9 @@ GET_SOURCE = Operation[GetSourceRequest, SourceRecord](
     },
 )
 
-LIST_ARTIFACTS = Operation[ListArtifactsRequest, ArtifactPage](
-    method="GET",
-    path="/v1/artifacts",
-    operation_id="list_artifacts",
-    request_type=ListArtifactsRequest,
-    request_location="query",
-    response_type=ArtifactPage,
-    success_status=200,
-    summary="List current Artifact heads",
-    tags=("artifacts",),
-    responses={
-        200: {
-            "description": "One stable page of current Artifact heads.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
 CREATE_ARTIFACT = Operation[CreateArtifactRequest, ArtifactRevision](
     method="POST",
-    path="/v1/artifacts",
+    path="/v1/scopes/{scope_id}/artifacts",
     operation_id="create_artifact",
     request_type=CreateArtifactRequest,
     request_location="body",
@@ -1491,12 +1462,36 @@ CREATE_ARTIFACT = Operation[CreateArtifactRequest, ArtifactRevision](
     },
 )
 
-GET_ARTIFACT = Operation[GetArtifactRequest, ArtifactRevision](
+LIST_ARTIFACTS = Operation[ListArtifactsRequest, ArtifactPage](
     method="GET",
-    path="/v1/artifacts/{artifact_id}",
-    operation_id="get_artifact",
-    request_type=GetArtifactRequest,
+    path="/v1/scopes/{scope_id}/artifacts/{family}",
+    operation_id="list_artifacts",
+    request_type=ListArtifactsRequest,
     request_location="query",
+    response_type=ArtifactPage,
+    success_status=200,
+    summary="List or search current Artifact heads",
+    tags=("artifacts",),
+    responses={
+        200: {
+            "description": "One stable page of current Artifact heads or search results.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        410: {"$ref": "#/components/responses/CursorExpired"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_ARTIFACT = Operation[None, ArtifactRevision](
+    method="GET",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
+    operation_id="get_artifact",
+    request_type=None,
+    request_location=None,
     response_type=ArtifactRevision,
     success_status=200,
     summary="Get the current Artifact head",
@@ -1504,6 +1499,13 @@ GET_ARTIFACT = Operation[GetArtifactRequest, ArtifactRevision](
     responses={
         200: {
             "description": "The current visible Artifact head.",
+            "headers": {
+                "ETag": {"$ref": "#/components/headers/ArtifactETag"},
+                "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+            },
+        },
+        304: {
+            "description": "If-None-Match identifies the current Artifact head.",
             "headers": {
                 "ETag": {"$ref": "#/components/headers/ArtifactETag"},
                 "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
@@ -1519,7 +1521,7 @@ GET_ARTIFACT = Operation[GetArtifactRequest, ArtifactRevision](
 
 REPLACE_ARTIFACT = Operation[ReplaceArtifactRequest, ArtifactRevision](
     method="PUT",
-    path="/v1/artifacts/{artifact_id}",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
     operation_id="replace_artifact",
     request_type=ReplaceArtifactRequest,
     request_location="body",
@@ -1546,18 +1548,18 @@ REPLACE_ARTIFACT = Operation[ReplaceArtifactRequest, ArtifactRevision](
     },
 )
 
-DELETE_ARTIFACT = Operation[DeleteArtifactRequest, ArtifactDeletionStatus](
+DELETE_ARTIFACT = Operation[None, None](
     method="DELETE",
-    path="/v1/artifacts/{artifact_id}",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
     operation_id="delete_artifact",
-    request_type=DeleteArtifactRequest,
-    request_location="query",
-    response_type=ArtifactDeletionStatus,
-    success_status=200,
+    request_type=None,
+    request_location=None,
+    response_type=None,
+    success_status=204,
     summary="Delete the current Artifact head",
     tags=("artifacts",),
     responses={
-        200: {
+        204: {
             "description": "The Artifact head is deleted and immutable history is retained.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
@@ -1572,12 +1574,12 @@ DELETE_ARTIFACT = Operation[DeleteArtifactRequest, ArtifactDeletionStatus](
     },
 )
 
-GET_ARTIFACT_REVISION = Operation[GetArtifactRevisionRequest, ArtifactRevision](
+GET_ARTIFACT_REVISION = Operation[None, ArtifactRevision](
     method="GET",
-    path="/v1/artifacts/{artifact_id}/revisions/{revision}",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
     operation_id="get_artifact_revision",
-    request_type=GetArtifactRevisionRequest,
-    request_location="query",
+    request_type=None,
+    request_location=None,
     response_type=ArtifactRevision,
     success_status=200,
     summary="Get one exact immutable Artifact revision",
@@ -1589,50 +1591,6 @@ GET_ARTIFACT_REVISION = Operation[GetArtifactRevisionRequest, ArtifactRevision](
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
         404: {"$ref": "#/components/responses/NotFound"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-SEARCH_ARTIFACTS = Operation[SearchArtifactsRequest, ArtifactSearchResultPage](
-    method="GET",
-    path="/v1/artifact-search-results",
-    operation_id="search_artifacts",
-    request_type=SearchArtifactsRequest,
-    request_location="query",
-    response_type=ArtifactSearchResultPage,
-    success_status=200,
-    summary="Search current Artifact heads",
-    tags=("artifacts",),
-    responses={
-        200: {
-            "description": "One stable page of matching current Artifact heads.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-)
-
-LIST_SCOPES = Operation[ListScopesRequest, ScopePage](
-    method="GET",
-    path="/v1/scopes",
-    operation_id="list_scopes",
-    request_type=ListScopesRequest,
-    request_location="query",
-    response_type=ScopePage,
-    success_status=200,
-    summary="List observable Scopes",
-    tags=("scopes",),
-    responses={
-        200: {
-            "description": "One stable page of Scopes observable by the caller.",
-            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-        },
-        401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},
